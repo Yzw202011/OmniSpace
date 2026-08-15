@@ -1,0 +1,862 @@
+"""OmniSpace AI v2.1 后端数据模型（规格 §3.2）。
+
+定义所有 Pydantic 模型、枚举和路由表。
+"""
+from __future__ import annotations
+
+from enum import Enum
+from typing import Optional, List, Literal
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  枚举
+# ═══════════════════════════════════════════════════════════════════
+
+class ModelCategory(str, Enum):
+    DIALOG = "dialog"
+    VIDEO = "video"
+    VOICE = "voice"
+    VISION = "vision"
+    LANGUAGE = "language"
+    THREE_D = "3d"
+    AUXILIARY = "auxiliary"
+
+
+class SynergyMode(str, Enum):
+    GPU_PRIMARY = "gpu_primary"
+    CPU_ASSIST = "cpu_assist"
+    GPU_ASSIST_CPU = "gpu_assist_cpu"
+    MEMORY_PRESSURE = "memory_pressure"
+    ALL_TENSE = "all_tense"
+    ALL_IDLE = "all_idle"
+
+
+class VideoModel(str, Enum):
+    LTX2 = "ltx-2"
+    WAN21_14B_FP8 = "wan2.1-14b-fp8"
+    WAN21_14B_INT4 = "wan2.1-14b-int4"
+    WAN21_1_3B = "wan2.1-1.3b"
+    LTX_VIDEO_095 = "ltx-video-0.9.5"  # 2B diffusers，T5 int8 量化加载
+    COGVIDEOX_2B = "cogvideox-2b"
+    COGVIDEOX_2B_CPU = "cogvideox-2b-cpu"
+    ANIMATELCM = "AnimateLCM"
+
+
+class ModelStatus(str, Enum):
+    READY = "ready"
+    LOADING = "loading"
+    ERROR = "error"
+    NOT_INSTALLED = "not_installed"
+
+
+class GenerationStatus(str, Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    DONE = "done"
+    ERROR = "error"
+
+
+class TrainStatus(str, Enum):
+    QUEUED = "queued"
+    TRAINING = "training"
+    EVALUATING = "evaluating"
+    DONE = "done"
+    ERROR = "error"
+    CANCELLED = "cancelled"  # 审计 R3-BE1：/learn/tasks/{id}/cancel 落库状态
+
+
+class ActiveFeature(str, Enum):
+    DIALOG = "dialog"
+    PAINT = "paint"
+    VIDEO_GEN = "video_gen"
+    TRAINING = "training"
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  路由表（规格 §3.2，硬编码不可更改）
+# ═══════════════════════════════════════════════════════════════════
+
+VIDEO_ROUTING_TABLE = [
+    {"min_vram_gb": 24, "model": VideoModel.LTX2},
+    {"min_vram_gb": 16, "model": VideoModel.WAN21_14B_FP8},
+    {"min_vram_gb": 12, "model": VideoModel.WAN21_14B_INT4},
+    {"min_vram_gb": 8,  "model": VideoModel.WAN21_1_3B},
+    # LTX-Video 0.9.5 (2B)：T5 int8 量化加载后约 9GB，16GB 卡可真实生成
+    {"min_vram_gb": 8,  "model": VideoModel.LTX_VIDEO_095},
+    {"min_vram_gb": 6,  "model": VideoModel.COGVIDEOX_2B},
+    # 随包附带的 AnimateLCM（2GB 运动模块），作为已下载兜底选项
+    {"min_vram_gb": 2,  "model": VideoModel.ANIMATELCM},
+    {"min_vram_gb": 0,  "model": VideoModel.COGVIDEOX_2B_CPU},
+]
+
+DIALOG_ROUTING_TABLE = [
+    {"min_vram_gb": 12, "model": "qwen3-vl-8b"},
+    {"min_vram_gb": 8,  "model": "qwen3-vl-4b"},
+    {"min_vram_gb": 4,  "model": "qwen3-vl-2b"},
+    {"min_vram_gb": 0,  "model": "qwen3-vl-2b-int4-cpu"},
+]
+
+PAINT_ROUTING_TABLE = [
+    {"min_vram_gb": 24, "model": "flux.1-dev-fp8"},
+    {"min_vram_gb": 16, "model": "flux.1-schnell-fp8"},
+    {"min_vram_gb": 12, "model": "kolors-2.1"},
+    # 实际出货的基座模型（models/paint/sdxl-base-1.0，bf16 实测约 7GB）；
+    # 缺此条时 model_manager 显存预估回退到 磁盘大小×1.2≈31GB，永远分配失败
+    {"min_vram_gb": 8,  "model": "sdxl-base-1.0"},
+    {"min_vram_gb": 8,  "model": "sdxl-lcm"},
+    {"min_vram_gb": 0,  "model": "sdxl-cpu"},
+]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  硬件等级自适应（文档B §4.2，审计 BK-011：按 GPU 型号名六档匹配）
+# ═══════════════════════════════════════════════════════════════════
+# 文档B §4.2 权威映射（显存路由无法区分 4070Ti 12GB 与 3060 12GB，
+# 必须按型号名匹配）；型号名未命中时按显存保守降档回退。
+# 模型列为内部路由表模型 id（dialog/paint/video）+ 学习标签数配额。
+HARDWARE_TIER_TABLE: list[dict] = [
+    # ── RTX 50 系列 (Blackwell, CC 12.0) ──
+    {
+        "tier": "rtx5090", "label": "RTX 5090 32GB",
+        "name_patterns": ["rtx 5090", "5090"],
+        "min_vram_gb": 30,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-dev-fp8",
+                   "video": "ltx-2"},
+        "learn_tabs": 5,
+    },
+    {
+        "tier": "rtx5080", "label": "RTX 5080 16GB",
+        "name_patterns": ["rtx 5080", "5080"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
+                   "video": "wan2.1-14b-fp8"},
+        "learn_tabs": 4,
+    },
+    {
+        "tier": "rtx5070ti", "label": "RTX 5070 Ti 16GB",
+        "name_patterns": ["rtx 5070 ti", "5070 ti", "5070ti"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
+                   "video": "wan2.1-14b-fp8"},
+        "learn_tabs": 4,
+    },
+    {
+        "tier": "rtx5070", "label": "RTX 5070 12GB",
+        "name_patterns": ["rtx 5070", "5070"],
+        "min_vram_gb": 10,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
+                   "video": "wan2.1-1.3b"},
+        "learn_tabs": 3,
+    },
+    {
+        "tier": "rtx5060ti", "label": "RTX 5060 Ti 16GB",
+        "name_patterns": ["rtx 5060 ti", "5060 ti", "5060ti"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
+                   "video": "wan2.1-1.3b"},
+        "learn_tabs": 3,
+    },
+    {
+        "tier": "rtx5060", "label": "RTX 5060 8GB",
+        "name_patterns": ["rtx 5060", "5060"],
+        "min_vram_gb": 6,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
+                   "video": "cogvideox-2b"},
+        "learn_tabs": 2,
+    },
+    # ── RTX 40 系列 (Ada Lovelace, CC 8.9) ──
+    {
+        "tier": "rtx4090", "label": "RTX 4090 24GB",
+        "name_patterns": ["rtx 4090", "4090"],
+        "min_vram_gb": 20,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-dev-fp8",
+                   "video": "ltx-2"},
+        "learn_tabs": 5,
+    },
+    {
+        "tier": "rtx4080s", "label": "RTX 4080 Super 16GB",
+        "name_patterns": ["rtx 4080 super", "4080 super", "4080s"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
+                   "video": "wan2.1-14b-fp8"},
+        "learn_tabs": 4,
+    },
+    {
+        "tier": "rtx4080", "label": "RTX 4080 16GB",
+        "name_patterns": ["rtx 4080", "4080"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
+                   "video": "wan2.1-14b-fp8"},
+        "learn_tabs": 4,
+    },
+    {
+        "tier": "rtx4070tis", "label": "RTX 4070 Ti Super 16GB",
+        "name_patterns": ["rtx 4070 ti super", "4070 ti super", "4070tis"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-8b", "paint": "kolors-2.1",
+                   "video": "wan2.1-1.3b"},
+        "learn_tabs": 4,
+    },
+    {
+        "tier": "rtx4070ti", "label": "RTX 4070 Ti 12GB",
+        "name_patterns": ["rtx 4070 ti", "4070 ti", "4070ti"],
+        "min_vram_gb": 0,  # 仅按型号名命中（12GB 档由 3060 兜底）
+        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
+                   "video": "wan2.1-1.3b"},
+        "learn_tabs": 3,
+    },
+    {
+        "tier": "rtx4070s", "label": "RTX 4070 Super 12GB",
+        "name_patterns": ["rtx 4070 super", "4070 super", "4070s"],
+        "min_vram_gb": 10,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
+                   "video": "wan2.1-1.3b"},
+        "learn_tabs": 3,
+    },
+    {
+        "tier": "rtx4070", "label": "RTX 4070 12GB",
+        "name_patterns": ["rtx 4070", "4070"],
+        "min_vram_gb": 10,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
+                   "video": "wan2.1-1.3b"},
+        "learn_tabs": 3,
+    },
+    {
+        "tier": "rtx4060ti16g", "label": "RTX 4060 Ti 16GB",
+        "name_patterns": ["rtx 4060 ti 16", "4060 ti 16"],
+        "min_vram_gb": 14,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
+                   "video": "cogvideox-2b"},
+        "learn_tabs": 2,
+    },
+    {
+        "tier": "rtx4060ti", "label": "RTX 4060 Ti 8GB",
+        "name_patterns": ["rtx 4060 ti", "4060 ti", "4060ti"],
+        "min_vram_gb": 6,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
+                   "video": "cogvideox-2b"},
+        "learn_tabs": 2,
+    },
+    {
+        "tier": "rtx4060", "label": "RTX 4060 8GB",
+        "name_patterns": ["rtx 4060", "4060"],
+        "min_vram_gb": 6,
+        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
+                   "video": "cogvideox-2b"},
+        "learn_tabs": 2,
+    },
+    # ── 入门档 ──
+    {
+        "tier": "rtx3060", "label": "RTX 3060 12GB",
+        "name_patterns": ["rtx 3060", "3060"],
+        "min_vram_gb": 10,
+        "models": {"dialog": "qwen3-vl-2b", "paint": "sdxl-base-1.0",
+                   "video": "cogvideox-2b"},
+        "learn_tabs": 2,
+    },
+    {
+        "tier": "rx6600", "label": "AMD RX 6600",
+        "name_patterns": ["rx 6600", "rx6600", "radeon rx 6600"],
+        "min_vram_gb": 6,
+        "models": {"dialog": "qwen3-vl-2b", "paint": "sdxl-base-1.0",
+                   "video": "cogvideox-2b"},
+        "learn_tabs": 1,
+    },
+    {
+        "tier": "cpu", "label": "纯 CPU",
+        "name_patterns": [],
+        "min_vram_gb": 0,
+        # 文档B 列名为 Qwen3-VL-2B / SDXL（慢）；int4-cpu / sdxl-cpu
+        # 是其在纯 CPU 上真实可运行的量化/降级变体，视频不可用。
+        "models": {"dialog": "qwen3-vl-2b-int4-cpu", "paint": "sdxl-cpu",
+                   "video": ""},
+        "learn_tabs": 1,
+    },
+]
+
+
+def detect_hardware_tier(gpu_name: str = "", vram_total_mb: int = 0) -> dict:
+    """按 GPU 型号名识别硬件等级（文档B §4.2），未命中按显存保守降档。
+
+    覆盖 RTX 50/40/30 全系列 + AMD + 纯CPU，按型号名精确匹配；
+    同族内按 Ti Super → Ti → Super → 基础 的顺序排列（首个匹配命中）。
+
+    Args:
+        gpu_name:      GPU 型号名（pynvml/torch 报告，如 "NVIDIA GeForce RTX 5070 Ti"）
+        vram_total_mb: 显存总量（MB），仅在型号名未命中时用于降档
+
+    Returns:
+        {"tier", "label", "models": {dialog,paint,video}, "learn_tabs",
+         "matched_by": "name" | "vram" | "none"}
+    """
+    name = (gpu_name or "").strip().lower()
+    if name and name not in ("none", "unknown"):
+        for entry in HARDWARE_TIER_TABLE:
+            for pat in entry["name_patterns"]:
+                if pat in name:
+                    return {**entry, "matched_by": "name"}
+        # 型号名未登记：按显存保守降档（12GB 档取 4070 而非 4070Ti Super，
+        # 与文档B §4.2「显存相同按低档路由」的保守语义一致）
+        vram_gb = vram_total_mb / 1024.0
+        if vram_gb > 0:
+            fallback_order = (
+                "rtx5090",        # 30GB
+                "rtx4090",        # 20GB
+                "rtx4080",        # 14GB → 16GB 卡回退
+                "rtx4070",        # 10GB → 12GB 卡回退
+                "rtx4060",        # 6GB  → 8GB 卡回退
+                "rx6600",         # 6GB 兜底
+            )
+            by_tier = {e["tier"]: e for e in HARDWARE_TIER_TABLE}
+            for tid in fallback_order:
+                entry = by_tier[tid]
+                if vram_gb >= entry["min_vram_gb"] and entry["min_vram_gb"] > 0:
+                    return {**entry, "matched_by": "vram"}
+            return {**by_tier["rx6600"], "matched_by": "vram"}
+    cpu_tier = HARDWARE_TIER_TABLE[-1]
+    return {**cpu_tier, "matched_by": "none" if not name else "vram"}
+
+
+# ── 手动档位覆盖（SET-008）─────────────────────────────────────────
+# PUT /hardware/tier 写入 system_settings 表 key="hardware.tier_override"，
+# 本函数在所有自动探测调用点之上叠加覆盖语义（5s 缓存，避免热路径
+# 每次读库）。override="auto" 时回退自动探测。
+_TIER_OVERRIDE_KEY = "hardware.tier_override"
+_tier_override_cache: dict = {"value": None, "ts": 0.0}
+
+
+def read_tier_override() -> str:
+    """读取持久化的手动档位覆盖（无覆盖/异常 → "auto"）。"""
+    import time as _t
+
+    now = _t.time()
+    if now - _tier_override_cache["ts"] < 5.0 \
+            and _tier_override_cache["value"] is not None:
+        return _tier_override_cache["value"]
+    value = "auto"
+    try:
+        from .database import get_db_safe
+        db = get_db_safe()
+        if db is not None:
+            row = db.query_one(
+                "SELECT value FROM system_settings WHERE key=?",
+                (_TIER_OVERRIDE_KEY,))
+            if row:
+                import json as _json
+                raw = _json.loads(row["value"])
+                value = str(raw if isinstance(raw, str)
+                            else raw.get("tier", "auto"))
+    except Exception:  # noqa: BLE001 - 读库失败按自动探测
+        value = "auto"
+    valid = {e["tier"] for e in HARDWARE_TIER_TABLE}
+    if value not in valid:
+        value = "auto"
+    _tier_override_cache.update({"value": value, "ts": now})
+    return value
+
+
+def write_tier_override(tier: str) -> None:
+    """持久化手动档位覆盖并刷新缓存。"""
+    import json as _json
+    import time as _t
+
+    from .database import get_db_safe
+    db = get_db_safe()
+    if db is not None:
+        db.sql(
+            "INSERT INTO system_settings (key, value, updated_at)"
+            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
+            " value=excluded.value, updated_at=excluded.updated_at",
+            (_TIER_OVERRIDE_KEY, _json.dumps(tier), _t.time()))
+    _tier_override_cache.update({"value": tier, "ts": _t.time()})
+
+
+def get_effective_tier(gpu_name: str = "", vram_total_mb: int = 0) -> dict:
+    """档位解析入口：手动覆盖优先，其次自动探测（matched_by=manual）。"""
+    override = read_tier_override()
+    if override != "auto":
+        for entry in HARDWARE_TIER_TABLE:
+            if entry["tier"] == override:
+                return {**entry, "matched_by": "manual"}
+    return detect_hardware_tier(gpu_name, vram_total_mb)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  请求/响应模型
+# ═══════════════════════════════════════════════════════════════════
+
+class ApiResponse(BaseModel):
+    code: int = 0
+    message: str = "ok"
+    data: Optional[dict] = None
+
+
+class ApiErrorDetail(BaseModel):
+    code: int
+    message: str
+    detail: Optional[dict] = None
+    suggestion: str = ""
+
+
+# ── 硬件 ──────────────────────────────────────────────────────────
+
+class GpuInfo(BaseModel):
+    vendor: str = "none"  # nvidia | amd | none
+    name: str = ""
+    vram_total_mb: int = 0
+    vram_free_mb: int = 0
+    compute_capability: str = ""
+    driver_version: str = ""
+
+
+class CpuInfo(BaseModel):
+    name: str = ""
+    cores: int = 0
+    threads: int = 0
+    usage_percent: float = 0.0
+    temp_celsius: float = 0.0
+
+
+class RamInfo(BaseModel):
+    total_gb: float = 0.0
+    available_gb: float = 0.0
+    total_mb: int = 0
+    available_mb: int = 0
+    usage_percent: float = 0.0
+
+
+class DiskInfo(BaseModel):
+    total_gb: float = 0.0
+    free_gb: float = 0.0
+    percent: float = 0.0
+
+
+class HardwareProfile(BaseModel):
+    gpu: GpuInfo = GpuInfo()
+    cpu: CpuInfo = CpuInfo()
+    ram: RamInfo = RamInfo()
+    disk: DiskInfo = DiskInfo()
+    power: str = "ac"  # ac | battery
+
+
+class SchedulerState(BaseModel):
+    mode: SynergyMode = SynergyMode.GPU_PRIMARY
+    gpu_usage: float = 0.0
+    cpu_usage: float = 0.0
+    mem_available_gb: float = 0.0
+    active_model: Optional[str] = None
+    cached_models: List[str] = []
+    last_switch_ms: int = 0
+
+
+# ── 模型 ──────────────────────────────────────────────────────────
+
+class ModelInfo(BaseModel):
+    id: str
+    name: str
+    category: ModelCategory
+    purpose: str = ""
+    size_gb: float = 0.0
+    params: str = ""
+    min_vram_gb: float = 0.0
+    associated_features: List[str] = []
+    status: ModelStatus = ModelStatus.NOT_INSTALLED
+    file_path: str = ""
+    sha256: str = ""
+
+
+class ModelImportRequest(BaseModel):
+    path: str
+
+
+class ModelSelectRequest(BaseModel):
+    feature: str  # dialog/paint/video/voice
+    model_id: str
+
+
+# ── 对话 ──────────────────────────────────────────────────────────
+
+class DialogSendRequest(BaseModel):
+    session_id: str
+    content: str
+    attachments: Optional[List[dict]] = None
+
+
+class DialogSessionCreate(BaseModel):
+    title: str = "新对话"
+    model: Optional[str] = None
+
+
+class DialogMessage(BaseModel):
+    id: str
+    role: str  # user | assistant
+    content: str
+    attachments: Optional[List[dict]] = None
+    timestamp: float
+    model_used: str = ""
+
+
+# ── 绘画 ──────────────────────────────────────────────────────────
+
+class DrawRequest(BaseModel):
+    prompt: str
+    negative_prompt: str = ""
+    width: int = Field(default=1024, ge=512, le=2048)
+    height: int = Field(default=1024, ge=512, le=2048)
+    steps: int = Field(default=20, ge=4, le=50)
+    guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
+    model: Optional[str] = None
+    controlnet: Optional[dict] = None
+    lora: Optional[List[dict]] = None
+    seed: int = -1
+    batch_size: int = Field(default=1, ge=1, le=4)
+
+
+class DrawResponse(BaseModel):
+    images: List[str]  # base64
+    model_used: str
+    generation_time_ms: int
+    seed: int
+
+
+# ── 漫剧：分镜表 ─────────────────────────────────────────────────
+
+class StoryboardRow(BaseModel):
+    id: str
+    shot_number: int
+    original_dialogue: str = ""
+    description: str = ""
+    characters: List[str] = []
+    scene: str = ""
+    props: List[str] = []
+    voice_id: str = ""
+    voice_emotion: str = "默认"
+    director_stage_done: bool = False
+    generation_status: GenerationStatus = GenerationStatus.PENDING
+    is_ai_generated: bool = False
+    sort_index: int = 0        # R2-B06 拖拽排序位序（升序展示）
+
+
+class StoryboardCreate(BaseModel):
+    project_id: str
+
+
+class StoryboardRowUpdate(BaseModel):
+    original_dialogue: Optional[str] = None
+    description: Optional[str] = None
+    characters: Optional[List[str]] = None
+    scene: Optional[str] = None
+    props: Optional[List[str]] = None
+    voice_id: Optional[str] = None
+    voice_emotion: Optional[str] = None
+    is_ai_generated: Optional[bool] = None
+    sort_index: Optional[int] = None   # R2-B06 支持单行拖拽落位
+    # 批 1.3 导演字段（枚举/范围校验在路由层，模型层放行 Optional）
+    camera_type: Optional[str] = None      # 8 枚举
+    camera_angle: Optional[str] = None     # 5 枚举
+    camera_movement: Optional[str] = None  # 9 枚举
+    duration: Optional[float] = None       # 1~60s
+    transition: Optional[str] = None       # 6 枚举
+    speed: Optional[float] = None          # 0.5~2.0
+    volume: Optional[float] = None         # -12~0 dB
+    music_path: Optional[str] = None
+    asset_id: Optional[str] = None
+    # 竞品对齐改造：多资产绑定 + 行锁定
+    asset_ids: Optional[List[str]] = None  # 多资产 id 列表（写库序列化为 JSON）
+    is_locked: Optional[bool] = None       # 行锁定：批量操作跳过
+
+
+class AiDescribeRequest(BaseModel):
+    """AI 画面描述请求（R2-B07）：row_id 与 dialogue 至少其一。
+
+    prompt_prefix 有值时拼接到内置提示词模板前部，不改变默认行为。
+    model_override 有值时覆盖默认对话模型路由（G2 工序弹窗）。
+    """
+    row_id: Optional[str] = None
+    dialogue: Optional[str] = None
+    project_id: Optional[str] = None
+    prompt_prefix: Optional[str] = Field(default=None, max_length=500)
+    model_override: Optional[str] = None   # G2：覆盖默认模型
+
+
+# ── 漫剧：项目 CRUD / 资产 / 关键帧 / DSL 上传（修复任务清单 批 1）──────
+
+class WorkMode(str, Enum):
+    REGULAR = "regular"      # 普通漫剧 5 步
+    NARRATIVE = "narrative"  # 解说漫剧 6 步
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    template: Optional[str] = None          # comic_drama=漫剧模板（预置 5 分镜）
+    project_id: Optional[str] = None        # 指定 id（缺省自动生成）
+    work_mode: WorkMode = Field(default=WorkMode.REGULAR)  # 作品类型
+
+
+class ProjectUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+# ── G1 解说漫剧：故事级生词/生图/视频生词 ──────────────────────────────
+
+class StoryNarrativeRequest(BaseModel):
+    """故事生词（解说漫剧第 3 步）：跨分镜聚合生成连贯描述词。"""
+    project_id: str
+    row_ids: List[str] = Field(default_factory=list)   # 空=全部
+    scope: str = "all"                                  # all | missing
+    model_override: Optional[str] = None
+    prompt_prefix: Optional[str] = Field(default=None, max_length=500)
+
+
+class StoryKeyframeRequest(BaseModel):
+    """故事生图（解说漫剧第 4 步）：跨分镜一致性风格图。"""
+    project_id: str
+    row_ids: List[str] = Field(default_factory=list)
+    scope: str = "all"
+    model_override: Optional[str] = None
+    resolution: str = "2560x1440"                       # 2560x1440 | 1024x1024 | 1024x576 | 576x1024
+
+
+class VideoNarrativeRequest(BaseModel):
+    """视频生词（解说漫剧第 5 步）：为视频生成写专属描述词。"""
+    project_id: str
+    row_ids: List[str] = Field(default_factory=list)
+    scope: str = "all"
+    model_override: Optional[str] = None
+    prompt_prefix: Optional[str] = Field(default=None, max_length=500)
+
+
+class AssetGenerateRequest(BaseModel):
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=2000)
+    # 出图统一规格（2026-08-14 铁律）：资产图 2560×1440（16:9）
+    width: int = Field(default=2560, ge=256, le=2560)
+    height: int = Field(default=1440, ge=256, le=2560)
+    transparent: bool = False               # 道具：透明背景 PNG
+
+
+class AssetBatchGenerateRequest(BaseModel):
+    project_id: str
+    kind: str = "character"                 # character/scene/prop
+    items: List[dict]                       # [{name, prompt, ...}]
+
+
+class AssetTurnaroundRequest(BaseModel):
+    """角色多视图（四视图）生成请求（规格：2560×1440 横排 4 格）。
+
+    正面/侧面/背面/特写四格一次成图，后端自动裁切、做色调一致性
+    校验并入库 portrait.png + portrait_views/ 目录结构。
+    """
+    project_id: str
+    name: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=2000)
+    seed: int = -1
+    transparent: bool = False               # 四视图一键去背（PIL 降级）
+
+
+class AssetRegenerateViewRequest(BaseModel):
+    """四视图资产单视图重生请求（竞品对齐：每张视图可单独重生）。
+
+    view 为目标视图；prompt 缺省时沿用资产现有描述词。
+    """
+    view: Literal["front", "side", "back", "closeup"]
+    prompt: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssetBindRequest(BaseModel):
+    asset_id: str
+    row_id: str                             # 分镜行 id
+
+
+class AssetAdoptRequest(BaseModel):
+    """资产库资产引入项目（竞品「全部可用角色」对齐）。"""
+    asset_id: str                           # 资产库中的源资产 id
+    project_id: str                         # 引入的目标项目 id
+
+
+class AssetUpdateRequest(BaseModel):
+    """资产元信息更新（竞品对齐）：仅更新非 None 字段。"""
+    name: Optional[str] = Field(default=None, max_length=100)
+    prompt: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssetInferRequest(BaseModel):
+    """从分镜行推断实体资产桩请求（竞品对齐）。"""
+    project_id: str
+
+
+class KeyframeGenerateRequest(BaseModel):
+    row_id: str
+    project_id: Optional[str] = None
+    prompt: Optional[str] = None            # 缺省用分镜行 description
+    # 出图统一规格（2026-08-14 铁律）：分镜图 2560×1440（16:9）
+    width: int = Field(default=2560, ge=256, le=2560)
+    height: int = Field(default=1440, ge=256, le=2560)
+
+
+class KeyframeBatchRequest(BaseModel):
+    row_ids: List[str]
+    project_id: Optional[str] = None
+    model_override: Optional[str] = None   # G2：覆盖默认绘画模型
+    resolution: str = "2560x1440"          # G2：分辨率 2560x1440|1024x1024|1024x576|576x1024
+
+
+class SceneObjectUpdate(BaseModel):
+    project_id: str
+    object_id: str
+    name: Optional[str] = None
+    position: Optional[dict] = None
+    rotation: Optional[dict] = None
+    scale: Optional[dict] = None
+
+
+class EmotionDetectRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class TextTo3DRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+    project_id: Optional[str] = None
+
+
+# ── 漫剧：导演台 ─────────────────────────────────────────────────
+
+class PanoramaRequest(BaseModel):
+    scene_id: str
+    resolution: int = Field(default=2048, ge=1024, le=8192)
+
+
+class ScreenshotRequest(BaseModel):
+    scene_id: str
+    camera_ids: List[str]  # 必须恰好4个
+
+
+class CharacterPositionUpdate(BaseModel):
+    character_id: str
+    position: dict  # {x, y, z}
+    rotation: Optional[dict] = None
+    scale: Optional[float] = None
+
+
+class CameraAdd(BaseModel):
+    name: str
+    position: dict
+    rotation: dict
+    fov: int = 60
+
+
+class CameraUpdate(BaseModel):
+    name: Optional[str] = None
+    position: Optional[dict] = None
+    rotation: Optional[dict] = None
+    fov: Optional[int] = None
+
+
+class CharacterLock(BaseModel):
+    character_id: str
+
+
+# ── 漫剧：视频生成 ───────────────────────────────────────────────
+
+class VideoGenerateRequest(BaseModel):
+    storyboard_row_id: str
+    description: str
+    screenshot_4in1: str  # base64
+    character_assets: List[str] = []
+    audio_path: Optional[str] = None
+    resolution: str = "1080p"  # 720p/1080p/2k/4k
+    fps: int = Field(default=24, ge=1, le=48)
+    duration_seconds: float = Field(default=5.0, ge=1, le=20)
+    codec: str = "h264"  # h264/h265/vp9/av1
+    model_override: Optional[str] = None
+    # STYLE-026：风格 LoRA 挂载（训练成果应用到视频生成管线）。
+    # 当前 Ken Burns 降级管线接收并落库/回显，LTX-2 就绪后实际生效。
+    style_lora_version: Optional[str] = None
+    style_strength: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class VideoGenResult(BaseModel):
+    id: str
+    file_path: str
+    model_used: str
+    duration_seconds: float
+    resolution: str
+    generation_time_ms: int
+    has_audio_sync: bool
+
+
+# ── 漫剧：音色 ───────────────────────────────────────────────────
+
+class VoiceProfile(BaseModel):
+    id: str
+    name: str
+    character_id: str
+    is_preset: bool = False
+
+
+class VoiceBindRequest(BaseModel):
+    character_id: str
+    voice_id: str
+
+
+class VoiceEmotionUpdate(BaseModel):
+    emotion_label: str
+
+
+class VoicePreviewRequest(BaseModel):
+    voice_id: str
+    text: str
+    emotion: str = "默认"
+
+
+# ── 知识学习 ─────────────────────────────────────────────────────
+
+class TrainTaskCreate(BaseModel):
+    """LoRA 训练任务创建请求。
+
+    审计 P0-6 超参边界（硬件安全）：
+      - epochs 1~50：过多 epoch 导致 GPU 长时间满载过热
+      - lora_rank 4~64：rank 过大显存爆炸（16GB 基线约束）
+      - learning_rate (0, 1e-3]：过大 lr 训练发散且浪费算力
+    越界直接 422 由 RequestValidationError 处理器转 40004。
+    """
+    base_model: str
+    lora_rank: int = Field(default=16, ge=4, le=64)
+    lora_alpha: int = 32
+    learning_rate: float = Field(default=1e-4, gt=0, le=1e-3)
+    epochs: int = Field(default=3, ge=1, le=50)
+    # 可选：留空时自动从知识库+行为偏好构建训练集（见 learn.py learn_train 文档）
+    dataset_path: str = ""
+
+
+class TrainTask(BaseModel):
+    id: str
+    base_model: str
+    lora_rank: int = 16
+    lora_alpha: int = 32
+    learning_rate: float = 1e-4
+    epochs: int = 3
+    dataset_path: str
+    status: TrainStatus = TrainStatus.QUEUED
+    progress: float = 0.0
+
+
+# ── 系统 ─────────────────────────────────────────────────────────
+
+class SystemSettings(BaseModel):
+    theme: str = "sakura"
+    font_size: int = 14
+    auto_model_select: bool = True
+    default_video_codec: str = "h264"
+    default_resolution: str = "1080p"
+
+
+class ProjectExport(BaseModel):
+    project_id: str
+
+
+class ProjectImport(BaseModel):
+    file_path: str

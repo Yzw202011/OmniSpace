@@ -13,7 +13,7 @@ keys/
 tmp_key.txt
 
 # ===== 运行时产物 =====
-data/
+/data/
 logs/
 debug.log
 *.log

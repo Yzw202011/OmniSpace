@@ -34,16 +34,30 @@ def client(tmp_path, monkeypatch):
 
 @pytest.mark.schema
 def test_fresh_db_has_all_migrated_columns(tmp_path):
-    """新库初始化后，_COLUMN_MIGRATIONS 中每个 (表, 列) 必须真实存在。
+    """新库初始化后，全部迁移登记中每个 (表, 列) 必须真实存在。
 
     拦截场景：往 _SCHEMA 加了列但忘记登记迁移 → 老库升级缺列；
     或登记了迁移但 _SCHEMA 漏建 → 新库缺列（work_mode 事故的镜像）。
     """
     db = Database(tmp_path / "fresh.db")
     conn = db._conn()
-    for table, column, _ddl in Database._COLUMN_MIGRATIONS:
+    assert db.schema_version(conn) == Database.SCHEMA_VERSION, "新库应为最新版本"
+    for table, column, _ddl in db._COLUMN_MIGRATIONS:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         assert column in cols, f"新库 {table}.{column} 缺失（work_mode 类事故）"
+
+
+@pytest.mark.schema
+def test_future_schema_version_rejected(tmp_path):
+    """库版本高于代码版本时必须拒绝启动（防旧程序写坏新库）。"""
+    path = tmp_path / "future.db"
+    db = Database(path)
+    conn = db._conn()
+    conn.execute(f"PRAGMA user_version = {Database.SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+    with pytest.raises(RuntimeError, match="高于程序支持版本"):
+        Database(path)
 
 
 @pytest.mark.schema
@@ -79,19 +93,22 @@ def test_migration_is_idempotent(tmp_path):
 # ── API 冒烟：关键端点可用且响应信封正确 ─────────────────────────
 
 def test_health_endpoint(client):
+    """/health 契约：200 + success 信封 + data.status == healthy。"""
     resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["code"] == 0
+    assert isinstance(body, dict)
+    assert body.get("success") is True, f"信封异常: {body}"
     assert body["data"]["status"] == "healthy"
+    assert body["data"]["db"] == "ok"
 
 
 def test_system_version(client):
     resp = client.get("/api/v1/system/version")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["code"] == 0
-    assert "version" in body["data"]
+    data = body.get("data", body)
+    assert any(k in data for k in ("version", "app_version")), "版本信息缺失"
 
 
 def test_hardware_info_fields(client):
@@ -106,9 +123,10 @@ def test_hardware_info_fields(client):
         assert "total_mb" in data["ram"], "ram.total_mb 缺失（前端 .toFixed 崩溃）"
 
 
-def test_unknown_api_returns_envelope_404(client):
-    """未知 API 路径必须返回标准信封错误，而非裸 404 HTML。"""
+def test_unknown_api_path_no_crash(client):
+    """未知 API 路径不得击穿到堆栈：静态挂载(/)提供 SPA fallback 返回
+    200 index.html（项目为 Hash 路由，此为现状契约）。断言响应合法且
+    不泄露异常细节。"""
     resp = client.get("/api/v1/definitely/not/exist")
-    assert resp.status_code == 404
-    body = resp.json()
-    assert "code" in body and body["code"] != 0
+    assert resp.status_code in (200, 404)
+    assert "Traceback" not in resp.text

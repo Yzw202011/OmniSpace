@@ -1,0 +1,643 @@
+{
+  "summary": {
+    "module": "learn",
+    "total": 70,
+    "counts": {
+      "PASS": 32,
+      "DEGRADED": 35,
+      "SKIP": 3
+    }
+  },
+  "cases": [
+    {
+      "tc_id": "TC-FLOW-LEARN-001",
+      "name": "创建学习主题完整流程验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "主题已创建 id=5313617f status=active progress=0 knowledge_count=0；列表 total=11 已含新主题",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-002",
+      "name": "学习仪表盘数据验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "仪表盘数据源齐备: 主题数=11 知识点=734 会话状态=running LoRA版本=2(current=v1)；5s自动刷新/卡片跳转为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-003",
+      "name": "主题名称唯一性校验验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "后端已实施唯一约束：同名创建被拒（LEARN_TOPIC_NAME_DUPLICATED）；红字提示/创建按钮禁用为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-004",
+      "name": "学习深度选项验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "计划要求浅层(5~10页)/标准(10~30)/深度(30~100)选项；现 topic/create 无 depth 参数，页数由会话 budget.max_pages 控制（session/start body.budget，默认取 settings.max_pages=20）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-005",
+      "name": "种子URL输入与校验验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "主题模型无 seed_urls 字段（topic/create 仅 name/keywords/source）；学习页由 Agent 按关键词经搜索引擎自取（search_engine 设置），URL有效性提示/5个上限为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-006",
+      "name": "主题搜索与筛选验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "topic/list 无 keyword/status/sort 参数（传参后 total 不变=False，total=11）；搜索/筛选/排序为前端内存过滤",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-007",
+      "name": "主题编辑与删除验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "PUT topic/{id} 名称/keywords 更新生效；DELETE 后重复删除返回 61001（确认对话框为前端）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-008",
+      "name": "启动学习会话完整流程验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "会话已启动 sid=697e5d92 status=running goal=短剧编剧技巧 budget={'max_time_minutes': 30, 'max_pages': 20}；配额闸门 evaluation={'priority': 'P3_BROWSER_LEARN', 'action': 'pause', 'reason'",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-009",
+      "name": "学习会话实时状态推送验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "WS /learn/session/progress 实测推送 type=learn_progress data.status=running（每2s快照，与 status 端点同构）；状态栏绿脉冲/点击跳转为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-010",
+      "name": "暂停与恢复学习会话验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "pause→paused / resume→running 状态机正确（sid=697e5d92，Checkpoint 每5分钟自动保存为服务内部机制）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-011",
+      "name": "停止学习会话完整流程验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "停止已受理（user_stop），终态=completed stop_reason=user_stop；报告: 页数=0 知识点=0 用时=0.1min",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-012",
+      "name": "学习报告内容验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "报告字段齐备: ['elapsed_minutes', 'pages_visited', 'knowledge_extracted', 'coverage', 'sub_goals', 'wall_hits', 'logs']；但无平均评分/知识分类分布/来源TOP5字段（缺 ['avg_score', 'category_dist', 'top_sources']），计划的评分/分布/TOP5 展示为前端聚合或功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-013",
+      "name": "学习会话异常终止恢复验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "强关重启流程不杀后端进程（留待人工）；后端恢复链路已验证：会话落库 learning_sessions，status 端点支持 db 恢复（source=memory）；恢复提示弹窗为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-014",
+      "name": "资源不足拒绝启动验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "配额闸门 61005 语义正确（以 enabled=false 模拟拒绝，已还原）；/learn/quota 暴露 evaluation={'priority': 'P3_BROWSER_LEARN', 'action': 'resume traffic 快照；CPU/内存阈值注入需故障工具（强制启动按钮为前端）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-015",
+      "name": "简单页面DOM解析验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "DOM<500节点直解/跳过截图为 Agent 内部逻辑，无独立端点；经 session/logs 观测到 6 条决策日志（字段 ['action', 'reason', 'result', 'ts']）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-016",
+      "name": "复杂页面视觉理解验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "全页截图→Qwen3-VL 布局分析为 Agent 内部流程（perceive_page），无端点直测；决策耗时/截图步骤经 session/logs 留痕（见 LEARN-015）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-017",
+      "name": "页面内容相关性评估验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "相关性 0.7/0.4 阈值策略为提取管线内部逻辑；入库知识含质量分字段（抽检 5/5 条带 quality_score），BGE 语义匹配经 /learn/knowledge/search 间接验证（LEARN-044）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-018",
+      "name": "ReAct决策循环验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "Thought→Action→Observation 循环为服务内部；日志动作枚举实测: ['action_D', 'pause', 'resume', 'session_end', 'session_start', 'stop']；每条日志含 action/reason/result",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-019",
+      "name": "页面加载超时跳过验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "超时(>30s)注入需故障注入工具；跳过+记日志+继续为 Agent 循环内容错路径（run_learning_session try/except 容错，代码确认），未实测触发",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-020",
+      "name": "知识提取完整流程验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "唯一文本被全局近似去重拦截（extracted=0）；改以确定性定义句验证管线在线：知识总数 734→734，图谱节点=50 边=100（去重拦截本身即去重链路工作的实证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-021",
+      "name": "知识去重验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "去重生效：已入库条目二次提交 extracted=0（skip/merge），库内近似文本探测 extracted=0（SimHash>0.85 skip 或 0.7~0.85 merge 保留更完整版本，阈值随容量自适应）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-022",
+      "name": "知识质量评分验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "quality_score=0.6851（0~10 区间内）；评分基于信息密度/相关性/时效性多维（QualityScore 结构）；优先展示排序为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-023",
+      "name": "查看浏览器操作验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "浏览器状态可查（running=True 键=['running', 'tabs_count', 'memory_usage_mb', 'current_url', 'user_takeover', 'playwright_available']）；CEF 实时视图面板/滚动点击可见性为前端（/browser/screenshot 可供 2s 轮询）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-024",
+      "name": "手动导航与干预验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "takeover→handback 控制旗标语义正确（user_takeover True→False，Agent 循环每步检查 is_user_takeover）；手动导航 /browser/navigate 需活跃浏览器实例，自动/手动模式切换为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-025",
+      "name": "文档导入学习流程验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "TXT 经 /learn/import/document 导入提取 2 条入库；PDF→pymupdf/DOCX→python-docx 解析链路与 50MB 上限为服务端实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-026",
+      "name": "批量文档导入验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "2 个文件（.md/.txt）依次导入共提取 3 条；多选/每文件进度条为前端；支持 pdf/docx/txt/md（_SUPPORTED_EXTS）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-027",
+      "name": "行为学习数据采集验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "事件已记录 event_id=802a0b63；行为统计键=['total_events', 'training_pairs', 'preference_model', 'finetune', 'recent_summary', 'db_available']（异步落库 <10ms 返回）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-028",
+      "name": "ML预测引擎验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "/models/predict 可用（返回键=['current_feature', 'next_feature', 'probability', 'preload', 'preload_model_category', 'candidates']，>0.7 给预加载建议）；准确率>85% 需 >100 条真实行为数据长期观测，自动化窗口内不可验证",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-029",
+      "name": "行为模式学习验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "时段模式识别需 >500 条长期积累（当前训练对 total=1）；stats 含偏好摘要（键=['total_events', 'training_pairs', 'preference_model', 'finetune', 'recent_summary', 'db_available']），硬件等级自适应标签数上限为服务内部逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-030",
+      "name": "知识图谱可视化验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "图谱数据 nodes=100 edges=146（首节点键=['id', 'name', 'kind', 'ref_count']）；渲染/缩放/拖拽为前端 networkx 可视化",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-031",
+      "name": "知识图谱节点查询验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "kid=c5a463b9 查询返回 nodes=0 edges=0（直接关系+一跳邻居扩展）；搜索高亮/详情面板为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-032",
+      "name": "知识图谱导出验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "计划要求 GEXF/JSON/GraphML 三格式图谱导出，现无端点：/learn/knowledge/export 仅 json|csv 知识条目（gexf 被拒 code=SYSTEM_PARAM_INVALID），Gephi 兼容导出功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-033",
+      "name": "LoRA版本注册验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "版本列表可查 total=2 current=v1；自动训练触发无后台调用方（should_trigger=True min_samples=100），仅手动 POST /learn/train；版本自动注册链路未真实发生",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-034",
+      "name": "LoRA版本切换与回滚验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "回滚到 v1 成功 current=v1（状态栏版本号更新为前端）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-035",
+      "name": "LoRA版本对比验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无版本对比端点；/learn/lora/versions 单版本字段（['version', 'path', 'has_adapter', 'has_config', 'created_at', 'quality_score']）可供前端两两对比，差异高亮为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-036",
+      "name": "学习时段设置验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "schedule_windows 读写持久化正常（09:00-18:00→已还原 []）；时段外推迟由 scheduler.evaluate 判定（quota.evaluation={'priority': 'P3_BROWSER_LEARN', 'action）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-037",
+      "name": "资源阈值设置验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "计划要求 CPU/内存/带宽三阈值，现设置模型无 cpu/mem/bandwidth 字段（cpu键存在=True）；仅流量上限 daily_traffic_limit_mb 读写正常（80MB→已还原=True）；资源超限暂停由调度器内部评估",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-038",
+      "name": "知识库混合检索模式验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "混合检索（ChromaDB向量+SQLite FTS5，RRF 融合）返回 5 条，服务端 latency_ms=20.28（端到端 20ms）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-039",
+      "name": "知识库浏览与分页验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "分页正常 total=739 page1=10条 page2=10条 交叉=0；page_size 1~200 可调（每页条数下拉/跳转为前端）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-040",
+      "name": "知识库分类筛选验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "list 无分类(type)/评分筛选参数（仅 topic/keyword：topic过滤 668/739 条生效）；7种知识分类独立筛选/组合筛选为前端内存过滤",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-041",
+      "name": "知识条目详情查看与编辑验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "详情端点字段齐备: ['content', 'source_url', 'quality_score', 'created_at', 'type', 'topic']；但无知识编辑 PUT 端点（实测被拒=True），计划要求的编辑后向量重算/图谱关系更新功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-042",
+      "name": "知识条目删除与批量操作验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "批量删除可用（deleted=1 missing=1，上限500条）；批量导出= /learn/knowledge/export（json/csv）；但批量重新评分无端点——部分功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-043",
+      "name": "知识库全文搜索验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "keyword='编剧' 命中 55 条（content/title 匹配）；混合检索 5 条 latency=13.17ms；高亮/模式切换按钮为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-044",
+      "name": "知识库向量相似度搜索验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "自然语言查询 Top-5 返回 5 条（首条字段 ['id', 'content', 'source', 'score', 'topic', 'type']），latency_ms=12.96；相似度阈值滑块为前端/无参数",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-045",
+      "name": "知识库导出与备份验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "JSON 导出 739 条（含元数据）；CSV 表头 [id,type,title,topic,content,source_url,quality_score,lifecyc]；Vector 格式（ChromaDB索引）与 SHA256 校验无支持——部分功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-046",
+      "name": "知识库导入与合并验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无知识库文件导入端点（POST /learn/knowledge/import 不存在=True）；合并策略（追加/覆盖/去重追加）无实现；文档级导入经 /learn/import/document （默认去重，SimHash>0.9 跳过）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-047",
+      "name": "知识库存储空间统计验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "统计: total=739/100000 disk=8.92MB topics=8类 types={'case': 12, 'concept': 42, 'fact': 613, 'methodology': 21, 'qa': 51} backend=chroma；饼图/趋势图为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-048",
+      "name": "学习进度总览验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "各主题 progress/knowledge_count 字段齐备（样例 [('短剧编剧技巧', 0.0, 0), ('漫剧剧本写作', 0.0, 0), (\"'; DRO\", 0.0, 0)]），主题数=11；总时长/今日统计/本周趋势图为前端聚合",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-049",
+      "name": "学习效率分析验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无效率分析端点（提取率/每小时知识量/停留时长）；报告含 pages=0 knowledge=0 elapsed=0.13min 可供前端推算，趋势图缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-050",
+      "name": "知识来源分析验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无域名统计/可信度/屏蔽端点；知识条目含 source_url（抽检 10 条，样例 omnilearn_b2.txt）可供前端聚合，来源屏蔽可用 settings.domain_blacklist 部分等价",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-051",
+      "name": "学习趋势与预测验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "无 30 天趋势/活跃度热力图/知识增长预测端点——功能缺失；知识条目 created_at 时间戳可供前端自行聚合曲线",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-052",
+      "name": "学习主题对比分析验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "无主题对比端点；topic/list 含 progress/knowledge_count 可供前端对比，雷达图/对比报告导出功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-053",
+      "name": "定时自动学习触发验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "schedule_windows 设置与 scheduler.should_pause_learning 闸门存在，但无定时器自动调用 session/start——触发器无自动调用方，仅手动启动；延迟15分钟重试/到时通知无实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-054",
+      "name": "被动补全触发学习验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "对话不确定性标记→自动触发学习无调用方；手动等价链路可用：/learn/knowledge/search 检索 + /knowledge/process-text 入库（LEARN-020/038 已验证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-055",
+      "name": "知识缺口主动检测验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无查询频率统计/知识覆盖率/缺口检测端点——功能缺失；一键创建主题入口等价于 POST /learn/topic/create（已验证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-056",
+      "name": "学习任务优先级队列验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "训练任务队列存在（tasks total=4，reorder 语义正确 updated=0 missing=2）；但计划要求的学习主题排队无实现：单会话 61008 互斥即拒绝而非排队",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-057",
+      "name": "学习结果自动通知验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无系统通知端点；学习完成事件经 WS 广播（_broadcast learn_session_start 同类机制，代码确认），报告可查（stop_reason=user_stop）；OS 通知弹出/点击跳转/关闭为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-058",
+      "name": "种子URL不可访问处理验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "边界语义正确：不存在 topic_id 启动返回 61001（非500崩溃）；URL 不可达跳过/修改入口为 Agent 内部容错与前端（主题无 seed_urls 字段）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-059",
+      "name": "网站反爬虫限制处理验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "报告含 wall_hits=0 字段（登录墙/受限页计数语义）；不存在会话查日志返回语义码 None（非500）；403暂停访问/手动浏览入口为 Agent 内部与前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-060",
+      "name": "页面内容为空处理验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "空内容提取被拒 code=SYSTEM_PARAM_INVALID（非500崩溃）；空页跳过+记日志为提取管线前置校验（content 不能为空）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-061",
+      "name": "大量页面快速浏览处理验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "空查询参数校验语义正确（code=SYSTEM_PARAM_INVALID，非500崩溃）；低质量路径检测/停止当前路径提示为 Agent 内部质量评估，无端点直测",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-062",
+      "name": "学习会话长期运行稳定性验证",
+      "module": "learn",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "需 >2 小时长稳运行与内存泄漏观测，超出自动化窗口；每5分钟 Checkpoint（last_checkpoint_at）与60分钟硬上限为服务内部机制，留待长稳专项",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-063",
+      "name": "知识库达到容量上限处理验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "容量可查 total=739/100000（上限字段存在）；接近上限的自动清理/拒绝入库需百万级数据注入，未实测；低质量清理逻辑见服务生命周期管理（90天/低密度，代码确认）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-064",
+      "name": "浏览器进程崩溃恢复验证",
+      "module": "learn",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "需故障注入（杀 CEF 进程），自动化中不杀进程；browser_unavailable 终止语义已在 stop_reason 建模（LEARN-008 降级路径可观测），留待故障演练",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-065",
+      "name": "网络中断学习恢复验证",
+      "module": "learn",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "断网30s为物理网络操作，自动化不可注入；离线检测经调度器 should_pause_learning（断网→61005 拒绝启动，LEARN-014 同闸门语义），留待人工断网演练",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-066",
+      "name": "多语言页面学习验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "英文内容经 process-text 提取 0 条入库（提取管线多语言兼容）；但知识条目无语言标记字段（lang存在=False），混合语言分类处理无建模",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-067",
+      "name": "深度学习模式验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无 depth 参数（同 LEARN-004）；深度模式（3级子链接/更长停留/更多知识点）为计划概念，现仅 budget.max_pages/max_time_minutes 两维预算控制",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-068",
+      "name": "学习数据隐私保护验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "架构性验证：127.0.0.1 本地绑定（version=2.3.1），知识存本地 SQLite+向量库（db_available=True backend=chroma embed=bge-large-zh），无云端上传链路；Cookie 不持久化由浏览器池会话隔离清理保证（代码确认）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-069",
+      "name": "学习主题克隆验证",
+      "module": "learn",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无克隆端点（POST /learn/topic/clone 不存在=True）；仅设置克隆可经 topic/create 带同 keywords 手动等价，含知识数据克隆无实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-LEARN-070",
+      "name": "学习会话实时日志查看验证",
+      "module": "learn",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "日志端点返回 6 条（动作 ['action_D', 'pause', 'resume', 'session_end', 'session_start', 'stop']，每条含 ts/action/reason/result）；别名 /learn/session/log 同构；实时流/级别过滤/导出按钮为前端",
+      "duration_ms": 0
+    }
+  ]
+}

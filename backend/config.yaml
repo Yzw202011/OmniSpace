@@ -1,0 +1,119 @@
+# OmniSpace AI v2.3.1 全局配置（文档 §7）
+app:
+  version: "2.3.1"
+
+server:
+  host: "127.0.0.1"  # §14约束2: 仅本地，不可更改
+  port: 5800
+  rate_limit: 100  # requests/minute per endpoint
+
+scheduler:
+  sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）
+  # 分级采样间隔（秒）：低频指标不随 tick 重复采集，降低 psutil/NVML 开销
+  gpu_sample_interval_s: 2   # GPU 显存/利用率/温度
+  cpu_sample_interval_s: 5   # CPU 利用率/温度
+  disk_sample_interval_s: 10 # 磁盘 IO/余量
+  hysteresis_seconds: 30  # 滞回控制
+  idle_reclaim_seconds: 300  # 无用户活动超过该时长后，卸载非常驻大模型释放显存
+  # 阈值表已对齐文档B §4.1（审计 BK-023）：
+  #   GPU 显存 > 90%        → 降低模型精度 / 卸载非活跃模型（critical=0.90）
+  #   GPU 利用率 > 95% 持续10s → 降低生成质量参数（critical=0.95 + sustained_s=10）
+  #   CPU > 90%             → 暂停后台学习 / 降低标签页数（critical=0.90）
+  #   内存 > 85%（已用）     → 清理缓存 / 减少 ChromaDB 缓存
+  #                           （即可用 ≤15%：mem_critical_ratio=0.15）
+  #   磁盘 IO > 80%         → 延迟非关键写入（disk_io_busy_critical=0.80）
+  # warning 线为动作线之前的预警余量（工程值，文档未规定）。
+  thresholds:
+    gpu_vram_warning: 0.80
+    gpu_vram_critical: 0.90
+    gpu_vram_force_unload: 0.95
+    gpu_util_warning: 0.85
+    gpu_util_critical: 0.95
+    gpu_util_critical_sustained_s: 10  # 利用率越线须持续的秒数（文档B §4.1）
+    gpu_temp_warning: 85
+    gpu_temp_critical: 90
+    cpu_util_warning: 0.80
+    cpu_util_critical: 0.90
+    cpu_temp_warning: 85
+    cpu_temp_critical: 95
+    mem_warning_ratio: 0.25   # 可用内存占比预警线（=已用 75%）
+    mem_critical_ratio: 0.15  # 可用内存占比临界线（=已用 85%，文档B §4.1 动作线）
+    disk_io_busy_critical: 0.80  # 磁盘忙碌时间占比临界（文档B §4.1：>80% 延迟写入）
+    battery_pause_training: 20  # percent
+
+model_cache:
+  l2_max_gb: 0  # 0 = 自动（可用RAM - 4GB）
+  compression: "lz4"
+  eviction_policy: "lru"
+
+database:
+  path: "{app_dir}/data/omnispace.db"
+  # 诚实标注：无 encryption 项——SQLCipher 未启用（死代码已移除），
+  # 明文 SQLite，仅本地 127.0.0.1 运行（规格 §14 约束1/2）。
+  wal_mode: true
+  busy_timeout_ms: 5000
+
+# 诚实标注：Redis 未部署/未启用。以下为文档 §7.1 架构中的目标形态，
+# 当前实现为进程内缓存（backend/data/cache.py），无外部 Redis 依赖。
+redis:
+  enabled: false
+  host: "127.0.0.1"
+  port: 6379
+  watchdog: false
+
+# 诚实标注：Celery 未部署/未启用。以下为文档 §7.1 架构中的目标形态，
+# 当前实现为进程内 PriorityQueue 四级优先队列模拟 Celery 语义
+# （见 backend/services/lora_training_service.py 头部迁移路径说明）。
+celery:
+  enabled: false
+  queues: ["high", "normal", "low"]
+  worker_max_tasks: 100  # 每100任务重启防内存泄漏
+  task_acks_late: true
+
+video:
+  default_codec: "h264"
+  supported_codecs: ["h264", "h265", "vp9", "av1"]
+  ltx2_max_audio_sync_seconds: 10
+  max_duration_seconds: 20
+
+dialog:
+  max_context_tokens: 8192  # 上下文窗口（需求文档 UI 规格：上下文[8192]；超出走截断策略）
+  max_input_chars: 32768  # 单条消息字符上限（DoS 防护，超出返回 40002）
+  # 单次 prefill 的输入 token 上限（16GB 显存安全线）：
+  # generate() 首步对全部位置计算 logits（151K 词表），7K token 约需 6.5GB 瞬时显存，
+  # 叠加 bf16 权重 ~8GB 后打满 16GB 引发分配器颠簸（prefill 卡死）。3072 内峰值 ~12GB。
+  max_prefill_tokens: 3072
+  stream_chunk_size: 4  # tokens per WebSocket message
+
+paint:
+  default_steps: 20
+  default_guidance: 7.5
+  max_batch_size: 4
+
+manga:
+  max_storyboard_rows: 50
+  panorama_resolutions: [1024, 2048, 4096, 8192]
+  camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
+  pose_presets_count: 15
+  voice_preset_emotions: ["默认", "愤怒", "悲伤"]
+
+installer:
+  full_size_gb: 390
+  base_size_gb: 5
+  min_disk_space_gb: 500
+
+logging:
+  level: "INFO"
+  max_file_size_mb: 10
+  max_files: 5
+  sensitive_fields: ["api_key", "password"]  # 脱敏
+
+ui:
+  # 《OmniSpace AI v2.3.1中文版》§6.3.1 Sakura 暗色主题（权威色板）
+  theme: "sakura"
+  primary_color: "#FF6B9D"
+  font: "Source Han Sans"
+  font_size_body: 14
+  font_size_small: 12
+  ai_generated_bg: "#E3F2FD"
+  zoom_levels: [1.0, 1.5, 2.0, 3.0, 4.0]

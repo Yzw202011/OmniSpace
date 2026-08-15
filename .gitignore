@@ -1,0 +1,50 @@
+# ===== 大体积资产（不可纳入版本库） =====
+models/
+pydeps/
+runtime/
+tools/git/
+tools/MinGit.zip
+ffmpeg/
+
+# ===== 密钥（严禁入库） =====
+keys/
+*.pem
+*.key
+tmp_key.txt
+
+# ===== 运行时产物 =====
+data/
+logs/
+debug.log
+*.log
+e2e_state.json
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== 前端构建产物与依赖 =====
+frontend/node_modules/
+frontend/dist/
+
+# ===== 临时脚本与调试残留 =====
+tmp_*.py
+tmp_*.txt
+_tmp_*.py
+_tmp_*.txt
+
+# ===== IDE / 工具 =====
+.vscode/
+.idea/
+.trae-html-share-packages/
+Thumbs.db
+.DS_Store
+
+# ===== 素材（非代码） =====
+采集素材/
+modelxiazai/
+*.png
+*.jpg
+*.mp4
+*.wav
+!docs/**/*.png

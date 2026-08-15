@@ -1,0 +1,4 @@
+[
+{"tc_id": "TC-FLOW-COMIC-069", "name": "语速/音量滑块控制验证", "status": "PASS", "detail": "选中行后右侧面板渲染语速/音量滑块；ArrowRight 语速 1.0→1.05、ArrowLeft 音量 0.0→-0.5，keyup 提交 PUT 行更新并经 API 回读确认落库；越界 speed=3.0 / volume=-20 均被后端 40008 拒绝"},
+{"tc_id": "TC-FLOW-SYS-020", "name": "右侧面板拖拽调整宽度验证", "status": "PASS", "detail": "拖拽左缘手柄面板宽度 320px→520px；localStorage 持久化值=520；刷新后宽度保持 520px"}
+]

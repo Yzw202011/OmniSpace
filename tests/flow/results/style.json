@@ -1,0 +1,301 @@
+{
+  "summary": {
+    "module": "style",
+    "total": 32,
+    "counts": {
+      "PASS": 12,
+      "DEGRADED": 17,
+      "SKIP": 3
+    }
+  },
+  "cases": [
+    {
+      "tc_id": "TC-FLOW-STYLE-001",
+      "name": "训练数据准备完整流程验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "上传→收录/抽帧→数据集链路真实可用（id=c63c8732, kind=image, frames=1, manifest 已生成）；项目命名/描述元数据与缩略图/时长/分辨率展示为前端职责；抽帧策略 fps=1(≤32帧) 与计划'每2秒1帧'略有差异；单文件上限 200MB（严于计划 2GB）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-002",
+      "name": "视频格式兼容性验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "支持清单 mp4/webm/mov/mkv/avi 视频 + png/jpg/jpeg/webp/bmp 图片（PNG 上传已在 001 验证）；.flv/.txt 如实拒绝 STYLE_ASSET_FORMAT(80015)；mkv 实际被支持（宽松于计划拒绝清单）；格式检测基于扩展名在上传解析阶段完成",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-003",
+      "name": "视频质量检查验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "低质量素材（64x64 小图）上传不被阻止、照常构建数据集（符合计划'不阻止上传'）；分辨率/帧率/时长质量警告为前端本地探测职责（计划要求检测在文件选择阶段完成），后端仅提供帧数统计",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-004",
+      "name": "训练数据集管理验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "数据集列表/详情统计一致（total=1, sufficient=False，sufficient 即数据不足警告数据源）；增删视频实时更新与总时长/总大小字段未提供——数据集无删除端点，随目录存续",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-005",
+      "name": "参考图上传与管理验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "多张参考图（PNG）上传各自收录为图片数据集（kind=image），列表计数实时更新；最多10张上限与删除后更新为前端管理（后端无删除端点）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-006",
+      "name": "训练数据预处理流程验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "预处理随上传同步完成（frames=1, manifest.jsonl 训练清单已生成，caption 训练时注入 style_prompt）；视频经 FFmpeg fps=1 抽帧≤32 帧；缩放至512/归一化/增强在训练管线内执行；无独立'数据预处理'按钮端点（与计划流程差异）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-007",
+      "name": "风格描述输入与校验验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "style_prompt 透传正常：>500字描述与留空均不触发参数错误（直达门控 STYLE_BASE_NOT_READY）；描述随任务落库因基座未随包不可实测；超长自动截断提示未实现（前端职责）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-008",
+      "name": "LoRA训练参数完整配置验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "rank/alpha/lr/epochs 全参数透传至门控（STYLE_BASE_NOT_READY），缺 dataset_id 如实 SYSTEM_PARAM_INVALID；代码默认值 rank=16/alpha=32/lr=2e-5/epochs=3/batch=1 + QLoRA4bit（与计划默认值略有出入，以 §8.3.7 为准）；越界钳制[rank4-64/lr1e-7~1e-3/epochs1-50]在基座门控之后不可达，滑块交互留待 UI 冒烟",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-009",
+      "name": "训练参数预设模板验证",
+      "module": "style",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "快速预览/标准训练/高质量预设为前端参数填充逻辑，无后端端点",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-010",
+      "name": "训练参数显存预估验证",
+      "module": "style",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "显存预估为前端按参数实时计算与红色告警（无后端预估端点）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-011",
+      "name": "训练参数恢复默认验证",
+      "module": "style",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "恢复默认按钮为前端交互（默认值见 008 代码核验）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-012",
+      "name": "QLoRA 4bit量化配置验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "QLoRA 4bit（BitsAndBytes nf4）为训练管线内建实现而非可开关项（style_lora_service._train_qlora）；基座未随包（base_ready=False）无法实测显存降幅；开关/显存变化提示为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-013",
+      "name": "LoRA训练完整启动流程验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "训练启动被诚实门控：STYLE_BASE_NOT_READY(80010)，detail 含 base_model_dir=models/ltx-2 与可操作建议，不伪造进度；status.base_reason=LTX-2 基座目录不存在: E:\\OmniSpace\\models\\l…（LTX-2 基座未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-014",
+      "name": "训练Loss曲线实时监控验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "无进行中训练（基座未随包门控），Loss 曲线无数据源；任务查询链路真实——不存在任务如实 STYLE_TASK_NOT_FOUND(80014)，不伪造 Loss；曲线渲染留待 UI 冒烟",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-015",
+      "name": "训练进度实时展示验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "任务列表端点可用（total=0），记录 schema 含 status/progress/created_at 真实字段（实测键：空列表）；无进行中任务可观测进度（基座门控）；进度条/剩余时间为前端渲染",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-016",
+      "name": "训练显存与GPU利用率监控验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "GPU 遥测端点在线（/hardware/realtime 键：['gpu', 'cpu', 'ram', 'timestamp']），训练与非训练期均可查；训练期专项监控（>80% 利用率/温度告警）随基座门控不可实测，阈值告警为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-017",
+      "name": "训练中途暂停/恢复/停止验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "POST /style/tasks/{id}/pause|resume|cancel 三端点在线：不存在任务如实 STYLE_TASK_NOT_FOUND(80014)；服务层实现 epoch 检查点挂起/取消旗标与状态机（state_invalid → TRAINING_TASK_STATE_INVALID）；真实中断时序随基座门控不可实测（LTX-2 未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-018",
+      "name": "训练断点续训验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "续训端点在线：不存在任务如实 STYLE_TASK_NOT_FOUND(80014)；实现为配置复制重入队（new_task_id），任务持久化于 SQLite style_tasks（total=0）；真实 Checkpoint 恢复训练随基座门控不可实测（LTX-2 未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-019",
+      "name": "训练OOM异常处理验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "基座门控（base_ready=False）下无法触发训练OOM；另注：服务层未见自动降 Batch Size/连续OOM计数重试逻辑（训练异常仅如实标记 error），基座就绪后需复核该计划项",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-020",
+      "name": "训练早停(Early Stopping)验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "早停逻辑未实现（训练循环无 Val Loss 监测），且基座未随包无从实测；提示与保存最佳 Checkpoint 留待基座就绪后复核",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-021",
+      "name": "训练完成通知与产物保存验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "版本产物机制就绪：models/style_lora/vN （adapter_model.safetensors + adapter_config.json + meta.json（版本/质量分/超参），最多10版自动修剪），当前 versions_total=0（基座门控无实际产物）；完成弹窗通知为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-022",
+      "name": "风格预览对比验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "预览被诚实门控：无已注册版本→STYLE_VERSION_NOT_FOUND，不存在版本 v999→STYLE_VERSION_NOT_FOUND(80012)，基座缺失版本就绪时→80013；不伪造对比帧；并排/滑块对比与同步播放留待 UI 冒烟（LTX-2 基座未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-023",
+      "name": "风格强度调整验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "strength 参数已接入 /style/preview（0~1 校验，越界 40008，透传 svc.preview 缩放 LoRA 作用强度）；版本校验优先顺序保持（v999→80012）；门控环境无可用版本，强度实际渲染效果不可实测（LTX-2 未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-024",
+      "name": "多LoRA风格混合预览验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "POST /style/merge 在线：缺参如实 40008、不存在版本如实 80012；实现为权重线性融合产出新版本目录（adapter 加权和 + meta.merged_from）；无可合并版本（versions_total=0，基座门控），融合预览效果不可实测",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-025",
+      "name": "风格导出完整流程验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "POST /style/export 在线：无当前版本/指定不存在版本均如实 80012；实现为 tar.gz 打包 adapter+meta 并附 SHA256 校验文件；无版本产物可导出（基座门控），校验文件内容不可实测",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-026",
+      "name": "风格应用到视频生成验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "/video/generate 已接受风格参数并回显（version=v999 strength=0.6，style_note=风格版本 v999 未注册，本次生成未应用风格…）；Ken Burns 降级管线如实标注不应用，LTX-2 就绪后引擎消费",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-027",
+      "name": "风格项目列表管理验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "GET /style/list 在线（total=0，current=无）；search 名称搜索过滤语义正确（不存在关键词→0 命中）；status 筛选同链路；卡片视图为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-028",
+      "name": "风格项目重命名与删除验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "PUT/DELETE /style/{version} 在线：不存在版本如实 80012、缺 name 如实 40008；'训练引用中禁止删除'约束已实现（STYLE_TRAINING_LOCKED），门控环境无进行中训练任务可实测该分支；确认对话框为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-029",
+      "name": "风格版本历史管理验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "版本历史端点可用（total=0, current=无，is_current 标注随列表返回）；回滚端点真实：不存在版本如实 STYLE_VERSION_NOT_FOUND、缺参如实 SYSTEM_PARAM_INVALID；双版本对比视图为前端",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-030",
+      "name": "训练指标查看与导出验证",
+      "module": "style",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "GET /style/{version}/metrics 在线：不存在版本如实 80012；指标源为 meta.json 启发式 quality_score + 关联训练记录（无 GPU 推理时的结构化评分）；FVD/SSIM/PSNR 真实指标与 CSV/JSON 导出随基座门控不可实测（LTX-2 未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-031",
+      "name": "训练数据不足处理验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "数据不足如实判定：total=1 < min_samples=4 → sufficient=false（/style/datasets/{id} 与 /style/status 均可查），为前端'是否继续'确认提供数据源；确认交互与'取消返回'为前端；基座就绪后训练侧拦截为 80011",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-STYLE-032",
+      "name": "风格项目克隆与模板保存验证",
+      "module": "style",
+      "status": "PASS",
+      "priority": "P3",
+      "detail": "POST /style/clone 在线（缺参 40008/不存在版本 80012 语义正确）；模板链路真实可用：保存 name=审计模板_23db3507 并随列表返回 （total=5）；克隆的真实训练复制随基座门控不可实测",
+      "duration_ms": 0
+    }
+  ]
+}

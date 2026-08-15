@@ -1,0 +1,20 @@
+[
+ {
+  "tc_id": "TC-FLOW-COMIC-020",
+  "name": "选中分镜卡片流程验证",
+  "status": "PASS",
+  "detail": "镜号#1点击后 st-row-active=1，面板选中分镜区联动=是"
+ },
+ {
+  "tc_id": "TC-FLOW-COMIC-014",
+  "name": "自动分镜结果预览与确认验证",
+  "status": "PASS",
+  "detail": "预览3行/返回修改=OK/确认后行数3→6"
+ },
+ {
+  "tc_id": "TC-FLOW-COMIC-079",
+  "name": "选中与取消选中3D对象验证",
+  "status": "PASS",
+  "detail": "点选='已选中: 角色_1' / 取消='未选中对象'"
+ }
+]

@@ -1,0 +1,79 @@
+/* ==========================================================================
+ * OmniSpace AI v2.1 —— 硬件 API（规格 §4.6 硬件API）
+ * --------------------------------------------------------------------------
+ * - GET /hardware/info       硬件画像（静态：GPU/CPU/RAM/Disk/Power）
+ * - GET /hardware/realtime   实时遥测（GPU利用率/显存/温度/CPU/内存，1秒刷新）
+ * - GET /hardware/synergy    协同调度状态（功能互斥锁 + VRAM 协同状态）
+ * - WebSocket ws://127.0.0.1:5800/api/v1/hardware/realtime  实时推送
+ * ========================================================================== */
+
+import { get } from './api';
+import { HARDWARE_REALTIME_URL } from './ws';
+import { parseWith, HardwareInfoRespSchema } from './schema';
+import type {
+  HardwareProfile,
+  HardwareRealtime,
+  SynergyState,
+} from '@/types';
+
+/** 获取硬件画像（静态信息；Zod 校验核心字段，防止缺失导致首页崩溃） */
+export async function getHardwareInfo(): Promise<HardwareProfile> {
+  const res = parseWith(
+    HardwareInfoRespSchema,
+    await get<unknown>('/hardware/info'),
+    '硬件信息',
+  );
+  return res as unknown as HardwareProfile;
+}
+
+/** 后端遥测原始结构（嵌套 gpu/cpu/ram） */
+interface RealtimeRaw {
+  gpu?: { usage_percent?: number; vram_used_mb?: number; vram_total_mb?: number; temp_celsius?: number };
+  cpu?: { usage_percent?: number };
+  ram?: { total_gb?: number; available_gb?: number; usage_percent?: number };
+  timestamp?: number;
+}
+
+/** 归一化后端嵌套遥测 → 前端扁平 HardwareRealtime */
+export function normalizeRealtime(raw: RealtimeRaw | null | undefined): HardwareRealtime {
+  const r = raw || {};
+  return {
+    cpu_percent: r.cpu?.usage_percent ?? 0,
+    ram_percent: r.ram?.usage_percent ?? 0,
+    ram_total_mb: r.ram?.total_gb != null ? Math.round(r.ram.total_gb * 1024) : undefined,
+    // 后端遥测仅推送 total_gb/available_gb，已用内存由差值换算（无数据保持 undefined → UI 显示 --）
+    ram_used_mb:
+      r.ram?.total_gb != null && r.ram?.available_gb != null
+        ? Math.round((r.ram.total_gb - r.ram.available_gb) * 1024)
+        : undefined,
+    gpu_util_pct: r.gpu?.usage_percent,
+    vram_used_mb: r.gpu?.vram_used_mb,
+    vram_total_mb: r.gpu?.vram_total_mb,
+    vram_percent:
+      r.gpu?.vram_total_mb && r.gpu.vram_total_mb > 0 && r.gpu.vram_used_mb != null
+        ? (r.gpu.vram_used_mb / r.gpu.vram_total_mb) * 100
+        : undefined,
+    gpu_temp_celsius: r.gpu?.temp_celsius ?? null,
+    ts: r.timestamp,
+  };
+}
+
+/** 获取实时遥测（1 秒刷新） */
+export async function getRealtime(): Promise<HardwareRealtime> {
+  return normalizeRealtime(await get<RealtimeRaw>('/hardware/realtime'));
+}
+
+/** 获取协同调度状态（功能互斥锁 + VRAM 协同状态） */
+export function getSynergy() {
+  return get<SynergyState>('/hardware/synergy');
+}
+
+/** 硬件实时 WebSocket 端点（供 store 直接订阅） */
+export const HARDWARE_REALTIME_WS = HARDWARE_REALTIME_URL;
+
+export default {
+  getHardwareInfo,
+  getRealtime,
+  getSynergy,
+  HARDWARE_REALTIME_WS,
+};

@@ -1,0 +1,739 @@
+# OmniSpace AI v2.3.1 编程语言规范与协同方案
+
+一、语言总览与职责边界
+
+本项目涉及 8 种编程语言 / 技术语言，每种语言有且仅有一个不可替代的职责域。核心原则：让每种语言只做它最擅长的事，绝不让它越界。
+语言   角色定位   占比（代码行）
+Python 3.12   后端主语言 / AI推理 / 训练引擎   ~45%
+
+TypeScript 5.x   前端主语言 / UI逻辑 / 类型安全   ~25%
+
+Rust 1.75+   Tauri原生层 / 系统级性能 / 安全   ~12%
+
+C/C++   CUDA加速 / CEF浏览器底层 / 编解码   ~8%
+
+SQL (SQLite)   数据持久化 / 全文检索   ~3%
+
+HTML5 + CSS3   视图渲染 / 视觉表现   ~4%
+
+Shell (Bash/PowerShell)   构建 / 部署 / 自动化脚本   ~2%
+
+JSON / YAML   配置 / 数据交换 / 模型元数据   ~1%
+
+二、各语言优势发挥与劣势规避
+
+2.1 Python 3.12（后端核心）
+
+✅ 优势发挥
+优势   项目中的应用
+AI/ML生态无可替代   PyTorch、Transformers、LoRA、ChromaDB、Qwen推理全部用Python调用
+
+开发速度极快   FastAPI路由、业务逻辑、知识管线用Python编写，迭代效率最高
+
+动态类型+丰富标准库   数据预处理、文本清洗、正则抽取、知识图谱构建
+
+异步IO成熟   FastAPI + uvicorn 处理高并发API请求
+
+胶水语言特性   通过ctypes/pybind11调用C/C++加速模块
+
+❌ 劣势规避
+劣势   规避策略
+GIL限制CPU多线程   计算密集型任务（向量检索、知识抽取）一律用 multiprocessing 或 concurrent.futures.ProcessPoolExecutor，禁止用threading做CPU密集计算
+
+运行时性能差   任何循环超过10万次的操作，必须用NumPy/Pandas向量化，禁止纯Python for循环处理大批量数据
+
+类型安全弱   全部函数必须写type hints；启用 mypy --strict 做静态检查；Pydantic v2做所有数据模型校验
+
+内存管理粗糙   大模型加载/卸载必须用 del model; torch.cuda.empty_cache(); gc.collect() 三件套；禁止在循环中重复加载模型
+
+包管理混乱   锁定 pip freeze > requirements.txt；生产环境用 uv 替代pip；禁止 pip install 不指定版本
+
+异步陷阱   FastAPI路由中禁止调用同步阻塞函数；所有IO操作必须用 async/await；数据库操作统一用 aiosqlite
+
+📐 Python编码铁律
+
+✅ 正确：向量化 + 类型标注 + 异步
+async def retrieve_knowledge(query: str, top_k: int = 5) -> list[KnowledgeChunk]:
+    embeddings: np.ndarray = await embedding_model.encode_async(query)
+    results: list[KnowledgeChunk] = await vector_db.search(embeddings, top_k)
+    return results
+
+❌ 禁止：纯Python循环 + 无类型 + 同步阻塞
+def retrieve_knowledge(query, top_k=5):
+    results = []
+    for chunk in all_chunks:  # 10万次循环
+        score = manual_cosine(query, chunk)
+        results.append((chunk, score))
+    return sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
+
+🔒 Python职责红线
+
+只做：API路由、业务逻辑、AI推理、训练、数据处理、知识管线
+不做：UI渲染（交给TS）、系统级文件操作（交给Rust）、像素级图像处理（交给C++）
+
+2.2 TypeScript 5.x（前端核心）
+
+✅ 优势发挥
+优势   项目中的应用
+静态类型系统   所有组件Props、API响应、状态管理全部强类型定义，编译期消灭90%的运行时错误
+
+React 19.2生态   组件化UI、虚拟DOM高效渲染、丰富组件库
+
+与Tauri IPC天然集成   通过 @tauri-apps/api 调用Rust后端，类型安全的跨语言通信
+
+工具链成熟   Vite构建、ESLint、Prettier、Zod运行时校验
+
+异步编程模型   Promise/async-await处理所有用户交互和网络请求
+
+❌ 劣势规避
+劣势   规避策略
+类型系统可被 any 绕过   ESLint配置 @typescript-eslint/no-explicit-any: error，禁止使用any，必须用 unknown + 类型守卫
+
+运行时类型不安全   所有外部数据（API响应、IPC消息）必须经过 Zod schema校验后才能使用
+
+包体积膨胀   路由级代码分割（React.lazy）；Tree-shaking确保无死代码；禁止全量引入UI库
+
+状态管理复杂度   全局状态用Zustand 5（轻量，slice模式），局部状态用useState/useReducer；禁止引入Redux（过重）
+
+内存泄漏风险   所有useEffect必须写cleanup；WebSocket/EventSource必须在组件卸载时关闭；定时器必须clearInterval
+
+回调地狱   禁止嵌套超过2层的回调；统一用async/await；错误统一用ErrorBoundary捕获
+
+📐 TypeScript编码铁律
+
+// ✅ 正确：强类型 + Zod校验 + 错误处理
+const KnowledgeSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  content: z.string(),
+  embedding: z.array(z.number()).length(1024),
+  createdAt: z.string().datetime(),
+});
+
+type Knowledge = z.infer<typeof KnowledgeSchema>;
+
+async function fetchKnowledge(id: string): Promise<Knowledge> {
+  const response = await tauriInvoke<unknown>('get_knowledge', { id });
+  return KnowledgeSchema.parse(response); // 运行时校验
+}
+
+// ❌ 禁止：any类型 + 无校验 + 无错误处理
+async function fetchKnowledge(id: any) {
+  const res = await invoke('get_knowledge', { id });
+  return res; // 不知道res是什么结构
+}
+
+🔒 TypeScript职责红线
+
+只做：UI渲染、用户交互、状态管理、前端路由、IPC调用、数据展示
+不做：AI推理（调Python API）、文件IO（调Rust命令）、数据库操作（调后端API）
+
+2.2.1 React 19.2 前端技术栈规范
+
+本节明确React 19.2技术栈选型，所有前端开发必须遵循以下技术规范。
+技术   版本   用途说明
+React   19.2   前端框架核心（Function Component + Hooks + Compiler 1.0）
+React Compiler   1.0   自动memoization，99%场景免手写useMemo/useCallback，编译期优化渲染性能
+React Three Fiber   latest   声明式Three.js，用于3D导演台/3D场景编排
+@react-three/drei   latest   R3F辅助工具集（相机控制、灯光、模型加载、后处理）
+shadcn/ui (Base UI)   latest   组件库基座，1000+组件变体，基于Radix原语+Tailwind，可定制可复制
+dnd-kit   latest   拖拽交互框架（看板排序、节点连线、多选拖拽），无障碍支持
+React Router   7   类型安全路由（类型推断路由参数/搜索参数/loader数据）
+Vercel AI SDK   latest   AI流式响应（SSE/Streaming UI），统一多模型Provider接口
+Zustand   5   全局状态管理（slice模式，TypeScript原生支持，无样板代码）
+pnpm   9+   包管理（workspace monorepo，严格依赖隔离）
+
+🔧 React 19.2 编码约定
+
+组件必须使用Function Component + Hooks，禁止使用Class Component
+React Compiler 1.0开启后，99%场景免手写useMemo/useCallback；仅在高频渲染场景手动优化
+3D场景统一用React Three Fiber + @react-three/drei，禁止直接操作Three.js裸API
+UI组件统一基于shadcn/ui（Base UI），禁止引入其他全量UI库（Ant Design/MUI等）
+拖拽交互统一用dnd-kit，禁止用react-dnd（已停止维护）
+路由统一用React Router 7，启用类型安全模式（typed routes）
+AI流式响应用Vercel AI SDK，禁止手动拼接SSE
+全局状态用Zustand 5（slice模式），禁止引入Redux/MobX
+
+2.3 Rust 1.75+（原生性能层）
+
+✅ 优势发挥
+优势   项目中的应用
+零成本抽象+无GC   Tauri核心运行时、窗口管理、系统托盘、全局快捷键
+
+内存安全无数据竞争   浏览器进程池管理、多进程通信、文件系统监控
+
+极致性能   大文件哈希计算、AV1编码调度、模型文件IO、进程生命周期管理
+
+FFI能力   作为Python/C++之间的桥梁，安全地传递数据
+
+编译期保证   所有权系统消灭空指针、悬垂引用、数据竞争
+
+❌ 劣势规避
+劣势   规避策略
+学习曲线陡峭   Rust代码只由核心开发者编写；限定在Tauri层和性能关键路径；业务逻辑全部放Python/TS
+
+编译速度慢   模块化拆分crate；开发时用 cargo check 替代 cargo build；CI用 sccache 缓存
+
+生态不如Python/JS丰富   不强行用Rust做AI/数据处理；只用于系统级操作
+
+错误处理冗长   统一用 thiserror 定义错误枚举；用 ? 操作符传播；禁止在业务代码中 unwrap()（测试除外）
+
+异步生态分裂   统一用 tokio 运行时；禁止混用async-std
+
+📐 Rust编码铁律
+
+// ✅ 正确：明确错误类型 + 所有权清晰 + 无unwrap
+[derive(Debug, thiserror::Error)]
+pub enum BrowserPoolError {
+    #[error("No available browser instance")]
+    PoolExhausted,
+    #[error("Browser process crashed: {0}")]
+    ProcessCrashed(String),
+    #[error("Timeout waiting for browser: {0}ms")]
+    Timeout(u64),
+}
+
+pub async fn acquire_browser(&self) -> Result<BrowserInstance, BrowserPoolError> {
+    let instance = self.pool.pop()
+        .ok_or(BrowserPoolError::PoolExhausted)?;
+    instance.health_check().await
+        .map_err(|e| BrowserPoolError::ProcessCrashed(e.to_string()))?;
+    Ok(instance)
+}
+
+// ❌ 禁止：unwrap + panic + 裸指针
+fn acquire_browser(&self) -> BrowserInstance {
+    self.pool.pop().unwrap() // 生产环境崩溃
+}
+
+🔒 Rust职责红线
+
+只做：Tauri窗口/IPC/系统API、浏览器进程管理、文件哈希、高性能计算桥接
+不做：AI推理、业务逻辑、UI渲染、数据库CRUD
+
+2.4 C/C++（极致性能底层）
+
+✅ 优势发挥
+优势   项目中的应用
+CUDA直接编程   GPU加速的向量计算、图像预处理、AV1硬件编码
+
+极致内存控制   CEF浏览器引擎底层渲染、视频解码
+
+零开销运行时   图像缩放/裁剪/色彩空间转换（为Qwen3-VL预处理）
+
+硬件直接访问   GPU显存管理、显存分配策略
+
+❌ 劣势规避
+劣势   规避策略
+内存不安全   所有C/C++模块必须编写单元测试+AddressSanitizer检测；禁止手动malloc/free，用智能指针（C++）或RAII
+
+开发效率极低   C/C++代码量控制在总代码8%以内；只用于Python/Rust无法胜任的性能热点
+
+跨平台编译复杂   用CMake统一管理；预编译为 .so/.dll/.dylib；通过pybind11暴露给Python
+
+调试困难   编译时必须开启 -g -fsanitize=address,undefined；Release版保留符号表
+
+📐 C++编码铁律
+
+// ✅ 正确：RAII + 智能指针 + pybind11接口
+include <memory>
+include <pybind11/pybind11.h>
+include <pybind11/numpy.h>
+
+namespace omnispace::vision {
+
+class ImagePreprocessor {
+public:
+    explicit ImagePreprocessor(int target_width, int target_height)
+        : width_(target_width), height_(target_height) {}
+
+    pybind11::array_t<uint8_t> resize_and_normalize(
+        pybind11::array_t<uint8_t> input) {
+        // GPU加速resize，返回numpy数组
+        // ...
+    }
+
+private:
+    int width_;
+    int height_;
+    std::unique_ptr<GPUContext> gpu_ctx_; // RAII自动释放
+};
+
+} // namespace
+
+PYBIND11_MODULE(_vision_accel, m) {
+    pybind11::class_<omnispace::vision::ImagePreprocessor>(m, "ImagePreprocessor")
+        .def(pybind11::init<int, int>())
+        .def("resize_and_normalize",
+             &omnispace::vision::ImagePreprocessor::resize_and_normalize);
+}
+
+// ❌ 禁止：裸指针 + 手动内存管理
+void* buf = malloc(width * height * 3);
+// ... 忘记free → 内存泄漏
+
+🔒 C/C++职责红线
+
+只做：CUDA计算、CEF底层、图像/视频编解码、pybind11桥接
+不做：业务逻辑、API、UI、数据库
+
+2.5 SQL / SQLite（数据持久化）
+
+✅ 优势发挥
+优势   项目中的应用
+零配置嵌入式   本地知识库、学习记录、用户配置、LoRA训练历史
+
+FTS5全文检索   TASK-051混合检索的关键词召回通道
+
+事务支持   知识入库、学习记录写入的原子性保证
+
+轻量高性能   单机场景下读写性能远超网络数据库
+
+❌ 劣势规避
+劣势   规避策略
+单写锁   所有写操作通过Python后端的单一连接池串行化；禁止多进程同时写同一数据库文件
+
+无原生向量检索   向量检索交给ChromaDB；SQLite只做结构化数据和全文检索
+
+无用户权限管理   应用层做权限控制；数据库文件权限设为600
+
+大字段性能差   知识内容超过64KB时，内容存文件系统，SQLite只存路径和元数据
+
+📐 SQL铁律
+
+-- ✅ 正确：参数化查询 + 索引 + WAL模式
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+
+CREATE INDEX idx_knowledge_category ON knowledge(category);
+CREATE INDEX idx_learning_session_time ON learning_session(started_at DESC);
+
+-- 全文检索表
+CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+    title, content, tags,
+    content='knowledge', content_rowid='id',
+    tokenize='unicode61'
+);
+
+-- Python中必须用参数化查询
+-- cursor.execute("SELECT * FROM knowledge WHERE id = ?", (knowledge_id,))
+
+-- ❌ 禁止：字符串拼接SQL（SQL注入）
+-- cursor.execute(f"SELECT * FROM knowledge WHERE id = '{user_input}'")
+
+2.6 HTML5 + CSS3（视图层）
+
+✅ 优势发挥
+优势   项目中的应用
+语义化标签   页面结构清晰，辅助技术可读
+
+CSS变量+Grid/Flex   Sakura主题系统、响应式布局
+
+CSS动画硬件加速   页面转场、加载动画、樱花飘落效果（transform+opacity触发GPU合成）
+
+Tauri WebView原生渲染   无需Electron，内存占用降低60%
+
+❌ 劣势规避
+劣势   规避策略
+全局CSS污染   禁止写全局CSS选择器；所有样式用Tailwind CSS原子类或CSS Modules；组件样式隔离
+
+布局兼容性   Tauri WebView固定为Chromium内核，无需考虑IE/Safari兼容；但仍需测试不同DPI
+
+动画性能   禁止动画 width/height/top/left/margin（触发重排）；只用 transform/opacity（触发合成）
+
+大DOM树卡顿   虚拟列表（@tanstack/virtual）处理超过100条的列表；知识图谱节点超过200个时启用LOD
+
+2.7 Shell / Bash / PowerShell（自动化）
+
+✅ 优势发挥
+优势   项目中的应用
+系统级操作   模型下载、环境初始化、进程管理、服务启停
+
+管道组合   构建流水线、日志处理、批量文件操作
+
+跨平台脚本   Linux/Mac用Bash，Windows用PowerShell，核心逻辑用Python脚本统一
+
+❌ 劣势规避
+劣势   规避策略
+语法陷阱多   set -euo pipefail 必须放在每个Bash脚本开头；变量引用必须加双引号 "$var"
+
+跨平台不兼容   禁止写平台特定的复杂逻辑；跨平台操作统一用Python脚本；Shell只做简单调用
+
+调试困难   脚本超过50行就改用Python；Shell只做"胶水"调用
+
+安全风险   禁止在脚本中硬编码密码/Token；用环境变量或密钥文件
+
+2.8 JSON / YAML（配置与数据交换）
+
+✅ 优势发挥
+优势   项目中的应用
+人类可读   用户配置文件、模型元数据、主题定义
+
+机器可解析   前后端数据交换、IPC消息格式、LoRA训练超参数
+
+语言无关   Python/TS/Rust/SQL全部原生支持JSON解析
+
+❌ 劣势规避
+劣势   规避策略
+JSON无注释   用户配置文件用YAML（支持注释）；API数据交换用JSON（性能更好）
+
+无schema约束   所有JSON/YAML必须有对应的校验schema（Python用Pydantic，TS用Zod，Rust用serde）
+
+大文件性能差   超过1MB的配置改用SQLite存储；JSON只用于<100KB的配置和API响应
+
+三、编程语言间的协同配合机制
+
+3.1 全局协同架构图
+
+┌─────────────────────────────────────────────────────────────────┐
+│                        用户界面层                                │
+│   HTML5 + CSS3 (视图渲染)                                       │
+│   TypeScript (交互逻辑 + 状态管理)                               │
+│   React 19.2组件树                                               │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │ Tauri IPC (JSON序列化)
+                       │ invoke() / emit() / listen()
+┌──────────────────────┴──────────────────────────────────────────┐
+│                      原生桥接层                                  │
+│   Rust (Tauri Runtime)                                          │
+│   - 窗口管理 / 系统API / 文件IO                                  │
+│   - 浏览器进程池 (CEF管理)                                       │
+│   - IPC消息路由                                                  │
+│   - 高性能计算桥接                                                │
+└──────────┬───────────────────────────────────┬──────────────────┘
+           │ HTTP/WebSocket                     │ FFI (pybind11)
+           │ (localhost:8000)                   │
+┌──────────┴──────────────────┐   ┌────────────┴──────────────────┐
+│      Python 后端服务层       │   │      C/C++ 加速层              │
+│   FastAPI + Uvicorn         │   │   CUDA向量计算                 │
+│   - API路由                 │──▶│   图像预处理                   │
+│   - AI推理 (Qwen3)         │   │   AV1编解码                   │
+│   - LoRA训练               │   │   CEF底层渲染                  │
+│   - 知识管线               │   │   (通过pybind11暴露给Python)   │
+│   - 调度引擎               │   └───────────────────────────────┘
+└──────────┬──────────────────┘
+           │ SQL / FTS5
+┌──────────┴──────────────────┐
+│      数据持久层              │
+│   SQLite (WAL模式)          │
+│   ChromaDB (向量存储)       │
+│   文件系统 (模型/知识文件)   │
+└─────────────────────────────┘
+
+3.2 语言间通信协议规范
+
+3.2.1 TypeScript ↔ Rust（Tauri IPC）
+
+通信方式：Tauri invoke / event
+数据格式：JSON（自动序列化/反序列化）
+类型保障：TS端用Zod校验，Rust端用serde反序列化
+
+规则：
+每个IPC命令必须有明确的输入/输出类型定义
+TS端定义 interface，Rust端定义对应 struct，字段名必须一致（camelCase）
+错误必须结构化返回，禁止字符串拼接错误信息
+大数据（>1MB）不走IPC，改用文件路径传递
+异步IPC必须设置超时（默认30s）
+
+IPC命令命名规范：
+{domain{action}{resource}
+
+示例：
+browser_acquire_instance
+browser_release_instance
+knowledge_import_file
+model_load_checkpoint
+system_get_gpu_info
+
+IPC数据结构示例：
+// TypeScript端
+interface BrowserAcquireRequest {
+  sessionId: string;
+  profileType: 'clean' | 'persistent';
+  timeoutMs: number;
+}
+
+interface BrowserAcquireResponse {
+  instanceId: string;
+  pid: number;
+  wsEndpoint: string;
+}
+
+// Rust端（字段名必须与TS一致）
+[derive(Debug, Serialize, Deserialize)]
+[serde(rename_all = "camelCase")]
+pub struct BrowserAcquireRequest {
+    pub session_id: String,
+    pub profile_type: ProfileType,
+    pub timeout_ms: u64,
+}
+
+3.2.2 TypeScript ↔ Python（HTTP/WebSocket）
+
+通信方式：HTTP REST API + WebSocket
+数据格式：JSON
+基础URL：http://localhost:8000/api/v1
+认证：本地Token（Tauri启动时生成，注入前端）
+
+规则：
+所有API响应必须遵循统一信封格式
+分页参数统一用 page + page_size
+时间格式统一用 ISO 8601 UTC
+WebSocket消息必须有 type + payload 结构
+文件上传用 multipart/form-data
+流式输出（AI对话）用 Server-Sent Events (SSE)
+
+统一响应信封：
+{
+  "success": true,
+  "data": { ... },
+  "error": null,
+  "meta": {
+    "request_id": "uuid",
+    "timestamp": "2026-08-07T00:45:00Z",
+    "duration_ms": 42
+  }
+}
+
+错误响应：
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "MODEL_NOT_LOADED",
+    "message": "Qwen3-7B模型未加载",
+    "detail": "当前显存不足，请先卸载其他模型",
+    "suggestion": "调用 POST /api/v1/model/unload 释放显存"
+  },
+  "meta": { ... }
+}
+
+3.2.3 Python ↔ C/C++（pybind11）
+
+通信方式：pybind11 FFI调用
+数据格式：NumPy数组 / py::buffer / py::object
+内存管理：C++端不持有Python对象引用；数据拷贝最小化
+
+规则：
+C++函数接收numpy数组，返回numpy数组
+禁止在C++层抛出Python异常；用返回值或错误码
+GPU内存分配/释放必须在同一个C++函数内完成（RAII）
+pybind11模块命名omnispace{module}（下划线前缀表示内部模块）
+每个pybind11模块必须有对应的Python类型存根（.pyi文件）
+
+pybind11接口规范：
+// C++端：返回错误码 + 输出参数
+int resize_image(
+    pybind11::array_t<uint8_t> input,   // 输入图像 [H,W,C]
+    int target_w, int target_h,
+    pybind11::array_t<uint8_t>& output  // 输出图像
+);
+// 返回值：0=成功，负数=错误码
+
+Python端：包装为Pythonic接口
+def resize_image(image: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+    output = np.empty((target_h, target_w, image.shape[2]), dtype=np.uint8)
+    code = _omnispace_vision.resize_image(image, target_w, target_h, output)
+    if code != 0:
+        raise VisionProcessingError(f"Resize failed with code {code}")
+    return output
+
+3.2.4 Rust ↔ Python（进程间通信）
+
+通信方式：HTTP（Python FastAPI作为独立进程）
+启动方式：Rust/Tauri启动时spawn Python进程
+健康检查：每5秒 GET /health
+数据格式：JSON over HTTP
+
+规则：
+Python进程由Rust管理生命周期（启动/监控/重启/优雅关闭）
+Python进程崩溃时，Rust必须在3秒内检测并重启
+模型加载/卸载由Python进程自行管理，Rust不干预
+进程间禁止共享内存（避免GIL和所有权冲突）
+
+3.2.5 全语言间数据格式对照
+场景   格式   序列化方   反序列化方
+TS→Rust IPC   JSON (camelCase)   serde_json   JS原生
+
+TS→Python API   JSON (camelCase)   JS原生   Pydantic v2
+
+Python→C++   NumPy buffer   Python   pybind11
+
+Rust→Python   JSON over HTTP   serde_json   Pydantic v2
+
+Python→SQLite   SQL参数化   Python sqlite3   SQLite引擎
+
+配置文件   YAML (带注释)   用户手写   Python yaml / TS js-yaml
+
+模型元数据   JSON   Python生成   全语言读取
+
+3.3 跨语言错误处理链
+
+错误传播原则：每一层只包装自己领域的错误，不吞掉底层错误信息。
+
+C++层：返回错误码（int）+ 错误描述（string）
+    ↓ pybind11 转换为 Python异常
+Python层：捕获 → 包装为业务异常（如 ModelInferenceError）→ 返回HTTP错误响应
+    ↓ JSON error字段
+TypeScript层：解析error → 用户友好提示 + 控制台详细日志
+    ↓ 如果是系统级错误
+Rust层：记录到本地日志文件 + 可选上报
+
+错误码全局注册表：
+  1xxx - 模型相关（加载/推理/显存）
+  2xxx - 知识相关（入库/检索/图谱）
+  3xxx - 浏览器相关（启动/导航/Agent）
+  4xxx - 训练相关（LoRA/数据/评估）
+  5xxx - 系统相关（文件/进程/配置）
+  6xxx - 前端相关（渲染/状态/IPC）
+
+3.4 跨语言性能边界规则
+规则   说明
+数据不过境   大模型权重（~30GB）绝不通过IPC/HTTP传输；Python进程直接加载本地文件
+
+小数据JSON   <1MB的结构化数据用JSON；>1MB用文件路径引用
+
+图像走buffer   图像数据在Python↔C++之间用numpy buffer零拷贝传递，禁止Base64编码
+
+向量走二进制   1024维float32向量（4KB）在Python内部处理；传给前端时只传相似度分数，不传原始向量
+
+流式走SSE   AI对话token流用SSE推送；禁止轮询；禁止WebSocket传token流
+
+批量走文件   批量导入知识（>100条）用文件上传，禁止循环调用单条API
+
+3.5 跨语言并发与线程模型
+
+┌─ Tauri主进程 (Rust) ─────────────────────────────────┐
+│  主线程：窗口管理、IPC分发、UI事件                      │
+│  工作线程池(tokio)：文件IO、进程管理、网络请求           │
+│  禁止：在主线程做任何阻塞操作（>1ms）                   │
+└───────────────────────────────────────────────────────┘
+        │ spawn
+┌─ Python后端进程 ──────────────────────────────────────┐
+│  asyncio事件循环：FastAPI路由、AI推理调度               │
+│  ProcessPoolExecutor：CPU密集（知识抽取、向量计算）     │
+│  CUDA Stream：GPU推理（单stream串行，避免显存碎片）     │
+│  禁止：在asyncio循环中调用同步阻塞函数                 │
+│  禁止：多进程同时操作同一GPU上下文                      │
+└───────────────────────────────────────────────────────┘
+        │ pybind11 (同进程)
+┌─ C++加速模块 ─────────────────────────────────────────┐
+│  无自己的线程；由Python调用方控制并发                   │
+│  GPU操作必须在Python持有的CUDA stream上执行             │
+│  禁止：在C++层创建自己的线程或CUDA context             │
+└───────────────────────────────────────────────────────┘
+
+┌─ 前端渲染进程 (Chromium WebView) ────────────────────┐
+│  主线程：React 19.2渲染、用户交互                      │
+│  Web Worker：知识图谱力导向计算、大列表虚拟化           │
+│  禁止：在主线程做>16ms的计算（掉帧）                   │
+│  禁止：在Worker中操作DOM                              │
+└───────────────────────────────────────────────────────┘
+
+3.6 跨语言构建与依赖管理
+语言   包管理   构建工具   版本锁定
+Python   uv (替代pip)   无需编译   requirements.txt (pip freeze)
+
+TypeScript   pnpm   Vite 5.x   pnpm-lock.yaml
+
+Rust   cargo   cargo build   Cargo.lock
+
+C/C++   CMake + vcpkg   CMake 3.25+   CMakeLists.txt固定版本
+
+Shell   无   无   脚本内声明依赖版本
+
+构建顺序（必须严格遵守）：
+C/C++ → 编译为 .so/.dll → 输出到 lib/
+Rust → cargo build → 输出到 src-tauri/target/
+Python → 安装依赖 → 验证pybind11模块可导入
+TypeScript → pnpm install → vite build → 输出到 dist/
+Tauri → 打包所有资源 → 输出到 release/
+
+四、语言间禁止事项总表
+编号   禁止事项   原因
+F-001   Python中用threading做CPU密集计算   GIL限制，无并行效果
+
+F-002   TypeScript中使用 any 类型   消灭类型安全
+
+F-003   Rust业务代码中使用 unwrap()   生产环境panic崩溃
+
+F-004   C++中使用裸 new/delete   内存泄漏风险
+
+F-005   SQL字符串拼接   SQL注入
+
+F-006   前端直接操作SQLite数据库文件   绕过权限控制，数据损坏
+
+F-007   Rust主线程做阻塞IO   UI冻结
+
+F-008   Python asyncio循环中调用同步函数   事件循环阻塞
+
+F-009   IPC传递>1MB的JSON数据   序列化/反序列化性能瓶颈
+
+F-010   C++层创建独立CUDA context   与Python CUDA context冲突，显存翻倍
+
+F-011   前端用WebSocket传AI token流   应用SSE，WebSocket过重
+
+F-012   Shell脚本超过50行   可维护性差，改用Python
+
+F-013   JSON配置文件中存放大段文本   改用YAML或数据库
+
+F-014   跨语言传递Python对象（pickle）   不安全，用JSON
+
+F-015   多进程同时写同一个SQLite文件   单写锁冲突，数据损坏
+
+五、语言协同典型场景示例
+
+场景1：用户提问 → AI回答（知识增强）
+
+[用户输入] 
+    → TypeScript (捕获输入，构造请求体)
+    → HTTP POST → Python FastAPI (接收请求)
+    → Python: 知识检索 (ChromaDB向量 + SQLite FTS5关键词)
+    → Python: 构造Prompt (注入检索到的知识片段)
+    → Python: 调用Qwen3推理 (PyTorch → CUDA → C++底层)
+    → Python: SSE流式返回token
+    → TypeScript: EventSource接收 → 逐字渲染到UI
+    → HTML/CSS: 打字机动画 + Markdown渲染
+
+场景2：自主学习会话（浏览器Agent）
+
+[调度触发]
+    → Python: 调度引擎判断学习时机
+    → Python: 通过HTTP通知Rust → 获取浏览器实例
+    → Rust: BrowserPool.acquire() → 返回CEF实例
+    → Python: Agent决策循环
+        → 简单页面: DOM解析 → 快速决策 (纯Python)
+        → 复杂页面: 截图 → C++图像预处理 → Qwen3-VL推理
+    → Python: 知识抽取 → SQLite存储 + ChromaDB向量化
+    → Python: 通知Rust → 释放浏览器实例
+    → Rust: BrowserPool.release() → 清理状态 → 归还池
+
+场景3：LoRA微调训练
+
+[用户选择训练参数]
+    → TypeScript: 表单校验(Zod) → POST /api/v1/train/start
+    → Python: 接收请求 → 校验数据集 → 构造训练配置
+    → Python: 加载基座模型 (Flash Attention-2)
+    → Python: 8-bit优化器 + DeepSpeed配置
+    → Python: 训练循环 (PyTorch → CUDA → C++底层算子)
+    → Python: 每N步 → WebSocket推送进度到前端
+    → TypeScript: 实时显示训练曲线 + 进度条
+    → Python: 训练完成 → 保存LoRA权重 → 通知前端
+
+六、总结：语言协同黄金法则
+
+1. 单一职责：每种语言只做它最擅长的事，绝不越界。
+2. 边界清晰：语言之间的接口必须有明确的类型契约（schema），不允许"默契"。
+3. 数据不过境：大数据（模型、图像、视频）通过文件/共享内存传递，不通过IPC/JSON。
+4. 错误不吞没：每一层包装自己的错误，但必须保留底层错误链。
+5. 性能不妥协：性能热点用C++/Rust，业务逻辑用Python/TS，绝不用慢语言做快语言的事。
+6. 类型不绕过：Python用mypy，TS用strict，Rust用编译器，C++用sanitizer。四道防线，缺一不可。
+7. 构建可复现：所有依赖版本锁定，构建顺序固定，任何环境可一键复现。
+OmniSpace AI v2.3.1 · 编程语言规范与协同方案 · 2026-08-07
+
+================================================================================
+版本更新说明（2026-08-12）：
+本文档TypeScript章节已确认React 19.2技术栈（Function Component + Hooks + Compiler 1.0）。
+新增技术：React Three Fiber、shadcn/ui、dnd-kit、Vercel AI SDK、React Compiler 1.0。
+状态管理：Zustand 5（slice模式）。路由：React Router 7。包管理：pnpm 9+。
+===============================================================================================

@@ -1,0 +1,949 @@
+
+OmniSpace AI v2.3.1 程序开发计划文档（最终版）
+
+第一部分：项目全量信息与调度方案
+
+
+第二部分：调整方案与落地任务清单
+
+
+第三部分：前后端专项与技术核心
+
+
+第四部分：落地保障与风险补全
+OmniSpace AI v2.3.1 程序开发计划文档（Part I — 项目全量与调度方案）
+第一章 项目全量信息
+1.1 产品定义
+属性	描述
+产品名称	OmniSpace AI v2.3.1
+产品类型	AIGC 桌面创作工具 + 自主学习 AI 助手
+核心价值	为影视创作者提供离线化、智能化、一站式的 AIGC 创作流，通过自主学习引擎实现个性化模型进化与创作辅助。
+运行环境	Windows 10 21H2+ / Windows 11 64位 (x64)
+分发方式	完整离线安装包 (~392GB) 或 基础安装包 (~5GB) + 用户手动导入模型
+1.2 六大核心模块详解
+1.2.1 AI对话模块 (OmniChat)
+技术选型: Qwen3-VL-8B / Qwen3-VL-4B / Qwen3-VL-2B (vLLM 推理后端)
+功能清单: 多模态对话、剧本润色、分镜描述生成、Agent 工具调用、上下文记忆。
+输入输出: 文本/图像输入 -> 文本/JSON/Markdown 输出。
+依赖关系: 依赖 ModelManager 进行权重加载，依赖 LearningEngine 获取 RAG 知识。
+1.2.2 AI绘画模块 (OmniDraw)
+技术选型: FLUX.1-dev / Kolors 2.1 / SDXL + ControlNet + IP-Adapter (ComfyUI-Core 嵌入式)
+功能清单: 文生图、图生图、ControlNet 姿态控制、IP-Adapter 风格迁移、局部重绘。
+输入输出: Prompt/参考图/ControlMap -> 高分辨率图像 (PNG/EXR)。
+依赖关系: 依赖 ModelManager，依赖 OmniChat 进行 Prompt 扩写。
+1.2.3 漫剧创作模块 (OmniComic)
+技术选型: 分镜表引擎 + 3D导演台 (Three.js r170 (WebGL in-browser rendering)) + 视频生成 (LTX-2 / Wan2.1 / CogVideoX)
+说明: Three.js r170 基于 WebGL 在浏览器内完成 3D 场景渲染，无需独立渲染进程，与前端渲染管线深度集成。
+【7步操作流程（详见OmniComic完整需求规格说明书）】：
+  步骤1-创建项目：名称唯一性校验、模板选择（空白/漫剧模板）、项目管理
+  步骤2-导入剧本：DSL文件上传(.txt≤10MB)、DSL文本粘贴、手动自由文本输入、NLP语义分析
+  步骤3-自动/手动分镜：自动逐镜生成分镜卡片、手动四种添加方式、拖拽排序、模式切换
+  步骤4-生成资产图：角色图(4096×1024横排4格多视图)、场景图、道具图 + 角色音色绑定(1默认+N情感两层)
+  步骤5-分镜描述词：AI辅助生成分镜描述、风格一致性(IP-Adapter统一seed)
+  步骤6-导演台操作：3D场景编排、自动资产拉取→3D内容生成、四分镜合一图展示、WebGL不支持时降级为2D分镜图
+  步骤7-视频生成：三路输入(分镜图+资产图+描述词)、LTX-2/Wan2.1/CogVideoX、<60s/5秒片段
+功能清单: 分镜脚本解析、3D 资产编排、视频片段生成、多镜头一致性控制、角色多视图设定图、音色绑定。
+输入输出: 结构化剧本/3D场景 -> 视频序列/分镜图。
+依赖关系: 强依赖 OmniDraw (关键帧)，依赖 VideoStyleEngine (风格统一)。
+1.2.4 知识学习模块 (OmniLearn) v2.3新增
+技术选型: Chromium Embedded Framework (CEF) + LangChain Agent + LoRA Evolution Pipeline
+功能清单: 内置浏览器网页解析、资料结构化、Agent 自动摘要、LoRA 增量训练触发。
+输入输出: URL/本地文档/剪贴板 -> 结构化知识库/LoRA 权重。
+依赖关系: 依赖 LearningEngine 调度，依赖 ModelManager 存储训练产物。
+1.2.5 模型管理模块 (ModelManager)
+技术选型: 自研分布式存储调度器 + SQLite 元数据库
+功能清单: ~392GB 模型库索引、三方协同调度、Hash 校验、热加载/冷卸载。
+输入输出: 模块请求 -> 模型句柄/显存映射。
+依赖关系: 被所有创作模块依赖，依赖 MLPredictEngine 进行预加载。
+1.2.6 视频风格模块 (VideoStyle)
+技术选型: LTX-2 LoRA 微调引擎 + FFMPEG
+功能清单: 视频风格 LoRA 训练、推理应用、帧间一致性处理。
+输入输出: 视频片段/参考图 -> 风格化视频/LoRA 权重。
+依赖关系: 依赖 LearningEngine 获取训练数据，依赖 AV1Encoder 输出。
+1.3 五大智能引擎详解
+引擎名称	技术原理	触发条件	执行流程
+LTX-2 LoRA微调引擎	基于 LTX-2 的 Diffusion Transformer 微调，支持显存分块训练	用户在 VideoStyle 或 OmniLearn 提交训练任务	数据预处理 -> 显存分配 -> 梯度累积 -> Checkpoint 保存 -> 验证
+模型预加载ML预测引擎	XGBoost 时序预测模型，基于历史操作序列预测下一模型	用户完成当前操作或空闲 >500ms	特征提取 -> 模型推理 -> 置信度过滤 -> 异步加载至显存
+协同调度历史学习引擎	强化学习 (PPO) 优化资源分配策略	系统资源冲突或任务完成反馈	状态观测 -> 策略网络 -> 动作执行 -> 奖励计算 -> 策略更新
+AV1硬件编码引擎	硬件加速 API 封装 + SVT-AV1 软编降级	视频生成/导出任务启动	硬件探测 -> 编码器选择 -> 码率控制 -> 帧级编码 -> 封装
+自主学习引擎	RAG + Agent 决策树 + 增量学习闭环	用户授权学习或检测到新知识源	内容抓取 -> 知识抽取 -> 入库 -> 触发微调/更新 RAG 索引
+1.4 核心约束
+硬件底线: NVIDIA RTX 3060 12GB / RTX 4060 8GB (最低显存)，推荐 RTX 4090 24GB / RTX 5090 32GB。系统内存 ≥32GB。
+软件依赖: Windows 10 21H2+ / Win11, NVIDIA Driver ≥535.xx, CUDA 12.1+, DirectX 12, AV1 Codec 支持。
+网络要求: 核心功能 100% 离线可用。仅 OmniLearn 网页抓取及可选的遥测数据需网络。
+安全边界: 本地沙箱隔离浏览器进程；LoRA 训练数据仅存本地；禁止未经授权的模型外传。
+1.5 三十八项核心要求清单
+编号	功能描述	技术约束	验收标准
+TASK-CHAT-001	Qwen3-VL 多模态对话	vLLM 后端，支持 8K 上下文	首字延迟 <800ms，显存占用 <12GB
+TASK-DRAW-001	FLUX.1-dev 文生图	FP8 量化，ComfyUI 节点化	1024x1024 生成 <15s (4090)
+TASK-DRAW-002	Kolors 2.1 中文优化	内置中文 Tokenizer 补丁	中文语义理解准确率 >95%
+TASK-DRAW-003	SDXL + ControlNet 联动	统一 Latent Space	姿态对齐误差 <2px
+TASK-DRAW-004	IP-Adapter 风格迁移	支持多图权重混合	风格相似度 SSIM >0.85
+TASK-COMIC-001	分镜表结构化解析	自定义 DSL 语法	解析成功率 100%
+TASK-COMIC-002	3D 导演台资产加载	USDZ/glTF 格式支持	10万面资产加载 <3s
+TASK-COMIC-003	LTX-2 视频生成	显存优化，支持 720p/30fps	5s 视频生成 <60s
+TASK-COMIC-004	Wan2.1 视频生成	动态帧率支持	运动流畅度 FVD <200
+TASK-COMIC-005	CogVideoX 长视频	分块生成+重叠融合	接缝不可见
+TASK-LEARN-001	内置浏览器 CEF	Chromium 120+，沙箱隔离	内存泄漏 <50MB/h
+TASK-LEARN-002	AI Agent 知识抽取	LangChain + Qwen3-VL	关键信息召回率 >90%
+TASK-LEARN-003	LoRA 进化训练	增量训练，不破坏基座	训练 Loss 收敛且无灾难性遗忘
+TASK-MODEL-001	模型库索引	SQLite + 内存缓存	392GB 索引构建 <30s
+TASK-MODEL-002	三方协同调度	显存/内存/IO 联合调度	资源冲突率 <1%
+TASK-STYLE-001	视频风格 LoRA 训练	LTX-2 专用微调脚本	风格一致性 >0.9
+TASK-ENG-001	LTX-2 微调引擎	梯度检查点，显存分块	24GB 显存可训练 720p LoRA
+TASK-ENG-002	ML 预加载预测	XGBoost，特征窗口 50步	预测准确率 >85%
+TASK-ENG-003	历史学习调度	PPO 算法，奖励函数自定义	调度效率提升 >20%
+TASK-ENG-004	AV1 硬编 RTX50	NVENC AV1 API	编码速度 >120fps
+TASK-ENG-005	AV1 硬编 RTX30/40	NVENC AV1 API	编码速度 >80fps
+TASK-ENG-006	AV1 软编 SVT-AV1	多线程优化，预设 6	CPU 占用 <80%，画质达标
+TASK-ENG-007	自主学习引擎	后台低优先级运行	创作功能延迟增加 <5%
+TASK-SYS-001	离线包完整性	SHA256 校验	校验失败自动修复或提示
+TASK-MODEL-003	基础包模型导入	拖拽/路径映射	自动识别模型类型并注册
+TASK-SYS-002	显存监控与保护	CUDA OOM 拦截	OOM 时自动卸载非关键模型
+TASK-MODEL-004	多模型热切换	显存复用，异步加载	切换无感，UI 不卡顿
+TASK-LEARN-004	知识库 RAG 检索	ChromaDB 向量库	检索延迟 <100ms
+TASK-CHAT-002	Agent 工具调用	Function Calling 协议	调用成功率 >98%
+TASK-COMIC-006	3D 场景渲染	Three.js WebGL 浏览器内渲染	无独立进程，显存占用减半
+TASK-COMIC-007	视频帧间一致性	光流法+Latent 约束	闪烁率 <1%
+TASK-ENG-008	LoRA 权重合并	线性/非线性合并	合并后模型可用性验证
+TASK-ENG-009	训练 Checkpoint 管理	自动清理，保留 Top-K	磁盘空间可控
+TASK-ENG-010	编码码率自适应	CRF/VBR 模式	文件大小符合预期
+TASK-LEARN-005	浏览器安全策略	CSP + 进程隔离	无 XSS/CSRF 风险
+TASK-SYS-003	用户数据隐私	本地加密存储	敏感数据不可读
+TASK-SYS-004	错误日志结构化	JSON 格式，包含堆栈	可自动分析错误原因
+TASK-SYS-005	桌面壳层打包	Tauri 2.x (Rust) 打包配置	Windows安装包正常生成，体积<500MB
+1.6 版本演进路线
+版本	核心变更	技术债务处理	性能影响
+v2.0	基础 AIGC 创作流，SDXL + Qwen2-VL	无	基准
+v2.1	引入 FLUX.1，3D 导演台，AV1 编码	重构 ModelManager	显存占用 +15%
+v2.3	新增 OmniLearn，自主学习引擎，Wan2.1	引入 ML 预测引擎	后台 CPU +10%
+v2.3.1	修复 LoRA 训练 OOM，优化 ML 预测准确率	升级 XGBoost 特征工程	预测准确率 +5%
+1.7 模型清单 (~392GB)
+模型名称	用途	大小	加载策略
+Qwen3-VL-8B-Instruct	核心对话/Agent	16GB	常驻显存/内存
+Qwen3-VL-4B-Instruct	轻量对话/移动端	8GB	按需加载
+Qwen3-VL-2B-Instruct	极速响应/工具调用	4GB	预加载
+FLUX.1-dev	高质量文生图	24GB	按需加载，FP8
+Kolors-2.1	中文文生图	12GB	按需加载
+SDXL-Base-1.0	通用文生图	7GB	常驻内存
+ControlNet-OpenPose	姿态控制	1.5GB	随 SDXL 加载
+IP-Adapter-Plus	风格迁移	1GB	随 SDXL 加载
+LTX-2-Video	视频生成基座	18GB	按需加载
+Wan2.1-14B	高质量视频	28GB	按需加载，显存分块
+CogVideoX-5B	长视频生成	10GB	按需加载
+LTX-2-Style-LoRA	视频风格微调	500MB	训练后热加载
+OmniLearn-RAG-Index	知识库向量索引	动态	内存映射
+MLPredict-XGBoost	预加载预测模型	50MB	常驻内存
+… (其余 ~300GB 为各类 LoRA, VAE, ControlNet 变体)	…	…	冷存储，按需加载
+1.8 术语表
+术语	定义
+AIGC	AI Generated Content，人工智能生成内容
+vLLM	高性能大模型推理库
+ComfyUI	节点式 Stable Diffusion 工作流引擎
+ControlNet	图像生成条件控制网络
+IP-Adapter	图像提示适配器，用于风格/内容迁移
+LTX-2	轻量级视频生成 Diffusion Transformer
+Wan2.1	阿里开源视频生成模型
+CogVideoX	智谱开源视频生成模型
+CEF	Chromium Embedded Framework，嵌入式浏览器
+RAG	Retrieval-Augmented Generation，检索增强生成
+LoRA	Low-Rank Adaptation，低秩自适应微调
+NVENC	NVIDIA 硬件视频编码器
+SVT-AV1	Scalable Video Technology for AV1，软编码器
+XGBoost	极端梯度提升树，用于 ML 预测
+PPO	Proximal Policy Optimization，近端策略优化
+DSL	Domain Specific Language，领域特定语言
+USDZ	Universal Scene Description，3D 资产格式
+ChromaDB	开源向量数据库，支持 HNSW 索引，用于 RAG 检索与语义搜索
+OOM	Out Of Memory，显存/内存溢出
+SSIM	Structural Similarity Index，结构相似性
+FVD	Frechet Video Distance，视频质量指标
+CRF	Constant Rate Factor，恒定码率因子
+VBR	Variable Bit Rate，可变码率
+CSP	Content Security Policy，内容安全策略
+XSS	Cross-Site Scripting，跨站脚本攻击
+CSRF	Cross-Site Request Forgery，跨站请求伪造
+FP8	8位浮点数，模型量化精度
+Latent Space	潜空间，扩散模型工作空间
+Checkpoint	训练检查点，模型状态快照
+Gradient Checkpointing	梯度检查点，显存优化技术
+Hot-Load	热加载，不重启服务加载模型
+Cold-Storage	冷存储，非活跃模型存储区
+Agent	智能体，具备工具调用能力的 AI
+Function Calling	函数调用，LLM 调用外部工具的协议
+Tokenizer	分词器，文本转 Token 的组件
+Embedding	嵌入，文本/图像转向量的过程
+Quantization	量化，降低模型精度以减少显存
+Inference	推理，模型生成结果的过程
+Training	训练，模型学习数据的过程
+Fine-Tuning	微调，在预训练模型上继续训练
+Preload	预加载，提前将模型载入显存
+Eviction	驱逐，从显存卸载模型
+Priority Queue	优先级队列，任务调度数据结构
+Resource Quota	资源配额，限制任务使用的资源量
+Sandbox	沙箱，隔离执行环境
+Telemetry	遥测，系统运行数据采集
+Backward Compatibility	向后兼容，新版本支持旧数据
+State Machine	状态机，描述系统状态转换的模型
+Feature Engineering	特征工程，ML 模型输入特征构建
+Reward Function	奖励函数，强化学习反馈信号
+第二章 整体功能协调逻辑
+2.1 大模型互斥矩阵
+模块 ?模块	OmniChat	OmniDraw	OmniComic	OmniLearn	ModelManager	VideoStyle
+OmniChat	-	兼容 (共享显存池)	兼容 (Agent 驱动)	互斥 (CPU 竞争)	兼容 (调用方)	互斥 (GPU 计算冲突)
+OmniDraw	兼容	-	强依赖 (关键帧)	互斥 (显存竞争)	兼容	互斥 (GPU 计算冲突)
+OmniComic	兼容	强依赖	-	互斥 (显存+CPU)	兼容	互斥 (GPU 计算冲突)
+OmniLearn	互斥	互斥	互斥	-	兼容 (写入)	互斥 (GPU 计算冲突)
+ModelManager	兼容	兼容	兼容	兼容	-	兼容
+VideoStyle	互斥	互斥	互斥	互斥	兼容	-
+注: “互斥” 表示不可同时运行，需通过调度器排队或抢占；“兼容” 表示可并行，但受总资源限制；“强依赖” 表示必须同时存在。
+2.2 学习引擎与创作功能关系图
+graph TD
+    User[用户] --> OmniLearn[OmniLearn 模块]
+    OmniLearn --> LearningEngine[自主学习引擎]
+    
+    LearningEngine -->|RAG 知识注入| OmniChat[AI 对话]
+    LearningEngine -->|Prompt 增强| OmniDraw[AI 绘画]
+    LearningEngine -->|剧本/分镜优化| OmniComic[漫剧创作]
+    LearningEngine -->|训练数据/LoRA| VideoStyle[视频风格]
+    
+    OmniChat -->|反馈/纠错| LearningEngine
+    OmniDraw -->|生成结果评价| LearningEngine
+    OmniComic -->|创作流数据| LearningEngine
+    VideoStyle -->|训练 Loss| LearningEngine
+    
+    LearningEngine -->|触发预加载| MLPredict[ML 预测引擎]
+    LearningEngine -->|优化调度策略| Scheduler[协同调度引擎]
+2.3 模型加载互斥规则
+优先级	模型/模块	抢占策略	卸载策略	备注
+P0	Qwen3-VL-8B (Agent 模式)	不可抢占	仅用户手动卸载	核心交互
+P1	FLUX.1-dev (生成中)	可被 P0 抢占	保存中间状态后卸载	生成任务
+P2	LTX-2 (视频生成中)	可被 P0/P1 抢占	保存 Checkpoint 后卸载	长任务
+P3	OmniLearn (训练中)	可被 P0-P2 抢占	暂停训练，保存状态	后台任务
+P4	ControlNet/IP-Adapter	随基座模型卸载	立即卸载	附属模型
+P5	MLPredict-XGBoost	不可抢占	仅系统关闭时卸载	常驻服务
+2.4 功能切换流程
+用户触发: 点击 OmniDraw 按钮。
+状态检查: Scheduler 检查当前状态，发现 OmniLearn 正在训练 (P3
+OmniSpace AI v2.3.1 程序开发计划（下）
+第四章 调整方案
+4.1 性能自适应调整方案
+4.1.1 GPU显存监控与自适应降参策略
+系统需实现毫秒级显存监控，根据当前占用率动态调整模型推理参数，防止OOM（Out Of Memory）崩溃。
+显存使用率阈值	状态定义	精度降级策略	模型卸载策略
+< 70%	安全区	维持 fp32/bf16	全量驻留显存
+70% - 85%	警戒区	降级至 fp16	保持全量驻留，开启显存碎片整理
+85% - 95%	危险区	降级至 bf16/int8	卸载非活跃LoRA权重至内存
+> 95%	溢出区	强制 int8 量化推理	卸载基础模型至内存，启用CPU Offload
+4.1.2 CPU与内存自适应
+针对Celery后台任务与前端渲染的内存竞争，实施以下自适应机制： - 内存占用阈值：当系统总内存占用 > 85% 时，触发内存保护机制。 - 进程优先级调整：使用 os.nice() 降低非关键Celery Worker的CPU调度优先级，保障前端React 19.2主线程与Three.js渲染的60FPS流畅度。 - 后台任务 Throttling：当内存告警时，动态调整Celery并发数（concurrency 从 4 降至 1），并暂停非紧急的LoRA训练任务。
+4.1.3 温度与功耗自适应
+通过 pynvml 或 rocm-smi 轮询硬件状态： - GPU温度阈值：> 85°C 触发降频，> 90°C 强制暂停生成任务并弹出UI警告。 - 功耗墙处理：当检测到功耗触及TDP上限且温度升高时，自动将推理Batch Size减半。 - 降频策略：记录连续3次高温降频事件后，在当前会话内锁定最大GPU利用率至 80%。
+4.1.4 自适应调整决策树
+IF GPU_VRAM > 95%:
+    APPLY int8_quantization()
+    UNLOAD inactive_loras() TO ram
+    IF STILL_OOM: ENABLE cpu_offload()
+ELSE IF GPU_TEMP > 85°C:
+    REDUCE batch_size BY 50%
+    LOG thermal_throttle_event()
+ELSE IF SYS_RAM > 85%:
+    SET celery_concurrency = 1
+    PAUSE lora_training_tasks()
+ELSE:
+    MAINTAIN optimal_performance_profile()
+4.2 硬件等级自适应方案
+硬件档位	核心配置	学习速率	对话模型	绘画模型	视频模型	特殊限制
+顶配档	RTX 5090 32GB + 64GB RAM	全速 (LR=1e-4)	Qwen3-VL-8B-Instruct (fp16)	FLUX.1-dev (fp16)	LTX-Video-2B	无限制，支持8K渲染
+高端档	RTX 4090 24GB + 32GB RAM	全速 (LR=1e-4)	Qwen3-VL-8B-Instruct (int8)	FLUX.1-dev (fp16)	Wan2.1-T2V-1.3B	视频生成限制720p
+中端档	RTX 4070 12GB + 24GB RAM	中速 (LR=5e-5)	Qwen3-VL-4B-Instruct (int8)	SDXL-Turbo (fp16)	CogVideoX-2B	视频生成限制480p
+入门档	RTX 3060 12GB + 32GB RAM	限制 (LR=1e-5)	Qwen3-VL-2B-Instruct (int8)	SDXL-Turbo (int8)	CogVideoX-2B	禁用高分辨率修复
+AMD档	RX 6600 8GB + 16GB RAM	限制 (LR=1e-5)	Qwen3-VL-2B-Instruct (int8)	SDXL-Turbo (int8)	禁用	视频生成不可用，AV1软编
+纯CPU档	无独显 + 16GB RAM	禁用	Qwen3-VL-2B (fp32)	SD1.5 (fp32)	禁用	仅支持基础对话与低清绘画
+4.3 学习策略调整方案
+4.3.1 知识库容量自适应
+阈值设定：向量库条目 < 10k 时全量加载；10k-100k 时启用ChromaDB HNSW索引；> 100k 时切换至ChromaDB/SQLite FTS5混合检索。
+学习速率调整：知识库增量 > 1k/天时，自动降低LoRA训练Epoch数，防止灾难性遗忘。
+数据保留策略：采用LRU算法，自动归档30天未命中的旧知识片段至冷存储。
+4.3.2 LoRA训练质量自适应
+评估指标：实时监控 Validation Loss，若连续5个Step无下降，触发超参数微调。
+自动调优：Loss震荡时自动降低 Learning Rate (乘以0.8)；Loss停滞时尝试增加 Rank 维度。
+早停策略：Validation Loss 回升超过 5% 立即停止训练，保存最优Checkpoint。
+4.3.3 网络状况自适应
+带宽监测：通过 speedtest-cli 或系统API实时获取下行带宽。
+下载限速：带宽 < 10Mbps 时，限制HuggingFace模型下载并发数为1，并启用断点续传。
+离线模式：网络断开时，自动切换至本地缓存模型，禁用在线RAG检索，UI显示离线标识。
+4.3.4 用户行为自适应
+偏好分析：统计用户高频使用的Prompt标签与生成参数，构建用户画像向量。
+主动学习：当检测到用户在特定领域（如“赛博朋克”）频繁微调时，主动推荐相关开源LoRA。
+好奇心驱动：在空闲状态下，利用强化学习探索用户未触及的模型组合，生成惊喜推荐。
+4.4 用户可调整项清单
+设置项	默认值	可选范围	影响说明
+显存安全阈值	85%	70% - 95%	降低阈值可提升稳定性，但增加CPU Offload频率
+后台任务并发数	4	1 - 8	影响视频渲染与知识入库速度，过高会导致UI卡顿
+LoRA训练Rank	16	4 - 64	Rank越大学习上限越高，显存占用呈平方级增长
+视频生成分辨率	720p	480p / 720p / 1080p	高分辨率显著增加显存需求与生成时间
+知识库自动清理	30天	7天 / 30天 / 90天 / 禁用	控制本地向量库体积与长期记忆保留时长
+硬件加速模式	Auto	Auto / CUDA / ROCm / CPU	强制指定计算后端，Auto模式下由系统自动探测
+
+第五章 落地任务清单
+5.1 P0必做任务
+任务编号	任务名称	功能描述	技术实现要点	依赖任务	验收标准	预估工时
+TASK-SYS-006	前端工程脚手架	搭建React 19.2+Vite 6+TS 5.x基础框架	配置Tailwind CSS 4，集成Sakura主题Token	无	项目可启动，主题色正确渲染	4h
+TASK-SYS-007	后端API网关	构建FastAPI+Uvicorn异步服务	配置CORS，实现全局异常处理与Pydantic校验	无	接口文档可访问，基础路由响应正常	6h
+TASK-SYS-008	数据库ORM层	建立SQLAlchemy 2.0异步模型	定义User, Project, Asset表结构，实现Alembic迁移	TASK-SYS-007	迁移脚本可执行，CRUD接口可用	8h
+TASK-SYS-009	消息队列集成	接入Redis+Celery异步任务	配置Celery Beat，实现任务状态回调机制	TASK-SYS-007	异步任务可下发，状态可查询	6h
+TASK-CHAT-003	基础对话接口	实现LLM对话流式输出	对接Qwen3-VL，使用SSE推送，支持上下文	TASK-SYS-007	前端可流式接收文本，无卡顿	12h
+TASK-DRAW-005	基础绘画接口	实现SDXL/FLUX生图API	封装Diffusers Pipeline，支持Prompt与参数	TASK-SYS-009	可生成图片并返回Base64/URL	16h
+TASK-SYS-010	文件存储服务	本地资产存储与缩略图生成	使用Pillow生成WebP缩略图，统一路径管理	TASK-SYS-008	图片上传成功，缩略图正确显示	8h
+TASK-SYS-011	用户认证鉴权	JWT Token签发与校验	实现登录、注册、Token刷新中间件	TASK-SYS-008	未授权请求返回401，Token有效	6h
+TASK-CHAT-004	对话UI组件	聊天窗口与消息气泡	虚拟列表渲染，支持Markdown解析与代码高亮	TASK-SYS-006	消息滚动流畅，样式符合Sakura主题	12h
+TASK-DRAW-006	绘画工作台UI	参数面板与画布预览	集成Three.js基础场景，支持图片拖拽	TASK-SYS-006	参数修改实时反馈，画布可缩放	16h
+TASK-SYS-012	任务进度面板	异步任务状态可视化	轮询/WebSocket展示Celery任务队列状态	TASK-SYS-009	进度条准确更新，支持取消任务	8h
+TASK-SYS-013	硬件探测模块	自动识别GPU/CPU/RAM信息	使用pynvml/psutil获取硬件规格并缓存	TASK-SYS-007	启动时正确输出硬件等级与显存大小	6h
+TASK-SYS-014	自适应调度器	根据硬件等级加载配置	读取4.2映射表，动态设置模型路径与参数	TASK-SYS-013	不同硬件启动加载对应配置，无报错	8h
+TASK-SYS-015	显存监控守护	实时显存占用监控与日志	独立线程轮询，写入环形缓冲区	TASK-SYS-014	监控数据可查，异常时触发告警日志	6h
+TASK-MODEL-005	模型卸载器	显存不足时自动卸载权重	实现Tensor至CPU的搬运逻辑与显存清理	TASK-SYS-015	显存>95%时自动卸载，恢复后重新加载	12h
+TASK-SYS-016	温度保护机制	GPU过热降频与暂停	读取温度传感器，触发阈值时中断Pipeline	TASK-SYS-015	温度>85°C时任务暂停，UI提示	4h
+TASK-LEARN-006	知识库向量库	初始化ChromaDB	实现文档分块、Embedding生成与入库	TASK-SYS-008	文本可成功向量化并检索	10h
+TASK-LEARN-007	RAG检索接口	基于知识库的增强生成	实现Top-K检索，拼接Context后送入LLM	TASK-LEARN-006	回答包含知识库内容，引用来源正确	12h
+TASK-COMIC-008	基础视频接口	实现CogVideoX生成API	封装视频生成Pipeline，支持帧率与分辨率参数	TASK-SYS-009	可生成MP4视频，元数据正确	20h
+5.2 P1重要任务
+任务编号	任务名称	功能描述	技术实现要点	依赖任务	验收标准	预估工时
+TASK-SYS-017	插件系统架构	支持第三方AI模型热加载	定义Plugin Interface，使用importlib动态加载	TASK-DRAW-005	可加载外部Python模型插件，无需重启	16h
+TASK-SYS-018	工作流编排引擎	节点式AI任务串联	基于ReactFlow设计DAG，后端解析执行	TASK-SYS-009	可拖拽连线，任务按依赖顺序执行	24h
+TASK-LEARN-008	浏览器进程池	预初始化与快照恢复	使用CEF/Chromium 120，实现进程预热与状态序列化	TASK-SYS-006	浏览器窗口启动<1s，状态可恢复	20h
+TASK-LEARN-009	混合检索系统	向量+关键词双路召回	集成SQLite FTS5，实现RRF重排序算法	TASK-LEARN-007	命中率提升>15%，延迟增加<20ms	16h
+TASK-CHAT-005	Agent分级决策	页面复杂度分类与路由	训练轻量级分类器，简单页面跳过VLM理解	TASK-CHAT-003	简单页面决策<500ms，复杂页面准确率>90%	18h
+TASK-ENG-011	LoRA训练加速	FlashAttn与8bit优化器	集成Flash Attention-2，使用bitsandbytes 8bit AdamW	TASK-DRAW-005	训练时间减少>30%，显存占用降低>20%	12h
+TASK-LEARN-010	知识图谱可视化	实体关系三元组渲染	使用Neo4j/NetworkX抽取，ReactFlow渲染图谱	TASK-LEARN-006	支持节点拖拽、缩放、高亮关联路径	20h
+TASK-LEARN-011	多模态输入解析	图片/音频转文本预处理	集成Whisper与CLIP，实现多模态Embedding	TASK-LEARN-006	图片/音频可成功转为向量并检索	14h
+TASK-SYS-019	导出与分享模块	项目打包与云端同步	实现项目序列化，对接S3/OSS上传	TASK-SYS-010	项目可导出为zip，分享链接可访问	12h
+TASK-SYS-020	性能分析面板	实时FPS/显存/耗时图表	前端集成ECharts，后端暴露/metrics接口	TASK-SYS-015	图表实时刷新，历史数据可回溯	10h
+TASK-CHAT-006	语音交互模块	TTS与ASR集成	对接Edge-TTS与FunASR，实现语音控制	TASK-CHAT-003	语音指令识别准确率>95%，TTS自然	14h
+TASK-SYS-021	安全沙箱执行	插件代码隔离运行	使用Docker/gVisor隔离插件执行环境	TASK-SYS-017	插件崩溃不影响主进程，无文件越权访问	16h
+TASK-LEARN-012	增量学习机制	知识库热更新不重建	实现ChromaDB增量Add，避免全量Reindex	TASK-LEARN-006	新增文档入库<1s，无需重启服务	10h
+TASK-COMIC-009	视频后处理管线	FFmpeg自动剪辑与转码	封装FFmpeg 7.x，支持裁剪、拼接、AV1编码	TASK-COMIC-008	视频后处理耗时<视频时长30%	14h
+TASK-SYS-022	用户偏好持久化	学习用户习惯并存储	记录操作日志，异步写入UserProfile表	TASK-SYS-008	重启后偏好设置保留，推荐更精准	8h
+TASK-SYS-023	国际化支持	多语言UI与Prompt翻译	使用react-i18next，集成翻译API	TASK-SYS-006	支持中/英切换，Prompt自动翻译	10h
+TASK-SYS-024	自动化测试框架	Pytest+Playwright集成	编写API单元测试与E2E测试用例	TASK-SYS-007	核心接口覆盖率>80%，E2E通过	12h
+TASK-SYS-025	日志与追踪系统	结构化日志与链路追踪	集成Loguru与OpenTelemetry	TASK-SYS-007	请求链路可追踪，日志格式统一	8h
+TASK-SYS-026	部署与打包脚本	Tauri 2.x打包配置	配置CI/CD，生成Windows/macOS安装包	TASK-SYS-006	安装包体积<500MB，启动正常	10h
+5.3 P2优化任务
+任务编号	任务名称	功能描述	技术实现要点	依赖任务	验收标准	预估工时
+TASK-ENG-012	显存碎片整理	定期清理显存碎片	调用torch.cuda.empty_cache()，智能合并空闲块	TASK-SYS-015	长时间运行无显存泄漏	4h
+TASK-MODEL-006	模型预热机制	启动时加载常用模型至显存	后台异步加载Top3高频模型	TASK-SYS-014	首次生图延迟<3s	6h
+TASK-SYS-027	缓存失效策略	智能清理过期缓存	基于LRU+TTL，自动清理无效Checkpoint	TASK-SYS-010	缓存目录大小可控，无僵尸文件	4h
+TASK-CHAT-007	前端虚拟滚动	长列表性能优化	使用@tanstack/react-virtual渲染万级列表	TASK-CHAT-004	10k条消息滚动FPS>55	6h
+TASK-DRAW-007	图片懒加载	画廊页性能优化	使用IntersectionObserver，按需加载缩略图	TASK-DRAW-006	首屏加载时间<1s	4h
+TASK-SYS-028	数据库连接池	SQLAlchemy连接复用	配置QueuePool，避免频繁建连开销	TASK-SYS-008	高并发下无连接超时	4h
+TASK-SYS-029	异步IO优化	文件读写非阻塞	使用aiofiles替代同步IO	TASK-SYS-010	大文件上传不阻塞主线程	4h
+TASK-SYS-030	错误重试机制	网络/模型失败自动重试	实现指数退避重试装饰器	TASK-CHAT-003	临时故障自动恢复，无需人工干预	4h
+TASK-SYS-031	内存泄漏检测	定期GC与对象追踪	集成tracemalloc，定时生成内存快照	TASK-SYS-015	24h运行内存增长<5%	6h
+TASK-SYS-032	主题切换动画	平滑过渡Sakura主题	使用CSS Variables+Transition	TASK-SYS-006	切换无闪烁，动画流畅	2h
+TASK-SYS-033	键盘快捷键	全局快捷键支持	集成mousetrap，支持自定义绑定	TASK-CHAT-004	常用操作均可快捷键触发	4h
+TASK-SYS-034	离线文档生成	本地帮助文档	使用MkDocs生成静态HTML，打包进应用	TASK-SYS-026	无网络时可查阅完整文档	6h
+5.4 P3长期任务
+任务编号	任务名称	功能描述	技术实现要点	依赖任务	验收标准	预估工时
+TASK-ENG-013	云端协同训练	多机分布式LoRA训练	集成DeepSpeed ZeRO-3，实现梯度同步	TASK-ENG-011	2卡训练加速比>1.7x	40h
+TASK-CHAT-008	自进化Agent	基于反馈的自主优化	实现RLHF闭环，自动调整Prompt策略	TASK-CHAT-005	用户满意度评分逐月提升	60h
+TASK-ENG-014	跨模态生成	文本/音频/视频统一生成管线	基于Diffusion Transformer的统一潜空间，实现Text-to-Image/Audio/Video的跨模态推理	无	跨模态生成质量FID<20, 音频MOS>3.5, 视频FVD<200	80h				
+OmniSpace AI v2.3.1 程序开发计划（Part II — 前后端专项与技术核心）
+第六章 前端专项
+6.1 完整布局方案
+6.1.1 主窗口布局
+主窗口采用 Flexbox 布局，整体 HTML 结构层级如下：
+<div class="omnispace-root bg-[#1A1A2E] text-white h-screen w-screen flex flex-col overflow-hidden">
+  <!-- 顶部导航栏 (固定高度 48px)：左侧 Logo 区域、居中全局搜索触发器、右侧通知中心(Bell Icon)、用户头像下拉菜单(Dropdown)及主题切换按钮 -->
+  <header class="omnispace-header h-12 flex-shrink-0"></header>
+  
+  <!-- 核心工作区 -->
+  <main class="omnispace-workspace flex flex-1 overflow-hidden">
+    <!-- 左侧导航 -->
+    <nav class="omnispace-nav flex-shrink-0 transition-all duration-300"></nav>
+    
+    <!-- 中间主内容区 -->
+    <section class="omnispace-main flex-1 overflow-y-auto p-6"></section>
+    
+    <!-- 右侧动态面板 -->
+    <aside class="omnispace-panel w-[320px] flex-shrink-0 border-l border-white/10"></aside>
+  </main>
+  
+  <!-- 底部状态栏 -->
+  <footer class="omnispace-statusbar h-7 flex-shrink-0 border-t border-white/10 flex items-center px-4 text-xs"></footer>
+</div>
+6.1.2 左侧导航栏
+收起状态：宽度 64px，仅显示图标。
+展开状态：宽度 260px，显示图标与文本。
+导航项结构：包含 7 个核心入口，对应前端路由：/chat（AI对话）、/paint（AI绘画）、/storyboard（漫剧创作）、/learning（知识学习）、/models（模型管理）、/style（视频风格）、/settings（系统设置）。
+交互逻辑：点击底部 Toggle 按钮切换宽度；当前激活项使用樱花粉 #FF6B9D 作为背景高亮。
+6.1.3 右侧面板
+宽度：固定 320px。
+切换逻辑：根据左侧导航激活项动态渲染对应面板组件。
+面板内容：
+对话历史与上下文设置
+绘画参数调节与Prompt优化
+分镜属性与3D场景控制
+知识图谱节点详情与浏览器书签
+模型元数据与显存占用监控
+风格训练Loss曲线与预览
+6.1.4 底部状态栏
+组件结构：从左至右依次为 GPU 占用率（进度条+百分比）、内存使用量、网络延迟（Ping值）、自主学习状态（Running/Idle/Paused）。
+样式：高度 28px，背景 #1A1A2E，文字 #FFFFFF80。
+6.1.5 响应式断点与适配策略
+断点	宽度范围	适配策略
+Desktop	> 1440px	完整三栏布局，右侧面板 320px
+Laptop	1024px - 1440px	右侧面板折叠为图标抽屉
+Tablet	768px - 1023px	隐藏右侧面板，左侧导航默认收起
+6.2 功能布局方案
+6.2.1 AI对话页
+组件树：ChatPage -> ChatSidebar(历史列表) + ChatWindow(消息流) + ChatInput(多模态输入框)。
+消息流：支持 Markdown 渲染、代码高亮、流式打字机效果。
+6.2.2 AI绘画页
+组件树：PaintPage -> PaintParams(左侧参数面板) + PaintCanvas(中央画布/结果展示) + PaintHistory(右侧历史网格)。
+6.2.3 漫剧创作页
+组件树：ComicPage -> StoryboardTable(分镜表) + ThreeDirector(3D导演台) + VideoGenPanel(生成控制台)。
+6.2.4 知识学习页
+组件树：LearnPage -> TopicList + BrowserView(内嵌CEF预览) + KnowledgeList + GraphView(知识图谱)。
+6.2.5 模型管理页
+组件树：ModelPage -> ModelGrid + DownloadManager + ConfigPanel。
+6.2.6 视频风格页
+组件树：StylePage -> StyleList + TrainingTasks + PreviewPlayer。
+6.3 全量视觉设计方案
+6.3.1 颜色体系
+颜色角色	色值	用途
+樱花粉 (Primary)	#FF6B9D	主按钮、激活态、强调链接
+薄荷绿 (Secondary)	#4ECDC4	成功状态、辅助标签、进度条
+深蓝黑 (Background)	#1A1A2E	全局背景、卡片底色
+纯白 (Text)	#FFFFFF	主标题、正文
+灰白 (Text Muted)	#FFFFFF80	辅助说明、禁用态
+6.3.2 字体体系
+中文：PingFang SC, Microsoft YaHei, WenQuanYi Zen Hei, sans-serif
+英文：Inter, Roboto, sans-serif
+代码：JetBrains Mono, Fira Code, monospace
+6.3.3 组件设计规范
+按钮：圆角 8px，主按钮背景 #FF6B9D，Hover 时亮度提升 10%。
+输入框：背景 #FFFFFF10，边框 #FFFFFF20，Focus 时边框变为 #4ECDC4。
+卡片：背景 #FFFFFF08，边框 #FFFFFF10，内边距 16px。
+6.3.4 动效规范
+页面转场：fade-in + slide-up，时长 300ms，缓动 ease-out。
+状态变化：颜色过渡 transition: all 0.2s ease。
+6.3.5 图标规范
+库：Lucide React
+尺寸：导航 24px，按钮内 16px，状态栏 14px。
+6.4 前端思维导图
+App
+ ├── Layout
+ │    ├── Sidebar (NavItems)
+ │    ├── MainContent
+ │    │    ├── ChatPage
+ │    │    ├── PaintPage
+ │    │    ├── ComicPage
+ │    │    ├── LearnPage
+ │    │    ├── ModelPage
+ │    │    └── StylePage
+ │    └── RightPanel (Dynamic)
+ └── StatusBar (GPU, Mem, Net, LearnState)
+6.5 前端流程图
+6.5.1 AI对话流程
+用户输入 -> ChatInput.onSubmit -> fetch('http://localhost:8000/api/v1/chat/stream') -> EventSource 监听 -> MarkdownRenderer 增量更新 DOM。
+6.5.2 AI绘画流程
+参数设置 -> PaintParams.onGenerate -> POST http://localhost:8000/api/v1/paint/generate -> WebSocket 接收进度 -> PaintCanvas 渲染 Base64/Blob。
+6.5.3 漫剧创作流程
+分镜编辑 -> ThreeDirector 渲染 3D 场景 -> VideoGenPanel 触发 FFmpeg 队列 -> 进度条更新 -> 导出 MP4。
+第七章 后端专项
+7.1 完整后端架构总览
+7.1.1 后端服务进程模型
+Main Process：Uvicorn 主进程，处理 HTTP/WebSocket 请求。
+Celery Workers：异步任务执行（视频编码、模型训练、知识提取）。
+CEF Process：Chromium Embedded Framework 进程池，负责网页浏览与DOM提取。
+AI Inference Process：独立 PyTorch 进程，通过共享内存/ZeroMQ 与主进程通信。
+7.1.2 进程间通信机制（含Tauri IPC规范）
+【桌面壳层】Tauri 2.x (Rust) 原生层架构：
+- 窗口管理：Rust 原生窗口管理，通过 Tauri API 创建/销毁/管理窗口生命周期
+- IPC 通信：Tauri Command 机制，前端 invoke() 调用 Rust 后端，JSON + camelCase + Zod/serde 双向验证
+- 浏览器进程池：Rust 侧管理 CEF 进程池生命周期，通过 Tauri sidecar 或子进程方式启动
+- Rust 代码占比：约 12%（窗口管理、IPC、浏览器进程池、AV1 编码桥接）
+
+【后端服务间通信】
+Redis：Celery Broker、任务状态存储、全局缓存。
+WebSocket：前端实时进度推送（通过 Tauri IPC 桥接至渲染进程）。
+HTTP REST：常规 CRUD 操作（base URL: http://localhost:8000/api/v1）。
+
+【Tauri IPC 协议规范】（参照文档C 3.2.1节）
+- 消息格式：JSON，字段命名 camelCase
+- 前端→Rust：window.__TAURI__.invoke('command_name', { payload })
+- Rust→前端：通过 Tauri Event 系统 emit 事件
+- 验证层：前端 Zod schema 验证入参，Rust 侧 serde Deserialize 验证
+- 错误处理：Rust 侧使用 thiserror 定义错误类型，统一序列化为 JSON error 返回
+- 示例：
+  // 前端调用
+  const result = await invoke('load_model', { modelId: 'qwen3-vl-8b', quantize: 'int8' });
+  // Rust 侧
+  #[tauri::command]
+  async fn load_model(model_id: String, quantize: String) -> Result<ModelHandle, AppError> { ... }
+7.1.3 依赖注入与模块化架构
+使用 FastAPI Depends 实现服务层单例注入，所有 Service 继承 BaseService，统一生命周期管理。
+7.2 API路由设计
+API 基础 URL：http://localhost:8000/api/v1
+所有后端 API 路由统一加 /api/v1/ 前缀。
+
+7.2.1 /api/v1/learn 路由
+方法	路径	描述	请求参数	响应格式
+POST	/api/v1/learn/start	启动自主学习	{topic, depth}	{task_id}
+POST	/api/v1/learn/stop	停止学习	{task_id}	{status}
+GET	/api/v1/learn/status	获取状态	task_id	{progress, nodes}
+…	…	(共23个端点)	…	…
+7.2.2 /api/v1/browser 路由
+方法	路径	描述
+POST	/api/v1/browser/navigate	导航至URL
+POST	/api/v1/browser/extract	提取页面知识
+GET	/api/v1/browser/screenshot	获取截图
+…	…	(共6个端点)
+7.2.3 - 7.2.8 其他路由（均以 /api/v1/ 为前缀）
+/api/v1/chat：POST /api/v1/chat/stream, POST /api/v1/chat/history
+/api/v1/paint：POST /api/v1/paint/generate, GET /api/v1/paint/styles
+/api/v1/comic：POST /api/v1/comic/storyboard, POST /api/v1/comic/render
+/api/v1/model：GET /api/v1/model/list, POST /api/v1/model/download, PUT /api/v1/model/config
+/api/v1/video：POST /api/v1/video/encode, GET /api/v1/video/queue
+/api/v1/style：POST /api/v1/style/train, GET /api/v1/style/metrics
+7.3 后端服务层详细设计
+7.3.1 自主学习服务 (AutonomousLearningService)
+class AutonomousLearningService:
+    async def start_learning(self, topic: str, depth: int) -> str: ...
+    async def pause_learning(self, task_id: str) -> bool: ...
+    def _decision_loop(self): ... # 核心决策循环
+7.3.2 AI浏览Agent服务 (BrowserAgentService)
+决策循环：Perceive -> Understand -> Decide -> Act -> Extract。
+方法：async def execute_action(self, action: AgentAction)
+7.3.3 知识处理服务 (KnowledgeProcessingService)
+管线：filter_html -> segment_text -> extract_entities -> vectorize -> upsert_db。
+7.3.4 行为学习服务 (BehaviorLearningService)
+记录用户操作序列，使用 RNN/Transformer 预测下一步意图。
+7.3.5 知识注入服务 (KnowledgeInjectionService)
+RAG：混合检索（BM25 + Dense）。
+LoRA：动态加载适配器，注入 System Prompt 或 KV Cache。
+7.4 后端思维导图
+FastAPI App
+ ├── Routers (/api/v1/learn, /api/v1/chat, /api/v1/paint...)
+ ├── Services
+ │    ├── AutonomousLearningService
+ │    ├── BrowserAgentService
+ │    ├── KnowledgeProcessingService
+ │    └── KnowledgeInjectionService
+ ├── Core
+ │    ├── RedisClient
+ │    ├── DBSession
+ │    └── CeleryApp
+ └── Engines
+      ├── PyTorchEngine
+      ├── FFmpegEngine
+      └── CEFManager
+7.5 后端核心流程图
+7.5.1 AI对话流程
+Request -> AuthMiddleware -> ChatRouter -> LLMService.stream() -> WebSocket.push() -> Client。
+7.5.2 Agent浏览决策流程
+Screenshot/DOM -> VLM/LLM -> Action JSON -> CEF.execute() -> New State。
+7.5.3 知识处理管线流程
+Raw HTML -> Trafilatura -> LangChain TextSplitter -> BGE-M3 Embedding -> ChromaDB/SQLite。
+7.5.4 LoRA训练流程
+Dataset -> QLoRA Config -> Trainer.train() -> Merge/Save Adapter -> Hot Reload。
+7.5.5 混合检索流程
+Query -> [BM25 Index] + [Vector Index] -> RRF Score -> Top-K -> Context。
+7.5.6 浏览器进程池流程
+Init Pool -> Acquire Tab -> Navigate -> Extract -> Release Tab -> GC。
+第八章 技术核心
+8.1 系统架构总览
+OmniSpace AI v2.3.1 采用分层架构： 1. 表现层：React 19.2 SPA，通过 WebSocket/REST 与后端通信。 2. 网关层：FastAPI + Uvicorn，负责路由、鉴权、限流。 3. 服务层：Python 异步服务，封装业务逻辑。 4. 引擎层：C++/Rust 底层引擎（CEF, FFmpeg, PyTorch），通过 FFI/Subprocess 调用。 5. 数据层：SQLite (关系型), Redis (缓存/队列), ChromaDB (向量)。
+8.2 完整目录结构
+omnispace-ai/
+ ├── frontend/             # React 19.2 + Vite 6
+ │    ├── src/
+ │    │    ├── components/  # UI组件
+ │    │    ├── pages/       # 页面路由
+ │    │    ├── services/    # API封装
+ │    │    └── stores/      # Zustand 5状态
+ │    └── package.json
+ ├── backend/              # FastAPI
+ │    ├── app/
+ │    │    ├── api/         # 路由
+ │    │    ├── core/        # 配置/安全
+ │    │    ├── services/    # 业务逻辑
+ │    │    └── engines/     # 底层引擎封装
+ │    ├── tests/
+ │    └── pyproject.toml
+ ├── engines/              # C++/Rust 底层
+ │    ├── cef-wrapper/
+ │    ├── av1-encoder/
+ │    └── torch-runtime/
+ └── docs/                 # 项目文档
+8.3 全栈技术栈清单
+层级	技术	版本	用途
+前端	React	19.2.0	UI框架
+前端	Vite	6.0.0	构建工具
+前端	Tailwind CSS	4.0.0	样式
+前端	TypeScript	5.x	类型系统
+前端	framer-motion	11.x	动画库
+前端	react-markdown	9.x	Markdown渲染
+前端	react-syntax-highlighter	15.x	代码高亮
+前端	react-flow	12.x	节点式工作流编辑器
+前端	@tanstack/react-virtual	3.x	虚拟滚动
+前端	Zod	3.x	运行时类型校验
+前端	React Compiler	1.0	编译优化
+前端	React Three Fiber + drei	latest	3D渲染
+前端	shadcn/ui (Base UI)	latest	组件库
+前端	dnd-kit	latest	拖拽框架
+前端	Vercel AI SDK	latest	AI流式
+前端	pnpm	9+	包管理器
+后端	FastAPI	0.115.0	Web框架
+后端	SQLAlchemy	2.0.30	ORM
+底层	PyTorch	2.8.0	AI推理/训练
+底层	FFmpeg	7.1.0	视频处理
+底层	CEF	120.1.10	浏览器内核
+8.4 七大核心模块原理与实现细节
+8.4.1 自主学习引擎
+原理：基于 LLM 的 Goal-Setting 与 ReAct 模式。
+算法：PPL (Perplexity) 驱动的好奇心探索 + 知识图谱覆盖率奖励。
+8.4.2 LoRA微调引擎
+原理：Low-Rank Adaptation，冻结预训练权重，仅训练低秩分解矩阵。
+实现：peft 库 + bitsandbytes 4-bit 量化。
+8.4.3 模型预加载引擎
+原理：XGBoost 预测用户未来 5 分钟可能使用的模型。
+特征：时间、当前页面、历史频率、显存余量。
+8.4.4 协同调度引擎
+算法：Priority Queue + Resource Reservation。
+冲突解决：训练任务优先级低于推理，显存不足时自动 Offload。
+8.4.5 AV1编码引擎
+切换：检测 NVIDIA RTX 30+ 使用 NVENC，否则 SVT-AV1 CPU。
+调优：CRF 23, Preset 6, Keyint 240。
+8.4.6 CEF浏览器引擎
+管理：Object Pool 模式，复用 Render Process。
+过滤：Rust 编写的 AdBlock 引擎，注入 CSS/JS 拦截。
+8.4.7 知识处理引擎
+RAG：HyDE (Hypothetical Document Embeddings) 增强检索。
+注入：System Prompt 动态拼接 + LoRA Adapter 热切换。
+8.5 模块间协调机制
+事件总线：Redis Pub/Sub，Topic: omnispace.events。
+消息格式：{"event": "model.loaded", "data": {"id": "llama-3", "vram": 12000}}。
+依赖：KnowledgeInjectionService 依赖 KnowledgeProcessingService 的完成事件。
+8.6 量化技术指标
+指标名称	测量方法	目标值	当前值	优化方向
+首字延迟 (TTFT)	P95 计时	< 200ms	240ms	投机采样
+对话吞吐量	Tokens/s	> 80	72	KV Cache 量化
+知识提取速度	Pages/min	> 30	25	并发 CEF
+视频编码 FPS	1080p	> 60	55	NVENC 调优
+显存峰值	nvidia-smi	< 20GB	22GB	Offload 策略
+内存泄漏	24h 监控	0	+50MB/24h	CEF GC
+启动时间	Cold Boot	< 3s	4.2s	懒加载
+API P99 延迟	Prometheus	< 50ms	65ms	连接池
+知识检索 Recall@5	评测集	> 85%	82%	Reranker
+LoRA 训练 Loss	100 steps	< 0.5	0.6	学习率
+浏览器标签切换	计时	< 100ms	150ms	预渲染
+风格迁移质量	FID	< 15	18	数据集
+自主学习覆盖率	图谱节点	> 90%	85%	探索率
+错误率	5xx / Total	< 0.1%	0.2%	重试机制
+磁盘 I/O	MB/s	< 100	120	内存缓存
+网络带宽	Mbps	< 50	60	压缩
+用户满意度	点赞率	> 90%	88%	对齐
+OmniSpace AI v2.3.1 完整程序开发计划（Part III — 落地保障与风险补全）
+第九章 落地保障
+9.1 接口规范
+9.1.1 通用响应格式（文档C格式）
+所有 RESTful API 必须严格遵循以下 JSON 结构，禁止直接返回裸数据。
+API 基础 URL：http://localhost:8000/api/v1
+
+字段名	类型	必填	说明
+success	Boolean	是	请求是否成功。true 表示成功，false 表示异常。
+data	Any	否	业务数据载体。失败时可为 null，成功时为具体对象或数组。
+error	Object/null	是	错误对象。成功时为 null，失败时包含 code（字符串错误码）、message（人类可读描述）、detail（详细错误信息）、suggestion（可选，修复建议）。
+meta	Object	是	元数据，包含 request_id（UUID）、timestamp（ISO 8601）、duration_ms（整数）。
+
+响应示例（成功）：
+{
+  "success": true,
+  "data": {
+    "task_id": "uuid-v4-string",
+    "status": "processing"
+  },
+  "error": null,
+  "meta": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": "2026-08-07T00:45:00Z",
+    "duration_ms": 42
+  }
+}
+
+响应示例（失败）：
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "MODEL_NOT_LOADED",
+    "message": "模型 Qwen3-VL-8B-Instruct 未加载到显存",
+    "detail": "当前显存不足，请先卸载其他模型",
+    "suggestion": "调用 POST /api/v1/model/unload 释放显存"
+  },
+  "meta": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440001",
+    "timestamp": "2026-08-07T00:45:01Z",
+    "duration_ms": 15
+  }
+}
+9.1.2 错误码规范（字符串错误码体系）
+错误码采用字符串前缀体系，按模块划分为 6 类，语义化命名：
+
+前缀	模块	典型错误码及含义
+1xxx	模型 (Model)	MODEL_NOT_LOADED: 模型未加载; MODEL_LOAD_FAILED: 模型加载失败; VRAM_INSUFFICIENT: 显存不足; MODEL_INFERENCE_FAILED: 推理失败
+2xxx	知识 (Knowledge)	KNOWLEDGE_PARSE_FAILED: 文档解析失败; KNOWLEDGE_VECTOR_TIMEOUT: 向量检索超时; KNOWLEDGE_TRAINING_EMPTY: LoRA训练数据为空; KNOWLEDGE_RAG_FAILED: RAG检索失败
+3xxx	浏览器 (Browser)	BROWSER_CRASHED: CEF进程崩溃; BROWSER_POOL_EXHAUSTED: 进程池耗尽; BROWSER_PAGE_TIMEOUT: 页面加载超时; BROWSER_NAVIGATION_FAILED: 导航失败
+4xxx	训练 (Training)	TRAINING_OOM: 训练显存溢出; TRAINING_LOSS_NAN: Loss出现NaN; TRAINING_CHECKPOINT_FAILED: 检查点保存失败; TRAINING_DATA_CORRUPTED: 训练数据损坏
+5xxx	系统 (System)	SYSTEM_PARAM_INVALID: 参数校验失败; SYSTEM_UNAUTHORIZED: 未授权; SYSTEM_RESOURCE_NOT_FOUND: 资源不存在; SYSTEM_INTERNAL_ERROR: 内部服务器错误; SYSTEM_DISK_FULL: 磁盘空间不足
+6xxx	前端 (Frontend)	FRONTEND_RENDER_ERROR: 渲染错误; FRONTEND_NETWORK_ERROR: 网络请求失败; FRONTEND_STATE_INVALID: 状态异常; FRONTEND_WEBSOCKET_DISCONNECTED: WebSocket断开
+
+错误响应示例：
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "MODEL_NOT_LOADED",
+    "message": "模型 Qwen3-VL-8B-Instruct 未加载到显存",
+    "detail": "当前显存不足，请先卸载其他模型",
+    "suggestion": "调用 POST /api/v1/model/unload 释放显存"
+  },
+  "meta": {
+    "request_id": "...",
+    "timestamp": "2026-08-07T00:45:00Z",
+    "duration_ms": 15
+  }
+}
+9.1.3 WebSocket 消息格式
+WebSocket 采用统一的 JSON Schema，通过 type 字段区分消息类型：
+消息类型	触发场景	核心字段	示例 Payload
+progress	长任务进度更新	task_id, percent, stage	{"task_id":"x","percent":45,"stage":"encoding"}
+log	实时日志流	level, content, timestamp	{"level":"INFO","content":"Model loaded","ts":1690000000}
+status	全局状态变更	module, state, detail	{"module":"gpu","state":"busy","detail":"VRAM 98%"}
+notification	业务通知	event, payload	{"event":"training_done","payload":{"path":"/..."}}
+9.1.4 跨语言数据格式规范
+Python ? TypeScript: 使用 Pydantic V2 定义 Schema，通过 FastAPI 自动生成 OpenAPI JSON，前端使用 openapi-typescript-codegen 生成 TS 接口。
+Python ? C++ (CEF): 采用 JSON 字符串序列化。C++ 端使用 nlohmann/json 解析，禁止使用二进制协议以降低跨语言维护成本。
+时间格式: 统一使用 ISO 8601 字符串（如 2026-08-07T00:24:20Z），禁止使用时间戳整数。
+空值处理: Python 的 None 映射为 JSON 的 null，禁止使用空字符串 "" 代替 null。
+9.2 编程语言规范
+9.2.1 Python 规范
+【编码铁律（文档C）】async/await 强制 + type hints 强制 + mypy strict 模式
+PEP 8 扩展: 行宽限制 120 字符；强制使用 Type Hints（包括返回值），所有函数签名必须通过 mypy --strict 检查；禁止 *args/**kwargs 除非作为装饰器或底层框架桥接。
+异步编程: 所有 I/O 操作必须使用 async/await；禁止在异步上下文中调用同步阻塞函数（如 time.sleep、requests.get）；FastAPI 路由函数必须声明为 async def。
+异常处理: 禁止裸 except:；必须捕获具体异常；业务异常继承 OmniSpaceBaseException；使用自定义异常层次结构。
+日志规范: 使用 structlog，禁止 print()；日志必须包含 task_id 和 trace_id 字段。
+类型检查: CI 中强制运行 mypy --strict，不允许 type: ignore 注释。
+9.2.2 TypeScript 规范
+【编码铁律（文档C）】no-any 强制 + Zod schema 验证
+命名约定: 接口/类型使用 PascalCase（IUserProfile）；变量/函数使用 camelCase；常量使用 UPPER_SNAKE_CASE。
+类型定义: 严格禁止使用 any 类型；使用 Zod 定义运行时验证 schema，与 TypeScript 类型保持同步；优先使用 interface 而非 type；组件 Props 必须定义独立接口。
+错误处理: 使用 React Error Boundary 捕获渲染错误；API 调用统一封装在 apiClient.ts 中处理拦截器；所有 API 返回值使用 Zod parse 验证。
+ESLint: 配置 @typescript-eslint/no-explicit-any: error，禁止绕过类型检查。
+9.2.3 C++ 规范 (CEF 绑定层)
+【编码铁律（文档C）】RAII 强制 + smart pointers 强制
+内存管理: 严格遵循 RAII 原则；禁止使用 new/delete，统一使用 std::unique_ptr / std::shared_ptr；严格遵循 Chromium 的 scoped_refptr 和引用计数机制；禁止裸指针跨线程传递。
+命名空间: 所有自定义代码必须包裹在 namespace omnispace::cef { ... } 中。
+线程安全: UI 操作必须在 CEF UI Thread 执行；通过 CefPostTask 进行线程调度。
+编译: 启用 -Wall -Wextra -Werror，CI 中 clang-tidy 检查。
+9.2.4 SQL 规范 (SQLAlchemy 2.0)
+【编码铁律（文档C）】参数化查询强制，禁止字符串拼接
+模型定义: 必须继承 Base；所有表必须包含 id, created_at, updated_at 字段。
+迁移规范: 使用 Alembic；禁止手动修改数据库；每个迁移文件必须包含 upgrade() 和 downgrade()。
+查询规范: 严格禁止原生 SQL 字符串拼接（防止 SQL 注入）；必须使用 ORM 表达式或 text() 显式声明参数绑定；安全审计工具 bandit 配置 B608 规则为 error 级别。
+SQLite 特定: PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;
+9.2.5 Rust 规范 (Tauri 2.x 原生层)
+【编码铁律（文档C）】thiserror 强制 + no-unwrap 强制
+错误处理: 所有错误必须使用 thiserror crate 定义结构化错误类型，禁止使用 unwrap()/expect()，统一使用 ? 操作符传播错误。
+类型安全: 所有跨 FFI 边界的数据结构必须实现 serde::Serialize + Deserialize，使用 Zod（前端）与 serde（Rust 端）双向验证。
+命名规范: 模块使用 snake_case，结构体/枚举使用 PascalCase（CamelCase），函数使用 snake_case。
+异步: 使用 tokio 运行时，所有 I/O 操作使用 async fn。
+内存: 禁止 unsafe 块，除非经团队 Code Review 批准并附详细注释说明安全性。
+测试: 所有 pub 函数必须有单元测试，使用 #[cfg(test)] 模块。
+CI: cargo clippy -- -D warnings 强制，cargo fmt --check 强制。
+
+9.2.6 Shell/Bash 规范
+脚本首行必须声明 #!/usr/bin/env bash 和 set -euo pipefail。
+变量必须使用双引号包裹 "$VAR"。
+禁止使用 cd 改变全局目录，使用子 shell (cd /path && cmd)。
+9.2.7 JSON/YAML 配置规范
+键名统一使用 snake_case。
+YAML 文件必须包含头部注释说明用途。
+敏感配置（API Key、密码）禁止硬编码，必须使用环境变量或 .env 文件。
+9.2.8 Markdown 文档规范
+标题层级不得跳级（如 # 后直接 ###）。
+代码块必须标注语言（如 ```python）。
+图片必须包含 Alt 文本：![描述](路径)。
+9.2.9 测试代码规范
+测试文件命名：test_<module>.py。
+测试函数命名：test_<action>_<expected_result>。
+每个测试用例必须包含 Arrange-Act-Assert 注释块。
+9.2.10 禁止事项总表
+语言	禁止项	替代方案
+Python	eval(), exec()	ast.literal_eval() 或 JSON 解析
+Python	os.system()	subprocess.run()
+TypeScript	@ts-ignore	修复类型定义或使用 @ts-expect-error 并附注释
+TypeScript	innerHTML	React JSX 或 dangerouslySetInnerHTML (需审查)
+C++	new/delete	std::unique_ptr / std::shared_ptr
+SQL	SELECT *	显式指定字段列表
+9.3 全流程测试策略（474条测试用例，详见测试计划文档）
+9.3.1 单元测试策略 (~500 用例)
+工具: pytest + pytest-asyncio + pytest-mock。
+覆盖范围: 核心算法、数据转换、工具函数、Agent 决策树逻辑。
+Mock 策略: 外部 API、GPU 推理、文件系统操作必须 Mock；禁止在单元测试中启动真实数据库。
+9.3.2 集成测试策略 (~300 用例)
+工具: httpx.AsyncClient + testcontainers。
+覆盖范围: FastAPI 路由、Celery 任务队列、Redis 缓存交互、SQLite 读写。
+执行方式: 使用 Docker 容器启动 Redis/DB，测试结束后自动销毁。
+9.3.3 E2E 测试策略 (~100 用例)
+工具: Playwright (Python 版)。
+覆盖范围: 核心用户旅程（启动→对话→绘画→导出）。
+环境: 在 CI 中使用无头模式运行完整安装包。
+9.3.4 性能测试策略 (~50 用例)
+工具: locust + 自定义 GPU Profiler。
+基准: RTX 3060 基线响应时间；RTX 5090 顶配吞吐量。
+指标: P95 延迟、FPS、显存峰值、CPU 占用率。
+9.3.5 安全测试策略 (~200 用例)
+工具: bandit (Python), npm audit, OWASP ZAP。
+重点: 提示词注入防御、本地文件路径遍历、CORS 配置、依赖漏洞。
+9.3.6 学习专项测试 (~180 用例)
+Agent 行为: 验证分级决策是否按预期路由（简单问题不走复杂 Agent）。
+知识质量: RAG 检索 Top-K 准确率 > 85%。
+LoRA 训练: 验证 Loss 收敛曲线、显存不溢出、断点续训有效性。
+9.3.7 测试覆盖率要求
+行覆盖率 (Line Coverage): > 80%
+分支覆盖率 (Branch Coverage): > 60%
+核心模块（Agent/RAG/推理）覆盖率: > 90%
+9.3.8 CI/CD 测试流水线设计
+lint: Ruff + ESLint + Clang-Format
+unit-test: pytest (并行)
+security-scan: Bandit + NPM Audit
+integration-test: Docker Compose 环境
+build: 构建离线包
+e2e-test: Playwright 冒烟测试
+9.4 完整部署方案
+9.4.1 开发环境部署
+# 1. 克隆代码
+git clone <repo_url> && cd OmniSpace-AI
+# 2. 创建虚拟环境
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# 3. 安装依赖
+pip install -r requirements-dev.txt
+# 4. 前端依赖
+cd frontend && npm install && cd ..
+# 5. 初始化数据库
+alembic upgrade head
+# 6. 启动开发服务
+make dev
+9.4.2 测试环境部署
+使用 docker-compose.test.yml 一键拉起。
+预置测试数据集（./tests/fixtures/data）。
+环境变量 ENV=test 自动加载测试配置。
+9.4.3 生产环境部署
+构建: make build-release 生成 .exe / .dmg / .AppImage。
+签名: Windows 使用 EV 代码签名证书；macOS 使用 Apple Developer ID。
+分发: 官网直链 + 镜像站 + 种子文件（针对 392GB 完整包）。
+9.4.4 完整离线安装包结构 (~392GB)
+OmniSpace_AI_v2.3.1_Full/
+├── app/                # 应用程序 (~5GB)
+├── cef/                # Chromium 嵌入式框架 (~200MB)
+├── models/             # AI 模型权重 (~387GB)
+│   ├── base/           # 基座模型 (SDXL, Qwen3-VL, etc.)
+│   ├── lora/           # 预置 LoRA
+│   └── bge/            # 向量检索模型 (~1.3GB)
+├── runtimes/           # Python/FFmpeg/SVT-AV1 运行时
+└── uninstaller.exe
+9.4.5 基础安装包结构 (~5GB)
+仅包含 app/, cef/, runtimes/。
+首次启动时引导用户选择下载模型或指定本地已有模型路径。
+9.4.6 运行时架构
+Main Process (Tauri 2.x (Rust)): 启动，初始化窗口，启动后端。
+Backend (FastAPI + Uvicorn): 监听 127.0.0.1:8000，启动 Celery Beat。
+Celery Workers: 按需启动，绑定 GPU 设备。
+CEF Renderers: 按需创建，受进程池管理 (TASK-LEARN-013)。
+AI Inference: 由 Worker 懒加载，首次请求时载入显存。
+9.4.7 更新与升级策略
+增量更新: 基于 zsync 或自定义二进制差分算法，仅更新变化的文件块。
+回滚机制: 更新前自动备份 app/ 和 config/；若新版本启动失败 3 次，自动回滚。
+
+第十章 资源配置
+10.1 硬件配置方案
+档位	GPU	RAM	CPU	SSD	显存分配策略 (VRAM)	适用场景
+顶配	RTX 5090 32GB	64GB	i9/Threadripper	1TB NVMe	对话:4G, 绘画:12G, 视频:10G, 训练:6G	4K视频生成, 全量微调, 多任务并发
+高端	RTX 4090 24GB	32GB	i7/Ryzen 9	1TB NVMe	对话:4G, 绘画:10G, 视频:8G, 训练:2G	1080P/2K创作, LoRA训练, 复杂Agent
+中端	RTX 4070 12GB	24GB	i5/Ryzen 7	512GB NVMe	对话:4G, 绘画:6G, 视频:2G, 训练:0G(CPU Offload)	日常绘画, 对话, 轻量视频
+入门	RTX 3060 12GB	32GB	i5/Ryzen 5	512GB SSD	对话:4G, 绘画:4G, 视频:0G, 训练:禁用	基础对话, 512x512绘画
+AMD	RX 6600 8GB	16GB	Ryzen 5	512GB SSD	对话:4G, 绘画:4G (Vulkan/DirectML)	兼容模式, 性能约为NVIDIA同级70%
+纯CPU	无	16GB+	4核+	HDD/SSD	N/A	仅对话+基础绘画 (极慢, 仅应急)
+10.2 软件环境配置方案
+10.2.1 Python 环境
+版本: Python 3.12.x (必须)
+虚拟环境: uv 或 poetry 管理
+核心依赖: fastapi==0.115.*, uvicorn[standard], celery[redis], sqlalchemy[asyncio]
+10.2.2 PyTorch 环境
+版本: PyTorch 2.8.0+cu128 (Stable)
+加速库: xformers==0.0.28, bitsandbytes==0.45.*, triton-windows (如需)
+验证: python -c "import torch; print(torch.cuda.is_available())"
+10.2.3 FFmpeg 环境
+版本: 7.x (Static Build)
+路径: ./runtimes/ffmpeg/bin/ffmpeg
+配置: 启用 libsvtav1, libx265, cuda-nvcc
+10.2.4 SVT-AV1 环境
+版本: 2.x
+集成: 作为 FFmpeg 外部编码器调用
+参数: 默认 preset 6, crf 28
+10.2.5 CEF/Chromium 环境
+版本: Chromium 120+ (CEF Binary Distrib)
+配置: 禁用 GPU 沙箱 (--no-sandbox) 仅限开发环境；生产环境启用。
+进程池: TASK-LEARN-013 限制最大 Renderer 数量为 min(8, CPU_CORES)。
+10.2.6 数据库环境
+SQLite: PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
+ChromaDB: 持久化目录 ./data/chroma，使用 HNSW 索引。
+Redis: 本地单机模式，maxmemory 2gb, maxmemory-policy allkeys-lru。
+10.2.7 模型文件路径规划
+基座: ./models/base/<model_name>/model.safetensors
+校验: ./models/base/<model_name>/sha256sum.txt
+下载缓存: ./cache/huggingface/
+10.2.8 配置文件完整说明 (settings.json)
+gpu.memory_limit_percent: 显存占用上限，默认 90。
+agent.max_concurrent_tasks: Agent 最大并发数，默认 2。
+browser.pool_size: CEF 进程池大小，默认 3。
+rag.chunk_size: 知识切片大小，默认 512。
+
+第十一章 图示交付
+11.1 项目整体思维导图
+OmniSpace AI v2.3.1
+前端层: React 19.2, Three.js 3D预览, CEF 浏览器
+后端层: FastAPI, Celery 异步队列, Redis 缓存
+AI 核心: PyTorch 推理, RAG 检索, LoRA 训练, Agent 决策
+数据层: SQLite (元数据), ChromaDB (向量), 文件系统 (模型/素材)
+基础设施: FFmpeg/SVT-AV1 编码, CEF 进程池, GPU 调度器
+11.2 项目全业务流程图
+用户启动应用 → Main Process 初始化。
+后端服务启动 → 检查 GPU/模型状态 → 就绪。
+用户发起请求 (如”生成赛博朋克城市”)。
+Agent 分级决策 → 识别为绘画任务 → 路由至 ImageGen Worker。
+Worker 加载 SDXL → 执行推理 → 返回 Base64/路径。
+前端接收 WebSocket progress → 更新 UI → 展示结果。
+用户确认 → 触发 FFmpeg 后处理/导出。
+11.3 独立功能思维导图与流程图
+11.3.1 AI 对话功能
+思维: 意图识别 → 知识检索(RAG) → 上下文组装 → LLM 生成 → 流式输出。
+流程: User Input → Hybrid Search (TASK-051) → Prompt Template → LLM Stream → WebSocket Log → UI Render。
+11.3.2 AI 绘画功能
+思维: 提示词增强 → 参数解析 → 模型选择 → 推理 → 解码。
+流程: Prompt → CLIP Encode → UNet Denoise → VAE Decode → Save → Notify。
+11.3.3 漫剧创作功能
+思维: 剧本解析 → 分镜拆解 → 角色一致性控制(IP-Adapter) → 批量生成 → 排版。
+流程: Script Upload → LLM Split Scenes → Batch Image Gen (Queue) → Canvas Layout → Export PDF/Video。
+11.3.4 知识学习功能
+思维: 文档解析 → 切片 → 向量化 → 存入 Chroma → 问答关联。
+流程: File Ingest → Miner
+================================================================================
+版本更新说明（2026-08-12 v3.0）：
+前端技术栈已更新为React 19.2（Function Component + Hooks + Compiler 1.0）。
+状态管理：Zustand 5。路由：React Router 7。3D渲染：React Three Fiber。
+组件库：shadcn/ui。拖拽：dnd-kit。包管理：pnpm 9+。
+===============================================================================================

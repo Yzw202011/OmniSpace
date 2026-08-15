@@ -1,0 +1,201 @@
+# OmniSpace AI 依赖锁定文件（实际运行时环境，勿手工编辑）
+# =========================================================
+# 环境: 嵌入式 Python 3.10.11 (runtime/py310)，CUDA 12.8
+# 解析顺序: pydeps(优先) -> runtime/py310/Lib/site-packages(兜底)
+# 导出: 2026-08-15 | 锁定 154 个包
+#
+# 环境警告（重建环境前必须知晓）:
+#   - pydeps/backports-asyncio-runner 1.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/beautifulsoup4 4.15.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/googleapis-common-protos 1.75.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/grpcio 1.83.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/grpcio-status 1.83.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/llama-cpp-python 0.3.34 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/markdown-it-py 4.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/mmh3 5.2.1 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/nvidia-ml-py 13.610.43 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opencv-python 5.0.0.93 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opentelemetry-api 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opentelemetry-exporter-otlp-proto-common 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opentelemetry-exporter-otlp-proto-grpc 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opentelemetry-proto 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opentelemetry-sdk 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/opentelemetry-semantic-conventions 0.65b0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/pillow 12.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/polars-runtime-32 1.43.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/protobuf 7.35.1 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/pynvml 13.0.1 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/pypiwin32 223 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/pytest-timeout 2.4.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/python-dateutil 2.9.0.post0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/python-docx 1.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/python-dotenv 1.2.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/pywin32 312 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/pyyaml 6.0.3 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/rpds-py 0.30.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/scikit-learn 1.7.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/six 1.17.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/sympy 1.14.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/threadpoolctl 3.6.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/tokenizers 0.22.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/torch 2.11.0+cu128 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/typing-extensions 4.15.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/ultralytics-thop 2.1.6 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps/websocket-client 1.9.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
+#   - pydeps 目录属历史残留，重建环境时以 runtime/py310 为基础，
+#     再叠加本文件中 pydeps 来源的包。
+
+accelerate==1.14.0
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+antlr4-python3-runtime==4.9.3
+anyio==4.14.2
+async-timeout==5.0.1
+attrs==26.1.0
+av==17.1.0
+bcrypt==5.0.0
+bitsandbytes==0.50.0
+build==1.5.0
+certifi==2026.7.22
+cffi==2.1.0
+charset-normalizer==3.4.9
+chromadb==1.5.9
+click==8.4.2
+colorama==0.4.6
+coloredlogs==15.0.1
+comtypes==1.4.16
+contourpy==1.3.2
+coverage==7.15.3
+cryptography==50.0.0
+cycler==0.12.1
+diffusers==0.39.0
+dill==0.4.1
+diskcache==5.6.3
+durationpy==0.10
+einops==0.8.2
+exceptiongroup==1.3.1
+fastapi==0.141.1
+filelock==3.29.0
+flatbuffers==25.12.19
+fonttools==4.63.0
+frozenlist==1.8.0
+fsspec==2026.4.0
+greenlet==3.5.4
+h11==0.16.0
+hf-xet==1.5.2
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+huggingface-hub==0.36.0
+humanfriendly==10.0
+idna==3.18
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
+importlib-metadata==9.0.0
+importlib-resources==7.1.0
+iniconfig==2.3.0
+jieba==0.42.1
+jinja2==3.1.6
+joblib==1.5.3
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+kiwisolver==1.5.0
+kubernetes==36.0.3
+lazy-loader==0.5
+llvmlite==0.48.0
+loguru==0.7.3
+lxml==6.1.1
+markupsafe==3.0.3
+matplotlib==3.10.9
+mdurl==0.1.2
+modelscope==1.39.1
+modelscope-hub==0.2.0
+mpmath==1.3.0
+multidict==6.7.1
+multiprocess==0.70.19
+networkx==3.4.2
+numba==0.66.0
+numpy==2.2.6
+oauthlib==3.3.1
+omegaconf==2.3.1
+onnxruntime==1.23.2
+opencv-python-headless==5.0.0.93
+orjson==3.11.9
+overrides==7.7.0
+packaging==26.2
+pandas==2.3.3
+peft==0.20.0
+pi-heif==1.4.0
+pip==26.2.1
+platformdirs==4.11.1
+playwright==1.62.0
+pluggy==1.6.0
+polars==1.43.2
+pooch==1.9.0
+propcache==0.5.2
+psutil==7.2.2
+pyarrow==25.0.0
+pybase64==1.4.3
+pycparser==3.0
+pydantic==2.13.4
+pydantic-core==2.46.4
+pydantic-settings==2.14.2
+pyee==13.0.1
+pygments==2.20.0
+pymatting==1.1.15
+pymupdf==1.28.0
+pyparsing==3.3.2
+pypika==0.51.1
+pyproject-hooks==1.2.0
+pyreadline3==3.5.6
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+python-multipart==0.0.32
+pyttsx3==2.99
+pytz==2026.3.post1
+qwen-vl-utils==0.0.14
+referencing==0.37.0
+regex==2026.7.19
+rembg==2.0.69
+requests==2.34.2
+requests-oauthlib==2.0.0
+restrictedpython==8.4
+rich==15.0.0
+safetensors==0.8.0
+scikit-image==0.25.2
+scipy==1.15.3
+sentence-transformers==5.6.1
+sentencepiece==0.2.2
+setuptools==78.1.0
+shellingham==1.5.4
+soupsieve==2.9.1
+sqlalchemy==2.0.51
+starlette==1.3.1
+sympy==1.14.0
+tenacity==9.1.4
+tifffile==2025.5.10
+tokenizers==0.22.2
+tomli==2.4.1
+torch==2.11.0+cu128
+torchaudio==2.11.0+cu128
+torchvision==0.26.0+cu128
+tqdm==4.70.0
+transformers==4.57.6
+trimesh==5.0.0
+typer==0.27.0
+typing-inspection==0.4.2
+tzdata==2026.3
+ultralytics==8.4.115
+urllib3==2.7.0
+uvicorn==0.52.1
+watchfiles==1.2.0
+websockets==16.1.1
+wheel==0.47.0
+win32-setctime==1.2.0
+xxhash==3.8.1
+yarl==1.24.5
+zipp==4.1.0

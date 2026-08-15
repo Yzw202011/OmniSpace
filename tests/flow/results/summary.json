@@ -1,0 +1,82 @@
+[
+  {
+    "module": "sys",
+    "total": 32,
+    "counts": {
+      "PASS": 19,
+      "SKIP": 13
+    }
+  },
+  {
+    "module": "chat",
+    "total": 50,
+    "counts": {
+      "PASS": 30,
+      "SKIP": 12,
+      "DEGRADED": 8
+    }
+  },
+  {
+    "module": "paint",
+    "total": 57,
+    "counts": {
+      "PASS": 26,
+      "SKIP": 10,
+      "DEGRADED": 21
+    }
+  },
+  {
+    "module": "comic",
+    "total": 144,
+    "counts": {
+      "PASS": 70,
+      "DEGRADED": 14,
+      "SKIP": 60
+    }
+  },
+  {
+    "module": "learn",
+    "total": 70,
+    "counts": {
+      "PASS": 32,
+      "DEGRADED": 35,
+      "SKIP": 3
+    }
+  },
+  {
+    "module": "model",
+    "total": 38,
+    "counts": {
+      "PASS": 14,
+      "SKIP": 4,
+      "DEGRADED": 20
+    }
+  },
+  {
+    "module": "style",
+    "total": 32,
+    "counts": {
+      "PASS": 12,
+      "DEGRADED": 17,
+      "SKIP": 3
+    }
+  },
+  {
+    "module": "set",
+    "total": 30,
+    "counts": {
+      "PASS": 11,
+      "SKIP": 7,
+      "DEGRADED": 12
+    }
+  },
+  {
+    "module": "cross",
+    "total": 25,
+    "counts": {
+      "PASS": 12,
+      "SKIP": 3,
+      "DEGRADED": 10
+    }
+  }
+]

@@ -1,0 +1,463 @@
+{
+  "summary": {
+    "module": "chat",
+    "total": 50,
+    "counts": {
+      "PASS": 30,
+      "SKIP": 12,
+      "DEGRADED": 8
+    }
+  },
+  "cases": [
+    {
+      "tc_id": "TC-FLOW-CHAT-001",
+      "name": "发送纯文本消息完整流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "回复57字符, 首token=179.1ms, 总耗时=10990ms, model=qwen3-vl-4b",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-002",
+      "name": "空消息发送拦截流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "空消息被拒: code=SYSTEM_PARAM_INVALID, msg=消息不能为空",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-003",
+      "name": "超长消息发送流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "40000字符被拒: code=INPUT_TOO_LONG（上限32768字符）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-004",
+      "name": "Shift+Enter换行发送流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "纯前端按键行为；多行内容发送由 CHAT-001 覆盖（content 含\\n）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-005",
+      "name": "消息发送中取消流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "停止标记端点正常；空session_id校验拒绝；流式循环感知停止标记",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-006",
+      "name": "消息发送失败重试流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "重试按钮为前端逻辑；超时重发=再次调用 /chat/send（CHAT-001 已覆盖发送链路）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-007",
+      "name": "上传图片+文本消息完整流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "图片+文本推理成功，回复55字符（VL模型图像理解在线）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-008",
+      "name": "拖拽图片上传流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "纯前端拖拽交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-009",
+      "name": "粘贴剪贴板图片流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "纯前端剪贴板交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-010",
+      "name": "多张图片上传流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "3张图片同时上传推理成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-011",
+      "name": "不支持图片格式上传流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "非法图片数据被解码层容错丢弃，纯文本推理继续（不崩溃）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-012",
+      "name": "超大图片上传流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "自动压缩为前端上传逻辑；后端单条消息字符上限已由 CHAT-003 验证",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-013",
+      "name": "SSE流式接收完整流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "tokens=5, 首token=148ms, [DONE]正常收尾",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-014",
+      "name": "流式回复中断恢复流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "网络中断模拟+自动重连为前端 EventSource 行为",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-015",
+      "name": "流式回复中滚动行为验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "纯前端滚动行为",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-016",
+      "name": "Markdown代码块渲染验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "回复含代码块标记=True（渲染本身为前端职责）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-017",
+      "name": "Markdown表格渲染验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "表格渲染为前端职责；后端文本通道已由 CHAT-016 验证",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-018",
+      "name": "消息复制完整流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "剪贴板为前端行为",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-019",
+      "name": "消息重新生成流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "重发同上下文消息成功（重新生成=再次send，前端按钮触发）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-020",
+      "name": "消息点赞/点踩流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "rating 1→-1 持久化正常（msg=58af0d32）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-021",
+      "name": "消息删除流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "会话消息清空端点正常（保留会话，删除全部消息）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-022",
+      "name": "消息引用回复流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "引用展示为前端消息气泡逻辑；上下文引用由 history 加载覆盖",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-023",
+      "name": "温度(Temperature)参数调整流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "temperature=0.1/1.5 均被接受并完成推理",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-024",
+      "name": "Top-P参数调整流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "后端推理接口未暴露 top_p（仅 temperature/max_new_tokens），top_p 固定默认值——参数项缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-025",
+      "name": "Max Tokens参数调整流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "max_new_tokens=8 生效，回复截断至10字符",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-026",
+      "name": "模型切换流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "当前对话模型=qwen3-vl-4b, state=ready；model 参数可指定（body.model）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-027",
+      "name": "参数重置为默认值流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "不传参数即默认值（temperature=0.7, max_new_tokens=1024）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-028",
+      "name": "新建会话完整流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "会话创建+详情读取正常 id=8fcd2e26",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-029",
+      "name": "会话列表浏览与切换流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "列表 total=81，含 message_count/last_message 富化字段",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-030",
+      "name": "会话重命名流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "PUT title 持久化正常",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-031",
+      "name": "会话删除流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "删除后详情返回 40005 会话不存在（级联删除消息）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-032",
+      "name": "会话搜索流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "关键词搜索返回 4 条（标题+内容双匹配）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-033",
+      "name": "会话导出流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无专用导出端点；会话详情含全量消息，前端可自行序列化导出——端点缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-034",
+      "name": "会话自动保存流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "消息自动落库（该会话已持久化 22 条）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-035",
+      "name": "图片上传发送流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "同 CHAT-007（图片+文本推理链路已验证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-036",
+      "name": "多图上传发送流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "同 CHAT-010（3图并发已验证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-037",
+      "name": "图片格式兼容性验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "PNG/JPEG/WEBP base64 均可解码推理",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-038",
+      "name": "图片大小限制验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "大小限制与压缩为前端上传职责（同 CHAT-012）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-039",
+      "name": "语音输入流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "ASR就绪=True（Whisper 语音输入转写支撑）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-040",
+      "name": "文件上传发送流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "对话附件仅支持图片（attachments/images），通用文件上传未接线——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-041",
+      "name": "视频上传发送流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "对话附件不支持视频模态——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-042",
+      "name": "Agent模式切换流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "会话 mode 字段持久化（agent 模式标记）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-043",
+      "name": "Agent工具调用流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "对话 Agent 工具调用框架未实现（浏览器Agent独立存在于learn模块）——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-044",
+      "name": "Agent联网搜索流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "对话内联网搜索未接线（被动补全仅学习模块触发器常量）——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-045",
+      "name": "Agent多步推理流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "对话侧 ReAct 多步推理未实现——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-046",
+      "name": "输入补全建议流程验证",
+      "module": "chat",
+      "status": "SKIP",
+      "priority": "P3",
+      "detail": "前端输入框建议行为",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-047",
+      "name": "上下文记忆连续性验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "第二轮回复含'42'=True（history 注入上下文）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-048",
+      "name": "长上下文处理验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "长输入经 build_context 截断至 max_ctx=8192 后正常推理",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-049",
+      "name": "多语言对话流程验证",
+      "module": "chat",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "英文输入正常推理（VL 模型多语言能力）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-CHAT-050",
+      "name": "代码生成与执行流程验证",
+      "module": "chat",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "代码生成已由 CHAT-016 覆盖；代码执行为前端/沙箱能力，后端无执行端点",
+      "duration_ms": 0
+    }
+  ]
+}

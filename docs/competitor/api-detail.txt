@@ -1,0 +1,26 @@
+--- [fetchCartoonModels] in index.js @184400
+tMaterial:de,addOrModifyMaterial:me,modifyReferenceImage:Se,fetchCartoonModels:Q,calcPointDesc:F,getAllWorksResources:()=>r.value.filter(n=>S.value.includes(n.id)).concat(d.value.filter(n=>U.value.includes(n.id)).concat(u.value.filter(n=>I.value.includes(n.id)))),batStartTaskProgress:C,compositeReferenceImage:async(n,l,y,P)=>{const R=f.value[n];if(!R)throw new Error("INVALID_IN
+--- [calcPointDesc] in index.js @184421
+ifyMaterial:me,modifyReferenceImage:Se,fetchCartoonModels:Q,calcPointDesc:F,getAllWorksResources:()=>r.value.filter(n=>S.value.includes(n.id)).concat(d.value.filter(n=>U.value.includes(n.id)).concat(u.value.filter(n=>I.value.includes(n.id)))),batStartTaskProgress:C,compositeReferenceImage:async(n,l,y,P)=>{const R=f.value[n];if(!R)throw new Error("INVALID_INDEX");const M=[];let 
+=== api-ish strings in index.js ===
+assets/subject.api-BWW7Cnoi.js
+assets/works.api-huRLlM0w.js
+assets/cartoon-Dfkk3An0.js
+assets/cartoon-C5AGs3tM.css
+assets/cartoonDetail-iIMagjQK.js
+assets/cartoonDetail-M35ASNT4.css
+/cartoon
+./cartoon-Dfkk3An0.js
+./cartoonDetail-iIMagjQK.js
+/sapi/api/v2/worksInfo
+/sapi/api/v2/modelRelation
+ai/resources
+/cartoonDetail
+=== api-ish strings in cartoonDetail-iIMagjQK.js ===
+./works.api-huRLlM0w.js
+./subject.api-BWW7Cnoi.js
+ai/resources
+=== api-ish strings in cartoon-Dfkk3An0.js ===
+./works.api-huRLlM0w.js
+ai/resources
+/cartoonDetail/

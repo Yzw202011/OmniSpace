@@ -1,0 +1,74 @@
+[
+  {
+    "tc_id": "TC-FLOW-CHAT-004",
+    "name": "Shift+Enter换行发送流程验证",
+    "status": "PASS",
+    "detail": "Shift+Enter 后输入框含换行且消息未发出；Enter 后用户消息上屏、输入框清空"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-006",
+    "name": "消息发送失败重试流程验证",
+    "status": "PASS",
+    "detail": "故障注入后气泡显示 [生成失败] 提示；点「重新生成」重试成功进入流式（出现停止按钮）"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-008",
+    "name": "拖拽图片上传流程验证",
+    "status": "PASS",
+    "detail": "drop 一张 PNG 后附件预览出现"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-009",
+    "name": "粘贴剪贴板图片流程验证",
+    "status": "PASS",
+    "detail": "paste 事件携带 PNG 后附件预览出现"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-012",
+    "name": "超大图片上传流程验证",
+    "status": "PASS",
+    "detail": "超大图片（13.3MB）被前端拒绝，未生成附件预览，提示：图片「over10mb.png」超过大小上限（13.3MB > 10MB），已跳过"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-014",
+    "name": "流式回复中断恢复流程验证",
+    "status": "PASS",
+    "detail": "流式中点「■ 停止」后生成中止（部分内容稳定保留 34 字符）、输入框可用且出现「重新生成」，状态可控"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-015",
+    "name": "流式回复中滚动行为验证",
+    "status": "PASS",
+    "detail": "流式期间消息区自动跟随滚动（测试将容器限高300px以观察）：scrollTop 0→65，停止时贴底（top+300≈scrollHeight 365）"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-017",
+    "name": "Markdown表格渲染验证",
+    "status": "PASS",
+    "detail": "回复完成后消息区渲染出 <table> 元素（共 1 个）"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-018",
+    "name": "消息复制完整流程验证",
+    "status": "PASS",
+    "detail": "复制按钮写入剪贴板且内容与消息一致（用户消息精确相等；助手消息含表格语法，128 字符）"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-022",
+    "name": "消息引用回复流程验证",
+    "status": "PASS",
+    "detail": "点「引用」后输入框回填 Markdown 引用块（'> | 水果   | 价格（元/斤） |\n> |------…'）；按推理预算未再次发送"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-038",
+    "name": "图片大小限制验证",
+    "status": "PASS",
+    "detail": "限制提示文案：图片「over10mb.png」超过大小上限（13.3MB > 10MB），已跳过"
+  },
+  {
+    "tc_id": "TC-FLOW-CHAT-046",
+    "name": "输入补全建议流程验证",
+    "status": "PASS",
+    "detail": "输入 / 出现补全浮层（命中 1 个候选元素）"
+  }
+]

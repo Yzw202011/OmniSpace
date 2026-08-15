@@ -1,0 +1,89 @@
+/* ==========================================================================
+   OmniSpace AI v2.3.1 — Sakura 暗色主题（Tailwind CSS 4 配置）
+   --------------------------------------------------------------------------
+   依据：《OmniSpace AI v2.3.1中文版》§6.3.1 Sakura 主题（主色 #FF6B9D，
+        辅助色 #4ECDC4，暗色底）、§6.3.3 动效规范。
+   作用：注册 sakura-* 工具类色阶（供 Tailwind 4 @theme 生成），
+        及滑块、弹窗/气泡动效等组件底层样式。
+   用法：在项目入口 CSS 中 @import 此文件（须位于 @import "tailwindcss" 之后），
+        之后即可在组件中使用 bg-sakura-500 / text-sakura-300 等工具类。
+   ========================================================================== */
+
+/* Sakura 樱粉主色衍生刻度（暗色主题取值，与 tokens.css 主色刻度一致） */
+@theme {
+  --color-sakura-50: rgba(255, 107, 157, 0.08);
+  --color-sakura-100: rgba(255, 107, 157, 0.14);
+  --color-sakura-200: rgba(255, 107, 157, 0.24);
+  --color-sakura-300: #ff9bbe;
+  --color-sakura-400: #ff83ad;
+  --color-sakura-500: #ff6b9d; /* 规格主色 #FF6B9D */
+  --color-sakura-600: #e6608d; /* hover 加深 10%（§6.3.2） */
+  --color-sakura-700: #c44e76;
+
+  /* 薄荷绿辅助色刻度（§6.3.1 辅助色 #4ECDC4） */
+  --color-mint-100: rgba(78, 205, 196, 0.14);
+  --color-mint-300: #7edcd5;
+  --color-mint-500: #4ecdc4;
+  --color-mint-600: #3ba8a0;
+
+  /* AI 生成内容标记底色（暗色等效：薄荷绿低透明铺底） */
+  --color-ai-bg: rgba(78, 205, 196, 0.14);
+}
+
+/* ------------------------------ 滑块底层样式（主色→辅助色渐变轨道） ------------------------------ */
+.omni-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+}
+.omni-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #16213e;
+  border: 2px solid #ff6b9d;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease-out;
+}
+.omni-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.omni-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #16213e;
+  border: 2px solid #ff6b9d;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.omni-slider:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ------------------------------ 组件动效 keyframes（§6.3.3 动效规范） ------------------------------ */
+/* 弹窗出现：缩放 0.9→1 + 淡入 250ms */
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

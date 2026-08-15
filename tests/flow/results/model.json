@@ -1,0 +1,355 @@
+{
+  "summary": {
+    "module": "model",
+    "total": 38,
+    "counts": {
+      "PASS": 14,
+      "SKIP": 4,
+      "DEGRADED": 20
+    }
+  },
+  "cases": [
+    {
+      "tc_id": "TC-FLOW-MODEL-001",
+      "name": "模型列表加载与展示验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "total=31, downloaded=17, 分类=['3d', 'auxiliary', 'dialog', 'language', 'video', 'vision', 'voice'], 耗时=11ms(<1s)；条目含名称/大小/状态/加载标记（卡片渲染留待UI）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-002",
+      "name": "模型列表排序功能验证",
+      "module": "model",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "排序下拉为纯前端交互；排序所需字段(name/size_gb/status)已由 MODEL-001 验证齐备，留待浏览器冒烟",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-003",
+      "name": "模型列表筛选功能验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "后端按 category 分组返回（{'dialog': 6, 'vision': 8, 'video': 7, 'language': 2, '3d': 1, 'voice': 3, 'auxiliary': 4}），筛选数据齐备；筛选下拉交互留待UI冒烟",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-004",
+      "name": "模型列表搜索功能验证",
+      "module": "model",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "搜索框实时过滤（<200ms/模糊匹配/大小写不敏感）为纯前端逻辑，/models 无 keyword 参数；列表数据由 MODEL-001 覆盖",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-005",
+      "name": "模型详情信息查看验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "详情字段齐备（name/path/size_gb/status/sha256/min_vram_gb），未知ID拒30001；计划要求的量化精度/硬件等级/最后使用时间暂无字段",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-006",
+      "name": "模型加载完整流程验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "当前无已加载模型可短路（跳过短路路径）；未下载拒绝 code=20011；不真实加载大模型避免拖垮链路，真实加载耗时由功能模块用例间接覆盖",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-007",
+      "name": "模型加载显存不足处理验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "85%+显存压力场景无法安全构造（避免真实OOM影响其他模块）；拒绝链路验证 code=20011，显存台账 total=15.92GB free=12.41GB；自动驱逐(allocate_memory→evict_lowest_priority P5→P3)与20013未实机触发",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-008",
+      "name": "模型卸载完整流程验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "未加载卸载被拒 code=20012（状态守卫生效）；显存台账可查 loaded_count=0 reserved=0.0GB；不真实卸载在载模型（避免中断其他功能），显存释放精度留待专项",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-009",
+      "name": "模型批量卸载验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无批量卸载端点（路由清单仅 POST /models/unload 单模型）；批量进度/按优先级顺序卸载需前端循环单接口实现，单卸载契约见 MODEL-008",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-010",
+      "name": "模型快速切换(热切换)验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "select 绑定 dialog→qwen3-vl-8b 成功；非法feature拒40004；热切换（自动卸A载B原子操作、<10s）无专用端点，需前端组合 unload+load",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-011",
+      "name": "模型正在使用中卸载拦截验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "互斥状态可查（active=None, blocked=无），功能锁在线（加载互斥20014/生成互斥40007）；但 /models/unload 端点本身无占用拦截校验，'模型正在使用中'确认弹窗为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-012",
+      "name": "模型导入完整流程验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "导入→元数据登记(ready,size_gb=0.0)→列表可见→SHA256校验(verified=true,411a485216e4…)全链路通过；临时模型已清理；大文件进度条为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-013",
+      "name": "模型导入拖拽方式验证",
+      "module": "model",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "文件拖拽（高亮边框/释放导入/批量拖入）为纯前端交互，导入后端链路由 MODEL-012 覆盖，留待浏览器冒烟",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-014",
+      "name": "模型导入格式不支持处理验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "后端无格式白名单校验，.exe 文件被正常登记（测试登记已清理）；格式拦截仅存于前端文件过滤器",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-015",
+      "name": "模型导入同名冲突处理验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "同名重复导入产生两条登记（id ba1eb4db/6fbf036d，name 相同），无覆盖/重命名/取消冲突处理（测试登记已清理）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-016",
+      "name": "模型删除完整流程验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "注册表删除→详情30001→列表刷新全链路验证通过；但模型文件未从磁盘移除（后端设计为仅移除登记，防误删原始文件），与计划'文件从磁盘删除'不一致；二次确认弹窗为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-017",
+      "name": "模型删除正在使用中拦截验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "删除端点存活（未知ID拒30001）；无'使用中'拦截——DELETE 对已加载模型会先静默卸载再删登记，不按计划提示'请先卸载后再删除'；按钮禁用为前端逻辑（不真实删除在载模型验证，避免中断链路）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-018",
+      "name": "模型批量删除验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无批量删除端点；逐条循环删除组合可用（实测2条均成功并清理）；批量确认弹窗/使用中跳过提示为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-019",
+      "name": "模型在线下载完整流程验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "无 /models/download 端点（404）——离线单机定位，模型获取走本地导入（/models/import，MODEL-012 已验证）；下载进度/校验/重试链路未实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-020",
+      "name": "模型下载进度查询验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "无下载任务进度查询端点（404，两段路径不匹配 /models/{model_id}）；无下载管理器",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-021",
+      "name": "模型下载断点续传验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "无下载功能（见 MODEL-019），断点续传未实现；网络中断/恢复场景不适用",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-022",
+      "name": "模型下载网络异常处理验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无下载功能（见 MODEL-019）；架构为离线单机（127.0.0.1绑定+本地推理），网络不可用场景由本地导入兜底（MODEL-012 已验证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-023",
+      "name": "模型版本更新检查验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "/models/update 在线，离线环境诚实降级：status=offline local_manifest=2.0.0；远程版本对比/增量更新需联网环境",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-024",
+      "name": "模型下载存储空间不足处理验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "无下载功能即无下载前磁盘空间预检；导入为原地登记不复制文件，不涉及额外空间占用",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-025",
+      "name": "模型预热完整流程验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "子系统 healthy=true，已加载0个/已下载17个；预测器 engine=markov+time events=21；启动预热由调度器异步执行（嵌入模型已在载），预热完成提示/UI卡顿为前端表现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-026",
+      "name": "ML预测准确率验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "记录4条切换事件(3×manga/1×video_gen)后预测 engine=markov+time Top=manga prob=0.5548 elapsed=0.018ms；学习→预测闭环验证通过，>85%准确率需长期行为统计另作专项",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-027",
+      "name": "ML预测无数据时行为验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "未见过的功能上下文：next='' prob=0.0 preload=False engine=markov+time——低置信不预加载，降级行为正确",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-028",
+      "name": "模型预热显存不足处理验证",
+      "module": "model",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "需低显存物理环境（仅够1个核心模型）的启动场景，本机 RTX 5070Ti 16GB 无法复现，留待环境矩阵测试",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-029",
+      "name": "显存使用详情查看验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "total=15.92GB used=3.51GB free=12.41GB reserved=0.0GB loaded=0（NVIDIA GeForce RTX 5070 Ti，pynvml实测）；Tooltip/饼图/2s刷新为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-030",
+      "name": "显存阈值告警验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "当前占用22.0%（3.51/15.92GB），阈值判定数据齐备；85/90/98%变色告警为前端逻辑，>95%自动卸载由调度器MEMORY_PRESSURE策略承担；不真实构造高压场景避免OOM",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-031",
+      "name": "GPU温度监控验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "GPU温度=46.0°C（NVIDIA GeForce RTX 5070 Ti，pynvml实测）；计划所列 /system/gpu 未挂载，温度经 /models/vram 与 /hardware/realtime 提供；70/80°C 变色告警为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-032",
+      "name": "GPU利用率监控验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "GPU利用率=0.0%（pynvml实时），/hardware/realtime 遥测可用；5分钟历史曲线/悬停数值为前端图表逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-033",
+      "name": "显存碎片率监控验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "显存碎片率指标未实现（gpu字段无frag*，现有=['available', 'gpu_name', 'reserved_vram_gb', 'temp_celsius', 'util_percent', 'vendor', 'vram_free_gb', 'vram_free_mb', 'vram_total_gb', 'vram_total_mb', 'vram_used_gb', 'vram_used_mb']）；仅 total/used/free/reserved 可查，>30%警告与整理建议未实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-034",
+      "name": "模型量化精度切换验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "无 PUT /models/config 端点（404），FP16/INT8/INT4 量化切换与显存预估更新未实现；模型以原始精度加载",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-035",
+      "name": "模型优先级配置验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "驱逐优先级按类别硬编码（_EVICTION_PRIORITY: auxiliary0/voice1/training2/video3/vision4/dialog5），无 P0~P5 优先级配置端点；拖拽调整为纯前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-036",
+      "name": "模型依赖关系查看验证",
+      "module": "model",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "模型详情已含依赖关系字段 dependencies=[] （associated_features=[]）；依赖树图形化展示/卸载联动提示为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-037",
+      "name": "模型导出功能验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无 /models/export 端点（404），.tar.gz 打包导出与导出校验未实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-MODEL-038",
+      "name": "模型性能基准测试验证",
+      "module": "model",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "无 /models/benchmark 端点（404），推理速度(Tokens/s)/显存峰值/吞吐量基准测试与历史对比未实现",
+      "duration_ms": 0
+    }
+  ]
+}

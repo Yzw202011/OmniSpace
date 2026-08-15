@@ -1,0 +1,104 @@
+[
+  {
+    "tc_id": "TC-FLOW-COMIC-072",
+    "name": "3D导演台场景初始化验证",
+    "status": "PASS",
+    "detail": "canvas 存在且 WebGL2 上下文创建成功（WebGL 2.0 (OpenGL ES 3.0 Chromium) | WebKit WebGL），无 console error，未进入静态降级模式"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-073",
+    "name": "OrbitControls相机旋转验证",
+    "status": "PASS",
+    "detail": "左键拖拽后 canvas 截图像素发生变化（判定信号：视口像素差异，轨道旋转生效）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-074",
+    "name": "OrbitControls相机平移与缩放验证",
+    "status": "PASS",
+    "detail": "右键拖拽平移与滚轮缩放后 canvas 像素均发生变化（判定信号：视口像素差异）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-075",
+    "name": "双击聚焦与F键重置验证",
+    "status": "SKIP",
+    "detail": "前端未实现：DirectorStage/GizmoController 源码无 dblclick 与 keydown（F）监听，无聚焦/重置快捷键入口"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-076",
+    "name": "资产库浏览与搜索验证",
+    "status": "SKIP",
+    "detail": "前端未实现：导演台视图无资产库面板（DOM 中「资产库」元素数=0，源码确认无该组件）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-077",
+    "name": "从资产库拖入3D对象流程验证",
+    "status": "SKIP",
+    "detail": "前端未实现：无资产库面板与拖拽源；场景对象仅可通过「+ 添加角色」本地程序化生成"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-078",
+    "name": "拖入资产到场景外取消验证",
+    "status": "SKIP",
+    "detail": "前端未实现：无资产拖拽交互，不存在场景外释放取消路径"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-079",
+    "name": "选中与取消选中3D对象验证",
+    "status": "PASS",
+    "detail": "点击角色显示「已选中」，点空白处恢复「未选中对象」（判定信号：.ds-selected-info 文案）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-080",
+    "name": "删除3D对象流程验证",
+    "status": "PASS",
+    "detail": "右键对象弹出菜单（锁定/姿态/删除），点击「删除对象」后同点再次右键不再弹出菜单，对象已从场景移除"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-081",
+    "name": "3D场景工具栏按钮验证",
+    "status": "PASS",
+    "detail": "移动/旋转/缩放 gizmo 模式按钮逐一点击均切换为 btn-primary 激活态（旋转→生效，缩放→生效，移动→生效）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-082",
+    "name": "3D资产加载失败异常处理",
+    "status": "SKIP",
+    "detail": "前端未实现：导演台无任何外部资产加载请求（角色为本地 CapsuleGeometry 程序化生成），无可拦截的资产请求与错误提示 UI"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-083",
+    "name": "场景渲染性能不足降级验证",
+    "status": "PASS",
+    "detail": "源码证据：DirectorStage 检测无 WebGL/远程桌面特征时进入 staticMode——仅 renderOnce 单帧渲染、关闭 antialias 与 shadowMap，并渲染「远程桌面模式」badge 与静态模式提示条；SceneManager 另设 maxPixelRatio=2 上限防止高 DPI 过载（注：触发条件为无 GPU/远程桌面检测，非 FPS 动态检测）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-087",
+    "name": "属性面板精确输入Transform验证",
+    "status": "SKIP",
+    "detail": "前端未实现：导演台无属性面板，无位置/旋转/缩放数值输入框（选中信息仅有 .ds-selected-info 一行文案）"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-088",
+    "name": "网格吸附功能验证(Grid Snap)",
+    "status": "SKIP",
+    "detail": "前端未实现：GizmoController 拖拽为连续位移（position = dragStart + 轴向投影），无网格吸附开关与步进逻辑"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-089",
+    "name": "表面吸附功能验证(Surface Snap)",
+    "status": "SKIP",
+    "detail": "前端未实现：源码无表面吸附（surface snap）开关与 raycast 贴附逻辑"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-091",
+    "name": "多选3D对象操作验证",
+    "status": "SKIP",
+    "detail": "前端未实现：无 Ctrl/Shift 多选入口；RaycastSelector 虽有框选（boxSelect）实现，但 DirectorStage 未启用 boxSelectMode 且未接 onBoxSelect 回调"
+  },
+  {
+    "tc_id": "TC-FLOW-COMIC-092",
+    "name": "创建组与解组操作验证",
+    "status": "SKIP",
+    "detail": "前端未实现：源码无编组/解组（group/ungroup）按钮、快捷键与 THREE.Group 编组逻辑"
+  }
+]

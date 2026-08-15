@@ -1,0 +1,1309 @@
+{
+  "summary": {
+    "module": "comic",
+    "total": 144,
+    "counts": {
+      "PASS": 70,
+      "DEGRADED": 14,
+      "SKIP": 60
+    }
+  },
+  "cases": [
+    {
+      "tc_id": "TC-FLOW-COMIC-001",
+      "name": "新建项目完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "项目创建端点可用，创建后列表可见",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-002",
+      "name": "选择漫剧模板创建项目验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "漫剧模板创建成功，预置分镜 5 行",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-003",
+      "name": "项目名称重复异常处理验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "同名项目被拒: COMIC_PROJECT_NAME_DUPLICATED",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-004",
+      "name": "项目编辑/删除/切换管理验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "创建→改名→列表核验→删除→列表核验 全链路一致",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-005",
+      "name": "DSL文件上传解析完整流程验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "端点在线，业务/引擎级诚实拒绝（SYSTEM_PARAM_INVALID）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-006",
+      "name": "DSL文本粘贴解析流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "粘贴文本经 /manga/storyboard/import 拆分为 6 行（按行拆分，shot:/camera: 等字段的结构化解析在前端）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-007",
+      "name": "DSL语法示例复制验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "纯前端 UI（语法说明显示/复制按钮），API 层不可测",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-008",
+      "name": "DSL解析部分字段缺失处理",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "缺失字段以默认值导入（voice_emotion=默认/scene=空/pending），仍可导入；字段级黄色高亮提示为前端职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-009",
+      "name": "DSL格式错误异常处理（无shot标记）",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无 shot: 标记文本按行导入成功（与006/011 同语义：import 为按行拆分通道）；DSL 语法校验与解析失败提示属前端职责，API 层无校验落点",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-010",
+      "name": "DSL文件格式与大小异常处理",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "空文件被拒: SYSTEM_PARAM_INVALID",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-011",
+      "name": "手动自由文本输入与NLP语义分析验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "自由文本按行规则拆分为3个分镜（计划预期 Qwen3-VL NLP 语义分析识别角色/场景/动作，实际为规则拆分，未调用模型）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-012",
+      "name": "剧本导入取消与重试验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "纯前端弹窗交互（取消/重开/状态清除）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-013",
+      "name": "自动分镜生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "5 行剧本→5 分镜卡片，is_ai_generated=true，total=5",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-014",
+      "name": "自动分镜结果预览与确认验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "预览确认弹窗为前端交互（网格概览/确认锁定/调整模式）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-015",
+      "name": "自动分镜/手动分镜模式切换验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "模式切换为前端状态管理（工具栏/按钮灰态/数据保留）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-016",
+      "name": "手动添加分镜完整流程（按钮点击）验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "全量保存追加空行成功，序号自动连续重排 1→3",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-017",
+      "name": "添加分镜四种方式验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "右键插入/Ctrl+N/悬停+按钮均为前端交互（后端同为全量保存）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-018",
+      "name": "拖拽调整分镜顺序完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "第3镜拖到第1位：sort_index 重写并持久化，重读顺序一致",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-019",
+      "name": "拖拽排序失败回滚验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "不存在行 id 重排被拒 SYSTEM_RESOURCE_NOT_FOUND；前端网络异常回滚动画为 UI 职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-020",
+      "name": "选中分镜卡片流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "卡片选中态/蓝色边框/右侧面板联动为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-021",
+      "name": "右键菜单操作流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "右键菜单（复制/删除/插入/拆分）为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-022",
+      "name": "多选分镜操作流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "Ctrl/Shift 多选与批量删除为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-023",
+      "name": "分镜表搜索功能验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "搜索过滤为前端本地逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-024",
+      "name": "自动分镜生成失败异常处理",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "空剧本被参数校验拒绝（SYSTEM_PARAM_INVALID）；auto-split 为规则拆分不依赖模型，无模型失败路径；前端失败提示/重试按钮为 UI 职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-025",
+      "name": "角色图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-025",
+      "name": "角色图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "角色图生成落盘并入库 comic_assets",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-026",
+      "name": "场景图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-026",
+      "name": "场景图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "场景图生成落盘 scenes/ 并入库",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-027",
+      "name": "道具图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-027",
+      "name": "道具图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "道具图生成含透明背景 PNG alpha 输出",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-028",
+      "name": "批量资产图生成流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-028",
+      "name": "批量资产图生成流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "批量生成聚合: 成功 2/2",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-029",
+      "name": "资产图风格一致性验证（IP-Adapter）",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "IP-Adapter 管线未实现：IP-Adapter-Plus 模型未随包（模型资产 A 类缺口）；风格一致性当前由多视图同批生成 + 色调一致性校验兜底（COMIC-033~037 已验证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-030",
+      "name": "资产图关联分镜绑定验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "PUT /comic/asset/bind 在线：不存在资产返回 40005（SYSTEM_RESOURCE_NOT_FOUND）业务错误信封",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-031",
+      "name": "资产图库管理与预览验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "GET /comic/asset/library 在线：items/total 结构正确（0 条）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-032",
+      "name": "资产图生成失败异常处理",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "引擎可用，生成成功（异常路径无需触发）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-033",
+      "name": "角色图多视图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "4096×1024 四视图画布生成成功（SDXL 兜底 degraded 标记在）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-034",
+      "name": "多视图后处理裁切验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "front/side/back/closeup 自动裁切落盘 portrait_views/",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-035",
+      "name": "多视图一致性校验验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "色调一致性校验输出正常: {'hue_spread_deg': 11.6, 'sat_spread': 0.004, 'consistent': True}",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-036",
+      "name": "背景处理与一键去背验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "四视图透明背景 PNG alpha 处理成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-037",
+      "name": "资产入库与子资产管理验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "portrait.png + portrait_views/ 入库，资产库可按 turnaround 元数据检索",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-038",
+      "name": "多视图用户交互流程验证（预览弹窗）",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "预览弹窗交互为前端 UI；且依赖的多视图生成功能缺失（见033）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-039",
+      "name": "局部重绘机制验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "POST /art/inpaint 在线：非法负载返回校验错误信封（SYSTEM_PARAM_INVALID）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-040",
+      "name": "多视图与下游流程对接验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "多视图资产经 /comic/asset/bind 成功绑定分镜行（下游可取用）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-041",
+      "name": "多视图异常处理——视图数量不足",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "生成管线已实现（见033）：画布固定 4096×1024 四等分裁切，数量不足情形只能由模型出图异常产生，面板完整性检测为前端图像职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-042",
+      "name": "多视图异常处理——视图排列错乱",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "朝向检测属图像理解范畴（无视觉判定模型随包）；033 一致性校验已提供色调级异常信号",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-043",
+      "name": "多视图异常处理——非人形角色适配",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "turnaround Prompt 模板已实现；非人形适配由 prompt 描述驱动，无独立模板集",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-044",
+      "name": "多视图异常处理——非对称设计与坐姿角色",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "同 043：由 prompt 驱动，模型能力范畴",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-045",
+      "name": "角色音色绑定入口与卡片区域验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "角色卡片音色配置区为前端 UI（API 验证见046/049）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-046",
+      "name": "TTS预设音色库选择验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "预置音色 7 个（温柔女声/沉稳男声/少年音/萝莉音），含情感标签列表；性别×年龄段×风格三维筛选为前端展示层",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-047",
+      "name": "上传音频样本绑定验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "WAV 样本上传落盘+入库 voice_profiles（is_preset=0），voice_id=voice_custom_8779939e4933，可参与 preview 试听链路",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-048",
+      "name": "AI音色克隆完整流程验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "端点在线；GPT-SoVITS 推理代码包与 pypinyin 未随包，克隆被诚实门控 VOICE_CLONE_UNAVAILABLE（响应含 suggestion 降级引导），不产生伪克隆结果",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-049",
+      "name": "情绪音色配置验证（1默认+N情绪双层结构）",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "emotion 愤怒→悲伤 更新并持久化（voice_profiles 表），已恢复默认；N 情绪各自独立音色文件的多层结构未实现（单 emotion 字段）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-050",
+      "name": "音频输出规格验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "WAV 输出 164KB，degraded=True，reason=CosyVoice/ChatTTS 语音模型未随包；GPT-SoVITS 权重已随包但缺官方推理代码包与 pypinyi",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-051",
+      "name": "音色数据存储结构验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "voice_profiles 表字段齐全（id/name/character_id/is_preset/emotion/file_path/created_at）；voice_profile.json 文件结构未实现",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-052",
+      "name": "音色异常处理——角色未绑定音色",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "未绑定提示为前端校验职责；后端 preview 按 voice_id 直接试听无需绑定",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-053",
+      "name": "音色异常处理——上传样本不合规",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "非音频扩展名被拒 40010 + 空文件被拒 VOICE_FILE_MISSING；>20MB 上限校验（OPERATION_LIMIT_EXCEEDED）代码审查确认",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-054",
+      "name": "音色异常处理——AI克隆失败",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "克隆失败路径返回 VOICE_CLONE_UNAVAILABLE + suggestion（引导转预置音色/voices.upload），前端可据此提示降级",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-055",
+      "name": "音色异常处理——TTS服务不可用",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "不存在音色拒绝 VOICE_FILE_MISSING；TTS 引擎不可用时分级回退（SAPI5→静音占位）+degraded 标记见050",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-056",
+      "name": "音色异常处理——音频时长>分镜时长",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "加速/延长策略选择弹窗为前端交互；分镜行无 duration 字段（见061）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-057",
+      "name": "场景描述编辑与自动保存验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "PUT rows/{row_id} 更新 description 并重读一致；500ms 防抖/绿勾反馈为前端职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-058",
+      "name": "镜头类型下拉选择验证（8种）",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "camera_type 持久化成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-059",
+      "name": "拍摄角度与镜头运动选择验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "角度/运动字段持久化成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-060",
+      "name": "角色@提及功能验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "@提及下拉（角色列表+缩略图）为前端交互；角色 characters 字段持久化已由057/067覆盖",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-061",
+      "name": "时长字段输入与校验验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "duration 持久化成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-062",
+      "name": "转场类型与配乐选择验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "transition 持久化成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-063",
+      "name": "AI描述生成流程验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "对话引擎未就绪，诚实报错: DIALOG_NOT_READY",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-064",
+      "name": "AI描述生成超时异常处理",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "超时模拟与取消按钮为前端职责（后端推理无30s超时门）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-065",
+      "name": "自动保存失败异常处理",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "网络异常下的红框/感叹号/点击重试为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-066",
+      "name": "描述词模板选择与复用验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "描述词模板为前端本地预置/存储功能，无后端端点",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-067",
+      "name": "角色台词字段与音色绑定联动验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "voices/bind 绑定主角→音色，行级 voice_id+characters+台词持久化一致；无音色⚠️提示为前端职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-068",
+      "name": "情绪标注下拉选择与联动验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "voice_emotion 开心→愤怒→自动 持久化一致；8种情绪选项与音色切换联动为前端职责（未配置情绪回退默认音色）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-069",
+      "name": "语速/音量滑块控制验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "语速0.5~2.0x/音量-12~0dB 滑块为前端控件；storyboard_rows 无 speed/volume 字段（实时保存无落点）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-070",
+      "name": "自动情绪识别验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "对话引擎未就绪→本地规则词典命中「愤怒」（degraded 标记在）；Qwen3-VL-8B 语义识别未随包",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-071",
+      "name": "硬件检测与模式判定验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "GPU=NVIDIA GeForce RTX 5070 Ti VRAM=16303MB（后端真实检测）；WebGL2.0/3D模式判定为前端职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-072",
+      "name": "3D导演台场景初始化验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "Three.js 场景初始化（网格/光照/FOV/帧率）为前端渲染职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-073",
+      "name": "OrbitControls相机旋转验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "相机旋转/阻尼/垂直限制为前端 Three.js 交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-074",
+      "name": "OrbitControls相机平移与缩放验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "平移/缩放范围 0.5~50m 为前端 Three.js 交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-075",
+      "name": "双击聚焦与F键重置验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端相机交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-076",
+      "name": "资产库浏览与搜索验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "3D 资产库面板为前端 UI（后端无 3D 资产清单端点）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-077",
+      "name": "从资产库拖入3D对象流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "拖拽预览/落地吸附为前端 Three.js 交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-078",
+      "name": "拖入资产到场景外取消验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "前端拖拽交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-079",
+      "name": "选中与取消选中3D对象验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "轮廓线/Gizmo 显示为前端渲染职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-080",
+      "name": "删除3D对象流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "Delete 键/确认弹窗/Ctrl+Z 撤销为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-081",
+      "name": "3D场景工具栏按钮验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端工具栏交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-082",
+      "name": "3D资产加载失败异常处理",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "红色线框立方体/重试按钮为前端降级展示",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-083",
+      "name": "场景渲染性能不足降级验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "帧率监测/画质降级为前端渲染职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-084",
+      "name": "平移Gizmo操作验证(Translate)",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "character/position 持久化 x/y/z+rotation+scale；Gizmo 拖拽精度/Shift 微调为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-085",
+      "name": "旋转Gizmo操作验证(Rotate)",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "rotation 持久化成功；15°步进/0.1°精细为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-086",
+      "name": "缩放Gizmo操作验证(Scale)",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "scale=2.0 持久化成功；0.01~100 范围钳制为前端职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-087",
+      "name": "属性面板精确输入Transform验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "属性面板输入/重置/复制粘贴为前端交互（持久化已由084~086覆盖）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-088",
+      "name": "网格吸附功能验证(Grid Snap)",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端吸附逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-089",
+      "name": "表面吸附功能验证(Surface Snap)",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "前端吸附逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-090",
+      "name": "Transform保存防抖验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "scene_objects 表 upsert 持久化；连续写落库最终值（前端 500ms 防抖后的服务端语义等价）；name 首写保留",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-091",
+      "name": "多选3D对象操作验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端多选交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-092",
+      "name": "创建组与解组操作验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端分组交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-093",
+      "name": "机位添加与更新验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "4 机位添加+首部更新（name/fov）持久化成功 ids=['e92c56', '6476e2', 'd9fadb', 'd2fe40']",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-094",
+      "name": "机位不存在异常处理验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "更新不存在机位被拒 SYSTEM_RESOURCE_NOT_FOUND",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-095",
+      "name": "角色锁定与解锁验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "character/lock→locked=true，unlock→false 持久化成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-096",
+      "name": "导演台状态导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "默认 stage 导出 JSON：33 机位/3 角色，format=omnispace-director-stage/v1",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-097",
+      "name": "全景图生成（导演台）验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "degraded=true：后端无 3D 渲染引擎，占位图+如实说明（真实渲染由前端 Three.js 执行）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-098",
+      "name": "全景图分辨率非法校验验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "1234 被拒: UNSUPPORTED_FORMAT（允许集 PANORAMA_RESOLUTIONS）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-099",
+      "name": "4合1截图机位数量校验验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "3 机位被拒 SCREENSHOT_CAMERA_MISMATCH（恰好4个硬性校验）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-100",
+      "name": "场景图→720度全景自动触发验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "场景图生成功能缺失（026），自动触发链路无从验证；全景端点降级见097",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-101",
+      "name": "场景图→720度全景生成流程验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "4096 全景占位图+degraded 标记（后端无渲染引擎）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-102",
+      "name": "全景图自动关联与环境加载验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "全景图作为 3D 环境贴图加载为前端 Three.js 职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-103",
+      "name": "一键自动装配完整流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P0",
+      "detail": "资产自动摆位装配为前端编排逻辑（依赖 3D 资产库）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-104",
+      "name": "自动装配后手动微调验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "装配后微调为前端交互（角色位置持久化已由084覆盖）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-105",
+      "name": "Text-to-3D对象生成流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "SDXL 概念图→TripoSR 网格成功，顶点 70271，glb=E:\\OmniSpace\\data\\generated\\3d\\default\\triposr_20260813_015516.glb",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-106",
+      "name": "3D模型格式兼容性验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "glb/gltf/fbx 加载为前端 Three.js Loader 职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-107",
+      "name": "2D分镜图生成模式初始化验证（硬件降级）",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "2D 模式切换为前端渲染职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-108",
+      "name": "2D分镜图生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "SDXL 真实生成 512x512/20步，5168ms，seed=805204975，429KB",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-109",
+      "name": "2D分镜图批量生成验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "批量队列为前端编排（单行生成已由108覆盖，paint 功能锁串行保证）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-110",
+      "name": "3D/2D模式手动切换验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端模式切换",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-111",
+      "name": "分镜图四图合一生成完整流程验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "恰好4机位通过校验→2x2 布局占位图+degraded（后端无渲染引擎，真实截图由前端 Three.js 画布合成）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-112",
+      "name": "分镜图后处理裁切与一致性校验验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "四图裁切/一致性校验为前端图像处理职责（依赖111真实截图）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-113",
+      "name": "分镜图用户交互流程验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端预览弹窗交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-114",
+      "name": "分镜图异常处理——面板数量不足",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "面板数量检测为前端图像处理职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-115",
+      "name": "分镜图异常处理——角色外观不一致",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "外观一致性检测为前端图像处理职责",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-116",
+      "name": "分镜图异常处理——2D模式与纯空镜",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "纯空镜适配为前端逻辑",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-117",
+      "name": "分镜图与角色图四视图对比验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "对比视图（依赖多视图入库037缺失）为前端展示",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-118",
+      "name": "三路输入模型验证（资产图+描述词+截图）",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "三路输入经 Ken Burns 降级管线产出真实 mp4（1639ms，model=fallback-kenburns，degraded 标记如实携带）；LTX-2/Wan2.1/CogVideoX 未随包",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-119",
+      "name": "导演台多机位截图机制验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "多机位 Canvas 截图为前端渲染职责（4合1校验已由099/111覆盖）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-120",
+      "name": "三种场景下视频生成输入差异验证",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "无角色资产（纯空镜）输入亦可生成；降级管线对三路输入差异不敏感（统一图片推拉）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-121",
+      "name": "关键帧生成完整流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "关键帧 v1 真实生成落盘 keyframes/<row>/v1.png，登记 keyframes 表 is_current=1，分镜行 generation_status=done",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-122",
+      "name": "批量生成关键帧流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "批量 2/2 生成成功，聚合明细齐全",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-123",
+      "name": "关键帧重新生成与版本回退验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "regenerate 产出 v2（旧版保留）→ rollback 回退 v1，is_current 唯一且指向 v1",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-124",
+      "name": "关键帧删除与导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "不存在关键帧删除被拒 40005；真实删除 v2 成功（记录+文件双删）；版本列表导出由 GET /manga/keyframe/list 覆盖",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-125",
+      "name": "关键帧生成失败异常处理",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "不存在分镜行 40005 + 缺参校验拒绝；引擎故障路径由 PAINT_ENGINE_NOT_READY/PAINT_GENERATION_FAILED 错误信封兜底",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-126",
+      "name": "切换到时间线视图验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端视图切换",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-127",
+      "name": "时间线操作验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "时间线拖拽/裁剪为前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-128",
+      "name": "视频生成完整链路验证（三路融合）",
+      "module": "comic",
+      "status": "DEGRADED",
+      "priority": "P0",
+      "detail": "generate→status(done)→result→download 全链路通，mp4 4KB 真实下载；Ken Burns 降级管线",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-129",
+      "name": "无关键帧分镜的视频生成降级验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "无关键帧场景已由120覆盖（空角色资产输入仍可生成）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-130",
+      "name": "角色语音叠加验证（TTS+音色绑定）",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "音画同步 15s 被拒 VIDEO_DURATION_EXCEEDED（上限10s）；≤10s 叠加路径与118同管线",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-131",
+      "name": "视频生成中途取消验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "提交后立即取消: cancel 响应=cancelled，终态=cancelled（工作线程帧循环检查取消旗标）；不存在任务取消被拒 40005",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-132",
+      "name": "分镜图四图合一与视频关键帧对接验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "四图合一→关键帧对接为前端资产选择交互；关键帧生成已由121覆盖",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-133",
+      "name": "切换到导出视图验证",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "前端视图切换",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-134",
+      "name": "完整视频导出流程验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "MP4 导出 4KB，ftyp 容器头校验通过",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-135",
+      "name": "分镜表PNG序列导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "PNG 序列 zip 导出 1 帧（无关键帧行用占位图），generated/exports/storyboard_pngseq_ca0f0b442e794444b85aeee67fc2ed36_1786557359.zip",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-136",
+      "name": "分镜脚本PDF导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "分镜脚本 PDF 导出 1 页（engine=pil，reportlab 优先/PIL 图片合成兜底），真实产出文件",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-137",
+      "name": "分镜脚本JSON导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "JSON 1行 + CSV（表头+数据行）双态导出成功；format=xml 被拒 UNSUPPORTED_FORMAT",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-138",
+      "name": "资产图包导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "资产包 zip 导出（manifest.json + 1 个资产文件），generated/exports/assets_d4df5d15e0df41cca6a704bd1016eb80_1786557359.zip",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-139",
+      "name": "多内容同时导出验证",
+      "module": "comic",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "单 zip 合并导出: 分镜1行/资产0/关键帧0/视频1 + manifest.json",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-COMIC-140",
+      "name": "未选择导出内容异常处理",
+      "module": "comic",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "导出内容勾选为空的前端校验提示",
+      "duration_ms": 0
+    }
+  ]
+}

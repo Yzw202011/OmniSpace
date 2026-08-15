@@ -1,0 +1,23 @@
+[
+{"tc_id": "TC-FLOW-SYS-008", "name": "左侧导航栏模块切换完整流程验证", "status": "PASS", "detail": "依次点击 8 个导航项，location.hash 均切到对应路由且主内容区渲染非空、无错误弹窗"},
+{"tc_id": "TC-FLOW-SYS-009", "name": "导航栏折叠/展开流程验证", "status": "PASS", "detail": "点击折叠后 aside.sidebar 带 collapsed 类、.nav-label 不可见、按钮 aria-label 切为「展开导航栏」，再次点击后类名/文案/标签可见性全部恢复"},
+{"tc_id": "TC-FLOW-SYS-012", "name": "模块间快速切换压力测试", "status": "PASS", "detail": "8 个路由快速连点两遍（300ms 间隔）后慢速复验各页均正常渲染，全程无业务 JS 错误"},
+{"tc_id": "TC-FLOW-SYS-018", "name": "右侧面板展开/折叠流程验证", "status": "PASS", "detail": "点击 .right-panel-toggle 后 .right-panel 带上 collapsed 类，aria-label 同步切为「展开右侧面板」，再次点击后类名与文案均恢复"},
+{"tc_id": "TC-FLOW-SYS-019", "name": "右侧面板内容切换流程验证", "status": "PASS", "detail": "chat/paint/storyboard 面板 aria-label 依次为对话设置/绘画参数/分镜属性，settings 路由无右侧面板"},
+{"tc_id": "TC-FLOW-SYS-020", "name": "右侧面板拖拽调整宽度验证", "status": "PASS", "detail": "拖拽面板左缘宽度由 320px 变为 520px，拖拽调宽生效"},
+{"tc_id": "TC-FLOW-SYS-027", "name": "主题切换时3D场景适配验证", "status": "PASS", "detail": "漫剧页切入 3D导演台 视图后点击主题切换，<html> data-theme 由 None 变为 'light'，全程无 console 错误，导演台 canvas 切换前后均存在（1→1）"},
+{"tc_id": "TC-FLOW-SET-002", "name": "语言设置切换验证", "status": "SKIP", "detail": "前端未实现：设置页无语言切换控件（后端设置仅 theme/font_size 等静态键且无 language 项，无对应输入框）"},
+{"tc_id": "TC-FLOW-SET-004", "name": "开机自启动设置验证", "status": "SKIP", "detail": "前端未实现：设置页无开机自启动选项"},
+{"tc_id": "TC-FLOW-SET-005", "name": "通知设置验证", "status": "SKIP", "detail": "前端未实现：设置页无通知设置项（顶栏通知中心为任务列表，非设置项）"},
+{"tc_id": "TC-FLOW-SET-006", "name": "快捷键设置验证", "status": "SKIP", "detail": "前端未实现：设置页无快捷键设置项"},
+{"tc_id": "TC-FLOW-SET-009", "name": "渲染质量设置验证", "status": "SKIP", "detail": "前端未实现：设置页无渲染质量设置项"},
+{"tc_id": "TC-FLOW-SET-018", "name": "导出质量预设验证", "status": "SKIP", "detail": "前端未实现：设置页无导出质量预设项"},
+{"tc_id": "TC-FLOW-SET-022", "name": "隐私设置验证", "status": "SKIP", "detail": "前端未实现：设置页无隐私设置项"},
+{"tc_id": "TC-FLOW-STYLE-009", "name": "训练参数预设模板验证", "status": "PASS", "detail": "选择预设「快速试验」后 Rank/Alpha/学习率/Epochs 一键填充为 8/16/5×10^-4/5，四个参数控件全部联动生效"},
+{"tc_id": "TC-FLOW-STYLE-010", "name": "训练参数显存预估验证", "status": "PASS", "detail": "显存预估随参数联动：fast 预设下「3.6 GB」，Rank 调至 64 后变为「9.8 GB」（公式 1.5+rank×0.11+alpha×0.02+epochs×0.02+0.8 两端均与 UI 显示一致）"},
+{"tc_id": "TC-FLOW-STYLE-011", "name": "训练参数恢复默认验证", "status": "PASS", "detail": "参数被改为 Rank64 后点击「恢复默认」，Rank/Alpha/学习率/Epochs 全部复位为 16/32/2×10^-5/10（PARAM_DEFAULTS）"},
+{"tc_id": "TC-FLOW-MODEL-002", "name": "模型列表排序功能验证", "status": "PASS", "detail": "单一类别下按「名称」排序，6 张卡片名称经 localeCompare(zh-Hans-CN) 验证为升序（首项「Qwen2-0.5B-Instruct-Q4_K_M」）；切回「默认」恢复登记顺序"},
+{"tc_id": "TC-FLOW-MODEL-004", "name": "模型列表搜索功能验证", "status": "PASS", "detail": "搜索「qwen」过滤为 6/31 张卡片且出现「匹配 X/Y」计数，首项「qwen3-vl-8b」命中关键词；清空后恢复全部 31 张"},
+{"tc_id": "TC-FLOW-MODEL-013", "name": "模型导入拖拽方式验证", "status": "PASS", "detail": "拖拽 uitest-model.safetensors 到 dropzone，路径输入框自动带入「models\\uitest-model.safetensors」（默认 models\\ 前缀），并 toast 如实提示「浏览器沙箱无法读取绝对路径，请确认路径前缀」"},
+{"tc_id": "TC-FLOW-MODEL-028", "name": "模型预热显存不足处理验证", "status": "SKIP", "detail": "前端未实现预热入口：模型卡片操作仅 选择/加载/校验/卸载/删除，无预热按钮"}
+]

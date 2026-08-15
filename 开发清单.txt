@@ -1,0 +1,1780 @@
+# OmniSpace AI v2.3.1 完整开发清单
+
+> **版本**：v3.0
+> **日期**：2026-08-12
+> **文档类型**：全量开发清单（Development Checklist）
+> **适用范围**：全项目所有功能模块、技术引擎、系统层、数据库、通信协议
+> **约束效力**：本文档为开发执行的完整索引清单，与约束.md配合使用
+> **前端框架**：React 19.2（Function Component + Hooks + Compiler 1.0）— 无约束选型最终裁定
+
+---
+
+## 目录
+
+- [第一章 项目总览](#第一章-项目总览)
+- [第二章 系统架构](#第二章-系统架构)
+- [第三章 核心模块1：OmniChat（AI对话）](#第三章-核心模块1omnichatai对话)
+- [第四章 核心模块2：OmniDraw（AI绘画）](#第四章-核心模块2omnidrawai绘画)
+- [第五章 核心模块3：OmniComic（漫剧创作）](#第五章-核心模块3omnicomic漫剧创作)
+- [第六章 核心模块4：OmniLearn（知识学习）](#第六章-核心模块4omnilearn知识学习)
+- [第七章 核心模块5：ModelManager（模型管理）](#第七章-核心模块5modelmanager模型管理)
+- [第八章 核心模块6：VideoStyle（视频风格）](#第八章-核心模块6videostyle视频风格)
+- [第九章 五大智能引擎](#第九章-五大智能引擎)
+- [第十章 系统层功能](#第十章-系统层功能)
+- [第十一章 数据库Schema](#第十一章-数据库schema)
+- [第十二章 通信协议](#第十二章-通信协议)
+- [第十三章 前端组件库完整清单](#第十三章-前端组件库完整清单)
+- [第十四章 页面布局完整清单](#第十四章-页面布局完整清单)
+- [第十五章 硬件配置与性能指标](#第十五章-硬件配置与性能指标)
+- [第十六章 开发任务清单（按优先级分级）](#第十六章-开发任务清单按优先级分级)
+
+---
+
+## 第一章 项目总览
+
+### 1.1 项目定位
+
+OmniSpace AI 是一款本地化AI创作工作站，集成AI对话、AI绘画、漫剧创作、知识学习、模型管理、视频风格化六大核心模块，通过五大智能引擎实现模型预测预加载、自主学习、LoRA微调、协同调度和硬件编码。
+
+### 1.2 技术栈总览
+
+| 层级 | 技术 | 版本 | 用途 |
+|------|------|------|------|
+| 前端框架 | React 19.2 (Function Component + Hooks) | 19.2+ | UI渲染 |
+| 编译优化 | React Compiler | 1.0 | 自动memoization |
+| 前端构建 | Vite | 6.x | 开发服务器/打包 |
+| 前端样式 | Tailwind CSS | 4.x | 原子化CSS |
+| 组件库基座 | shadcn/ui (Base UI) | 2026.7 | 1000+组件变体 |
+| 状态管理 | Zustand | 5.x | 全局状态(slice模式) |
+| 路由 | React Router | 7.x | 类型安全路由 |
+| 虚拟列表 | @tanstack/react-virtual | latest | 万级数据滚动 |
+| 3D渲染 | React Three Fiber + drei | latest | 声明式WebGL 3D导演台 |
+| 拖拽交互 | dnd-kit | latest | 分镜/时间轴拖拽 |
+| AI流式 | Vercel AI SDK | latest | useChat/useCompletion |
+| 包管理器 | pnpm | 9+ | 前端依赖管理 |
+| 后端语言 | Python | 3.12 | API/AI推理 |
+| 后端框架 | FastAPI | latest | REST API |
+| AI推理 | PyTorch | 2.8+ | 模型推理/训练 |
+| 向量数据库 | ChromaDB | latest | 知识向量存储 |
+| 关系数据库 | SQLite (WAL模式) | built-in | 元数据/配置 |
+| 任务队列 | Celery + Redis | latest | 异步任务 |
+| 桌面壳层 | Tauri | 2.x (Rust) | 窗口/IPC/系统 |
+| C/C++工具链 | CMake + vcpkg | 3.25+ | CUDA/CEF/编解码 |
+| Python包管理 | uv | latest | 替代pip |
+| 浏览器内核 | CEF | 120+ | OmniLearn内嵌浏览器 |
+| 视频编码 | FFmpeg | 7.x | AV1/H.264/H.265 |
+
+### 1.3 模块互斥矩阵
+
+| 模块 | OmniChat | OmniDraw | OmniComic | OmniLearn | ModelManager | VideoStyle |
+|------|----------|----------|-----------|-----------|--------------|------------|
+| OmniChat | - | 兼容(共享显存) | 兼容(Agent驱动) | 互斥(CPU竞争) | 兼容(调用方) | 互斥(GPU冲突) |
+| OmniDraw | 兼容 | - | 强依赖(关键帧) | 互斥(显存竞争) | 兼容 | 互斥 |
+| OmniComic | 兼容 | 强依赖 | - | 互斥(显存+CPU) | 兼容 | 互斥 |
+| OmniLearn | 互斥 | 互斥 | 互斥 | - | 兼容(写入) | 互斥 |
+| ModelManager | 兼容 | 兼容 | 兼容 | 兼容 | - | 兼容 |
+| VideoStyle | 互斥 | 互斥 | 互斥 | 互斥 | 兼容 | - |
+
+### 1.4 模型清单（~392GB）
+
+| 类别 | 包含内容 | 体积 | 加载策略 |
+|------|---------|------|---------|
+| 多模态对话 | Qwen3-VL-8B/4B/2B、CogVLM2-8B | ~42GB | 8B常驻，4B/2B按需 |
+| 视频生成 | LTX-2、Wan2.1-14B/1.3B、CogVideoX-2B/5B | ~73GB | 按需加载，显存分块 |
+| 语音 | CosyVoice3、GPT-SoVITS、ChatTTS、Whisper、OpenVoice | ~35GB | 按需加载 |
+| 视觉 | FLUX.1系列、Kolors 2.1、SDXL、ControlNet、IP-Adapter | ~130GB | FLUX按需FP8, SDXL常驻 |
+| 语言 | Qwen3-14B、ChatGLM-4-9B、Yi-1.5-9B | ~35GB | 冷存储，按需加载 |
+| 3D | TripoSR、Stable Zero123、Wonder3D、LGM | ~20GB | 冷存储，按需加载 |
+| 辅助 | MiDaS、YOLOv8、SAM、Real-ESRGAN、CLIP、Blip2 | ~35GB | 冷存储，按需加载 |
+| PyTorch+运行时 | PyTorch 2.8+VC++/DX/MF/WebView2/Python/SVT-AV1 | ~12GB | 常驻 |
+| CEF浏览器 | Chromium 120+内核 | ~0.2GB | 常驻 |
+| BGE-large-zh | 文本嵌入模型，1024维 | ~1.3GB | 常驻内存 |
+| MLPredict-XGBoost | 预加载预测模型 | ~50MB | 常驻内存 |
+| LoRA/VAE变体 | 各类变体模型 | ~300GB | 冷存储，按需加载 |
+
+---
+
+## 第二章 系统架构
+
+### 2.1 五层布局架构
+
+| 层级 | 组件名 | 尺寸 | z-index | 功能 |
+|------|--------|------|---------|------|
+| 第1层 | TopNav 顶部导航栏 | 固定48px | 1000 | Logo、全局搜索、通知中心、用户菜单、主题切换 |
+| 第2层 | Sidebar 左侧导航栏 | 展开260px/折叠64px | 900 | 模块导航树、空间切换器、收藏标记 |
+| 第3层 | MainContent 主内容区 | flex:1 自适应 | 1 | 多标签页容器，路由渲染 |
+| 第4层 | RightPanel 右侧面板 | 展开320px/折叠0px(可拖拽280~500px) | 800 | 上下文属性面板、操作历史 |
+| 第5层 | StatusBar 底部状态栏 | 固定28px | 700 | 12项系统运行指标 |
+
+### 2.2 进程架构
+
+| 进程 | 技术栈 | 端口 | 职责 |
+|------|--------|------|------|
+| 前端渲染进程 | React 19.2 + WebView2/CEF | - | UI渲染、用户交互 |
+| 后端服务进程 | Python 3.12 + FastAPI + Uvicorn | 127.0.0.1:8000 | API服务、AI推理、业务逻辑 |
+| Tauri原生层 | Rust 1.75+ | - | 窗口管理、IPC、系统API、文件哈希 |
+| CEF浏览器进程 | Chromium 120+ | - | OmniLearn网页浏览（沙箱隔离） |
+| Redis | Redis | 6379 | 任务队列Broker、缓存 |
+| Celery Worker | Python | - | 异步任务执行（4队列：high/medium/low/background） |
+
+### 2.3 后端Service层（12个Service）
+
+| 序号 | Service名 | 职责 |
+|------|-----------|------|
+| 1 | ChatService | 对话推理 + RAG + 被动补全 |
+| 2 | PaintService | 文生图 + 图生图 + 超分 + Prompt优化 |
+| 3 | StoryboardService | 分镜CRUD + AI描述 |
+| 4 | VideoService | 视频生成 + AV1编码 |
+| 5 | AutonomousLearningService | 学习会话管理 |
+| 6 | BrowserAgentService | CEF浏览器Agent决策循环 + 分级决策 |
+| 7 | KnowledgeProcessingService | 过滤→分段→提取→评估→去重→入库 |
+| 8 | BehaviorLearningService | 事件记录 + 偏好分析 + 训练数据构造 |
+| 9 | KnowledgeInjectionService | RAG检索 + 混合检索(v2.3.1) |
+| 10 | ModelManagerService | 模型生命周期管理 |
+| 11 | SchedulerService | 智能调度引擎（6x6互斥矩阵） |
+| 12 | EncoderService | AV1/H.264/H.265编码 |
+
+### 2.4 跨语言通信边界
+
+| 边界 | 数据格式 | 校验方式 |
+|------|----------|----------|
+| TS → Python API | JSON (UTF-8) | Pydantic v2校验 |
+| TS → Python WS | JSON (UTF-8) | 进度推送/实时通知 |
+| TS → Rust | Tauri invoke/event | JSON + camelCase，Rust serde编译时校验 |
+| Python → Rust | PyO3自动转换 | list→Vec, bytes→&[u8] |
+| Python → C/C++ | pybind11/ctypes | numpy array → raw pointer（零拷贝） |
+| Python → CUDA | torch.Tensor | GPU上直接传递 |
+| Python → CEF | JavaScript绑定 + JSON | 注入JS/回调 |
+| Python → FFmpeg | subprocess + 管道/文件路径 | 视频文件路径或raw管道 |
+| Python → SQLite | SQLAlchemy ORM | 不写裸SQL |
+| Python → ChromaDB | Python SDK | embedding + metadata dict |
+| Python → Redis | Redis-py (async) | Celery broker + 缓存 |
+
+### 2.5 响应式断点
+
+| 断点名称 | 宽度范围 | 布局策略 | 侧边栏 | 右侧面板 |
+|----------|----------|----------|--------|----------|
+| Desktop | ≥1440px | 完整五层布局 | 展开260px | 展开320px |
+| Laptop | 1280-1439px | 右侧面板折叠 | 展开260px | 折叠为64px图标抽屉 |
+| Tablet | 768-1279px | 精简三栏 | 折叠64px | 完全隐藏 |
+| Mobile | <768px | 单栏布局 | 全屏覆盖层 | 完全隐藏 |
+
+### 2.6 前端项目目录结构
+
+```
+omnispace-frontend/
+├── src/
+│   ├── components/
+│   │   ├── base/          # OmniButton, OmniInput, OmniTextarea, OmniSelect, OmniSlider, OmniToggle, OmniCheckbox, OmniRadio, OmniTag, OmniBadge
+│   │   ├── layout/        # OmniCard, OmniTable, OmniTabs, OmniCollapse, OmniSplit, OmniGrid
+│   │   ├── feedback/      # OmniModal, OmniDrawer, OmniToast, OmniMessageBox, OmniNotification, OmniLoading, OmniEmpty, OmniSkeleton
+│   │   └── data/          # OmniStatistic, OmniProgress, OmniChart, OmniTimeline, OmniTree, OmniVirtualList
+│   ├── views/
+│   │   ├── chat/          # ChatPage, ChatSidebar, ChatWindow, ChatInput, MessageBubble, CodeBlock
+│   │   ├── paint/         # PaintPage, PaintParams, PaintCanvas, PaintHistory, ControlNetPanel, IPAdapterPanel, Lightbox, BatchQueue
+│   │   ├── storyboard/    # ComicPage, Dashboard, Editor, DirectorStation, StageNav, StoryboardTable, AssetPanel, StageExecModal, director/Viewport3D, AssetLibrary, PropertyPanel
+│   │   ├── learning/      # LearnPage, LearnSidebar, LearnContent, KnowledgeGraph, TimelineView, TestMode
+│   │   ├── models/        # ModelPage, ModelSidebar, ModelGrid, ModelDetail, DownloadManager, VRAMManager
+│   │   ├── style/         # StylePage, StyleSidebar, StyleWorkspace, TrainingMonitor, StylePreview, CompareTest
+│   │   └── settings/      # SettingsPage, GeneralSettings, HardwareSettings, NetworkSettings, AISettings, TrainingSettings, StorageSettings, PrivacySettings, ShortcutSettings, AboutPage
+│   ├── layouts/           # MainLayout, TopNav, Sidebar, RightPanel, StatusBar, MultiTabContainer
+│   ├── stores/            # Zustand: useAppStore, useChatStore, usePaintStore, useStoryboardStore, useLearningStore, useModelStore, useStyleStore, useSettingsStore, useModalStore, useWebSocketStore
+│   ├── hooks/             # useTheme, useShortcut, useVirtualList, useDragSort, useAutoSave, useWebSocket, useHardwareDetect
+│   ├── ui/                # shadcn/ui Base UI组件（button, input, dialog, drawer等）
+│   ├── three/             # R3F场景组件（Scene, Camera, Lights, Meshes, Controls）
+│   ├── router/            # index.tsx (React Router 7, 类型安全路由)
+│   ├── api/               # request.ts, chat.ts, paint.ts, storyboard.ts, director.ts, video.ts, learning.ts, models.ts, style.ts
+│   ├── utils/             # format.ts, validate.ts, storage.ts, dom.ts, three-helpers.ts
+│   ├── styles/            # variables.css, reset.css, transitions.css, scrollbar.css
+│   ├── types/             # api.ts, models.ts, storyboard.ts
+│   ├── App.tsx
+│   └── main.tsx
+├── package.json
+├── pnpm-lock.yaml
+├── vite.config.ts
+├── tailwind.config.ts
+└── tsconfig.json
+```
+
+---
+
+## 第三章 核心模块1：OmniChat（AI对话）
+
+### 3.1 功能子模块清单
+
+| 序号 | 功能名称 | 描述 |
+|------|----------|------|
+| 1 | 多模态对话 | 支持文本+图像输入，流式文本输出 |
+| 2 | 剧本润色 | 基于影视行业知识库的专业润色 |
+| 3 | 分镜描述生成 | 输入剧情自动生成结构化分镜描述 |
+| 4 | Agent工具调用 | Function Calling协议，浏览器搜索/文件操作等 |
+| 5 | 上下文记忆 | 多轮对话记忆，会话持久化 |
+| 6 | RAG增强 | 对话前自动检索ChromaDB Top-5知识片段 |
+| 7 | 被动补全 | 检测知识缺口时自动触发联网学习 |
+| 8 | 流式输出 | SSE推送，打字机效果 |
+| 9 | 语音交互 | TTS+ASR集成（Edge-TTS+FunASR） |
+| 10 | 意图识别 | 简单问答/知识检索/工具调用三路分类 |
+
+### 3.2 技术原理
+
+| 技术项 | 规格 |
+|--------|------|
+| 推理模型 | Qwen3-VL-8B(复杂)/4B(常规)/2B(快速)，按GPU显存自动选择 |
+| 推理后端 | vLLM |
+| 上下文长度 | 最大8K tokens |
+| 量化方案 | fp16/int8/int4动态切换 |
+| 流式输出 | SSE (Server-Sent Events) |
+| RAG检索 | 混合检索(FTS5 + HNSW)，RRF重排序，HyDE增强 |
+| 向量化 | BGE-large-zh（1024维），过滤score<0.5 |
+| 首字延迟 | <500ms(标准≤4K) / <800ms(8K满上下文) |
+
+### 3.3 实现步骤（10步）
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 用户输入捕获 | 前端HTTP POST `/api/v1/chat/stream` |
+| 2 | 参数校验 | FastAPI路由层 + Pydantic v2 |
+| 3 | RAG检索 | ChromaDB Top-5检索，<100ms |
+| 4 | 向量查询 | BGE-large-zh向量化，过滤score<0.5 |
+| 5 | 上下文组装 | System Prompt + 检索知识 + 历史对话 + 用户输入 |
+| 6 | 模型选择 | 根据GPU显存自动选择8B/4B/2B |
+| 7 | 流式推理 | PyTorch 2.8流式推理，yield token逐字输出 |
+| 8 | 被动补全 | 检测不确定性标记→提取关键词→快速搜索→补充推理 |
+| 9 | 历史记录 | 对话历史写入SQLite，触发行为学习记录(异步) |
+| 10 | SSE返回 | 流式token推送至前端，打字机渲染 |
+
+### 3.4 API路由
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/v1/chat/stream` | 流式对话（SSE），支持多模态输入 |
+| POST | `/api/v1/chat/complete` | 非流式对话，返回完整回复 |
+| GET | `/api/v1/chat/history` | 获取对话历史列表（分页） |
+| GET | `/api/v1/chat/history/{session_id}` | 获取指定会话完整对话记录 |
+| DELETE | `/api/v1/chat/history/{session_id}` | 删除指定会话 |
+| POST | `/api/v1/chat/context` | 添加上下文知识片段 |
+| DELETE | `/api/v1/chat/context/{context_id}` | 移除上下文知识片段 |
+| GET | `/api/v1/chat/models` | 获取可用对话模型列表 |
+| GET | `/api/v1/chat/usage` | 获取对话使用统计（Token用量） |
+
+### 3.5 页面布局（路由：/chat）
+
+**组件树**：`ChatPage → ChatSidebar(左侧240px) + ChatWindow(中央flex:1) + ChatInput(底部)`
+
+**右侧面板**：ChatPanel（320px）
+
+#### ChatSidebar（聊天侧边栏 240px）
+- 顶部"新建会话"按钮（粉色#FF6B9D，白字，高36px，圆角8px，Plus图标）
+- 会话列表：每项56px高，显示名称+最后消息摘要+时间
+- 当前会话高亮：背景`--color-primary-light`
+- 搜索框：实时过滤
+- 每项右侧菜单：重命名/导出(MD/TXT/JSON)/删除(确认弹窗)
+
+#### ChatWindow（聊天窗口 flex:1）
+- AI消息气泡：左对齐，背景`--color-bg-secondary`，圆角12px(左下4px)，最大宽70%
+- 用户消息气泡：右对齐，背景`--color-bg-input`，圆角12px(右下4px)
+- Markdown渲染（标题/列表/表格/引用块）
+- 代码块：语法高亮+语言标签+"复制"+"运行"(沙箱30秒超时)
+- 流式打字机效果：首token延迟<500ms
+- 停止生成按钮：生成中显示
+- 消息操作(hover工具栏)：复制/重新生成/点赞/点踩/删除/引用
+- 虚拟列表：@tanstack/react-virtual，10k条FPS>55
+
+#### ChatInput（消息输入区 100%宽，自适应56~200px高）
+- 多行文本输入框：占位"输入消息..."，字符计数，超限变红
+- 发送按钮：粉色，Send图标，Enter发送
+- 多模态输入："+"按钮(图片/文件/PDF) / 图片上传(3张并排,<10MB) / 拖拽上传 / 麦克风(录音,波形动画)
+- 代码补全：灰色补全文字，Tab接受，延迟<300ms
+- 引用预览：输入框上方缩略预览
+
+#### ChatPanel（右侧面板 320px）
+1. 模型选择：Qwen3-VL-8B(默认)/4B/2B
+2. Temperature滑块：0.5~1.0，步长0.05，默认0.7
+3. Top-P滑块：0~1，步长0.05，默认0.9
+4. Max Tokens输入框：默认2048
+5. 上下文长度选择下拉框
+6. RAG知识开关(Toggle)
+7. Agent模式开关(Toggle)
+8. 重置默认按钮
+
+### 3.6 前端组件清单
+
+| 组件名 | 功能 |
+|--------|------|
+| `ChatPage` | 对话页面主容器 |
+| `ChatSidebar` | 历史会话列表侧边栏（240px） |
+| `ChatWindow` | 消息流展示区域（虚拟列表+打字机） |
+| `ChatInput` | 多模态输入框（文本+图片+文件+语音） |
+| `MessageBubble` | 单条消息气泡组件（支持Markdown渲染） |
+| `CodeBlock` | 代码块组件（语法高亮+复制+运行） |
+| `ChatPanel` | 右侧设置面板（模型/温度/Top-P/Agent） |
+
+### 3.7 关键性能指标
+
+| 指标 | 目标值 | 当前值 |
+|------|--------|--------|
+| 首字延迟(TTFT) | <200ms | 240ms |
+| 对话吞吐量 | >80 Tokens/s | 72 |
+| RAG检索延迟 | <100ms | - |
+| 显存占用 | <12GB | - |
+| Agent工具调用成功率 | >98% | - |
+| 知识检索Recall@5 | >85% | 82% |
+
+---
+
+## 第四章 核心模块2：OmniDraw（AI绘画）
+
+### 4.1 功能子模块清单
+
+| 序号 | 功能名称 | 描述 |
+|------|----------|------|
+| 1 | 文生图(Text-to-Image) | 支持中文Prompt，1024x1024及以上 |
+| 2 | 图生图(Image-to-Image) | 参考图引导生成，可调节相似度 |
+| 3 | ControlNet姿态控制 | OpenPose骨骼提取 + 姿态约束 |
+| 4 | IP-Adapter风格迁移 | 多图权重混合，SSIM>0.85 |
+| 5 | 局部重绘(Inpainting) | 遮罩区域智能修复 |
+| 6 | 超分辨率(Upscale) | Real-ESRGAN 4x放大 |
+| 7 | Prompt优化 | 调用OmniChat进行Prompt扩写 |
+| 8 | 批量生成 | 队列式批量图片生成 |
+| 9 | 面部修复(Face Restore) | 后处理面部修复 |
+| 10 | 格式转换 | PNG/EXR等多种输出 |
+
+### 4.2 技术原理
+
+| 技术项 | 规格 |
+|--------|------|
+| 核心模型 | FLUX.1-dev(FP8) / Kolors 2.1 / SDXL-Base-1.0 |
+| 模型选择逻辑 | RTX 5090/4090→FLUX.1-dev；RTX 4070Ti→Kolors 2.1 |
+| 控制网络 | ControlNet-OpenPose(姿态) |
+| 风格迁移 | IP-Adapter-Plus(多图权重混合) |
+| 推理框架 | ComfyUI-Core嵌入式，节点化工作流 |
+| 量化方案 | FP8/FP16/INT8动态切换 |
+| 超分辨率 | Real-ESRGAN 4x |
+| 生成流程 | CLIP Encode → UNet Denoise → VAE Decode |
+
+### 4.3 实现步骤（10步）
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 参数设置 | 前端参数面板设置Prompt/Negative Prompt/模型/步数/CFG/尺寸 |
+| 2 | 请求发送 | POST `/api/v1/paint/generate` |
+| 3 | Prompt扩写 | PaintService调用OmniChat进行Prompt增强（可选） |
+| 4 | 模型选择 | 根据硬件等级选择模型 |
+| 5 | ComfyUI工作流 | CLIP Encode → UNet Denoise → VAE Decode |
+| 6 | ControlNet分支 | OpenPose提取 → ControlNet注入UNet |
+| 7 | IP-Adapter分支 | 参考图CLIP Embedding → Cross-Attention注入 |
+| 8 | 量化推理 | FP8量化推理保证显存安全 |
+| 9 | 进度推送 | WebSocket实时推送生成进度 |
+| 10 | 完成处理 | 保存PNG → 更新历史画廊 → 通知用户 |
+
+### 4.4 API路由
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/v1/paint/generate` | 生成图片（异步任务），返回task_id |
+| GET | `/api/v1/paint/task/{task_id}` | 查询生成任务状态 |
+| GET | `/api/v1/paint/task/{task_id}/result` | 获取生成结果 |
+| DELETE | `/api/v1/paint/task/{task_id}` | 取消生成任务 |
+| GET | `/api/v1/paint/models` | 获取可用绘画模型列表 |
+| GET | `/api/v1/paint/styles` | 获取可用风格预设列表 |
+| POST | `/api/v1/paint/upscale` | 图片超分辨率放大 |
+| POST | `/api/v1/paint/inpaint` | 局部重绘 |
+| POST | `/api/v1/paint/controlnet` | ControlNet条件生成 |
+| POST | `/api/v1/paint/ip-adapter` | IP-Adapter风格迁移 |
+| GET | `/api/v1/paint/history` | 获取生成历史（分页） |
+| DELETE | `/api/v1/paint/history/{art_id}` | 删除生成记录 |
+
+### 4.5 页面布局（路由：/paint）
+
+**组件树**：`PaintPage → PaintParams(左侧320px) + PaintCanvas(中央flex:1) + PaintHistory(底部弹出300px)`
+
+**右侧面板**：PaintPanel（320px）
+
+#### PaintTabs（标签页切换栏 40px）
+- 文生图(默认) / 图生图 / 局部重绘 / 超分辨率
+- 底部2px粉色指示条
+
+#### PaintParams（绘画参数面板 左侧320px）
+1. Prompt输入框：多行，高100px
+2. 快捷标签区：电影级画质/8K超高清/柔和光影/赛博朋克/水彩风格等
+3. Negative Prompt输入框
+4. 模型选择：FLUX.1-dev/Kolors 2.1/SDXL
+5. 尺寸选择：预设(512/768/1024) / 自定义(512~2048)
+6. 采样步数滑块：1~50，默认30
+7. CFG Scale滑块：1~20，默认7
+8. 采样器选择：DPM++ 2M Karras / Euler a / DDIM
+9. 种子输入框：数字+骰子随机+"使用上次种子"
+10. 生成按钮：粉色全宽44px，进度条+步骤文字
+
+#### 图生图/局部重绘/超分辨率特殊区域
+- **图生图**：虚线上传区(点击/拖拽)，相似度滑块0~1，>4096px自动缩放
+- **局部重绘**：画笔工具(大小1~100px, 软/硬边缘, 橡皮擦)，遮罩半透明红色，画布缩放10%~500%
+- **超分辨率**：放大倍数2x/4x + 模型选择
+
+#### ControlNet配置区域（可折叠）
+- 上传参考图 / 控制类型(OpenPose/Canny/Depth) / 预处理 / 权重滑块0~2
+
+#### IP-Adapter配置区域（可折叠）
+- 上传风格参考图 / 权重滑块0~1默认0.6 / 风格强度滑块
+
+#### PaintCanvas（画布预览区 flex:1）
+- 生成中：进度条+步骤文字
+- 生成完成：缩放(滚轮10%~500%)+平移(拖拽)
+- 点击图片打开灯箱
+
+#### Lightbox（灯箱全屏预览）
+- 背景 rgba(0,0,0,0.95) / 缩放50%~200% / 左右箭头导航
+- 信息面板(300px右侧滑出)：完整生成参数+复制Prompt+使用参数
+- 底部操作栏：下载/收藏/超分辨率/局部重绘/设为参考图
+
+#### PaintHistory（历史画廊 底部弹出300px）
+- 网格：每行4~6张缩略图(120x120px)
+- 虚拟滚动 / 筛选(日期/模型/类型) / 排序 / 收藏 / 批量删除
+
+#### BatchQueue（批量生成队列）
+- 生成数量输入 / 批量模式 / 队列任务列表(暂停/恢复/取消/拖拽排序)
+- 切换功能提示："批量生成正在进行中，切换功能将中断生成"
+
+### 4.6 前端组件清单
+
+| 组件名 | 功能 |
+|--------|------|
+| `PaintPage` | 绘画页面主容器 |
+| `PaintTabs` | 标签页切换（文生图/图生图/局部重绘/超分辨率） |
+| `PaintParams` | 左侧参数面板（Prompt/步数/CFG/尺寸/采样器/种子） |
+| `PaintCanvas` | 中央画布与结果展示 |
+| `PaintHistory` | 底部历史作品网格 |
+| `ControlNetPanel` | ControlNet配置面板 |
+| `IPAdapterPanel` | IP-Adapter配置面板 |
+| `Lightbox` | 灯箱全屏预览 |
+| `BatchQueue` | 批量生成队列管理 |
+
+### 4.7 关键性能指标
+
+| 指标 | 目标值 |
+|------|--------|
+| 生成速度(1024x1024) | <15s (RTX 4090) |
+| 中文语义准确率 | >95%（Kolors 2.1） |
+| 姿态对齐误差 | <2px（ControlNet） |
+| 风格相似度SSIM | >0.85（IP-Adapter） |
+| 风格迁移质量FID | <15 |
+
+---
+
+## 第五章 核心模块3：OmniComic（漫剧创作）
+
+### 5.1 功能子模块清单（6阶段工作流）
+
+| 阶段 | 名称 | 描述 |
+|------|------|------|
+| 阶段1 | 角色推理 | 从剧本提取角色信息，生成角色设定 |
+| 阶段2 | 角色生图 | 调用OmniDraw生成角色多视图（正面/侧面/背面/特写） |
+| 阶段3 | 分镜生词 | AI辅助分镜描述生成，DSL解析 |
+| 阶段4 | 分镜生图 | 调用OmniDraw生成分镜关键帧 |
+| 阶段5 | 导演台 | Three.js r170 3D场景编排，机位设置 |
+| 阶段6 | 视频生成 | LTX-2/Wan2.1/CogVideoX视频生成 + AV1编码导出 |
+
+### 5.2 技术原理
+
+| 技术项 | 规格 |
+|--------|------|
+| 分镜引擎 | 自定义DSL分镜表解析器，解析成功率100% |
+| 3D导演台 | Three.js r170 (WebGL浏览器内渲染)，无独立渲染进程 |
+| 视频生成 | LTX-Video-2B(720p/30fps) / Wan2.1-14B / CogVideoX-5B |
+| 多镜头一致性 | IP-Adapter + 光流法 + Latent约束，闪烁率<1% |
+| 资产格式 | USDZ / glTF，10万面资产加载<3s |
+| 后处理 | FFmpeg 7.x（裁剪/拼接/转码/AV1编码） |
+| 分镜图重绘 | 不支持局部重绘，须整图重新生成 |
+
+### 5.3 实现步骤（8步）
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 剧本上传 | 用户上传TXT/Markdown或手动编辑 |
+| 2 | DSL解析 | DSL解析器拆分为分镜序列（镜头/角度/运动/角色/表情/动作/时长/转场） |
+| 3 | 3D导演台 | Three.js r170 WebGL浏览器内渲染（对象放置/拖拽/旋转/缩放/相机控制） |
+| 4 | 关键帧生成 | 调用OmniDraw生成每个分镜的关键帧 |
+| 5 | 视频生成 | LTX-2/Wan2.1/CogVideoX将关键帧扩展为视频片段 |
+| 6 | 一致性控制 | 光流法 + Latent约束保证帧间平滑过渡 |
+| 7 | FFmpeg后处理 | 裁剪/拼接/转码/AV1编码 |
+| 8 | 导出MP4 | 完整视频序列 + 分镜表 |
+
+### 5.4 API路由
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/v1/comic/storyboard` | 创建分镜表 |
+| GET | `/api/v1/comic/storyboard/{id}` | 获取分镜表详情 |
+| PUT | `/api/v1/comic/storyboard/{id}` | 更新分镜表 |
+| DELETE | `/api/v1/comic/storyboard/{id}` | 删除分镜表 |
+| GET | `/api/v1/comic/storyboard` | 获取分镜表列表（分页） |
+| POST | `/api/v1/comic/scene` | 创建分镜场景 |
+| PUT | `/api/v1/comic/scene/{id}` | 更新分镜场景 |
+| DELETE | `/api/v1/comic/scene/{id}` | 删除分镜场景 |
+| PUT | `/api/v1/comic/scene/order` | 调整场景排序 |
+| POST | `/api/v1/comic/render` | 渲染分镜（异步任务） |
+| GET | `/api/v1/comic/render/{task_id}` | 查询渲染任务状态 |
+| POST | `/api/v1/comic/export` | 导出为视频（异步任务） |
+| GET | `/api/v1/comic/export/{task_id}` | 查询导出任务状态 |
+
+**分镜/导演台/视频细分路由**：
+- `/api/v1/storyboard`: /create, /list, /reorder, /ai-describe, /preview
+- `/api/v1/director`: /scene, /render, /export
+- `/api/v1/video`: /generate, /progress, /export
+
+### 5.5 页面布局（路由：/storyboard）
+
+**组件树**：`ComicPage → Dashboard(工作台) / Editor(编辑器) / DirectorStation(3D导演台)`
+
+三个子视图通过顶部标签页切换。
+
+#### 5.5.1 工作台 Dashboard
+
+**布局**：左侧栏220px + 顶部栏56px + 作品卡片网格
+
+**DashboardSidebar（左侧栏 220px）**：
+- 模块导航：全部作品/我的创作/收藏/最近编辑/回收站
+- 应用列表：已安装创作工具快捷入口
+- 用户信息：头像+用户名+存储空间
+
+**ProjectGrid（作品卡片网格）**：
+- 新建卡片：虚线边框+"+"，hover变`--color-secondary`
+- 已有卡片：280x200px，封面图(160px)+底部信息(标题+时间+状态)
+- 网格间距16px，圆角12px
+
+**CreateProjectModal（创建作品弹窗 560px）**：
+1. 标题输入框（实时校验唯一性）
+2. 剧本导入（3 Tab）：手动输入(max 30000字) / 文件上传(.txt/.dsl) / 随机剧情
+3. 画风选择：10种视觉风格卡片(3列)，8预设+1自定义
+4. 类型选择下拉框
+5. 描述输入框（可选）
+6. 底部：取消|创建
+
+#### 5.5.2 编辑器 Editor
+
+**布局**：顶部6阶段导航(60px) + 左侧分镜表格(flex:1) + 右侧资产面板(320px)
+
+**StageNav（阶段导航栏 60px）**：
+- 箭头形6阶段：角色推理→角色生图→分镜生词→分镜生图→导演台→生成视频
+- 当前阶段高亮(粉色背景+白字)，已完成绿色勾号，未解锁灰色
+
+**StoryboardTable（分镜表格）**：
+- 10列：序号/缩略图/场景描述/镜头类型/角度/运动/角色/时长/转场/状态
+- 顶部工具栏：手动/自动分镜切换 / 添加删除排序 / 生成资产图(角色/场景/道具) / 生成分镜图 / 生成关键帧 / 批量生成
+- 拖拽排序 / 选中蓝色边框 / 交替行背景 / 行高48px
+
+**AssetPanel（右侧资产面板 320px）— 4视图状态机**：
+- **视图1-资产列表**：3 Tab(角色/场景/道具)，双池模型(作品池+全局池)
+- **视图2-资产详情**：
+  - 角色资产：四视图(正面/侧面/背面/特写, 1980x1680横排四格)
+  - 音色绑定（底部可折叠）：默认音色+8种情绪音色，3 Tab选择(预设库/上传样本/AI克隆)
+  - 场景资产：场景图+描述
+  - 道具资产：道具图+描述
+- **视图3-场景详情**：选中分镜场景信息
+- **视图4-视频详情**：选中分镜视频生成结果
+
+**分镜描述词编辑（15项）**：
+1. 场景描述(500ms自动保存) 2. 镜头类型(8种) 3. 拍摄角度(5种) 4. 镜头运动(9种) 5. 角色@提及 6. 时长(1~60秒) 7. 转场(6种) 8. 配乐 9. AI描述生成 10. 模板(5种) 11. 角色台词 12. 情绪标注(8种) 13. 语速(0.5x~2.0x) 14. 音量(-12dB~0dB) 15. 试听
+
+**StageExecModal（阶段执行弹窗 480px）**：
+1. 模型选择下拉
+2. 生成范围：全部/已勾选/未锁定
+3. 动态参数：阶段2画面比例+分辨率 / 阶段4画面比例+分辨率 / 阶段6分辨率+帧率+编码+质量
+4. 底部：取消|开始执行
+
+**时间线视图**：
+- 蓝色条块(缩略图内嵌)，长度与时长成正比
+- 拖拽调整时长/顺序，滚轮缩放，点击播放
+
+**导出视图**：
+- 可导出内容：完整视频MP4 / 分镜表PNG序列 / 分镜脚本PDF / 分镜脚本JSON / 资产图包ZIP
+- 勾选→设置参数→开始导出→进度条
+
+#### 5.5.3 3D导演台 DirectorStation
+
+**硬件检测弹窗**：点击"导演台"自动弹出，检测GPU/显存/WebGL 2.0/内存，不达标禁止进入
+
+**导演台布局**：
+```
++--------------------------------------------------------------------+
+| [顶部工具栏 48px]                                                   |
++----------+----------------------------------------+------------------+
+| [左侧    |  [中央3D视口]                          |  [右侧Tab面板    |
+| 资产库   |  Three.js WebGL渲染                    |   320px]         |
+| 200px]   |  网格地面+环境光+方向光                |  4个子Tab:       |
+| 角色     |  透视相机 FOV 60°                      |  机位/变换/      |
+| 场景     |  帧率 >= 60fps                        |  灯光/后期       |
+| 道具     |  [显示模式切换][播放控制条]            |                  |
+| 灯光     |  [状态栏]                              |                  |
+| 特效     |                                        |                  |
++----------+----------------------------------------+------------------+
+| [底部多轨道时间线 80px 可收起]                                      |
++--------------------------------------------------------------------+
+```
+
+**DirectorToolbar（顶部工具栏 48px）**：
+- 返回编辑器 / Logo / 工具组(选择W/平移E/旋转R/缩放T/灯光) / 一键自动装配 / 当前分镜标签 / 保存预设 / 完成按钮
+
+**AssetLibrary（左侧资产库 200px）**：
+- 分类标签：角色/道具/场景/灯光/特效
+- 缩略图列表80x80px / 搜索框 / 拖拽到3D场景
+
+**Viewport3D（中央3D视口）**：
+- Three.js r170 WebGL浏览器内渲染
+- 地面网格(10x10) / 环境光+方向光 / 透视相机FOV 60° / 帧率≥60fps
+- 相机控制：左键旋转(水平360°,垂直-80°~80°) / 右键平移 / 滚轮缩放(0.5~50m) / 双击聚焦 / F键重置
+- 对象操作：点击选中(蓝色轮廓+Gizmo) / Delete删除 / Ctrl+Z撤销
+- Transform Gizmo：平移(红绿蓝箭头) / 旋转(圆圈+角度) / 缩放(方块)
+- 网格吸附：0.1m/0.25m/0.5m/1m/2m
+- 多选：Ctrl+点击 / 框选 / Ctrl+A / Ctrl+G创建组
+- 显示模式：实体/线框/着色/渲染
+- 帧率<15fps自动降低渲染质量
+
+**PropertyPanel（右侧Tab面板 320px）— 4个子面板**：
+- **Tab 1 机位参数**：机位列表(上限10) + 类型/焦距/距离/高度/旋转/FOV(10°~120°)/镜头运动(9种)/时长/拍摄角度(5种)/转场(6种) + 截图功能
+- **Tab 2 角色变换**：位置/旋转/缩放输入框 + 重置 + 复制/粘贴Transform
+- **Tab 3 灯光环境**：环境光强度+颜色 / 方向光 / 阴影 / 点光源/聚光灯 / 背景色/天空盒/雾效
+- **Tab 4 后期效果**：色调映射/曝光/饱和度/对比度/暗角/色差
+
+**HierarchyPanel（层级面板）**：层级树 / 拖拽调整 / 右键(重命名/删除/隐藏/锁定)
+
+**TimelinePanel（底部多轨道时间线 80px可收起）**：
+- 多轨道(每机位一条) / 彩色镜头片段 / 关键帧标记 / 播放头
+- 播放控制：播放/暂停/停止/上一帧/下一帧
+
+### 5.6 前端组件清单
+
+| 组件名 | 功能 |
+|--------|------|
+| `ComicPage` | 漫剧创作页面主容器 |
+| `Dashboard` | 工作台视图（项目列表/创建/管理） |
+| `DashboardSidebar` | 工作台左侧栏（导航/应用/用户信息） |
+| `ProjectGrid` | 作品卡片网格 |
+| `CreateProjectModal` | 创建作品弹窗（标题/剧本/画风/类型） |
+| `Editor` | 编辑器视图（分镜表+资产面板） |
+| `StageNav` | 6阶段导航栏 |
+| `StoryboardTable` | 分镜表组件（CRUD/拖拽排序/批量编辑） |
+| `AssetPanel` | 右侧资产面板（4视图状态机） |
+| `StageExecModal` | 阶段执行确认弹窗 |
+| `TimelineView` | 时间线视图 |
+| `ExportView` | 导出视图 |
+| `DirectorStation` | 3D导演台视图 |
+| `DirectorToolbar` | 导演台顶部工具栏 |
+| `AssetLibrary` | 左侧3D资产库 |
+| `Viewport3D` | 中央3D视口（Three.js渲染） |
+| `PropertyPanel` | 右侧属性Tab面板（机位/变换/灯光/后期） |
+| `HierarchyPanel` | 层级面板 |
+| `TimelinePanel` | 底部多轨道时间线 |
+
+### 5.7 关键性能指标
+
+| 指标 | 目标值 |
+|------|--------|
+| DSL解析成功率 | 100% |
+| 3D资产加载(10万面) | <3s |
+| 视频生成(LTX-2 720p/30fps, 5s) | <60s |
+| Wan2.1运动流畅度FVD | <200 |
+| 多镜头一致性闪烁率 | <1% |
+| 3D渲染帧率 | ≥60fps（<15fps自动降质） |
+
+---
+
+## 第六章 核心模块4：OmniLearn（知识学习）
+
+### 6.1 功能子模块清单
+
+| 序号 | 功能名称 | 描述 |
+|------|----------|------|
+| 1 | 内置浏览器 | CEF 120+内核，沙箱隔离，内存泄漏<50MB/h |
+| 2 | 网页解析 | Trafilatura + BeautifulSoup4内容提取 |
+| 3 | 资料结构化 | AI Agent自动摘要 + 知识抽取 |
+| 4 | LoRA增量训练 | 训练数据>=100条自动触发 |
+| 5 | 知识反哺 | RAG + LoRA双层注入到创作功能 |
+| 6 | 行为学习 | 记录用户操作序列，构建偏好画像 |
+| 7 | 知识图谱 | 实体关系三元组抽取与可视化 (v2.3.1) |
+| 8 | 混合检索 | 向量+关键词双路召回 + RRF重排序 (v2.3.1) |
+| 9 | 浏览器进程池 | 预热启动<1s，进程复用 (v2.3.1) |
+| 10 | Agent分级决策 | 简单页面DOM快速决策<500ms (v2.3.1) |
+| 11 | 文档导入 | 支持txt/docx/pdf本地文档导入 |
+| 12 | 知识导入 | URL内容/剪贴板内容/批量导入 |
+
+### 6.2 技术原理
+
+| 技术项 | 规格 |
+|--------|------|
+| 浏览器内核 | CEF 120+，沙箱隔离，独立渲染进程 |
+| AI Agent | LangChain Agent + ReAct决策模式(Reasoning + Acting) |
+| 微调引擎 | LoRA Evolution Pipeline (QLoRA 4bit) |
+| 向量数据库 | ChromaDB (HNSW索引) |
+| 嵌入模型 | BGE-large-zh (1024维) / BGE-M3 |
+| 全文检索 | SQLite FTS5 (v2.3.1新增) |
+| 图数据库 | networkx (v2.3.1新增) |
+| 去重算法 | SimHash (64位局部敏感哈希) |
+| 好奇心驱动 | PPL(Perplexity)驱动的好奇心探索 + 知识图谱覆盖率奖励 |
+| 双层反哺 | RAG即时注入(毫秒级) + LoRA深度融入(分钟级) |
+
+### 6.3 知识处理管线（6步）
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 内容过滤 | BeautifulSoup4+规则过滤，去除nav/footer/script/style |
+| 2 | 内容分段 | 按h1/h2/h3分段，长段落按~500字/段切分 |
+| 3 | 知识提取 | Qwen3-VL本地推理，提取概念/Q&A/事实/方法论/案例/三元组，>5个知识点/页 |
+| 4 | 质量评估 | 信息密度(>0.3) + 相关性(>0.5) + 准确性(交叉验证) + 时效性 |
+| 5 | 去重(SimHash) | 64位SimHash，>0.9跳过，0.7~0.9合并，<0.7新知识，>95%准确率 |
+| 6 | 向量化入库 | BGE-large-zh嵌入(1024维) + ChromaDB + FTS5同步 + 图数据库 |
+
+### 6.4 实现步骤（8步）
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 学习触发 | 用户设定主题 / 空闲>5分钟 / 对话知识缺口 / 项目切换 |
+| 2 | 资源配额检查 | CPU<20% / 内存<1.5GB / 带宽<500KB/s |
+| 3 | 浏览器获取 | 进程池获取CEF实例（预热<1s） |
+| 4 | Agent决策循环 | 感知→理解→决策→执行→提取 |
+| 5 | 页面分级 | 简单页面DOM快速决策<500ms / 复杂页面截图+VLM理解~3秒 |
+| 6 | 知识管线 | 过滤→分段→提取→评估→去重→入库 |
+| 7 | LoRA触发 | 训练数据>=100条→触发LoRA增量微调 |
+| 8 | 知识反哺 | RAG即时注入 + LoRA定期更新 |
+
+### 6.5 API路由（22+端点）
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/v1/learn/topic/create` | 创建学习主题 |
+| GET | `/api/v1/learn/topic/list` | 主题列表（含进度/知识数） |
+| DELETE | `/api/v1/learn/topic/delete` | 删除主题（级联删除） |
+| POST | `/api/v1/learn/session/start` | 启动学习会话 |
+| POST | `/api/v1/learn/session/pause` | 暂停（保存检查点） |
+| POST | `/api/v1/learn/session/resume` | 恢复（从检查点继续） |
+| POST | `/api/v1/learn/session/stop` | 停止（保存已学内容） |
+| WS | `/api/v1/learn/session/progress` | 实时进度推送 |
+| GET | `/api/v1/learn/session/log` | 学习日志 |
+| GET | `/api/v1/learn/knowledge/list` | 知识库列表（分页+筛选） |
+| GET | `/api/v1/learn/knowledge/{id}` | 知识详情 |
+| DELETE | `/api/v1/learn/knowledge/{id}` | 删除知识条目 |
+| POST | `/api/v1/learn/knowledge/search` | 知识检索（混合检索） |
+| GET | `/api/v1/learn/knowledge/graph` | 知识图谱 |
+| POST | `/api/v1/learn/knowledge/import` | 导入本地文档 |
+| POST | `/api/v1/learn/knowledge/import/url` | 导入URL内容 |
+| POST | `/api/v1/learn/lora/train` | 触发LoRA微调 |
+| GET | `/api/v1/learn/lora/train/{task_id}` | 查询训练状态 |
+| GET | `/api/v1/learn/lora/list` | 获取已训练LoRA列表 |
+| DELETE | `/api/v1/learn/lora/{lora_id}` | 删除LoRA权重 |
+| GET | `/api/v1/learn/lora/{lora_id}/metrics` | 训练指标（Loss曲线） |
+| POST | `/api/v1/learn/lora/{lora_id}/rollback` | 回滚至上一版本 |
+| GET | `/api/v1/learn/behavior/stats` | 行为学习统计 |
+| POST | `/api/v1/learn/behavior/reset` | 重置行为数据 |
+| POST | `/api/v1/learn/import/document` | 导入文档（txt/docx/pdf） |
+| GET | `/api/v1/learn/settings/get` | 获取学习设置 |
+| PUT | `/api/v1/learn/settings/update` | 更新学习设置 |
+| GET | `/api/v1/learn/stats` | 获取学习统计 |
+
+**浏览器控制路由（6端点）**：
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| GET | `/api/v1/browser/status` | 浏览器状态 |
+| GET | `/api/v1/browser/screenshot` | 当前截图（base64 PNG） |
+| GET | `/api/v1/browser/current-page` | 当前页面信息 |
+| GET | `/api/v1/browser/tabs` | 标签页列表 |
+| POST | `/api/v1/browser/navigate` | 导航到URL |
+| POST | `/api/v1/browser/takeover` | 用户接管操作 |
+
+### 6.6 页面布局（路由：/learning）
+
+**组件树**：`LearnPage → LearnSidebar(左侧260px) + LearnContent(中央flex:1) + LearnProgress(底部120px可折叠)`
+
+**右侧面板**：LearnPanel（320px）
+
+#### LearnSidebar（学习侧边栏 260px）
+- 顶部"新建学习主题"按钮（粉色, Plus, 高36px）
+- 新建弹窗：主题名称 + 学习来源(URL/PDF/文本)
+- 学习主题树：主题图标+子主题，选中3px粉色条，每主题圆环进度图24x24px
+- 底部统计：已学习主题数/知识条目总数/累计学习时长
+
+#### LearnContent（学习内容区 flex:1）
+- 顶部标签页：分镜视图(默认) / 知识图谱 / 时间线视图 / 测试模式
+- **分镜视图**：知识卡片(标题+摘要+关联)，网格auto-fill(min 280px, max 400px)
+- **知识图谱**：D3.js力导向图，节点=知识点，颜色=掌握程度(绿/黄/灰)
+- **时间线视图**：水平时间轴+学习进度
+- **测试模式**：选择题/填空题/简答题，即时反馈+结果统计
+
+#### 自主学习引擎面板（底部固定120px可折叠）
+- 学习状态指示灯(绿进行/黄暂停/灰空闲)
+- 学习进度条0%~100%
+- 当前学习页面/知识点 + 估算剩余时间
+- "暂停/继续/停止学习"按钮
+
+#### LearnPanel（右侧面板 320px）
+1. 学习进度卡片：当前主题/页面/知识点编号/圆环进度图120x120px
+2. 知识详情预览：选中条目完整内容+来源标注
+3. LoRA版本列表：版本号+训练时间+训练数据量
+4. 行为学习统计：操作频率热力图/常用功能Top5/推荐学习路径
+
+### 6.7 前端组件清单
+
+| 组件名 | 功能 |
+|--------|------|
+| `LearnPage` | 学习页面主容器 |
+| `LearnSidebar` | 左侧主题树侧边栏（260px） |
+| `LearnContent` | 中央学习内容区（4种视图切换） |
+| `KnowledgeGraph` | 知识图谱可视化（D3.js力导向图） |
+| `KnowledgeBrowser` | 知识库浏览组件 |
+| `TimelineView` | 时间线学习进度视图 |
+| `TestMode` | 测试模式组件 |
+| `LearningEngine` | 自主学习引擎面板（底部120px） |
+| `LoRAVersionManager` | LoRA版本管理组件 |
+| `BehaviorStats` | 行为学习统计面板 |
+| `LearningLog` | 学习日志展示 |
+| `LearningNotification` | 学习通知组件 |
+
+### 6.8 关键性能指标
+
+| 指标 | 目标值 | 当前值 |
+|------|--------|--------|
+| 知识提取速度 | >30 Pages/min | 25 |
+| 知识提取密度 | >5个知识点/页 | - |
+| 检索延迟 | <100ms | - |
+| 关键信息召回率 | >90% | - |
+| CEF内存泄漏 | <50MB/h | - |
+| SimHash去重准确率 | >95% | - |
+| 自主学习覆盖率 | >90% | 85% |
+| ChromaDB上限 | 100,000条 | - |
+| 浏览器进程池 | min(8, CPU_CORES) | - |
+
+---
+
+## 第七章 核心模块5：ModelManager（模型管理）
+
+### 7.1 功能子模块清单
+
+| 序号 | 功能名称 | 描述 |
+|------|----------|------|
+| 1 | ~392GB模型库索引 | 索引构建<30s |
+| 2 | 三方协同调度 | 显存/内存/IO联合调度，资源冲突率<1% |
+| 3 | Hash校验 | SHA256完整性验证 |
+| 4 | 热加载/冷卸载 | 模型无感切换，UI不卡顿 |
+| 5 | 模型预热 | 启动时后台异步加载Top3高频模型 |
+| 6 | 模型卸载 | 显存>95%时自动卸载非关键模型 |
+| 7 | ML预测预加载 | XGBoost预测下一模型，概率>0.7异步加载 |
+| 8 | 模型下载 | 异步下载，断点续传 |
+| 9 | 模型导入 | 本地模型文件导入，自动识别类型 |
+| 10 | 显存监控 | 毫秒级监控，4级阈值（安全/警戒/危险/溢出） |
+| 11 | 温度保护 | GPU温度>85°C降频，>90°C暂停 |
+| 12 | 多模型热切换 | 显存复用，异步加载，切换无感 |
+
+### 7.2 技术原理
+
+| 技术项 | 规格 |
+|--------|------|
+| 存储调度 | 自研分布式存储调度器 |
+| 元数据库 | SQLite (WAL模式) |
+| 校验 | SHA256完整性校验 |
+| ML预测 | XGBoost时序预测模型，特征窗口50步历史操作序列 |
+| ML模型大小 | ~50MB，常驻内存 |
+| 调度优化 | PPO强化学习优化资源分配策略 |
+| 优先级机制 | P0(Qwen3-VL-8B) > P1(FLUX.1) > P2(LTX-2) > P3(OmniLearn) > P4(ControlNet) > P5(MLPredict) |
+
+### 7.3 显存4级阈值策略
+
+| 显存使用率 | 状态 | 精度降级 | 模型卸载 |
+|-----------|------|----------|----------|
+| <70% | 安全区 | 维持fp32/bf16 | 全量驻留 |
+| 70%-85% | 警戒区 | 降级至fp16 | 保持全量，开启碎片整理 |
+| 85%-95% | 危险区 | 降级至bf16/int8 | 卸载非活跃LoRA至内存 |
+| >95% | 溢出区 | 强制int8量化 | 卸载基础模型，启用CPU Offload |
+
+### 7.4 实现步骤
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 模型加载请求 | 模块发起请求(模型ID+优先级+量化参数) |
+| 2 | 显存检查 | 空闲显存>=所需显存→直接加载 |
+| 3 | 显存不足处理 | 检查可卸载模型→卸载最低优先级→加载新模型 |
+| 4 | 优先级抢占 | P0>P1>P2>P3>P4>P5 |
+| 5 | 加载完成通知 | 更新模型状态并通知前端 |
+| 6 | ML预测预加载 | XGBoost预测→概率>0.7→异步加载→用户切换即时可用 |
+
+### 7.5 API路由
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| GET | `/api/v1/model/list` | 获取模型列表（含状态/大小/显存占用） |
+| POST | `/api/v1/model/load` | 加载模型至显存/内存 |
+| POST | `/api/v1/model/unload` | 卸载模型（释放显存） |
+| GET | `/api/v1/model/{model_id}/status` | 获取模型状态 |
+| POST | `/api/v1/model/download` | 下载模型（异步任务） |
+| GET | `/api/v1/model/download/{task_id}` | 查询下载进度 |
+| POST | `/api/v1/model/verify` | 校验模型完整性（SHA256） |
+| GET | `/api/v1/model/vram` | 获取显存占用详情 |
+| PUT | `/api/v1/model/config` | 更新模型配置（量化精度等） |
+| POST | `/api/v1/model/import` | 导入本地模型文件 |
+
+### 7.6 页面布局（路由：/models）
+
+**组件树**：`ModelPage → ModelSidebar(左侧240px) + ModelGrid(中央flex:1) + ModelDetail(右侧360px)`
+
+#### ModelSidebar（模型分类侧边栏 240px）
+- 分类树：对话模型/绘画模型/视频模型/嵌入模型/LoRA模型/ControlNet模型
+- 已安装/可下载子分类
+- 每分类右侧数量徽章
+- 底部："扫描本地模型"按钮 / "导入模型"按钮
+
+#### ModelGrid（模型列表网格 flex:1）
+- 视图切换：网格/列表
+- 网格视图：卡片240x180px，名称+类型+大小+量化+状态指示灯(绿/黄/灰/红)
+- 列表视图：表格(名称/类型/大小/量化/状态/操作)，行高48px
+- 搜索框 + 筛选(类型/状态/量化精度)
+
+#### ModelDetail（模型详情面板 360px）
+- 基本信息：名称/版本/文件大小/量化精度/创建时间/来源
+- 架构信息：参数量/架构类型/上下文长度/输入模态
+- 显存占用分析：加载所需显存/推理峰值/饼图(权重/KV Cache/激活值/空闲)
+- 加载状态控制：加载/卸载按钮+进度条+错误信息
+- 依赖关系：依赖模型列表(已满足/缺失)
+- 性能基准：推理速度/首token延迟/显存峰值
+
+#### DownloadManager（下载管理 底部弹出200px可收起）
+- 下载任务列表：模型名称+进度条+速度+剩余时间+暂停/恢复/取消
+- 多任务并行 / 来源(HuggingFace/ModelScope/本地) / 失败重试(最多3次) / SHA256校验
+
+#### VRAMManager（显存管理面板）
+- 显存总览：GPU型号+总显存/已用/可用(进度条+数字)
+- 已加载模型列表：名称+占用显存+卸载按钮
+- 优化建议："建议卸载XX释放XX GB" / 一键卸载非活跃模型
+- 预警：>85%黄色/>95%红色+自动卸载/>98%强制卸载
+
+### 7.7 前端组件清单
+
+| 组件名 | 功能 |
+|--------|------|
+| `ModelPage` | 模型管理页面主容器 |
+| `ModelSidebar` | 左侧分类侧边栏（240px） |
+| `ModelGrid` | 模型列表网格/表格 |
+| `ModelDetail` | 右侧模型详情面板（360px） |
+| `ModelCard` | 单个模型卡片组件 |
+| `DownloadManager` | 下载管理器（底部弹出） |
+| `VRAMManager` | 显存管理面板 |
+
+### 7.8 关键性能指标
+
+| 指标 | 目标值 | 当前值 |
+|------|--------|--------|
+| 模型库体积 | ~392GB | - |
+| 索引构建时间 | <30s | - |
+| 资源冲突率 | <1% | - |
+| ML预测准确率 | >85% | - |
+| ML推理延迟 | <50ms | - |
+| 预加载概率阈值 | >0.7 | - |
+| 功能切换时间 | <3秒（ML命中<500ms） | - |
+| 显存峰值 | <20GB | 22GB |
+| GPU监控频率 | 每2秒 | - |
+
+---
+
+## 第八章 核心模块6：VideoStyle（视频风格）
+
+### 8.1 功能子模块清单
+
+| 序号 | 功能名称 | 描述 |
+|------|----------|------|
+| 1 | 视频风格LoRA训练 | 用户自定义风格，风格一致性>0.9 |
+| 2 | 推理应用 | LoRA权重动态加载到视频生成管线 |
+| 3 | 帧间一致性处理 | 光流法 + Latent约束 |
+| 4 | 风格预览 | 原始视频 vs 应用LoRA后对比 |
+| 5 | 训练数据管理 | 视频上传/参考图上传/数据预处理/数据增强 |
+| 6 | 多LoRA混合 | 合并多个LoRA风格 |
+| 7 | 版本管理 | LoRA权重版本管理与回滚 |
+| 8 | 训练监控 | 进度条/Loss/显存/GPU利用率实时显示 |
+| 9 | 导出 | LoRA权重导出(.safetensors) / 风格化视频导出(MP4/AV1) |
+
+### 8.2 技术原理
+
+| 技术项 | 规格 |
+|--------|------|
+| 微调引擎 | LTX-2 LoRA微调引擎 |
+| 量化 | QLoRA 4bit量化 + 梯度检查点 |
+| 编码器 | FFmpeg 7.x + AV1 (NVENC/SVT-AV1) |
+| 质量评估 | FVD (Frechet Video Distance) + SSIM |
+| 帧间一致性 | 光流法 + Latent约束 |
+| LoRA参数 | rank=16, alpha=32, LR=2e-5, Epochs=3 |
+| v2.3.1加速 | Flash Attention-2 + 8bit AdamW，训练时间减少>30% |
+| 实现库 | peft库 + bitsandbytes 4-bit量化 |
+
+### 8.3 AV1编码调度流程
+
+| 步骤 | 硬件条件 | 编码方式 | 性能 |
+|------|----------|----------|------|
+| 1 | RTX 50系 | NVENC AV1硬编 | >120fps |
+| 2 | RTX 30/40系 | NVENC H.264/H.265硬编 | >80fps |
+| 3 | AMD RX 6000+ | SVT-AV1软编(多线程) | CPU<80% |
+| 4 | 纯CPU | SVT-AV1软编(低速) | - |
+| 5 | 失败降级 | AV1→H.264 | 自动 |
+
+### 8.4 实现步骤（LoRA训练完整流程）
+
+| 步骤 | 操作 | 技术实现 |
+|------|------|----------|
+| 1 | 训练触发 | 数据>=100条 / GPU空闲 / 定时 / 手动 |
+| 2 | 启动训练 | `LoRATrainingService.start_training()` |
+| 3 | 基座模型加载 | Qwen3-14B/ChatGLM-4-9B，QLoRA 4bit，Flash Attention-2 |
+| 4 | 训练配置 | rank=16, alpha=32, LR=2e-5, Epochs=3, 8bit AdamW, cosine_with_restarts |
+| 5 | 训练循环 | 梯度累积，每N步WebSocket推送进度，监控Validation Loss |
+| 6 | 质量评估 | 困惑度+生成质量+领域相关性 |
+| 7 | 注册版本 | 通过→注册新LoRA版本；未通过→保留旧版 |
+
+### 8.5 API路由
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| POST | `/api/v1/style/train` | 开始LoRA风格训练 |
+| GET | `/api/v1/style/train/{task_id}` | 查询训练状态 |
+| POST | `/api/v1/style/train/{task_id}/stop` | 停止训练 |
+| GET | `/api/v1/style/list` | 获取已训练风格列表 |
+| DELETE | `/api/v1/style/{style_id}` | 删除风格 |
+| POST | `/api/v1/style/{style_id}/apply` | 应用风格至视频（异步任务） |
+| GET | `/api/v1/style/{style_id}/metrics` | 获取风格训练指标 |
+| POST | `/api/v1/style/{style_id}/merge` | 合并多个LoRA风格 |
+
+### 8.6 页面布局（路由：/style）
+
+**组件树**：`StylePage → StyleSidebar(左侧240px) + StyleWorkspace(中央flex:1) + StyleConfig(右侧320px)`
+
+#### StyleSidebar（风格列表侧边栏 240px）
+- 顶部"新建风格"按钮（粉色, Plus, 高36px）
+- 新建弹窗：风格名称+基础模型(LTX-2/Wan2.1/CogVideoX)+训练数据上传(MP4/MOV/WebM, 3~10秒)
+- 风格列表：名称+缩略图+训练状态(未训练/训练中%/已完成/失败)+版本号
+- 底部统计：已训练风格数/正在训练数/训练队列数
+
+#### StyleWorkspace（风格工作区 flex:1）
+- 顶部标签页：训练配置 / 训练监控 / 风格预览 / 对比测试
+
+**训练配置标签页**：
+- 训练数据管理：网格预览(每行4个, 160x90px)，数据增强(水平翻转/色彩抖动/随机裁剪/时序扰动)
+- 训练参数：LoRA Rank(1~128默认16) / Alpha(1~256默认32) / 学习率(默认1e-4) / Epochs(1~100默认10) / Batch Size(1~8默认1) / 调度器(cosine/linear/constant/cosine_with_restarts) / 预热步数 / 保存间隔 / 分辨率
+
+**训练监控标签页**：
+- Loss曲线图(ECharts实时折线，训练Loss+验证Loss)
+- 训练进度条(总体+当前Epoch)
+- 训练日志区(终端样式，自动滚动)
+- 显存占用实时图表
+- Checkpoint列表(步数+Loss+大小+加载/删除)
+
+**风格预览标签页**：
+- 预览视频播放器(最大640px)
+- 预览参数：Prompt+基础视频+风格强度(0~2默认1.0)
+- 预览历史列表
+
+**对比测试标签页**：
+- 左右分屏：左原始/右风格化
+- 播放同步控制
+- A/B切换盲测按钮
+- 差异热力图叠加
+
+#### StylePanel（右侧面板 320px）
+1. 风格参数卡片：LoRA Rank/Alpha/学习率/Epochs/Batch Size
+2. 训练Loss曲线(迷你版，高120px，实时更新)
+3. 风格预览对比：原始vs风格化缩略图并排
+4. LoRA文件信息：路径/大小/完成时间/基础模型
+5. 操作按钮：应用/导出LoRA/分享
+
+### 8.7 前端组件清单
+
+| 组件名 | 功能 |
+|--------|------|
+| `StylePage` | 视频风格页面主容器 |
+| `StyleSidebar` | 左侧风格列表侧边栏（240px） |
+| `StyleWorkspace` | 中央风格工作区（4标签页） |
+| `TrainingConfig` | 训练配置标签页 |
+| `TrainingMonitor` | 训练监控标签页（Loss曲线/进度/日志） |
+| `StylePreview` | 风格预览标签页 |
+| `CompareTest` | 对比测试标签页（左右分屏/盲测） |
+| `TrainingQueue` | 训练队列管理 |
+| `StylePanel` | 右侧风格参数面板（320px） |
+
+### 8.8 关键性能指标
+
+| 指标 | 目标值 | 当前值 |
+|------|--------|--------|
+| 风格一致性 | >0.9 | - |
+| AV1编码速度(RTX 50系) | >120fps | - |
+| AV1编码速度(RTX 30/40系) | >80fps | - |
+| 视频编码FPS(1080p) | >60 | 55 |
+| 风格迁移质量FID | <15 | 18 |
+| 训练Loss(100 steps) | <0.5 | 0.6 |
+| LoRA训练显存 | 24GB可训练720p | - |
+
+---
+
+## 第九章 五大智能引擎
+
+### 9.1 LTX-2 LoRA微调引擎
+
+| 项目 | 规格 |
+|------|------|
+| 原理 | 基于LTX-2 Diffusion Transformer的Low-Rank Adaptation微调 |
+| 核心 | 冻结预训练权重，仅训练低秩分解矩阵(A和B) |
+| 量化 | QLoRA 4bit量化 + 梯度检查点，24GB显存可训练720p LoRA |
+| 实现库 | peft库 + bitsandbytes 4-bit量化 |
+| v2.3.1加速 | Flash Attention-2 + 8bit AdamW，训练时间减少>30% |
+| 触发条件 | 用户提交训练 / 数据>=100条自动触发 / 定时(每周) / 手动 |
+| 训练参数 | Epochs=3, LR=2e-5, rank=16, alpha=32 |
+| 优化器 | bitsandbytes AdamW 8-bit 或 PagedAdamW |
+| 调度器 | cosine_with_restart 或 polynomial |
+| 训练队列优先级 | P2（GPU 30% / CPU 50% / 内存 50%，同时仅1个训练任务） |
+| 早停策略 | Validation Loss回升>5%→停止；Loss震荡→降LR(×0.8)；Loss停滞→增加Rank |
+| 执行流程 | 数据预处理→基座模型加载→QLoRA量化→显存分配→梯度累积→训练循环→Checkpoint保存→质量评估→注册新版本 |
+
+### 9.2 ML预加载预测引擎
+
+| 项目 | 规格 |
+|------|------|
+| 原理 | XGBoost时序预测模型，基于历史操作序列预测下一模型 |
+| 特征窗口 | 50步历史操作序列（v2.3.1从30步扩展到50步） |
+| 特征工程 | 当前功能/操作时间(小时/分钟)/操作序列(最近10步)/历史切换模式/项目上下文 |
+| 模型大小 | ~50MB，常驻内存 |
+| 推理延迟 | <50ms |
+| 准确率 | >85%（v2.3.1优化后） |
+| 预加载阈值 | 概率>0.7→异步加载 |
+| 缓存策略 | 预加载完成后更新缓存状态，用户切换时即时可用(0等待) |
+| ML预测命中切换时间 | <500ms |
+| 执行流程 | 用户操作事件流→特征提取→XGBoost推理→预测下一功能+概率→概率>0.7→触发预加载→检查GPU空闲显存→异步加载→用户切换即时可用 |
+
+### 9.3 协同调度引擎
+
+| 项目 | 规格 |
+|------|------|
+| 原理 | 强化学习(PPO)优化资源分配策略 |
+| 状态空间 | GPU显存/CPU/内存/当前活跃功能/任务队列 |
+| 动作空间 | 模型加载/卸载/精度调整/任务优先级调整 |
+| 奖励函数 | 用户等待时间负奖励 + 资源利用率正奖励 + OOM大额负奖励 |
+| 调度策略 | 6x6互斥矩阵 + P0-P5优先级抢占/卸载 |
+| 资源冲突率 | <1% |
+| 调度效率提升 | >20% |
+| 资源监控频率 | GPU显存/利用率：每2秒；CPU/内存：每5秒；磁盘IO：每10秒 |
+
+**优先级表**：
+
+| 优先级 | 模型/模块 | 抢占策略 | 卸载策略 |
+|--------|-----------|----------|----------|
+| P0 | Qwen3-VL-8B(Agent模式) | 不可抢占 | 仅用户手动卸载 |
+| P1 | FLUX.1-dev(生成中) | 可被P0抢占 | 保存中间状态后卸载 |
+| P2 | LTX-2(视频生成中) | 可被P0/P1抢占 | 保存Checkpoint后卸载 |
+| P3 | OmniLearn(训练中) | 可被P0-P2抢占 | 暂停训练，保存状态 |
+| P4 | ControlNet/IP-Adapter | 随基座模型卸载 | 立即卸载 |
+| P5 | MLPredict-XGBoost | 不可抢占 | 仅系统关闭时卸载 |
+
+### 9.4 AV1硬件编码引擎
+
+| 项目 | 规格 |
+|------|------|
+| 硬件加速 | NVENC(NVIDIA) / AMF(AMD) |
+| 软编降级 | SVT-AV1 |
+| 码率控制 | CRF 23 / VBR自适应 |
+| 编码参数 | preset 6, keyint 240, AAC 256kbps |
+| RTX 50系 | NVENC AV1硬编，>120fps |
+| RTX 30/40系 | NVENC H.264/H.265硬编，>80fps |
+| AMD RX 6000+ | SVT-AV1软编(多线程)，CPU<80% |
+| 纯CPU | SVT-AV1软编(低速) |
+| 降级策略 | AV1失败→自动降级至H.264，降低分辨率/码率 |
+| 执行流程 | 导出请求→硬件探测→选择编码器→码率控制→帧级编码→封装→进度回调→完成通知 |
+
+### 9.5 自主学习引擎
+
+| 项目 | 规格 |
+|------|------|
+| 原理 | RAG(ChromaDB向量检索+BGE嵌入) + Agent决策树(ReAct模式) + 增量学习闭环 |
+| 好奇心驱动 | PPL(Perplexity)驱动的好奇心探索 + 知识图谱覆盖率奖励 |
+| 双层反哺 | RAG即时注入(毫秒级) + LoRA深度融入(分钟级) |
+| 知识生命周期 | 青年期(<7天,高频,全量加载) → 成熟期(7-30天,正常,按需检索) → 沉淀期(30-90天,低频,LRU缓存) → 淘汰期(>90天,归档冷存储) |
+| Agent终止条件 | 目标覆盖度>90% / 预算用尽 / 用户停止 / 资源被抢占 / 遇到障碍 / AI循环 / 单次>60分钟 |
+| 量化指标 | 创作功能延迟增加<5%，知识提取>5个/页，检索延迟<100ms，召回率>90% |
+| 知识处理管线 | 内容过滤→内容分段→知识提取(Qwen3-VL)→质量评估→SimHash去重→向量化入库(ChromaDB+FTS5+图数据库) |
+
+---
+
+## 第十章 系统层功能
+
+### 10.1 窗口管理
+
+| 项目 | 规格 |
+|------|------|
+| 桌面壳层 | Tauri 2.x (Rust)，内存~150MB，包体积~5MB |
+| 主窗口结构 | Header(48px) + Workspace(导航64/260px + 主内容区 + 右侧面板320px) + StatusBar(28px) |
+| 渲染进程 | React 19.2 + WebView2/CEF |
+| 后端进程 | Python/FastAPI/Uvicorn，监听127.0.0.1:8000 |
+
+### 10.2 GPU监控与保护
+
+**温度阈值**：
+
+| 检测条件 | 调整动作 |
+|----------|----------|
+| GPU温度>85°C | 触发降频，Batch Size减半 |
+| GPU温度>90°C | 强制暂停生成任务+弹出UI警告 |
+| 连续3次高温降频 | 当前会话内锁定最大GPU利用率至80% |
+
+**显存保护**：
+- 毫秒级轮询，独立线程，环形缓冲区
+- CUDA OOM拦截，OOM时自动卸载非关键模型
+- `torch.cuda.empty_cache()`定期清理碎片
+
+### 10.3 日志系统
+
+| 项目 | 规格 |
+|------|------|
+| 日志框架 | loguru（结构化日志） |
+| 链路追踪 | OpenTelemetry |
+| 日志格式 | JSON格式，包含堆栈 |
+| WebSocket实时日志 | level + content + timestamp |
+| 内存泄漏检测 | tracemalloc，定时快照，24h增长<5% |
+
+### 10.4 更新机制
+
+| 项目 | 规格 |
+|------|------|
+| 增量更新 | zsync或自定义二进制差分，仅更新变化文件块 |
+| 回滚机制 | 更新前备份app/和config/，启动失败3次自动回滚 |
+| 模型更新 | HuggingFace镜像下载增量权重，SHA256校验 |
+| 断点续传 | 带宽<10Mbps时限制并发数为1，启用断点续传 |
+
+### 10.5 安全策略
+
+| 策略 | 实现 |
+|------|------|
+| CEF沙箱 | CEF 120+，独立渲染进程，CSP，Cookie隔离，域名白名单，禁止登录/下载 |
+| 零信任 | 本地沙箱隔离，插件代码Docker/gVisor隔离，JWT Token认证 |
+| 数据加密 | 用户数据本地加密，密码bcrypt，API Key哈希，LoRA数据仅存本地 |
+| 安全测试 | 提示词注入防御，路径遍历防护，CORS配置，依赖扫描(bandit/npm audit/OWASP ZAP) |
+
+---
+
+## 第十一章 数据库Schema
+
+### 11.1 SQLite表结构（8张表）
+
+**PRAGMA配置**：
+```sql
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+PRAGMA foreign_keys=ON;
+```
+
+| 表名 | 用途 | 关键字段 |
+|------|------|----------|
+| `users` | 用户表 | id(UUID), username, email, password_hash(bcrypt), hardware_tier, preferences(JSON) |
+| `projects` | 项目表 | id(UUID), user_id(FK), name, project_type(chat/paint/comic/learn), status, metadata(JSON) |
+| `assets` | 资产表 | id(UUID), project_id(FK), asset_type(image/video/audio/model), file_path, sha256_hash, tags(JSON) |
+| `learning_sessions` | 学习会话表 | id(UUID), topic_id(FK), status(running/paused/stopped/error), progress, checkpoint_data(JSON) |
+| `knowledge_entries` | 知识条目表 | id(UUID), topic_id(FK), title, content, content_hash(SimHash), embedding_id(ChromaDB), importance_score |
+| `learning_topics` | 学习主题表 | id(UUID), user_id(FK), name, seed_urls(JSON), learning_depth(1-5) |
+| `lora_trainings` | LoRA训练记录表 | id(UUID), name, base_model, rank, alpha, learning_rate, epochs, status, loss_history(JSON) |
+| `model_configs` | 模型配置表 | id(UUID), model_name, model_type(llm/diffusion/video/embed), quantization, vram_required, load_priority(P0-P5) |
+
+### 11.2 FTS5全文检索
+
+```sql
+CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+    title, content, tags,
+    content='knowledge_entries', content_rowid='rowid',
+    tokenize='unicode61'
+);
+```
+
+### 11.3 ChromaDB集合
+
+| 项目 | 规格 |
+|------|------|
+| 持久化目录 | `./data/chroma` |
+| 索引类型 | HNSW |
+| 向量维度 | 1024维 |
+| 嵌入模型 | BGE-large-zh-v1.5 |
+| 数据上限 | 100,000条 |
+| 集合 | 知识向量集合 / 图像特征集合 |
+| 备份 | 定期自动备份（每日/每次写入后） |
+
+### 11.4 Redis配置
+
+| 项目 | 规格 |
+|------|------|
+| maxmemory | 2gb |
+| maxmemory-policy | allkeys-lru |
+| 用途 | Celery broker + 缓存 |
+
+---
+
+## 第十二章 通信协议
+
+### 12.1 REST API通用规范
+
+**基础URL**：`http://localhost:8000/api/v1`
+
+**统一响应格式**：
+```json
+{
+  "success": true,
+  "data": {},
+  "error": {"code": "string", "message": "string", "detail": "string", "suggestion": "string"},
+  "meta": {"request_id": "UUID", "timestamp": "ISO8601", "duration_ms": 0}
+}
+```
+
+**错误码体系**：
+
+| 前缀 | 模块 | 典型错误码 |
+|------|------|-----------|
+| 1xxx | 模型 | MODEL_NOT_LOADED, MODEL_LOAD_FAILED, VRAM_INSUFFICIENT |
+| 2xxx | 知识 | KNOWLEDGE_PARSE_FAILED, KNOWLEDGE_VECTOR_TIMEOUT |
+| 3xxx | 浏览器 | BROWSER_CRASHED, BROWSER_POOL_EXHAUSTED |
+| 4xxx | 训练 | TRAINING_OOM, TRAINING_LOSS_NAN |
+| 5xxx | 系统 | SYSTEM_PARAM_INVALID, SYSTEM_UNAUTHORIZED, SYSTEM_DISK_FULL |
+| 6xxx | 前端 | FRONTEND_RENDER_ERROR, FRONTEND_WEBSOCKET_DISCONNECTED |
+
+### 12.2 REST API完整路由表
+
+| 模块 | 路由前缀 | 端点数 |
+|------|----------|--------|
+| AI对话 | /api/v1/chat | 9 |
+| AI绘画 | /api/v1/paint | 12 |
+| 漫剧创作 | /api/v1/comic | 13 |
+| 知识学习 | /api/v1/learn | 22+ |
+| 浏览器控制 | /api/v1/browser | 6 |
+| 模型管理 | /api/v1/model | 10 |
+| 视频风格 | /api/v1/style | 8 |
+| 系统管理 | /api/v1/system | 9 |
+
+### 12.3 WebSocket通信
+
+| 项目 | 规格 |
+|------|------|
+| 端点 | `ws://localhost:8000/ws/{module}` |
+| 心跳间隔 | 30秒 |
+| 重连策略 | 指数退避(1s/2s/4s/8s/16s/32s)，最大10次 |
+| 降级 | HTTP轮询(5s间隔) |
+
+**消息类型**：
+
+| 类型 | 触发场景 | 核心字段 |
+|------|----------|----------|
+| progress | 长任务进度 | task_id, percent, stage |
+| log | 实时日志 | level, content, timestamp |
+| status | 全局状态变更 | module, state, detail |
+| notification | 业务通知 | event, payload |
+
+### 12.4 Tauri IPC规范
+
+| 项目 | 规格 |
+|------|------|
+| 序列化 | JSON (UTF-8)，camelCase |
+| 前端校验 | Zod schema运行时校验 |
+| 后端校验 | Rust serde编译时校验 |
+| 命名规范 | `{domain}_{action}_{resource}` |
+| 数据限制 | IPC传递不超过1MB（超过用文件路径引用） |
+
+### 12.5 文件上传规范
+
+| 项目 | 规格 |
+|------|------|
+| 上传方式 | FormData + Axios POST |
+| 分片上传 | >50MB使用分片，每片5MB |
+| 图片限制 | JPG/PNG/WebP/GIF，<10MB |
+| 视频限制 | MP4/MOV/WebM，<500MB |
+| 音频限制 | WAV/MP3，<50MB |
+| 文档限制 | PDF/TXT/DSL，<50MB |
+
+---
+
+## 第十三章 前端组件库完整清单
+
+### 13.1 基础组件（Base）
+
+| 组件名 | 功能 | 关键参数 |
+|--------|------|----------|
+| `OmniButton` | 按钮 | 类型(Primary/Secondary/Ghost/Danger/Link)，尺寸(S/M/L)，状态(Default/Hover/Active/Disabled/Loading) |
+| `OmniInput` | 输入框 | 尺寸(S/M/L)，前缀/后缀图标，清除按钮，字数统计，错误状态 |
+| `OmniTextarea` | 文本域 | 自适应高度(56~200px)，拖拽调整，富文本模式 |
+| `OmniSelect` | 下拉选择 | 单选/多选，搜索过滤，分组，远程加载，自定义渲染 |
+| `OmniSlider` | 滑块 | 单/双滑块，显示当前值，步长配置，范围限制 |
+| `OmniToggle` | 开关 | 开态`--color-primary`/关态`--color-border`，加载状态 |
+| `OmniCheckbox` | 复选框 | 三态(选中/未选中/半选) |
+| `OmniRadio` | 单选框 | 选中圆点`--color-primary` |
+| `OmniTag` | 标签 | 类型(Default/Primary/Success/Warning/Error)，可关闭 |
+| `OmniBadge` | 徽章 | Dot(8px)/Number(99+) |
+
+### 13.2 布局组件（Layout）
+
+| 组件名 | 功能 | 关键特性 |
+|--------|------|----------|
+| `OmniCard` | 卡片 | 标题区+内容区+操作区，圆角12px，阴影 |
+| `OmniTable` | 表格 | 排序/选择/分页/固定表头/虚拟滚动/行展开 |
+| `OmniTabs` | 标签页 | 类型(Line/Card/Pill)，可关闭/拖拽/溢出滚动 |
+| `OmniCollapse` | 折叠面板 | 手风琴/多展开模式 |
+| `OmniSplit` | 分割面板 | 水平/垂直分割，拖拽调整，最小最大限制 |
+| `OmniGrid` | 网格布局 | 响应式列数，间距配置 |
+
+### 13.3 反馈组件（Feedback）
+
+| 组件名 | 功能 | 关键特性 |
+|--------|------|----------|
+| `OmniModal` | 对话框 | 确认/自定义/全屏/可拖拽，缩放0.9→1+淡入250ms |
+| `OmniDrawer` | 抽屉 | 方向(右/左/顶/底)，可拖拽宽高 |
+| `OmniToast` | 消息提示 | 位置(右上/顶部/底部)，类型(Success/Warning/Error/Info) |
+| `OmniMessageBox` | 消息框 | Alert/Confirm/Prompt，宽度420px |
+| `OmniNotification` | 通知 | 右上角堆叠，最多5条 |
+| `OmniLoading` | 加载指示器 | Spinner/Dots/Skeleton/Progress |
+| `OmniEmpty` | 空状态 | 图标+标题+描述+操作按钮 |
+| `OmniSkeleton` | 骨架屏 | 文本/卡片/头像/自定义，shimmer动画 |
+
+### 13.4 数据展示组件（Data）
+
+| 组件名 | 功能 | 关键特性 |
+|--------|------|----------|
+| `OmniStatistic` | 统计卡片 | 标题+数值+趋势指示 |
+| `OmniProgress` | 进度条 | 线性(6/8/12px)/环形(60/80/120px) |
+| `OmniChart` | 图表 | 基于ECharts，折线/柱状/饼图/仪表盘/热力图 |
+| `OmniTimeline` | 时间线 | 垂直时间轴+节点+内容卡片 |
+| `OmniTree` | 树形控件 | 展开/折叠/复选/拖拽/搜索/虚拟滚动 |
+| `OmniVirtualList` | 虚拟列表 | @tanstack/react-virtual，10k条FPS>55 |
+
+### 13.5 全局布局组件
+
+| 组件名 | 功能 |
+|--------|------|
+| `MainLayout` | 主布局容器 |
+| `TopNav` | 顶部导航栏（Logo/搜索/通知/用户/主题） |
+| `Sidebar` | 左侧导航栏（空间切换/导航树/收藏/折叠） |
+| `RightPanel` | 右侧面板（可拖拽280~500px） |
+| `StatusBar` | 底部状态栏（12项指标） |
+| `MultiTabContainer` | 多标签页容器（36px高） |
+
+---
+
+## 第十四章 页面布局完整清单
+
+### 14.1 全局CSS变量
+
+**颜色变量（深色主题默认）**：
+
+| 变量名 | 色值 | 用途 |
+|--------|------|------|
+| `--color-primary` | #FF6B9D | Sakura Pink 主色 |
+| `--color-primary-hover` | #FF85B0 | 主色悬停 |
+| `--color-primary-active` | #E55A8B | 主色按下 |
+| `--color-primary-light` | rgba(255,107,157,0.15) | 主色浅色背景 |
+| `--color-secondary` | #4ECDC4 | Teal 辅助色 |
+| `--color-accent` | #FFB3C6 | 浅樱粉 |
+| `--color-accent-warm` | #FFD93D | 暖黄 |
+| `--color-bg-primary` | #1A1A2E | 深色主背景 |
+| `--color-bg-secondary` | #16213E | 次要背景 |
+| `--color-bg-tertiary` | #0F0F23 | 第三级背景 |
+| `--color-bg-card` | #1E1E35 | 卡片背景 |
+| `--color-bg-input` | #0F3460 | 输入框背景 |
+| `--color-text-primary` | #E8E8F0 | 主文字 |
+| `--color-text-secondary` | #A0A0B8 | 次要文字 |
+| `--color-text-tertiary` | #6A6A82 | 第三级文字 |
+| `--color-border` | #2E2E48 | 边框默认 |
+| `--color-border-hover` | #3E3E58 | 边框悬停 |
+| `--color-success` | #5BA87A | 成功 |
+| `--color-warning` | #E8A84C | 警告 |
+| `--color-error` | #E05555 | 错误 |
+| `--color-info` | #6BA5D6 | 信息 |
+
+**尺寸变量**：
+
+| 变量名 | 值 |
+|--------|-----|
+| `--sidebar-width` | 260px |
+| `--sidebar-collapsed` | 64px |
+| `--header-height` | 48px |
+| `--statusbar-height` | 28px |
+| `--right-panel-width` | 320px（可拖拽280~500px） |
+| `--radius-sm/md/lg` | 4px/8px/12px |
+| `--spacing-xs/s/m/l/xl` | 4/8/16/24/32px |
+
+**字体变量**：
+- 主字体: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif
+- 等宽字体: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace
+- 字重: 400(Normal) / 500(Medium) / 600(Semibold) / 700(Bold)
+- 行高: 1.4标题 / 1.6正文 / 1.8长文本
+
+### 14.2 页面路由总览
+
+| 序号 | 图标 | 名称 | 路由 | 互斥规则 |
+|------|------|------|------|----------|
+| 1 | MessageCircle | AI对话 | /chat | 与绘画/漫剧视频/训练互斥 |
+| 2 | Palette | AI绘画 | /paint | 与对话/漫剧视频/训练互斥 |
+| 3 | Film | 漫剧创作 | /storyboard | 视频生成阶段与其他AI模块互斥 |
+| 4 | BookOpen | 知识学习 | /learning | 后台运行不互斥 |
+| 5 | Package | 模型管理 | /models | 不互斥 |
+| 6 | Video | 视频风格 | /style | 训练时与其他AI模块互斥 |
+| 7 | Settings | 设置 | /settings | 不互斥 |
+| 8 | HelpCircle | 帮助 | /help | 不互斥 |
+
+### 14.3 弹窗系统
+
+| z-index | 类型 | 组件 | 用途 |
+|---------|------|------|------|
+| 8000 | 模态遮罩 | OmniModal/MessageBox | 确认操作、表单填写 |
+| 8500 | 抽屉 | OmniDrawer | 侧滑面板 |
+| 9000 | Toast | OmniToast | 操作反馈 |
+| 9500 | 通知 | OmniNotification | 系统通知 |
+| 9999 | 全屏覆盖 | Lightbox/SearchOverlay | 灯箱预览、全局搜索 |
+
+**主要弹窗清单**：
+
+| 弹窗名称 | 触发位置 | 尺寸 | 用途 |
+|----------|----------|------|------|
+| CreateProjectModal | 漫剧工作台新建 | 560px | 创建新项目 |
+| StageExecModal | 编辑器各阶段执行 | 480px | 阶段执行确认 |
+| HardwareCheckModal | 导演台入口 | 400px | 硬件检测 |
+| AutoAssembleModal | 导演台自动装配 | 400px | 装配进度 |
+| DeleteConfirmModal | 各处删除操作 | 420px | 删除确认(含输入验证) |
+| ExportModal | 编辑器导出 | 480px | 导出配置 |
+| ModelConfigModal | 模型加载 | 480px | 模型加载配置 |
+| PromptConfigModal | 绘画Prompt优化 | 420px | Prompt优化参数 |
+| VoiceBindingModal | 角色资产详情 | 560px | 音色绑定 |
+| Lightbox | 图片预览 | 全屏 | 灯箱预览 |
+| GlobalSearchOverlay | Ctrl+K | 全屏 | 全局搜索 |
+| SettingsModal | 用户菜单>设置 | 80%宽 | 设置面板 |
+
+### 14.4 快捷键总表
+
+| 模块 | 快捷键 | 功能 |
+|------|--------|------|
+| 全局 | Ctrl+K | 全局搜索 |
+| 全局 | Ctrl+Shift+T | 主题切换 |
+| 全局 | Ctrl+, | 设置 |
+| 全局 | Ctrl+Tab | 切换标签 |
+| 全局 | Ctrl+W | 关闭标签 |
+| 全局 | Esc | 关闭弹窗 |
+| AI对话 | Enter | 发送 |
+| AI对话 | Shift+Enter | 换行 |
+| AI对话 | Ctrl+L | 清空 |
+| AI对话 | Ctrl+Shift+N | 新建会话 |
+| AI绘画 | Ctrl+G | 生成 |
+| AI绘画 | Ctrl+Z/Y | 撤销/重做 |
+| AI绘画 | Ctrl+S | 保存 |
+| AI绘画 | Ctrl+Shift+H | 历史画廊 |
+| 漫剧编辑器 | Ctrl+S | 保存 |
+| 漫剧编辑器 | Ctrl+E | 导出 |
+| 漫剧编辑器 | Space | 播放预览 |
+| 漫剧编辑器 | Ctrl+D | 复制分镜 |
+| 漫剧编辑器 | Delete | 删除 |
+| 3D导演台 | W/E/R/T | 选择/平移/旋转/缩放 |
+| 3D导演台 | F | 重置相机 |
+| 3D导演台 | Ctrl+A | 全选 |
+| 3D导演台 | Ctrl+G | 创建组 |
+| 3D导演台 | Ctrl+Shift+G | 解组 |
+| 知识学习 | Ctrl+N | 新建主题 |
+| 知识学习 | Ctrl+F | 搜索 |
+| 知识学习 | Ctrl+Shift+G | 知识图谱 |
+| 模型管理 | Ctrl+R | 刷新 |
+| 模型管理 | Ctrl+I | 导入 |
+| 模型管理 | Ctrl+D | 下载 |
+| 视频风格 | Ctrl+T | 训练 |
+| 视频风格 | Ctrl+S | 停止 |
+| 视频风格 | Ctrl+P | 预览 |
+
+### 14.5 动画规范
+
+| 动画名 | 效果 | 时长 |
+|--------|------|------|
+| fadeIn/fadeOut | opacity 0→1 | 250ms |
+| scaleIn | scale(0.9)→1 + opacity 0→1 | 250ms（弹窗） |
+| slideInDown | translateY(-20px)→0 + opacity 0→1 | 300ms（通知） |
+| slideInRight | translateX(20px)→0 + opacity 0→1 | 300ms（Toast） |
+| slideInUp | translateY(20px)→0 + opacity 0→1 | 300ms（路由切换） |
+| spin | rotate(0→360deg) | 1s linear infinite（Loading） |
+| pulse | scale(1→1.05→1) | 2s ease-in-out infinite（通知红点） |
+| shake | translateX(0→-10→10→-10→0) | 400ms（错误提示） |
+
+---
+
+## 第十五章 硬件配置与性能指标
+
+### 15.1 六档硬件配置表
+
+| 档位 | GPU | RAM | CPU | 显存分配(对话/绘画/视频/训练) |
+|------|-----|-----|-----|------|
+| 顶配 | RTX 5090 32GB | 64GB | i9/Threadripper | 4G/12G/10G/6G |
+| 高端 | RTX 4090 24GB | 32GB | i7/Ryzen 9 | 4G/10G/8G/2G |
+| 中端 | RTX 4070 12GB | 24GB | i5/Ryzen 7 | 4G/6G/2G/0G(CPU) |
+| 入门 | RTX 3060 12GB | 32GB | i5/Ryzen 5 | 4G/4G/0G/禁用 |
+| AMD | RX 6600 8GB | 16GB | Ryzen 5 | 4G/4G(Vulkan) |
+| 纯CPU | 无 | 16GB+ | 4核+ | N/A |
+
+### 15.2 硬件等级自适应方案
+
+| 硬件档位 | 对话模型 | 绘画模型 | 视频模型 | 学习速率 | 特殊限制 |
+|----------|----------|----------|----------|----------|----------|
+| 顶配 RTX 5090 32GB | Qwen3-VL-8B (fp16) | FLUX.1-dev (fp16) | LTX-Video-2B | 全速 LR=1e-4 | 无限制，支持8K |
+| 高端 RTX 4090 24GB | Qwen3-VL-8B (int8) | FLUX.1-dev (fp16) | Wan2.1-T2V-1.3B | 全速 LR=1e-4 | 视频限720p |
+| 中端 RTX 4070 12GB | Qwen3-VL-4B (int8) | SDXL-Turbo (fp16) | CogVideoX-2B | 中速 LR=5e-5 | 视频限480p |
+| 入门 RTX 3060 12GB | Qwen3-VL-2B (int8) | SDXL-Turbo (int8) | CogVideoX-2B | 限制 LR=1e-5 | 禁用高分辨率 |
+| AMD RX 6600 8GB | Qwen3-VL-2B (int8) | SDXL-Turbo (int8) | 禁用 | 限制 LR=1e-5 | AV1软编 |
+| 纯CPU | Qwen3-VL-2B (fp32) | SD1.5 (fp32) | 禁用 | 禁用 | 仅基础对话 |
+
+### 15.3 17项量化技术指标
+
+| 指标名称 | 目标值 | 当前值 | 优化方向 |
+|----------|--------|--------|----------|
+| 首字延迟(TTFT) | <200ms | 240ms | 投机采样 |
+| 对话吞吐量 | >80 Tokens/s | 72 | KV Cache量化 |
+| 知识提取速度 | >30 Pages/min | 25 | 并发CEF |
+| 视频编码FPS | >60(1080p) | 55 | NVENC调优 |
+| 显存峰值 | <20GB | 22GB | Offload策略 |
+| 内存泄漏(24h) | 0 | +50MB | CEF GC |
+| 启动时间 | <3s | 4.2s | 懒加载 |
+| API P99延迟 | <50ms | 65ms | 连接池 |
+| 知识检索Recall@5 | >85% | 82% | Reranker |
+| LoRA训练Loss | <0.5(100步) | 0.6 | 学习率 |
+| 浏览器标签切换 | <100ms | 150ms | 预渲染 |
+| 风格迁移质量FID | <15 | 18 | 数据集 |
+| 自主学习覆盖率 | >90% | 85% | 探索率 |
+| 错误率 | <0.1% | 0.2% | 重试机制 |
+| 磁盘I/O | <100 MB/s | 120 | 内存缓存 |
+| 网络带宽 | <50 Mbps | 60 | 压缩 |
+| 用户满意度 | >90% | 88% | 对齐 |
+
+### 15.4 并发限制
+
+| 项目 | 限制 |
+|------|------|
+| 后台任务并发 | 默认4，可调1-8 |
+| Agent最大并发 | 2 |
+| 浏览器进程池 | min(8, CPU_CORES) |
+| 训练任务 | 同时仅1个 |
+| Celery队列 | high/medium/low/background 四队列 |
+| HuggingFace下载 | 带宽<10Mbps时限为1 |
+| 数据库写操作 | 单一连接池串行化 |
+| 功能切换时间 | <3秒（ML命中<500ms） |
+
+---
+
+## 第十六章 开发任务清单（按优先级分级）
+
+### 16.1 P0级任务（核心基础 — 必须首先完成）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-SYS-001 | 项目脚手架搭建 | 全局 | React 19.2+Vite6+pnpm+Tailwind4+Compiler1.0初始化，Python 3.12+FastAPI+uv环境 |
+| TASK-SYS-002 | Tauri 2.x桌面壳层 | 系统层 | Rust窗口管理、IPC、系统托盘、全局快捷键 |
+| TASK-SYS-003 | SQLite数据库初始化 | 数据库 | 8张表创建、WAL模式、FTS5、索引 |
+| TASK-SYS-004 | ChromaDB向量数据库 | 数据库 | HNSW索引、BGE-large-zh嵌入、集合创建 |
+| TASK-SYS-005 | FastAPI基础框架 | 后端 | 路由注册、Pydantic v2校验、统一响应格式、错误码体系 |
+| TASK-SYS-006 | WebSocket通信框架 | 通信 | ws端点、心跳、重连、4种消息类型 |
+| TASK-SYS-007 | Redis + Celery任务队列 | 后端 | 4队列(high/medium/low/background)、异步任务 |
+| TASK-LAY-001 | 五层布局架构 | 前端 | TopNav(48px)+Sidebar(260px)+MainContent+RightPanel(320px)+StatusBar(28px) |
+| TASK-LAY-002 | CSS变量体系 | 前端 | 颜色/尺寸/间距/圆角/阴影/字体变量定义 |
+| TASK-LAY-003 | Zustand状态管理 | 前端 | 10个store(useAppStore~useWebSocketStore)，slice模式组合 |
+| TASK-LAY-004 | React Router路由 | 前端 | 8个页面路由+多标签页容器，类型安全路由 |
+| TASK-COMP-001 | 基础组件库(10个) | 前端 | 基于shadcn/ui定制: OmniButton/Input/Textarea/Select/Slider/Toggle/Checkbox/Radio/Tag/Badge |
+| TASK-COMP-002 | 布局组件库(6个) | 前端 | OmniCard/Table/Tabs/Collapse/Split/Grid |
+| TASK-COMP-003 | 反馈组件库(8个) | 前端 | OmniModal/Drawer/Toast/MessageBox/Notification/Loading/Empty/Skeleton |
+
+### 16.2 P0级任务（核心模块 — 第一阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-MOD-001 | ModelManager模型管理 | 模型管理 | 模型库索引、SHA256校验、热加载/冷卸载、显存4级阈值、ML预测预加载 |
+| TASK-MOD-002 | ModelManager前端页面 | 模型管理 | ModelSidebar+ModelGrid+ModelDetail+DownloadManager+VRAMManager |
+| TASK-CHAT-001 | OmniChat对话后端 | AI对话 | ChatService、vLLM推理、SSE流式、RAG检索(ChromaDB Top-5) |
+| TASK-CHAT-002 | OmniChat对话前端 | AI对话 | ChatSidebar+ChatWindow(虚拟列表+打字机)+ChatInput(多模态)+ChatPanel |
+| TASK-CHAT-003 | OmniChat RAG增强 | AI对话 | BGE-large-zh向量化、混合检索(FTS5+HNSW)、RRF重排序 |
+| TASK-CHAT-004 | OmniChat Agent工具调用 | AI对话 | Function Calling、被动补全、意图识别 |
+
+### 16.3 P1级任务（核心模块 — 第二阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-PAINT-001 | OmniDraw绘画后端 | AI绘画 | PaintService、ComfyUI-Core嵌入式、FLUX.1-dev推理 |
+| TASK-PAINT-002 | OmniDraw绘画前端 | AI绘画 | PaintParams+PaintCanvas+PaintHistory+Lightbox+BatchQueue |
+| TASK-PAINT-003 | ControlNet姿态控制 | AI绘画 | OpenPose骨骼提取、ControlNet注入UNet |
+| TASK-PAINT-004 | IP-Adapter风格迁移 | AI绘画 | 多图权重混合、SSIM>0.85 |
+| TASK-PAINT-005 | 局部重绘+超分辨率 | AI绘画 | Inpainting遮罩、Real-ESRGAN 4x |
+
+### 16.4 P1级任务（核心模块 — 第三阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-COMIC-001 | OmniComic分镜引擎 | 漫剧创作 | DSL解析器、分镜CRUD、AI描述生成 |
+| TASK-COMIC-002 | OmniComic编辑器前端 | 漫剧创作 | Dashboard+Editor+StageNav+StoryboardTable+AssetPanel(4视图) |
+| TASK-COMIC-003 | 3D导演台 | 漫剧创作 | React Three Fiber+drei WebGL、Viewport3D、PropertyPanel(4Tab)、TimelinePanel |
+| TASK-COMIC-004 | 关键帧+视频生成 | 漫剧创作 | OmniDraw关键帧、LTX-2/Wan2.1/CogVideoX视频、多镜头一致性 |
+| TASK-COMIC-005 | FFmpeg后处理+导出 | 漫剧创作 | 裁剪/拼接/AV1编码、MP4导出、分镜表/PDF/JSON导出 |
+| TASK-COMIC-006 | 角色多视图+音色绑定 | 漫剧创作 | 四视图(1980x1680)、1默认+8情绪音色、3Tab音色选择 |
+
+### 16.5 P1级任务（核心模块 — 第四阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-LEARN-001 | OmniLearn CEF浏览器 | 知识学习 | CEF 120+沙箱、进程池(min(8,CPU))、预热<1s |
+| TASK-LEARN-002 | Agent决策循环 | 知识学习 | ReAct模式、分级决策(简单<500ms/复杂~3s)、页面复杂度分类 |
+| TASK-LEARN-003 | 知识处理管线 | 知识学习 | 6步管线(过滤→分段→提取→评估→去重→入库)、SimHash |
+| TASK-LEARN-004 | 混合检索+知识图谱 | 知识学习 | 向量+关键词双路召回、RRF重排序、D3.js力导向图 |
+| TASK-LEARN-005 | LoRA增量训练 | 知识学习 | QLoRA 4bit、数据>=100条触发、Flash Attention-2 |
+| TASK-LEARN-006 | OmniLearn前端页面 | 知识学习 | LearnSidebar+LearnContent(4视图)+LearningEngine+LearnPanel |
+| TASK-LEARN-007 | 行为学习+知识反哺 | 知识学习 | 操作序列记录、偏好画像、RAG+LoRA双层注入 |
+
+### 16.6 P1级任务（核心模块 — 第五阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-STYLE-001 | VideoStyle LoRA训练 | 视频风格 | LTX-2 LoRA微调、QLoRA 4bit、peft+bitsandbytes |
+| TASK-STYLE-002 | VideoStyle前端页面 | 视频风格 | StyleSidebar+StyleWorkspace(4Tab)+StylePanel |
+| TASK-STYLE-003 | AV1硬件编码引擎 | 视频风格 | NVENC/AMF/SVT-AV1、CRF 23、自动降级 |
+| TASK-STYLE-004 | 帧间一致性+风格预览 | 视频风格 | 光流法+Latent约束、原始vs风格化对比 |
+
+### 16.7 P2级任务（智能引擎 — 第六阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-ENG-001 | ML预加载预测引擎 | 智能引擎 | XGBoost时序预测、50步特征窗口、>85%准确率、<50ms推理 |
+| TASK-ENG-002 | 协同调度引擎 | 智能引擎 | PPO强化学习、6x6互斥矩阵、P0-P5优先级、资源冲突率<1% |
+| TASK-ENG-003 | 自主学习引擎 | 智能引擎 | RAG+Agent+LoRA闭环、PPL好奇心驱动、知识生命周期管理 |
+| TASK-ENG-004 | LTX-2 LoRA微调引擎 | 智能引擎 | 训练队列调度、早停策略、Checkpoint管理、质量评估 |
+
+### 16.8 P2级任务（系统完善 — 第七阶段）
+
+| 任务编号 | 任务名称 | 涉及模块 | 技术要点 |
+|----------|----------|----------|----------|
+| TASK-SYS-008 | GPU监控与保护 | 系统层 | 4级显存阈值、温度保护(85°C/90°C)、OOM拦截、毫秒级轮询 |
+| TASK-SYS-009 | 日志系统 | 系统层 | loguru结构化日志、OpenTelemetry链路追踪、WebSocket实时日志 |
+| TASK-SYS-010 | 更新机制 | 系统层 | 增量更新、回滚机制、断点续传、SHA256校验 |
+| TASK-SYS-011 | 安全策略 | 系统层 | CEF沙箱、JWT认证、数据加密、安全测试 |
+| TASK-COMP-004 | 数据展示组件(6个) | 前端 | OmniStatistic/Progress/Chart/Timeline/Tree/VirtualList |
+| TASK-COMP-005 | 设置页面 | 前端 | 10个子设置页(通用/硬件/网络/AI/训练/存储/隐私/快捷键/关于) |
+| TASK-TEST-001 | 414条测试用例 | 测试 | 全功能模块操作流程测试，验收标准与E的38项核心要求一致 |
+
+### 16.9 任务依赖关系
+
+```
+TASK-SYS-001~007 (基础架构)
+    ├── TASK-LAY-001~004 (布局+路由+状态)
+    │       ├── TASK-COMP-001~003 (组件库)
+    │       └── TASK-MOD-001~002 (ModelManager)
+    │               ├── TASK-CHAT-001~004 (OmniChat)
+    │               ├── TASK-PAINT-001~005 (OmniDraw)
+    │               │       └── TASK-COMIC-001~006 (OmniComic)
+    │               ├── TASK-LEARN-001~007 (OmniLearn)
+    │               └── TASK-STYLE-001~004 (VideoStyle)
+    ├── TASK-ENG-001~004 (智能引擎)
+    ├── TASK-SYS-008~011 (系统完善)
+    └── TASK-TEST-001 (测试)
+```
+
+---
+
+## 附录：开发清单与约束文档关系
+
+| 文档 | 定位 | 关系 |
+|------|------|------|
+| **开发清单.md（本文档）** | 全量开发索引清单 | 列出所有功能模块、技术原理、实现步骤、组件、路由、布局 |
+| **约束.md** | 全局开发约束 | 定义技术栈锁定、编程规范、安全策略、性能指标、禁止事项 |
+| **修正版E** | 唯一权威全量技术文档 | 开发清单的技术规格来源 |
+| **修改版C** | 编程语言规范 | 开发清单的编码规范来源 |
+| **修正版D** | 布局视觉规范 | 开发清单的页面布局和组件规范来源 |
+| **测试计划** | 414条测试用例 | 开发清单的验收标准来源 |
+
+> **使用规则**：开发清单提供"做什么"的完整索引，约束.md提供"怎么做"的规则约束，两者配合使用。任何技术规格冲突以约束.md为准。

@@ -1,0 +1,194 @@
+/* ==========================================================================
+   OmniSpace AI —— 设计令牌（Design Tokens）
+   依据：《OmniSpace AI v2.3.1中文版》§6.3.1 Sakura 暗色主题（默认主题）、
+        §6.3.2 组件设计规范、§6.3.3 动效规范、§6.1.1 主窗口结构；
+        文档D §1.1.3 布局 CSS 变量体系（默认深色，亮色为可选切换）。
+   说明：本文件为全部视觉规格的唯一权威来源；令牌名保持稳定。
+        默认暗色 Sakura；[data-theme="light"] 提供亮色可选切换（文档D §1.1.3）。
+   ========================================================================== */
+
+:root {
+  /* ------------------------------ 色彩体系（§6.3.1 规格值） ------------------------------ */
+  --color-primary: #FF6B9D;              /* 樱花粉主色 */
+  --color-accent: #4ECDC4;               /* 薄荷绿辅助色 */
+  --color-bg: #1A1A2E;                   /* 深蓝黑背景 */
+  --color-card: #16213E;                 /* 深蓝卡片 */
+  --color-text-primary: #EAEAEA;         /* 浅灰白一级文字 */
+  --color-highlight: #FFD93D;            /* 暖黄强调色（兼警告色） */
+  --color-success: #6BCB77;
+  --color-warning: #FFD93D;
+  --color-error: #FF6B6B;
+  --color-info: #4ECDC4;                 /* 信息色沿用薄荷绿 */
+  --color-input-bg: #0F3460;             /* 输入框背景 */
+
+  /* 派生文字色（暗色底上的次级/三级文字，规格未单列，按可读性推导） */
+  --color-text-secondary: #A6AEC2;       /* 二级文字 */
+  --color-text-tertiary: #6E7789;        /* 三级文字 */
+
+  /* 主色衍生刻度（暗色底上的浅底徽章/hover/激活态以半透明粉呈现） */
+  --color-primary-50: rgba(255, 107, 157, 0.08);
+  --color-primary-100: rgba(255, 107, 157, 0.14);  /* 导航激活/选中底色 */
+  --color-primary-200: rgba(255, 107, 157, 0.24);
+  --color-primary-300: #FF9BBE;
+  --color-primary-400: #FF83AD;
+  --color-primary-500: #FF6B9D;          /* 规格主色 */
+  --color-primary-600: #E6608D;          /* hover 加深 10%（§6.3.2 按钮-主要） */
+  --color-primary-700: #C44E76;
+
+  /* 辅助色衍生（薄荷绿刻度，供渐变/徽章使用） */
+  --color-accent-100: rgba(78, 205, 196, 0.14);
+  --color-accent-300: #7EDCD5;
+  --color-accent-600: #3BA8A0;
+
+  /* 边框/分隔/遮罩（§6.3.2：输入框边框 #4ECDC4 30% 透明度） */
+  --color-border: rgba(78, 205, 196, 0.22);       /* 通用边框（薄荷绿调） */
+  --color-border-light: rgba(78, 205, 196, 0.12);
+  --color-input-border: rgba(78, 205, 196, 0.30); /* 输入框边框（规格值） */
+  --color-divider: rgba(234, 234, 234, 0.08);
+  --color-overlay: rgba(8, 8, 18, 0.60);          /* 弹窗遮罩 */
+  --color-focus-ring: rgba(255, 107, 157, 0.35);  /* focus 光环 */
+
+  /* 语义底色（暗色主题下的 Toast / 徽章 / 提示卡背景，均为语义色低透明铺底） */
+  --color-success-bg: rgba(107, 203, 119, 0.14);
+  --color-warning-bg: rgba(255, 217, 61, 0.12);
+  --color-error-bg: rgba(255, 107, 107, 0.12);
+  --color-info-bg: rgba(78, 205, 196, 0.12);
+  /* AI 生成内容标记底色：浅色 #E3F2FD 在暗色底上刺眼，等效替换为薄荷绿低透明铺底 */
+  --color-ai-generated: rgba(78, 205, 196, 0.14);
+
+  /* 兼容别名（旧令牌名 → 新值；surface 在暗色主题中即卡片色） */
+  --color-surface: var(--color-card);
+  --color-surface-secondary: var(--color-bg);
+
+  /* ------------------------------ 字体系统（§6.3.1） ------------------------------ */
+  --font-family-base: "Source Han Sans SC", "Microsoft YaHei", "Noto Sans SC", "PingFang SC", -apple-system, "Segoe UI", sans-serif;
+  --font-family-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+
+  /* 字阶（§6.3.1：标题 24 / 正文 14 / 辅助 12 为基准锚点） */
+  --font-size-xs: 12px;    /* 辅助 */
+  --font-size-sm: 13px;
+  --font-size-base: 14px;  /* 正文 */
+  --font-size-lg: 18px;
+  --font-size-xl: 24px;    /* 标题 */
+  --font-size-2xl: 30px;
+  --font-size-3xl: 36px;
+
+  /* 行高：tight / normal / relaxed */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* 字重 */
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ------------------------------ 间距量表（4px 基准） ------------------------------ */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 28px;
+  --space-9: 32px;
+  --space-10: 36px;
+  --space-11: 40px;
+  --space-12: 48px;
+  --space-13: 56px;
+  --space-14: 64px;
+  --space-15: 80px;
+  --space-16: 96px;
+
+  /* ------------------------------ 圆角（§6.3.1：卡片12 / 按钮8 / 输入框6） ------------------------------ */
+  --radius-sm: 6px;    /* 输入框（§6.3.1/§6.3.2） */
+  --radius-md: 8px;    /* 按钮（§6.3.1/§6.3.2） */
+  --radius-lg: 12px;   /* 卡片（§6.3.1/§6.3.2） */
+  --radius-xl: 16px;   /* 弹窗（§6.3.2） */
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* ------------------------------ 阴影（§6.3.1：0 4px 12px rgba(0,0,0,0.3)） ------------------------------ */
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);        /* 规格基准阴影 */
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: 0 8px 20px rgba(0, 0, 0, 0.45); /* 卡片悬停阴影加深（§6.3.3） */
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);   /* 弹窗阴影加深（§6.3.2） */
+  --shadow-toast: 0 8px 28px rgba(0, 0, 0, 0.45);
+
+  /* ------------------------------ 毛玻璃（暗色） ------------------------------ */
+  --color-glass: rgba(22, 33, 62, 0.72);           /* 卡片色毛玻璃 */
+  --glass-blur: blur(20px);
+  --glass-blur-light: blur(12px);
+
+  /* ------------------------------ 动效时长与曲线（§6.3.3 动效规范） ------------------------------ */
+  --duration-page: 200ms;                /* 页面切换淡入淡出 */
+  --duration-hover: 150ms;               /* 卡片悬停上浮/阴影加深 */
+  --duration-press: 100ms;               /* 按钮点击缩放 0.95 */
+  --duration-progress: 300ms;            /* 进度条宽度过渡 ease */
+  --duration-modal-in: 250ms;            /* 弹窗缩放 0.9→1 + 淡入 */
+  --duration-modal-out: 150ms;           /* 弹窗消失 */
+  --duration-toast-in: 300ms;            /* 通知右侧滑入 */
+  --duration-panel: 200ms;               /* 右侧面板展开/收起 */
+  --duration-list-reorder: 300ms;        /* 列表重排 */
+  --ease-out: ease-out;
+  --ease-in: ease-in;
+  --ease-in-out: ease-in-out;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ------------------------------ 布局尺寸（§6.1.1 主窗口结构 / 文档D §1.1.1） ------------------------------ */
+  --sidebar-width: 260px;                /* 左侧导航展开宽（文档D §1.1.1：260px） */
+  --sidebar-width-collapsed: 64px;       /* 左侧导航收起宽（文档D §1.1.1：64px 仅图标） */
+  --header-height: 48px;                 /* 顶层导航栏高（文档D §1.1.1：48px 通栏） */
+  --right-panel-width: 320px;            /* 右侧面板宽 */
+  --statusbar-height: 28px;              /* 底部状态栏高 */
+  --z-sidebar: 100;
+  --z-statusbar: 110;
+  --z-drawer: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+  --z-tooltip: 500;
+
+  /* ------------------------------ 响应式断点（仅作文档化说明） ------------------------------
+     CSS 变量无法用于媒体查询，断点数值在 app.css 中以字面量使用：
+     640px / 768px / 1024px / 1280px / 1536px
+     关键行为：窗口 < 1024px 时侧边栏强制收缩为 64px 图标模式（文档D §1.1.2 Tablet 档）
+     -------------------------------------------------------------------------------------------- */
+}
+
+/* ============================== 亮色主题覆盖（文档D §1.1.3：亮色为可选切换） ==============================
+   仅覆盖随主题翻转的令牌；主色/辅助色/语义色及衍生存度在两主题间通用，不重复声明。
+   切换入口：顶栏主题按钮 → useAppStore.setTheme → <html data-theme>。
+   ===================================================================================================== */
+[data-theme='light'] {
+  /* 背景/卡片/输入（文档D 亮色：bg #FFFFFF / card #FFFFFF / input #F0F2F7） */
+  --color-bg: #F8F9FC;                   /* 主背景（略灰以衬托白卡片） */
+  --color-card: #FFFFFF;
+  --color-input-bg: #F0F2F7;
+
+  /* 文字（文档D 亮色：#1A1A2E / #5A6070 / #8A90A0） */
+  --color-text-primary: #1A1A2E;
+  --color-text-secondary: #5A6070;
+  --color-text-tertiary: #8A90A0;
+
+  /* 边框/分隔/遮罩（文档D 亮色：border #E2E5ED / hover #C8CDD8） */
+  --color-border: #E2E5ED;
+  --color-border-light: #EDF0F5;
+  --color-input-border: #C8CDD8;
+  --color-divider: rgba(26, 26, 46, 0.08);
+  --color-overlay: rgba(0, 0, 0, 0.4);
+
+  /* 毛玻璃（亮色：白底半透） */
+  --color-glass: rgba(255, 255, 255, 0.72);
+
+  /* 阴影（文档D 亮色：低透明投影） */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --shadow-card-hover: 0 8px 20px rgba(0, 0, 0, 0.12);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.18);
+  --shadow-toast: 0 8px 28px rgba(0, 0, 0, 0.14);
+}

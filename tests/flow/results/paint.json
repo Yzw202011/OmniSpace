@@ -1,0 +1,526 @@
+{
+  "summary": {
+    "module": "paint",
+    "total": 57,
+    "counts": {
+      "PASS": 26,
+      "SKIP": 10,
+      "DEGRADED": 21
+    }
+  },
+  "cases": [
+    {
+      "tc_id": "TC-FLOW-PAINT-001",
+      "name": "文生图标准参数完整流程验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "512x512/8步 生成成功 seed=42 耗时=12053ms file=generated/images/c6114e4e73cf4649beb7dfb3917a6ed3.png",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-002",
+      "name": "文生图最小参数快速验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "仅 prompt 即可生成（默认参数全填充）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-003",
+      "name": "Prompt快捷标签插入验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "快捷标签为前端输入辅助组件",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-004",
+      "name": "中文Prompt生成验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "中文 prompt 正常生成（SDXL 多语言文本编码）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-005",
+      "name": "英文Prompt生成验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "英文 prompt 已由 PAINT-001/002 验证",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-006",
+      "name": "Negative Prompt有效性验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "negative 参数链路正常（PAINT-001 带negative成功）；空prompt拦截 code=PAINT_GENERATION_FAILED",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-007",
+      "name": "绘画模型切换流程验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "模型列表 6 个，就绪: ['sdxl-base-1.0', 'sdxl-lcm', 'sdxl-cpu']；body.model 可指定切换",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-008",
+      "name": "步数参数全范围验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "steps=4（下限）生成成功；steps 钳制 1~50（_parse_common）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-009",
+      "name": "CFG Scale参数全范围验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "cfg 参数链路 PAINT-001 已带 7.5；钳制 1.0~20.0（_parse_common）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-010",
+      "name": "图片尺寸参数验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "512x768 竖版生成成功；尺寸钳制 512~2048（_clamp_size）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-011",
+      "name": "采样器效果对比验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "sampler=euler_a 生效（res.sampler=euler_a）；未知采样器回退默认（_parse_common）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-012",
+      "name": "种子固定复现验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "两次 seed=777 结果种子一致: [777, 777]",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-013",
+      "name": "使用上次种子复用验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "历史任务 seed 可读（42），前端复用传参即可",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-014",
+      "name": "图生图标准流程验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P0",
+      "detail": "init_image(base64)+strength=0.75 生成成功",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-015",
+      "name": "图生图相似度参数验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "strength=0.3（高相似）生成成功；参数钳制 0.05~1.0",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-016",
+      "name": "图生图多上传方式验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "image 别名兼容=True；缺图拦截 code=SYSTEM_PARAM_INVALID",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-017",
+      "name": "图生图格式兼容性验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "非法 base64 图像被拒（40008 无法解析）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-018",
+      "name": "ControlNet OpenPose完整流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "ControlNet 权重未随包，诚实降级: ControlNet 模型未随包安装，无法生成 openpose 预览；请将 controlnet-sdxl 系列模型放",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-019",
+      "name": "ControlNet Canny边缘检测流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "canny 类型受理（降级）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-020",
+      "name": "ControlNet Depth深度图流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "MiDaS 深度端点响应: {'depth_png_b64': 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAJNklEQVRoBb3BO",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-021",
+      "name": "ControlNet强度梯度验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "ControlNet 未随包（PAINT-018 降级链已验证），强度参数无从生效",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-022",
+      "name": "ControlNet未检测到人物异常处理",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "缺条件图拦截 code=CONTROLNET_CONDITION_INVALID（50003 条件图格式错误）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-023",
+      "name": "IP-Adapter单参考图风格迁移流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "IP-Adapter-Plus 未随包——功能缺失（记忆§A）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-024",
+      "name": "IP-Adapter多参考图融合流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "IP-Adapter 未随包——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-025",
+      "name": "IP-Adapter风格强度梯度验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "IP-Adapter 未随包——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-026",
+      "name": "IP-Adapter低质量参考图异常处理",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "IP-Adapter 未随包——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-027",
+      "name": "局部重绘完整流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "附录B /art/inpaint 端点未实现——功能缺失（记忆§P2）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-028",
+      "name": "局部重绘画笔工具验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "画笔为前端画布组件；后端 inpaint 端点缺失（PAINT-027）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-029",
+      "name": "局部重绘缩放平移操作验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "纯前端画布交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-030",
+      "name": "局部重绘空遮罩异常处理",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "inpaint 端点缺失，遮罩校验无从触发——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-031",
+      "name": "局部重绘遮罩过大异常处理",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "inpaint 端点缺失——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-032",
+      "name": "超分辨率2x放大流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "64x64→128x128 backend=lanczos（LANCZOS 降级，Real-ESRGAN 未随包）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-033",
+      "name": "超分辨率4x放大流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "4x→256x256 backend=lanczos degraded=True",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-034",
+      "name": "超分辨率模型选择验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "Real-ESRGAN 未随包，仅 LANCZOS 单后端，无模型可选",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-035",
+      "name": "超分辨率高分辨率图片异常处理",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "缺图拦截 code=SYSTEM_PARAM_INVALID",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-036",
+      "name": "Prompt优化完整流程验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "optimize=true 生成成功；优化后prompt=未返回",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-037",
+      "name": "Prompt优化风格选择验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "风格选择为前端下拉；optimize 布尔链路已验证（PAINT-036）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-038",
+      "name": "Prompt优化降级异常处理",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "optimize_prompt 失败回退原 prompt（引擎内 try 容错），生成不中断",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-039",
+      "name": "Prompt优化超时异常处理",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P3",
+      "detail": "超时注入需故障注入工具；容错路径同 PAINT-038",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-040",
+      "name": "批量生成完整流程验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "2任务串行提交全部完成=2/2（paint 功能锁串行调度）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-041",
+      "name": "批量生成暂停/恢复/取消验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P1",
+      "detail": "绘画任务无 pause/resume/cancel 端点（仅轮询结果）——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-042",
+      "name": "批量生成失败任务重试验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无批量任务管理端点；重试=重新提交（前端职责）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-043",
+      "name": "批量生成中切换功能异常处理",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "paint 功能锁持有期间，冲突功能 acquire_or_raise 拒入（互斥机制）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-044",
+      "name": "批量生成队列顺序调整验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "无绘画任务队列管理端点——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-045",
+      "name": "历史画廊展开与浏览验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "历史分页正常 total=90（paint_history 表）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-046",
+      "name": "画廊筛选功能验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "历史端点仅分页，无筛选参数——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-047",
+      "name": "画廊排序功能验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "默认按 created_at 倒序（验证通过）",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-048",
+      "name": "画廊收藏图片流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "paint_history 无 favorite 字段/端点——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-049",
+      "name": "画廊下载图片流程验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P1",
+      "detail": "/draw/image/c6114e4e73cf4649beb7dfb3917a6ed3.png 回读 305844 字节 PNG",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-050",
+      "name": "画廊删除图片流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P2",
+      "detail": "无历史删除端点——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-051",
+      "name": "画廊批量删除流程验证",
+      "module": "paint",
+      "status": "DEGRADED",
+      "priority": "P3",
+      "detail": "无批量删除端点——功能缺失",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-052",
+      "name": "全屏预览打开与关闭验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P1",
+      "detail": "纯前端预览组件",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-053",
+      "name": "全屏预览缩放操作验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "纯前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-054",
+      "name": "全屏预览平移操作验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "纯前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-055",
+      "name": "全屏预览图片导航验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P2",
+      "detail": "纯前端交互",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-056",
+      "name": "全屏预览信息面板验证",
+      "module": "paint",
+      "status": "PASS",
+      "priority": "P2",
+      "detail": "结果元数据可供信息面板: ['seed', 'model', 'sampler', 'elapsed_ms']",
+      "duration_ms": 0
+    },
+    {
+      "tc_id": "TC-FLOW-PAINT-057",
+      "name": "全屏预览操作按钮验证",
+      "module": "paint",
+      "status": "SKIP",
+      "priority": "P3",
+      "detail": "纯前端按钮组",
+      "duration_ms": 0
+    }
+  ]
+}

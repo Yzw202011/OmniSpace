@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1A1A2E" />
+    <title>OmniSpace AI</title>
+    <style>
+      /* 启动屏：在React加载前显示（Sakura 暗色主题，§6.3.1） */
+      #boot-screen {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%);
+        z-index: 99999; transition: opacity 0.3s;
+      }
+      #boot-screen .boot-text {
+        font-size: 24px; color: #FF6B9D;
+        font-family: 'Source Han Sans SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+      }
+      #boot-screen.hidden { opacity: 0; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="boot-screen">
+      <div class="boot-text">🌸 OmniSpace AI 加载中…</div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

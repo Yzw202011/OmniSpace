@@ -594,7 +594,18 @@ class Launcher:
         print('=' * 60)
         print('OmniSpace AI Launcher')
         print('=' * 60)
-        
+
+        # TASK-P0-05：非回环绑定硬拒绝（规格 §14 约束2，与 backend/config.py
+        # 导入期闸门构成双层防线；此处拦截避免拉起注定被拒的后端进程）
+        import os
+        if (self.config.backend_host not in ('127.0.0.1', 'localhost', '::1')
+                and os.environ.get('OMNISPACE_ALLOW_LAN') != '1'):
+            print(f'  ✗ 拒绝启动：backend_host={self.config.backend_host} 为非回环地址。'
+                  'API 无认证体系，绑定局域网等于数据裸奔。')
+            print('    确需局域网访问：设置环境变量 OMNISPACE_ALLOW_LAN=1（自担风险）；'
+                  '或改回 127.0.0.1。')
+            return False
+
         # 1. 环境检查
         print('\n[1/4] 环境检查...')
         passed, results = self.env_checker.check_all()

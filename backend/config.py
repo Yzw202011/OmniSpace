@@ -29,6 +29,35 @@ with open(_yaml_path, "r", encoding="utf-8") as _f:
 # ── 服务 ─────────────────────────────────────────────────────────
 HOST = _cfg["server"]["host"]  # 127.0.0.1，§14约束2
 PORT = _cfg["server"]["port"]  # 5800
+
+# ── 回环绑定闸门（TASK-P0-05，规格 §14 约束2）────────────────────
+# API 无认证体系，非回环绑定 = 局域网数据裸奔。原 main.py lifespan 告警
+# 发生在 uvicorn 绑定 socket 之后（为时已晚），闸门前移到配置导入期：
+# 本模块被 import 时即校验，早于任何绑定动作，无论经 launcher 还是手动
+# uvicorn 启动都无法绕过。显式豁免：环境变量 OMNISPACE_ALLOW_LAN=1。
+
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def assert_loopback_host(host: str, allow_lan: str | None = None) -> None:
+    """非回环 host 且未豁免时抛 RuntimeError（拒绝启动）。"""
+    import os
+    if host in _LOOPBACK_HOSTS:
+        return
+    if (allow_lan if allow_lan is not None else os.environ.get("OMNISPACE_ALLOW_LAN")) == "1":
+        import logging
+        logging.getLogger("omnispace.config").warning(
+            "!" * 60 + "\nOMNISPACE_ALLOW_LAN=1 已豁免回环校验：当前绑定 %s，"
+            "API 无认证体系，请确保处于可信网络\n" + "!" * 60, host)
+        return
+    raise RuntimeError(
+        f"拒绝启动：config.yaml server.host={host} 为非回环地址（规格 §14 约束2）。"
+        "API 无认证体系，绑定局域网等于数据裸奔。确需局域网访问请设置环境变量 "
+        "OMNISPACE_ALLOW_LAN=1 后重试（自担风险），或将 host 改回 127.0.0.1。")
+
+
+assert_loopback_host(HOST)
+
 API_PREFIX = "/api/v1"  # 文档B/D/E 统一基线（ADR-03：由历史 /v1 迁移）
 RATE_LIMIT = _cfg["server"]["rate_limit"]  # 100/min
 

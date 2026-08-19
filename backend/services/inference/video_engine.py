@@ -200,6 +200,18 @@ def _dir_load_bytes_fp16(model_dir: Path) -> int:
     return total
 
 
+def _ltx_align_params(num_frames: int, gen_w: int, gen_h: int) -> tuple[int, int, int]:
+    """LTX 系管线约束校正（纯函数，TASK-P1-01 抽取以供直测）。
+
+    - VAE 时序压缩 8:1：帧数需 ≡ 1 (mod 8)，向下限 9 对齐、上限 257
+    - VAE 空间压缩 32:1：宽高为 32 的倍数（半向上取整，720→736）
+    """
+    frames = min(257, ((max(9, num_frames) - 1 + 7) // 8) * 8 + 1)
+    w = max(32, (gen_w + 16) // 32 * 32)
+    h = max(32, (gen_h + 16) // 32 * 32)
+    return frames, w, h
+
+
 def discover_video_models() -> dict[str, dict]:
     """扫描 MODELS_DIR（两层）发现 diffusers 布局的视频生成模型。
 
@@ -1104,14 +1116,10 @@ class VideoEngine:
             else:
                 gen_w, gen_h = 1280, 720
 
-            # LTX 系约束校正（帧数与分辨率并列）：
-            # - VAE 时序压缩 8:1，帧数需 ≡ 1 (mod 8)，上限 257 帧
-            # - VAE 空间压缩 32:1，宽高需为 32 的倍数（1080p 预设
-            #   1280x720 中 720%32=16，按半向上取整对齐为 736）
+            # LTX 系约束校正（帧数与分辨率并列）：见 _ltx_align_params 注释
             if "LTX" in cls_name:
-                num_frames = min(257, ((max(9, num_frames) - 1 + 7) // 8) * 8 + 1)
-                gen_w = max(32, (gen_w + 16) // 32 * 32)
-                gen_h = max(32, (gen_h + 16) // 32 * 32)
+                num_frames, gen_w, gen_h = _ltx_align_params(
+                    num_frames, gen_w, gen_h)
 
             num_steps = 30
             generation_kwargs = {

@@ -60,10 +60,11 @@
 
 > 特征：测试与门禁每多存在一天，就多拦截一批未来事故。各项可独立穿插进日常开发。
 
-- [ ] **P1-01 引擎层纯逻辑测试**（对应 P17）
+- [x] **P1-01 引擎层纯逻辑测试**（对应 P17）
   - 动作：不碰 GPU，直测可脱离权重的纯函数——对话候选路由表（dialog_engine.py:49-54）、显存估算 `_dir_load_bytes_fp16`、模型路径解析（含 modelscope 嵌套快照结构）、LTX 参数校验（分辨率整除 32、帧数 ≡1 mod 8）；参考 test_knowledge_pipeline.py 的注入手法
   - 完成标准：新增 ≥ 12 个测试函数全部通过；`pytest` 总数从 16 升至 28+
   - 工时：2 天
+  - **完成记录（2026-08-19）**：新增 `backend/tests/unit/test_engine_logic.py` 共 43 个测试函数全过（含 7 组参数化不变式），总数 41→84。覆盖：对话候选 tier 路由 4（含 12.0 边界含/11.9 不触发）、硬件档位表 6（含 5070Ti 先于 5070 的表序依赖、未登记型号按显存保守降档）、模型路径解析 4（扁平/modelscope 嵌套/.incomplete 残留/缺失）、后端判定+显存估算+目录发现 7、`_dir_load_bytes_fp16` 7（F32 减半/F16·BF16 原值/混合保守/同名 bin 跳过/损坏头保守/递归子目录）、LTX 校验 6、候选表一致性 2。附带重构：video_engine.py 内联 LTX 约束抽取为纯函数 `_ltx_align_params`（行为不变，生成路径改调它）
 
 - [ ] **P1-02 pre-commit 钩子**（对应 P18）
   - 动作：写 `.git/hooks/pre-commit`（或 pre-commit 框架配置），提交前跑 `pytest -m smoke` + `compileall` 语法基线；ruff 装好后追加 check

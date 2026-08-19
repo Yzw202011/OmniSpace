@@ -1,49 +1,27 @@
 # OmniSpace AI 依赖锁定文件（实际运行时环境，勿手工编辑）
 # =========================================================
 # 环境: 嵌入式 Python 3.10.11 (runtime/py310)，CUDA 12.8
-# 解析顺序: pydeps(优先) -> runtime/py310/Lib/site-packages(兜底)
+# 双站点架构（2026-08-19 TASK-P0-06 实测修正，推翻审计 P23）:
+#   pydeps 与 runtime/py310/Lib/site-packages 是互补的承重依赖站点，
+#   由 runtime/py310/python310._pth 依序挂载（pydeps 优先）。
+#   - pydeps 独占 156 个包: fastapi/uvicorn/pydantic/numpy/scipy/diffusers/
+#     accelerate/peft/chromadb/modelscope/pytest 等 Web+数据栈
+#   - runtime 独占: torch 2.11.0+cu128/transformers/tokenizers/pandas/
+#     rembg 等 GPU 栈
+#   - 两侧重合（cv2/torchvision/torchaudio/torchgen/functorch）由 pydeps 优先
+#     加载且版本与 runtime torch 匹配（0.26.0+cu128 等），属有意安装
+#   重建环境 = 恢复两个目录，缺一后端无法启动；禁止删除或"清退"pydeps。
 # 导出: 2026-08-15 | 锁定 154 个包
 #
-# 环境警告（重建环境前必须知晓）:
-#   - pydeps/backports-asyncio-runner 1.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/beautifulsoup4 4.15.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/googleapis-common-protos 1.75.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/grpcio 1.83.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/grpcio-status 1.83.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/llama-cpp-python 0.3.34 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/markdown-it-py 4.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/mmh3 5.2.1 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/nvidia-ml-py 13.610.43 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opencv-python 5.0.0.93 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opentelemetry-api 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opentelemetry-exporter-otlp-proto-common 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opentelemetry-exporter-otlp-proto-grpc 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opentelemetry-proto 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opentelemetry-sdk 1.44.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/opentelemetry-semantic-conventions 0.65b0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/pillow 12.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/polars-runtime-32 1.43.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/protobuf 7.35.1 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/pynvml 13.0.1 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/pypiwin32 223 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/pytest-timeout 2.4.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/python-dateutil 2.9.0.post0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/python-docx 1.2.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/python-dotenv 1.2.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/pywin32 312 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/pyyaml 6.0.3 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/rpds-py 0.30.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/scikit-learn 1.7.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/six 1.17.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/sympy 1.14.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/threadpoolctl 3.6.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/tokenizers 0.22.2 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/torch 2.11.0+cu128 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/typing-extensions 4.15.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/ultralytics-thop 2.1.6 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps/websocket-client 1.9.0 为空壳(缺__init__.py)，运行时实际加载 runtime 副本
-#   - pydeps 目录属历史残留，重建环境时以 runtime/py310 为基础，
-#     再叠加本文件中 pydeps 来源的包。
+# 勘误（2026-08-19，TASK-P0-06）:
+#   原头部"37 个空壳包"结论系系统性误判——审计按 pip 分发名找
+#   pydeps/<dist-name>/ 目录（如 beautifulsoup4/、pillow/、opencv-python/），
+#   而实际安装形态是 import 名目录（bs4/、PIL/、cv2/）或根级单文件模块
+#   （six.py、typing_extensions.py、pynvml.py、mmh3.pyd）。37 条中仅
+#   torch、sympy、tokenizers 3 条属实（无 __init__.py 的死目录，
+#   已于 TASK-P0-06 删除，连同 pydeps/tests 遮蔽包与幽灵 dist-info）。
+#   llama-cpp-python 0.3.34 实为可用（ctypes 后端 + DLL），P0-04 已在
+#   需求矩阵同步勘误 M-10/M-11。
 
 accelerate==1.14.0
 aiohappyeyeballs==2.7.1

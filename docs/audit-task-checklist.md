@@ -20,6 +20,7 @@
   - 完成标准：脚本一键执行成功；RC 目录与源码树 diff 为零（排除清单内项）；矩阵 E-07 状态改 ✅
   - 工时：半天
   - **完成记录（2026-08-19）**：脚本落地并实测——排除清单用绝对路径防误杀 backend/data（.gitignore 同款教训）；全量同步 198.86GB（22,678 文件）2 分 11 秒；robocopy /L 列表模式校验零差异；矩阵 E-07 已改 ✅。收尾增量同步待全部代码任务结束后重跑
+  - **勘误（2026-08-19，随 P0-06）**：当时据审计 P23 错误前提把 pydeps 加入排除清单，致 RC1002 缺 fastapi/numpy 等而无法启动（零差异校验未拦截——排除清单对比对两侧同时生效，属校验盲区）。已移出排除清单并重同步（1.36GB），RC 恢复可启动。教训：排除清单每项都必须有独立证据，"审计说它是垃圾"不算
 
 - [x] **P0-02 三套依赖声明归一**（对应 P10）
   - 动作：删除 `backend/requirements.txt`（陈旧 v2.1，声明的 sqlalchemy 实际未使用）；根 `requirements.txt` 顶部声明"精确版本以 requirements-lock.txt 为准"
@@ -47,10 +48,11 @@
   - 工时：1 小时
   - **完成记录（2026-08-19）**：双层防线——①闸门前移到 `backend/config.py` 导入期（原 main.py lifespan 告警发生在 socket 绑定后，为时已晚），任何方式启动均无法绕过；②launcher initialize() 提前拦截避免拉起注定失败的后端。注意：launcher 的 backend_host 为硬编码默认值从不读 config.yaml，真实配置错误的拦截靠①（后端进程导入即崩，launcher 报启动失败）。5 条单元测试 + 端到端三场景实测（0.0.0.0 拒绝/豁免放行/127.0.0.1 正常）全过；总测试数 41
 
-- [ ] **P0-06 清退 pydeps 历史残留**（对应 P23）
+- [x] **P0-06 清退 pydeps 历史残留**（对应 P23）
   - 动作：确认 PythonPath 解析不再依赖 pydeps 后整目录删除（lock 文件已记录 37 个空壳包隐患）；删除后跑全量冒烟测试
   - 完成标准：pydeps/ 不存在；`pytest -m smoke` 全过；对话/绘画/视频三条链路手工各验证一次
   - 工时：半天（含验证）
+  - **完成记录（2026-08-19，前提证伪 + 定向清退）**：审计 P23"pydeps=37 空壳残留"结论不成立——实测 pydeps 承载 161 个真实包（fastapi/numpy/scipy/diffusers/chromadb/modelscope/pytest 等 156 个仅存于此），与 runtime/site-packages 构成双站点互补架构（._pth 挂载，pydeps 优先）；删除整个目录 = 后端当场瘫痪。原"37 空壳"系 pip 分发名 ≠ import 名的系统性误判（pillow→PIL、scikit-learn→sklearn 等），仅 torch/sympy/tokenizers 3 条属实。已执行定向清退：删 pydeps/torch（40MB 死目录+命名空间陷阱）、sympy、tokenizers、tests（遮蔽根 tests/ 的第三方测试套件）及 4 个幽灵 dist-info；实测 12 关键包 import + backend.main + 41 测试全过；连带修复 P0-01 遗留缺陷——build_rc.py 曾据错误前提排除 pydeps 致 RC1002 后端无法启动，已移出排除清单并重同步（1.36GB，零差异校验过）。requirements-lock.txt 头部勘误同步
 
 ---
 

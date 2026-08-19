@@ -14,11 +14,17 @@
 
 排除理由登记:
   - .git / logs / data / __pycache__ / .pytest_cache: 审计任务原始规定（版本库/运行日志/用户数据/字节码缓存）
-  - pydeps:               历史残留（37 空壳包，TASK-P0-06 清退中），不进交付
   - tools/git:            MinGit 版本控制工具（开发机专用，交付不需要）
   - node_modules:         前端构建期依赖，交付运行只用 frontend/dist
   - .vscode / .trae-html-share-packages: IDE/工具链私有目录
   - tmp_* / _tmp_* / *.log / e2e_state.json / *.pyc / Thumbs.db: 临时脚本与运行残留
+
+pydeps 必须交付（2026-08-19 TASK-P0-06 实测裁定，推翻审计 P23 结论）:
+  pydeps 不是残留，是与 runtime/py310/Lib/site-packages 互补的承重依赖站点
+  （fastapi/numpy/scipy/diffusers/chromadb/modelscope/pytest 等 156 个包仅存于此，
+  由 python310._pth 挂载且优先级高于 runtime）。排除它 = RC 后端无法启动。
+  审计报告"37 空壳包"仅描述其中 dist-info 残壳；真死目录（pydeps/torch、
+  pydeps/sympy、pydeps/tokenizers、pydeps/tests）已随 TASK-P0-06 删除。
 
 注意（教训）: /XD 若用裸名 "data" 会连带排除 backend/data 源码包
 （.gitignore 同款事故），故顶层目录一律绝对路径，仅 __pycache__/node_modules
@@ -38,7 +44,7 @@ DEFAULT_DEST = Path(r"E:\RC1002")
 
 # 顶层排除（绝对路径，防误杀同名源码目录）
 EXCLUDE_DIRS_TOP = [
-    ".git", "data", "logs", "pydeps", ".pytest_cache", ".vscode",
+    ".git", "data", "logs", ".pytest_cache", ".vscode",
     ".trae-html-share-packages", "tools/git",
 ]
 # 全树同名排除（裸名，任意层级生效）

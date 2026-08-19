@@ -137,10 +137,15 @@
     - videoStatus.test.ts 同步更新：一致性测试改扫描 `backend/api/manga/` 整包（拆包后状态字面量分散于 common/keyframe/video/comic_asset 四模块，合并提取集合仍为 pending/generating/done/error/cancelled 五值，与拆分前一致）
     - 验证：后端 100/100 过 + 17 冒烟过；ruff check 新包全绿；前端 34/34 过、tsc --noEmit 过、npm run build 生产构建过（3.4s）；各模块行数 max 718（comic_asset）全部 < 1000；临时拆分脚本与路由对等快照已清理
 
-- [ ] **P2-02 设计文档补齐**（对应 P03）
+- [x] **P2-02 设计文档补齐**（对应 P03）
   - 动作：三份文档——架构总览（一页分层图+数据流）、API 端点总表（从 api/*.py 头注释抽取）、13 表 ER 说明（从 database.py 提取）
   - 完成标准：三份文档入库 docs/design/；新成员按文档能定位任意端点与表结构，无需通读源码
   - 工时：2 天
+  - **完成记录（2026-08-20）**：
+    - 三份文档入库 `docs/design/`：architecture-overview.md（156 行：系统拓扑/五层分层/中间件链/引擎与显存协调/调度器/启动时序/漫剧数据流/决策索引）、api-endpoints.md（338 行：270 HTTP + 4 WS 端点全量，按 16 业务域分组）、database-er.md（204 行：30 张表全景 ER 图 + 逐表字段说明 + 迁移与加密机制）
+    - API 表数据源升级：不从头注释手工誊抄，而是 create_app() 路由表机器枚举（经 `_IncludedRouter.effective_candidates()` 递归物化，FastAPI 0.141 惰性挂载），270 端点零遗漏零笔误；每行含处理函数名，按名可直接定位源码
+    - ER 覆盖修正：规格"13 张业务表"实为 30 张——database.py _SCHEMA 17 张 + 8 个服务层自建表（behavior_logs/paint_history/knowledge_meta/style_tasks/model_benchmarks/api_keys/learning 四表）+ FTS5 + 图谱两表，全部纳入文档；发现 paint_history 竟建在 paint_engine.py、api_keys 建在 api/system.py 等分散事实
+    - 表格中发现并如实标注的路由细节：`/director/text-to-3d` 只注册顶层路径（无 /manga 前缀对）；23 个顶层旧别名仅在约定节说明不逐行列出
 
 - [ ] **P2-03 README + 部署/故障排查手册**（对应 P22）
   - 动作：根目录 README.md（是什么/怎么启动/目录结构）；docs/ 下新增部署手册（含模型资产配置表）与故障排查手册（OOM/端口冲突/数据库版本冲突/模型探测失败四大高频故障）

@@ -1,6 +1,7 @@
 # OmniSpace AI 需求追踪矩阵（RTM）
 
-> 版本：v1.0 ｜ 生成：2026-08-15 ｜ 对照基线：《极致细粒度全量文档E》（修正版）+《程序开发计划文档B》
+> 版本：v1.1 ｜ 生成：2026-08-15 ｜ 最近刷新：2026-08-19（TASK-P0-04，实测修正 3 处过时状态 + 15 条模型决策落档）
+> 对照基线：《极致细粒度全量文档E》（修正版）+《程序开发计划文档B》
 >
 > **用途**：终结历轮审计口径漂移——每条需求的状态以本表为唯一真源，状态变更必须伴随 git 提交。
 >
@@ -10,6 +11,9 @@
 > - 🟨 降级实现：功能可用但使用降级路径，响应带 degraded 标记（属诚实降级）
 > - ❌ 缺失：需求明确要求，代码无对应实现
 > - ⚪ 合理化豁免：与离线单机定位冲突，经裁定不实现
+>
+> **v1.1 刷新方法**：磁盘逐目录实测尺寸 + 引擎代码 grep 接线证据 + 运行
+> `discover_dialog_models()` 实测发现结果（非文档口径）。修正项：M-01/M-03/M-10/M-11/M-13/M-14/M-15 由 🟦/❌ 上调 ✅，F-10 上调 ✅，M-04 转豁免。
 
 ---
 
@@ -31,7 +35,7 @@
 | ID | 需求（来源§） | 状态 | 证据/位置 | 备注 |
 |----|--------------|------|-----------|------|
 | F-09 | /system/info、/system/update 端点 | ❌ | version 部分等价 info；update 与 RC 免安装定位冲突 | update 建议转⚪ |
-| F-10 | 对话模型按硬件等级路由（§4.2 六档） | 🟨 | DIALOG_MODEL_CANDIDATES 仅 4B/2B，8B 永不入选 | RTX 5070 Ti 曾因不在 HARDWARE_TIER_TABLE 被误判档位 |
+| F-10 | 对话模型按硬件等级路由（§4.2 六档） | ✅ | dialog_engine.py:240 `_effective_candidates()`：tier≥12GB 追加 8B 首选（R2-B10）；实测本机（5070 Ti 档 min_vram=14）候选序列 8B→4B→2B | 2026-08-19 实测确认；RTX 5070 Ti 已入 HARDWARE_TIER_TABLE |
 | F-11 | 附录B 细粒度端点（chat/complete、art/inpaint、ip-adapter、style apply/merge/stop/metrics、model/download） | ❌ | 均未实现 | |
 | F-12 | 学习策略自适应 3 项（去重阈值/连续质量下降暂停/冷门降优先级，§4.3） | ❌ | 均未实现 | |
 | F-13 | Celery+Redis 四队列（§3.1） | ⚪ | 进程内等价替代（功能锁+P0-P5 优先级） | 离线单机裁定豁免 |
@@ -41,25 +45,28 @@
 
 ## 三、模型资产需求（§1.7 清单）
 
-| ID | 要求 | 状态 | 本地路径 | 备注 |
+| ID | 要求 | 状态 | 本地路径 | 备注（2026-08-19 实测刷新 + 处置决策） |
 |----|------|------|---------|------|
-| M-01 | Qwen3-VL-8B 对话/视觉理解（8K 上下文高档路由） | 🟦 | models/qwen3-vl-8b/（16.34GB，2026-08-14 下载） | 代码仍固定加载 4B |
-| M-02 | FLUX 系文生图主力 | 🟦 | models/paint/flux2-klein-4b/（13.22GB） | paint_engine 仍走 SDXL diffusers 管线 |
-| M-03 | LTX-2 系视频主力（720p） | 🟦 | models/video_gen/ltx-2.3/（95.34GB，含 3 版本） | video_engine 无 LTX-2 管线，Ken Burns 降级 |
-| M-04 | HunyuanVideo 1.5 画质备选 | 🟦 | models/video_gen/hunyuan-video-1.5/（98.05GB，已裁剪至 720p 四版本） | 同上未接线 |
-| M-05 | Qwen3-TTS-1.7B（文档评分⭐9.4） | 🟦 | models/qwen3-tts/（4.21GB） | voice_engine 只认 cosyvoice/chattts，现走 SAPI5 回退 |
-| M-06 | CosyVoice 2 TTS 备选 | 🟦 | models/cosyvoice2/（5.23GB） | 同上 |
-| M-07 | Qwen3-ASR-1.7B | 🟦 | models/qwen3-asr/（4.38GB） | 无 ASR 管线接线 |
-| M-08 | BGE-M3 Embedding | 🟦 | models/embed/bge-m3/（7.91GB，含冗余双副本可清理） | 现役嵌入模型为 bge-large-zh（lifespan 预加载） |
-| M-09 | Hunyuan3D 2.1（Mesh+PBR） | 🟦 | models/3d/hunyuan3d-2.1/（13.89GB） | 无 API 端点 |
-| M-10 | Qwen3-32B Q4 推理增强 | 🟦 | models/qwen3-32b/（19.26GB GGUF） | 无 llama.cpp/GGUF 加载路径（pydeps 的 llama-cpp-python 为空壳） |
-| M-11 | Codestral 22B Q4 代码辅助 | 🟦 | models/codestral-22b/（12.42GB GGUF） | 同上 |
-| M-12 | GPT-SoVITS（2.6GB，manifest 声明 tts/voice_clone） | 🟦 | models/gpt-sovits/ | 零接线老问题：voice_engine 不认 sovits 路径 |
-| M-13 | AnimateLCM（1.7GB，img2video） | 🟦 | models/ | video_engine 无此管线 |
-| M-14 | TripoSR（1.6GB，image_to_3d） | 🟦 | models/3d/TripoSR/ | 无 API 端点 |
-| M-15 | SAM ViT-H（2.4GB）/ MiDaS（0.2GB）/ YOLOv8-nano（6MB） | 🟦 | models/ | 三者均无端点；SAM/MiDaS 可被 vision_tools 潜在复用 |
+| M-01 | Qwen3-VL-8B 对话/视觉理解（8K 上下文高档路由） | ✅ | models/qwen3-vl-8b/（16.34GB） | dialog_engine.py:54 `_HIGH_TIER_DIALOG_CANDIDATE`（R2-B10）；实测本机候选 8B 首选；嵌套 modelscope 快照经 _resolve_candidate_dir 解析。原记录"代码固定 4B"过时 |
+| M-02 | FLUX 系文生图主力 | 🟦 | models/paint/flux2-klein-4b/（13.22GB） | **决策：接线排期 P1**——部署计划文生图主力；paint_engine 候选表需增 Flux 加载分支（现仅 sdxl-base-1.0） |
+| M-03 | LTX-2 系视频主力（720p） | ✅ | models/video_gen/ltx-video-0.9.5/（23.65GB） | model_index.json `_class_name=LTXPipeline` 命中 video_engine `_VIDEO_PIPELINE_CLASSES` 动态发现；Ken Burns 仅作无模型兜底。原记录"ltx-2.3 95.34GB 含 3 版本"数据过时 |
+| M-04 | HunyuanVideo 1.5 画质备选 | ⚪ | 目录已删除（磁盘危机清理） | **决策：裁剪**——fp32 权重 98GB 超 16GB 显存，已在项目排除名单（2026-08-15） |
+| M-05 | Qwen3-TTS-1.7B（文档评分⭐9.4） | 🟦 | models/qwen3-tts/（4.21GB） | **决策：接线排期 P1**——选定 TTS 主力；voice_engine 已识别为 tts_qwen 但门控（transformers 4.51 无 Qwen3TTS 管线类，需官方推理包或升级 transformers） |
+| M-06 | CosyVoice 2 TTS 备选 | 🟦 | models/cosyvoice2/（5.23GB） | **决策：删除（待用户确认后执行）**——与 Qwen3-TTS 功能重叠，cosyvoice 代码包依赖链重且未随包 |
+| M-07 | Qwen3-ASR-1.7B | 🟦 | models/qwen3-asr/（4.38GB） | **决策：接线排期 P2**——ASR 属规格语音输入功能；voice_engine 识别为 asr_qwen 但门控（官方推理包未随包） |
+| M-08 | BGE-M3 Embedding | 🟦 | models/embed/bge-m3/（7.91GB） | **决策：接线排期 P1**——部署计划 P0 常驻嵌入；切换需重建 Chroma 向量库（现役 bge-large-zh 1.21GB，models/embed/） |
+| M-09 | Hunyuan3D 2.1（Mesh+PBR） | 🟦 | models/3d/hunyuan3d-2.1/（13.89GB） | **决策：接线排期 P2**——TripoSR 已覆盖单图 3D 主链路（/art/image-to-3d），此为画质增强选项，官方依赖较重 |
+| M-10 | Qwen3-32B Q4 推理增强 | ✅ | models/qwen3-32b/（19.26GB，128k-Q4_K_M GGUF） | discover_dialog_models() 实测命中（gguf 后端）；llama-cpp-python 0.3.34 实为可用（pydeps 提供，ctypes 后端 + DLL 完整）——原"空壳包"结论有误。16GB 卡需 CPU offload，端到端首用实测待补 |
+| M-11 | Codestral 22B Q4 代码辅助 | ✅ | models/codestral-22b/（12.42GB GGUF） | 同 M-10，discover 实测命中 |
+| M-12 | GPT-SoVITS（tts/voice_clone） | 🟦 | models/gpt-sovits/（2.56GB） | **决策：删除（待用户确认后执行）**——voice_engine.py 头注释明确裁定"跳过 sovits 并如实上报"，推理代码包永不随包 |
+| M-13 | AnimateLCM（img2video 兜底） | ✅ | models/video_gen/AnimateLCM/（1.69GB）+ models/sd15/ 底座 | video_engine.py F-07 分支已接线（AnimateLCM_sd15_t2v.ckpt + SD1.5 组 AnimateDiffPipeline，LCM 少步采样）。另：sd15 目录 32.5GB 含四份底权重复制（ckpt+safetensors × pruned/emaonly ≈22GB 冗余），列磁盘清理候选 |
+| M-14 | TripoSR（image_to_3d） | ✅ | models/3d/TripoSR/（1.56GB） | triposr_engine.py + POST /art/image-to-3d（.glb 输出）。原记录"无 API 端点"有误（2026-08-19 修正） |
+| M-15 | SAM ViT-H / MiDaS / YOLOv8-nano | ✅ | models/sam-vit-h/（2.39GB）、models/depth/（0.14GB）、models/detect/（0.01GB） | /art/segment + /art/depth + /art/detect 三端点在位（vision_tools.py）。原记录"均无端点"有误（2026-08-19 修正） |
 | M-16 | FLUX.1-dev FP8 / Kolors 2.1 / ControlNet-OpenPose / IP-Adapter-Plus / Wan 2.1 / CogVideoX / Real-ESRGAN / CLIP / Blip2 | ❌ | 未下载 | 修正版E 原清单；部分已被 M-02~M-04 新模型替代，建议重裁清单 |
 | M-17 | vLLM 推理后端（§1.2.1） | ❌ | transformers 直接推理 | 离线单机可容忍，吞吐差距未量化 |
+
+> **P0-04 决策汇总**（2026-08-19）：🟦 剩 6 条全部落档——接线排期 4 条（M-02/M-05/M-08 为 P1，M-07/M-09 为 P2）、待确认删除 2 条（M-06/M-12 合计 7.79GB，删除属破坏性操作需用户批准）。
+> 磁盘清理候选（非矩阵需求）：sd15 冗余副本 ~22GB。models/ 实测总计 193.25GB / 24 目录。
 
 ## 四、架构与安全需求
 
@@ -80,7 +87,7 @@
 | E-04 | schema 版本化迁移 | ✅ | PRAGMA user_version + _MIGRATION_GROUPS + 降级守护（SCHEMA_VERSION=2） |
 | E-05 | Lint 配置 | 🟨 | ruff.toml + frontend/eslint.config.js 已落地；ruff/node 二进制未安装，语法基线 compileall 通过 |
 | E-06 | CI 流水线 | ❌ | 仍无（无远端仓库；建议先建本地 pre-commit 钩子跑 pytest -m smoke） |
-| E-07 | 单一真源交付 | ❌ | e:\OmniSpace 与 E:\RC1002 双真源靠手工 robocopy，历史已漂移一次 |
+| E-07 | 单一真源交付 | ✅ | tools/build_rc.py 一键镜像（/MIR + 显式排除清单）；2026-08-19 首次全量同步 198.86GB 后 robocopy 列表模式校验零差异 | RC 目录自此仅由脚本产出，禁止手工改动（TASK-P0-01） |
 
 ---
 

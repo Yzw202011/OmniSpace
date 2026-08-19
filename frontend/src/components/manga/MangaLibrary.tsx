@@ -10,7 +10,7 @@
  * ========================================================================== */
 
 import { useEffect, useState } from 'react';
-import { ChevronRight, Film, FolderPlus, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { ChevronRight, Clapperboard, Film, FolderPlus, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import type { ComicProject } from '@/types';
@@ -49,9 +49,18 @@ export default function MangaLibrary() {
   const [renaming, setRenaming] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ComicProject | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  const loadProjects = () => {
+    setLoadError(false);
+    fetchProjects().catch(() => {
+      setLoadError(true);
+      showToast('项目列表加载失败', 'error');
+    });
+  };
 
   useEffect(() => {
-    fetchProjects().catch(() => showToast('项目列表加载失败', 'error'));
+    loadProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -147,6 +156,35 @@ export default function MangaLibrary() {
         <div className="loading-block" style={{ height: 240 }}>
           <span className="spinner" />
           作品库加载中…
+        </div>
+      ) : loadError && projects.length === 0 ? (
+        <div
+          className="flex flex-col items-center justify-center"
+          style={{ height: 320, gap: 'var(--space-3)' }}
+        >
+          <span
+            className="flex items-center justify-center"
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 'var(--radius-lg)',
+              background: 'rgba(255, 107, 157, 0.1)',
+              color: 'var(--color-primary)',
+            }}
+            aria-hidden="true"
+          >
+            <Clapperboard size={32} strokeWidth={1.5} />
+          </span>
+          <span className="text-secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
+            无法连接后端服务
+          </span>
+          <span className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>
+            请确认本地服务已启动（默认端口 5800），启动后点击重试
+          </span>
+          <button type="button" className="btn btn-primary inline-flex items-center gap-1.5" style={{ marginTop: 'var(--space-2)' }} onClick={loadProjects}>
+            <RotateCcw size={14} aria-hidden="true" />
+            重试
+          </button>
         </div>
       ) : (
         <div className="manga-lib-grid">

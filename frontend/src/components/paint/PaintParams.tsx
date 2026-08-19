@@ -6,6 +6,7 @@
  * 种子（-1 随机）、批量（1~4）、ControlNet 选项与 LoRA 管理。
  * 模型选择支持自动 / 手动。规格 §9.3 绘画模块。
  */
+import { Dices } from 'lucide-react';
 import { Slider } from '../common/Slider';
 
 /** 绘画参数值 */
@@ -115,12 +116,12 @@ export function PaintParams({
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4 overflow-y-auto">
-      {/* 模型选择：自动 / 手动 */}
+    <div className="flex flex-col gap-3 p-4">
+      {/* 模型选择：自动 / 手动（分段控件统一 28px 高） */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-1.5">
           <span className="text-sm font-medium text-[var(--color-text-primary)]">模型选择</span>
-          <div className="ml-auto inline-flex rounded-lg border border-[var(--color-input-border)] overflow-hidden">
+          <div className="ml-auto inline-flex p-0.5 rounded-lg bg-[var(--color-input-bg)] border border-[var(--color-input-border)]">
             {(['auto', 'manual'] as const).map((m) => (
               <button
                 key={m}
@@ -128,10 +129,10 @@ export function PaintParams({
                 disabled={disabled}
                 onClick={() => onModelModeChange?.(m)}
                 className={[
-                  'px-3 h-7 text-xs transition-colors',
+                  'px-3 h-7 text-xs font-medium rounded-md transition-colors',
                   modelMode === m
                     ? 'bg-sakura-500 text-white'
-                    : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-sakura-50',
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]',
                 ].join(' ')}
               >
                 {m === 'auto' ? '自动' : '手动'}
@@ -144,7 +145,7 @@ export function PaintParams({
             value={selectedModel || ''}
             disabled={disabled}
             onChange={(e) => onModelChange?.(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
+            className="w-full h-9 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
           >
             <option value="">请选择模型</option>
             {modelOptions.map((m) => (
@@ -154,7 +155,7 @@ export function PaintParams({
             ))}
           </select>
         ) : (
-          <p className="text-xs text-[var(--color-text-tertiary)]">自动模式：由系统根据显存与任务智能选择最优模型。</p>
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-1">自动模式：由系统根据显存与任务智能选择最优模型。</p>
         )}
       </div>
 
@@ -167,7 +168,7 @@ export function PaintParams({
           onChange={(e) => patch({ prompt: e.target.value })}
           rows={3}
           placeholder="一只坐在窗边的猫，阳光，照片级真实…"
-          className="w-full px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
+          className="w-full max-h-48 overflow-y-auto px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
         />
       </div>
 
@@ -180,9 +181,9 @@ export function PaintParams({
           onChange={(e) => patch({ negativePrompt: e.target.value })}
           rows={2}
           placeholder="低质量，模糊，畸形，多肢…"
-          className="w-full px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
+          className="w-full max-h-32 overflow-y-auto px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
         />
-        <p className="text-xs text-[var(--color-text-tertiary)] mt-1">留空时将自动填充默认负面词。</p>
+        <p className="text-xs text-[var(--color-text-tertiary)] mt-1.5">留空时将自动填充默认负面词。</p>
       </div>
 
       {/* 分辨率预设 */}
@@ -198,7 +199,7 @@ export function PaintParams({
                 disabled={disabled}
                 onClick={() => patch({ width: p.w, height: p.h })}
                 className={[
-                  'px-2.5 h-8 text-xs rounded-md border transition-colors',
+                  'inline-flex items-center justify-center leading-none px-2.5 h-7 text-xs rounded-md border transition-colors whitespace-nowrap',
                   active
                     ? 'border-sakura-500 bg-sakura-100 text-sakura-700'
                     : 'border-[var(--color-input-border)] text-[var(--color-text-secondary)] hover:bg-sakura-50',
@@ -249,7 +250,7 @@ export function PaintParams({
           value={value.sampler}
           disabled={disabled}
           onChange={(e) => patch({ sampler: e.target.value })}
-          className="w-full h-10 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
+          className="w-full h-9 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
         >
           {SAMPLER_OPTIONS.map((s) => (
             <option key={s.value} value={s.value}>
@@ -278,9 +279,10 @@ export function PaintParams({
             type="button"
             disabled={disabled}
             onClick={() => patch({ seed: -1 })}
-            className="text-xs text-sakura-600 hover:text-sakura-700"
+            className="inline-flex items-center gap-1 text-xs text-sakura-500 hover:text-sakura-600 font-medium"
           >
-            🎲 随机
+            <Dices className="w-3.5 h-3.5" />
+            随机
           </button>
         </div>
         <input
@@ -288,14 +290,14 @@ export function PaintParams({
           value={value.seed}
           disabled={disabled}
           onChange={(e) => patch({ seed: parseInt(e.target.value, 10) || 0 })}
-          className="w-full h-10 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
+          className="w-full h-9 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
         />
       </div>
 
-      {/* 批量数量（1~4） */}
+      {/* 批量数量（1~4，分段控件与自动/手动同语言） */}
       <div>
         <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-1.5">生成数量</label>
-        <div className="inline-flex rounded-lg border border-[var(--color-input-border)] overflow-hidden">
+        <div className="inline-flex p-0.5 rounded-lg bg-[var(--color-input-bg)] border border-[var(--color-input-border)]">
           {[1, 2, 3, 4].map((n) => (
             <button
               key={n}
@@ -303,10 +305,10 @@ export function PaintParams({
               disabled={disabled}
               onClick={() => patch({ batchSize: n })}
               className={[
-                'w-10 h-9 text-sm transition-colors',
+                'w-9 h-7 text-xs font-medium rounded-md transition-colors',
                 value.batchSize === n
                   ? 'bg-sakura-500 text-white'
-                  : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-sakura-50',
+                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]',
               ].join(' ')}
             >
               {n}
@@ -318,13 +320,12 @@ export function PaintParams({
       {/* ControlNet 选项（审计修复 R2-F09：后端 /draw/generate 不消费 controlnet 字段、
           /draw/controlnet/preview 恒返回 degraded，生成链路未就绪 → 整体禁用并如实说明） */}
       <div className="p-3 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-primary-50)] opacity-60">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-1.5">
           <span className="text-sm font-medium text-[var(--color-text-primary)]">ControlNet</span>
           <span className="text-xs text-[var(--color-text-tertiary)]">未就绪</span>
         </div>
         <p className="text-xs text-[var(--color-text-tertiary)] leading-relaxed">
-          ControlNet 生成链路未就绪：后端生成接口暂不消费 ControlNet 配置，
-          预览接口处于降级状态（模型未随包安装）。该能力将在后续版本开放，当前配置不会生效。
+          生成链路建设中，配置暂不生效，将在后续版本开放。
         </p>
       </div>
 

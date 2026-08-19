@@ -11,6 +11,7 @@
  * ========================================================================== */
 
 import { useState, useEffect } from 'react';
+import { Settings as SettingsIcon } from 'lucide-react';
 import { useAppStore, type FontSize } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
@@ -68,6 +69,9 @@ export default function Settings() {
 
   return (
     <div className="page settings-page">
+      <h1 className="page-title"><SettingsIcon size={20} aria-hidden="true" /> 设置</h1>
+      <p className="page-subtitle">外观 · 全局参数 · 功能开关规则 · 硬件信息</p>
+
       {/* ============ 外观设置 ============ */}
       <div className="settings-section card">
         <h2 className="settings-section-title">外观</h2>
@@ -79,7 +83,7 @@ export default function Settings() {
             <span className="settings-row-desc">Sakura 唯一主题（COM-009）</span>
           </div>
           <div className="settings-row-control">
-            <span className="settings-static-value">🌸 Sakura</span>
+            <span className="settings-static-value">Sakura</span>
           </div>
         </div>
 

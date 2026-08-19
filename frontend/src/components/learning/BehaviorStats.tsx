@@ -7,6 +7,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useState } from 'react';
+import { Brain, ClipboardList, Zap, Trash2 } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import { useLearnStore } from '@/stores/useLearnStore';
 import { useAppStore } from '@/stores/useAppStore';
@@ -44,34 +45,41 @@ export const BehaviorStatsPanel: React.FC = () => {
   return (
     <section className="card hoverable" aria-label="行为学习">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="card-title" style={{ marginBottom: 0 }}>🧠 行为学习</h3>
+        <h3 className="card-title" style={{ marginBottom: 0 }}><Brain size={16} aria-hidden="true" /> 行为学习</h3>
         <div className="flex gap-2">
-          <button className="btn btn-ghost btn-sm" onClick={() => { setShowLogs(true); fetchLogs(); }}>
-            📋 查看日志
+          <button className="btn btn-ghost btn-sm inline-flex items-center gap-1.5" onClick={() => { setShowLogs(true); fetchLogs(); }}>
+            <ClipboardList size={13} aria-hidden="true" />
+            查看日志
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={handleFinetune}>⚡ 立即微调</button>
-          <button className="btn btn-danger btn-sm" onClick={() => setConfirmReset(true)}>🗑 重置</button>
+          <button className="btn btn-secondary btn-sm inline-flex items-center gap-1.5" onClick={handleFinetune}>
+            <Zap size={13} aria-hidden="true" />
+            立即微调
+          </button>
+          <button className="btn btn-ghost btn-sm inline-flex items-center gap-1.5" onClick={() => setConfirmReset(true)}>
+            <Trash2 size={13} aria-hidden="true" />
+            重置
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>已记录操作数</div>
-          <div className="mono" style={{ fontSize: 'var(--font-size-lg)' }}>
+          <div className="mono" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-medium)' }}>
             {stats ? formatNumber(stats.event_count) : '--'}
           </div>
         </div>
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>偏好模型状态</div>
-          <div className="text-sm">{stats?.preference_status || '学习中'}</div>
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>{stats?.preference_status || '学习中'}</div>
         </div>
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>下次微调</div>
-          <div className="text-sm">{stats?.next_finetune_at ? formatDateTime(stats.next_finetune_at) : '按计划自动'}</div>
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>{stats?.next_finetune_at ? formatDateTime(stats.next_finetune_at) : '按计划自动'}</div>
         </div>
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>最近学习摘要</div>
-          <div className="text-sm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {stats?.recent_summary || '暂无摘要'}
           </div>
         </div>

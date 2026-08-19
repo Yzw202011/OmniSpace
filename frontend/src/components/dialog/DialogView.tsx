@@ -15,6 +15,7 @@ import type {
   KeyboardEvent,
 } from 'react';
 import { Button } from '../common/Button';
+import { Paperclip, X, MessageSquare, Flower2 } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from './MessageBubble';
 import { SessionList } from './SessionList';
@@ -355,7 +356,7 @@ export function DialogView({
           {!activeSessionId ? (
             <div className="h-full flex items-center justify-center text-center text-[var(--color-text-tertiary)]">
               <div>
-                <div className="text-4xl mb-2">💬</div>
+                <div className="flex justify-center mb-3 text-[var(--color-primary)]"><MessageSquare size={36} strokeWidth={1.5} aria-hidden="true" /></div>
                 <div className="text-base">开始一段新对话吧</div>
                 <div className="text-sm mt-1">从左侧新建对话，支持剧本讨论与图片理解。</div>
               </div>
@@ -368,7 +369,7 @@ export function DialogView({
           ) : messages.length === 0 ? (
             <div className="h-full flex items-center justify-center text-center text-[var(--color-text-tertiary)]">
               <div>
-                <div className="text-4xl mb-2">🌸</div>
+                <div className="flex justify-center mb-3 text-[var(--color-primary)]"><Flower2 size={36} strokeWidth={1.5} aria-hidden="true" /></div>
                 <div className="text-base">我是 OmniSpace 助手</div>
                 <div className="text-sm mt-1">可以和我讨论剧本、分析角色，或询问任何创作问题。</div>
               </div>
@@ -411,9 +412,9 @@ export function DialogView({
                     type="button"
                     onClick={() => removeAttachment(a.id)}
                     aria-label={`移除附件 ${a.name}`}
-                    className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/50 text-white text-xs flex items-center justify-center hover:bg-black/70"
+                    className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70"
                   >
-                    ×
+                    <X className="w-3 h-3" />
                   </button>
                 </div>
               ))}
@@ -457,9 +458,9 @@ export function DialogView({
               onClick={() => fileRef.current?.click()}
               aria-label="上传图片附件"
               title="上传图片"
-              className="w-10 h-10 shrink-0 rounded-lg flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-sakura-50 hover:text-sakura-600 transition-colors"
+              className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-sakura-50 hover:text-sakura-600 transition-colors"
             >
-              📎
+              <Paperclip className="w-4 h-4" />
             </button>
             <input
               ref={fileRef}
@@ -482,20 +483,20 @@ export function DialogView({
                 activeSessionId ? '输入消息，Enter 发送，Shift+Enter 换行…' : '请先新建对话…'
               }
               disabled={!activeSessionId}
-              className="flex-1 min-h-10 max-h-40 px-3 py-2.5 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400 disabled:opacity-60"
+              className="flex-1 min-h-9 max-h-40 px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400 disabled:opacity-60"
             />
 
             {/* 发送 / 停止 */}
             {generating ? (
-              <Button variant="danger" onClick={onStop}>
-                ■ 停止
+              <Button variant="danger" onClick={onStop} size="md">
+                停止
               </Button>
             ) : (
               <Button
                 onClick={send}
                 disabled={!activeSessionId || (!input.trim() && attachments.length === 0)}
               >
-                发送 ➤
+                发送
               </Button>
             )}
           </div>

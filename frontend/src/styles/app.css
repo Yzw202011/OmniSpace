@@ -7,8 +7,13 @@
         + 右侧面板(320px) + 底部状态栏(28px)，无"首页"导航项。
    ========================================================================== */
 
-/* ============================== 0. 基础重置与全局 ============================== */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ============================== 0. 基础重置与全局 ==============================
+ * 注：通配 reset（* { margin:0; padding:0 }）已删除（2026-08-20 R11 布局审计）。
+ * 原因：本文件为无层 CSS，无层规则优先级高于 Tailwind v4 的 @layer utilities，
+ * 会把全站 Tailwind p-*/m-* 工具类（px-3/py-2/mb-1.5 等）全部压制为 0，
+ * 导致组件边距系统性失效。box-sizing/margin/padding 归零由 Tailwind preflight
+ * （@layer base 内）等效接管，不再越权。
+ * ============================================================== */
 
 html, body, #root { height: 100%; }
 
@@ -61,10 +66,12 @@ a:hover { text-decoration: underline; }
 .border-divider { border-color: var(--color-divider); }
 /* 阴影 */
 .shadow-card { box-shadow: var(--shadow-md); }
-/* 布局 */
+/* 布局（.flex/.flex-1 与 Tailwind 同值保留双保险；.flex-center 为项目自定义） */
 .flex { display: flex; } .flex-1 { flex: 1; } .flex-center { display: flex; align-items: center; justify-content: center; }
-.gap-2 { gap: var(--space-2); } .gap-3 { gap: var(--space-3); } .gap-4 { gap: var(--space-4); } .gap-5 { gap: var(--space-5); }
-.mt-3 { margin-top: var(--space-3); } .mt-5 { margin-top: var(--space-5); } .mb-3 { margin-bottom: var(--space-3); } .mb-5 { margin-bottom: var(--space-5); }
+/* 注：手写 spacing 工具类（.gap-2~5/.mt-3~5/.mb-3~5，值取 --space-N 2px 步进令牌）
+ * 已删除（2026-08-20 R11）：无层规则压制 Tailwind @layer utilities，
+ * 造成 gap-3=8px(标准12)/gap-4=12px(标准16) 全站偏小一档。
+ * spacing 唯一真源 = Tailwind 标准 scale（4px 步进）。 */
 /* 字号 */
 .text-xs { font-size: var(--font-size-xs); } .text-sm { font-size: var(--font-size-sm); }
 

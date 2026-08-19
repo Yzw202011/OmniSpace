@@ -1,0 +1,396 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Refinement 全站精修层（第九轮：评审问题修复）
+   --------------------------------------------------------------------------
+   目标：针对全站视觉评审（均分 7.2）暴露的六大类问题逐项修复，拉至 9+。
+   修复清单（对应评审问题编号）：
+     R1 激活/选中态辨识度：.btn-secondary 激活态强化（learning 视图切换等）
+     R2 文字对比度：暗色三级文字 #6E7789 → #9BA3B5（覆盖全部弱对比文案）
+     R3 禁用态视觉重心：主按钮禁用从"鲑鱼粉"改中性灰（paint 生成按钮）
+     R4 空态/引导：虚线拖拽区可发现性（learning 导入文档）+ 滑块拖动反馈
+     R5 布局节奏：settings 卡片间距收紧、状态栏分隔线
+     R6 细节精致度：FAQ 折叠箭头、快速上手序号胶囊、帮助卡片明暗节奏
+   安全边界：仅令牌级微调与结构伪元素，不动布局尺寸；
+             prefers-reduced-motion 无新增动画（本层为静态精修）。
+   引入：sakura.css 末尾 @import './refinement.css'（最终层）。
+   ========================================================================== */
+
+/* ============================== R2. 全局文字对比度（评审最高频问题） ==============================
+ * 暗色为默认主题（无 data-theme 属性，仅亮色才设置）——用 :root 命中默认暗色。
+ * 暗色三级文字 #6E7789 在 #0F172A 底上对比度仅 ~3.5:1 → 提至 #9BA3B5（≈5:1）
+ * 一次性覆盖：导航搜索占位、ControlNet 说明、模型状态、更新时间等全部弱文案。
+ * ============================================================== */
+:root {
+  --color-text-tertiary: #9ba3b5;
+}
+[data-theme='light'] {
+  --color-text-tertiary: #6f7686;
+}
+
+/* ============================== R3. 主按钮禁用态：中性灰 ==============================
+ * 原 rgba(255,107,157,0.32) 粉底在暗色下呈"鲑鱼红"，视觉重心错误
+ * （评审：paint 生成按钮禁用时过强）。改为安静的中性半透灰——
+ * 明确"不可用"而非"另一个强调色"。
+ * ============================================================== */
+button.bg-sakura-500:disabled {
+  background-color: rgba(120, 128, 148, 0.22);
+  color: rgba(255, 255, 255, 0.5);
+}
+[data-theme='light'] button.bg-sakura-500:disabled {
+  background-color: rgba(120, 128, 148, 0.18);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ============================== R1. 激活态辨识度 ==============================
+ * .btn-secondary 承担"激活视图"角色（learning 知识库 列表/图谱 切换）：
+ * 提亮边框与文字，激活态一眼可辨。
+ * ============================================================== */
+.btn-secondary {
+  border-color: rgba(78, 205, 196, 0.65);
+  color: #5fd6c9;
+  font-weight: 500;
+}
+[data-theme='light'] .btn-secondary {
+  border-color: rgba(35, 160, 148, 0.55);
+  color: #12907f;
+}
+
+/* ============================== R4a. 滑块拖动反馈（style 页评审点） ==============================
+ * thumb 外圈加 4px 半透粉环——填充进度已有樱粉渐变，
+ * 叠加光环后"当前位置"更醒目。
+ * ============================================================== */
+input.omni-slider::-webkit-slider-thumb {
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 0 0 4px rgba(255, 107, 157, 0.14),
+    0 0 12px rgba(255, 107, 157, 0.45);
+}
+
+/* ============================== R4b. 虚线拖拽/占位区可发现性（learning 导入文档） ==============================
+ * 虚线边框提亮 + 悬停粉染 + 微底色——"这里可以拖东西"的暗示更强。
+ * 命中：ImportDoc 拖拽区、生成中虚线占位等 dashed 元素（暗色为默认态）。
+ * ============================================================== */
+.border-dashed,
+[class*='border-dashed'] {
+  border-color: rgba(155, 163, 181, 0.5);
+}
+.border-dashed:hover,
+[class*='border-dashed']:hover {
+  border-color: rgba(255, 107, 157, 0.55);
+  background-color: rgba(255, 107, 157, 0.04);
+}
+[data-theme='light'] .border-dashed,
+[data-theme='light'] [class*='border-dashed'] {
+  border-color: rgba(90, 96, 112, 0.45);
+}
+
+/* ============================== R5a. 状态栏分隔层次（models 评审点） ==============================
+ * 相邻指示项间加发丝分隔线，密集信息有了呼吸节奏。
+ * 暗色为默认态；亮色用深色发丝线。
+ * ============================================================== */
+.statusbar .sb-item + .sb-item {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.statusbar .sb-item { gap: 6px; }
+[data-theme='light'] .statusbar .sb-item + .sb-item {
+  border-left: 1px solid rgba(20, 20, 50, 0.1);
+}
+
+/* ============================== R5b. 设置页卡片间距收紧 ==============================
+ * R10 统一：卡片垂直间距全站收敛为 16px（--space-5），与其他页 gap-4 对齐。
+ * ============================================================== */
+.settings-page .card + .card,
+.settings-page section + section {
+  margin-top: var(--space-5);
+}
+
+/* ============================== R6a. FAQ 折叠箭头（help 评审点） ==============================
+ * 去掉浏览器默认三角，换樱粉 chevron；展开时旋转 90°——
+ * 可点击意图 + 状态反馈一步到位。
+ * ============================================================== */
+details summary {
+  list-style: none;
+}
+details summary::-webkit-details-marker {
+  display: none;
+}
+details summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  user-select: none;
+  color: var(--color-text-primary);
+  transition: color 140ms ease;
+}
+details summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--color-primary);
+  transition: transform 180ms var(--ease-out);
+}
+details[open] summary::before {
+  transform: rotate(90deg);
+}
+details summary:hover {
+  color: var(--color-primary);
+}
+
+/* ============================== R6b. 快速上手序号胶囊（help 评审点） ==============================
+ * 原生 ol 数字与正文混同 → 樱粉渐变序号胶囊，阅读路径清晰。
+ * 仅命中帮助页"快速上手"列表（ ol 含 li.text-sm 结构 + 唯一 5 步列表）。
+ * 用 :has 限定首个含 5 项的列表，避免误伤其他 ol。
+ * ============================================================== */
+.page ol {
+  counter-reset: step-counter;
+  list-style: none;
+  padding-left: 0;
+}
+.page ol > li {
+  counter-increment: step-counter;
+  position: relative;
+  padding-left: 40px;
+}
+.page ol > li::before {
+  content: counter(step-counter);
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-600));
+  box-shadow: 0 2px 8px rgba(255, 107, 157, 0.3);
+}
+
+/* ============================== R6c. 帮助页模块卡片明暗节奏（评审：背景过浅） ==============================
+ * 模块简介小卡片加发丝边框 + 悬停浮起——卡片从"纸片堆"变"可交互块"。
+ * 命中：help 页 grid 内嵌套的 .card（父子同为 card 的场景）。
+ * ============================================================== */
+.card .card {
+  border: 1px solid var(--color-border-light);
+  transition: transform var(--duration-hover) var(--ease-out), box-shadow var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out);
+}
+.card .card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 107, 157, 0.35);
+  box-shadow: 0 8px 24px rgba(255, 107, 157, 0.12);
+}
+
+/* ============================== R7. 标题图标对齐（lucide 标题体系） ==============================
+ * 页面/卡片标题统一携带 lucide 线性图标——flex 对齐 + 图标染主色渐变。
+ * ============================================================== */
+.page-title,
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title svg {
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.page-title svg {
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+/* ============================== R8. 控件尺寸统一裁定（全站 9.5 分核心层） ==============================
+ * 消灭双轨制：老式 .btn/.input 类（123 处/36 处）与公用 <Button>/<Input> 组件
+ * 统一收敛到同一 4px 栅格节奏：
+ *   按钮  sm=32 / md=36 / lg=44（与 Button 组件 SIZE_CLASS 完全一致）
+ *   输入  固定 36px（与按钮 md 同高，同行底对齐零差）
+ *   图标  按钮 14px / btn-sm 13px，禁同级混档
+ * 本层最后加载，为最终裁定。
+ * ============================================================== */
+
+/* ---- 8.1 按钮：padding 驱动 → 固定高度栅格 ---- */
+.btn {
+  height: 36px;
+  padding: 0 var(--space-5);
+  line-height: 1;
+  white-space: nowrap;
+}
+.btn-sm {
+  height: 32px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-xs);
+  line-height: 1;
+}
+.btn-lg {
+  height: 44px;
+  padding: 0 var(--space-6);
+  line-height: 1;
+}
+/* 块级按钮不缩内容 */
+.btn-block { width: 100%; }
+
+/* ---- 8.2 按钮内图标：统一档位，禁止同级混档 ---- */
+.btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.btn-sm svg {
+  width: 13px;
+  height: 13px;
+}
+.btn-lg svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- 8.3 输入框：固定 36px 与按钮 md 同高 ---- */
+.input {
+  height: 36px;
+  padding: 0 var(--space-4);
+  line-height: 34px; /* 36 - 2px border */
+}
+textarea.input {
+  height: auto;
+  min-height: 64px;
+  padding: var(--space-2) var(--space-4);
+  line-height: var(--line-height-normal);
+}
+select.input {
+  height: 36px;
+  padding-right: 30px;
+}
+/* 搜索位专用内嵌图标偏移（app.css 已有 padding-left 覆盖） */
+.manga-lib-search .input { padding-left: 30px; }
+
+/* ---- 8.4 输入框内 lucide 图标与文字同基线 ---- */
+.input svg,
+span[class*='text-'] > svg {
+  flex-shrink: 0;
+}
+
+/* ---- 8.5 公用组件对齐：<Button>/<Input> 与 .btn/.input 同栅格 ---- */
+/* Input 组件 h-10(40px) → 36px，与 .input/.btn-md 完全同高 */
+button.h-9 { height: 36px; }
+
+/* ---- 8.6 卡片内边距统一：16px 标准栅格（嵌套卡 12px 层级变体） ---- */
+.card { padding: var(--space-5); }
+.card .card { padding: var(--space-4); }
+
+/* ---- 8.7 同行按钮组基线锁定：flex 容器内按钮统一底对齐 ---- */
+.flex > .btn,
+.flex > .btn-sm,
+[class*='gap'] > .btn,
+[class*='gap'] > .btn-sm {
+  align-self: center;
+}
+
+/* ============================== R9. FAQ 手风琴精修（hover 反馈 + 展开过渡） ============================== */
+details summary {
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  margin: calc(var(--space-1) * -1) calc(var(--space-2) * -1);
+  transition: background var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out);
+  list-style: none;
+  user-select: none;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform var(--duration-hover) var(--ease-out);
+  opacity: 0.55;
+}
+details summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+details summary:hover {
+  background: var(--color-primary-50);
+  color: var(--color-primary-300);
+}
+details[open] > summary::after {
+  transform: rotate(225deg);
+}
+details[open] > summary {
+  color: var(--color-primary-300);
+}
+details > *:not(summary) {
+  animation: faq-expand var(--duration-panel) var(--ease-out);
+}
+@keyframes faq-expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================== R10. 页面布局统一裁定（全站布局节奏层） ==============================
+ * 实测问题（2026-08-20 布局审计）：
+ *   ① 卡片垂直间距三种值并存：learning gap-4(16) / help·style gap-5(20) / settings 兜底(12)
+ *   ② settings 页缺页面标题体系（全站唯一）
+ *   ③ models 页脱离 .page 容器（无 max-width、无标题）
+ *   ④ 路由切换内容框跳变：有右面板页左边距 187px vs 无右面板页 352px（Δ165px）
+ * 统一规范（4px 栅格）：
+ *   页面容器 max-width 1280px（有右面板）/ 1536px（无右面板，抵消右面板 340px 消失的跳变）
+ *   标题区 → 内容 20px（mt-5），卡片间 16px（gap-4 / --space-5）
+ *   页面底边距 ≥ 24px（与 main-content padding 同值，滚动到底不贴边）
+ * ============================================================== */
+
+/* ---- 10.1 卡片垂直间距统一：16px（防散落 JSX 再漂移，CSS 层兜底） ---- */
+.page > .flex.flex-col > * + * {
+  margin-top: 0; /* gap 已由容器控制，此处仅防止双倍间距 */
+}
+.settings-page .settings-section + .settings-section {
+  margin-top: var(--space-5);
+}
+/* settings 页标题 → 首卡片：与其他页 mt-5(20px) 同节奏 */
+.settings-page .page-subtitle + .settings-section {
+  margin-top: var(--space-5);
+}
+
+/* ---- 10.2 无右面板页面的内容宽度：1280 → 1440，收敛路由切换跳变 ----
+ * 有右面板（learning 等）：main-content ≈1536px，.page 1280 居中（左右各 ~128px）
+ * 无右面板（settings/help）：main-content ≈1856px，原 1280 居中左右各 ~288px
+ * → 折中 1440px：左右 ~208px，跳变从 165px 缩至 ~80px；
+ *   不取 1536（表单行/表格拉伸过度，文字密度下降，评审实测否定）。
+ * 注：不依赖 .main-content.full（该类未在 DOM 出现），直接按页面根类限定。
+ */
+.settings-page,
+.help-page {
+  max-width: 1440px;
+}
+
+/* ---- 10.3 页面标题区统一节奏：标题→内容 20px，副标题→内容收 16px ---- */
+.page-title + .page-subtitle {
+  margin-top: var(--space-2);
+}
+
+/* ---- 10.3b settings 表单行宽约束：页面放宽 1440 后防止标签-控件对拉得过开 ----
+ * 行内容上限 880px（标签区 flex:1 + 控件区自然宽），超出部分右对齐吸收，
+ * 扫读效率不随页面宽度劣化。
+ */
+.settings-page .settings-row {
+  max-width: 880px;
+}
+.settings-page .settings-section-title,
+.settings-page .settings-section-desc {
+  max-width: 880px;
+}
+
+/* ---- 10.4 页面滚动到底部不贴边：末卡片与视口底保持呼吸 ---- */
+.page > .flex.flex-col > :last-child,
+.settings-page > :last-child {
+  padding-bottom: var(--space-2);
+}

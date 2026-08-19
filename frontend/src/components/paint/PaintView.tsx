@@ -9,6 +9,7 @@
  * 规格 §9.3 绘画模块。
  */
 import { useState } from 'react';
+import { Sparkles, Palette } from 'lucide-react';
 import { Button } from '../common/Button';
 import { PaintParams } from './PaintParams';
 import type { PaintParamsValue } from './PaintParams';
@@ -92,7 +93,7 @@ export function PaintView({
       {/* ============ 右侧：参数面板（约 40%，min-width 保护） ============ */}
       <div className="flex-[2] min-w-80 shrink-0 border-l border-[var(--color-border-light)] bg-[var(--color-card)] flex flex-col">
         <div className="p-4 border-b border-[var(--color-divider)] shrink-0">
-          <h2 className="text-base font-semibold text-[var(--color-text-primary)]">🎨 AI 绘画</h2>
+          <h2 className="text-base font-semibold text-[var(--color-text-primary)] inline-flex items-center gap-2"><Palette size={18} aria-hidden="true" className="text-[var(--color-primary)]" /> AI 绘画</h2>
           <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">SDXL + LCM-LoRA 本地推理</p>
         </div>
 
@@ -118,7 +119,14 @@ export function PaintView({
             className="w-full"
             size="lg"
           >
-            {generating ? '生成中…' : '🌸 生成'}
+            {generating ? (
+              '生成中…'
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" aria-hidden="true" />
+                生成图像
+              </>
+            )}
           </Button>
         </div>
       </div>

@@ -21,6 +21,7 @@ import {
   ArrowDown,
   ArrowUp,
   Clapperboard,
+  Download,
   ImagePlus,
   Lock,
   LockOpen,
@@ -412,7 +413,7 @@ const StoryboardRow = memo(function StoryboardRow({
           </div>
         ) : videoTask && videoTask.status === 'done' ? (
           <a className="manga-gen-btn done" href={videoTask.download_url} download title="下载 MP4">
-            ▶ 完成
+            <Download size={12} aria-hidden="true" /> 完成
           </a>
         ) : videoTask && videoTask.status === 'error' ? (
           <button

@@ -26,6 +26,7 @@ import {
   PlayCircle,
   ScrollText,
   Settings2,
+  X,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -458,7 +459,7 @@ export default function MangaWorkspace() {
               )}
               {(t.status === 'done' || t.status === 'error') && (
                 <button type="button" className="manga-taskbar-action" title="移除记录" onClick={() => removeVideoTask(t.task_id)}>
-                  ✕
+                  <X size={13} aria-hidden="true" />
                 </button>
               )}
             </div>

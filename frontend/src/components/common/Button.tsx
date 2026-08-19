@@ -43,11 +43,14 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
   ghost: 'bg-transparent text-sakura-300 hover:bg-sakura-50 active:bg-sakura-100',
 };
 
-/** 各尺寸的 Tailwind 类名（圆角统一 8px，§6.3.1 按钮圆角规格） */
+/** 各尺寸的 Tailwind 类名（圆角统一 8px，§6.3.1 按钮圆角规格）
+ * 尺寸节奏（4px 栅格）：sm=32 / md=36 / lg=44，控件文字统一 text-sm——
+ * 与表单控件（h-9）同高对齐，消除高度动物园。
+ */
 const SIZE_CLASS: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-sm rounded-lg gap-1',
-  md: 'h-10 px-4 text-base rounded-lg gap-2',
-  lg: 'h-12 px-6 text-lg rounded-lg gap-2',
+  sm: 'h-8 px-3 text-sm rounded-lg gap-1.5',
+  md: 'h-9 px-4 text-sm rounded-lg gap-1.5',
+  lg: 'h-11 px-5 text-sm rounded-lg gap-2',
 };
 
 /** 加载旋转图标 */

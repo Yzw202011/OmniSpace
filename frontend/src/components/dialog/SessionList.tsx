@@ -7,6 +7,7 @@
  */
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { Pin, Pencil, Trash2, Flower2 } from 'lucide-react';
 
 /** 会话项 */
 export interface ChatSession {
@@ -99,31 +100,27 @@ export function SessionList({
 
   return (
     <div className="flex flex-col h-full">
-      {/* 新建按钮 */}
-      <div className="p-3 border-b border-[var(--color-divider)]">
+      {/* 新建 + 搜索（同一区块，统一 36px 控件节奏） */}
+      <div className="p-3 flex flex-col gap-2 border-b border-[var(--color-divider)]">
         <button
           type="button"
           onClick={onCreate}
-          className="w-full h-10 inline-flex items-center justify-center gap-1.5 rounded-lg bg-sakura-500 text-white font-medium hover:bg-sakura-600 transition-colors"
+          className="w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-lg bg-sakura-500 text-white font-medium text-sm hover:bg-sakura-600 transition-colors"
         >
           <span aria-hidden="true">＋</span>
           <span>新建对话</span>
         </button>
-      </div>
-
-      {/* 会话搜索框（接后端 keyword 过滤） */}
-      {onSearch ? (
-        <div className="px-3 py-2 border-b border-[var(--color-divider)]">
+        {onSearch ? (
           <input
             type="text"
             value={keyword}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="搜索会话…"
             aria-label="搜索会话"
-            className="w-full h-8 px-2.5 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
+            className="w-full h-9 px-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {/* 列表 */}
       <div className="flex-1 overflow-y-auto p-2">
@@ -134,7 +131,7 @@ export function SessionList({
           </div>
         ) : sorted.length === 0 ? (
           <div className="text-center py-10 text-[var(--color-text-tertiary)]">
-            <div className="text-3xl mb-2">🌸</div>
+            <div className="flex justify-center mb-2 text-[var(--color-primary)]"><Flower2 size={28} strokeWidth={1.5} aria-hidden="true" /></div>
             <div className="text-sm">暂无对话</div>
             <div className="text-xs mt-1">点击上方「新建对话」开始</div>
           </div>
@@ -158,9 +155,7 @@ export function SessionList({
                   >
                     {/* 置顶标记 */}
                     {s.pinned ? (
-                      <span className="absolute top-1 right-1 text-xs" title="已置顶" aria-hidden="true">
-                        📌
-                      </span>
+                      <Pin className="absolute top-1.5 right-1.5 w-3 h-3 text-sakura-500" aria-hidden="true" />
                     ) : null}
 
                     <div className="flex items-center gap-2">
@@ -182,7 +177,7 @@ export function SessionList({
                           }}
                           onClick={(e) => e.stopPropagation()}
                           aria-label="重命名会话"
-                          className="flex-1 h-7 px-2 rounded border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
+                          className="flex-1 h-8 px-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-sakura-300"
                         />
                       ) : (
                         <span
@@ -215,7 +210,7 @@ export function SessionList({
                             onDelete(s.id);
                             setConfirmId(null);
                           }}
-                          className="flex-1 h-7 text-xs rounded bg-[var(--color-error)] text-white hover:brightness-90"
+                          className="flex-1 h-8 text-xs rounded-lg bg-[var(--color-error)] text-white hover:brightness-90"
                         >
                           确认删除
                         </button>
@@ -225,7 +220,7 @@ export function SessionList({
                             e.stopPropagation();
                             setConfirmId(null);
                           }}
-                          className="h-7 px-2 text-xs rounded bg-[var(--color-divider)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border-light)]"
+                          className="h-8 px-2.5 text-xs rounded-lg bg-[var(--color-divider)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border-light)]"
                         >
                           取消
                         </button>
@@ -242,9 +237,9 @@ export function SessionList({
                             }}
                             aria-label={s.pinned ? `取消置顶 ${s.title}` : `置顶对话 ${s.title}`}
                             title={s.pinned ? '取消置顶' : '置顶'}
-                            className="w-6 h-6 rounded text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50 flex items-center justify-center text-xs"
+                            className="w-7 h-7 rounded-md text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50 flex items-center justify-center"
                           >
-                            📌
+                            <Pin className="w-3.5 h-3.5" />
                           </button>
                         ) : null}
                         {onRename ? (
@@ -257,9 +252,9 @@ export function SessionList({
                             }}
                             aria-label={`重命名对话 ${s.title}`}
                             title="重命名"
-                            className="w-6 h-6 rounded text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50 flex items-center justify-center text-xs"
+                            className="w-7 h-7 rounded-md text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50 flex items-center justify-center"
                           >
-                            ✏️
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
                         ) : null}
                         <button
@@ -270,9 +265,9 @@ export function SessionList({
                           }}
                           aria-label={`删除对话 ${s.title}`}
                           title="删除"
-                          className="w-6 h-6 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-bg)] flex items-center justify-center text-xs"
+                          className="w-7 h-7 rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-bg)] flex items-center justify-center"
                         >
-                          🗑️
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     )}

@@ -1,0 +1,198 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Interactions 交互高潮层（第六轮深度美化）
+   --------------------------------------------------------------------------
+   定位：加载链最末端（controls.css 之后），为全部表单控件注入"高潮级"
+        交互质感——物理感与光效并存，点击体验全面升级。
+   核心效果：
+     1) 键帽立体主按钮 —— 3D 底边投影（0 3px 0 深粉边）+ 按压下沉 2px，
+        "按下即沉"的物理反馈（新建对话/发送/生成/自动/选中芯片全继承）；
+     2) 涟漪点击扩散 —— 四系按钮（主/次/芯片/幽灵）按下时中心白色涟漪
+        从 0.3 倍扩散至 1.5 倍渐隐（Material 涟漪的樱粉演绎）；
+     3) 渐变描边聚焦框 —— 输入框/文本域聚焦时边框变为樱粉→薄荷 135°
+        渐变（border-box 双背景技巧），配合柔光晕；
+     4) select 自定义箭头 —— 樱粉 V 形箭头替换原生系统箭头，
+        聚焦时同步渐变描边；
+     5) 图标按钮 svg 弹性 —— hover 时图标放大 1.15x 微旋转。
+   特异性：元素+属性+伪类 (0,2,1) 稳压 Tailwind utilities；
+          本文件在 controls.css 之后，同特异性靠加载顺序取胜。
+   安全边界：不动布局尺寸；动画仅 transform/opacity/box-shadow；
+             prefers-reduced-motion 全量降级（涟漪/弹性全关）。
+   引入：sakura.css 末尾 @import './interactions.css'。
+   ========================================================================== */
+
+/* ============================== 1. 主按钮键帽立体质感 ==============================
+ * 3D 三层结构：顶部内高光（inset）+ 底部深粉立体边（0 3px 0）+ 环境投影。
+ * 按压时 translateY(2px) 下沉 + 立体边变薄 1px——真实键帽的"落键感"。
+ * 命中：新建对话/发送/生成/自动切换/选中芯片（bg-sakura-500 全家族）。
+ * ============================================================== */
+button.bg-sakura-500:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 3px 0 rgba(163, 35, 84, 0.5),
+    0 5px 12px rgba(255, 107, 157, 0.22);
+}
+button.bg-sakura-500:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 3px 0 rgba(163, 35, 84, 0.45),
+    0 8px 20px rgba(255, 107, 157, 0.36);
+}
+button.bg-sakura-500:not(:disabled):active {
+  transform: translateY(2px) scale(0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 1px 0 rgba(163, 35, 84, 0.5),
+    0 2px 6px rgba(255, 107, 157, 0.2);
+}
+/* 亮色主题：立体边换深玫红（浅底上更沉稳） */
+[data-theme='light'] button.bg-sakura-500:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 3px 0 rgba(178, 45, 94, 0.4),
+    0 5px 12px rgba(255, 107, 157, 0.25);
+}
+
+/* ============================== 2. 四系按钮涟漪点击扩散 ============================== */
+/* 载具定位：主按钮已由 aurora-motion 设置 relative+overflow；其余三系在此补齐 */
+button[class*='bg-[var(--color-card)]'],
+button[class*='border-[var(--color-input-border)]'],
+button[class*='hover:bg-sakura-50'] {
+  position: relative;
+  overflow: hidden;
+}
+/* 涟漪层：中心白色径向渐变，默认隐形 */
+button.bg-sakura-500::before,
+button[class*='bg-[var(--color-card)]']::before,
+button[class*='border-[var(--color-input-border)]']::before,
+button[class*='hover:bg-sakura-50']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 50%,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.18) 40%,
+    transparent 68%);
+  opacity: 0;
+  transform: scale(0.3);
+  pointer-events: none;
+}
+/* 按下触发：550ms 扩散渐隐 */
+button.bg-sakura-500:not(:disabled):active::before,
+button[class*='bg-[var(--color-card)]']:not(:disabled):active::before,
+button[class*='border-[var(--color-input-border)]']:not(:disabled):active::before,
+button[class*='hover:bg-sakura-50']:not(:disabled):active::before {
+  animation: ripple-spread 550ms var(--ease-out);
+}
+@keyframes ripple-spread {
+  0% { opacity: 0.85; transform: scale(0.3); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+
+/* ============================== 3. 输入框/文本域：渐变描边聚焦 ==============================
+ * 双背景渐变描边（长属性写法，兼容性最稳）：
+ *   第一层 padding-box = 输入底色实底；第二层 border-box = 樱粉→薄荷渐变。
+ * 边框透明让渐变透出——聚焦瞬间"边框点亮"。
+ * 覆盖 controls.css 的 focus 呼吸动画（animation:none 让静态柔光呈现）。
+ * ============================================================== */
+input[class*='bg-[var(--color-input-bg)]']:focus,
+textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  border-color: transparent;
+  background-color: transparent;
+  background-image:
+    linear-gradient(var(--color-input-bg), var(--color-input-bg)),
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.85) 0%,
+      rgba(255, 155, 190, 0.45) 34%,
+      rgba(78, 205, 196, 0.6) 100%);
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  animation: none;
+  box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.12), 0 0 16px rgba(255, 107, 157, 0.14);
+}
+[data-theme='light'] input[class*='bg-[var(--color-input-bg)]']:focus,
+[data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  background-image:
+    linear-gradient(var(--color-input-bg), var(--color-input-bg)),
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.75) 0%,
+      rgba(255, 155, 190, 0.4) 34%,
+      rgba(78, 205, 196, 0.5) 100%);
+  box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.1), 0 0 14px rgba(255, 107, 157, 0.12);
+}
+
+/* ============================== 3.5 选中芯片：樱粉光晕描边 ==============================
+ * 分辨率预设等芯片选中态为 border-sakura-500 + bg-sakura-100
+ * （与主按钮不同族）——补选中光晕与内高光，键帽语言下的"轻选中"表达。
+ * ============================================================== */
+button.border-sakura-500 {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(255, 107, 157, 0.22),
+    0 0 14px rgba(255, 107, 157, 0.18);
+  transition: box-shadow 200ms var(--ease-out), transform 160ms var(--ease-out);
+}
+button.border-sakura-500:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+/* ============================== 4. select：樱粉自定义箭头 ==============================
+ * 去除原生系统箭头，替换为樱粉 V 形 SVG；聚焦时同步渐变描边。
+ * 多层背景顺序：箭头（最顶）→ 输入底 → 渐变描边。
+ * ============================================================== */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23FF6B9D' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 180ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+select.input:not(:disabled):hover {
+  border-color: rgba(78, 205, 196, 0.5);
+}
+select.input:focus {
+  border-color: transparent;
+  background-color: transparent;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23FF6B9D' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"),
+    linear-gradient(var(--color-input-bg), var(--color-input-bg)),
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.85) 0%,
+      rgba(255, 155, 190, 0.45) 34%,
+      rgba(78, 205, 196, 0.6) 100%);
+  background-position: right 10px center, center, center;
+  background-size: 12px 8px, auto, auto;
+  background-repeat: no-repeat, repeat, repeat;
+  background-origin: padding-box, padding-box, border-box;
+  background-clip: padding-box, padding-box, border-box;
+  animation: none;
+  box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.12), 0 0 16px rgba(255, 107, 157, 0.14);
+}
+select.input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ============================== 5. 图标按钮：svg 弹性放大 ============================== */
+button[class*='hover:bg-sakura-50'] svg {
+  transition: transform 220ms var(--ease-spring);
+}
+button[class*='hover:bg-sakura-50']:hover svg {
+  transform: scale(1.15) rotate(-6deg);
+}
+button[class*='hover:bg-sakura-50']:active svg {
+  transform: scale(0.9);
+}
+
+/* ============================== 6. 动效降级（prefers-reduced-motion） ============================== */
+@media (prefers-reduced-motion: reduce) {
+  button.bg-sakura-500:not(:disabled):active::before,
+  button[class*='bg-[var(--color-card)]']:not(:disabled):active::before,
+  button[class*='border-[var(--color-input-border)]']:not(:disabled):active::before,
+  button[class*='hover:bg-sakura-50']:not(:disabled):active::before { animation: none; }
+  button[class*='hover:bg-sakura-50'] svg { transition: none; }
+  button[class*='hover:bg-sakura-50']:hover svg { transform: none; }
+}

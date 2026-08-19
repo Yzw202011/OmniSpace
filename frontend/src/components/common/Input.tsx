@@ -20,9 +20,10 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   errorText?: string;
 }
 
-/** 输入框基础类名（无前缀/后缀时直接使用；圆角 6px = rounded-md，§6.3.2） */
+/** 输入框基础类名（无前缀/后缀时直接使用；圆角 6px = rounded-md，§6.3.2）
+ *  高度 h-9(36px) 与 .input 类 / Button md 同栅格（R8 统一裁定） */
 const BASE_CLASS = [
-  'w-full h-10 px-3 text-base rounded-md border bg-[var(--color-input-bg)] text-[var(--color-text-primary)]',
+  'w-full h-9 px-3 text-sm rounded-md border bg-[var(--color-input-bg)] text-[var(--color-text-primary)]',
   'placeholder:text-[var(--color-text-tertiary)] transition-colors duration-150',
   'focus:outline-none focus:ring-2 focus:ring-sakura-300',
 ].join(' ');
@@ -73,7 +74,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         {prefix ? <span className="pl-3 text-[var(--color-text-tertiary)] flex items-center">{prefix}</span> : null}
         <input
           ref={ref}
-          className="flex-1 min-w-0 h-10 px-3 text-base bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none"
+          className="flex-1 min-w-0 h-9 px-3 text-sm bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none"
           {...rest}
         />
         {suffix ? <span className="pr-3 text-[var(--color-text-tertiary)] flex items-center">{suffix}</span> : null}

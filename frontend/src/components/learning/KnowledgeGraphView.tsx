@@ -8,6 +8,7 @@
  * ========================================================================== */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { KnowledgeGraph, KnowledgeGraphNode } from '@/services/learningApi';
 
 const WIDTH = 760;
@@ -281,7 +282,7 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             >
               <div className="flex items-center justify-between mb-2">
                 <strong className="text-sm">{selected.node.name}</strong>
-                <button className="btn btn-ghost btn-sm" onClick={() => setSelected(null)}>✕</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setSelected(null)} aria-label="关闭节点详情"><X size={14} aria-hidden="true" /></button>
               </div>
               <div className="text-tertiary mb-2" style={{ fontSize: 'var(--font-size-xs)' }}>
                 被引用 {selected.node.ref_count ?? 1} 次 · 关系 {selected.relations.length} 条

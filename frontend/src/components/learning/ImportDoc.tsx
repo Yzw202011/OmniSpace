@@ -6,6 +6,7 @@
  * ========================================================================== */
 
 import React, { useRef, useState } from 'react';
+import { FileText, Upload, Loader2 } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 
 /** 支持的文档扩展名 */
@@ -23,16 +24,16 @@ export const ImportDoc: React.FC = () => {
     if (!file) return;
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
     if (!ACCEPT.includes(ext)) {
-      setLastResult(`❌ 不支持的文件类型 ${ext}（仅支持 pdf / docx / txt）`);
+      setLastResult(`不支持的文件类型 ${ext}（仅支持 pdf / docx / txt）`);
       return;
     }
     const ok = await importDocument(file);
-    setLastResult(ok ? `✅ 「${file.name}」导入完成` : `❌ 「${file.name}」导入失败`);
+    setLastResult(ok ? `「${file.name}」导入完成` : `「${file.name}」导入失败`);
   };
 
   return (
     <section className="card hoverable" aria-label="导入文档">
-      <h3 className="card-title">📄 导入文档学习</h3>
+      <h3 className="card-title"><FileText size={16} aria-hidden="true" /> 导入文档学习</h3>
 
       <div
         role="button"
@@ -57,7 +58,9 @@ export const ImportDoc: React.FC = () => {
           handleFile(e.dataTransfer.files?.[0]);
         }}
       >
-        <span style={{ fontSize: 32 }}>{importing ? '⏳' : '📥'}</span>
+        <span style={{ fontSize: 32, color: 'var(--color-primary)', lineHeight: 1, display: 'flex' }} aria-hidden="true">
+          {importing ? <Loader2 size={32} className="animate-spin" /> : <Upload size={32} />}
+        </span>
         <div className="text-sm">
           {importing ? '正在导入，请稍候…' : '拖拽文件到此处，或点击选择文件'}
         </div>

@@ -16,6 +16,7 @@ export default defineConfig({
   // 路径别名（与 tsconfig.json paths 同步）
   // 使用数组形式，长前缀优先匹配，避免 @ 覆盖 @types/@services 等
   resolve: {
+    dedupe: ['react', 'react-dom', 'react-router-dom', 'lucide-react'],
     alias: [
       { find: '@components', replacement: `${src}/components` },
       { find: '@services', replacement: `${src}/services` },
@@ -64,6 +65,13 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    // 仅预打包 three；react/react-dom 必须保持 externalized——
+    // 强制预打包会与 @vitejs/plugin-react 的运行时形成双 React 实例，
+    // 导致 "Cannot read properties of null (reading 'useState/useEffect')" 崩溃
     include: ['three'],
+    esbuildOptions: {
+      jsx: 'automatic',
+      target: 'es2022',
+    },
   },
 });

@@ -20,6 +20,7 @@
   --color-error: #FF6B6B;
   --color-info: #4ECDC4;                 /* 信息色沿用薄荷绿 */
   --color-input-bg: #0F3460;             /* 输入框背景 */
+  --color-slider-track: rgba(255, 255, 255, 0.14); /* 滑块未填充轨道（暗底浅灰，与 #0F3460 输入底解耦） */
 
   /* 派生文字色（暗色底上的次级/三级文字，规格未单列，按可读性推导） */
   --color-text-secondary: #A6AEC2;       /* 二级文字 */
@@ -168,6 +169,7 @@
   --color-bg: #F8F9FC;                   /* 主背景（略灰以衬托白卡片） */
   --color-card: #FFFFFF;
   --color-input-bg: #F0F2F7;
+  --color-slider-track: rgba(26, 26, 46, 0.14); /* 滑块未填充轨道（亮底深灰） */
 
   /* 文字（文档D 亮色：#1A1A2E / #5A6070 / #8A90A0） */
   --color-text-primary: #1A1A2E;

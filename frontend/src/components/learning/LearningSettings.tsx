@@ -7,6 +7,7 @@
  * ========================================================================== */
 
 import React, { useEffect } from 'react';
+import { Settings } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import type { LearnSettings } from '@/services/learningApi';
 
@@ -99,7 +100,7 @@ export const LearningSettingsPanel: React.FC = () => {
   if (!settingsLoaded) {
     return (
       <section className="card" aria-label="学习设置">
-        <h3 className="card-title">⚙️ 学习设置</h3>
+        <h3 className="card-title"><Settings size={16} aria-hidden="true" /> 学习设置</h3>
         <div className="loading-block"><div className="spinner" /></div>
       </section>
     );
@@ -107,7 +108,7 @@ export const LearningSettingsPanel: React.FC = () => {
 
   return (
     <section className="card hoverable" aria-label="学习设置">
-      <h3 className="card-title">⚙️ 学习设置</h3>
+      <h3 className="card-title"><Settings size={16} aria-hidden="true" /> 学习设置</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* 左列：开关组 */}

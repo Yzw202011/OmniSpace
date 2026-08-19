@@ -13,6 +13,7 @@
  * ========================================================================== */
 
 import React from 'react';
+import { BookOpen, Dumbbell } from 'lucide-react';
 import LearningDashboard from './LearningDashboard';
 import TopicManager from './TopicManager';
 import BrowserView from './BrowserView';
@@ -25,10 +26,10 @@ import LearnView from '@/components/learn/LearnView';
 export const LearningPage: React.FC = () => {
   return (
     <div className="page">
-      <h1 className="page-title">📚 知识学习</h1>
+      <h1 className="page-title"><BookOpen size={20} aria-hidden="true" /> 知识学习</h1>
       <p className="page-subtitle">AI 自主学习：主题管理 · 实时浏览 · 行为偏好 · 知识库 · 微调训练</p>
 
-      <div className="flex flex-col gap-5 mt-5">
+      <div className="flex flex-col gap-4 mt-5">
         <LearningDashboard />
         <TopicManager />
         <BrowserView />
@@ -39,7 +40,7 @@ export const LearningPage: React.FC = () => {
 
         {/* 既有训练任务功能（LearnView 原样嵌入，零回归） */}
         <section className="card" aria-label="训练任务">
-          <h3 className="card-title">🏋️ 训练任务</h3>
+          <h3 className="card-title"><Dumbbell size={16} aria-hidden="true" /> 训练任务</h3>
           <LearnView />
         </section>
       </div>

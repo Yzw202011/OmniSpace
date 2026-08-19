@@ -13,6 +13,21 @@
  * ========================================================================== */
 
 import React, { useEffect, useRef, useState } from 'react';
+import {
+  Wand2,
+  Film,
+  FolderOpen,
+  PenLine,
+  Clapperboard,
+  Upload,
+  Loader2,
+  RefreshCw,
+  Rocket,
+  Play,
+  AlertTriangle,
+  LineChart,
+  Layers,
+} from 'lucide-react';
 import { useStyleStore } from '@/stores/useStyleStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
@@ -133,7 +148,7 @@ export const StylePage: React.FC = () => {
 
   return (
     <div className="page">
-      <h1 className="page-title">🎯 视频风格</h1>
+      <h1 className="page-title"><Wand2 size={20} aria-hidden="true" /> 视频风格</h1>
       <p className="page-subtitle">上传素材，训练专属视频风格 LoRA（基座 LTX-2，QLoRA 4bit）</p>
 
       {/* 训练中横幅：其他 AI 功能已置灰 */}
@@ -146,7 +161,10 @@ export const StylePage: React.FC = () => {
             background: 'var(--color-warning-bg)',
           }}
         >
-          ⚠️ 风格 LoRA 训练中，其他 AI 功能（对话 / 绘画 / 视频生成）已置灰，训练完成后自动恢复。
+          <span className="inline-flex items-start gap-2">
+            <AlertTriangle size={16} aria-hidden="true" className="shrink-0 mt-0.5" />
+            风格 LoRA 训练中，其他 AI 功能（对话 / 绘画 / 视频生成）已置灰，训练完成后自动恢复。
+          </span>
         </div>
       )}
 
@@ -160,15 +178,18 @@ export const StylePage: React.FC = () => {
             background: 'var(--color-error-bg)',
           }}
         >
-          ⛔ 风格训练基座（{status.base_model}）未就绪：{status.base_reason || '权重文件缺失'}。
-          素材上传与数据集管理可用；训练 / 预览将由后端如实返回错误（80010 / 80013）。
+          <span className="inline-flex items-start gap-2">
+            <AlertTriangle size={16} aria-hidden="true" className="shrink-0 mt-0.5" />
+            风格训练基座（{status.base_model}）未就绪：{status.base_reason || '权重文件缺失'}。
+            素材上传与数据集管理可用；训练 / 预览将由后端如实返回错误（80010 / 80013）。
+          </span>
         </div>
       )}
 
-      <div className="flex flex-col gap-5 mt-5">
+      <div className="flex flex-col gap-4 mt-5">
         {/* 1. 素材上传 */}
         <section className="card hoverable" aria-label="训练素材">
-          <h3 className="card-title">🎞 训练素材</h3>
+          <h3 className="card-title"><Film size={16} aria-hidden="true" /> 训练素材</h3>
           <div
             role="button"
             tabIndex={0}
@@ -193,7 +214,9 @@ export const StylePage: React.FC = () => {
               if (!training) handleFile(e.dataTransfer.files?.[0]);
             }}
           >
-            <span style={{ fontSize: 32 }}>{uploading ? '⏳' : '📤'}</span>
+            <span style={{ fontSize: 32, color: 'var(--color-primary)', lineHeight: 1, display: 'flex' }} aria-hidden="true">
+              {uploading ? <Loader2 size={32} className="animate-spin" /> : <Upload size={32} />}
+            </span>
             <div className="text-sm">
               {uploading
                 ? '正在上传素材…'
@@ -220,8 +243,8 @@ export const StylePage: React.FC = () => {
         {/* 2. 数据集列表（GET /style/datasets，点击选中作为训练集；P1-11） */}
         <section className="card hoverable" aria-label="数据集列表">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="card-title" style={{ marginBottom: 0 }}>🗂 数据集列表</h3>
-            <button className="btn btn-ghost btn-sm" onClick={fetchDatasets}>🔄 刷新</button>
+            <h3 className="card-title" style={{ marginBottom: 0 }}><FolderOpen size={16} aria-hidden="true" /> 数据集列表</h3>
+            <button className="btn btn-ghost btn-sm" onClick={fetchDatasets}><RefreshCw size={14} aria-hidden="true" /> 刷新</button>
           </div>
           {!datasetsLoaded ? (
             <div className="loading-block"><div className="spinner" /></div>
@@ -281,7 +304,7 @@ export const StylePage: React.FC = () => {
 
         {/* 3. 风格描述 + LoRA 参数 */}
         <section className="card hoverable" aria-label="风格与参数">
-          <h3 className="card-title">✍️ 风格描述与 LoRA 参数</h3>
+          <h3 className="card-title"><PenLine size={16} aria-hidden="true" /> 风格描述与 LoRA 参数</h3>
           <div className="form-row">
             <label className="form-label">风格描述</label>
             <textarea
@@ -375,7 +398,11 @@ export const StylePage: React.FC = () => {
             disabled={training || uploading || !datasetId}
             onClick={startTraining}
           >
-            {training ? '⏳ 训练中…' : '🚀 开始训练'}
+            {training ? (
+              <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" aria-hidden="true" /> 训练中…</span>
+            ) : (
+              <span className="inline-flex items-center gap-2"><Rocket size={16} aria-hidden="true" /> 开始训练</span>
+            )}
           </button>
           {!datasetId && !training && (
             <div className="text-tertiary mt-2 text-sm">请先在上方上传素材或选择数据集。</div>
@@ -386,7 +413,7 @@ export const StylePage: React.FC = () => {
         {task && (
           <section className="card hoverable" aria-label="训练进度">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="card-title" style={{ marginBottom: 0 }}>📊 训练进度</h3>
+              <h3 className="card-title" style={{ marginBottom: 0 }}><LineChart size={16} aria-hidden="true" /> 训练进度</h3>
               <span className={`badge ${task.status === 'done' ? 'success' : task.status === 'error' ? 'error' : 'info'}`}>
                 {TASK_STATUS_LABELS[task.status] ?? task.status}
               </span>
@@ -428,7 +455,7 @@ export const StylePage: React.FC = () => {
         {/* 5. 风格预览（POST /style/preview → base64 帧；未就绪如实透出 80013） */}
         <section className="card hoverable" aria-label="风格预览">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="card-title" style={{ marginBottom: 0 }}>🎬 风格预览</h3>
+            <h3 className="card-title" style={{ marginBottom: 0 }}><Clapperboard size={16} aria-hidden="true" /> 风格预览</h3>
             <div className="flex items-center gap-2">
               {/* 预览版本：默认当前生效版本，可切换已训练版本对比 */}
               <select
@@ -455,7 +482,11 @@ export const StylePage: React.FC = () => {
                 disabled={previewBusy || versions.length === 0}
                 onClick={handlePreview}
               >
-                {previewBusy ? '⏳ 生成中…' : '▶ 生成预览'}
+                {previewBusy ? (
+                  <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" aria-hidden="true" /> 生成中…</span>
+                ) : (
+                  <span className="inline-flex items-center gap-2"><Play size={14} aria-hidden="true" /> 生成预览</span>
+                )}
               </button>
             </div>
           </div>
@@ -495,8 +526,8 @@ export const StylePage: React.FC = () => {
         {/* 6. LoRA 版本列表 */}
         <section className="card hoverable" aria-label="LoRA 版本">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="card-title" style={{ marginBottom: 0 }}>🧬 LoRA 版本</h3>
-            <button className="btn btn-ghost btn-sm" onClick={fetchVersions}>🔄 刷新</button>
+            <h3 className="card-title" style={{ marginBottom: 0 }}><Layers size={16} aria-hidden="true" /> LoRA 版本</h3>
+            <button className="btn btn-ghost btn-sm" onClick={fetchVersions}><RefreshCw size={14} aria-hidden="true" /> 刷新</button>
           </div>
           {!versionsLoaded ? (
             <div className="loading-block"><div className="spinner" /></div>

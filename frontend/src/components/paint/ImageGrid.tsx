@@ -6,6 +6,7 @@
  * 规格 §9.3 绘画模块。
  */
 import { useState } from 'react';
+import { Download, Heart, ImagePlus } from 'lucide-react';
 import { Modal } from '../common/Modal';
 
 /** 生成图片项 */
@@ -113,9 +114,9 @@ export function ImageGrid({
                     handleDownload(img);
                   }}
                   aria-label="下载图片"
-                  className="w-7 h-7 rounded-md bg-[var(--color-card)]/90 text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] flex items-center justify-center text-sm"
+                  className="w-7 h-7 rounded-md bg-[var(--color-card)]/90 text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-sakura-500 flex items-center justify-center"
                 >
-                  ⬇️
+                  <Download className="w-3.5 h-3.5" />
                 </button>
                 {onToggleFavorite ? (
                   <button
@@ -125,27 +126,31 @@ export function ImageGrid({
                       onToggleFavorite(img);
                     }}
                     aria-label={img.favorite ? '取消收藏' : '收藏'}
-                    className="w-7 h-7 rounded-md bg-[var(--color-card)]/90 hover:bg-[var(--color-card)] flex items-center justify-center text-sm"
+                    className={`w-7 h-7 rounded-md bg-[var(--color-card)]/90 hover:bg-[var(--color-card)] flex items-center justify-center ${
+                      img.favorite ? 'text-sakura-500' : 'text-[var(--color-text-secondary)]'
+                    }`}
                   >
-                    {img.favorite ? '❤️' : '🤍'}
+                    <Heart className={`w-3.5 h-3.5 ${img.favorite ? 'fill-current' : ''}`} />
                   </button>
                 ) : null}
               </div>
               {/* 收藏标记 */}
               {img.favorite ? (
-                <span className="absolute top-1 right-1 text-sm" aria-hidden="true">
-                  ❤️
-                </span>
+                <Heart className="absolute top-1.5 right-1.5 w-4 h-4 text-sakura-500 fill-current drop-shadow" aria-hidden="true" />
               ) : null}
             </div>
           ))}
 
-        {/* 空状态 */}
+        {/* 空状态（引导至右侧参数面板） */}
         {!loading && images.length === 0 && typeof progress !== 'number' ? (
-          <div className="col-span-full py-16 text-center text-[var(--color-text-tertiary)]">
-            <div className="text-4xl mb-2">🎨</div>
-            <div className="text-sm">还没有作品</div>
-            <div className="text-xs mt-1">写下想象中的画面，点击「生成」开始创作。</div>
+          <div className="col-span-full py-20 flex flex-col items-center text-center text-[var(--color-text-tertiary)]">
+            <span className="flex items-center justify-center w-14 h-14 rounded-2xl bg-sakura-500/10 text-sakura-500 mb-4">
+              <ImagePlus className="w-7 h-7" aria-hidden="true" />
+            </span>
+            <div className="text-sm font-medium text-[var(--color-text-secondary)]">还没有作品</div>
+            <div className="text-xs mt-1.5 leading-relaxed">
+              在右侧面板写下想象中的画面，调整参数后点击「生成图像」
+            </div>
           </div>
         ) : null}
       </div>
@@ -161,17 +166,19 @@ export function ImageGrid({
               <button
                 type="button"
                 onClick={() => handleDownload(viewer)}
-                className="h-9 px-4 rounded-lg bg-sakura-500 text-white text-sm font-medium hover:bg-sakura-600 transition-colors"
+                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-sakura-500 text-white text-sm font-medium hover:bg-sakura-600 transition-colors"
               >
-                ⬇️ 下载
+                <Download className="w-3.5 h-3.5" />
+                下载
               </button>
               {onToggleFavorite ? (
                 <button
                   type="button"
                   onClick={() => onToggleFavorite(viewer)}
-                  className="h-9 px-4 rounded-lg bg-sakura-100 text-sakura-700 text-sm font-medium hover:bg-sakura-200 transition-colors"
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-sakura-100 text-sakura-700 text-sm font-medium hover:bg-sakura-200 transition-colors"
                 >
-                  {viewer.favorite ? '💔 取消收藏' : '❤️ 收藏'}
+                  <Heart className={`w-3.5 h-3.5 ${viewer.favorite ? 'fill-current' : ''}`} />
+                  {viewer.favorite ? '取消收藏' : '收藏'}
                 </button>
               ) : null}
               <button

@@ -10,6 +10,7 @@
  * ========================================================================== */
 
 import React, { useState, useEffect } from 'react';
+import { Dumbbell } from 'lucide-react';
 import { formatPercent, formatRelativeTime } from '@utils/format';
 import type { TrainTask } from '@/types';
 import { useLearnStore } from '@/stores/useLearnStore';
@@ -155,7 +156,7 @@ export const LearnView: React.FC = () => {
   return (
     <div className="learn-view-container">
       <div className="learn-header">
-        <h2 className="learn-title">🏋️ 训练任务</h2>
+        <h2 className="learn-title inline-flex items-center gap-2"><Dumbbell size={18} aria-hidden="true" /> 训练任务</h2>
         <button
           className="btn btn-primary"
           onClick={() => setShowForm(!showForm)}

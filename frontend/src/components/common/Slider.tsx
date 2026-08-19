@@ -51,7 +51,7 @@ export function Slider({
     <div className={['w-full', className].join(' ')}>
       {(label || showValue) && (
         <div className="flex items-center justify-between mb-1.5">
-          {label ? <span className="text-sm text-[var(--color-text-secondary)]">{label}</span> : <span />}
+          {label ? <span className="text-sm font-medium text-[var(--color-text-primary)]">{label}</span> : <span />}
           {showValue ? (
             <span className="text-sm font-medium text-[var(--color-primary)] tabular-nums">{value}</span>
           ) : null}
@@ -69,8 +69,9 @@ export function Slider({
         className="omni-slider w-full"
         style={{
           // 已填充百分比为数据驱动值（唯一样式内联点）；
-          // 填充/轨道色引用规格令牌：主色 #FF6B9D + 输入底 #0F3460（§6.3.2）
-          background: `linear-gradient(to right, var(--color-primary) ${percent}%, var(--color-input-bg) ${percent}%)`,
+          // 填充色用主色 #FF6B9D，未填充轨道用专用令牌（暗底浅灰/亮底深灰，
+          // 与 --color-input-bg 解耦，避免 #0F3460 在深蓝卡片上辨识度不足）
+          background: `linear-gradient(to right, var(--color-primary) ${percent}%, var(--color-slider-track) ${percent}%)`,
         }}
       />
     </div>

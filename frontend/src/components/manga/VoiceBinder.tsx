@@ -12,6 +12,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Mic, Star, Wrench } from 'lucide-react';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { useAppStore } from '@/stores/useAppStore';
 import type { VoiceItem } from '@/services/schema';
@@ -132,8 +133,8 @@ export const VoiceBinder: React.FC = () => {
     <div className="flex flex-col h-full">
       {/* 页头 */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-divider)]">
-        <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-          🎙 音色绑定
+        <span className="text-sm font-semibold text-[var(--color-text-primary)] inline-flex items-center gap-1.5">
+          <Mic size={15} aria-hidden="true" className="text-[var(--color-primary)]" /> 音色绑定
         </span>
         <span className="text-xs text-[var(--color-text-tertiary)]">
           角色来自分镜行「角色」列；音色来自后端 voice_profiles（预置音色首启自动种子化）
@@ -205,8 +206,13 @@ export const VoiceBinder: React.FC = () => {
                   ].join(' ')}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-[var(--color-text-primary)]">
-                      {voice.is_preset ? '⭐' : '🔧'} {voice.name}
+                    <span className="text-sm text-[var(--color-text-primary)] inline-flex items-center gap-1.5">
+                      {voice.is_preset ? (
+                        <Star size={13} aria-hidden="true" className="text-[var(--color-accent)] fill-current shrink-0" />
+                      ) : (
+                        <Wrench size={13} aria-hidden="true" className="text-[var(--color-text-tertiary)] shrink-0" />
+                      )}
+                      {voice.name}
                     </span>
                     {voice.character_id && (
                       <span className="text-xs text-[var(--color-accent)]">

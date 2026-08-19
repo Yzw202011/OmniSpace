@@ -11,6 +11,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Clapperboard, Save } from 'lucide-react';
 import * as THREE from 'three';
 import { SceneManager } from '@three/SceneManager';
 import { RaycastSelector } from '@three/RaycastSelector';
@@ -658,7 +659,7 @@ export const DirectorStage: React.FC<DirectorStageProps> = ({
       {/* 顶部工具栏 */}
       <div className="ds-toolbar">
         <div className="ds-toolbar-left">
-          <span className="ds-title">🎬 导演台</span>
+          <span className="ds-title inline-flex items-center gap-1.5"><Clapperboard size={15} aria-hidden="true" /> 导演台</span>
           {projectId && <span className="ds-meta">项目: {projectId}</span>}
           {shotId && <span className="ds-meta">分镜: {shotId}</span>}
         </div>
@@ -747,7 +748,7 @@ export const DirectorStage: React.FC<DirectorStageProps> = ({
                 title={`用当前视角覆盖「${cam.name}」`}
                 aria-label={`用当前视角覆盖${cam.name}`}
               >
-                💾
+                <Save size={13} aria-hidden="true" />
               </button>
             </span>
           ))}

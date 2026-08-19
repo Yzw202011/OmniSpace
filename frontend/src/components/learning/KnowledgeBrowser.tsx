@@ -7,6 +7,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { Database, List, Network, Search } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import { formatNumber, formatFileSize, formatRelativeTime, truncate } from '@utils/format';
 import { KnowledgeGraphView } from './KnowledgeGraphView';
@@ -72,7 +73,7 @@ export const KnowledgeBrowser: React.FC = () => {
   return (
     <section className="card hoverable" aria-label="知识库管理">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="card-title" style={{ marginBottom: 0 }}>🗂 知识库</h3>
+        <h3 className="card-title" style={{ marginBottom: 0 }}><Database size={16} aria-hidden="true" /> 知识库</h3>
         <div className="flex items-center gap-2">
           {/* 视图切换（TASK-055） */}
           <div className="flex gap-1" role="tablist" aria-label="视图切换">
@@ -80,13 +81,13 @@ export const KnowledgeBrowser: React.FC = () => {
               className={`btn btn-sm ${view === 'list' ? 'btn-secondary' : 'btn-ghost'}`}
               onClick={() => setView('list')}
             >
-              📋 列表
+              <List size={14} aria-hidden="true" /> 列表
             </button>
             <button
               className={`btn btn-sm ${view === 'graph' ? 'btn-secondary' : 'btn-ghost'}`}
               onClick={() => setView('graph')}
             >
-              🕸 图谱
+              <Network size={14} aria-hidden="true" /> 图谱
             </button>
           </div>
           <span className="badge info">
@@ -113,7 +114,7 @@ export const KnowledgeBrowser: React.FC = () => {
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
             />
-            <button className="btn btn-secondary btn-sm" onClick={handleSearch}>🔍 搜索</button>
+            <button className="btn btn-secondary btn-sm" onClick={handleSearch}><Search size={14} aria-hidden="true" /> 搜索</button>
           </div>
 
           {/* 列表 */}
@@ -151,7 +152,7 @@ export const KnowledgeBrowser: React.FC = () => {
                       fetchKnowledgeGraph(item.id);
                     }}
                   >
-                    🕸
+                    <Network size={14} aria-hidden="true" />
                   </button>
                   <button
                     className={`btn btn-sm ${confirmDeleteId === item.id ? 'btn-secondary' : 'btn-ghost'}`}

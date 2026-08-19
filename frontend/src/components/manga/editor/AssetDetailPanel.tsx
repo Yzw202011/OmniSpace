@@ -667,7 +667,7 @@ export default function AssetDetailPanel() {
             </option>
             {voices.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.is_preset ? '⭐' : '🔧'} {v.name}
+                {v.name}{v.is_preset ? '（预置）' : ''}
               </option>
             ))}
           </select>

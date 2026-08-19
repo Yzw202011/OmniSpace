@@ -99,7 +99,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       return (
         <div className="error-boundary">
           <div className="error-boundary-card card">
-            <div className="error-title">🌸 应用遇到问题</div>
+            <div className="error-title">应用遇到问题</div>
             <p className="error-message">{this.state.message}</p>
             <button className="btn btn-primary" onClick={this.handleReload}>
               重新加载

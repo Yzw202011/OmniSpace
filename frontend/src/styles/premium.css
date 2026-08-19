@@ -1,0 +1,224 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Premium 静态重设计层（第七轮深度美化）
+   --------------------------------------------------------------------------
+   定位：加载链最末端（interactions.css 之后），控件静止形态的彻底重塑——
+        不再加交互效果，而是让"静止状态本身"成为高级视觉。
+   设计语言（对照经典高端暗色 UI 工艺）：
+     1) 宝石表面主按钮 —— 165° 三停靠渐变模拟左上光源，五层阴影栈
+        （顶部内高光 / 底部内暗边 / 1px 光边环 / 接触投影 / 环境辉光），
+        按钮像一颗悬浮在界面上的宝石；
+     2) 凹槽输入井 —— 输入框背景比界面更深、顶部 2px 内阴影 + 底部
+        1px 内高光，形成"雕刻进表面"的物理凹槽；打字光标染樱粉；
+     3) 胶囊芯片 —— 分辨率预设从 6px 圆角矩形改为全胶囊形，
+        叠加纵向光泽渐变（180° 上亮下暗的立体面）；
+     4) 玻璃次级按钮 —— 顶部 1px 光边 + 外部 1px 光环 + 柔投影三件套；
+     5) 图标按钮微凹 —— 1px 内高光暗示可按表面。
+   特异性策略：与 interactions.css 完全同特异性（button + 类 + :not），
+        靠文件加载顺序取胜；伪类态（hover/active/focus）逐一对应覆盖。
+   安全边界：不动布局尺寸与圆角（芯片胶囊除外，已核验唯一使用点）；
+             prefers-reduced-motion 无新增动画（本层为纯静态）。
+   引入：sakura.css 末尾 @import './premium.css'。
+   ========================================================================== */
+
+/* ============================== 1. 主按钮：悬浮宝石表面 ==============================
+ * 光源设定：左上 165°。渐变三停靠（亮粉顶→主粉中→深玫底）模拟受光曲面。
+ * 阴影栈五层（上→下）：顶内高光 / 底内暗边 / 1px 光边环 / 接触投影 / 环境辉光。
+ * 命中家族：新建对话 / 发送 / 生成 / 自动 / 生成数量选中格。
+ * ============================================================== */
+button.bg-sakura-500:not(:disabled) {
+  background-image: linear-gradient(165deg,
+    #ff9bc0 0%,
+    #ff6b9d 42%,
+    #e8548a 100%);
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 1px rgba(140, 30, 70, 0.32);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(120, 20, 60, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 2px 4px rgba(163, 35, 84, 0.35),
+    0 6px 20px rgba(255, 107, 157, 0.28);
+}
+/* hover：光源增强（宝石转向灯光） */
+button.bg-sakura-500:not(:disabled):hover {
+  background-image: linear-gradient(165deg,
+    #ffa8c9 0%,
+    #ff7cab 42%,
+    #f2679c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.44),
+    inset 0 -1px 0 rgba(120, 20, 60, 0.24),
+    0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 3px 6px rgba(163, 35, 84, 0.4),
+    0 8px 28px rgba(255, 107, 157, 0.42);
+}
+/* active：受压变暗、辉光收拢（配合 interactions 的下沉 transform） */
+button.bg-sakura-500:not(:disabled):active {
+  background-image: linear-gradient(165deg,
+    #ee5a92 0%,
+    #e0528a 42%,
+    #d14a80 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(120, 20, 60, 0.35),
+    inset 0 -1px 0 rgba(120, 20, 60, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(163, 35, 84, 0.3);
+}
+[data-theme='light'] button.bg-sakura-500:not(:disabled) {
+  background-image: linear-gradient(165deg,
+    #ff8fb8 0%,
+    #ff6b9d 42%,
+    #ea578e 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(120, 20, 60, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.25),
+    0 2px 4px rgba(178, 45, 94, 0.28),
+    0 6px 20px rgba(255, 107, 157, 0.3);
+}
+
+/* ============================== 2. 输入框/文本域：雕刻凹槽（Well） ==============================
+ * 工艺：底色比界面更深（半透明深蓝 0.72）+ 顶 2px 内阴影（上壁投影）+
+ * 底 1px 内高光（槽底反光）+ 底部外 1px 光（表面边缘光）。
+ * 效果：输入框像从界面上"挖出来的槽"，天然引导视线落入。
+ * 打字光标染樱粉（caret-color）——输入时的隐性品牌触点。
+ * ============================================================== */
+input[class*='bg-[var(--color-input-bg)]'],
+textarea[class*='bg-[var(--color-input-bg)]'] {
+  background-color: rgba(8, 13, 30, 0.72);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.38),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.045),
+    0 1px 0 rgba(255, 255, 255, 0.03);
+  caret-color: var(--color-primary);
+}
+/* focus：保留凹槽深度 + 渐变描边点亮（继承 interactions 的边框渐变，
+   此处叠加井内阴影，槽壁与光边同时成立） */
+input[class*='bg-[var(--color-input-bg)]']:focus,
+textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.32),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 1px rgba(255, 107, 157, 0.18),
+    0 0 18px rgba(255, 107, 157, 0.15);
+}
+/* hover：槽壁微亮（预告可交互，覆盖 controls 的 hover 描边） */
+input[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
+textarea[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.34),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 0 rgba(255, 255, 255, 0.04);
+}
+/* 禁用：浅槽（保留形态记忆但明确不可用） */
+input[class*='bg-[var(--color-input-bg)]']:disabled,
+textarea[class*='bg-[var(--color-input-bg)]']:disabled {
+  background-color: rgba(8, 13, 30, 0.4);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+/* placeholder：更细腻的层级（比纯灰更偏粉调的暗色） */
+input[class*='bg-[var(--color-input-bg)]']::placeholder,
+textarea[class*='bg-[var(--color-input-bg)]']::placeholder {
+  color: rgba(148, 140, 165, 0.55);
+}
+[data-theme='light'] input[class*='bg-[var(--color-input-bg)]'],
+[data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]'] {
+  background-color: rgba(252, 252, 255, 0.92);
+  border-color: rgba(20, 20, 50, 0.1);
+  box-shadow:
+    inset 0 2px 4px rgba(30, 30, 60, 0.07),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* ============================== 3. 芯片：全胶囊 + 纵向光泽面 ==============================
+ * 形态重设计：6px 矩形 → 全胶囊（999px）。表面叠加 180° 上亮下暗
+ * 光泽渐变，小小的芯片也有"立体面"。
+ * 已核验：border-input-border 按钮仅分辨率预设一处（胶囊化安全）。
+ * ============================================================== */
+button[class*='border-[var(--color-input-border)]'] {
+  border-radius: 999px;
+  background-image: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.012));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
+  background-image: linear-gradient(180deg,
+    rgba(255, 107, 157, 0.1),
+    rgba(255, 107, 157, 0.04));
+}
+[data-theme='light'] button[class*='border-[var(--color-input-border)]'] {
+  background-image: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.9),
+    rgba(240, 240, 248, 0.5));
+}
+
+/* ============================== 4. 次级按钮（bg-card 载具）：玻璃三件套 ==============================
+ * 顶 1px 内光边 + 外 1px 光环 + 柔投影——玻璃悬浮片。
+ * 覆盖 interactions 的渐变描边底（静态更干净），hover 光环点亮。
+ * ============================================================== */
+button[class*='bg-[var(--color-card)]'] {
+  background-image: none;
+  background-color: rgba(22, 33, 62, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 2px 8px rgba(0, 0, 0, 0.28);
+}
+button[class*='bg-[var(--color-card)]']:not(:disabled):hover {
+  background-color: rgba(28, 42, 78, 0.88);
+  border-color: rgba(78, 205, 196, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(78, 205, 196, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    0 0 16px rgba(78, 205, 196, 0.12);
+}
+[data-theme='light'] button[class*='bg-[var(--color-card)]'] {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(20, 20, 50, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 2px 8px rgba(30, 30, 60, 0.08);
+}
+
+/* ============================== 5. 图标按钮：微凹表面暗示 ============================== */
+button[class*='hover:bg-sakura-50'] {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+button[class*='hover:bg-sakura-50']:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 12px rgba(255, 107, 157, 0.14);
+}
+
+/* ============================== 6. select：凹槽 + 箭头双层表面 ==============================
+ * 与输入井同工艺：深底 + 顶内阴影；樱粉箭头由 interactions 提供，
+ * 此处仅统一静态底色与凹槽。
+ * ============================================================== */
+select.input {
+  background-color: rgba(8, 13, 30, 0.72);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.38),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.045);
+}
+select.input:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+select.input:focus {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.32),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 1px rgba(255, 107, 157, 0.18),
+    0 0 18px rgba(255, 107, 157, 0.15);
+}
+[data-theme='light'] select.input {
+  background-color: rgba(252, 252, 255, 0.92);
+  border-color: rgba(20, 20, 50, 0.1);
+  box-shadow:
+    inset 0 2px 4px rgba(30, 30, 60, 0.07),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.9);
+}

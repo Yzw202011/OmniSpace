@@ -313,7 +313,7 @@ function PaintPanel() {
       </Section>
       <Section title="ControlNet">
         <Row label="状态" value="未就绪" />
-        <div className="rp-hint">ControlNet 生成链路未就绪（后端生成接口暂不消费该配置，预览接口处于降级状态），绘画参数区已禁用相关控件，后续版本开放。</div>
+        <div className="rp-hint">生成链路建设中，配置暂不生效，后续版本开放。</div>
       </Section>
     </>
   );

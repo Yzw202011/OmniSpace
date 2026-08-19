@@ -8,6 +8,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { BookMarked, Bot, Plus } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import Modal from '@/components/common/Modal';
 
@@ -69,22 +70,30 @@ export const TopicManager: React.FC = () => {
   return (
     <section className="card hoverable" aria-label="学习主题管理">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="card-title" style={{ marginBottom: 0 }}>📚 学习主题管理</h3>
+        <h3 className="card-title" style={{ marginBottom: 0 }}><BookMarked size={16} aria-hidden="true" /> 学习主题管理</h3>
         <div className="flex gap-2">
-          <button className="btn btn-secondary btn-sm" onClick={() => startSession()} disabled={sessionActive}>
-            🤖 让AI自己决定学什么
+          <button className="btn btn-secondary btn-sm inline-flex items-center gap-1.5" onClick={() => startSession()} disabled={sessionActive}>
+            <Bot size={13} aria-hidden="true" />
+            让AI自己决定学什么
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}>
-            + 添加新主题
+          <button className="btn btn-primary inline-flex items-center gap-1.5" onClick={() => setShowAdd(true)}>
+            <Plus size={14} aria-hidden="true" />
+            添加新主题
           </button>
         </div>
       </div>
 
       {topics.length === 0 ? (
-        <div className="text-secondary text-sm" style={{ padding: 'var(--space-4) 0' }}>
-          {topicsLoaded
-            ? '暂无学习主题。点击「+ 添加新主题」创建，或让 AI 自主探索学习。'
-            : '加载中…'}
+        <div className="flex flex-col items-center justify-center text-center border border-dashed rounded-lg" style={{ padding: 'var(--space-8) var(--space-4)', borderColor: 'rgba(155, 163, 181, 0.4)' }}>
+          {topicsLoaded ? (
+            <>
+              <BookMarked size={28} strokeWidth={1.5} style={{ color: 'var(--color-text-tertiary)', marginBottom: 'var(--space-3)' }} aria-hidden="true" />
+              <div className="text-sm text-secondary" style={{ marginBottom: 'var(--space-1)' }}>暂无学习主题</div>
+              <div className="text-xs text-tertiary">点击右上角「添加新主题」创建，或让 AI 自主探索学习</div>
+            </>
+          ) : (
+            <div className="text-sm text-tertiary">加载中…</div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

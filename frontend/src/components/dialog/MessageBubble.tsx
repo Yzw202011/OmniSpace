@@ -10,6 +10,7 @@
  * 规格 §9.2 对话模块。
  */
 import { memo } from 'react';
+import { User, Flower2, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -81,7 +82,11 @@ export const MessageBubble = memo(function MessageBubble({
         ].join(' ')}
         aria-hidden="true"
       >
-        {isUser ? '🧑' : '🌸'}
+        {isUser ? (
+          <User size={16} aria-hidden="true" className="text-sakura-600" />
+        ) : (
+          <Flower2 size={16} aria-hidden="true" className="text-[var(--color-primary)]" />
+        )}
       </div>
 
       {/* 气泡主体 */}
@@ -111,7 +116,7 @@ export const MessageBubble = memo(function MessageBubble({
           ].join(' ')}
         >
           {isError ? (
-            <span>❌ {message.errorText}</span>
+            <span className="inline-flex items-center gap-1.5"><AlertCircle size={14} aria-hidden="true" /> {message.errorText}</span>
           ) : message.content ? (
             message.streaming ? (
               /* 流式期间：纯文本 + 光标，避免逐 token 全量 Markdown 解析 */

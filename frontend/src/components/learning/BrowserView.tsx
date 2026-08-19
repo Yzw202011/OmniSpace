@@ -9,6 +9,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useState } from 'react';
+import { Globe, Bot, User, MousePointerClick, Flower2, MessageCircle } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import { getBrowserScreenshot, getBrowserCurrentPage } from '@/services/learningApi';
 
@@ -73,15 +74,21 @@ export const BrowserView: React.FC = () => {
   return (
     <section className="card hoverable" aria-label="内置浏览器">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="card-title" style={{ marginBottom: 0 }}>🌐 内置浏览器</h3>
+        <h3 className="card-title" style={{ marginBottom: 0 }}><Globe size={16} aria-hidden="true" /> 内置浏览器</h3>
         <div className="flex items-center gap-2">
           <span className={`badge ${controller === 'ai' ? 'info' : 'warning'}`}>
-            {controller === 'ai' ? '🤖 AI 控制中' : '🧑 用户接管中'}
+            <span className="inline-flex items-center gap-1.5">
+              {controller === 'ai' ? (
+                <><Bot size={13} aria-hidden="true" /> AI 控制中</>
+              ) : (
+                <><User size={13} aria-hidden="true" /> 用户接管中</>
+              )}
+            </span>
           </span>
           {controller === 'ai' ? (
-            <button className="btn btn-secondary btn-sm" onClick={takeover}>🖱 用户接管</button>
+            <button className="btn btn-secondary btn-sm" onClick={takeover}><MousePointerClick size={14} aria-hidden="true" /> 用户接管</button>
           ) : (
-            <button className="btn btn-primary btn-sm" onClick={handback}>🤖 交还AI</button>
+            <button className="btn btn-primary btn-sm" onClick={handback}><Bot size={14} aria-hidden="true" /> 交还AI</button>
           )}
         </div>
       </div>
@@ -112,7 +119,7 @@ export const BrowserView: React.FC = () => {
           />
         ) : (
           <div className="loading-block">
-            {available ? <div className="spinner" /> : <span style={{ fontSize: 28 }}>🌸</span>}
+            {available ? <div className="spinner" /> : <Flower2 size={28} aria-hidden="true" style={{ color: 'var(--color-primary)' }} />}
             <div className="text-secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
               {available ? '截图加载中…' : '浏览器截图服务未就绪（后端 /v1/browser/screenshot 未实现）'}
             </div>
@@ -124,14 +131,14 @@ export const BrowserView: React.FC = () => {
       {(session?.current_action || session?.thinking) && (
         <div className="mt-3 flex flex-col gap-1">
           {session.current_action && (
-            <div className="text-sm">🤖 当前操作：{session.current_action}</div>
+            <div className="text-sm inline-flex items-center gap-1.5"><Bot size={14} aria-hidden="true" /> 当前操作：{session.current_action}</div>
           )}
           {session.thinking && (
             <div
-              className="text-secondary"
+              className="text-secondary inline-flex items-center gap-1.5"
               style={{ fontSize: 'var(--font-size-xs)', fontStyle: 'italic' }}
             >
-              💭 AI 思考：{session.thinking}
+              <MessageCircle size={13} aria-hidden="true" /> AI 思考：{session.thinking}
             </div>
           )}
         </div>

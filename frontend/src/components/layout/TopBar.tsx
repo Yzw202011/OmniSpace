@@ -23,6 +23,7 @@ import {
   Loader,
   CircleCheck,
   CircleX,
+  Flower2,
 } from 'lucide-react';
 import { NAV_ITEMS } from '@/router';
 import { useAppStore } from '@/stores/useAppStore';
@@ -103,7 +104,7 @@ export default function TopBar() {
     <header className="topbar" role="banner">
       {/* 左侧 Logo 区 */}
       <div className="topbar-logo">
-        <span aria-hidden="true">🌸</span>
+        <Flower2 size={18} aria-hidden="true" />
         <span className="logo-text">OmniSpace</span>
       </div>
 

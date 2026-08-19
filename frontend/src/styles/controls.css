@@ -1,0 +1,144 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Controls 控件精修层（第五轮深度美化）
+   --------------------------------------------------------------------------
+   定位：加载链最末端（signature.css 之后），覆盖全部表单控件的 Tailwind
+        任意值载具——用户逐个选中的按钮四态/输入框/文本域/开关组等。
+   覆盖（按用户选中元素归纳的控件族谱）：
+     1) 主按钮（button.bg-sakura-500） —— 悬浮上浮 + 禁用态呼吸微光
+        （"等待中"而非"死掉"，发送/生成按钮核心体验）；
+     2) 次级按钮（button bg-card） —— 玻璃底 + hover 薄荷光晕上浮（"手动"）；
+     3) 幽灵/图标按钮（button hover:bg-sakura-50） —— hover 粉玻璃 + 图标弹跳（📎）；
+     4) 芯片按钮（button border-input-border） —— hover 粉描边光晕上浮（512×768 预设）；
+     5) 输入框/文本域（input/textarea bg-input-bg） —— hover 薄荷描边 +
+        focus 呼吸光环（复用 signature.css focus-breathe）+ 禁用降格；
+     6) 搜索输入（input bg-input-bg） —— 同 5。
+   技法：属性选择器匹配 Tailwind 任意值类（[class*='bg-[var(--...)']']），
+        元素+属性+伪类特异性 (0,2,1) 稳压 Tailwind utilities (0,2,0)。
+   安全边界：不动布局尺寸；动画仅合成器友好属性；
+             prefers-reduced-motion 全量降级。
+   引入：sakura.css 末尾 @import './controls.css'。
+   ========================================================================== */
+
+/* ============================== 1. 主按钮：悬浮上浮 + 禁用呼吸 ============================== */
+/* 可用态：hover 上浮 1px（配合 aurora-motion 扫光与 polish 渐变） */
+button.bg-sakura-500:not(:disabled) {
+  transition: transform 160ms var(--ease-out), box-shadow 200ms var(--ease-out),
+    background-image 200ms var(--ease-out), filter 160ms var(--ease-out);
+}
+button.bg-sakura-500:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+button.bg-sakura-500:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+}
+/* 禁用态：樱粉微光呼吸（8s 慢周期——传达"待命"而非"禁用"） */
+button.bg-sakura-500:disabled {
+  animation: primary-waiting 2.6s ease-in-out infinite;
+  cursor: not-allowed;
+}
+@keyframes primary-waiting {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 rgba(255, 107, 157, 0); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 16px rgba(255, 107, 157, 0.22); }
+}
+
+/* ============================== 2. 次级按钮（bg-card 载具）：玻璃底 + 薄荷光晕 ============================== */
+button[class*='bg-[var(--color-card)]'] {
+  background:
+    linear-gradient(rgba(22, 33, 62, 0.88), rgba(22, 33, 62, 0.88)) padding-box,
+    linear-gradient(135deg, rgba(78, 205, 196, 0.3), rgba(255, 107, 157, 0.14)) border-box;
+  border: 1px solid transparent;
+  transition: transform 160ms var(--ease-out), box-shadow 200ms var(--ease-out),
+    background 200ms var(--ease-out);
+}
+button[class*='bg-[var(--color-card)]']:not(:disabled):hover {
+  transform: translateY(-1px);
+  background:
+    linear-gradient(rgba(26, 40, 74, 0.92), rgba(24, 36, 68, 0.92)) padding-box,
+    linear-gradient(135deg, rgba(78, 205, 196, 0.52), rgba(255, 107, 157, 0.3)) border-box;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3), 0 0 14px rgba(78, 205, 196, 0.14);
+}
+button[class*='bg-[var(--color-card)]']:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+}
+[data-theme='light'] button[class*='bg-[var(--color-card)]'] {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.92)) padding-box,
+    linear-gradient(135deg, rgba(78, 205, 196, 0.26), rgba(255, 107, 157, 0.14)) border-box;
+}
+
+/* ============================== 3. 幽灵/图标按钮（hover:bg-sakura-50 载具）：粉玻璃 + 弹跳 ============================== */
+button[class*='hover:bg-sakura-50'] {
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+button[class*='hover:bg-sakura-50']:not(:disabled):hover {
+  background: linear-gradient(135deg, rgba(255, 107, 157, 0.16), rgba(255, 107, 157, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 157, 0.2), 0 0 10px rgba(255, 107, 157, 0.1);
+  transform: translateY(-1px);
+}
+button[class*='hover:bg-sakura-50']:not(:disabled):active {
+  transform: translateY(0) scale(0.92);
+}
+
+/* ============================== 4. 芯片按钮（border-input-border 载具）：粉描边光晕 ============================== */
+button[class*='border-[var(--color-input-border)]'] {
+  transition: border-color 160ms var(--ease-out), box-shadow 200ms var(--ease-out),
+    transform 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
+  border-color: rgba(255, 107, 157, 0.55);
+  color: var(--color-primary-300);
+  box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.18), 0 0 12px rgba(255, 107, 157, 0.12);
+  transform: translateY(-1px);
+}
+button[class*='border-[var(--color-input-border)]']:not(:disabled):active {
+  transform: translateY(0) scale(0.96);
+}
+
+/* ============================== 5. 输入框/文本域（bg-input-bg 载具）：hover 薄荷 + focus 呼吸 ============================== */
+input[class*='bg-[var(--color-input-bg)]'],
+textarea[class*='bg-[var(--color-input-bg)]'] {
+  transition: border-color 180ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+/* hover：薄荷描边预告可交互 */
+input[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
+textarea[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover {
+  border-color: rgba(78, 205, 196, 0.5);
+  box-shadow: 0 0 0 1px rgba(78, 205, 196, 0.1);
+}
+/* focus：樱粉呼吸光环（复用 signature.css 的 focus-breathe 关键帧，
+   与 .input 类控件同频；覆盖 Tailwind focus:ring 的静态 ring） */
+input[class*='bg-[var(--color-input-bg)]']:focus,
+textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  animation: focus-breathe 2.4s ease-in-out infinite;
+}
+/* 禁用：暗纹降格（比纯 opacity 更有设计感） */
+input[class*='bg-[var(--color-input-bg)]']:disabled,
+textarea[class*='bg-[var(--color-input-bg)]']:disabled {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 6px,
+    rgba(255, 255, 255, 0.018) 6px 12px
+  );
+}
+
+/* ============================== 6. placeholder：悬浮淡入呼应 ============================== */
+/* 聚焦时 placeholder 退后（焦点让位于输入内容） */
+input[class*='bg-[var(--color-input-bg)]']:focus::placeholder,
+textarea[class*='bg-[var(--color-input-bg)]']:focus::placeholder {
+  opacity: 0.45;
+  transition: opacity 220ms var(--ease-out);
+}
+
+/* ============================== 7. 动效降级（prefers-reduced-motion） ============================== */
+@media (prefers-reduced-motion: reduce) {
+  button.bg-sakura-500:disabled { animation: none; }
+  button.bg-sakura-500:not(:disabled),
+  button.bg-sakura-500:not(:disabled):hover,
+  button.bg-sakura-500:not(:disabled):active,
+  button[class*='bg-[var(--color-card)]'],
+  button[class*='hover:bg-sakura-50'],
+  button[class*='border-[var(--color-input-border)]'] { transition: none; transform: none; }
+  input[class*='bg-[var(--color-input-bg)]']:focus,
+  textarea[class*='bg-[var(--color-input-bg)]']:focus { animation: none; }
+}

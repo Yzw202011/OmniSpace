@@ -1,0 +1,341 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Noir 精炼层（第八轮：表单控件重设计）
+   --------------------------------------------------------------------------
+   诊断：前几轮"宝石渐变 + 键帽 3D 边 + 扫光 + 呼吸 + 凹槽井"多效果叠加，
+        单个按钮上堆了 5 种效果——噪、乱、廉价。高级感的真相是克制。
+   设计语言（对齐 Linear / Vercel / shadcn 的现代高端范式）：
+     · 表面干净 —— 纯色面 + 发丝线边框（1px 低透明白），零花哨渐变；
+     · 层级靠光 —— 主按钮唯一的"糖果高光"（顶部 1px 内亮边）即立体感全部；
+     · 聚焦利落 —— 输入聚焦 = 实色樱粉边 + 3px 柔光环，一瞬即懂；
+     · 强调有度 —— 樱粉只在"主操作 / 聚焦 / 选中"三个时刻出现，其余全灰阶。
+   本层职责：终结前七层在表单控件上的效果混战——同选择器、加载顺序最后，
+   逐条覆盖；噪效（扫光/呼吸/渐变边/凹槽/立体边/悬浮上浮）全部归零。
+   引入：sakura.css 末尾 @import './noir.css'（最终层）。
+   ========================================================================== */
+
+/* ============================== 1. 主按钮：糖果净面 ==============================
+ * 纯色樱粉 + 顶部 1px 内高光 + 极小接触投影——立体感来自那一线光。
+ * hover 提亮（暗底上"活"的方向），active 下沉 1px（物理反馈）。
+ * 家族：新建对话 / 发送 / 生成 / 自动 / 数量格。
+ * ============================================================== */
+button.bg-sakura-500:not(:disabled) {
+  background-image: none;
+  background-color: #ff6b9d;
+  text-shadow: none;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 3px rgba(140, 27, 66, 0.35);
+  transition: background-color 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+}
+button.bg-sakura-500:not(:disabled):hover {
+  background-image: none;
+  background-color: #ff7fab;
+  transform: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 8px rgba(140, 27, 66, 0.4);
+}
+button.bg-sakura-500:not(:disabled):active {
+  background-color: #f0608f;
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(140, 27, 66, 0.3);
+}
+/* 禁用：安静半透，去掉呼吸微光 */
+button.bg-sakura-500:disabled {
+  animation: none;
+  background-image: none;
+  background-color: rgba(255, 107, 157, 0.32);
+  box-shadow: none;
+  text-shadow: none;
+}
+/* 去掉扫光条（aurora-motion 的 ::after） */
+button.bg-sakura-500::after { content: none; }
+/* 涟漪减弱为轻触涟漪（保留但收敛） */
+button.bg-sakura-500:not(:disabled):active::before {
+  animation: noir-ripple 420ms ease-out;
+}
+@keyframes noir-ripple {
+  0% { opacity: 0.4; transform: scale(0.4); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* ============================== 2. 危险按钮：净面红 ============================== */
+[class*='bg-[var(--color-error)]'] {
+  background-image: none;
+  background-color: var(--color-error);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* ============================== 3. 输入框 / 文本域：浮面净板 ==============================
+ * 半透明白浮面（表面无关，深浅底通用）+ 发丝边。
+ * 聚焦 = 实色樱粉边 + 3px 柔光环（shadcn 范式）——干净、确定、高级。
+ * 去噪：渐变描边 / 呼吸动画 / 凹槽井 / 暗纹全部归零。
+ * ============================================================== */
+input[class*='bg-[var(--color-input-bg)]'],
+textarea[class*='bg-[var(--color-input-bg)]'] {
+  background-color: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  background-image: none;
+  caret-color: #ff6b9d;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+input[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
+textarea[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover {
+  background-color: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+input[class*='bg-[var(--color-input-bg)]']:focus,
+textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  animation: none;
+  background-color: rgba(255, 255, 255, 0.055);
+  background-image: none;
+  border-color: #ff6b9d;
+  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.16);
+}
+input[class*='bg-[var(--color-input-bg)]']:disabled,
+textarea[class*='bg-[var(--color-input-bg)]']:disabled {
+  background-color: rgba(255, 255, 255, 0.015);
+  background-image: none;
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+input[class*='bg-[var(--color-input-bg)]']::placeholder,
+textarea[class*='bg-[var(--color-input-bg)]']::placeholder {
+  color: rgba(148, 140, 165, 0.5);
+}
+
+/* ============================== 4. .input 通用类（含 select）：同一语言 ============================== */
+.input {
+  background-color: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+.input:not(:disabled):not(:focus):hover {
+  background-color: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.input:focus {
+  animation: none;
+  background-color: rgba(255, 255, 255, 0.055);
+  border-color: #ff6b9d;
+  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.16);
+}
+
+/* select：净面 + 樱粉箭头（箭头继承 interactions，重置其多层背景） */
+select.input {
+  background-color: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+select.input:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+select.input:focus {
+  animation: none;
+  background-color: rgba(255, 255, 255, 0.055);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23FF6B9D' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 8px;
+  background-origin: padding-box;
+  background-clip: border-box;
+  border-color: #ff6b9d;
+  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.16);
+}
+
+/* ============================== 5. 芯片：净面胶囊 ============================== */
+button[class*='border-[var(--color-input-border)]'] {
+  border-radius: 999px;
+  background-image: none;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  font-weight: 500;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, transform 100ms ease;
+}
+button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
+  background-color: rgba(255, 107, 157, 0.08);
+  border-color: rgba(255, 107, 157, 0.55);
+  color: #ff9bbe;
+  transform: none;
+  box-shadow: none;
+}
+button[class*='border-[var(--color-input-border)]']:not(:disabled):active {
+  transform: scale(0.97);
+}
+/* 选中芯片（border-sakura-500）：实色樱粉边 + 粉染底，干净笃定 */
+button.border-sakura-500 {
+  background-color: rgba(255, 107, 157, 0.13);
+  border-color: #ff6b9d;
+  color: #ffb3cd;
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 157, 0.18);
+  transition: background-color 140ms ease, transform 100ms ease;
+}
+button.border-sakura-500:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* ============================== 6. 图标按钮：安静微亮 ============================== */
+button[class*='hover:bg-sakura-50'] {
+  box-shadow: none;
+}
+button[class*='hover:bg-sakura-50']:not(:disabled):hover {
+  background-color: rgba(255, 107, 157, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+button[class*='hover:bg-sakura-50']:not(:disabled):active {
+  transform: scale(0.94);
+}
+button[class*='hover:bg-sakura-50']:hover svg {
+  transform: scale(1.08);
+}
+button[class*='hover:bg-sakura-50']:active svg {
+  transform: scale(0.95);
+}
+
+/* ============================== 7. 次级按钮（bg-card 载具）：灰阶浮面 ==============================
+ * 注意顺序：置于图标规则之后——"手动"等同时命中两选择器时，
+ * 同特异性取后者，hover 呈灰阶提亮（分段控件的克制表达）。
+ * ============================================================== */
+button[class*='bg-[var(--color-card)]'] {
+  background-image: none;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  font-weight: 500;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+button[class*='bg-[var(--color-card)]']:not(:disabled):hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  transform: none;
+  box-shadow: none;
+}
+button[class*='bg-[var(--color-card)]']:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* ============================== 8. 旧类清理（.btn-* 系列，部分页面使用） ============================== */
+.btn-primary {
+  background: #ff6b9d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 3px rgba(140, 27, 66, 0.35);
+  text-shadow: none;
+}
+.btn-primary:not(:disabled):hover {
+  background: #ff7fab;
+  transform: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 8px rgba(140, 27, 66, 0.4);
+}
+.btn-primary:not(:disabled):active {
+  background: #f0608f;
+  transform: translateY(1px);
+}
+.btn-secondary {
+  background: transparent;
+  border: 1px solid rgba(78, 205, 196, 0.5);
+  box-shadow: none;
+}
+.btn-secondary:not(:disabled):hover {
+  background: rgba(78, 205, 196, 0.09);
+  border-color: rgba(78, 205, 196, 0.7);
+  box-shadow: none;
+  transform: none;
+}
+.btn-danger {
+  background: var(--color-error);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.btn-danger:not(:disabled):hover {
+  filter: brightness(1.08);
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 8px rgba(255, 107, 107, 0.25);
+}
+.btn-ghost:not(:disabled):hover {
+  background: rgba(255, 107, 157, 0.1);
+}
+
+/* ============================== 9. 亮色主题适配 ============================== */
+[data-theme='light'] button.bg-sakura-500:not(:disabled) {
+  background-color: #ff6b9d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 1px 3px rgba(140, 27, 66, 0.28);
+}
+[data-theme='light'] button.bg-sakura-500:not(:disabled):hover {
+  background-color: #ff7fab;
+}
+[data-theme='light'] button.bg-sakura-500:not(:disabled):active {
+  background-color: #f0608f;
+}
+[data-theme='light'] input[class*='bg-[var(--color-input-bg)]'],
+[data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]'],
+[data-theme='light'] .input {
+  background-color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(20, 20, 50, 0.14);
+}
+[data-theme='light'] input[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
+[data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
+[data-theme='light'] .input:not(:disabled):not(:focus):hover {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(20, 20, 50, 0.22);
+}
+[data-theme='light'] input[class*='bg-[var(--color-input-bg)]']:focus,
+[data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]']:focus,
+[data-theme='light'] .input:focus {
+  background-color: #fff;
+  border-color: #ff6b9d;
+  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.14);
+}
+[data-theme='light'] select.input {
+  background-color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(20, 20, 50, 0.14);
+}
+[data-theme='light'] button[class*='border-[var(--color-input-border)]'] {
+  background-color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(20, 20, 50, 0.12);
+}
+[data-theme='light'] button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
+  background-color: rgba(255, 107, 157, 0.08);
+  border-color: rgba(255, 107, 157, 0.5);
+}
+[data-theme='light'] button[class*='bg-[var(--color-card)]'] {
+  background-color: rgba(255, 255, 255, 0.75);
+  border-color: rgba(20, 20, 50, 0.1);
+}
+[data-theme='light'] button[class*='bg-[var(--color-card)]']:not(:disabled):hover {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-color: rgba(20, 20, 50, 0.16);
+}
+[data-theme='light'] button[class*='hover:bg-sakura-50']:not(:disabled):hover {
+  background-color: rgba(255, 107, 157, 0.1);
+}
+
+/* ============================== 10. 动效降级 ============================== */
+@media (prefers-reduced-motion: reduce) {
+  button.bg-sakura-500:not(:disabled),
+  button.bg-sakura-500:not(:disabled):hover,
+  button.bg-sakura-500:not(:disabled):active,
+  button[class*='bg-[var(--color-card)]'],
+  button[class*='border-[var(--color-input-border)]'],
+  button[class*='hover:bg-sakura-50'],
+  input[class*='bg-[var(--color-input-bg)]'],
+  textarea[class*='bg-[var(--color-input-bg)]'],
+  .input,
+  select.input { transition: none; }
+  button.bg-sakura-500:not(:disabled):active::before { animation: none; }
+}

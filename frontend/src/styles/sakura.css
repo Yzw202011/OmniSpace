@@ -16,6 +16,13 @@
 @import './app.css';
 @import './polish.css'; /* Sakura Aurora 视觉美化层（最后加载，覆盖增强质感） */
 @import './deep-polish.css'; /* 深度美化层（动态极光/玻璃渐变描边卡片/渐变标题/交错入场） */
+@import './aurora-motion.css'; /* 动效层（边框流光/按钮扫光/消息弹入/噪点质感/组件微动效） */
+@import './signature.css'; /* 标志性焦点层（打字光标/思考波浪/滑块辉光/状态栏/加载流光/漫剧天光线） */
+@import './controls.css'; /* 控件精修层（按钮四态/输入呼吸/芯片光晕/禁用微光） */
+@import './interactions.css'; /* 交互高潮层（键帽立体/涟漪扩散/渐变描边聚焦/select箭头） */
+@import './premium.css'; /* 静态重设计层（宝石表面按钮/凹槽输入井/胶囊芯片/粉色光标） */
+@import './noir.css'; /* 精炼层（最终裁定：净面按钮/利落聚焦环/胶囊芯片/效果去噪） */
+@import './refinement.css'; /* 全站精修层（对比度/禁用态/激活态/FAQ箭头/序号胶囊/状态栏分隔） */
 
 /* ------------------------------ 兼容别名（旧名 → 规格令牌） ------------------------------
  * 仅为本文件少量历史引用提供解析，全部为 tokens.css 未定义的新名，不会覆盖规格令牌。
@@ -749,6 +756,9 @@
   flex-wrap: wrap;
 }
 .model-category-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);

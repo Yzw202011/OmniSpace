@@ -1,0 +1,185 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Signature 标志性焦点层（第四轮深度美化）
+   --------------------------------------------------------------------------
+   定位：加载链最末端（aurora-motion.css 之后），聚焦"核心体验瞬间"与
+        尚未覆盖的组件死角，补全全站高级感最后一公里。
+   覆盖：
+     1) AI 流式打字光标 —— 樱粉发光竖条（聊天核心体验的标志性瞬间）；
+     2) AI 思考三点 —— 波浪弹跳 + 薄荷辉光（等待态仪式感）；
+     3) omni-slider 滑块 —— 填充端点辉光 + 轨道按压光晕；
+     4) 状态栏 —— 指示项 hover 玻璃化 + 数值脉冲；
+     5) 加载态 —— 呼吸渐变文字（settings-loading / rp-hint 等）；
+     6) 全局图片渐入 —— img 淡入 + 轻微上移（消除生硬弹出）；
+     7) 全局 focus-visible —— 统一樱粉光环（键盘无障碍质感）；
+     8) 漫剧资产坞 —— 顶部天光线（布局零改动，仅氛围）；
+     9) mark 高亮 —— 樱粉荧光笔效果；
+    10) 标题 hover 微光泽（页面标题互动感）。
+   安全边界：不动漫剧布局；不碰 3D canvas；动画仅合成器友好属性；
+             prefers-reduced-motion 全量降级。
+   引入：sakura.css 末尾 @import './signature.css'。
+   ========================================================================== */
+
+/* ============================== 1. AI 流式打字光标 ==============================
+ * 命中 MessageBubble 的光标 span（class 含 w-1.5 + h-4 + animate-pulse 组合，
+ * 全站唯一）。升级：樱粉发光 + 闪烁节奏放缓至打字机频率。
+ * ============================================================== */
+span[class*='w-1.5'][class*='h-4'][class*='animate-pulse'] {
+  background: var(--color-primary);
+  border-radius: 1px;
+  box-shadow: 0 0 8px rgba(255, 107, 157, 0.8), 0 0 18px rgba(255, 107, 157, 0.35);
+  animation: caret-blink 0.9s steps(1) infinite;
+}
+@keyframes caret-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0.15; }
+}
+
+/* ============================== 2. AI 思考三点：波浪弹跳 + 辉光 ============================== */
+span.rounded-full.animate-bounce {
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgba(78, 205, 196, 0.6);
+  animation: dot-wave 1.1s ease-in-out infinite;
+}
+span.rounded-full.animate-bounce:nth-child(2) { animation-delay: 0.15s; }
+span.rounded-full.animate-bounce:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dot-wave {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+
+/* ============================== 3. omni-slider：填充辉光滑块 ============================== */
+/* 轨道：内凹质感（上暗下亮的 1px 内阴影模拟凹槽） */
+input.omni-slider {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+/* thumb：樱粉描边 + 双层辉光（悬浮环 + 按压扩散） */
+input.omni-slider::-webkit-slider-thumb {
+  background: linear-gradient(180deg, #1e2c52, #16213e);
+  border: 2px solid var(--color-primary);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    0 0 10px rgba(255, 107, 157, 0.4);
+  transition: box-shadow 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+input.omni-slider:hover::-webkit-slider-thumb {
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(255, 107, 157, 0.6);
+}
+input.omni-slider:active::-webkit-slider-thumb {
+  transform: scale(1.28);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(255, 107, 157, 0.75);
+}
+
+/* ============================== 4. 状态栏：指示项玻璃化 + 数值微脉冲 ============================== */
+/* 选择器升级为 .statusbar .sb-item（与 app.css 同特异性，靠加载顺序取胜） */
+.statusbar .sb-item {
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  margin: 0 1px;
+  transition:
+    background var(--duration-hover) var(--ease-out),
+    box-shadow var(--duration-hover) var(--ease-out);
+}
+.statusbar .sb-item:hover {
+  background: rgba(255, 107, 157, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 157, 0.28);
+}
+.statusbar .sb-item:hover .sb-value {
+  color: var(--color-primary-300);
+  text-shadow: 0 0 8px rgba(255, 107, 157, 0.3);
+}
+/* 状态栏 WS 灯：连接态双层呼吸（增强既有 on 态） */
+.ws-dot.on {
+  animation: ws-breathe 2.8s ease-in-out infinite;
+}
+@keyframes ws-breathe {
+  0%, 100% { box-shadow: 0 0 6px rgba(107, 203, 119, 0.7), 0 0 12px rgba(107, 203, 119, 0.3); }
+  50% { box-shadow: 0 0 9px rgba(107, 203, 119, 0.9), 0 0 18px rgba(107, 203, 119, 0.45); }
+}
+
+/* ============================== 5. 加载态：呼吸渐变文字 ============================== */
+/* 覆盖 settings-loading / rp-hint / 漫剧加载等纯文字等待态 */
+.settings-loading,
+.rp-hint {
+  background: linear-gradient(90deg,
+    var(--color-text-tertiary) 0%,
+    var(--color-primary-300) 50%,
+    var(--color-text-tertiary) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--color-text-tertiary);      /* 兜底 */
+  -webkit-text-fill-color: transparent;   /* 支持时透出流光 */
+  animation: loading-shimmer 1.8s linear infinite;
+}
+@keyframes loading-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* ============================== 6. 全局图片渐入 ============================== */
+/* 消除图片生硬弹出：淡入 + 轻微上移；3D canvas 不受影响（仅 img） */
+img:not([class*='avatar']):not([class*='emoji']) {
+  animation: img-fade-in 480ms var(--ease-out);
+}
+@keyframes img-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================== 7. 全局键盘焦点：统一樱粉光环 ============================== */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.55), 0 0 12px rgba(255, 107, 157, 0.25);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================== 8. 漫剧资产坞：顶部天光线（布局零改动） ============================== */
+.manga-dock {
+  position: relative;
+}
+.manga-dock::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255, 107, 157, 0.45) 30%,
+    rgba(78, 205, 196, 0.4) 70%,
+    transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ============================== 9. mark 高亮：樱粉荧光笔 ============================== */
+mark {
+  background: linear-gradient(180deg, transparent 55%, rgba(255, 107, 157, 0.4) 55%);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* ============================== 10. 页面标题 hover：光泽扫过 ============================== */
+.page-title {
+  background-size: 200% 100%;
+  transition: background-position 600ms var(--ease-out);
+}
+.page-title:hover {
+  background-position: -100% 0;
+}
+
+/* ============================== 11. 动效降级（prefers-reduced-motion） ============================== */
+@media (prefers-reduced-motion: reduce) {
+  span[class*='w-1.5'][class*='h-4'][class*='animate-pulse'] { animation: none; }
+  span.rounded-full.animate-bounce { animation: none; }
+  .ws-dot.on { animation: none; }
+  .settings-loading,
+  .rp-hint { animation: none; }
+  img:not([class*='avatar']):not([class*='emoji']) { animation: none; }
+  .page-title { transition: none; }
+  input.omni-slider::-webkit-slider-thumb { transition: none; }
+}

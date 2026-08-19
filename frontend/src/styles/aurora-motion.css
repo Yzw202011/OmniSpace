@@ -1,0 +1,275 @@
+/* ==========================================================================
+   OmniSpace AI —— Aurora Motion 动效层（标志性视觉动态效果）
+   --------------------------------------------------------------------------
+   定位：加载链最末端（deep-polish.css 之后），全站组件级动态美化。
+   标志性效果：
+     1) 边框流光 —— @property 注册角度变量 + conic-gradient 旋转描边，
+        卡片 hover / 模型选中态获得"追光"边框（不支持 @property 时降级为静态渐变）；
+     2) 按钮扫光 —— 主按钮 hover 时一道高光从左掠过（shine sweep）；
+     3) 消息弹入 —— 对话消息以弹性曲线逐条浮现；
+     4) 微粒噪点 —— body 叠加极淡 SVG 噪点纹理，消除纯色塑料感（高级质感关键）；
+     5) 组件动效 —— Tooltip 玻璃淡入 / Modal 顶部光线 / 输入呼吸光环 /
+        滑块拖动放大 / 空态花瓣飘落 / 会话列表交错入场 / 菜单项滑移。
+   安全边界：
+     - 所有动画仅 transform / opacity / box-shadow / filter / --glow-angle；
+     - Tooltip 定位依赖 Tailwind translate 类，其动画只用 opacity（避免 transform 冲突）；
+     - 漫剧编辑器（§18）与 3D 视口不触碰；
+     - prefers-reduced-motion 全量降级。
+   引入：sakura.css 末尾 @import './aurora-motion.css'。
+   ========================================================================== */
+
+/* 注册流光角度（Chromium 85+ / CEF 120+ 支持；不支持时 conic 静态呈现） */
+@property --glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+/* ============================== 1. 噪点质感层 ==============================
+ * feTurbulence 单色噪点平铺（opacity 3%），叠加在既有极光渐变之上。
+ * 消除大面积纯色的"塑料感"，是暗色高级质感的关键底料。
+ * ============================================================== */
+body {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+    radial-gradient(1300px 620px at 82% -12%, rgba(255, 107, 157, 0.14), transparent 64%),
+    radial-gradient(1100px 560px at -8% 108%, rgba(78, 205, 196, 0.10), transparent 60%),
+    radial-gradient(1600px 820px at 50% 118%, rgba(122, 92, 220, 0.11), transparent 64%),
+    var(--color-bg);
+}
+
+/* ============================== 2. 边框流光：conic 旋转追光描边 ============================== */
+/* 卡片悬浮：渐变描边升级为旋转流光（一道亮区绕边框巡游） */
+.card.hoverable:hover {
+  background:
+    linear-gradient(rgba(24, 36, 68, 0.78), rgba(22, 33, 62, 0.78)) padding-box,
+    conic-gradient(from var(--glow-angle),
+      rgba(255, 107, 157, 0.72) 0%,
+      rgba(255, 155, 190, 0.22) 14%,
+      rgba(78, 205, 196, 0.5) 38%,
+      rgba(255, 255, 255, 0.34) 52%,
+      rgba(255, 107, 157, 0.6) 68%,
+      rgba(255, 107, 157, 0.08) 88%,
+      rgba(255, 107, 157, 0.72) 100%) border-box;
+  animation: border-glow-rotate 3.2s linear infinite;
+}
+@keyframes border-glow-rotate {
+  to { --glow-angle: 360deg; }
+}
+/* 亮色：流光减淡（白底上过亮会廉价） */
+[data-theme='light'] .card.hoverable:hover {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.92)) padding-box,
+    conic-gradient(from var(--glow-angle),
+      rgba(255, 107, 157, 0.55) 0%,
+      rgba(255, 155, 190, 0.16) 16%,
+      rgba(78, 205, 196, 0.4) 40%,
+      rgba(255, 255, 255, 0.5) 54%,
+      rgba(255, 107, 157, 0.45) 70%,
+      rgba(255, 107, 157, 0.06) 88%,
+      rgba(255, 107, 157, 0.55) 100%) border-box;
+}
+
+/* 模型选中卡：常驻低速流光（身份指示） */
+.model-card.selected {
+  background:
+    linear-gradient(rgba(255, 107, 157, 0.1), rgba(22, 33, 62, 0.74)) padding-box,
+    conic-gradient(from var(--glow-angle),
+      rgba(255, 107, 157, 0.66),
+      rgba(255, 155, 190, 0.3) 25%,
+      rgba(78, 205, 196, 0.28) 55%,
+      rgba(255, 107, 157, 0.55) 80%,
+      rgba(255, 107, 157, 0.66)) border-box;
+  animation: border-glow-rotate 5s linear infinite;
+}
+
+/* ============================== 3. 主按钮扫光：shine sweep ============================== */
+/* 限定 button 载具（避免命中用户消息气泡 div）；overflow 裁剪光带；
+   focus ring 为 box-shadow 不受裁剪影响 */
+button.bg-sakura-500 {
+  position: relative;
+  overflow: hidden;
+}
+button.bg-sakura-500::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: -80%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+  opacity: 0;
+}
+button.bg-sakura-500:not(:disabled):hover::after {
+  opacity: 1;
+  animation: btn-shine 0.85s var(--ease-out);
+}
+@keyframes btn-shine {
+  from { left: -80%; }
+  to { left: 135%; }
+}
+
+/* ============================== 4. 对话消息：弹性弹入 ============================== */
+/* .space-y-5 仅存在于消息滚动容器（已全局核验），子项 = MessageBubble 根节点 */
+.space-y-5 > div {
+  animation: msg-pop 340ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+@keyframes msg-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================== 5. Tooltip：玻璃质感 + 淡入 ============================== */
+/* 仅 opacity 动画——定位依赖 Tailwind translate 类，transform 动画会破坏定位 */
+[role='tooltip'] {
+  background: var(--color-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg), 0 0 16px rgba(255, 107, 157, 0.14);
+  animation: tooltip-fade 160ms var(--ease-out);
+}
+@keyframes tooltip-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ============================== 6. Modal 组件（role=dialog）：渐变描边 + 顶部光线 ==============================
+ * Modal.tsx 使用 Tailwind 类（rounded-2xl bg-[var(--color-card)]），与 .modal 类并行；
+ * 此处统一注入卡片同款玻璃渐变描边语言。
+ * ============================================================== */
+[role='dialog'] {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(22, 33, 62, 0.94), rgba(22, 33, 62, 0.94)) padding-box,
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.44) 0%,
+      rgba(255, 155, 190, 0.2) 32%,
+      rgba(78, 205, 196, 0.3) 70%,
+      rgba(255, 107, 157, 0.18) 100%) border-box;
+  box-shadow: var(--shadow-modal), 0 0 56px rgba(255, 107, 157, 0.08);
+}
+[data-theme='light'] [role='dialog'] {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)) padding-box,
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.36) 0%,
+      rgba(255, 155, 190, 0.16) 32%,
+      rgba(78, 205, 196, 0.24) 70%,
+      rgba(255, 107, 157, 0.14) 100%) border-box;
+}
+/* 顶部樱粉→薄荷渐隐光线（弹窗"天光线"） */
+[role='dialog']::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 10%; right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 107, 157, 0.6), rgba(78, 205, 196, 0.5), transparent);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ============================== 7. 危险按钮（Tailwind 载具）渐变质感 ============================== */
+[class*='bg-[var(--color-error)]'] {
+  background-image: linear-gradient(135deg, #ff7d7d 0%, #ff6b6b 52%, #f25454 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 2px 8px rgba(255, 107, 107, 0.26);
+}
+
+/* ============================== 8. 输入焦点：呼吸光环 ============================== */
+/* 对话输入框（textarea 载具，focus:ring-sakura-300）与通用 .input 同频呼吸 */
+textarea:focus,
+.input:focus {
+  animation: focus-breathe 2.4s ease-in-out infinite;
+}
+@keyframes focus-breathe {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.35), 0 0 10px rgba(255, 107, 157, 0.1); }
+  50% { box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.5), 0 0 22px rgba(255, 107, 157, 0.22); }
+}
+
+/* ============================== 9. 滑块：拖动放大反馈 ============================== */
+input[type='range'].slider:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+}
+
+/* ============================== 10. 空状态：樱花飘落装饰（纯 CSS 花瓣，替代 emoji） ============================== */
+.empty-state { position: relative; overflow: hidden; }
+.empty-state::before,
+.empty-state::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  width: 10px;
+  height: 10px;
+  border-radius: 60% 4px 60% 4px;
+  background: linear-gradient(135deg, rgba(255, 183, 212, 0.95), rgba(255, 107, 157, 0.8));
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px rgba(255, 107, 157, 0.4));
+}
+.empty-state::before { left: 28%; animation: petal-fall 6.5s ease-in 1.2s infinite; }
+.empty-state::after { left: 66%; width: 8px; height: 8px; animation: petal-fall 7.8s ease-in 3.6s infinite; }
+@keyframes petal-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+  10% { opacity: 0.55; }
+  82% { opacity: 0.35; }
+  100% { transform: translateY(150px) rotate(300deg); opacity: 0; }
+}
+
+/* ============================== 11. 会话列表：交错入场 ============================== */
+/* 限定 ul 载具（仅 SessionList 使用 ul.space-y-1，已核验） */
+ul.space-y-1 > li {
+  animation: list-item-in 320ms var(--ease-out) both;
+}
+ul.space-y-1 > li:nth-child(1) { animation-delay: 20ms; }
+ul.space-y-1 > li:nth-child(2) { animation-delay: 55ms; }
+ul.space-y-1 > li:nth-child(3) { animation-delay: 90ms; }
+ul.space-y-1 > li:nth-child(4) { animation-delay: 125ms; }
+ul.space-y-1 > li:nth-child(5) { animation-delay: 160ms; }
+ul.space-y-1 > li:nth-child(n+6) { animation-delay: 195ms; }
+@keyframes list-item-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================== 12. 菜单/建议项：hover 滑移微动 ============================== */
+.topbar-search-item,
+.topbar-menu-item {
+  transition:
+    background var(--duration-hover) var(--ease-out),
+    color var(--duration-hover) var(--ease-out),
+    transform var(--duration-hover) var(--ease-out);
+}
+.topbar-search-item:hover,
+.topbar-menu-item:hover {
+  transform: translateX(3px);
+}
+
+/* ============================== 13. 图片网格：悬浮光斑（spotlight 呼吸） ============================== */
+.group.aspect-square::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(420px circle at 50% -20%, rgba(255, 255, 255, 0.14), transparent 60%);
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out);
+  pointer-events: none;
+}
+.group.aspect-square:hover::after { opacity: 1; }
+
+/* ============================== 14. 动效降级（prefers-reduced-motion） ============================== */
+@media (prefers-reduced-motion: reduce) {
+  .card.hoverable:hover,
+  .model-card.selected { animation: none; }
+  button.bg-sakura-500:not(:disabled):hover::after { animation: none; opacity: 0; }
+  .space-y-5 > div,
+  [role='tooltip'],
+  ul.space-y-1 > li { animation-duration: 1ms; animation-delay: 0ms; }
+  textarea:focus,
+  .input:focus { animation: none; }
+  .empty-state::before,
+  .empty-state::after { animation: none; opacity: 0; }
+  .topbar-search-item:hover,
+  .topbar-menu-item:hover { transform: none; }
+}

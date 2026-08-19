@@ -147,10 +147,13 @@
     - ER 覆盖修正：规格"13 张业务表"实为 30 张——database.py _SCHEMA 17 张 + 8 个服务层自建表（behavior_logs/paint_history/knowledge_meta/style_tasks/model_benchmarks/api_keys/learning 四表）+ FTS5 + 图谱两表，全部纳入文档；发现 paint_history 竟建在 paint_engine.py、api_keys 建在 api/system.py 等分散事实
     - 表格中发现并如实标注的路由细节：`/director/text-to-3d` 只注册顶层路径（无 /manga 前缀对）；23 个顶层旧别名仅在约定节说明不逐行列出
 
-- [ ] **P2-03 README + 部署/故障排查手册**（对应 P22）
+- [x] **P2-03 README + 部署/故障排查手册**（对应 P22）
   - 动作：根目录 README.md（是什么/怎么启动/目录结构）；docs/ 下新增部署手册（含模型资产配置表）与故障排查手册（OOM/端口冲突/数据库版本冲突/模型探测失败四大高频故障）
   - 完成标准：换机冷启动只靠文档可完成；四大故障各有一页处置步骤
   - 工时：1 天
+  - **完成记录（2026-08-20）**：
+    - 根 README.md（项目简介/快速启动/开发工作流/目录结构/文档索引/运维命令）；docs/deployment-manual.md（硬件要求/环境装配/24 目录模型资产配置表/显存路由表/首次启动验证清单/RC 交付）；docs/troubleshooting.md（通用排查入口 + 四大故障各一页：症状/根因/诊断/处置/预防 + 20xxx 错误码速查）
+    - 全部事实从源码实测核对：launcher 端口默认 8765（argparse 覆盖 config 的 5800）、磁盘门槛 20GB、DB 版本守护 RuntimeError 原文、20013/20014 错误码、_MODEL_PATH_HINTS 嵌套快照、模型接线状态对齐 RTM 矩阵 M-01~M-16
 
 - [ ] **P2-04 需求基线入库**（对应 P01、P02）
   - 动作：把《文档E》《文档B》中仍有效的需求抽取为仓库内规格章节（挂 RTM 附录）；docs/ 加 INDEX.md 声明各文档时效性，归档被覆盖的历史版本（三份模型推荐文档收敛为一份）

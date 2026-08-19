@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint src/",
-    "test": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "lucide-react": "^1.30.0",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.20.1",
     "@types/react": "19.0.0",
     "@types/react-dom": "19.0.0",
     "@types/three": "^0.170.0",

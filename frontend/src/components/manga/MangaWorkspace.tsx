@@ -30,6 +30,7 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { inferEntities } from '@/services/mangaApi';
+import { VIDEO_STATUS_LABELS } from '@/constants/videoStatus';
 import type { StoryboardRow } from '@/types';
 import { ScriptImport } from './ScriptImport';
 import { DirectorStage } from './DirectorStage';
@@ -53,15 +54,6 @@ type DrawerKind = '' | 'import' | 'video' | 'export' | 'voice';
 
 /** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS） */
 const MAX_ROWS = 50;
-
-/** 视频任务状态中文标签 */
-const VIDEO_STATUS_LABELS: Record<string, string> = {
-  pending: '排队中',
-  generating: '生成中',
-  done: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-};
 
 /** 保存状态点文案 */
 const SAVE_STATUS_LABELS: Record<ShotSaveStatus, string> = {

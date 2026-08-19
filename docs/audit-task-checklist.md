@@ -84,10 +84,16 @@
     - 强化：pre-commit 钩子升级三步门（compileall → ruff check → smoke），静态检查由"可跑"变"强制"，新增违规在提交时拦截
     - 修复中发现 2 个真实缺陷：decision.py `TaskDispatcher` 7 处注解未定义（靠 `from __future__ import annotations` 侥幸未炸，补 TYPE_CHECKING 导入）；startup_check.py lz4 可用性探测改 find_spec（不再为探测而真实 import）
 
-- [ ] **P1-04 前端 vitest 落地**（对应 P12）
+- [x] **P1-04 前端 vitest 落地**（对应 P12）
   - 动作：建 vitest.config.ts；先写三个最痛的测试——useMangaStore 状态流转、mangaApi 的 Zod 响应解析、VIDEO_STATUS_LABELS 与后端枚举一致性
   - 完成标准：`npm run test` 可执行且 3 个测试文件全过；package.json test 脚本从声明变为真实
   - 工时：2 天
+  - **完成记录（2026-08-19）**：
+    - vitest 2.1.8 实配落地：vitest.config.ts（别名与 vite/tsconfig 同步，node 环境，fileParallelism=false 防 store 交叉污染）；package.json test 脚本 `vitest` → `vitest run`（CI 单次退出），另留 test:watch
+    - 三个测试文件 34 用例全绿：useMangaStore.test.ts（13，项目/分镜/视频全链路状态流转：openProject/autoSplit 乐观追加/reorderRows 乐观重排+失败回滚/generateVideo 全流程 generating→done 收敛/功能互斥拒绝/取消/轮询失败收敛，fake timers 驱动真实 2s 轮询节拍）；mangaApi.test.ts（14，mock 请求层直测 Zod 解析：合法/passthrough 宽容/缺字段/类型错/枚举漂移/progress 越界全维度）；videoStatus.test.ts（7，**直读 backend/api/manga.py 源码文本正则提取 status 字面量，与前端 VIDEO_TASK_STATUSES/标签/Zod schema 三方双向核对**，后端加状态前端没跟上时立即红）
+    - 顺带完成 P2-07 首步：VIDEO_STATUS_LABELS 从 MangaWorkspace.tsx 抽到 src/constants/videoStatus.ts 单一真源（store 类型 VideoTaskStatus 同源引用）
+    - **测试逼出 1 个真实缺陷并修复**：视频轮询连续失败 3 次放弃后，任务永久停留 generating → video_gen 功能锁与 videoGenerating 永不释放（挂死，只能刷新页面）。修复：放弃轮询时任务收敛 error 终态、行状态同步 error、failTask + 释放功能锁，回归用例锁死该行为
+    - 验证：npm run test 34/34 过；tsc --noEmit 过（补装 @types/node，测试文件用 node:fs 读后端源码）；npm run lint 0 错误；npm run build 生产构建过（常量抽取不影响打包）
 
 - [ ] **P1-05 吞错治理第一批**（对应 P07、P11）
   - 动作：

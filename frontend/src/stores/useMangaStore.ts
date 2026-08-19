@@ -32,6 +32,7 @@ import type {
 } from '@/types';
 import * as mangaApi from '@/services/mangaApi';
 import type { VoiceItem } from '@/services/schema';
+import { type VideoTaskStatus } from '@/constants/videoStatus';
 import { useAppStore } from './useAppStore';
 import { useTaskStore } from './useTaskStore';
 
@@ -54,7 +55,7 @@ export interface MangaVideoTask {
   /** 画面描述（列表展示） */
   description: string;
   /** 任务状态（对齐后端 video_tasks.status；取消链路终态为 cancelled） */
-  status: 'pending' | 'generating' | 'done' | 'error' | 'cancelled';
+  status: VideoTaskStatus;
   /** 进度 0~1（真实轮询） */
   progress: number;
   /** 失败信息 */
@@ -324,8 +325,14 @@ export const useMangaStore = create<MangaState>((set, get) => {
         consecutiveFailCount += 1;
         console.warn(`[useMangaStore] 视频状态轮询失败（第 ${consecutiveFailCount} 次）:`, err);
         if (consecutiveFailCount >= MAX_CONSECUTIVE_FAILS) {
+          // 放弃轮询必须收敛为终态：否则任务永久停留 generating，
+          // video_gen 功能锁与 videoGenerating 永不释放（P1-04 测试发现的挂死缺陷）
           stopVideoPoll(taskId);
-          useAppStore.getState().showToast('视频任务状态同步失败，已停止轮询', 'error');
+          const msg = '视频任务状态同步失败，已停止轮询';
+          patchVideoTask(taskId, { status: 'error', error: msg });
+          useTaskStore.getState().failTask(taskId, msg);
+          syncRowGenerationStatus(rowId, 'error');
+          useAppStore.getState().showToast(msg, 'error');
           releaseVideoLockIfIdle();
         }
       }

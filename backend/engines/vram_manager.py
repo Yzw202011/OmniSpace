@@ -48,19 +48,25 @@ class VramManager:
         self._total_allocated_mb: float = 0.0
         self._lock = threading.Lock()
         self._cuda_available = _torch is not None and _torch.cuda.is_available()
+        # 探测降级记录（P1-05 吞错治理：探测失败显式记录并经 get_usage 暴露，
+        # 不再静默吞掉——显存守门人必须可观测）
+        self._degraded_probes: dict[str, str] = {}
 
         # 获取总显存
         self._vram_total_mb: float = 0.0
         if self._cuda_available:
             try:
                 self._vram_total_mb = _torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._degraded_probes["vram_total_mb"] = str(exc)
+                logger.warning(
+                    "CUDA 总显存探测失败（总显存记 0，显存门禁将退化为不可用）: %s", exc)
 
         logger.info(
-            "VRAM 管理器初始化: CUDA=%s, 总显存=%.0fMB",
+            "VRAM 管理器初始化: CUDA=%s, 总显存=%.0fMB, 降级探测=%s",
             self._cuda_available,
             self._vram_total_mb,
+            list(self._degraded_probes) or "无",
         )
 
     # ── 分配/释放跟踪 ──────────────────────────────────────────
@@ -169,8 +175,10 @@ class VramManager:
             try:
                 _torch.cuda.empty_cache()
                 logger.info("已清空 CUDA 缓存")
-            except Exception:
-                pass
+            except Exception as exc:
+                self._degraded_probes["empty_cache"] = str(exc)
+                logger.warning(
+                    "CUDA 缓存清空失败（记账已重置，物理显存可能未真正回收）: %s", exc)
 
         if freed_mb > 0:
             logger.warning("重置显存记账: %.1fMB (保留: %s)", freed_mb, list(keep))
@@ -192,7 +200,11 @@ class VramManager:
     # ── 状态查询 ────────────────────────────────────────────────
 
     def get_usage(self) -> dict:
-        """返回显存使用情况。"""
+        """返回显存使用情况。
+
+        P1-05：额外携带 degraded_probes（探测失败的项与最后错误），
+        上层可据此判断读数是真实探测还是纯记账退化值。
+        """
         # 获取实际显存使用（如果 CUDA 可用）
         actual_used_mb = self._total_allocated_mb
         actual_free_mb = 0.0
@@ -202,8 +214,10 @@ class VramManager:
                 mem = _torch.cuda.memory_allocated(0) / (1024 * 1024)
                 actual_used_mb = max(actual_used_mb, mem)
                 actual_free_mb = self._vram_total_mb - actual_used_mb
-            except Exception:
-                pass
+            except Exception as exc:
+                self._degraded_probes["memory_allocated"] = str(exc)
+                logger.warning(
+                    "CUDA 实际用量探测失败，使用量为纯记账值（可能低估）: %s", exc)
 
         usage_ratio = actual_used_mb / self._vram_total_mb if self._vram_total_mb > 0 else 0.0
 
@@ -215,6 +229,7 @@ class VramManager:
             "tracked_allocations": len(self._allocations),
             "is_critical": usage_ratio >= THRESHOLDS["gpu_vram_critical"],
             "should_force_unload": usage_ratio >= THRESHOLDS["gpu_vram_force_unload"],
+            "degraded_probes": dict(self._degraded_probes),
         }
 
     def get_available_mb(self) -> float:
@@ -223,8 +238,10 @@ class VramManager:
             try:
                 free = _torch.cuda.mem_get_info(0)[0] / (1024 * 1024)
                 return free
-            except Exception:
-                pass
+            except Exception as exc:
+                self._degraded_probes["mem_get_info"] = str(exc)
+                logger.warning(
+                    "CUDA 空闲显存探测失败，退化为记账差值（可能不准）: %s", exc)
         return max(0, self._vram_total_mb - self._total_allocated_mb)
 
     def get_available_gb(self) -> float:

@@ -95,12 +95,18 @@
     - **测试逼出 1 个真实缺陷并修复**：视频轮询连续失败 3 次放弃后，任务永久停留 generating → video_gen 功能锁与 videoGenerating 永不释放（挂死，只能刷新页面）。修复：放弃轮询时任务收敛 error 终态、行状态同步 error、failTask + 释放功能锁，回归用例锁死该行为
     - 验证：npm run test 34/34 过；tsc --noEmit 过（补装 @types/node，测试文件用 node:fs 读后端源码）；npm run lint 0 错误；npm run build 生产构建过（常量抽取不影响打包）
 
-- [ ] **P1-05 吞错治理第一批**（对应 P07、P11）
+- [x] **P1-05 吞错治理第一批**（对应 P07、P11）
   - 动作：
     1. `engines/vram_manager.py:56-226` 四处 `except: pass` 改为显式降级（log.warning + 状态标记）
     2. `api/hardware.py:171-192` 假数据回填改为 unknown 标记，前端硬件面板对 unknown 禁用渲染
   - 完成标准：显存守门人无静默失败路径；前端不再渲染编造的 35.0%/8192MB 读数
   - 工时：1 天
+  - 完成记录（2026-08-19）：
+    - vram_manager 四处 except pass 全部治理：`_degraded_probes` 字典记录探测失败（vram_total_mb / empty_cache / memory_allocated / mem_get_info 四键），log.warning 带后果说明（如"显存门禁将退化为不可用""物理显存可能未真正回收"），get_usage() 新增 `degraded_probes` 字段向 API 层暴露——上层可判断读数是真实探测还是纯记账退化值
+    - hardware.py 假数据清零：实时遥测失败路径 35.0%/8192MB/24576MB/52°C/"Mock CPU"/32GB/512GB/80.5% 等编造读数全部改为 `None + available=False`；静态画像兜底改"未知（硬件探测失败）"+ power="unknown"；synergy 端点对 None 读数按 0 收敛防 TypeError
+    - 前端诚实门控：HardwareRealtime 类型 5 字段改 `| null`；normalizeRealtime 保留 null 不强转；消费方核对——BottomStatusBar/RightPanel pctText 原生支持 null→'--'，StylePage formatVRAM/formatPercent null 安全，**ModelManager VRAM 进度条修掉探测失败显示 0% 的编造下界**（改 null→'--' 且不触发 95% 强制线告警）
+    - 新增 `tests/unit/test_telemetry_honesty.py` 8 用例锁定契约：psutil 不可用/GPU 探测失败/整链失败三路径必须 available=False+None（断言假读数绝迹）；vram 总显存/用量/空闲探测失败必须进 degraded_probes；无 torch 纯记账模式不算降级
+    - 验证：后端 92/92 过（84+8 新增）；tsc --noEmit 过；npm run test 34/34 过；npm run lint 0 错误；ruff check 改动文件全过
 
 - [ ] **P1-06 异步边界规范固化**（对应 P08）
   - 动作：消灭 dialog.py:313 的"调用方须放线程池"注释契约——被动重推理函数内部自建 `asyncio.to_thread` 或统一走 draw.py 模式的任务调度；同步推理入口收敛为一个装饰器/工具函数

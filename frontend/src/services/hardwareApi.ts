@@ -26,29 +26,41 @@ export async function getHardwareInfo(): Promise<HardwareProfile> {
   return res as unknown as HardwareProfile;
 }
 
-/** 后端遥测原始结构（嵌套 gpu/cpu/ram） */
+/** 后端遥测原始结构（嵌套 gpu/cpu/ram；P1-05：探测失败字段为 null + available=false） */
 interface RealtimeRaw {
-  gpu?: { usage_percent?: number; vram_used_mb?: number; vram_total_mb?: number; temp_celsius?: number };
-  cpu?: { usage_percent?: number };
-  ram?: { total_gb?: number; available_gb?: number; usage_percent?: number };
+  gpu?: {
+    available?: boolean;
+    usage_percent?: number | null;
+    vram_used_mb?: number | null;
+    vram_total_mb?: number | null;
+    temp_celsius?: number | null;
+  };
+  cpu?: { available?: boolean; usage_percent?: number | null };
+  ram?: {
+    available?: boolean;
+    total_gb?: number | null;
+    available_gb?: number | null;
+    usage_percent?: number | null;
+  };
   timestamp?: number;
 }
 
-/** 归一化后端嵌套遥测 → 前端扁平 HardwareRealtime */
+/** 归一化后端嵌套遥测 → 前端扁平 HardwareRealtime。
+ *  P1-05：探测失败的 null 原样保留（UI 显示 --），不再强转 0 假读数。 */
 export function normalizeRealtime(raw: RealtimeRaw | null | undefined): HardwareRealtime {
   const r = raw || {};
   return {
-    cpu_percent: r.cpu?.usage_percent ?? 0,
-    ram_percent: r.ram?.usage_percent ?? 0,
+    cpu_percent: r.cpu?.usage_percent ?? null,
+    ram_percent: r.ram?.usage_percent ?? null,
     ram_total_mb: r.ram?.total_gb != null ? Math.round(r.ram.total_gb * 1024) : undefined,
     // 后端遥测仅推送 total_gb/available_gb，已用内存由差值换算（无数据保持 undefined → UI 显示 --）
     ram_used_mb:
       r.ram?.total_gb != null && r.ram?.available_gb != null
         ? Math.round((r.ram.total_gb - r.ram.available_gb) * 1024)
         : undefined,
-    gpu_util_pct: r.gpu?.usage_percent,
-    vram_used_mb: r.gpu?.vram_used_mb,
-    vram_total_mb: r.gpu?.vram_total_mb,
+    gpu_util_pct: r.gpu?.usage_percent ?? null,
+    vram_used_mb: r.gpu?.vram_used_mb ?? undefined,
+    vram_total_mb: r.gpu?.vram_total_mb ?? undefined,
     vram_percent:
       r.gpu?.vram_total_mb && r.gpu.vram_total_mb > 0 && r.gpu.vram_used_mb != null
         ? (r.gpu.vram_used_mb / r.gpu.vram_total_mb) * 100

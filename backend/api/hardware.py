@@ -127,21 +127,22 @@ def _build_hardware_profile() -> dict:
             gpu_info = _detect_gpu_info()
             return {"gpu": gpu_info, "cpu": cpu_info, "ram": ram_info,
                     "disk": disk_info, "power": power}
-        except Exception as exc:  # noqa: BLE001 - 降级到模拟数据
-            log.warning("psutil 采集失败，降级模拟数据：%s", exc)
+        except Exception as exc:  # noqa: BLE001 - 降级到未知画像
+            log.warning("psutil 采集失败，硬件画像标记未知（不回填模拟数据）：%s", exc)
 
-    # 模拟硬件画像兜底
+    # P1-05：硬件探测失败——返回未知画像（零值+未知标注），
+    # 不再回填 Mock CPU/32GB/512GB/80.5% 等编造数据
     return {
         "gpu": {"vendor": "none", "name": "未检测到独立显卡",
                 "vram_total_mb": 0, "vram_free_mb": 0,
                 "compute_capability": "", "driver_version": ""},
-        "cpu": {"name": "Mock CPU", "cores": 8, "threads": 16,
-                "usage_percent": 12.0, "temp_celsius": 45.0},
-        "ram": {"total_gb": 32.0, "available_gb": 16.0,
-                "total_mb": 32768, "available_mb": 16384, "usage_percent": 50.0},
-        "disk": {"path": str(ROOT_DIR), "total_gb": 512.0,
-                 "free_gb": 100.0, "percent": 80.5},
-        "power": "ac",
+        "cpu": {"name": "未知（硬件探测失败）", "cores": 0, "threads": 0,
+                "usage_percent": 0.0, "temp_celsius": 0.0},
+        "ram": {"total_gb": 0.0, "available_gb": 0.0,
+                "total_mb": 0, "available_mb": 0, "usage_percent": 0.0},
+        "disk": {"path": str(ROOT_DIR), "total_gb": 0.0,
+                 "free_gb": 0.0, "percent": 0.0},
+        "power": "unknown",
     }
 
 
@@ -149,7 +150,11 @@ _monitor = None
 
 
 def _realtime_gpu() -> dict:
-    """实时 GPU 遥测：优先调度引擎 HardwareMonitor（pynvml/torch），失败回退零值。"""
+    """实时 GPU 遥测：优先调度引擎 HardwareMonitor（pynvml/torch）。
+
+    P1-05 吞错治理：探测失败不再回填零值/假读数——全部字段置 None
+    并携带 available=False；前端对 None 显示 --，不再渲染编造数据。
+    """
     global _monitor
     try:
         from ..services.scheduler.monitor import HardwareMonitor
@@ -160,39 +165,48 @@ def _realtime_gpu() -> dict:
             total = int(gpu.get("vram_total_mb", 0))
             used = int(gpu.get("vram_used_mb", 0))
             return {
+                "available": True,
                 "usage_percent": float(gpu.get("util_percent", 0.0)),
                 "vram_used_mb": used,
                 "vram_total_mb": total,
                 "vram_free_mb": max(0, total - used),
                 "temp_celsius": float(gpu.get("temp_celsius", 0.0)),
             }
-    except Exception:
-        pass
-    return {"usage_percent": 0.0, "vram_used_mb": 0,
-            "vram_total_mb": 0, "vram_free_mb": 0, "temp_celsius": 0.0}
+    except Exception as exc:
+        log.warning("GPU 实时遥测获取失败（标记未知，不回填假读数）: %s", exc)
+    # 无 GPU 或探测失败：未知标记（None = 前端显示 -- 并禁用相关展示）
+    return {"available": False, "usage_percent": None, "vram_used_mb": None,
+            "vram_total_mb": None, "vram_free_mb": None, "temp_celsius": None}
 
 
 def _realtime_data() -> dict:
-    """采集当前时刻实时遥测数据。"""
+    """采集当前时刻实时遥测数据。
+
+    P1-05 吞错治理：psutil 不可用或采集失败时全部字段置 None
+    （available=False），不再回填 35.0%/8192MB/52°C 等编造读数；
+    前端对 None 显示 --（探测失败可辨识，不再渲染假数据）。
+    """
     psutil = _try_psutil()
     if psutil is not None:
         try:
             vm = psutil.virtual_memory()
             return {
                 "gpu": _realtime_gpu(),
-                "cpu": {"usage_percent": psutil.cpu_percent(interval=None)},
-                "ram": {"total_gb": round(vm.total / (1024 ** 3), 1),
+                "cpu": {"available": True, "usage_percent": psutil.cpu_percent(interval=None)},
+                "ram": {"available": True,
+                        "total_gb": round(vm.total / (1024 ** 3), 1),
                         "available_gb": round(vm.available / (1024 ** 3), 1),
                         "usage_percent": vm.percent},
                 "timestamp": time.time(),
             }
         except Exception as exc:  # noqa: BLE001
-            log.warning("实时遥测采集失败，降级模拟数据：%s", exc)
+            log.warning("实时遥测采集失败（标记未知，不回填模拟读数）：%s", exc)
     return {
-        "gpu": {"usage_percent": 35.0, "vram_used_mb": 8192,
-                "vram_total_mb": 24576, "vram_free_mb": 16384, "temp_celsius": 52.0},
-        "cpu": {"usage_percent": 12.0},
-        "ram": {"total_gb": 32.0, "available_gb": 16.0, "usage_percent": 50.0},
+        "gpu": {"available": False, "usage_percent": None, "vram_used_mb": None,
+                "vram_total_mb": None, "vram_free_mb": None, "temp_celsius": None},
+        "cpu": {"available": False, "usage_percent": None},
+        "ram": {"available": False, "total_gb": None, "available_gb": None,
+                "usage_percent": None},
         "timestamp": time.time(),
     }
 
@@ -272,14 +286,14 @@ def hardware_synergy():
         "idle_seconds": lock.get("idle_seconds", 0.0),
     }
 
-    # 2. VRAM 实时状态
+    # 2. VRAM 实时状态（P1-05：_realtime_gpu 可能返回 None 未知标记，按 0 收敛）
     gpu = _realtime_gpu()
-    total_mb = gpu["vram_total_mb"]
-    used_mb = gpu["vram_used_mb"]
+    total_mb = gpu.get("vram_total_mb") or 0
+    used_mb = gpu.get("vram_used_mb") or 0
     vram = {
         "used_mb": used_mb,
         "total_mb": total_mb,
-        "free_mb": gpu["vram_free_mb"],
+        "free_mb": gpu.get("vram_free_mb") or 0,
         "percent": round(used_mb / total_mb * 100, 1) if total_mb else 0.0,
         "resident_models": [],
         "cached_models": [],

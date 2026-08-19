@@ -10,6 +10,22 @@
  * ========================================================================== */
 
 import React, { useState, useEffect } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  PackageOpen,
+  FolderOpen,
+  MessageSquare,
+  Clapperboard,
+  Mic,
+  Eye,
+  FileText,
+  Box,
+  Wrench,
+  Boxes,
+  AlertTriangle,
+  Import,
+  Check,
+} from 'lucide-react';
 import { useModelStore } from '@/stores/useModelStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import { useAppStore } from '@/stores/useAppStore';
@@ -28,15 +44,25 @@ const CATEGORY_LABELS: Record<ModelCategory, string> = {
   auxiliary: '辅助模型',
 };
 
-/** 类别图标 */
-const CATEGORY_ICONS: Record<ModelCategory, string> = {
-  dialog: '💬',
-  video: '🎬',
-  voice: '🎙',
-  vision: '👁',
-  language: '📝',
-  '3d': '🎲',
-  auxiliary: '🔧',
+/** 类别图标（Lucide SVG；all 为「全部」筛选标签） */
+const CATEGORY_ICONS: Record<ModelCategory | 'all', LucideIcon> = {
+  all: FolderOpen,
+  dialog: MessageSquare,
+  video: Clapperboard,
+  voice: Mic,
+  vision: Eye,
+  language: FileText,
+  '3d': Box,
+  auxiliary: Wrench,
+};
+
+/** 类别图标渲染器（统一尺寸与主色，随激活态变色） */
+const CategoryIcon: React.FC<{ category: ModelCategory | 'all'; size?: number }> = ({
+  category,
+  size = 14,
+}) => {
+  const Icon = CATEGORY_ICONS[category] ?? PackageOpen;
+  return <Icon size={size} aria-hidden="true" />;
 };
 
 /** 状态 → 中文标签 */
@@ -79,7 +105,7 @@ export const ModelManager: React.FC = () => {
 
   // VRAM 使用率：优先实时遥测（WS system_status），其次协同轮询快照
   const vramUsage = useHardwareStore(
-    (s) => s.realtime?.vram_percent ?? s.synergy?.vram?.percent ?? 0,
+    (s) => s.realtime?.vram_percent ?? s.synergy?.vram?.percent ?? null,
   );
 
   // 首次挂载：拉取模型列表
@@ -257,26 +283,30 @@ export const ModelManager: React.FC = () => {
     'all', 'dialog', 'video', 'voice', 'vision', 'language', '3d', 'auxiliary',
   ];
 
-  /** VRAM 警告（>95% 强制线，规格 COM-012） */
-  const vramWarning = vramUsage >= 95;
-  const vramFillClass = vramUsage >= 95 ? 'critical' : vramUsage >= 85 ? 'danger' : '';
+  /** VRAM 警告（>95% 强制线，规格 COM-012）；P1-05：探测失败为 null，不触发告警 */
+  const vramWarning = vramUsage != null && vramUsage >= 95;
+  const vramFillClass = vramUsage == null ? '' : vramUsage >= 95 ? 'critical' : vramUsage >= 85 ? 'danger' : '';
 
   return (
-    <div className="model-manager">
+    <div className="page model-manager">
       <div className="mm-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>🧩 模型管理</h2>
+        <h1 className="page-title" style={{ marginBottom: 0 }}><Boxes size={20} aria-hidden="true" /> 模型管理</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flex: 1, marginLeft: 'var(--space-6)' }}>
           {/* VRAM 监控 */}
           <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>VRAM</span>
           <div className="vram-usage-bar" style={{ flex: 1, maxWidth: 320 }}>
-            <div className={`vram-usage-fill ${vramFillClass}`} style={{ width: `${Math.min(100, vramUsage)}%` }} />
+            <div className={`vram-usage-fill ${vramFillClass}`} style={{ width: `${vramUsage == null ? 0 : Math.min(100, vramUsage)}%` }} />
             <div className="vram-warning-line" style={{ left: '95%' }} />
           </div>
-          <span style={{ fontSize: 'var(--font-size-sm)', minWidth: 40 }}>{Math.round(vramUsage)}%</span>
-          {vramWarning && <span style={{ color: 'var(--color-error)' }}>⚠ 强制线</span>}
+          <span style={{ fontSize: 'var(--font-size-sm)', minWidth: 40 }}>{vramUsage == null ? '--' : `${Math.round(vramUsage)}%`}</span>
+          {vramWarning && (
+            <span style={{ color: 'var(--color-error)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <AlertTriangle size={13} aria-hidden="true" /> 强制线
+            </span>
+          )}
         </div>
         <button className="btn btn-primary btn-sm" onClick={() => setImportOpen(true)}>
-          📥 导入模型
+          <Import size={14} aria-hidden="true" /> 导入模型
         </button>
       </div>
 
@@ -338,7 +368,8 @@ export const ModelManager: React.FC = () => {
             className={`model-category-tab ${activeCategory === cat ? 'active' : ''}`}
             onClick={() => setActiveCategory(cat)}
           >
-            {cat === 'all' ? '📂 全部' : `${CATEGORY_ICONS[cat]} ${CATEGORY_LABELS[cat]}`}
+            <CategoryIcon category={cat} />
+            <span>{cat === 'all' ? '全部' : CATEGORY_LABELS[cat]}</span>
             {cat !== 'all' && groupedModels[cat] ? ` (${groupedModels[cat].length})` : ''}
           </button>
         ))}
@@ -355,8 +386,12 @@ export const ModelManager: React.FC = () => {
               if (catModels.length === 0) return null;
               return (
                 <section key={cat}>
-                  <h3 style={{ marginBottom: 'var(--space-2)' }}>
-                    {CATEGORY_ICONS[cat]} {CATEGORY_LABELS[cat]}（{catModels.length}）
+                  <h3
+                    className="card-title"
+                    style={{ marginBottom: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}
+                  >
+                    <CategoryIcon category={cat} size={16} />
+                    {CATEGORY_LABELS[cat]}（{catModels.length}）
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                     {catModels.map((model) => renderModelCard(model))}
@@ -371,13 +406,39 @@ export const ModelManager: React.FC = () => {
           )}
 
           {displayModels.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-secondary)' }}>
-              <p>
+            <div
+              style={{
+                textAlign: 'center',
+                padding: 'var(--space-8)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 'var(--space-3)',
+              }}
+            >
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 64,
+                  height: 64,
+                  borderRadius: 'var(--radius-lg)',
+                  background: 'rgba(255, 107, 157, 0.1)',
+                  color: 'var(--color-primary)',
+                }}
+              >
+                <PackageOpen size={32} strokeWidth={1.5} aria-hidden="true" />
+              </span>
+              <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
                 {kw
                   ? `无匹配「${searchQuery.trim()}」的模型`
                   : activeCategory === 'all'
                     ? '暂无模型'
                     : `暂无${CATEGORY_LABELS[activeCategory]}`}
+              </p>
+              <p style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)', margin: 0 }}>
+                点击右上角「导入模型」将本地模型目录接入系统，或调整筛选与搜索条件
               </p>
             </div>
           )}
@@ -386,8 +447,9 @@ export const ModelManager: React.FC = () => {
 
       {/* VRAM 强制线警告 */}
       {vramWarning && (
-        <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)', background: 'var(--color-error)', color: 'var(--color-text-primary)' }}>
-          ⚠ VRAM 使用率已达 {Math.round(vramUsage)}%，超过 95% 强制线！请卸载不使用的模型释放显存。
+        <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)', background: 'var(--color-error)', color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <AlertTriangle size={15} aria-hidden="true" />
+          VRAM 使用率已达 {Math.round(vramUsage)}%，超过 95% 强制线！请卸载不使用的模型释放显存。
         </div>
       )}
 
@@ -542,7 +604,11 @@ export const ModelManager: React.FC = () => {
                   : '模型未就绪'
             }
           >
-            {isSelected ? '✓ 已选择' : '选择'}
+            {isSelected ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} aria-hidden="true" /> 已选择</span>
+            ) : (
+              '选择'
+            )}
           </button>
 
           {/* 加载（POST /v1/models/load；未下载/已加载置灰） */}

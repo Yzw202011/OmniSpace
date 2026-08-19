@@ -201,16 +201,17 @@ export interface FeatureLockSnapshot {
   acquired_at?: number;
 }
 
-/** 实时遥测（GET /hardware/realtime 与 WS 推送） */
+/** 实时遥测（GET /hardware/realtime 与 WS 推送）。
+ *  P1-05：null = 后端探测失败（前端显示 --，不渲染编造数据）。 */
 export interface HardwareRealtime {
-  cpu_percent: number;
-  ram_percent: number;
+  cpu_percent: number | null;
+  ram_percent: number | null;
   ram_used_mb?: number;
   ram_total_mb?: number;
-  gpu_util_pct?: number;
+  gpu_util_pct?: number | null;
   vram_used_mb?: number;
   vram_total_mb?: number;
-  vram_percent?: number;
+  vram_percent?: number | null;
   gpu_temp_celsius?: number | null;
   /** 时间戳（秒） */
   ts?: number;

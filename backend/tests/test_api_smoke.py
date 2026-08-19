@@ -130,3 +130,53 @@ def test_unknown_api_path_no_crash(client):
     resp = client.get("/api/v1/definitely/not/exist")
     assert resp.status_code in (200, 404)
     assert "Traceback" not in resp.text
+
+
+# ── TASK-P0-03：上传端点类型闸门（.exe 伪装扩展名拦截）──────────
+# ADR-01 统一信封：拒绝 = HTTP 200 + success:false（非 HTTP 4xx）
+
+_EXE_BYTES = (b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00"
+              b"\xb8\x00\x00\x00\x00\x00\x00\x00@\x00\x00\x00\x00\x00\x00\x00")
+
+
+def test_upload_exe_disguised_as_jsonl_rejected(client, tmp_path, monkeypatch):
+    """/learn/dataset/upload：.exe 改名 .jsonl 必须被拒（P0-03 主场景）。"""
+    monkeypatch.setattr("backend.api.learn.TRAIN_DATA_DIR", tmp_path)
+    resp = client.post(
+        "/api/v1/learn/dataset/upload",
+        files={"file": ("evil.jsonl", _EXE_BYTES, "application/octet-stream")})
+    body = resp.json()
+    assert body["success"] is False, f"伪装可执行体未被拦截: {body}"
+    assert "可执行" in body["error"]["message"]
+
+
+def test_upload_exe_disguised_as_pdf_rejected(client):
+    """/knowledge/import-document：.exe 改名 .pdf 必须被拒。"""
+    resp = client.post(
+        "/api/v1/knowledge/import-document",
+        files={"file": ("evil.pdf", _EXE_BYTES, "application/pdf")},
+        data={"topic": "测试"})
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "UNSUPPORTED_FORMAT"
+
+
+def test_upload_exe_disguised_as_png_rejected(client):
+    """/style/upload：.exe 改名 .png 必须被拒。"""
+    resp = client.post(
+        "/api/v1/style/upload",
+        files={"file": ("evil.png", _EXE_BYTES, "image/png")})
+    body = resp.json()
+    assert body["success"] is False
+
+
+def test_upload_normal_jsonl_still_works(client, tmp_path, monkeypatch):
+    """闸门不得误伤：正常 UTF-8 JSONL 上传仍成功（P0-03 完成标准）。"""
+    monkeypatch.setattr("backend.api.learn.TRAIN_DATA_DIR", tmp_path)
+    payload = '{"instruction":"a","input":"","output":"b"}\n'.encode()
+    resp = client.post(
+        "/api/v1/learn/dataset/upload",
+        files={"file": ("ok.jsonl", payload, "text/plain")})
+    body = resp.json()
+    assert body["success"] is True, f"正常数据集被误拦: {body}"
+    assert body["data"]["size_bytes"] == len(payload)

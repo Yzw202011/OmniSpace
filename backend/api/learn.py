@@ -29,6 +29,7 @@ from fastapi import APIRouter, Body, Query, UploadFile, File
 from ..data.database import get_db_safe
 from ..data.models import TrainTaskCreate, TrainStatus
 from ..middleware.error_handler import ApiError, ok
+from ..middleware import upload_guard
 from ..services.lora_training_service import (
     MIN_TRAINING_SAMPLES,
     TRAIN_DATA_DIR,
@@ -289,9 +290,14 @@ async def learn_dataset_upload(file: UploadFile = File(...)):
             detail={"size_bytes": len(content), "limit_bytes": _MAX_UPLOAD_BYTES},
             suggestion="请拆分数据集或压缩后重新上传")
 
-    suffix = Path(file.filename).suffix.lower() or ".jsonl"
-    if suffix not in (".jsonl", ".json", ".txt"):
-        raise ApiError(40004, f"不支持的数据集格式: {suffix}，请上传 JSONL")
+    # TASK-P0-03：后缀白名单 + 魔数嗅验（.exe 改名 .jsonl 在此拦截）
+    try:
+        upload_guard.validate(file.filename, content, upload_guard.DATASET_TABLE)
+    except upload_guard.UploadRejected as exc:
+        raise ApiError(40004, str(exc),
+                       detail={"filename": file.filename},
+                       suggestion="请上传 UTF-8 编码的 JSONL/JSON/TXT 文件") from exc
+    suffix = Path(file.filename).suffix.lower()
 
     dataset_id = uuid.uuid4().hex
     dest_dir = TRAIN_DATA_DIR / "uploads"

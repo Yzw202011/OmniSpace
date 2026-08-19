@@ -30,6 +30,7 @@ import logging
 from fastapi import APIRouter, Body, File, UploadFile
 
 from ..middleware.error_handler import ApiError, ok
+from ..middleware import upload_guard
 from ..services.style_lora_service import (
     MAX_UPLOAD_BYTES,
     MIN_STYLE_SAMPLES,
@@ -66,6 +67,13 @@ async def style_upload(file: UploadFile = File(...)):
             40009, "上传文件超过 200MB 上限",
             detail={"size_bytes": len(content), "limit_bytes": MAX_UPLOAD_BYTES},
             suggestion="请压缩视频或截取片段后重新上传")
+
+    # TASK-P0-03：后缀白名单 + 魔数嗅验（伪装扩展名的可执行体在此拦截）
+    try:
+        upload_guard.validate(file.filename, content, upload_guard.MEDIA_TABLE)
+    except upload_guard.UploadRejected as exc:
+        raise ApiError(80015, str(exc),
+                       detail={"filename": file.filename}) from exc
 
     svc = get_style_lora_service()
     try:

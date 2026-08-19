@@ -40,6 +40,7 @@ from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from ..middleware.error_handler import ApiError, ok
+from ..middleware import upload_guard
 from ..services.injection_service import get_injection_service
 from ..services.knowledge_service import get_knowledge_service
 from ..services.behavior_service import get_behavior_service
@@ -224,6 +225,12 @@ async def knowledge_import_document(file: UploadFile = File(...),
                        detail={"size_bytes": len(data),
                                "limit_bytes": _MAX_UPLOAD_BYTES},
                        suggestion="请拆分文档后分批导入")
+    # TASK-P0-03：后缀白名单 + 魔数嗅验（拦截伪装扩展名的可执行体）
+    try:
+        upload_guard.validate(file.filename, data, upload_guard.DOCUMENT_TABLE)
+    except upload_guard.UploadRejected as exc:
+        raise ApiError("UNSUPPORTED_FORMAT", str(exc),
+                       detail={"filename": file.filename}) from exc
     try:
         text = _parse_document(file.filename, data)
     except ApiError:

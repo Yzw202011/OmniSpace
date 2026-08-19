@@ -1,0 +1,540 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Aurora 视觉美化层（Visual Polish Layer）
+   --------------------------------------------------------------------------
+   定位：加载链最末端的纯覆盖层，不改变任何既有布局与结构，
+        仅提升质感——氛围光晕 / 渐变质感 / 发光反馈 / 微交互动效。
+   原则：
+     1) 全部使用 tokens.css 既有令牌，装饰性 rgba 以樱粉/薄荷绿为源；
+     2) 动画仅用 transform / opacity / box-shadow / filter（GPU 友好）；
+     3) 同特异性覆盖依赖级联顺序（本文件最后加载），不使用 !important；
+     4) [data-theme='light'] 单独适配，暗亮双主题均成立；
+     5) prefers-reduced-motion 全量降级（无障碍）。
+   引入：sakura.css 末尾 @import './polish.css'。
+   ========================================================================== */
+
+/* ============================== 1. 背景氛围：多层极光光晕 ============================== */
+/* 樱粉极光（右上）+ 薄荷微光（左下）+ 深空紫晕（底部纵深），营造空间层次 */
+body {
+  background:
+    radial-gradient(1300px 620px at 82% -12%, rgba(255, 107, 157, 0.14), transparent 64%),
+    radial-gradient(1100px 560px at -8% 108%, rgba(78, 205, 196, 0.10), transparent 60%),
+    radial-gradient(1600px 820px at 50% 118%, rgba(122, 92, 220, 0.11), transparent 64%),
+    var(--color-bg);
+}
+
+/* 亮色主题：光晕减淡，保持清爽 */
+[data-theme='light'] body {
+  background:
+    radial-gradient(1100px 520px at 82% -12%, rgba(255, 107, 157, 0.07), transparent 60%),
+    radial-gradient(900px 480px at -8% 108%, rgba(78, 205, 196, 0.06), transparent 55%),
+    var(--color-bg);
+}
+
+/* 文本选中态：樱粉染色 */
+::selection {
+  background: rgba(255, 107, 157, 0.38);
+  color: #fff;
+}
+[data-theme='light'] ::selection {
+  background: rgba(255, 107, 157, 0.25);
+  color: var(--color-text-primary);
+}
+
+/* ============================== 2. 滚动条：双色渐变胶囊 ============================== */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255, 107, 157, 0.28), rgba(78, 205, 196, 0.22));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255, 107, 157, 0.5), rgba(78, 205, 196, 0.4));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ============================== 3. 顶栏：品牌光带 + 渐变 Logo ============================== */
+/* 底缘樱粉→薄荷渐隐光带（叠于既有分隔线上方，pointer-events 穿透） */
+.topbar::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 107, 157, 0.45) 18%,
+    rgba(255, 107, 157, 0.6) 50%,
+    rgba(78, 205, 196, 0.4) 82%,
+    transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Logo 文字：樱粉金渐变 + 柔光 */
+.topbar-logo .logo-text {
+  background: linear-gradient(120deg, #ff9bbe 0%, #ff6b9d 38%, #ffb3cd 68%, #ffd9e6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--color-primary);           /* 不支持 clip 时的兜底 */
+  -webkit-text-fill-color: transparent;  /* 支持时透出渐变 */
+  letter-spacing: 0.2px;
+  filter: drop-shadow(0 0 10px rgba(255, 107, 157, 0.28));
+}
+/* Logo 花瓣图标：悬浮光晕 + 呼吸微动 */
+.topbar-logo > span:first-child {
+  display: inline-flex;
+  filter: drop-shadow(0 0 8px rgba(255, 107, 157, 0.35));
+  animation: logo-bloom 4.5s ease-in-out infinite;
+}
+@keyframes logo-bloom {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.08) rotate(6deg); }
+}
+
+/* 顶栏图标按钮：hover 樱粉光晕浮起 */
+.topbar-icon-btn {
+  border-radius: var(--radius-md);
+}
+.topbar-icon-btn:hover {
+  color: var(--color-primary-300);
+  background: var(--color-primary-100);
+  border-color: var(--color-primary-200);
+  box-shadow: 0 4px 12px rgba(255, 107, 157, 0.2);
+  transform: translateY(-1px);
+}
+.topbar-icon-btn:active { transform: translateY(0) scale(0.95); }
+
+/* 搜索触发器：hover 边框流光 */
+.topbar-search-trigger:hover {
+  border-color: var(--color-primary-400);
+  color: var(--color-text-secondary);
+  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.1);
+}
+.topbar-search-box {
+  box-shadow: 0 0 0 3px var(--color-focus-ring), 0 4px 16px rgba(255, 107, 157, 0.12);
+}
+
+/* 头像：hover 粉光环 */
+.topbar-avatar {
+  background: linear-gradient(135deg, rgba(255, 107, 157, 0.22), rgba(255, 155, 190, 0.12));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.topbar-avatar:hover {
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-focus-ring), 0 4px 12px rgba(255, 107, 157, 0.2);
+}
+
+/* 下拉面板：毛玻璃 + 光晕投影 */
+.topbar-dropdown {
+  background: var(--color-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg), 0 0 32px rgba(8, 8, 18, 0.35);
+  animation: dropdown-in 200ms var(--ease-out);
+}
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.topbar-menu-item:hover, .topbar-search-item:hover {
+  background: var(--color-primary-100);
+  color: var(--color-primary-300);
+}
+
+/* ============================== 4. 侧栏导航：胶囊化 + 发光指示 ============================== */
+/* 侧栏背景：樱粉氛围渐晕（顶部极淡樱粉向下渐隐） */
+.sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 107, 157, 0.04), transparent 24%),
+    var(--color-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* 导航项：胶囊圆角 + 全属性过渡 */
+.nav-item {
+  border-radius: var(--radius-md);
+  position: relative;
+  transition:
+    background var(--duration-hover) var(--ease-out),
+    color var(--duration-hover) var(--ease-out),
+    box-shadow var(--duration-hover) var(--ease-out),
+    transform var(--duration-hover) var(--ease-out);
+}
+.nav-item .nav-icon {
+  transition: transform var(--duration-hover) var(--ease-spring);
+}
+.nav-item:hover {
+  background: linear-gradient(90deg, var(--color-primary-100), var(--color-primary-50));
+  color: var(--color-primary-300);
+}
+.nav-item:hover .nav-icon { transform: scale(1.12); }
+.nav-item:active .nav-icon { transform: scale(0.94); }
+
+/* 激活态：樱粉渐变胶囊 + 左侧光柱 + 外发光 */
+.nav-item.active {
+  background: linear-gradient(90deg,
+    rgba(255, 107, 157, 0.20),
+    rgba(255, 107, 157, 0.07) 80%);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+  box-shadow:
+    inset 3px 0 0 var(--color-primary),
+    0 0 14px rgba(255, 107, 157, 0.16);
+}
+.nav-item.active .nav-icon {
+  filter: drop-shadow(0 0 6px rgba(255, 107, 157, 0.5));
+}
+/* 激活光柱顶端/底端渐隐（叠加小伪元素柔化 inset 硬条） */
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 20%; bottom: 20%;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, transparent, var(--color-primary-400), transparent);
+  filter: blur(0.5px);
+  pointer-events: none;
+}
+
+/* 互斥置灰项：去光效 */
+.nav-item.blocked:hover { background: transparent; }
+.nav-item.blocked:hover .nav-icon { transform: none; }
+
+/* 折叠按钮：hover 浮起 */
+.sidebar-collapse-btn:hover {
+  color: var(--color-primary-300);
+  border-color: var(--color-primary-400);
+  background: var(--color-primary-100);
+  box-shadow: 0 4px 12px rgba(255, 107, 157, 0.16);
+}
+
+/* ============================== 5. 右侧面板 & 状态栏：分层纵深 ============================== */
+/* 右面板：卡片→底色纵向微渐变 + 左缘光边，与主内容区分层 */
+.right-panel {
+  background: linear-gradient(180deg, var(--color-card), var(--color-bg));
+  border-left: 1px solid var(--color-border-light);
+  box-shadow: -1px 0 0 rgba(255, 107, 157, 0.04);
+}
+/* 面板标题：樱粉小圆点装饰前缀 */
+.rp-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.rp-section-title::before {
+  content: '';
+  width: 4px; height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  box-shadow: 0 0 6px rgba(255, 107, 157, 0.6);
+  flex-shrink: 0;
+}
+
+/* 状态栏：纵向微渐变 + 顶缘高光线 */
+.statusbar {
+  background: linear-gradient(180deg, var(--color-card), var(--color-bg));
+  border-top: 1px solid var(--color-border-light);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.statusbar .sb-value { text-shadow: 0 0 8px rgba(255, 107, 157, 0.12); }
+
+/* ============================== 6. 按钮：渐变果冻质感 ============================== */
+/* 主按钮：樱粉渐变 + 顶部内高光 + 悬浮光晕 */
+.btn-primary {
+  background: linear-gradient(135deg, #ff7cab 0%, #ff6b9d 48%, #f5598c 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 8px rgba(255, 107, 157, 0.28);
+  text-shadow: 0 1px 1px rgba(140, 30, 70, 0.25);
+}
+.btn-primary:not(:disabled):hover {
+  background: linear-gradient(135deg, #ff8fb8 0%, #ff76a7 48%, #fb64a0 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 4px 18px rgba(255, 107, 157, 0.45);
+  transform: translateY(-1px);
+}
+.btn-primary:not(:disabled):active {
+  background: linear-gradient(135deg, #f0608f 0%, #e6608d 48%, #d64f7f 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(120, 20, 60, 0.3),
+    0 1px 4px rgba(255, 107, 157, 0.3);
+  transform: translateY(0) scale(0.97);
+}
+[data-theme='light'] .btn-primary { text-shadow: 0 1px 1px rgba(255, 255, 255, 0.2); }
+
+/* 次按钮：薄荷描边 + hover 内发光 */
+.btn-secondary {
+  background: rgba(78, 205, 196, 0.06);
+  border: 1px solid rgba(78, 205, 196, 0.45);
+  box-shadow: inset 0 1px 0 rgba(78, 205, 196, 0.1);
+}
+.btn-secondary:not(:disabled):hover {
+  background: rgba(78, 205, 196, 0.14);
+  border-color: var(--color-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(78, 205, 196, 0.18),
+    0 0 14px rgba(78, 205, 196, 0.18);
+  transform: translateY(-1px);
+}
+.btn-secondary:not(:disabled):active {
+  background: rgba(78, 205, 196, 0.1);
+  transform: translateY(0) scale(0.97);
+}
+
+/* 危险按钮：红渐变 + 光晕 */
+.btn-danger {
+  background: linear-gradient(135deg, #ff7d7d 0%, #ff6b6b 52%, #f25454 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 2px 8px rgba(255, 107, 107, 0.26);
+}
+.btn-danger:not(:disabled):hover {
+  background: linear-gradient(135deg, #ff9090 0%, #ff7d7d 52%, #ff5f5f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 4px 16px rgba(255, 107, 107, 0.4);
+  transform: translateY(-1px);
+}
+.btn-danger:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Ghost 按钮：hover 粉光 */
+.btn-ghost:not(:disabled):hover {
+  background: var(--color-primary-100);
+  color: var(--color-primary-300);
+}
+
+/* 图标按钮：hover 光晕 */
+.icon-btn:hover {
+  background: var(--color-primary-100);
+  color: var(--color-primary-300);
+  box-shadow: 0 2px 8px rgba(255, 107, 157, 0.16);
+}
+.icon-btn.active {
+  background: var(--color-primary-100);
+  box-shadow: inset 0 0 0 1px var(--color-primary-200);
+}
+
+/* ============================== 7. 输入控件：樱粉聚焦光环 ============================== */
+.input {
+  border-radius: var(--radius-sm);
+  transition:
+    border-color var(--duration-hover) var(--ease-out),
+    box-shadow var(--duration-hover) var(--ease-out),
+    background var(--duration-hover) var(--ease-out);
+}
+.input:hover { border-color: rgba(78, 205, 196, 0.45); }
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow:
+    0 0 0 3px var(--color-focus-ring),
+    0 0 14px rgba(255, 107, 157, 0.14);
+}
+
+/* 滑块 thumb：樱粉光环 */
+input[type='range'].slider::-webkit-slider-thumb {
+  background: linear-gradient(180deg, #1e2c52, #16213e);
+  border: 2px solid var(--color-primary);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    0 0 8px rgba(255, 107, 157, 0.35);
+}
+input[type='range'].slider::-webkit-slider-thumb:hover {
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 0 14px rgba(255, 107, 157, 0.55);
+}
+
+/* ============================== 8. 卡片：顶部高光线 + 柔和投影 ============================== */
+/* inset 高光模拟顶缘 1px 亮线（不引入伪元素，不影响子元素定位上下文） */
+.card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    var(--shadow-md);
+}
+[data-theme='light'] .card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    var(--shadow-md);
+}
+.card.hoverable:hover {
+  border-color: var(--color-primary-200);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--shadow-card-hover),
+    0 0 20px rgba(255, 107, 157, 0.08);
+}
+
+/* ============================== 9. 进度条：流光扫过动画 ============================== */
+.progress-bar {
+  background: linear-gradient(90deg, var(--color-primary), #ff9bbe 55%, var(--color-accent));
+  box-shadow: 0 0 8px rgba(255, 107, 157, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  transform: translateX(-100%);
+  animation: progress-shimmer 2.2s var(--ease-in-out) infinite;
+}
+@keyframes progress-shimmer {
+  60% { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ============================== 10. Toast：毛玻璃 + 语义光晕 ============================== */
+.toast {
+  background: var(--color-glass);
+  backdrop-filter: var(--glass-blur-light);
+  -webkit-backdrop-filter: var(--glass-blur-light);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    var(--shadow-toast),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: toast-in-polish var(--duration-toast-in) var(--ease-spring);
+}
+@keyframes toast-in-polish {
+  from { opacity: 0; transform: translateX(48px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.toast.success { box-shadow: var(--shadow-toast), 0 0 20px rgba(107, 203, 119, 0.12); }
+.toast.warning { box-shadow: var(--shadow-toast), 0 0 20px rgba(255, 217, 61, 0.12); }
+.toast.error   { box-shadow: var(--shadow-toast), 0 0 20px rgba(255, 107, 107, 0.14); }
+.toast.info    { box-shadow: var(--shadow-toast), 0 0 20px rgba(78, 205, 196, 0.12); }
+.toast:hover { transform: translateY(-1px); transition: transform var(--duration-hover) var(--ease-out); }
+
+/* ============================== 11. 弹窗/抽屉：光边 + 顶部渐晕 ============================== */
+.modal {
+  background:
+    linear-gradient(180deg, rgba(255, 107, 157, 0.04), transparent 72px),
+    var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    var(--shadow-modal),
+    0 0 0 1px rgba(255, 107, 157, 0.05),
+    0 0 48px rgba(255, 107, 157, 0.06);
+  animation: modal-in-polish var(--duration-modal-in) var(--ease-spring);
+}
+@keyframes modal-in-polish {
+  from { opacity: 0; transform: scale(0.92) translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.modal-overlay { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+
+.drawer {
+  background:
+    linear-gradient(180deg, rgba(78, 205, 196, 0.03), transparent 64px),
+    var(--color-card);
+  box-shadow: var(--shadow-lg), -8px 0 32px rgba(8, 8, 18, 0.3);
+}
+.drawer-overlay { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+/* ============================== 12. 徽章：内高光光泽 ============================== */
+.badge { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.badge.primary {
+  background: linear-gradient(135deg, rgba(255, 107, 157, 0.24), rgba(255, 107, 157, 0.1));
+  color: var(--color-primary-300);
+}
+.badge.success { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 10px rgba(107, 203, 119, 0.1); }
+.badge.error   { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 10px rgba(255, 107, 107, 0.1); }
+.badge.info    { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 10px rgba(78, 205, 196, 0.1); }
+.badge.warning { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 10px rgba(255, 217, 61, 0.1); }
+
+/* ============================== 13. 空状态 / Spinner：氛围光效 ============================== */
+.empty-emoji {
+  box-shadow:
+    inset 0 0 0 1px var(--color-primary-200),
+    0 10px 28px rgba(255, 107, 157, 0.14),
+    inset 0 -8px 18px rgba(255, 107, 157, 0.08);
+}
+.spinner {
+  filter: drop-shadow(0 0 5px rgba(255, 107, 157, 0.4));
+}
+
+/* ============================== 14. 页面进入：淡入 + 上浮 ============================== */
+.page { animation: page-enter 320ms var(--ease-out); }
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================== 15. WS 状态灯：增强呼吸光 ============================== */
+.ws-dot.on {
+  box-shadow:
+    0 0 6px rgba(107, 203, 119, 0.7),
+    0 0 12px rgba(107, 203, 119, 0.35);
+}
+
+/* ============================== 16. 动效降级（prefers-reduced-motion） ============================== */
+@media (prefers-reduced-motion: reduce) {
+  body,
+  .sidebar,
+  .right-panel,
+  .statusbar { transition: none; }
+  .page,
+  .topbar-dropdown,
+  .modal,
+  .toast { animation-duration: 1ms; }
+  .progress-bar::after,
+  .topbar-logo > span:first-child,
+  .empty-emoji { animation: none; }
+  .nav-item,
+  .nav-item .nav-icon,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .topbar-icon-btn,
+  .icon-btn { transition: none; }
+  .nav-item:hover .nav-icon { transform: none; }
+  .btn-primary:not(:disabled):hover,
+  .btn-secondary:not(:disabled):hover,
+  .btn-danger:not(:disabled):hover { transform: none; }
+}
+
+/* ============================== 17. Tailwind 品牌类质感统一 ==============================
+ * 组件中大量使用 bg-sakura-500（主按钮/用户气泡/进度/选中态），
+ * 此处统一注入渐变 + 内高光，与 .btn-primary 质感对齐。
+ * 本文件为非 layer 规则，天然覆盖 Tailwind utilities layer；
+ * hover/active 变体类需同步覆盖（否则变体失效回不到纯色）。
+ * ============================================================== */
+.bg-sakura-500 {
+  background-image: linear-gradient(135deg, #ff7cab 0%, #ff6b9d 48%, #f5598c 100%);
+  background-color: var(--color-primary); /* 渐变不可用时的兜底 */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 2px 8px rgba(255, 107, 157, 0.26);
+  color: #fff;
+}
+.hover\:bg-sakura-600:hover {
+  background-image: linear-gradient(135deg, #ff8fb8 0%, #ff76a7 48%, #fb64a0 100%);
+  background-color: var(--color-primary-600);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 4px 16px rgba(255, 107, 157, 0.4);
+}
+.active\:bg-sakura-700:active {
+  background-image: linear-gradient(135deg, #f0608f 0%, #e6608d 48%, #d64f7f 100%);
+  background-color: var(--color-primary-700);
+  box-shadow:
+    inset 0 2px 4px rgba(120, 20, 60, 0.3),
+    0 1px 4px rgba(255, 107, 157, 0.3);
+}
+/* 用户消息气泡：渐变 + 柔光（MessageBubble 场景，无 hover 态） */
+.bg-sakura-500.text-white {
+  text-shadow: 0 1px 1px rgba(140, 30, 70, 0.2);
+}
+/* 进度填充（Progress.tsx animate-pulse 场景）：仅保留轻光晕 */
+.animate-pulse.bg-sakura-500 {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 0 8px rgba(255, 107, 157, 0.3);
+}

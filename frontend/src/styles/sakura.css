@@ -14,6 +14,8 @@
 @import './tokens.css';
 @import './sakura-theme.css';
 @import './app.css';
+@import './polish.css'; /* Sakura Aurora 视觉美化层（最后加载，覆盖增强质感） */
+@import './deep-polish.css'; /* 深度美化层（动态极光/玻璃渐变描边卡片/渐变标题/交错入场） */
 
 /* ------------------------------ 兼容别名（旧名 → 规格令牌） ------------------------------
  * 仅为本文件少量历史引用提供解析，全部为 tokens.css 未定义的新名，不会覆盖规格令牌。

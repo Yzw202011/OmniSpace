@@ -1,0 +1,380 @@
+/* ==========================================================================
+   OmniSpace AI —— Sakura Aurora 深度美化层（Deep Visual Polish）
+   --------------------------------------------------------------------------
+   定位：加载链最末端（polish.css 之后），全站"一眼吸引"的高级视觉层。
+   核心手法：
+     1) 动态极光 —— body 双伪元素大光斑缓慢漂移（transform 合成层动画，
+        零重排，60s 级周期），营造"活的"氛围背景；
+     2) 玻璃渐变描边卡片 —— border-box 双背景技巧（padding-box 实底 +
+        border-box 渐变描边），所有 .card 获得樱粉→薄荷渐变描边质感；
+     3) 主视图半透明化 —— 实底 bg-[var(--color-bg)] / bg-[var(--color-card)]
+        统一转为半透明玻璃底，让极光从内容底下透出（深度纵深感）；
+     4) 渐变标题体系 —— 页面标题渐变文字 + 光带、卡片标题渐变竖条；
+     5) 交错入场 —— .page 直接子区块级联浮现（60ms 步进）；
+     6) 悬浮微交互 —— 图片卡上浮光晕、会话激活项粉光胶囊、AI 气泡玻璃化。
+   安全边界：
+     - 漫剧编辑器（§18 樱粉霓虹体系）与 3D 视口不触碰；
+     - 亮色主题逐条适配（玻璃底换白、描边减淡、极光几乎隐去）；
+     - prefers-reduced-motion 全量降级。
+   引入：sakura.css 末尾 @import './deep-polish.css'（polish.css 之后）。
+   ========================================================================== */
+
+/* ============================== 1. 动态极光：缓慢漂移的双光斑 ============================== */
+/* 绘制层级：z-index:-1 画在 body 背景之上、全部内容之下；
+   transform 动画走合成器，不触发重排。 */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform;
+}
+/* 樱粉极光团：右上区域，38s 呼吸漂移 */
+body::before {
+  top: -20vh;
+  right: -10vw;
+  width: 66vw;
+  height: 66vw;
+  max-width: 980px;
+  max-height: 980px;
+  background: radial-gradient(circle at center,
+    rgba(255, 107, 157, 0.26) 0%,
+    rgba(255, 107, 157, 0.12) 36%,
+    transparent 70%);
+  animation: aurora-pink 38s ease-in-out infinite alternate;
+}
+/* 薄荷极光团：左下区域，46s 反相位漂移 */
+body::after {
+  bottom: -24vh;
+  left: -12vw;
+  width: 60vw;
+  height: 60vw;
+  max-width: 920px;
+  max-height: 920px;
+  background: radial-gradient(circle at center,
+    rgba(78, 205, 196, 0.2) 0%,
+    rgba(78, 205, 196, 0.08) 38%,
+    transparent 72%);
+  animation: aurora-mint 46s ease-in-out infinite alternate;
+}
+@keyframes aurora-pink {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0.9; }
+  50%  { transform: translate(-9vw, 7vh) scale(1.15); opacity: 1; }
+  100% { transform: translate(4vw, 12vh) scale(1.05); opacity: 0.85; }
+}
+@keyframes aurora-mint {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0.85; }
+  50%  { transform: translate(9vw, -8vh) scale(1.12); opacity: 1; }
+  100% { transform: translate(-5vw, -11vh) scale(1.06); opacity: 0.8; }
+}
+/* 亮色主题：极光近乎隐去（保底存在感），避免浅底发灰 */
+[data-theme='light'] body::before { opacity: 0.18; }
+[data-theme='light'] body::after { opacity: 0.15; }
+
+/* ============================== 2. 主视图玻璃化：实底 → 半透明 ==============================
+ * DialogView/PaintView 等主区域使用 bg-[var(--color-bg)]、bg-[var(--color-card)]
+ * 实底会遮死极光；统一转半透明玻璃底（叠在 body 静态渐变 + 极光之上）。
+ * 非 layer 规则天然覆盖 Tailwind utilities layer。
+ * ============================================================== */
+[class*='bg-[var(--color-bg)]'] {
+  background-color: rgba(26, 26, 46, 0.42);
+}
+[class*='bg-[var(--color-card)]'] {
+  background-color: rgba(22, 33, 62, 0.55);
+}
+/* 亮色玻璃底 */
+[data-theme='light'] [class*='bg-[var(--color-bg)]'] { background-color: rgba(248, 249, 252, 0.72); }
+[data-theme='light'] [class*='bg-[var(--color-card)]'] { background-color: rgba(255, 255, 255, 0.78); }
+
+/* ============================== 3. 玻璃渐变描边卡片系统 ==============================
+ * 双背景技巧：padding-box 承载玻璃实底，border-box 承载樱粉→薄荷渐变描边，
+ * border 置 transparent 让渐变透出——"发光边框"而零额外元素。
+ * ============================================================== */
+.card {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(22, 33, 62, 0.72), rgba(22, 33, 62, 0.72)) padding-box,
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.38) 0%,
+      rgba(255, 155, 190, 0.18) 30%,
+      rgba(78, 205, 196, 0.24) 68%,
+      rgba(255, 107, 157, 0.16) 100%) border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    var(--shadow-md);
+}
+[data-theme='light'] .card {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)) padding-box,
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.3) 0%,
+      rgba(255, 155, 190, 0.14) 30%,
+      rgba(78, 205, 196, 0.2) 68%,
+      rgba(255, 107, 157, 0.12) 100%) border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    var(--shadow-md);
+}
+/* 悬浮：描边点亮 + 樱粉外辉光 + 上浮 */
+.card.hoverable {
+  transition:
+    transform var(--duration-hover) var(--ease-out),
+    box-shadow var(--duration-hover) var(--ease-out),
+    border-color var(--duration-hover) var(--ease-out);
+}
+.card.hoverable:hover {
+  transform: translateY(-3px);
+  background:
+    linear-gradient(rgba(24, 36, 68, 0.78), rgba(22, 33, 62, 0.78)) padding-box,
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.6) 0%,
+      rgba(255, 155, 190, 0.3) 30%,
+      rgba(78, 205, 196, 0.4) 68%,
+      rgba(255, 107, 157, 0.26) 100%) border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    var(--shadow-card-hover),
+    0 0 28px rgba(255, 107, 157, 0.12);
+}
+[data-theme='light'] .card.hoverable:hover {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.92)) padding-box,
+    linear-gradient(135deg,
+      rgba(255, 107, 157, 0.48) 0%,
+      rgba(255, 155, 190, 0.24) 30%,
+      rgba(78, 205, 196, 0.32) 68%,
+      rgba(255, 107, 157, 0.2) 100%) border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--shadow-card-hover),
+    0 0 24px rgba(255, 107, 157, 0.1);
+}
+
+/* 卡片标题：左侧渐变光条（竖条由樱粉渐隐至薄荷） */
+.card-title {
+  position: relative;
+  padding-left: var(--space-4);
+}
+.card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, var(--color-primary), var(--color-accent));
+  box-shadow: 0 0 8px rgba(255, 107, 157, 0.5);
+}
+
+/* 模型管理卡片：同一玻璃渐变描边语言 */
+.model-card {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(22, 33, 62, 0.7), rgba(22, 33, 62, 0.7)) padding-box,
+    linear-gradient(135deg, rgba(255, 107, 157, 0.26), rgba(78, 205, 196, 0.2)) border-box;
+  transition:
+    transform var(--duration-hover) var(--ease-out),
+    box-shadow var(--duration-hover) var(--ease-out),
+    background var(--duration-hover) var(--ease-out);
+}
+.model-card:hover {
+  transform: translateY(-2px);
+  background:
+    linear-gradient(rgba(24, 36, 68, 0.78), rgba(22, 33, 62, 0.78)) padding-box,
+    linear-gradient(135deg, rgba(255, 107, 157, 0.5), rgba(78, 205, 196, 0.34)) border-box;
+  box-shadow: var(--shadow-card-hover), 0 0 20px rgba(255, 107, 157, 0.1);
+}
+.model-card.selected {
+  background:
+    linear-gradient(rgba(255, 107, 157, 0.1), rgba(22, 33, 62, 0.74)) padding-box,
+    linear-gradient(135deg, rgba(255, 107, 157, 0.66), rgba(255, 155, 190, 0.4)) border-box;
+  box-shadow: var(--shadow-card-hover), 0 0 24px rgba(255, 107, 157, 0.16);
+}
+[data-theme='light'] .model-card {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)) padding-box,
+    linear-gradient(135deg, rgba(255, 107, 157, 0.24), rgba(78, 205, 196, 0.18)) border-box;
+}
+[data-theme='light'] .model-card.selected {
+  background:
+    linear-gradient(rgba(255, 240, 246, 0.9), rgba(255, 255, 255, 0.85)) padding-box,
+    linear-gradient(135deg, rgba(255, 107, 157, 0.56), rgba(255, 155, 190, 0.36)) border-box;
+}
+
+/* ============================== 4. 页面标题：渐变文字 + 光带 ============================== */
+.page-title {
+  background: linear-gradient(105deg,
+    var(--color-text-primary) 0%,
+    #ffd9e6 38%,
+    var(--color-primary-300) 62%,
+    var(--color-text-primary) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--color-text-primary);          /* clip 不支持时兜底 */
+  -webkit-text-fill-color: transparent;      /* 支持时透出渐变 */
+  display: inline-block;
+  position: relative;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+/* 标题底部渐隐光带（樱粉→薄荷） */
+.page-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg,
+    var(--color-primary) 0%,
+    rgba(255, 107, 157, 0.35) 42%,
+    rgba(78, 205, 196, 0.3) 74%,
+    transparent 100%);
+}
+[data-theme='light'] .page-title {
+  background: linear-gradient(105deg,
+    #1a1a2e 0%,
+    #e6608d 45%,
+    #c44e76 62%,
+    #1a1a2e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+/* 设置页分区标题：同款渐变竖条 */
+.settings-section-title {
+  position: relative;
+  padding-left: var(--space-4);
+}
+.settings-section-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, var(--color-primary), var(--color-accent));
+  box-shadow: 0 0 8px rgba(255, 107, 157, 0.5);
+}
+
+/* ============================== 5. 对话页：气泡与激活态精修 ============================== */
+/* AI 内容底（气泡 + AI 头像）：薄荷玻璃 + 左侧薄荷光边 */
+[class*='color-ai-bg'] {
+  background: linear-gradient(135deg, rgba(78, 205, 196, 0.16), rgba(78, 205, 196, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(78, 205, 196, 0.22), inset 3px 0 0 rgba(78, 205, 196, 0.45);
+}
+/* 会话激活项 / 用户头像 / 次级粉色按钮（bg-sakura-100）：粉色玻璃底（不带左光条，
+   避免圆形头像与按钮场景出现竖条割裂） */
+.bg-sakura-100 {
+  background: linear-gradient(135deg, rgba(255, 107, 157, 0.22), rgba(255, 107, 157, 0.1));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 107, 157, 0.26),
+    0 0 12px rgba(255, 107, 157, 0.1);
+}
+/* 引用块竖线：樱粉发光（限定 blockquote，避免命中 spinner 圆环/虚线占位框） */
+blockquote[class*='border-sakura-300'] {
+  border-color: var(--color-primary-300);
+  box-shadow: -2px 0 8px rgba(255, 107, 157, 0.25);
+}
+
+/* ============================== 6. 绘画页：图片网格卡悬浮光晕 ============================== */
+.group.aspect-square {
+  transition:
+    transform 260ms var(--ease-out),
+    box-shadow 260ms var(--ease-out);
+  will-change: transform;
+}
+.group.aspect-square:hover {
+  transform: translateY(-5px) scale(1.025);
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(255, 107, 157, 0.4),
+    0 0 26px rgba(255, 107, 157, 0.18);
+  z-index: 2;
+}
+
+/* ============================== 7. 表格：质感升级 ============================== */
+.table th {
+  background: linear-gradient(180deg, rgba(255, 107, 157, 0.08), transparent);
+  border-bottom: 1px solid var(--color-border);
+  letter-spacing: 0.3px;
+}
+.table tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.015); }
+.table tbody tr:hover { background: var(--color-primary-100); }
+
+/* 分镜表容器：玻璃渐变描边（漫剧表格外壳） */
+.st-table-wrapper {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(22, 33, 62, 0.72), rgba(22, 33, 62, 0.72)) padding-box,
+    linear-gradient(135deg, rgba(255, 107, 157, 0.24), rgba(78, 205, 196, 0.18)) border-box;
+}
+
+/* ============================== 8. 徽章玻璃化 + 状态灯增强 ============================== */
+.badge {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.model-status-badge {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.model-status-badge.selected {
+  background: linear-gradient(135deg, #ff7cab, #e6608d);
+  box-shadow: 0 0 12px rgba(255, 107, 157, 0.35);
+}
+
+/* ============================== 9. 交错入场：.page 直接子区块级联浮现 ============================== */
+.page > * {
+  animation: block-enter 420ms var(--ease-out) both;
+}
+.page > *:nth-child(1) { animation-delay: 0ms; }
+.page > *:nth-child(2) { animation-delay: 55ms; }
+.page > *:nth-child(3) { animation-delay: 110ms; }
+.page > *:nth-child(4) { animation-delay: 165ms; }
+.page > *:nth-child(5) { animation-delay: 220ms; }
+.page > *:nth-child(6) { animation-delay: 275ms; }
+.page > *:nth-child(n+7) { animation-delay: 330ms; }
+@keyframes block-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================== 10. 右面板/状态栏分层强化 ============================== */
+.right-panel-header {
+  background: linear-gradient(90deg, rgba(255, 107, 157, 0.05), transparent 60%);
+}
+.statusbar .sb-value {
+  text-shadow: 0 0 10px rgba(255, 107, 157, 0.18);
+}
+
+/* ============================== 11. 漫剧全屏工作台：底部氛围渐晕（不碰编辑器体系） ============================== */
+.manga-fullscreen .main-content {
+  background:
+    radial-gradient(1200px 480px at 85% -8%, rgba(255, 107, 157, 0.06), transparent 60%),
+    radial-gradient(900px 420px at 8% 110%, rgba(78, 205, 196, 0.05), transparent 55%);
+}
+
+/* ============================== 12. 空状态升级：双层光晕 ============================== */
+.empty-state .empty-emoji {
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.12), transparent 42%),
+    radial-gradient(circle at center, var(--color-primary-50), var(--color-primary-100));
+}
+
+/* ============================== 13. 动效降级（prefers-reduced-motion） ============================== */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after { animation: none; }
+  .page > * { animation-duration: 1ms; animation-delay: 0ms; }
+  .card.hoverable,
+  .model-card,
+  .group.aspect-square { transition: none; }
+  .card.hoverable:hover,
+  .model-card:hover { transform: none; }
+  .group.aspect-square:hover { transform: none; }
+}

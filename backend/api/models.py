@@ -45,9 +45,15 @@ from pydantic import BaseModel
 
 from ..config import API_PREFIX, DATA_DIR, MODELS_DIR, ROOT_DIR
 from ..data.database import get_db_safe, parse_json
-from ..data.models import (DIALOG_ROUTING_TABLE, ModelCategory,
-                           ModelImportRequest, ModelSelectRequest,
-                           ModelStatus, PAINT_ROUTING_TABLE, VIDEO_ROUTING_TABLE)
+from ..data.models import (
+    DIALOG_ROUTING_TABLE,
+    PAINT_ROUTING_TABLE,
+    VIDEO_ROUTING_TABLE,
+    ModelCategory,
+    ModelImportRequest,
+    ModelSelectRequest,
+    ModelStatus,
+)
 from ..middleware.error_handler import ApiError, ok
 from ..middleware.feature_lock import get_feature_lock
 from ..services.model_manager import get_model_manager

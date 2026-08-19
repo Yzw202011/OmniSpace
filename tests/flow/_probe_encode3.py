@@ -10,7 +10,9 @@ sys.path.insert(0, r"e:\OmniSpace")
 
 from backend.services.encoder_service import get_encoder_service  # noqa: E402
 from backend.services.inference.video_engine import (  # noqa: E402
-    VideoGenerateRequest, generate_fallback_video)
+    VideoGenerateRequest,
+    generate_fallback_video,
+)
 
 
 def tiny_png_b64() -> str:
@@ -54,8 +56,7 @@ def main() -> int:
         else:
             print()
         # 手工重渲染帧再手工编码，抓 stderr
-        from backend.services.inference.video_engine import (
-            render_kenburns_frames)
+        from backend.services.inference.video_engine import render_kenburns_frames
         f2 = tmp / "frames2"
         n = render_kenburns_frames(req.description, req.screenshot_4in1,
                                    f2, 1280, 720, 24, 1)

@@ -28,10 +28,11 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 from ..config import DATA_DIR
@@ -125,7 +126,7 @@ EASYLIST_PATH = DATA_DIR / "easylist.txt"
 
 # ── 标签页上限硬件等级自适应（文档B §4.2 learn_tabs 配额，审计 BK-011）──
 # RTX 5090/4090→5，4070Ti→3，3060→2，RX6600/纯CPU→1；探测失败保守取 MAX_TABS。
-_max_tabs_cache: Optional[int] = None
+_max_tabs_cache: int | None = None
 
 
 def _probe_gpu_brief() -> tuple[str, int]:
@@ -355,7 +356,7 @@ class _BrowserWorker(threading.Thread):
         self.browser: Any = None
         self.context: Any = None
         self.pages: dict[str, Any] = {}
-        self.current_tab: Optional[str] = None
+        self.current_tab: str | None = None
         self.creating_page = False
         self.ad_domains: list[str] = []
         self.ad_substrings: list[str] = []
@@ -602,7 +603,7 @@ def _safe_url(page: Any) -> str:
         return ""
 
 
-def _w_new_tab(w: _BrowserWorker, url: Optional[str] = None) -> dict:
+def _w_new_tab(w: _BrowserWorker, url: str | None = None) -> dict:
     _w_ensure_context(w)
     limit = get_max_tabs()
     if len(w.pages) >= limit:
@@ -680,8 +681,8 @@ _SEARCH_BOX_JS = """(sel) => {
 }"""
 
 
-def _w_click(w: _BrowserWorker, selector: Optional[str],
-             coordinates: Optional[tuple]) -> str:
+def _w_click(w: _BrowserWorker, selector: str | None,
+             coordinates: tuple | None) -> str:
     page = _w_current_page(w)
     if selector:
         try:
@@ -831,7 +832,7 @@ class BrowserService:
         self._lock = threading.RLock()
         self._op_lock = threading.Lock()
         self._last_op_ts = 0.0
-        self._worker: Optional[_BrowserWorker] = None
+        self._worker: _BrowserWorker | None = None
         self._running = False
         self._unavailable_reason = ""
         self._headless = True
@@ -1028,7 +1029,7 @@ class BrowserService:
 
     # ── 标签页管理（上限按硬件等级自适应 1~5 个）─────────────────────
 
-    def new_tab(self, url: Optional[str] = None) -> str:
+    def new_tab(self, url: str | None = None) -> str:
         """新建标签页，返回 tab_id；超过当前硬件等级上限拒绝。"""
         self._throttle()
         self._check_url(url) if url else None
@@ -1072,8 +1073,8 @@ class BrowserService:
             return _w_goto(w, _w_current_page(w), url)
         return dict(self._submit(_fn, timeout=35))
 
-    def click(self, selector: Optional[str] = None,
-              coordinates: Optional[tuple] = None) -> str:
+    def click(self, selector: str | None = None,
+              coordinates: tuple | None = None) -> str:
         self._throttle()
         return str(self._submit(lambda w: _w_click(w, selector, coordinates)))
 
@@ -1132,7 +1133,7 @@ class BrowserService:
             return {"url": _safe_url(page), "title": _safe_title(page)}
         return dict(self._submit(_fn))
 
-    def wait(self, selector: Optional[str] = None,
+    def wait(self, selector: str | None = None,
              timeout: float = 10.0) -> bool:
         self._throttle()
 
@@ -1263,7 +1264,7 @@ class BrowserService:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_service: Optional[BrowserService] = None
+_service: BrowserService | None = None
 _service_lock = threading.Lock()
 
 

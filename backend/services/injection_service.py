@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Optional
 
 from ..data.fts_store import get_fts_store
 from ..data.vector_db import get_vector_db
@@ -135,7 +134,7 @@ class KnowledgeInjectionService:
         return items
 
     @staticmethod
-    def _meta_of(kid: str) -> Optional[dict]:
+    def _meta_of(kid: str) -> dict | None:
         """按 kid 读取 knowledge_meta（关键词路独有命中的元数据补全）。"""
         try:
             from ..data.database import get_db_safe
@@ -181,7 +180,7 @@ class KnowledgeInjectionService:
     # ── 对话增强 ─────────────────────────────────────────────
 
     def enhance_chat(self, user_message: str,
-                     history: Optional[list] = None) -> tuple[str, list]:
+                     history: list | None = None) -> tuple[str, list]:
         """完整 RAG 增强流程。
 
         返回 (注入文本或空串, knowledge_refs)。无相关知识时不注入。
@@ -200,7 +199,7 @@ class KnowledgeInjectionService:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_injection_instance: Optional[KnowledgeInjectionService] = None
+_injection_instance: KnowledgeInjectionService | None = None
 _injection_lock = threading.Lock()
 
 

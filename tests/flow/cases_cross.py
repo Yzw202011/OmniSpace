@@ -17,8 +17,7 @@ from __future__ import annotations
 import json
 import time
 
-from .harness import (BASE, Client, Recorder, case, ok_data, err_code,
-                      err_msg)
+from .harness import BASE, Client, Recorder, case, err_code, err_msg, ok_data
 
 MOD = "cross"
 _state: dict = {}

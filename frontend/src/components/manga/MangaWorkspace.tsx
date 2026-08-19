@@ -290,7 +290,7 @@ export default function MangaWorkspace() {
     }
     const currentIndex = list.findIndex((s) => !s.done);
     return { list, currentIndex: currentIndex === -1 ? list.length - 1 : currentIndex };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [rows, assets, keyframesMap, currentProject?.work_mode, handleInferEntities, handleVideoStage, setSelectedAsset]);
 
   // 右栏槽位互斥：资产详情打开 → 关闭行检查器/抽屉（最新点击胜出）

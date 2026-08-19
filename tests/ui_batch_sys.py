@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 OmniSpace AI —— UI 冒烟测试（SYS/SET/STYLE/MODEL 四组共 23 条）
 ----------------------------------------------------------------
@@ -345,7 +344,7 @@ def run_style_group(c):
         t1 = est.inner_text()
         if "3.6 GB" in t0 and "9.8 GB" in t1:
             results.append(("TC-FLOW-STYLE-010", "训练参数显存预估验证", "PASS",
-                            f"显存预估随参数联动：fast 预设下「3.6 GB」，Rank 调至 64 后变为「9.8 GB」"
+                            "显存预估随参数联动：fast 预设下「3.6 GB」，Rank 调至 64 后变为「9.8 GB」"
                             "（公式 1.5+rank×0.11+alpha×0.02+epochs×0.02+0.8 两端均与 UI 显示一致）"))
         else:
             results.append(("TC-FLOW-STYLE-010", "训练参数显存预估验证", "FAIL",

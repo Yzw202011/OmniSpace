@@ -10,9 +10,10 @@ import importlib
 import logging
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any
 
 from ..config import THRESHOLDS
 
@@ -43,7 +44,7 @@ class VramManager:
     """VRAM 管理器——跟踪显存分配/释放，提供缓存与卸载。"""
 
     def __init__(self) -> None:
-        self._allocations: Dict[str, VramAllocation] = {}
+        self._allocations: dict[str, VramAllocation] = {}
         self._total_allocated_mb: float = 0.0
         self._lock = threading.Lock()
         self._cuda_available = _torch is not None and _torch.cuda.is_available()
@@ -130,7 +131,7 @@ class VramManager:
 
     # ── 记账重置 ────────────────────────────────────────────────
 
-    def reset_bookkeeping(self, except_keys: Optional[List[str]] = None) -> int:
+    def reset_bookkeeping(self, except_keys: list[str] | None = None) -> int:
         """仅重置显存记账并 empty_cache，不卸载模型（审计 R3-BE4 重命名）。
 
         本方法只清理内部 _allocations 记账并调用 torch.cuda.empty_cache，
@@ -175,7 +176,7 @@ class VramManager:
             logger.warning("重置显存记账: %.1fMB (保留: %s)", freed_mb, list(keep))
         return int(freed_mb)
 
-    def force_unload(self, except_keys: Optional[List[str]] = None) -> int:
+    def force_unload(self, except_keys: list[str] | None = None) -> int:
         """已废弃别名：等价 reset_bookkeeping（审计 R3-BE4）。
 
         原名语义误导——本方法并不卸载模型，仅重置记账 + empty_cache。
@@ -232,7 +233,7 @@ class VramManager:
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────
-_vram_manager: Optional[VramManager] = None
+_vram_manager: VramManager | None = None
 
 
 def get_vram_manager() -> VramManager:

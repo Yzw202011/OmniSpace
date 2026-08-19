@@ -59,8 +59,8 @@ def main() -> None:
     w("## 1. 总体结果")
     w("")
     n_all = len(cases)
-    w(f"| 状态 | 数量 | 占比 |")
-    w(f"|---|---|---|")
+    w("| 状态 | 数量 | 占比 |")
+    w("|---|---|---|")
     for st in ("PASS", "DEGRADED", "FAIL", "SKIP", "BLOCKED"):
         n = total.get(st, 0)
         w(f"| {MARK.get(st, st)} {st} | {n} | {n / n_all * 100:.1f}% |")

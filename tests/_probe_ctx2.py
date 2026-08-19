@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """定位：右键命中不同单元格时菜单是否出现"""
 from playwright.sync_api import sync_playwright
 

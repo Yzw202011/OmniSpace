@@ -16,9 +16,9 @@ import pickle
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import Any
 
-from ..config import CACHE_COMPRESSION, CACHE_EVICTION
+from ..config import CACHE_COMPRESSION
 
 log = logging.getLogger("omnispace.cache")
 
@@ -74,7 +74,7 @@ class MemoryCache:
                 pass
         return pickle.loads(data)
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """读取缓存，未命中返回 None。"""
         with self._lock:
             entry = self._store.get(key)
@@ -181,7 +181,7 @@ class RedisCache:
                 pass
         return pickle.loads(data)
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         if not self._connected:
             return self._fallback.get(key)
         try:
@@ -242,7 +242,7 @@ class CacheManager:
         else:
             self._impl = MemoryCache(max_size=max_size, default_ttl=default_ttl)
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         return self._impl.get(key)
 
     def set(self, key: str, value: Any, ttl: int = 0) -> bool:
@@ -266,7 +266,7 @@ class CacheManager:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_cache_instance: Optional[CacheManager] = None
+_cache_instance: CacheManager | None = None
 _cache_lock = threading.Lock()
 
 

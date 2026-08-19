@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 OmniSpace AI Launcher 守护进程
 - 环境自检（OS, CUDA, 磁盘空间≥5GB）
@@ -12,20 +11,20 @@ OmniSpace AI Launcher 守护进程
 - Launcher与主程序WebSocket双向通信
 """
 
-import os
-import sys
 import json
-import time
+import os
 import socket
-import signal
-import psutil
-import threading
 import subprocess
+import sys
+import threading
+import time
 import webbrowser
-from pathlib import Path
-from typing import Optional, Tuple, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+import psutil
 
 # 添加项目路径
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -42,15 +41,15 @@ class LauncherConfig:
     max_restart_attempts: int = 5
     restart_cooldown: float = 30.0
     min_disk_space_gb: float = 20.0  # 审计 R3-ARCH6：5GB 对模型库+生成物写入余量不足，提至 20GB
-    port_range: Tuple[int, int] = (5800, 5835)
+    port_range: tuple[int, int] = (5800, 5835)
 
 
 class PortManager:
     """端口管理器 - 三级递进策略"""
-    
+
     def __init__(self, config: LauncherConfig):
         self.config = config
-    
+
     def is_port_in_use(self, port: int) -> bool:
         """检查端口是否被占用"""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -59,8 +58,8 @@ class PortManager:
                 return False
             except OSError:
                 return True
-    
-    def get_process_using_port(self, port: int) -> Optional[psutil.Process]:
+
+    def get_process_using_port(self, port: int) -> psutil.Process | None:
         """获取占用端口的进程"""
         for conn in psutil.net_connections(kind='inet'):
             if conn.laddr.port == port and conn.status == 'LISTEN':
@@ -69,7 +68,7 @@ class PortManager:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     return None
         return None
-    
+
     def is_omnispace_process(self, proc: psutil.Process) -> bool:
         """判断是否为OmniSpace残留进程（严格匹配，避免误杀其他服务）"""
         try:
@@ -88,17 +87,17 @@ class PortManager:
             return is_python and is_omnispace
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
-    
-    def resolve_port_conflict(self, preferred_port: int) -> Tuple[int, str]:
+
+    def resolve_port_conflict(self, preferred_port: int) -> tuple[int, str]:
         """
         三级递进端口冲突处理
         返回: (最终端口, 处理说明)
         """
         if not self.is_port_in_use(preferred_port):
             return preferred_port, '端口可用'
-        
+
         proc = self.get_process_using_port(preferred_port)
-        
+
         # 第一级：检测到OmniSpace/python残留 → 自动taskkill
         if proc and self.is_omnispace_process(proc):
             try:
@@ -113,12 +112,12 @@ class PortManager:
                     return preferred_port, f'已强制结束残留进程 (PID: {proc.pid})'
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
                 pass
-        
+
         # 第二级：外部占用 → 自动扫描端口区间
         for port in range(self.config.port_range[0], self.config.port_range[1] + 1):
             if not self.is_port_in_use(port):
                 return port, f'端口{preferred_port}被占用，自动切换到端口{port}'
-        
+
         # 第三级：候选区间全部占用
         raise RuntimeError(
             f'端口区间{self.config.port_range[0]}-{self.config.port_range[1]}全部被占用，'
@@ -128,12 +127,12 @@ class PortManager:
 
 class EnvironmentChecker:
     """环境检查器"""
-    
+
     def __init__(self, config: LauncherConfig):
         self.config = config
         self.results = {}
-    
-    def check_all(self) -> Tuple[bool, dict]:
+
+    def check_all(self) -> tuple[bool, dict]:
         """执行所有环境检查"""
         checks = {
             'os': self._check_os,
@@ -142,10 +141,10 @@ class EnvironmentChecker:
             'cuda': self._check_cuda,
             'dependencies': self._check_dependencies,
         }
-        
+
         all_passed = True
         results = {}
-        
+
         for name, check_func in checks.items():
             try:
                 passed, message = check_func()
@@ -155,34 +154,34 @@ class EnvironmentChecker:
             except Exception as e:
                 results[name] = {'passed': False, 'message': f'检查失败: {str(e)}'}
                 all_passed = False
-        
+
         self.results = results
         return all_passed, results
-    
-    def _check_os(self) -> Tuple[bool, str]:
+
+    def _check_os(self) -> tuple[bool, str]:
         """检查操作系统"""
         import platform
         if platform.system() != 'Windows':
             return False, '仅支持Windows 10/11 64-bit'
         ver = platform.version()
         return True, f'Windows {platform.release()} (版本{ver})'
-    
-    def _check_python(self) -> Tuple[bool, str]:
+
+    def _check_python(self) -> tuple[bool, str]:
         """检查Python版本"""
         version = sys.version_info
         if version.major == 3 and version.minor >= 10:
             return True, f'Python {version.major}.{version.minor}.{version.micro}'
         return False, f'需要Python 3.10+，当前版本{version.major}.{version.minor}'
-    
-    def _check_disk_space(self) -> Tuple[bool, str]:
+
+    def _check_disk_space(self) -> tuple[bool, str]:
         """检查磁盘空间"""
         disk = psutil.disk_usage(str(PROJECT_ROOT))
         free_gb = disk.free / (1024**3)
         if free_gb >= self.config.min_disk_space_gb:
             return True, f'可用磁盘空间: {free_gb:.1f}GB'
         return False, f'磁盘空间不足: 可用{free_gb:.1f}GB，需要≥{self.config.min_disk_space_gb}GB'
-    
-    def _check_cuda(self) -> Tuple[bool, str]:
+
+    def _check_cuda(self) -> tuple[bool, str]:
         """检查CUDA环境"""
         try:
             import torch
@@ -195,8 +194,8 @@ class EnvironmentChecker:
             return False, 'PyTorch未安装'
         except Exception as e:
             return False, f'CUDA检查失败: {str(e)}'
-    
-    def _check_dependencies(self) -> Tuple[bool, str]:
+
+    def _check_dependencies(self) -> tuple[bool, str]:
         """检查Python依赖：关键依赖缺失阻断，AI 依赖缺失仅警告（功能自动降级）"""
         critical = ['fastapi', 'uvicorn']
         optional = ['torch', 'transformers', 'diffusers']
@@ -218,20 +217,27 @@ class EnvironmentChecker:
         return True, '核心依赖已安装'
 
     def blake3_quick_verify(self, files: list = None, sample_bytes: int = 65536,
-                            manifest_path: Path = None, write_manifest: bool = False) -> Tuple[bool, str]:
+                            manifest_path: Path = None, write_manifest: bool = False) -> tuple[bool, str]:
         """BLAKE3/Blake2b快速校验：对关键文件做完整哈希计算，支持manifest比对
         - manifest_path: 已有的manifest文件路径，存在则做比对验证
         - write_manifest: True时生成新的manifest文件
         返回(是否通过校验, 消息)
         """
-        import hashlib, json
+        import hashlib
+
+        def _blake3_factory():
+            return blake3.blake3()
+
+        def _blake2b_factory():
+            return hashlib.new('blake2b', digest_size=32)
+
         # 优先使用blake3（需第三方包），否则降级到blake2b
         try:
             import blake3
-            hash_func = lambda: blake3.blake3()
+            hash_func = _blake3_factory
             hash_name = 'blake3'
         except ImportError:
-            hash_func = lambda: hashlib.new('blake2b', digest_size=32)
+            hash_func = _blake2b_factory
             hash_name = 'blake2b-256'
 
         # 完整性校验清单：现行生效的核心文件（dist 双轨已剔除；sandbox 功能位于 core/security.py）
@@ -305,21 +311,21 @@ class EnvironmentChecker:
 
 class BackendProcess:
     """后端进程管理器"""
-    
+
     def __init__(self, config: LauncherConfig):
         self.config = config
-        self.process: Optional[subprocess.Popen] = None
-        self._heartbeat_thread: Optional[threading.Thread] = None
+        self.process: subprocess.Popen | None = None
+        self._heartbeat_thread: threading.Thread | None = None
         self._log_threads: list = []  # L-M2: 后台日志消费线程
         self._running = False
         self._restart_count = 0
         self._last_restart_time = 0
-        self.on_status_change: Optional[Callable] = None
+        self.on_status_change: Callable | None = None
         # R2-N3：心跳代际计数 + 崩溃处理锁——重启时旧心跳线程自动退出，
         # 防止多次崩溃后心跳线程累积并发触发重复重启（线程泄漏级缺陷）
         self._hb_gen = 0
         self._crash_lock = threading.Lock()
-    
+
     # L-H1: 子进程环境变量白名单，仅传递必要变量，避免敏感信息泄露
     _ENV_WHITELIST = (
         'PATH', 'SYSTEMROOT', 'PYTHONPATH', 'PYTHONUNBUFFERED',
@@ -364,8 +370,6 @@ class BackendProcess:
         """启动后端进程"""
         self._actual_port = port  # 保存实际运行端口，心跳检测使用
         env = self._build_child_env(port)  # L-H1: 白名单环境变量
-
-        backend_main = PROJECT_ROOT / 'backend' / 'main.py'
 
         try:
             # L-M2: 当stdout/stderr不可用时使用PIPE，并启动后台线程消费管道写入日志文件
@@ -412,7 +416,7 @@ class BackendProcess:
         except Exception as e:
             print(f'启动后端失败: {e}')
             return False
-    
+
     def stop(self, timeout: float = 10.0):
         """停止后端进程"""
         self._running = False
@@ -424,7 +428,7 @@ class BackendProcess:
                 self.process.kill()
                 self.process.wait()
             self.process = None
-    
+
     def is_healthy(self, port: int) -> bool:
         """健康检查（审计 R3-ARCH2 修复三处历史残留）：
         1. 端点为根路径 /health（非 /api/v1/health——后者不存在，404 信封也返 200 会误判）
@@ -445,7 +449,7 @@ class BackendProcess:
             return data.get('db', 'ok') == 'ok'
         except Exception:
             return False
-    
+
     def wait_until_ready(self, port: int, timeout: float = 60.0) -> bool:
         """等待后端启动就绪"""
         start = time.time()
@@ -456,7 +460,7 @@ class BackendProcess:
                 return False
             time.sleep(1)
         return False
-    
+
     def _heartbeat_loop(self, gen: int):
         """心跳检测循环（使用实际运行端口；R2-N3：代际失配自动退出防线程累积）"""
         port = self._actual_port if hasattr(self, '_actual_port') else self.config.backend_port
@@ -488,24 +492,24 @@ class BackendProcess:
 
     def _handle_crash_locked(self, port: int):
         now = time.time()
-        
+
         # 冷却检查
         if now - self._last_restart_time < self.config.restart_cooldown:
             self._restart_count += 1
         else:
             self._restart_count = 1
-        
+
         self._last_restart_time = now
-        
+
         if self._restart_count > self.config.max_restart_attempts:
             self._running = False
             if self.on_status_change:
                 self.on_status_change('crash_permanent', f'后端崩溃次数超过限制({self.config.max_restart_attempts}次)')
             return
-        
+
         if self.on_status_change:
             self.on_status_change('restarting', f'后端异常，正在重启(第{self._restart_count}次)...')
-        
+
         # 终止旧进程
         if self.process:
             try:
@@ -513,11 +517,11 @@ class BackendProcess:
                 self.process.wait(timeout=5)
             except Exception:
                 pass
-        
+
         # 重启
         time.sleep(2)
         self.start(port)
-        
+
         if self.wait_until_ready(port, timeout=30):
             self._restart_count = 0
             if self.on_status_change:
@@ -526,34 +530,34 @@ class BackendProcess:
 
 class TrayIcon:
     """系统托盘图标"""
-    
+
     def __init__(self, launcher: 'Launcher'):
         self.launcher = launcher
         self._icon = None
-    
+
     def show(self):
         """显示托盘图标（如果pystray可用）"""
         try:
             import pystray
             from PIL import Image, ImageDraw
-            
+
             # 创建简单图标
             img = Image.new('RGB', (64, 64), color=(100, 100, 255))
             dc = ImageDraw.Draw(img)
             dc.ellipse([16, 16, 48, 48], fill=(255, 255, 255))
-            
+
             menu = pystray.Menu(
                 pystray.MenuItem('打开界面', self._open_browser),
                 pystray.MenuItem('状态', self._show_status),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem('退出', self._quit),
             )
-            
+
             self._icon = pystray.Icon('OmniSpace', img, 'OmniSpace AI', menu)
             threading.Thread(target=self._icon.run, daemon=True).start()
         except ImportError:
             print('pystray/PIL未安装，跳过托盘图标')
-    
+
     def notify(self, title: str, message: str):
         """显示气泡通知"""
         if self._icon:
@@ -562,14 +566,14 @@ class TrayIcon:
             except Exception:
                 pass
         print(f'[通知] {title}: {message}')
-    
+
     def _open_browser(self):
         self.launcher.open_browser()
-    
+
     def _show_status(self, icon=None, item=None):
         status = self.launcher.get_status()
         self.notify('OmniSpace AI 状态', status)
-    
+
     def _quit(self, icon=None, item=None):
         self.launcher.shutdown()
         if self._icon:
@@ -578,8 +582,8 @@ class TrayIcon:
 
 class Launcher:
     """OmniSpace Launcher主类"""
-    
-    def __init__(self, config: Optional[LauncherConfig] = None):
+
+    def __init__(self, config: LauncherConfig | None = None):
         self.config = config or LauncherConfig()
         self.port_manager = PortManager(self.config)
         self.env_checker = EnvironmentChecker(self.config)
@@ -588,7 +592,7 @@ class Launcher:
         self.tray = TrayIcon(self)
         self._actual_port = self.config.backend_port
         self._start_time = None
-    
+
     def initialize(self) -> bool:
         """初始化Launcher"""
         print('=' * 60)
@@ -612,11 +616,11 @@ class Launcher:
         for name, result in results.items():
             status = '✓' if result['passed'] else '✗'
             print(f'  {status} {name}: {result["message"]}')
-        
+
         if not passed:
             print('\n环境检查未通过，请修复后重试')
             return False
-        
+
         # 2. 端口处理
         print('\n[2/4] 端口配置...')
         try:
@@ -626,30 +630,30 @@ class Launcher:
         except RuntimeError as e:
             print(f'  ✗ {e}')
             return False
-        
+
         # 3. 写入前端配置
         print('\n[3/4] 写入前端配置...')
         self._write_frontend_config()
         print(f'  后端端口: {self._actual_port}')
-        
+
         # 4. 启动后端
         print('\n[4/4] 启动后端服务...')
         if not self.backend.start(self._actual_port):
             print('  ✗ 后端启动失败')
             return False
-        
+
         if self.backend.wait_until_ready(self._actual_port, timeout=60):
             print('  ✓ 后端服务已就绪')
         else:
             print('  ✗ 后端启动超时')
             return False
-        
+
         self._start_time = datetime.now()
         self.tray.show()
         self.tray.notify('OmniSpace AI', '服务已就绪，正在打开界面...')
-        
+
         return True
-    
+
     def _write_frontend_config(self):
         """前端配置注入（已废弃，保留为 no-op）。
 
@@ -658,12 +662,12 @@ class Launcher:
         遗留 frontend/dist 双轨已剔除，本方法不再产生任何文件写入。
         """
         return
-    
+
     def open_browser(self):
         """打开浏览器界面"""
         url = f'http://{self.config.backend_host}:{self._actual_port}'
         webbrowser.open(url)
-    
+
     def get_status(self) -> str:
         """获取状态字符串"""
         uptime = ''
@@ -673,30 +677,30 @@ class Launcher:
             minutes = int((delta.total_seconds() % 3600) // 60)
             uptime = f'运行{hours}小时{minutes}分钟'
         return f'端口: {self._actual_port} | {uptime}'
-    
+
     def _on_backend_status(self, status: str, message: str):
         """后端状态变化回调"""
         print(f'[后端] {status}: {message}')
         self.tray.notify('OmniSpace AI', message)
-    
+
     def shutdown(self):
         """关闭Launcher"""
         print('\n正在关闭OmniSpace AI...')
         self.backend.stop()
         print('已关闭')
-    
+
     def run(self):
         """运行Launcher主循环"""
         if not self.initialize():
             input('\n按回车键退出...')
             return
-        
+
         self.open_browser()
-        
-        print(f'\nOmniSpace AI 已启动!')
+
+        print('\nOmniSpace AI 已启动!')
         print(f'界面地址: http://{self.config.backend_host}:{self._actual_port}')
-        print(f'按 Ctrl+C 退出')
-        
+        print('按 Ctrl+C 退出')
+
         try:
             while True:
                 time.sleep(1)
@@ -712,13 +716,13 @@ def main():
     parser.add_argument('--port', type=int, default=8765, help='后端端口')
     parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器')
     args = parser.parse_args()
-    
+
     config = LauncherConfig(backend_port=args.port)
     launcher = Launcher(config)
-    
+
     if args.no_browser:
         launcher.open_browser = lambda: None
-    
+
     launcher.run()
 
 

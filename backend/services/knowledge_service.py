@@ -19,15 +19,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
-from ..data.database import get_db_safe, parse_json
+from ..data.database import get_db_safe
 from ..data.fts_store import get_fts_store
 from ..data.graph_store import get_graph_store
 from ..data.vector_db import get_vector_db
@@ -332,7 +332,7 @@ def detect_lang(text: str) -> str:
 class KnowledgeProcessingService:
     """知识处理管线（TASK-033/045）。单例，见 get_knowledge_service()。"""
 
-    def __init__(self, llm_extractor: Optional[Callable[[str], str]] = None,
+    def __init__(self, llm_extractor: Callable[[str], str] | None = None,
                  vector_db=None) -> None:
         self._lock = threading.Lock()
         self._llm_extractor = llm_extractor
@@ -359,7 +359,7 @@ class KnowledgeProcessingService:
 
     # ── 外部注入 ──────────────────────────────────────────────
 
-    def set_llm_extractor(self, extractor: Optional[Callable[[str], str]]) -> None:
+    def set_llm_extractor(self, extractor: Callable[[str], str] | None) -> None:
         """运行时注入 LLM 提取器（callable(prompt)->str）。None 恢复规则模式。"""
         self._llm_extractor = extractor
 
@@ -539,7 +539,7 @@ class KnowledgeProcessingService:
     # ── Step 3: 知识提取（双模式：LLM / 规则回退）──────────────
 
     def extract_knowledge(self, segment: Segment,
-                          topic: Optional[str] = None) -> list[Knowledge]:
+                          topic: str | None = None) -> list[Knowledge]:
         """从分段提取结构化知识（概念/QA对/事实/方法论/案例 五类）。
 
         若已注入 llm_extractor（callable(prompt)->str）则走 LLM 提取并解析 JSON；
@@ -652,7 +652,7 @@ class KnowledgeProcessingService:
     # ── Step 4: 质量评估 ─────────────────────────────────────
 
     def evaluate_quality(self, knowledge: Knowledge,
-                         topic: Optional[str] = None) -> QualityScore:
+                         topic: str | None = None) -> QualityScore:
         """多维质量评分：信息密度 / 相关性 / 时效性，输出 passed 判定。"""
         content = knowledge.content or ""
         length = len(content)
@@ -773,7 +773,7 @@ class KnowledgeProcessingService:
     # ── Step 6: 向量化入库 ───────────────────────────────────
 
     def vectorize_and_store(self, knowledge: Knowledge,
-                            replace_id: Optional[str] = None) -> str:
+                            replace_id: str | None = None) -> str:
         """嵌入 → 向量库存储，元数据落 knowledge_meta。返回知识 id。
 
         元数据含 source_url/topic/quality_score/type/created_at/simhash/lifecycle。
@@ -894,7 +894,7 @@ class KnowledgeProcessingService:
     # ── 完整管线 ─────────────────────────────────────────────
 
     def process_page(self, page_content: str, topic: str,
-                     source_url: Optional[str] = None) -> list[Knowledge]:
+                     source_url: str | None = None) -> list[Knowledge]:
         """完整管线: 过滤→分段→提取→评估→去重→入库，返回新入库的知识。"""
         filtered = self.filter_content(page_content)
         segments = self.segment_content(filtered)
@@ -1084,9 +1084,9 @@ class KnowledgeProcessingService:
         return {"items": items[start:start + page_size], "total": total,
                 "page": page, "page_size": page_size}
 
-    def update_knowledge(self, kid: str, *, content: Optional[str] = None,
-                         topic: Optional[str] = None,
-                         type: Optional[str] = None) -> bool:
+    def update_knowledge(self, kid: str, *, content: str | None = None,
+                         topic: str | None = None,
+                         type: str | None = None) -> bool:
         """LEARN-041：编辑知识条目（content/topic/type），同步刷新 lang
         与 FTS 索引；content 变更时重算 simhash。返回是否找到记录。"""
         fields: dict[str, Any] = {}
@@ -1121,7 +1121,7 @@ class KnowledgeProcessingService:
             return True
         return False
 
-    def get_knowledge(self, kid: str) -> Optional[dict]:
+    def get_knowledge(self, kid: str) -> dict | None:
         """按 id 取单条知识元数据。"""
         if self._db is not None:
             try:
@@ -1182,7 +1182,7 @@ class KnowledgeProcessingService:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_ks_instance: Optional[KnowledgeProcessingService] = None
+_ks_instance: KnowledgeProcessingService | None = None
 _ks_lock = threading.Lock()
 
 

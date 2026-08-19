@@ -57,7 +57,7 @@ EXCLUDE_FILES = ["*.log", "e2e_state.json", "tmp_*", "_tmp_*", "*.pyc",
 def _robocopy_base() -> list[str]:
     args = ["robocopy", str(SRC), "", "/MIR", "/R:1", "/W:1",
             "/COPY:DAT", "/DCOPY:DAT", "/MT:32", "/NP", "/NDL"]
-    args += [f"/XD"] + [str(SRC / d) for d in EXCLUDE_DIRS_TOP] + EXCLUDE_DIRS_ANY
+    args += ["/XD"] + [str(SRC / d) for d in EXCLUDE_DIRS_TOP] + EXCLUDE_DIRS_ANY
     args += ["/XF"] + EXCLUDE_FILES
     return args
 

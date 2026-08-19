@@ -9,7 +9,7 @@ default_video_codec/default_resolution，PUT 为整体替换），另有学习�
 """
 from __future__ import annotations
 
-from .harness import Client, Recorder, case, ok_data, err_code
+from .harness import Client, Recorder, case, err_code, ok_data
 
 MOD = "set"
 
@@ -48,7 +48,8 @@ def set_001(c: Client, r: Recorder) -> None:
     d = _read_settings(c)
     old = d.get("theme", "sakura")
     new = "dark" if old != "dark" else "sakura"
-    upd = dict(d); upd["theme"] = new
+    upd = dict(d)
+    upd["theme"] = new
     d2 = _write_settings(c, upd)
     assert d2.get("theme") == new, f"主题写入未生效: {d2}"
     back = _read_settings(c)
@@ -75,7 +76,8 @@ def set_002(c: Client, r: Recorder) -> None:
 def set_003(c: Client, r: Recorder) -> None:
     d = _read_settings(c)
     old = bool(d.get("auto_model_select", True))
-    upd = dict(d); upd["auto_model_select"] = not old
+    upd = dict(d)
+    upd["auto_model_select"] = not old
     d2 = _write_settings(c, upd)
     assert d2.get("auto_model_select") == (not old), f"写入未生效: {d2}"
     back = _read_settings(c)

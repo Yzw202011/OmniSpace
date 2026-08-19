@@ -29,8 +29,8 @@ import logging
 
 from fastapi import APIRouter, Body, File, UploadFile
 
-from ..middleware.error_handler import ApiError, ok
 from ..middleware import upload_guard
+from ..middleware.error_handler import ApiError, ok
 from ..services.style_lora_service import (
     MAX_UPLOAD_BYTES,
     MIN_STYLE_SAMPLES,
@@ -305,7 +305,7 @@ def style_preview(body: dict = Body(default_factory=dict)):
     try:
         strength = float(body.get("strength", 1.0))
     except (TypeError, ValueError):
-        raise ApiError(40008, "strength 必须是 0~1 的数值")
+        raise ApiError(40008, "strength 必须是 0~1 的数值") from None
     if not (0.0 <= strength <= 1.0):
         raise ApiError(40008, "strength 必须在 0~1 之间",
                        detail={"min": 0.0, "max": 1.0, "given": strength})
@@ -410,7 +410,7 @@ def style_merge(body: dict = Body(default_factory=dict)):
     try:
         weights = [float(w) for w in weights]
     except (TypeError, ValueError):
-        raise ApiError(40008, "weights 必须是数值数组")
+        raise ApiError(40008, "weights 必须是数值数组") from None
     svc = get_style_lora_service()
     for ver in versions:
         if not any(v["version"] == ver for v in svc.list_versions()):

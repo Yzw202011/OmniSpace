@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """OmniSpace AI v2.1 极严格复测（标准高于《OmniSpace AI v2.1测试.txt》）。
 
 覆盖维度（标准测试文档之外）：
@@ -23,7 +22,6 @@ from __future__ import annotations
 
 import json
 import sys
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -242,7 +240,7 @@ def x04_injection() -> None:
 # ═══════════════════════════════════════════════════════════════
 def x05_rate_limit() -> None:
     codes = []
-    for i in range(120):
+    for _i in range(120):
         try:
             r = httpx.get(f"{BASE}/v1/system/version", timeout=10)
             codes.append(r.status_code)
@@ -327,11 +325,12 @@ def x07_vram_leak() -> None:
 # ═══════════════════════════════════════════════════════════════
 def x08_websocket() -> None:
     import asyncio
+
     import websockets
 
     async def probe() -> tuple[bool, str]:
         try:
-            async with websockets.connect(f"ws://127.0.0.1:5800/ws",
+            async with websockets.connect("ws://127.0.0.1:5800/ws",
                                           open_timeout=10) as ws:
                 # 协议（§2.2）：ping→pong；subscribe_system 后才有遥测帧
                 await ws.send(json.dumps({"type": "ping"}))

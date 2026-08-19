@@ -26,7 +26,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ...config import DATA_DIR
 
@@ -71,7 +71,7 @@ class FeaturePredictor:
     线程安全；推理路径无 IO（事件计数常驻内存，启动时从 SQLite 预热）。
     """
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         self._lock = threading.Lock()
         # 转移计数: {(from, to): count}；from="" 表示会话起始
         self._transitions: dict[tuple[str, str], float] = {}
@@ -181,7 +181,7 @@ class FeaturePredictor:
     # ── 对外接口 ────────────────────────────────────────────────────
 
     def record_event(self, from_feature: str, to_feature: str,
-                     ts: Optional[float] = None) -> None:
+                     ts: float | None = None) -> None:
         """记录一次功能切换事件（持久化 + 更新内存计数）。
 
         Args:
@@ -224,8 +224,8 @@ class FeaturePredictor:
     def event_count(self) -> int:
         return self._event_count
 
-    def predict_next(self, current_feature: Optional[str] = None,
-                     hour: Optional[int] = None) -> dict:
+    def predict_next(self, current_feature: str | None = None,
+                     hour: int | None = None) -> dict:
         """预测下一个功能（推理 < 50ms）。
 
         融合公式: score = 0.7 * P_markov(next|cur) + 0.3 * P_hour(next|cur,hour)
@@ -314,7 +314,9 @@ class FeaturePredictor:
             dmat = _xgb.DMatrix([feat_vec])
             probs = self._booster.predict(dmat)[0]
             return {
-                f: float(p) for f, p in zip(KNOWN_FEATURES, probs) if p > 0.0
+                f: float(p)
+                for f, p in zip(KNOWN_FEATURES, probs, strict=True)
+                if p > 0.0
             }
         except Exception as exc:  # noqa: BLE001
             log.warning("XGBoost 推理失败，回退马尔可夫: %s", exc)

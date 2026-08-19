@@ -25,7 +25,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ...config import MODELS_DIR
 
@@ -184,8 +184,8 @@ class SegmentEngine:
     # ── 推理 ──────────────────────────────────────────────────────
 
     def segment(self, image: Any,
-                points: Optional[list[list[int]]] = None,
-                box: Optional[list[int]] = None) -> dict:
+                points: list[list[int]] | None = None,
+                box: list[int] | None = None) -> dict:
         """对图像执行 SAM 交互式分割，返回得分最高的 mask。
 
         Args:
@@ -328,7 +328,7 @@ class SegmentEngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_engine_instance: Optional[SegmentEngine] = None
+_engine_instance: SegmentEngine | None = None
 _engine_lock = threading.Lock()
 
 

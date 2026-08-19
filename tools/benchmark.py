@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 硬件性能基准工具（CLI）
 - 基于 backend/services/scheduler/monitor.HardwareMonitor 真实采样

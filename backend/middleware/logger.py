@@ -16,11 +16,11 @@ import re
 from typing import Any
 
 from ..config import (
-    LOGS_DIR,
     LOG_LEVEL,
     LOG_MAX_FILE_MB,
     LOG_MAX_FILES,
     LOG_SENSITIVE_FIELDS,
+    LOGS_DIR,
 )
 
 # 默认敏感字段（从配置读取，补充常见项）

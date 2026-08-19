@@ -35,8 +35,9 @@ import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..config import ROOT_DIR
 
@@ -101,12 +102,12 @@ class EncoderService:
     线程安全；所有外部调用带超时；依赖缺失时 available=False 友好降级。
     """
 
-    _instance: Optional["EncoderService"] = None
+    _instance: EncoderService | None = None
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._ffmpeg: Optional[str] = None
-        self._ffprobe: Optional[str] = None
+        self._ffmpeg: str | None = None
+        self._ffprobe: str | None = None
         self._encoders: dict[str, bool] = {name: False for name in TRACKED_ENCODERS}
         self._hw_class: str = "cpu"           # rtx50 / rtx40 / rtx30 / nvidia_other / amd / cpu
         self._gpu_name: str = ""
@@ -124,7 +125,7 @@ class EncoderService:
     # ── 单例 ────────────────────────────────────────────────────
 
     @classmethod
-    def instance(cls) -> "EncoderService":
+    def instance(cls) -> EncoderService:
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = cls()
@@ -161,7 +162,7 @@ class EncoderService:
     # ═══════════════════════════════════════════════════════════
 
     @staticmethod
-    def discover_ffmpeg() -> Optional[str]:
+    def discover_ffmpeg() -> str | None:
         """按优先级发现 ffmpeg 可执行文件，找不到返回 None。
 
         搜索顺序：
@@ -206,7 +207,7 @@ class EncoderService:
         return None
 
     @staticmethod
-    def _sibling_tool(ffmpeg_path: str, tool: str) -> Optional[str]:
+    def _sibling_tool(ffmpeg_path: str, tool: str) -> str | None:
         """在 ffmpeg 同目录寻找姊妹工具（如 ffprobe）。"""
         exe = f"{tool}.exe" if os.name == "nt" else tool
         sibling = Path(ffmpeg_path).parent / exe
@@ -378,11 +379,11 @@ class EncoderService:
         out_path: str | Path,
         fps: int = 24,
         resolution: str = "1080p",
-        progress_cb: Optional[ProgressCallback] = None,
+        progress_cb: ProgressCallback | None = None,
         codec: str = "h264",
         timeout_s: int = DEFAULT_TIMEOUT_S,
         frame_pattern: str = "frame_%05d.png",
-        audio_path: Optional[str] = None,
+        audio_path: str | None = None,
     ) -> dict:
         """将帧序列编码为视频文件。
 
@@ -462,7 +463,7 @@ class EncoderService:
         out_path: str | Path,
         format: str = "h264",
         quality: str = "medium",
-        progress_cb: Optional[ProgressCallback] = None,
+        progress_cb: ProgressCallback | None = None,
         timeout_s: int = DEFAULT_TIMEOUT_S,
     ) -> dict:
         """拼接多个视频片段并整体重编码导出。
@@ -545,7 +546,7 @@ class EncoderService:
         self,
         args: list[str],
         timeout_s: int,
-        progress_cb: Optional[ProgressCallback] = None,
+        progress_cb: ProgressCallback | None = None,
         total_frames: int = 0,
         total_duration_s: float = 0.0,
     ) -> tuple[bool, str]:
@@ -601,7 +602,7 @@ class EncoderService:
     @staticmethod
     def _parse_progress(
         line: str, total_frames: int, total_duration_s: float,
-    ) -> Optional[float]:
+    ) -> float | None:
         """从 ffmpeg stderr 行解析进度（0..1）。优先 frame=，其次 time=。"""
         if total_frames > 0:
             m = _FRAME_RE.search(line)
@@ -674,7 +675,7 @@ class EncoderService:
         return 0.0
 
     @staticmethod
-    def _safe_progress(cb: Optional[ProgressCallback], fraction: float, msg: str) -> None:
+    def _safe_progress(cb: ProgressCallback | None, fraction: float, msg: str) -> None:
         """进度回调容错（回调异常不影响编码主流程）。"""
         if cb is None:
             return

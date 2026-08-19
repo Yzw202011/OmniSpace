@@ -1,11 +1,12 @@
 """复现 COMIC-118 编码失败：渲染 Ken Burns 帧 → encode_frames_to_video。"""
-import sys, tempfile, traceback
+import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, r"e:\OmniSpace")
 
-from backend.services.inference.video_engine import render_kenburns_frames
 from backend.services.encoder_service import get_encoder_service
+from backend.services.inference.video_engine import render_kenburns_frames
 
 out = Path(tempfile.mkdtemp(prefix="enc_probe_"))
 frame_dir = out / "frames"
@@ -24,8 +25,10 @@ for f in first:
     print("  ", f.name, f.stat().st_size, "bytes")
 
 # 逐个候选手动执行，捕捉 stderr 与校验细节
-import subprocess, time
-from backend.services.encoder_service import RESOLUTION_MAP, MIN_OUTPUT_BYTES
+import subprocess  # noqa: E402 - 探针脚本，诊断输出后按需导入
+
+from backend.services.encoder_service import MIN_OUTPUT_BYTES  # noqa: E402
+
 print("MIN_OUTPUT_BYTES =", MIN_OUTPUT_BYTES)
 
 for encoder, enc_args in enc._encoder_candidates("h264", "medium"):

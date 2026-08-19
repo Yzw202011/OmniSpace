@@ -72,12 +72,17 @@
   - 工时：半天
   - **完成记录（2026-08-19，eb54dee）**：钩子置于版本库内 `.githooks/pre-commit` 并以 `git config core.hooksPath .githooks` 激活（钩子本身随仓库版本化，换机只需重跑该 config 一行，用法写在钩子头部注释）。实测：注入语法错误的提交 1 秒被拦截；正常提交（compileall 全量 + 17 冒烟）15 秒通过。ruff 接入后追加 check 的挂点已预留（P1-03 落地后于钩子 [2/3] 步插入）
 
-- [ ] **P1-03 lint 工具链激活**（对应 P14、P19）
+- [x] **P1-03 lint 工具链激活**（对应 P14、P19）
   - 动作：
     1. 前端：`npm install -D @eslint/js eslint`，package.json 加 `"lint": "eslint src/"`（node 运行时已就绪于 runtime/node20）
     2. 后端：下载 ruff 单文件二进制到 `tools/ruff/ruff.exe`（ruff.toml 注释已引用该路径）
   - 完成标准：`npm run lint` 与 `tools/ruff/ruff.exe check backend/` 均可执行；存量违规允许 --baseline 化但命令退出码可判
   - 工时：1 小时
+  - **完成记录（2026-08-19）**：
+    - 前端：@eslint/js + typescript-eslint + eslint-plugin-react-hooks 实装（eslint 9 flat config）；typescript-eslint 仅作解析器（TS 语法支持），语义检查仍由 tsc --noEmit 承担；react-hooks 只开 rules-of-hooks/exhaustive-deps 两条经典规则（v7 编译器系规则对存量代码误报多）。`npm run lint` 0 错误 10 警告（全部 no-console，降为可接受底噪）；`--fix` 清掉 12 处冗余 disable 指令与 prefer-const；tsc --noEmit 同步通过
+    - 后端：ruff 0.16.3 实装于 tools/ruff/（28MB 二进制不入库，.gitignore 排除，ruff.toml 头注释记录获取命令）。存量 748 项全清零（653 项安全自动修复 + 37 处 B904 批量补 `from exc`（tokenize 定位语句边界的一次性脚本）+ 46 项逐项手工修复）；ruff check . 全绿，compileall + 84 全量测试通过
+    - 强化：pre-commit 钩子升级三步门（compileall → ruff check → smoke），静态检查由"可跑"变"强制"，新增违规在提交时拦截
+    - 修复中发现 2 个真实缺陷：decision.py `TaskDispatcher` 7 处注解未定义（靠 `from __future__ import annotations` 侥幸未炸，补 TYPE_CHECKING 导入）；startup_check.py lz4 可用性探测改 find_spec（不再为探测而真实 import）
 
 - [ ] **P1-04 前端 vitest 落地**（对应 P12）
   - 动作：建 vitest.config.ts；先写三个最痛的测试——useMangaStore 状态流转、mangaApi 的 Zod 响应解析、VIDEO_STATUS_LABELS 与后端枚举一致性

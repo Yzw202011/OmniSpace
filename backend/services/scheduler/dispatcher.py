@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import gc
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 from ...config import CACHE_COMPRESSION
 
@@ -67,13 +67,13 @@ class TaskDispatcher:
 
     def __init__(self) -> None:
         # 当前在 GPU 上的层
-        self._gpu_layers: List[str] = []
+        self._gpu_layers: list[str] = []
         # 当前在 CPU 上的层
-        self._cpu_layers: List[str] = []
+        self._cpu_layers: list[str] = []
         # 当前精度
         self._current_precision: str = "fp16"
         # 已预加载的模型
-        self._preloaded: List[str] = []
+        self._preloaded: list[str] = []
         # 是否已压缩缓存
         self._cache_compressed: bool = False
 
@@ -101,7 +101,7 @@ class TaskDispatcher:
 
     # ── 层迁移 ──────────────────────────────────────────────────
 
-    def migrate_to_cpu(self, layers: List[str]) -> None:
+    def migrate_to_cpu(self, layers: list[str]) -> None:
         """将指定计算层从 GPU 迁移到 CPU。
 
         规格 §5.1: 当 GPU 显存压力时，将后处理、VAE 解码等
@@ -136,7 +136,7 @@ class TaskDispatcher:
             len(self._cpu_layers),
         )
 
-    def migrate_to_gpu(self, tasks: List[str]) -> None:
+    def migrate_to_gpu(self, tasks: list[str]) -> None:
         """将指定任务从 CPU 迁移回 GPU。
 
         当 GPU 资源恢复时，将关键计算迁回 GPU 以提升性能；
@@ -208,7 +208,7 @@ class TaskDispatcher:
 
     # ── 预加载 ──────────────────────────────────────────────────
 
-    def preload(self, features: List[str]) -> None:
+    def preload(self, features: list[str]) -> None:
         """预加载指定功能模块的模型到内存（真实接线 ModelManager）。
 
         在 ALL_IDLE 模式下预加载常用模型，减少用户等待时间。
@@ -290,7 +290,7 @@ class TaskDispatcher:
 
     # ── 强制卸载 ────────────────────────────────────────────────
 
-    def force_unload(self, except_features: Optional[List[str]] = None) -> None:
+    def force_unload(self, except_features: list[str] | None = None) -> None:
         """强制卸载模型，保留指定功能（真实接线 ModelManager.unload_model）。
 
         规格 §5.1: ALL_TENSE 模式下卸载所有非关键模型，

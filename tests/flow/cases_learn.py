@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 import time
 
-from .harness import (Client, Recorder, case, ok_data, err_code, err_msg, uid)
+from .harness import Client, Recorder, case, err_code, err_msg, ok_data, uid
 
 MOD = "learn"
 _state: dict = {}
@@ -587,7 +587,7 @@ def learn_025(c: Client, r: Recorder) -> None:
 @case(MOD, "TC-FLOW-LEARN-026", "批量文档导入验证", "P2")
 def learn_026(c: Client, r: Recorder) -> None:
     n = 0
-    for i, (fn, body) in enumerate([
+    for _i, (fn, body) in enumerate([
             ("omnilearn_b1.md",
              ("# 镜头方法论\n" + _unique_text("b1")).encode("utf-8")),
             ("omnilearn_b2.txt", _unique_text("b2").encode("utf-8"))]):
@@ -824,7 +824,7 @@ def learn_042(c: Client, r: Recorder) -> None:
     assert dele and dele.get("deleted") == 1 and dele.get("missing"), \
         f"批量删除异常: {dele}"
     r.record("TC-FLOW-LEARN-042", "知识条目删除与批量操作验证", "DEGRADED", "P2",
-             f"批量删除可用（deleted=1 missing=1，上限500条）；批量导出= "
+             "批量删除可用（deleted=1 missing=1，上限500条）；批量导出= "
              "/learn/knowledge/export（json/csv）；但批量重新评分无端点——部分功能缺失")
 
 

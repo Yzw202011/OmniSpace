@@ -8,8 +8,7 @@ from __future__ import annotations
 import base64
 import time
 
-from tests.flow.harness import (Client, Recorder, case, err_code, ok_data,
-                                tiny_png_b64, uid)
+from tests.flow.harness import Client, Recorder, case, err_code, ok_data, tiny_png_b64, uid
 
 MOD = "comic"
 API = "/api/v1"
@@ -842,9 +841,8 @@ def comic_057(c: Client, r: Recorder) -> None:
 @case(MOD, "TC-FLOW-COMIC-058", "镜头类型下拉选择验证（8种）", "P1")
 def comic_058(c: Client, r: Recorder) -> None:
     pid, row_id = _state.get("edit_pid"), _state.get("edit_row")
-    env = c.put(f"{API}/manga/storyboard/{pid}/rows/{row_id}",
-                {"camera_type": "特写"})
-    d = ok_data(env)
+    c.put(f"{API}/manga/storyboard/{pid}/rows/{row_id}",
+          {"camera_type": "特写"})
     rows2 = ok_data(c.get(f"{API}/manga/storyboard/{pid}"))["rows"]
     if "camera_type" not in rows2[0]:
         r.record("TC-FLOW-COMIC-058", "镜头类型下拉选择验证（8种）", "FAIL",
@@ -908,7 +906,7 @@ def comic_062(c: Client, r: Recorder) -> None:
 
 @case(MOD, "TC-FLOW-COMIC-063", "AI描述生成流程验证", "P1")
 def comic_063(c: Client, r: Recorder) -> None:
-    pid, row_id = _state.get("edit_pid"), _state.get("edit_row")
+    _pid, row_id = _state.get("edit_pid"), _state.get("edit_row")
     t0 = time.time()
     env = c.post(f"{API}/manga/storyboard/ai-describe", {"row_id": row_id})
     d = ok_data(env)
@@ -1353,7 +1351,7 @@ def comic_107(c: Client, r: Recorder) -> None:
 
 @case(MOD, "TC-FLOW-COMIC-108", "2D分镜图生成完整流程验证", "P0")
 def comic_108(c: Client, r: Recorder) -> None:
-    pid, row_id = _state.get("edit_pid"), _state.get("edit_row")
+    _pid, row_id = _state.get("edit_pid"), _state.get("edit_row")
     t0 = time.time()
     env = c.post(f"{API}/manga/storyboard/preview", {"row_id": row_id})
     d = ok_data(env)

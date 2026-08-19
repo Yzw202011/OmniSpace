@@ -27,8 +27,9 @@ import importlib
 import logging
 import threading
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterator, List, Optional
+from typing import Any
 
 from ...config import DIALOG_MAX_PREFILL_TOKENS, MODELS_DIR
 
@@ -93,7 +94,7 @@ def _read_config_model_type(model_dir: Path) -> tuple[str, list[str]]:
         return "", []
     try:
         import json as _json
-        with open(cfg, "r", encoding="utf-8") as f:
+        with open(cfg, encoding="utf-8") as f:
             data = _json.load(f)
         archs = data.get("architectures", [])
         if not isinstance(archs, list):
@@ -118,7 +119,7 @@ def _detect_backend(model_dir: Path) -> str:
         # config 含 vision_config/vision_tower 时按 VL 路径加载
         try:
             import json as _json
-            with open(model_dir / "config.json", "r", encoding="utf-8") as f:
+            with open(model_dir / "config.json", encoding="utf-8") as f:
                 raw = _json.load(f)
             if "vision_config" in raw or "vision_tower" in raw:
                 return "vl"
@@ -148,7 +149,7 @@ def _estimate_vram_gb(path: Path, backend: str) -> float:
     dtype_factor = 1.15
     try:
         import json as _json
-        with open(path / "config.json", "r", encoding="utf-8") as f:
+        with open(path / "config.json", encoding="utf-8") as f:
             raw = _json.load(f)
         if str(raw.get("torch_dtype") or raw.get("dtype") or "").lower() \
                 in ("float32", "fp32"):
@@ -269,7 +270,7 @@ def model_dir_ready(model_dir: Path) -> bool:
     return (model_dir / "config.json").is_file() and _find_weight_file(model_dir)
 
 
-def _resolve_candidate_dir(rel: str) -> Optional[Path]:
+def _resolve_candidate_dir(rel: str) -> Path | None:
     """解析候选模型目录：支持扁平布局与 modelscope/HF 嵌套快照布局。
 
     嵌套布局: models/<id>/models/<Org--Name>/snapshots/<rev>/
@@ -332,6 +333,7 @@ def _precision_pref() -> str:
     """
     try:
         import json as _json
+
         from ...data.database import get_db_safe
         db = get_db_safe()
         if db is not None:
@@ -397,7 +399,7 @@ class DialogEngine:
         self._model: Any = None
         self._processor: Any = None
         self._model_id: str = ""
-        self._model_dir: Optional[Path] = None
+        self._model_dir: Path | None = None
         self._state: str = "unavailable"
         self._last_error: str = ""
         # 当前后端类型：vl / text / gguf（"" 表示未加载）
@@ -441,7 +443,7 @@ class DialogEngine:
                 ids.append(mid)
         return ids
 
-    def _pick_model(self, model_id: Optional[str]) -> Optional[tuple[str, Path, float, str]]:
+    def _pick_model(self, model_id: str | None) -> tuple[str, Path, float, str] | None:
         """选择要加载的模型：指定优先，否则按候选顺序取第一个就绪的。
 
         Returns:
@@ -549,7 +551,7 @@ class DialogEngine:
 
     # ── 加载 / 卸载 ───────────────────────────────────────────────
 
-    def load_model(self, model_id: Optional[str] = None) -> bool:
+    def load_model(self, model_id: str | None = None) -> bool:
         """加载对话模型到 GPU。
 
         流程: 选模型（硬编码候选 ∪ models/ 动态发现）→ 显存预检（不足尝试
@@ -689,7 +691,7 @@ class DialogEngine:
         except Exception as exc:
             # Qwen3-VL 类不可用时回退 Vision2Seq
             logger.warning("主加载路径失败(%s)，尝试回退加载", exc)
-            fallback_cls = getattr(transformers, "AutoModelForVision2Seq")
+            fallback_cls = transformers.AutoModelForVision2Seq
             model = fallback_cls.from_pretrained(
                 str(path),
                 torch_dtype=dtype,
@@ -793,7 +795,7 @@ class DialogEngine:
     # ── 知识 LoRA 挂载（R2-B04 自主进化闭环）────────────────────
 
     def _attach_knowledge_lora(self, model: Any,
-                               model_dir: Optional[Path]) -> tuple[Any, str]:
+                               model_dir: Path | None) -> tuple[Any, str]:
         """基座加载后挂载当前生效的知识 LoRA adapter。
 
         查询 lora_training_service 的 current 版本（models/lora/vN，
@@ -806,8 +808,7 @@ class DialogEngine:
             (模型（可能为 PeftModel 包装）, 已挂载版本号（"" 表示基座）)
         """
         try:
-            from ..lora_training_service import (
-                LORA_DIR, get_lora_training_service)
+            from ..lora_training_service import LORA_DIR, get_lora_training_service
             svc = get_lora_training_service()
             version = svc.get_current()
             if not version:
@@ -871,7 +872,7 @@ class DialogEngine:
                         self._lora_version or "基座")
             return {"changed": True, "version": self._lora_version}
 
-    def ensure_loaded(self, model_id: Optional[str] = None) -> bool:
+    def ensure_loaded(self, model_id: str | None = None) -> bool:
         """确保模型已加载（供 API 调用前使用）。
 
         优先尝试 model_manager.ensure_loaded 契约协调（另一 agent 实现），
@@ -956,10 +957,10 @@ class DialogEngine:
     def build_context(
         self,
         user_input: str,
-        history: Optional[List[dict]] = None,
+        history: list[dict] | None = None,
         knowledge_text: str = "",
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        images: Optional[list] = None,
+        images: list | None = None,
         max_tokens: int = 8192,
     ) -> list[dict]:
         """组装对话上下文（系统 Prompt + RAG 注入 + 最近 N 轮历史 + 当前输入）。
@@ -1032,7 +1033,7 @@ class DialogEngine:
 
     # ── 推理 ──────────────────────────────────────────────────────
 
-    def _prepare_inputs(self, messages: list[dict], images: Optional[list]):
+    def _prepare_inputs(self, messages: list[dict], images: list | None):
         """应用 chat template 并编码输入（transformers 后端：vl / text）。"""
         processor = self._processor
         text = processor.apply_chat_template(
@@ -1072,7 +1073,7 @@ class DialogEngine:
         messages: list[dict],
         temperature: float,
         max_new_tokens: int,
-        stop_check: Optional[Callable[[], bool]] = None,
+        stop_check: Callable[[], bool] | None = None,
     ) -> Iterator[str]:
         """GGUF（llama.cpp）流式推理：create_chat_completion 逐段产出。"""
         start = time.perf_counter()
@@ -1112,10 +1113,10 @@ class DialogEngine:
     def chat_stream(
         self,
         messages: list[dict],
-        images: Optional[list] = None,
+        images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
-        stop_check: Optional[Callable[[], bool]] = None,
+        stop_check: Callable[[], bool] | None = None,
     ) -> Iterator[str]:
         """流式推理：后台线程 generate + TextIteratorStreamer 逐 token 产出。
 
@@ -1142,7 +1143,6 @@ class DialogEngine:
                     messages, temperature, max_new_tokens, stop_check)
             return
 
-        torch = _try_import("torch")
         transformers = _try_import("transformers")
 
         # 串行化推理：并发 generate 在同一模型实例上叠加显存并互相拖慢，
@@ -1205,7 +1205,7 @@ class DialogEngine:
     def chat(
         self,
         messages: list[dict],
-        images: Optional[list] = None,
+        images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
     ) -> str:
@@ -1251,7 +1251,7 @@ class DialogEngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_engine_instance: Optional[DialogEngine] = None
+_engine_instance: DialogEngine | None = None
 _engine_lock = threading.Lock()
 
 

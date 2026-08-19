@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional
 
 from .error_handler import ApiError
 
@@ -45,26 +44,26 @@ class FeatureLockManager:
     持有者信息用于返回友好的阻断提示。
     """
 
-    _instance: Optional["FeatureLockManager"] = None
+    _instance: FeatureLockManager | None = None
 
     def __init__(self) -> None:
-        self._holder: Optional[str] = None
+        self._holder: str | None = None
         self._acquired_at: float = 0.0
-        self._holder_task_id: Optional[str] = None
+        self._holder_task_id: str | None = None
         self._lock = asyncio.Lock()
         # 最近一次用户功能活动时间（acquire/release 均刷新），
         # 供调度器空闲显存回收判定；进程启动即开始计空闲。
         self._last_activity_at: float = time.time()
 
     @classmethod
-    def instance(cls) -> "FeatureLockManager":
+    def instance(cls) -> FeatureLockManager:
         """获取单例（无需 await，单线程事件循环下安全）。"""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     @property
-    def active_feature(self) -> Optional[str]:
+    def active_feature(self) -> str | None:
         return self._holder
 
     @property
@@ -74,7 +73,7 @@ class FeatureLockManager:
             return 0.0
         return max(0.0, time.time() - self._last_activity_at)
 
-    def get_block_reason(self, feature: str) -> Optional[str]:
+    def get_block_reason(self, feature: str) -> str | None:
         """如果 feature 被阻断，返回阻断原因消息；否则返回 None。"""
         if self._holder is None or self._holder == feature:
             return None
@@ -85,7 +84,7 @@ class FeatureLockManager:
         return None
 
     async def acquire(self, feature: str,
-                      task_id: Optional[str] = None) -> bool:
+                      task_id: str | None = None) -> bool:
         """尝试获取功能锁，成功返回 True，被阻断返回 False。
 
         同一功能可重入：当 _holder == feature 时直接成功。
@@ -130,7 +129,7 @@ def get_feature_lock() -> FeatureLockManager:
 
 
 async def acquire_or_raise(feature: str,
-                           task_id: Optional[str] = None) -> FeatureLockManager:
+                           task_id: str | None = None) -> FeatureLockManager:
     """获取功能锁；被阻断时抛 ApiError(40007)。
 
     供 API 端点使用：

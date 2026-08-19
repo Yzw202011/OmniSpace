@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger("omnispace.graph")
 
@@ -56,7 +56,9 @@ MAX_ENTITY_NAME = 60
 
 def _norm_entity(name: str) -> str:
     """实体名归一化：去空白/截断/去首尾标点。"""
-    n = (name or "").strip().strip("，。；：、""''（）()【】[]<>《》 \t\r\n")
+    # strip 按字符集剥离首尾标点，非子串匹配，属预期用法
+    n = (name or "").strip().strip(  # noqa: B005
+        "，。；：、""''（）()【】[]<>《》 \t\r\n")
     n = " ".join(n.split())
     return n[:MAX_ENTITY_NAME]
 
@@ -184,7 +186,7 @@ class GraphStore:
 
     # ── 查询 ─────────────────────────────────────────────────
 
-    def graph(self, kid: Optional[str] = None,
+    def graph(self, kid: str | None = None,
               max_nodes: int = MAX_GRAPH_NODES) -> dict[str, Any]:
         """查询图谱数据（nodes/edges）。
 
@@ -208,7 +210,7 @@ class GraphStore:
             "total_edges": self.count_edges(),
         }
 
-    def _load_edges(self, kid: Optional[str], limit: int) -> list[dict]:
+    def _load_edges(self, kid: str | None, limit: int) -> list[dict]:
         if self._db is not None:
             try:
                 if kid:
@@ -321,7 +323,7 @@ class GraphStore:
 #  单例
 # ═══════════════════════════════════════════════════════════════
 
-_gs_instance: Optional[GraphStore] = None
+_gs_instance: GraphStore | None = None
 _gs_lock = threading.Lock()
 
 

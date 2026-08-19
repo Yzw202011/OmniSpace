@@ -22,7 +22,8 @@ import threading
 import time
 import urllib.request
 import uuid
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .priority import Priority
 
@@ -166,6 +167,7 @@ def _read_waiting_queue() -> list[dict]:
 
 def _write_waiting_queue(items: list[dict]) -> None:
     import json as _json
+
     from ..data.database import get_db_safe
     db = get_db_safe()
     if db is None:
@@ -198,7 +200,7 @@ def list_waiting_sessions() -> list[dict]:
     return _read_waiting_queue()
 
 
-def pop_waiting_session() -> Optional[dict]:
+def pop_waiting_session() -> dict | None:
     """弹出队首；空队列返回 None。"""
     items = _read_waiting_queue()
     if not items:
@@ -222,7 +224,7 @@ _COLD_FEATURE_KEYWORDS: dict[str, tuple[str, ...]] = {
 _TOPIC_CANDIDATES = 5
 
 
-def _feature_priority(feature: Optional[str]) -> Optional[Priority]:
+def _feature_priority(feature: str | None) -> Priority | None:
     """查询功能的全局优先级；未知/空闲返回 None。"""
     if not feature:
         return None
@@ -234,7 +236,7 @@ class LearningScheduler:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._triggers: dict[str, Optional[Callable[[dict], None]]] = {
+        self._triggers: dict[str, Callable[[dict], None] | None] = {
             name: None for name in VALID_TRIGGERS}
         self._last_user_activity_at = time.time()
         self._paused_due_to_creation = False
@@ -253,7 +255,7 @@ class LearningScheduler:
     # ── 触发器注册 ────────────────────────────────────────────────────
 
     def register_trigger(self, name: str,
-                         callback: Optional[Callable[[dict], None]] = None
+                         callback: Callable[[dict], None] | None = None
                          ) -> dict:
         """注册学习触发器（手动/定时/空闲/项目驱动/对话缺口）。"""
         if name not in VALID_TRIGGERS:
@@ -269,7 +271,7 @@ class LearningScheduler:
             return [{"trigger": n, "has_callback": c is not None}
                     for n, c in self._triggers.items()]
 
-    def fire_trigger(self, name: str, payload: Optional[dict] = None) -> bool:
+    def fire_trigger(self, name: str, payload: dict | None = None) -> bool:
         """触发指定学习时机（已注册回调则调用）。"""
         with self._lock:
             callback = self._triggers.get(name)
@@ -329,7 +331,7 @@ class LearningScheduler:
 
     # ── feature_lock 联动 ──────────────────────────────────────────────
 
-    def _feature_lock_state(self) -> Optional[str]:
+    def _feature_lock_state(self) -> str | None:
         """读取功能锁当前持有功能（不可用时返回 None）。"""
         try:
             from ..middleware.feature_lock import get_feature_lock
@@ -337,8 +339,8 @@ class LearningScheduler:
         except Exception:  # noqa: BLE001
             return None
 
-    def build_context(self, user_state: Optional[str] = None,
-                      total_memory_gb: Optional[float] = None) -> dict:
+    def build_context(self, user_state: str | None = None,
+                      total_memory_gb: float | None = None) -> dict:
         """采集当前运行状态，构造配额计算上下文。
 
         user_state 未显式给出时按 feature_lock 与空闲时间推导：
@@ -359,7 +361,7 @@ class LearningScheduler:
                 total_memory_gb = 16.0
         # 硬件等级学习标签配额（文档B §4.2，审计 BK-011）：
         # 复用 browser_service 的档位探测（内部已缓存），失败则不封顶
-        tier_learn_tabs: Optional[int] = None
+        tier_learn_tabs: int | None = None
         try:
             from .browser_service import get_max_tabs
             tier_learn_tabs = get_max_tabs()
@@ -376,7 +378,7 @@ class LearningScheduler:
             "idle_seconds": round(self.idle_seconds(), 1),
         }
 
-    def current_quota(self, context: Optional[dict] = None) -> dict:
+    def current_quota(self, context: dict | None = None) -> dict:
         """当前资源配额快照（context 缺省时自动采集）。"""
         ctx = context if context is not None else self.build_context()
         quota = get_resource_quota(ctx)
@@ -385,7 +387,7 @@ class LearningScheduler:
 
     # ── 暂停/恢复决策（TASK-014 与调度引擎协同）─────────────────────────
 
-    def should_pause_learning(self, context: Optional[dict] = None) -> tuple[bool, str]:
+    def should_pause_learning(self, context: dict | None = None) -> tuple[bool, str]:
         """是否应暂停浏览器学习（P3，文档 §8.4.2 优先级让行）：
           - 更高优先级功能占用（P0 用户创作 / P2 训练持有 feature_lock）
           - 配额为 0（AI推理/断网/电池）
@@ -417,7 +419,7 @@ class LearningScheduler:
             return 0.90
 
     @staticmethod
-    def _cpu_util_percent() -> Optional[float]:
+    def _cpu_util_percent() -> float | None:
         """非阻塞读取当前 CPU 利用率（%）；psutil 不可用返回 None。"""
         try:
             import psutil
@@ -425,12 +427,12 @@ class LearningScheduler:
         except Exception:  # noqa: BLE001
             return None
 
-    def should_resume_learning(self, context: Optional[dict] = None) -> bool:
+    def should_resume_learning(self, context: dict | None = None) -> bool:
         """是否应恢复学习：无创作占用且配额允许。"""
         pause, _ = self.should_pause_learning(context)
         return not pause
 
-    def evaluate(self, context: Optional[dict] = None) -> dict:
+    def evaluate(self, context: dict | None = None) -> dict:
         """综合评估当前应采取的调度动作。
 
         返回 {action, reason, quota, priority}：
@@ -502,8 +504,10 @@ class LearningScheduler:
         if not _read_waiting_queue():
             return
         from .browser_agent_service import (
-            ensure_learning_tables, get_browser_agent_service,
-            get_learning_settings)
+            ensure_learning_tables,
+            get_browser_agent_service,
+            get_learning_settings,
+        )
         settings = get_learning_settings()
         if not settings.get("enabled", True):
             return
@@ -573,8 +577,10 @@ class LearningScheduler:
         trigger = str((payload or {}).get("trigger") or "auto")
         try:
             from .browser_agent_service import (
-                ensure_learning_tables, get_browser_agent_service,
-                get_learning_settings)
+                ensure_learning_tables,
+                get_browser_agent_service,
+                get_learning_settings,
+            )
             settings = get_learning_settings()
             if not settings.get("enabled", True):
                 return
@@ -656,8 +662,7 @@ class LearningScheduler:
                         or [] if str(k).strip()][:4]
             if not keywords:
                 return
-            from .browser_agent_service import (
-                ensure_learning_tables, get_learning_settings)
+            from .browser_agent_service import ensure_learning_tables, get_learning_settings
             settings = get_learning_settings()
             if not settings.get("enabled", True):
                 return
@@ -715,8 +720,10 @@ class LearningScheduler:
         if now - self._last_auto_finetune_at < _AUTO_FINETUNE_RETRY_S:
             return
         from .lora_training_service import (
-            MIN_FREE_VRAM_GB, MIN_TRAINING_SAMPLES,
-            get_lora_training_service)
+            MIN_FREE_VRAM_GB,
+            MIN_TRAINING_SAMPLES,
+            get_lora_training_service,
+        )
         svc = get_lora_training_service()
         # §4.3 自适应：连续 3 次训练质量下降 → 暂停自动训练并通知用户
         if svc.check_quality_decline_pause():
@@ -782,8 +789,7 @@ class LearningScheduler:
         auto_train_paused=True（持久化），并 log.warning + ws_hub 通知用户。
         已暂停时直接返回，避免每拍重复写库/重复通知。
         """
-        from .browser_agent_service import (
-            get_learning_settings, update_learning_settings)
+        from .browser_agent_service import get_learning_settings, update_learning_settings
         if get_learning_settings().get("auto_train_paused"):
             return
         update_learning_settings({"auto_train_paused": True})
@@ -809,7 +815,7 @@ class LearningScheduler:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_scheduler: Optional[LearningScheduler] = None
+_scheduler: LearningScheduler | None = None
 _scheduler_lock = threading.Lock()
 
 

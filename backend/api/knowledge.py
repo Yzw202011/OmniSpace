@@ -39,11 +39,11 @@ import uuid
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from ..middleware.error_handler import ApiError, ok
 from ..middleware import upload_guard
+from ..middleware.error_handler import ApiError, ok
+from ..services.behavior_service import get_behavior_service
 from ..services.injection_service import get_injection_service
 from ..services.knowledge_service import get_knowledge_service
-from ..services.behavior_service import get_behavior_service
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.knowledge")
@@ -237,7 +237,7 @@ async def knowledge_import_document(file: UploadFile = File(...),
         raise
     except Exception as exc:  # noqa: BLE001
         raise ApiError("KNOWLEDGE_PARSE_FAILED", "文档解析失败",
-                       detail={"filename": file.filename, "error": str(exc)})
+                       detail={"filename": file.filename, "error": str(exc)}) from exc
     if not text.strip():
         raise ApiError("KNOWLEDGE_PARSE_FAILED", "文档中未提取到可用文本",
                        detail={"filename": file.filename})
@@ -247,7 +247,7 @@ async def knowledge_import_document(file: UploadFile = File(...),
                                  source_url=source_url or file.filename)
     except Exception as exc:  # noqa: BLE001
         raise ApiError("KNOWLEDGE_PROCESS_FAILED", "知识处理失败",
-                       detail={"error": str(exc)})
+                       detail={"error": str(exc)}) from exc
     return ok({"filename": file.filename, "topic": topic.strip(),
                "extracted": len(items),
                "items": [k.to_dict() for k in items]},
@@ -267,7 +267,7 @@ def knowledge_process_text(req: ProcessTextRequest):
                                  source_url=req.source_url or None)
     except Exception as exc:  # noqa: BLE001
         raise ApiError("KNOWLEDGE_PROCESS_FAILED", "知识处理失败",
-                       detail={"error": str(exc)})
+                       detail={"error": str(exc)}) from exc
     return ok({"topic": req.topic.strip(), "extracted": len(items),
                "items": [k.to_dict() for k in items]},
               message=f"已提取 {len(items)} 个知识点")
@@ -704,7 +704,7 @@ def behavior_event(req: BehaviorEventRequest):
         event_id = svc.record_event(req.model_dump())
     except Exception as exc:  # noqa: BLE001
         raise ApiError("LEARN_BEHAVIOR_RECORD_FAILED", "行为事件记录失败",
-                       detail={"error": str(exc)})
+                       detail={"error": str(exc)}) from exc
     return ok({"event_id": event_id}, message="已记录")
 
 
@@ -735,5 +735,5 @@ def behavior_clear():
         deleted = svc.clear()
     except Exception as exc:  # noqa: BLE001
         raise ApiError("LEARN_BEHAVIOR_CLEAR_FAILED", "行为数据清理失败",
-                       detail={"error": str(exc)})
+                       detail={"error": str(exc)}) from exc
     return ok({"deleted": deleted}, message="行为学习数据已清空")

@@ -17,13 +17,12 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import struct
 import threading
-import time
 import uuid
 import wave
-import struct
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ...config import DATA_DIR, MODELS_DIR, VOICE_PRESET_EMOTIONS
 from ...middleware.error_handler import ApiError
@@ -48,7 +47,7 @@ _SAPI_SSFM_CREATE_FOR_WRITE = 3
 # 情感 → SAPI 语速映射（Rate 取值 -10..+10，尽力而为的情感表达）
 _SAPI_RATE_MAP = {"愤怒": 2, "悲伤": -2}
 # SAPI5 可用性惰性检测结果缓存（None=未探测）
-_sapi5_ok: Optional[bool] = None
+_sapi5_ok: bool | None = None
 
 
 def _probe_sapi5() -> bool:
@@ -230,7 +229,7 @@ _SOVITS_REQUIRED_WEIGHTS = (
     "gsv-v2final-pretrained/s2G2333k.pth",
 )
 # GPT-SoVITS 探测结果缓存（None=未探测）
-_sovits_probe_cache: Optional[dict] = None
+_sovits_probe_cache: dict | None = None
 
 
 def _probe_sovits() -> dict:
@@ -258,7 +257,7 @@ def _probe_sovits() -> dict:
         or _try_import("pypinyin") is None
     )
     if not weights_ready:
-        reason = "GPT-SoVITS 权重未随包或不完整（缺: %s）" % "、".join(missing)
+        reason = "GPT-SoVITS 权重未随包或不完整（缺: {}）".format("、".join(missing))
     elif code_missing:
         reason = (
             "GPT-SoVITS 权重已随包，但官方推理代码包与 pypinyin（中文 G2P）未安装，"
@@ -479,7 +478,7 @@ class VoiceEngine:
 
     # ── ASR：Whisper 真实转写（导入 models/whisper* 即可用）────────────
 
-    def load_asr(self, model_id: Optional[str] = None) -> bool:
+    def load_asr(self, model_id: str | None = None) -> bool:
         """加载 ASR 模型（Whisper，transformers pipeline，30s 分块长音频）。
 
         Args:
@@ -532,8 +531,8 @@ class VoiceEngine:
                 return False
 
     def transcribe(self, audio_path: str,
-                   language: Optional[str] = None,
-                   model_id: Optional[str] = None) -> dict:
+                   language: str | None = None,
+                   model_id: str | None = None) -> dict:
         """语音转写（Whisper 真实推理）。
 
         音频解码：WAV 走 stdlib wave（16k 重采样经 numpy 线性插值）；

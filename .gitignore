@@ -4,6 +4,7 @@ pydeps/
 runtime/
 tools/git/
 tools/MinGit.zip
+tools/ruff/
 ffmpeg/
 
 # ===== 密钥（严禁入库） =====

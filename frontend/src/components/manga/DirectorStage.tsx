@@ -225,7 +225,7 @@ export const DirectorStage: React.FC<DirectorStageProps> = ({
     let isPanning = false;
     let lastX = 0;
     let lastY = 0;
-    let spherical = new THREE.Spherical();
+    const spherical = new THREE.Spherical();
     spherical.setFromVector3(sceneMgr.camera.position);
 
     const target = new THREE.Vector3(0, 0, 0);

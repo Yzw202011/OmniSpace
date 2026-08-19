@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ui_batch_comic_b.py —— 3D 导演台 UI 冒烟测试（17 条，TC-FLOW-COMIC-072~092 子集）
 
 目标：http://127.0.0.1:5800/#/storyboard → 「3D导演台」标签 → DirectorStage（Three.js r170 WebGL2）

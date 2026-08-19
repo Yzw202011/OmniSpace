@@ -27,7 +27,7 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -96,18 +96,18 @@ def _translate(payload: Any) -> dict:
 class WsHub:
     """WebSocket 连接中枢（单例）。线程安全广播 + 系统遥测订阅推送。"""
 
-    _instance: Optional["WsHub"] = None
+    _instance: WsHub | None = None
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
         self._conns: set[WebSocket] = set()
         self._sys_subs: set[WebSocket] = set()
         self._lock = threading.Lock()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._telemetry_task: Optional[asyncio.Task] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._telemetry_task: asyncio.Task | None = None
 
     @classmethod
-    def instance(cls) -> "WsHub":
+    def instance(cls) -> WsHub:
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = cls()

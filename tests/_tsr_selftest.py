@@ -11,11 +11,14 @@ from PIL import Image, ImageDraw
 
 # 引擎同款 DINO 离线补丁
 from backend.services.inference.triposr_engine import (
-    _patch_dino_offline_fallback, _write_dino_config_cache)
+    _patch_dino_offline_fallback,
+    _write_dino_config_cache,
+)
+
 _write_dino_config_cache()
 _patch_dino_offline_fallback()
 
-from tsr.system import TSR
+from tsr.system import TSR  # noqa: E402 - 前置 DINO 离线补丁必须先于导入
 
 t0 = time.time()
 model = TSR.from_pretrained(

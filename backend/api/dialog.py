@@ -212,8 +212,7 @@ def _fire_dialog_gap(sid: str, message: str, keywords: list[str]) -> None:
     """沉淀长期学习：fire dialog_gap 触发器（learning_scheduler 默认动作
     会把缺口主题沉淀进 learning_topics，供空闲/定时触发器后续学习）。"""
     try:
-        from ..services.learning_scheduler import (
-            TRIGGER_DIALOG_GAP, get_learning_scheduler)
+        from ..services.learning_scheduler import TRIGGER_DIALOG_GAP, get_learning_scheduler
         get_learning_scheduler().fire_trigger(TRIGGER_DIALOG_GAP, {
             "session_id": sid,
             "message": message[:200],
@@ -233,8 +232,7 @@ def _quick_search_supplement(keywords: list[str]) -> str:
     if not keywords:
         return ""
     try:
-        from ..services.browser_agent_service import (
-            _is_content_link, build_search_url)
+        from ..services.browser_agent_service import _is_content_link, build_search_url
         from ..services.browser_pool import get_browser_pool
     except Exception as exc:  # noqa: BLE001
         log.debug("被动补全搜索依赖不可用: %s", exc)

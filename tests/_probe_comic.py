@@ -1,6 +1,7 @@
-# -*- coding: utf-8 -*-
 """复现 comic_a 关键交互链：切页签/打开分镜弹窗/行右键/镜号选中联动"""
-import json, urllib.request
+import json
+import urllib.request
+
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:5800"

@@ -10,9 +10,8 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Optional
 
-from ...config import SCHEDULER_INTERVAL_MS, THRESHOLDS, IDLE_RECLAIM_SECONDS
+from ...config import IDLE_RECLAIM_SECONDS, SCHEDULER_INTERVAL_MS, THRESHOLDS
 
 log = logging.getLogger("omnispace.scheduler")
 
@@ -23,10 +22,10 @@ class SchedulerEngine:
     规格 §5.1: 每秒采样一次硬件状态，按6种协同模式动态调度。
     """
 
-    _instance: Optional["SchedulerEngine"] = None
+    _instance: SchedulerEngine | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "SchedulerEngine":
+    def __new__(cls) -> SchedulerEngine:
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -39,10 +38,10 @@ class SchedulerEngine:
         self._initialized = True
 
         # 延迟导入避免循环依赖
-        from .monitor import HardwareMonitor
         from .analyzer import BottleneckAnalyzer
         from .decision import DecisionEngine
         from .dispatcher import TaskDispatcher
+        from .monitor import HardwareMonitor
 
         self.monitor = HardwareMonitor()
         self.analyzer = BottleneckAnalyzer()
@@ -54,7 +53,7 @@ class SchedulerEngine:
         self.current_mode: SynergyMode = SynergyMode.GPU_PRIMARY
 
         # 后台任务句柄
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._running = False
 
         # 磁盘 IO 繁忙状态（文档B §4.1：磁盘 IO >80% → 延迟非关键写入）
@@ -271,7 +270,7 @@ class SchedulerEngine:
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────
-_scheduler_instance: Optional[SchedulerEngine] = None
+_scheduler_instance: SchedulerEngine | None = None
 _singleton_lock = threading.Lock()
 
 

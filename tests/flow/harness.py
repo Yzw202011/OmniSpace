@@ -19,8 +19,9 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import requests
 
@@ -96,7 +97,7 @@ class Client:
         return self.call("DELETE", path, json=body, params=params or None)
 
     def upload(self, path: str, field: str, filename: str,
-               content: bytes, form: Optional[dict] = None) -> dict:
+               content: bytes, form: dict | None = None) -> dict:
         files = {field: (filename, content)}
         hdr = {k: v for k, v in self.s.headers.items()
                if k.lower() != "content-type"}
@@ -109,7 +110,7 @@ class Client:
                     "error": {"code": -1, "message": f"HTTP {resp.status_code}"}}
 
 
-def ok_data(env: dict) -> Optional[dict]:
+def ok_data(env: dict) -> dict | None:
     """信封成功时返回 data，否则 None。"""
     if isinstance(env, dict) and env.get("success") and env.get("data") is not None:
         return env["data"]
@@ -169,6 +170,7 @@ def tiny_png_b64() -> str:
     """1x1 PNG base64（用于多模态/图生图输入）。"""
     import base64
     import io
+
     from PIL import Image
     img = Image.new("RGB", (64, 64), (120, 80, 160))
     buf = io.BytesIO()
@@ -178,10 +180,10 @@ def tiny_png_b64() -> str:
 
 def tiny_wav_bytes(seconds: float = 1.0, rate: int = 16000) -> bytes:
     """生成正弦波 WAV（用于 ASR 转写上传）。"""
+    import io
     import math
     import struct
     import wave
-    import io
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)

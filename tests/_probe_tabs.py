@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """探测 storyboard 页签栏结构（排查 ui_batch_comic_a switch_tab 超时）"""
 from playwright.sync_api import sync_playwright
 

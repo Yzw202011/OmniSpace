@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 OmniSpace AI —— 对话页(#/chat) UI 冒烟测试（12 用例）
 用法: e:\\OmniSpace\\runtime\\py310\\python.exe e:\\OmniSpace\\tests\\ui_batch_chat.py
@@ -16,7 +15,6 @@ import io
 import json
 import os
 import re
-import sys
 import time
 import traceback
 

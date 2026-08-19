@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """OmniSpace AI v2.3.1 浏览器进程池（TASK-054）。
 
 目标：浏览器"秒开"——学习会话获取已预热的浏览器实例，就绪时间 <1 秒。
@@ -30,7 +29,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from .browser_service import (
     BrowserError,
@@ -53,7 +52,7 @@ class BrowserPool:
                  = get_browser_service) -> None:
         self._factory = factory
         self._cond = threading.Condition()
-        self._instance: Optional[BrowserService] = None
+        self._instance: BrowserService | None = None
         self._warm = False          # 预热完成（进程已启动）
         self._leased = False        # 实例已租出
         self._dirty = False         # 租出期间可能产生会话数据
@@ -140,7 +139,7 @@ class BrowserPool:
                 raise BrowserError(72001, "浏览器池已关闭")
             self._leased = True
 
-        inst: Optional[BrowserService] = None
+        inst: BrowserService | None = None
         try:
             inst = self._instance or self._factory()
             # 冷启动：预热未完成/失败 → 同步拉起（慢路径，仅首次）
@@ -178,7 +177,7 @@ class BrowserPool:
                 self._cond.notify_all()
             raise
 
-    def release(self, inst: Optional[BrowserService]) -> None:
+    def release(self, inst: BrowserService | None) -> None:
         """归还实例：会话隔离清理（Cookie/LocalStorage/缓存）+ 预建干净快照。
 
         清理异步执行（清理耗时 100-500ms，不阻塞会话收尾），完成后
@@ -253,7 +252,7 @@ class BrowserPool:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_pool: Optional[BrowserPool] = None
+_pool: BrowserPool | None = None
 _pool_lock = threading.Lock()
 
 

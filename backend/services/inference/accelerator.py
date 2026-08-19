@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("omnispace.inference.accelerator")
 
@@ -168,7 +168,7 @@ class Accelerator:
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────
-_accelerator: Optional[Accelerator] = None
+_accelerator: Accelerator | None = None
 
 
 def get_accelerator() -> Accelerator:

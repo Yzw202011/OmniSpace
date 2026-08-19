@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 安装包完整性校验工具（CLI）
 - BLAKE3（优先）/ BLAKE2b-256（降级）对关键文件做全量哈希

@@ -507,8 +507,7 @@ def session_start(body: dict = Body(default_factory=dict)):
 
     if agent.active_session() is not None:
         if body.get("enqueue") is True:
-            from ..services.learning_scheduler import (
-                enqueue_waiting_session, list_waiting_sessions)
+            from ..services.learning_scheduler import enqueue_waiting_session, list_waiting_sessions
             pos = enqueue_waiting_session(topic_id, budget)
             if pos == 0:
                 raise ApiError(ERR_SESSION_RUNNING,

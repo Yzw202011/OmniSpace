@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """批 7 修复验证：COMIC-014 预览确认 / COMIC-020 面板联动 / COMIC-079 3D点选。"""
 import json
 import re

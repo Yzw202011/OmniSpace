@@ -4,9 +4,10 @@
 """
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 # ── 路径 ──────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -23,7 +24,7 @@ DB_PATH = DATA_DIR / "omnispace.db"
 
 # ── 加载 YAML ────────────────────────────────────────────────────
 _yaml_path = BACKEND_DIR / "config.yaml"
-with open(_yaml_path, "r", encoding="utf-8") as _f:
+with open(_yaml_path, encoding="utf-8") as _f:
     _cfg: dict[str, Any] = yaml.safe_load(_f)
 
 # ── 服务 ─────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ import importlib
 import logging
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from ...config import MODELS_DIR
 
@@ -189,7 +189,7 @@ class DetectEngine:
                     cls_ids = boxes.cls.tolist()
                     confs = boxes.conf.tolist()
                     for (x1, y1, x2, y2), cls_id, score in zip(
-                            xyxy, cls_ids, confs):
+                            xyxy, cls_ids, confs, strict=True):
                         cid = int(cls_id)
                         detections.append({
                             "class_id": cid,
@@ -242,7 +242,7 @@ class DetectEngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_engine_instance: Optional[DetectEngine] = None
+_engine_instance: DetectEngine | None = None
 _engine_lock = threading.Lock()
 
 

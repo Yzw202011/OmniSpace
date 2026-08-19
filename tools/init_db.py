@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 数据库初始化/检查工具（CLI）
 - 初始化 SQLite 并校验核心业务表（backend/data/database.py _SCHEMA）

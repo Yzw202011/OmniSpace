@@ -24,12 +24,12 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Query, UploadFile, File
+from fastapi import APIRouter, Body, File, Query, UploadFile
 
 from ..data.database import get_db_safe
-from ..data.models import TrainTaskCreate, TrainStatus
-from ..middleware.error_handler import ApiError, ok
+from ..data.models import TrainStatus, TrainTaskCreate
 from ..middleware import upload_guard
+from ..middleware.error_handler import ApiError, ok
 from ..services.lora_training_service import (
     MIN_TRAINING_SAMPLES,
     TRAIN_DATA_DIR,
@@ -154,7 +154,7 @@ def learn_tasks():
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库查询失败: %s", exc)
             raise ApiError(40006, "训练任务列表查询失败",
-                           detail={"error": str(exc)})
+                           detail={"error": str(exc)}) from exc
     raise ApiError(40006, "数据库不可用，无法查询训练任务")
 
 
@@ -174,7 +174,7 @@ def learn_task_detail(task_id: str):
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库查询失败: %s", exc)
             raise ApiError(40006, "训练任务查询失败",
-                           detail={"error": str(exc)})
+                           detail={"error": str(exc)}) from exc
     raise ApiError(40005, "训练任务不存在", detail={"task_id": task_id})
 
 
@@ -207,7 +207,7 @@ def learn_task_cancel(task_id: str):
             "SELECT id, status FROM train_tasks WHERE id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务查询失败: %s", exc)
-        raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)})
+        raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
                        detail={"task_id": task_id})
@@ -224,7 +224,7 @@ def learn_task_cancel(task_id: str):
                   "id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务取消落库失败: %s", exc)
-        raise ApiError(40006, "训练任务取消失败", detail={"error": str(exc)})
+        raise ApiError(40006, "训练任务取消失败", detail={"error": str(exc)}) from exc
     if status != TrainStatus.QUEUED.value:
         # 训练服务无中断机制：进行中的训练可能跑到结束并覆盖状态，
         # 如实留痕（排队任务的取消由工作线程跳过逻辑保证生效）
@@ -261,7 +261,7 @@ def learn_tasks_reorder(body: dict = Body(default_factory=dict)):
                 missing.append(tid)
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务排序失败: %s", exc)
-        raise ApiError(40006, "训练任务排序失败", detail={"error": str(exc)})
+        raise ApiError(40006, "训练任务排序失败", detail={"error": str(exc)}) from exc
     return ok({"updated": updated, "missing": missing},
               message=f"已更新 {updated} 个任务的优先级")
 
@@ -306,7 +306,7 @@ async def learn_dataset_upload(file: UploadFile = File(...)):
     try:
         dest.write_bytes(content)
     except OSError as exc:
-        raise ApiError(40006, "数据集落盘失败", detail={"error": str(exc)})
+        raise ApiError(40006, "数据集落盘失败", detail={"error": str(exc)}) from exc
 
     return ok({"id": dataset_id, "filename": file.filename,
                "dataset_path": str(dest),

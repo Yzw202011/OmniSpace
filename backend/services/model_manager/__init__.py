@@ -23,11 +23,16 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional, List, Dict
+from typing import Any
 
 from ...config import MODELS_DIR
-from ...data.models import (DIALOG_ROUTING_TABLE, PAINT_ROUTING_TABLE,
-                            VIDEO_ROUTING_TABLE, ModelCategory, ModelInfo)
+from ...data.models import (
+    DIALOG_ROUTING_TABLE,
+    PAINT_ROUTING_TABLE,
+    VIDEO_ROUTING_TABLE,
+    ModelCategory,
+    ModelInfo,
+)
 
 log = logging.getLogger("omnispace.model_manager")
 
@@ -92,10 +97,10 @@ class ModelManager:
     规格 §2.3: 模型加载互斥规则（显存不足 → 驱逐最低优先级 → 加载）。
     """
 
-    _instance: Optional["ModelManager"] = None
+    _instance: ModelManager | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "ModelManager":
+    def __new__(cls) -> ModelManager:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -109,12 +114,12 @@ class ModelManager:
         self._initialized = True
 
         # 延迟导入避免循环依赖
-        from .importer import ModelImporter
-        from .validator import ModelValidator
-        from .classifier import ModelClassifier
-        from .selector import ModelSelector
         from .cache import ModelCache
+        from .classifier import ModelClassifier
+        from .importer import ModelImporter
         from .predictor import FeaturePredictor
+        from .selector import ModelSelector
+        from .validator import ModelValidator
 
         self.importer = ModelImporter()
         self.validator = ModelValidator()
@@ -124,11 +129,11 @@ class ModelManager:
         self.predictor = FeaturePredictor()
 
         # 已注册模型表（运行时内存索引）
-        self._models: Dict[str, ModelInfo] = {}
+        self._models: dict[str, ModelInfo] = {}
 
         # 运行时加载状态: model_id -> {category, path, vram_gb, priority,
         #                                loaded_at, engine}
-        self._loaded: Dict[str, dict] = {}
+        self._loaded: dict[str, dict] = {}
         self._loaded_lock = threading.Lock()
         self._reserved_vram_gb = 0.0        # allocate_memory 逻辑预留量
         # 审计 P0-5：_reserved_vram_gb 读改写必须原子，专用锁全程保护
@@ -137,12 +142,12 @@ class ModelManager:
         # 嵌套调用 unload_model（其内部再次获取本锁扣减预留量），
         # 普通 Lock 不可重入会导致同线程自死锁（绘画首载卡死根因）。
         self._vram_lock = threading.RLock()
-        self._engines: Dict[str, Any] = {}  # category -> 引擎实例（懒加载）
+        self._engines: dict[str, Any] = {}  # category -> 引擎实例（懒加载）
 
         # 审计 P0-1：调度策略真实落点——CPU offload 标记与精度策略，
         # 由 dispatcher.migrate_to_cpu/degrade 写入，引擎加载时读取参考。
         self._cpu_offload_enabled = False
-        self._cpu_offload_layers: List[str] = []
+        self._cpu_offload_layers: list[str] = []
         self._precision_policy = "fp16"
         self._policy_lock = threading.Lock()
 
@@ -150,11 +155,11 @@ class ModelManager:
         self.last_error: str = ""
 
         # NVML 惰性初始化状态
-        self._nvml_ready: Optional[bool] = None
+        self._nvml_ready: bool | None = None
 
         # 磁盘扫描缓存（mtime 粗粒度失效）
         self._disk_scan_ts = 0.0
-        self._disk_scan_cache: Dict[str, dict] = {}
+        self._disk_scan_cache: dict[str, dict] = {}
 
     # ═══════════════════════════════════════════════════════════════
     #  既有注册表接口（保持原契约）
@@ -164,11 +169,11 @@ class ModelManager:
         """注册模型到管理器。"""
         self._models[model_info.id] = model_info
 
-    def get_model(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model(self, model_id: str) -> ModelInfo | None:
         """按 ID 获取模型信息。"""
         return self._models.get(model_id)
 
-    def list_models(self, category: Optional[ModelCategory] = None) -> List[ModelInfo]:
+    def list_models(self, category: ModelCategory | None = None) -> list[ModelInfo]:
         """列出所有模型，可按分类过滤。"""
         if category is None:
             return list(self._models.values())
@@ -254,7 +259,7 @@ class ModelManager:
     #  磁盘扫描（models/ 目录存在性 → downloaded 标记）
     # ═══════════════════════════════════════════════════════════════
 
-    def scan_downloaded_models(self, force: bool = False) -> Dict[str, dict]:
+    def scan_downloaded_models(self, force: bool = False) -> dict[str, dict]:
         """扫描 MODELS_DIR，返回 {model_id: {path, size_gb, downloaded}}。
 
         合并策略：显式路径提示（_MODEL_PATH_HINTS）+ 两层目录特征扫描。
@@ -264,7 +269,7 @@ class ModelManager:
                 and self._disk_scan_cache:
             return dict(self._disk_scan_cache)
 
-        found: Dict[str, dict] = {}
+        found: dict[str, dict] = {}
         base = Path(MODELS_DIR)
 
         def _probe(model_id: str, rel: str) -> None:
@@ -337,7 +342,7 @@ class ModelManager:
             pass
         return round(total / (1024 ** 3), 3)
 
-    def resolve_model_path(self, model_id: str) -> Optional[str]:
+    def resolve_model_path(self, model_id: str) -> str | None:
         """解析模型的本地路径（注册表 file_path → 磁盘扫描），未下载返回 None。"""
         info = self._models.get(model_id)
         if info is not None and info.file_path and Path(info.file_path).exists():
@@ -354,8 +359,8 @@ class ModelManager:
         导致 allocate_memory 永远失败、驱逐记账失真。
         """
         try:
-            from ..inference.paint_engine import PAINT_MODEL_CANDIDATES
             from ..inference.dialog_engine import DIALOG_MODEL_CANDIDATES
+            from ..inference.paint_engine import PAINT_MODEL_CANDIDATES
             for mid, _rel, vram in (*PAINT_MODEL_CANDIDATES,
                                     *DIALOG_MODEL_CANDIDATES):
                 if mid == model_id:
@@ -382,7 +387,7 @@ class ModelManager:
         f = (feature or "").strip().lower()
         return _FEATURE_ALIASES.get(f, f)
 
-    def check_mutual_exclusion(self, target: str) -> List[str]:
+    def check_mutual_exclusion(self, target: str) -> list[str]:
         """按规格 §2.1 互斥矩阵返回 target 活跃时需要置灰的功能列表。
 
         manga/video/draw 等别名归一化到 feature_lock 语义
@@ -390,7 +395,7 @@ class ModelManager:
         """
         return list(MUTUAL_EXCLUSION_MATRIX.get(self._normalize_feature(target), []))
 
-    def get_blocked_features(self) -> List[str]:
+    def get_blocked_features(self) -> list[str]:
         """基于当前功能锁状态，返回此刻应置灰的功能列表。"""
         try:
             from ...middleware.feature_lock import get_feature_lock
@@ -464,7 +469,7 @@ class ModelManager:
     # ═══════════════════════════════════════════════════════════════
 
     def set_cpu_offload(self, enabled: bool,
-                        layers: Optional[List[str]] = None) -> None:
+                        layers: list[str] | None = None) -> None:
         """写入 CPU offload 标记（由 dispatcher.migrate_to_cpu 调用）。
 
         引擎下次加载模型时读取本标记，决定是否启用 CPU offload
@@ -795,7 +800,7 @@ class ModelManager:
         log.info("注销引擎自动装载模型登记: %s", model_id)
         return True
 
-    def get_loaded_models(self) -> List[dict]:
+    def get_loaded_models(self) -> list[dict]:
         """返回当前已加载模型列表（含类别/路径/显存/优先级/加载时间）。"""
         with self._loaded_lock:
             return [dict(model_id=mid, **info) for mid, info in self._loaded.items()]
@@ -808,7 +813,7 @@ class ModelManager:
         """记录功能切换事件（供 ML 预测学习）。"""
         self.predictor.record_event(from_feature, to_feature)
 
-    def predict_next_feature(self, current_feature: Optional[str] = None) -> dict:
+    def predict_next_feature(self, current_feature: str | None = None) -> dict:
         """预测下一功能；概率 > 0.7 时返回预加载建议（推理 < 50ms）。"""
         result = self.predictor.predict_next(current_feature)
         # 预加载建议附上具体模型（按路由表 + 当前可用显存选择）
@@ -846,7 +851,7 @@ class ModelManager:
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────
-_manager_instance: Optional[ModelManager] = None
+_manager_instance: ModelManager | None = None
 _singleton_lock = threading.Lock()
 
 

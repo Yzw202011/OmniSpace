@@ -14,15 +14,16 @@ from __future__ import annotations
 
 import importlib
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import psutil
 
 from ...config import (
-    ROOT_DIR,
-    GPU_SAMPLE_INTERVAL_S,
     CPU_SAMPLE_INTERVAL_S,
     DISK_SAMPLE_INTERVAL_S,
+    GPU_SAMPLE_INTERVAL_S,
+    ROOT_DIR,
 )
 
 
@@ -47,7 +48,7 @@ class HardwareMonitor:
         self._cache: dict[str, tuple[dict, float]] = {}
         # 磁盘 IO 上一次采样计数（monotonic 秒, read_time_ms, write_time_ms），
         # 用于计算采样间隔内的磁盘占用率（文档B §4.1：磁盘 IO >80% 延迟写入）
-        self._disk_prev: Optional[tuple[float, int, int]] = None
+        self._disk_prev: tuple[float, int, int] | None = None
 
     def _cached(self, key: str, ttl_s: float, producer: Callable[[], dict]) -> dict:
         """TTL 缓存采样：ttl 内返回上次结果，过期重新采样。"""

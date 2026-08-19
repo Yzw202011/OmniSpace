@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回环绑定闸门单元测试（TASK-P0-05，规格 §14 约束2）。
 
 直测 backend.config.assert_loopback_host 纯函数：

@@ -19,7 +19,7 @@ import logging
 import threading
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any, Deque, Optional
+from typing import Any
 
 log = logging.getLogger("omnispace.scheduler.history")
 
@@ -36,7 +36,7 @@ class ScheduleHistory:
     """协同调度历史学习引擎——决策落库 + 效果回归分析。"""
 
     def __init__(self) -> None:
-        self._mem: Deque[dict] = deque(maxlen=_MEM_BUFFER_CAP)
+        self._mem: deque[dict] = deque(maxlen=_MEM_BUFFER_CAP)
         self._db_failed = False  # 写库失败一次后转内存模式，避免逐 tick 重试
 
     # ── 记录 ────────────────────────────────────────────────────
@@ -176,7 +176,7 @@ class ScheduleHistory:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_history_instance: Optional[ScheduleHistory] = None
+_history_instance: ScheduleHistory | None = None
 _history_lock = threading.Lock()
 
 

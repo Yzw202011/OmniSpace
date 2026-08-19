@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """CHAT-012/038 修复聚焦复验：超大图片拒绝 + toast 提示文案（正确时序采样）。"""
 import os
 import sys

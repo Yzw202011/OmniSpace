@@ -1,5 +1,4 @@
 """批 1 漫剧模块新端点冒烟测试（直接打运行中的 5800 后端）。"""
-import io
 import json
 import sys
 import time

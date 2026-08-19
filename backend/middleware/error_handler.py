@@ -28,7 +28,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Union
+from typing import Any
 
 from fastapi.responses import JSONResponse
 
@@ -240,14 +240,14 @@ _LEGACY_CODE_MAP: dict[int, str] = {
 ERROR_CODES: dict[int, str] = {code: SEMANTIC_CODES[sem] for code, sem in _LEGACY_CODE_MAP.items() if sem in SEMANTIC_CODES}
 
 
-def _to_semantic(code: Union[int, str]) -> str:
+def _to_semantic(code: int | str) -> str:
     """数字码/语义码统一归一为语义码。未知输入兜底 SYSTEM_INTERNAL_ERROR。"""
     if isinstance(code, str):
         return code if code in SEMANTIC_CODES else code  # 允许新语义码直接使用
     return _LEGACY_CODE_MAP.get(code, "SYSTEM_INTERNAL_ERROR")
 
 
-def _default_message(code: Union[int, str]) -> str:
+def _default_message(code: int | str) -> str:
     sem = _to_semantic(code)
     return SEMANTIC_CODES.get(sem, "未知错误")
 
@@ -271,7 +271,7 @@ class ApiError(Exception):
     仅中间件层（403/429 限流/CORS）例外使用真实 HTTP 状态码。
     """
 
-    def __init__(self, code: Union[int, str], message: str = "",
+    def __init__(self, code: int | str, message: str = "",
                  detail: Any = None, suggestion: str = ""):
         self.code = _to_semantic(code)
         self.message = message or _default_message(code)
@@ -285,7 +285,7 @@ def ok(data: Any = None, message: str = "ok") -> dict[str, Any]:
     return {"success": True, "data": data, "error": None, "meta": _meta()}
 
 
-def error(code: Union[int, str], message: str = "", detail: Any = None,
+def error(code: int | str, message: str = "", detail: Any = None,
           suggestion: str = "") -> JSONResponse:
     """失败响应（文档D）：{success:false, data:null, error:{...}, meta:{...}}
 

@@ -4,7 +4,7 @@ import sqlite3
 db = sqlite3.connect(r"E:\OmniSpace\data\omnispace.db")
 rows = db.execute(
     "SELECT id, name FROM projects WHERE name LIKE '冒烟项目%'").fetchall()
-for pid, name in rows:
+for pid, _name in rows:
     sb = db.execute("SELECT id FROM storyboards WHERE project_id=?",
                     (pid,)).fetchone()
     if sb:

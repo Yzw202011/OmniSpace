@@ -14,7 +14,6 @@ import re
 import threading
 import time
 from collections import defaultdict, deque
-from typing import Optional
 
 from fastapi import FastAPI, Request
 
@@ -112,7 +111,7 @@ class RateLimiter:
 #  全局限流器单例
 # ═══════════════════════════════════════════════════════════════════
 
-_limiter: Optional[RateLimiter] = None
+_limiter: RateLimiter | None = None
 _limiter_lock = threading.Lock()
 
 

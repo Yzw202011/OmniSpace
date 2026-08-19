@@ -1,11 +1,13 @@
 """精确复现 COMIC-118 测试场景：64x64 纯色 PNG + 1s/720p/24fps。"""
-import sys, tempfile, subprocess
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, r"e:\OmniSpace")
-from tests.flow.harness import tiny_png_b64
-from backend.services.inference.video_engine import render_kenburns_frames
 from backend.services.encoder_service import get_encoder_service
+from backend.services.inference.video_engine import render_kenburns_frames
+from tests.flow.harness import tiny_png_b64
 
 out = Path(tempfile.mkdtemp(prefix="enc_probe2_"))
 frame_dir = out / "frames"

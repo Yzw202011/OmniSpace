@@ -19,16 +19,14 @@ import shutil
 import socket
 import sys
 import time
-from pathlib import Path
-from typing import Any
 
 from .config import (
-    HOST,
-    PORT,
+    APP_VERSION,
     DATA_DIR,
+    HOST,
     LOGS_DIR,
     MODELS_DIR,
-    APP_VERSION,
+    PORT,
 )
 
 log = logging.getLogger("omnispace.startup_check")
@@ -457,15 +455,14 @@ def _check_ffmpeg() -> CheckResult:
 
 def _check_lz4() -> CheckResult:
     """23. LZ4 压缩库。"""
-    try:
-        import lz4.frame
+    import importlib.util
+    if importlib.util.find_spec("lz4.frame") is not None:
         return CheckResult(23, "LZ4 压缩库", True,
                            "lz4 已安装（缓存压缩可用）", "info",
                            {"available": True})
-    except ImportError:
-        return CheckResult(23, "LZ4 压缩库", False,
-                           "lz4 未安装（缓存不压缩）", "warning",
-                           {"available": False})
+    return CheckResult(23, "LZ4 压缩库", False,
+                       "lz4 未安装（缓存不压缩）", "warning",
+                       {"available": False})
 
 
 def _check_models_dir() -> CheckResult:
@@ -556,7 +553,6 @@ def run_startup_check() -> list[dict]:
         try:
             result = check_fn()
             results.append(result.to_dict())
-            level_str = {"error": "ERROR", "warning": "WARN", "info": "INFO"}
             log.log(
                 logging.ERROR if not result.passed and result.level == "error"
                 else logging.WARNING if not result.passed

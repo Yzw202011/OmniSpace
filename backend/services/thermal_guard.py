@@ -27,7 +27,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Optional
 
 from ..config import THRESHOLDS
 
@@ -50,14 +49,14 @@ _LOCKED_UTIL_CAP = 0.80
 class ThermalGuard:
     """GPU 温度保护状态机（进程内单例，线程安全）。"""
 
-    _instance: Optional["ThermalGuard"] = None
+    _instance: ThermalGuard | None = None
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._state = STATE_NORMAL
         self._consecutive_hot_events = 0     # 连续高温（>=warning）采样计数
-        self._util_cap: Optional[float] = None  # 会话级利用率上限（锁定后非 None）
+        self._util_cap: float | None = None  # 会话级利用率上限（锁定后非 None）
         self._last_temp = 0.0
         self._state_since = time.time()
         self._pause_count = 0                # 累计进入暂停次数（会话统计）
@@ -65,7 +64,7 @@ class ThermalGuard:
         self._last_broadcast_ts = 0.0        # 广播节流（同状态最多每 5s 一次）
 
     @classmethod
-    def instance(cls) -> "ThermalGuard":
+    def instance(cls) -> ThermalGuard:
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = cls()
@@ -168,7 +167,7 @@ class ThermalGuard:
         """是否处于降频态（>=warning）。"""
         return self._state in (STATE_THROTTLING, STATE_PAUSED)
 
-    def get_util_cap(self) -> Optional[float]:
+    def get_util_cap(self) -> float | None:
         """会话级 GPU 利用率上限（连续高温锁定后返回 0.80，否则 None）。"""
         return self._util_cap
 
@@ -192,7 +191,7 @@ class ThermalGuard:
     # ── 广播 ────────────────────────────────────────────────────
 
     def _broadcast_state(self, state: str, temp: float,
-                         util_cap: Optional[float], hot_events: int,
+                         util_cap: float | None, hot_events: int,
                          force: bool = False) -> None:
         """向 UI 广播热保护事件（5s 节流；状态迁移时立即广播）。"""
         now = time.time()

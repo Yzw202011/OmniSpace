@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
 """CHAT-008/009/046 修复聚焦复验：拖拽上传、粘贴上传、斜杠命令补全浮层。"""
 import base64
 import io
-import os
 import sys
 
 from PIL import Image
@@ -88,7 +86,6 @@ def main():
         ok = popup > 0 and opts >= 2
         detail = f"输入 / 出现 listbox（{opts} 个候选）" if ok else "未出现补全浮层"
         # 键盘应用第一条命令「/新建对话」→ 输入框应被清空（命令真实生效）
-        before_sessions = page.locator("[class*='session'], aside li, aside [role='listitem']").count()
         ta.press("Enter")
         page.wait_for_timeout(600)
         after_val = ta.input_value()

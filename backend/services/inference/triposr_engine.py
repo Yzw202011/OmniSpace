@@ -30,7 +30,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ... import config as _config
 from ...config import MODELS_DIR
@@ -102,7 +102,7 @@ def triposr_weights_ready(model_dir: Path) -> bool:
     return ckpt.is_file() and ckpt.stat().st_size > 1024 * 1024
 
 
-def _write_dino_config_cache() -> Optional[str]:
+def _write_dino_config_cache() -> str | None:
     """把 dino-vitb16 等价 config.json 写入权重目录下的本地缓存，返回路径。"""
     cache_dir = TRIPOSR_MODEL_DIR / "dino-vitb16-config"
     cfg_path = cache_dir / "config.json"
@@ -414,7 +414,7 @@ class TripoSREngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_engine: Optional[TripoSREngine] = None
+_engine: TripoSREngine | None = None
 _engine_lock = threading.Lock()
 
 

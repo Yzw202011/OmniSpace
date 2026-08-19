@@ -79,7 +79,7 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
         .catch((err) => showToast(errMsg(err, '分镜表导出失败'), 'error'))
         .finally(() => setBusy(''));
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [currentProject, showToast],
   );
 
@@ -95,7 +95,7 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
       })
       .catch((err) => showToast(errMsg(err, '资产包导出失败'), 'error'))
       .finally(() => setBusy(''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [currentProject, assets.length, showToast]);
 
   // 合并包导出
@@ -114,7 +114,7 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
       })
       .catch((err) => showToast(errMsg(err, '合并包导出失败'), 'error'))
       .finally(() => setBusy(''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [currentProject, showToast]);
 
   // 导演台状态导出
@@ -132,7 +132,7 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
       })
       .catch((err) => showToast(errMsg(err, '导演台状态导出失败'), 'error'))
       .finally(() => setBusy(''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [currentProject, showToast]);
 
   return (

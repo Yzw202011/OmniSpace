@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 系统诊断工具（CLI）
 - 数据基础：backend/startup_check.run_startup_check() 的真实 26 项检查

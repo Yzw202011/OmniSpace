@@ -23,7 +23,7 @@ import io
 import logging
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from ...config import MODELS_DIR
 
@@ -286,7 +286,7 @@ class DepthEngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_engine_instance: Optional[DepthEngine] = None
+_engine_instance: DepthEngine | None = None
 _engine_lock = threading.Lock()
 
 

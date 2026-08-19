@@ -41,7 +41,7 @@ import logging
 import threading
 import time
 import uuid
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from fastapi import APIRouter, Body, Query
 
@@ -61,10 +61,10 @@ log = logging.getLogger("omnispace.api.draw")
 
 # ── 模块级注入点：WebSocket 广播器 ──────────────────────────────────
 # 由上层（如 main/websocket 服务）注入 callable(dict)，把进度推给前端。
-ws_broadcaster: Optional[Callable[[dict], None]] = None
+ws_broadcaster: Callable[[dict], None] | None = None
 
 
-def set_ws_broadcaster(fn: Optional[Callable[[dict], None]]) -> None:
+def set_ws_broadcaster(fn: Callable[[dict], None] | None) -> None:
     """注入/替换进度广播器。fn(payload: dict) -> None。"""
     global ws_broadcaster
     ws_broadcaster = fn
@@ -155,7 +155,7 @@ def _task_update(task_id: str, **fields) -> None:
             task["updated_at"] = time.time()
 
 
-def _task_get(task_id: str) -> Optional[dict]:
+def _task_get(task_id: str) -> dict | None:
     with _tasks_lock:
         task = _tasks.get(task_id)
         return dict(task) if task is not None else None
@@ -645,7 +645,7 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)):
     try:
         priority = int(body.get("priority", 5))
     except (TypeError, ValueError):
-        raise ApiError(40008, "priority 必须是 0~9 的整数")
+        raise ApiError(40008, "priority 必须是 0~9 的整数") from None
     priority = max(0, min(priority, 9))
 
     with _pending_lock:
@@ -708,11 +708,11 @@ def _ensure_history_columns() -> None:
 @router.get("/paint/history")
 def draw_history(page: int = Query(1, ge=1),
                  page_size: int = Query(20, ge=1, le=100),
-                 favorite: Optional[int] = Query(None),
-                 start: Optional[float] = Query(None),
-                 end: Optional[float] = Query(None),
-                 width: Optional[int] = Query(None),
-                 height: Optional[int] = Query(None),
+                 favorite: int | None = Query(None),
+                 start: float | None = Query(None),
+                 end: float | None = Query(None),
+                 width: int | None = Query(None),
+                 height: int | None = Query(None),
                  keyword: str = Query("")):
     """生成历史（paint_history 表，按时间倒序分页）。
 
@@ -782,7 +782,7 @@ def draw_history(page: int = Query(1, ge=1),
 
 # ── 画廊管理：收藏 / 删除（PAINT-048/050/051）─────────────────────────
 
-def _history_row(task_id: str) -> Optional[dict]:
+def _history_row(task_id: str) -> dict | None:
     db = get_db_safe()
     if db is None:
         return None

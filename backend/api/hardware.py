@@ -227,8 +227,7 @@ def hardware_tier_set(body: dict = Body(default_factory=dict)):
     （/hardware/info、对话模型路由、学习标签配额）立即按覆盖档
     返回；已加载模型不热切换。
     """
-    from ..data.models import (HARDWARE_TIER_TABLE, get_effective_tier,
-                               write_tier_override)
+    from ..data.models import HARDWARE_TIER_TABLE, get_effective_tier, write_tier_override
     tier = str(body.get("tier", "auto") or "auto").strip().lower()
     valid = {e["tier"] for e in HARDWARE_TIER_TABLE} | {"auto"}
     if tier not in valid:

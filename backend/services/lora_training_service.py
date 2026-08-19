@@ -67,8 +67,9 @@ import random
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..config import DATA_DIR, MODELS_DIR
 from ..data.database import get_db_safe
@@ -88,10 +89,10 @@ def _try_import(name: str) -> Any:
 
 # ── 模块级注入点：WebSocket 广播器 ──────────────────────────────
 # 由上层（main/websocket 服务）注入 callable(dict)，把训练事件推给前端。
-ws_broadcaster: Optional[Callable[[dict], None]] = None
+ws_broadcaster: Callable[[dict], None] | None = None
 
 
-def set_ws_broadcaster(fn: Optional[Callable[[dict], None]]) -> None:
+def set_ws_broadcaster(fn: Callable[[dict], None] | None) -> None:
     """注入 WebSocket 广播器（None 表示禁用推送）。"""
     global ws_broadcaster
     ws_broadcaster = fn
@@ -247,24 +248,24 @@ class LoRATrainingService:
     串行出队执行 train() → evaluate() → 注册/待审核。
     """
 
-    _instance: Optional["LoRATrainingService"] = None
+    _instance: LoRATrainingService | None = None
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._queue: "queue.PriorityQueue[tuple[int, int, dict]]" = queue.PriorityQueue()
+        self._queue: queue.PriorityQueue[tuple[int, int, dict]] = queue.PriorityQueue()
         self._seq = 0                          # 同优先级 FIFO 序号
-        self._worker: Optional[threading.Thread] = None
+        self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
-        self._training_task_id: Optional[str] = None
-        self._dataset: Optional[dict] = None   # prepare_training_data 缓存
-        self._last_train_data: Optional[dict] = None  # 最近训练实际使用的数据集（供评估取验证集）
+        self._training_task_id: str | None = None
+        self._dataset: dict | None = None   # prepare_training_data 缓存
+        self._last_train_data: dict | None = None  # 最近训练实际使用的数据集（供评估取验证集）
         self._mem_tasks: dict[str, dict] = {}  # DB 不可用时的任务镜像
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._lock_via_fallback = False
 
     @classmethod
-    def instance(cls) -> "LoRATrainingService":
+    def instance(cls) -> LoRATrainingService:
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = cls()
@@ -367,7 +368,7 @@ class LoRATrainingService:
     #  触发判定与入队（规格 §3.3 训练触发条件检测）
     # ═══════════════════════════════════════════════════════════
 
-    def should_trigger_finetune(self, config: Optional[dict] = None) -> bool:
+    def should_trigger_finetune(self, config: dict | None = None) -> bool:
         """触发条件：数据 ≥100 + GPU 空闲（无功能锁占用）+ 无并发训练。
 
         config 含 dataset_path 时按外部数据集判定充分性（API 显式指定场景）。
@@ -386,8 +387,8 @@ class LoRATrainingService:
             data = self._dataset or self.prepare_training_data()
         return data["total"] >= MIN_TRAINING_SAMPLES
 
-    def trigger_finetune(self, config: Optional[dict] = None,
-                         priority: str = "low") -> Optional[str]:
+    def trigger_finetune(self, config: dict | None = None,
+                         priority: str = "low") -> str | None:
         """入队一次微调任务，返回 task_id；条件不满足返回 None。
 
         Celery 语义对齐：本方法等价于
@@ -488,7 +489,7 @@ class LoRATrainingService:
             return False
 
     @classmethod
-    def _load_external_dataset(cls, dataset_path: str) -> Optional[dict]:
+    def _load_external_dataset(cls, dataset_path: str) -> dict | None:
         """加载 API 上传的外部 JSONL 数据集（{"instruction","input","output"} 每行一条）。
 
         与 prepare_training_data 相同的 90/10 划分与去重逻辑；
@@ -506,7 +507,7 @@ class LoRATrainingService:
             return None
         samples: list[dict] = []
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 for ln, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:
@@ -732,8 +733,8 @@ class LoRATrainingService:
     #  训练执行（真实 peft QLoRA 管线，TASK-038 train）
     # ═══════════════════════════════════════════════════════════
 
-    def train(self, config: Optional[dict] = None,
-              progress_cb: Optional[Callable[[dict], None]] = None) -> dict:
+    def train(self, config: dict | None = None,
+              progress_cb: Callable[[dict], None] | None = None) -> dict:
         """QLoRA 增量训练。
 
         管线：BitsAndBytesConfig 4bit 基座 → prepare_model_for_kbit_training →
@@ -879,7 +880,7 @@ class LoRATrainingService:
 
     def _train_impl(self, cfg: dict, data: dict, torch: Any,
                     transformers: Any, peft: Any,
-                    progress_cb: Optional[Callable[[dict], None]],
+                    progress_cb: Callable[[dict], None] | None,
                     free_gb: float = 0.0) -> dict:
         """QLoRA 训练实现（train() 的内部拆分，便于独立测试）。"""
         base_dir = str(cfg["base_model"])
@@ -942,7 +943,7 @@ class LoRATrainingService:
                 1, int(cfg.get("lr_restart_cycles", 3)))
         # TASK-053：DeepSpeed ZeRO-2（可选；QLoRA 4bit 与 ZeRO-3 冲突，禁用）
         ds_zero = int(cfg.get("deepspeed_zero", 0) or 0)
-        ds_config: Optional[dict] = None
+        ds_config: dict | None = None
         if ds_zero > 0:
             if ds_zero >= 3:
                 logger.warning("QLoRA 4bit 量化与 ZeRO-3 参数分片冲突，"
@@ -1120,7 +1121,7 @@ class LoRATrainingService:
         return collate
 
     @staticmethod
-    def _loss_callback(progress_cb: Optional[Callable[[dict], None]]) -> Any:
+    def _loss_callback(progress_cb: Callable[[dict], None] | None) -> Any:
         """loss 实时回调（transformers.TrainerCallback.on_log）。"""
         from transformers import TrainerCallback  # type: ignore
 
@@ -1308,7 +1309,8 @@ class LoRATrainingService:
         recent = scores[-QUALITY_DECLINE_WINDOW:]
         if len(recent) < QUALITY_DECLINE_WINDOW:
             return False
-        declines = sum(1 for a, b in zip(recent, recent[1:]) if a > b)
+        # 相邻对比较：recent 与 recent[1:] 长度差 1 属预期，显式 strict=False
+        declines = sum(1 for a, b in zip(recent, recent[1:], strict=False) if a > b)
         if declines >= QUALITY_DECLINE_STREAK:
             logger.warning("§4.3 自适应：最近 %d 次训练质量分 %s 连续 %d 次下降",
                            len(recent), recent, declines)
@@ -1363,7 +1365,7 @@ class LoRATrainingService:
         logger.info("LoRA 回滚到 %s", version)
         return True
 
-    def merge(self, v1: str, v2: str) -> Optional[str]:
+    def merge(self, v1: str, v2: str) -> str | None:
         """合并两个版本 adapter（逐张量平均），保存为新版本并返回版本号。
 
         依赖 torch；adapter 文件缺失或 torch 不可用时返回 None（不崩溃）。
@@ -1413,7 +1415,7 @@ class LoRATrainingService:
     # ── 版本管理内部工具 ─────────────────────────────────────────
 
     @staticmethod
-    def _read_meta(version_dir: Path) -> Optional[dict]:
+    def _read_meta(version_dir: Path) -> dict | None:
         try:
             p = version_dir / "meta.json"
             if p.is_file():
@@ -1429,7 +1431,7 @@ class LoRATrainingService:
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
-    def _adapter_file(version_dir: Path) -> Optional[Path]:
+    def _adapter_file(version_dir: Path) -> Path | None:
         for name in ("adapter_model.bin", "adapter_model.safetensors"):
             p = version_dir / name
             if p.is_file():

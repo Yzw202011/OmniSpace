@@ -12,11 +12,11 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import psutil
 
-from ..config import THRESHOLDS, CACHE_COMPRESSION
+from ..config import CACHE_COMPRESSION, THRESHOLDS
 
 logger = logging.getLogger("omnispace.engines.memory")
 
@@ -102,7 +102,7 @@ class MemoryManager:
 
     # ── 不活跃检测 ──────────────────────────────────────────────
 
-    def get_inactive(self, idle_threshold_seconds: float = 300) -> List[str]:
+    def get_inactive(self, idle_threshold_seconds: float = 300) -> list[str]:
         """获取不活跃的内存块列表。
 
         规格 §5.1: 检测超过指定时间未访问的内存块，
@@ -172,7 +172,7 @@ class MemoryManager:
 
     # ── 释放 ────────────────────────────────────────────────────
 
-    def release(self, keys: Optional[List[str]] = None, idle_threshold_seconds: float = 600) -> int:
+    def release(self, keys: list[str] | None = None, idle_threshold_seconds: float = 600) -> int:
         """释放内存块。
 
         规格 §5.1: 释放指定或不活跃超过阈值的内存块。
@@ -240,7 +240,7 @@ class MemoryManager:
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────
-_memory_manager: Optional[MemoryManager] = None
+_memory_manager: MemoryManager | None = None
 
 
 def get_memory_manager() -> MemoryManager:

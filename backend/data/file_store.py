@@ -11,13 +11,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from ..config import DATA_DIR
 
@@ -180,7 +178,7 @@ class FileStore:
         try:
             target.relative_to(base)
         except ValueError:
-            raise ValueError(f"非法路径访问: {rel_path}")
+            raise ValueError(f"非法路径访问: {rel_path}") from None
         return target
 
     def read_file(self, rel_path: str) -> bytes:
@@ -265,7 +263,7 @@ class FileStore:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_filestore_instance: Optional[FileStore] = None
+_filestore_instance: FileStore | None = None
 _filestore_lock = threading.Lock()
 
 

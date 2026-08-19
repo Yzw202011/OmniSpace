@@ -5,7 +5,7 @@ API 可测项实测；纯 UI 项（启动画面/托盘/窗口/主题渲染）标
 """
 from __future__ import annotations
 
-from .harness import Client, Recorder, case, ok_data, err_code
+from .harness import Client, Recorder, case, ok_data
 
 MOD = "sys"
 
@@ -225,7 +225,7 @@ def sys_023(c: Client, r: Recorder) -> None:
 def sys_024(c: Client, r: Recorder) -> None:
     a = c.get("/api/v1/learn/tasks")
     b = c.get("/api/v1/style/tasks")
-    assert a.get("success") and b.get("success"), f"任务队列端点异常"
+    assert a.get("success") and b.get("success"), "任务队列端点异常"
     r.record("TC-FLOW-SYS-024", "状态栏任务队列显示验证", "PASS", "P2",
              "学习/风格训练任务队列端点均可用，供状态栏轮询")
 
@@ -239,7 +239,8 @@ def sys_025(c: Client, r: Recorder) -> None:
     assert d is not None, f"设置读取异常: {env}"
     old = d.get("theme", "sakura")
     new = "dark" if old != "dark" else "sakura"
-    upd = dict(d); upd["theme"] = new
+    upd = dict(d)
+    upd["theme"] = new
     env2 = c.put("/api/v1/system/settings", upd)
     d2 = ok_data(env2)
     assert d2 and d2.get("theme") == new, f"主题更新失败: {env2}"

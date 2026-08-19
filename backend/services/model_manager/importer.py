@@ -10,13 +10,11 @@
 
 from __future__ import annotations
 
-import os
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
-from ...data.models import ModelCategory, ModelStatus
+from ...data.models import ModelCategory
 from ...middleware.error_handler import ApiError
 from .classifier import ModelClassifier
 from .validator import ModelValidator

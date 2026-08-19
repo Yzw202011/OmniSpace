@@ -27,8 +27,8 @@ from fastapi.responses import FileResponse
 
 from ..config import DATA_DIR
 from ..middleware.error_handler import ApiError, ok
-from ..services.inference.detect_engine import get_detect_engine
 from ..services.inference.depth_engine import get_depth_engine
+from ..services.inference.detect_engine import get_detect_engine
 from ..services.inference.segment_engine import get_segment_engine
 from ..services.inference.triposr_engine import get_triposr_engine
 
@@ -87,7 +87,7 @@ async def art_image_to_3d(body: dict = Body(default_factory=dict)):
         result = await asyncio.to_thread(
             engine.generate_3d, img, ASSETS_3D_DIR, mc_resolution)
     except RuntimeError as exc:
-        raise ApiError("MODEL_INFERENCE_FAILED", f"3D 生成失败：{exc}")
+        raise ApiError("MODEL_INFERENCE_FAILED", f"3D 生成失败：{exc}") from exc
     glb_name = Path(result["glb_path"]).name
     return ok({
         "glb_url": f"/api/v1/art/assets/3d/{glb_name}",
@@ -124,7 +124,7 @@ async def art_segment(body: dict = Body(default_factory=dict)):
     try:
         result = await asyncio.to_thread(engine.segment, img, points, box)
     except RuntimeError as exc:
-        raise ApiError("MODEL_INFERENCE_FAILED", f"图像分割失败：{exc}")
+        raise ApiError("MODEL_INFERENCE_FAILED", f"图像分割失败：{exc}") from exc
     return ok(result)
 
 
@@ -137,7 +137,7 @@ async def art_depth(body: dict = Body(default_factory=dict)):
     try:
         result = await asyncio.to_thread(engine.estimate, img)
     except RuntimeError as exc:
-        raise ApiError("MODEL_INFERENCE_FAILED", f"深度估计失败：{exc}")
+        raise ApiError("MODEL_INFERENCE_FAILED", f"深度估计失败：{exc}") from exc
     return ok(result)
 
 
@@ -151,7 +151,7 @@ async def art_detect(body: dict = Body(default_factory=dict)):
     try:
         result = await asyncio.to_thread(engine.detect, img, conf)
     except RuntimeError as exc:
-        raise ApiError("MODEL_INFERENCE_FAILED", f"目标检测失败：{exc}")
+        raise ApiError("MODEL_INFERENCE_FAILED", f"目标检测失败：{exc}") from exc
     return ok(result)
 
 

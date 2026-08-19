@@ -5,10 +5,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, List, Literal
-from datetime import datetime
-from pydantic import BaseModel, Field
+from typing import Literal
 
+from pydantic import BaseModel, Field
 
 # ═══════════════════════════════════════════════════════════════════
 #  枚举
@@ -390,13 +389,13 @@ def get_effective_tier(gpu_name: str = "", vram_total_mb: int = 0) -> dict:
 class ApiResponse(BaseModel):
     code: int = 0
     message: str = "ok"
-    data: Optional[dict] = None
+    data: dict | None = None
 
 
 class ApiErrorDetail(BaseModel):
     code: int
     message: str
-    detail: Optional[dict] = None
+    detail: dict | None = None
     suggestion: str = ""
 
 
@@ -446,8 +445,8 @@ class SchedulerState(BaseModel):
     gpu_usage: float = 0.0
     cpu_usage: float = 0.0
     mem_available_gb: float = 0.0
-    active_model: Optional[str] = None
-    cached_models: List[str] = []
+    active_model: str | None = None
+    cached_models: list[str] = []
     last_switch_ms: int = 0
 
 
@@ -461,7 +460,7 @@ class ModelInfo(BaseModel):
     size_gb: float = 0.0
     params: str = ""
     min_vram_gb: float = 0.0
-    associated_features: List[str] = []
+    associated_features: list[str] = []
     status: ModelStatus = ModelStatus.NOT_INSTALLED
     file_path: str = ""
     sha256: str = ""
@@ -481,19 +480,19 @@ class ModelSelectRequest(BaseModel):
 class DialogSendRequest(BaseModel):
     session_id: str
     content: str
-    attachments: Optional[List[dict]] = None
+    attachments: list[dict] | None = None
 
 
 class DialogSessionCreate(BaseModel):
     title: str = "新对话"
-    model: Optional[str] = None
+    model: str | None = None
 
 
 class DialogMessage(BaseModel):
     id: str
     role: str  # user | assistant
     content: str
-    attachments: Optional[List[dict]] = None
+    attachments: list[dict] | None = None
     timestamp: float
     model_used: str = ""
 
@@ -507,15 +506,15 @@ class DrawRequest(BaseModel):
     height: int = Field(default=1024, ge=512, le=2048)
     steps: int = Field(default=20, ge=4, le=50)
     guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
-    model: Optional[str] = None
-    controlnet: Optional[dict] = None
-    lora: Optional[List[dict]] = None
+    model: str | None = None
+    controlnet: dict | None = None
+    lora: list[dict] | None = None
     seed: int = -1
     batch_size: int = Field(default=1, ge=1, le=4)
 
 
 class DrawResponse(BaseModel):
-    images: List[str]  # base64
+    images: list[str]  # base64
     model_used: str
     generation_time_ms: int
     seed: int
@@ -528,9 +527,9 @@ class StoryboardRow(BaseModel):
     shot_number: int
     original_dialogue: str = ""
     description: str = ""
-    characters: List[str] = []
+    characters: list[str] = []
     scene: str = ""
-    props: List[str] = []
+    props: list[str] = []
     voice_id: str = ""
     voice_emotion: str = "默认"
     director_stage_done: bool = False
@@ -544,28 +543,28 @@ class StoryboardCreate(BaseModel):
 
 
 class StoryboardRowUpdate(BaseModel):
-    original_dialogue: Optional[str] = None
-    description: Optional[str] = None
-    characters: Optional[List[str]] = None
-    scene: Optional[str] = None
-    props: Optional[List[str]] = None
-    voice_id: Optional[str] = None
-    voice_emotion: Optional[str] = None
-    is_ai_generated: Optional[bool] = None
-    sort_index: Optional[int] = None   # R2-B06 支持单行拖拽落位
+    original_dialogue: str | None = None
+    description: str | None = None
+    characters: list[str] | None = None
+    scene: str | None = None
+    props: list[str] | None = None
+    voice_id: str | None = None
+    voice_emotion: str | None = None
+    is_ai_generated: bool | None = None
+    sort_index: int | None = None   # R2-B06 支持单行拖拽落位
     # 批 1.3 导演字段（枚举/范围校验在路由层，模型层放行 Optional）
-    camera_type: Optional[str] = None      # 8 枚举
-    camera_angle: Optional[str] = None     # 5 枚举
-    camera_movement: Optional[str] = None  # 9 枚举
-    duration: Optional[float] = None       # 1~60s
-    transition: Optional[str] = None       # 6 枚举
-    speed: Optional[float] = None          # 0.5~2.0
-    volume: Optional[float] = None         # -12~0 dB
-    music_path: Optional[str] = None
-    asset_id: Optional[str] = None
+    camera_type: str | None = None      # 8 枚举
+    camera_angle: str | None = None     # 5 枚举
+    camera_movement: str | None = None  # 9 枚举
+    duration: float | None = None       # 1~60s
+    transition: str | None = None       # 6 枚举
+    speed: float | None = None          # 0.5~2.0
+    volume: float | None = None         # -12~0 dB
+    music_path: str | None = None
+    asset_id: str | None = None
     # 竞品对齐改造：多资产绑定 + 行锁定
-    asset_ids: Optional[List[str]] = None  # 多资产 id 列表（写库序列化为 JSON）
-    is_locked: Optional[bool] = None       # 行锁定：批量操作跳过
+    asset_ids: list[str] | None = None  # 多资产 id 列表（写库序列化为 JSON）
+    is_locked: bool | None = None       # 行锁定：批量操作跳过
 
 
 class AiDescribeRequest(BaseModel):
@@ -574,11 +573,11 @@ class AiDescribeRequest(BaseModel):
     prompt_prefix 有值时拼接到内置提示词模板前部，不改变默认行为。
     model_override 有值时覆盖默认对话模型路由（G2 工序弹窗）。
     """
-    row_id: Optional[str] = None
-    dialogue: Optional[str] = None
-    project_id: Optional[str] = None
-    prompt_prefix: Optional[str] = Field(default=None, max_length=500)
-    model_override: Optional[str] = None   # G2：覆盖默认模型
+    row_id: str | None = None
+    dialogue: str | None = None
+    project_id: str | None = None
+    prompt_prefix: str | None = Field(default=None, max_length=500)
+    model_override: str | None = None   # G2：覆盖默认模型
 
 
 # ── 漫剧：项目 CRUD / 资产 / 关键帧 / DSL 上传（修复任务清单 批 1）──────
@@ -590,8 +589,8 @@ class WorkMode(str, Enum):
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    template: Optional[str] = None          # comic_drama=漫剧模板（预置 5 分镜）
-    project_id: Optional[str] = None        # 指定 id（缺省自动生成）
+    template: str | None = None          # comic_drama=漫剧模板（预置 5 分镜）
+    project_id: str | None = None        # 指定 id（缺省自动生成）
     work_mode: WorkMode = Field(default=WorkMode.REGULAR)  # 作品类型
 
 
@@ -604,28 +603,28 @@ class ProjectUpdate(BaseModel):
 class StoryNarrativeRequest(BaseModel):
     """故事生词（解说漫剧第 3 步）：跨分镜聚合生成连贯描述词。"""
     project_id: str
-    row_ids: List[str] = Field(default_factory=list)   # 空=全部
+    row_ids: list[str] = Field(default_factory=list)   # 空=全部
     scope: str = "all"                                  # all | missing
-    model_override: Optional[str] = None
-    prompt_prefix: Optional[str] = Field(default=None, max_length=500)
+    model_override: str | None = None
+    prompt_prefix: str | None = Field(default=None, max_length=500)
 
 
 class StoryKeyframeRequest(BaseModel):
     """故事生图（解说漫剧第 4 步）：跨分镜一致性风格图。"""
     project_id: str
-    row_ids: List[str] = Field(default_factory=list)
+    row_ids: list[str] = Field(default_factory=list)
     scope: str = "all"
-    model_override: Optional[str] = None
+    model_override: str | None = None
     resolution: str = "2560x1440"                       # 2560x1440 | 1024x1024 | 1024x576 | 576x1024
 
 
 class VideoNarrativeRequest(BaseModel):
     """视频生词（解说漫剧第 5 步）：为视频生成写专属描述词。"""
     project_id: str
-    row_ids: List[str] = Field(default_factory=list)
+    row_ids: list[str] = Field(default_factory=list)
     scope: str = "all"
-    model_override: Optional[str] = None
-    prompt_prefix: Optional[str] = Field(default=None, max_length=500)
+    model_override: str | None = None
+    prompt_prefix: str | None = Field(default=None, max_length=500)
 
 
 class AssetGenerateRequest(BaseModel):
@@ -641,7 +640,7 @@ class AssetGenerateRequest(BaseModel):
 class AssetBatchGenerateRequest(BaseModel):
     project_id: str
     kind: str = "character"                 # character/scene/prop
-    items: List[dict]                       # [{name, prompt, ...}]
+    items: list[dict]                       # [{name, prompt, ...}]
 
 
 class AssetTurnaroundRequest(BaseModel):
@@ -663,7 +662,7 @@ class AssetRegenerateViewRequest(BaseModel):
     view 为目标视图；prompt 缺省时沿用资产现有描述词。
     """
     view: Literal["front", "side", "back", "closeup"]
-    prompt: Optional[str] = Field(default=None, max_length=2000)
+    prompt: str | None = Field(default=None, max_length=2000)
 
 
 class AssetBindRequest(BaseModel):
@@ -679,8 +678,8 @@ class AssetAdoptRequest(BaseModel):
 
 class AssetUpdateRequest(BaseModel):
     """资产元信息更新（竞品对齐）：仅更新非 None 字段。"""
-    name: Optional[str] = Field(default=None, max_length=100)
-    prompt: Optional[str] = Field(default=None, max_length=2000)
+    name: str | None = Field(default=None, max_length=100)
+    prompt: str | None = Field(default=None, max_length=2000)
 
 
 class AssetInferRequest(BaseModel):
@@ -690,27 +689,27 @@ class AssetInferRequest(BaseModel):
 
 class KeyframeGenerateRequest(BaseModel):
     row_id: str
-    project_id: Optional[str] = None
-    prompt: Optional[str] = None            # 缺省用分镜行 description
+    project_id: str | None = None
+    prompt: str | None = None            # 缺省用分镜行 description
     # 出图统一规格（2026-08-14 铁律）：分镜图 2560×1440（16:9）
     width: int = Field(default=2560, ge=256, le=2560)
     height: int = Field(default=1440, ge=256, le=2560)
 
 
 class KeyframeBatchRequest(BaseModel):
-    row_ids: List[str]
-    project_id: Optional[str] = None
-    model_override: Optional[str] = None   # G2：覆盖默认绘画模型
+    row_ids: list[str]
+    project_id: str | None = None
+    model_override: str | None = None   # G2：覆盖默认绘画模型
     resolution: str = "2560x1440"          # G2：分辨率 2560x1440|1024x1024|1024x576|576x1024
 
 
 class SceneObjectUpdate(BaseModel):
     project_id: str
     object_id: str
-    name: Optional[str] = None
-    position: Optional[dict] = None
-    rotation: Optional[dict] = None
-    scale: Optional[dict] = None
+    name: str | None = None
+    position: dict | None = None
+    rotation: dict | None = None
+    scale: dict | None = None
 
 
 class EmotionDetectRequest(BaseModel):
@@ -719,7 +718,7 @@ class EmotionDetectRequest(BaseModel):
 
 class TextTo3DRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=2000)
-    project_id: Optional[str] = None
+    project_id: str | None = None
 
 
 # ── 漫剧：导演台 ─────────────────────────────────────────────────
@@ -731,14 +730,14 @@ class PanoramaRequest(BaseModel):
 
 class ScreenshotRequest(BaseModel):
     scene_id: str
-    camera_ids: List[str]  # 必须恰好4个
+    camera_ids: list[str]  # 必须恰好4个
 
 
 class CharacterPositionUpdate(BaseModel):
     character_id: str
     position: dict  # {x, y, z}
-    rotation: Optional[dict] = None
-    scale: Optional[float] = None
+    rotation: dict | None = None
+    scale: float | None = None
 
 
 class CameraAdd(BaseModel):
@@ -749,10 +748,10 @@ class CameraAdd(BaseModel):
 
 
 class CameraUpdate(BaseModel):
-    name: Optional[str] = None
-    position: Optional[dict] = None
-    rotation: Optional[dict] = None
-    fov: Optional[int] = None
+    name: str | None = None
+    position: dict | None = None
+    rotation: dict | None = None
+    fov: int | None = None
 
 
 class CharacterLock(BaseModel):
@@ -765,16 +764,16 @@ class VideoGenerateRequest(BaseModel):
     storyboard_row_id: str
     description: str
     screenshot_4in1: str  # base64
-    character_assets: List[str] = []
-    audio_path: Optional[str] = None
+    character_assets: list[str] = []
+    audio_path: str | None = None
     resolution: str = "1080p"  # 720p/1080p/2k/4k
     fps: int = Field(default=24, ge=1, le=48)
     duration_seconds: float = Field(default=5.0, ge=1, le=20)
     codec: str = "h264"  # h264/h265/vp9/av1
-    model_override: Optional[str] = None
+    model_override: str | None = None
     # STYLE-026：风格 LoRA 挂载（训练成果应用到视频生成管线）。
     # 当前 Ken Burns 降级管线接收并落库/回显，LTX-2 就绪后实际生效。
-    style_lora_version: Optional[str] = None
+    style_lora_version: str | None = None
     style_strength: float = Field(default=1.0, ge=0.0, le=1.0)
 
 

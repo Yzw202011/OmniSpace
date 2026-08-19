@@ -15,7 +15,7 @@ import logging
 import math
 import re
 import threading
-from typing import Any, Optional
+from typing import Any
 
 from ..config import DATA_DIR, MODELS_DIR
 
@@ -392,7 +392,7 @@ class VectorDB:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_vdb_instance: Optional[VectorDB] = None
+_vdb_instance: VectorDB | None = None
 _vdb_lock = threading.Lock()
 
 

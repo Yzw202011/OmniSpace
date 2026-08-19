@@ -7,14 +7,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
-from ...config import THRESHOLDS
 from ...data.models import (
-    ActiveFeature,
     DIALOG_ROUTING_TABLE,
     PAINT_ROUTING_TABLE,
     VIDEO_ROUTING_TABLE,
+    ActiveFeature,
     VideoModel,
 )
 from .classifier import ModelClassifier

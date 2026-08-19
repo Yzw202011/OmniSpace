@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MutationObserver 观察右键菜单挂载/卸载 + 事件序列记录"""
 from playwright.sync_api import sync_playwright
 

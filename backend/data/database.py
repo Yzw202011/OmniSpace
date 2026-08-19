@@ -17,10 +17,11 @@ import logging
 import sqlite3
 import threading
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence, TypeVar
+from typing import Any, TypeVar
 
-from ..config import DB_PATH, DB_WAL_MODE, DB_BUSY_TIMEOUT
+from ..config import DB_BUSY_TIMEOUT, DB_PATH, DB_WAL_MODE
 
 log = logging.getLogger("omnispace.db")
 
@@ -443,7 +444,7 @@ class Database:
         cur.close()
         return [dict(r) for r in rows]
 
-    def query_one(self, sql: str, params: Sequence[Any] = ()) -> Optional[dict]:
+    def query_one(self, sql: str, params: Sequence[Any] = ()) -> dict | None:
         """执行 SELECT，返回单行字典或 None。"""
         conn = self._conn()
         cur = conn.execute(sql, params)
@@ -570,7 +571,7 @@ class Database:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_db_instance: Optional[Database] = None
+_db_instance: Database | None = None
 _db_lock = threading.Lock()
 
 
@@ -584,7 +585,7 @@ def get_db() -> Database:
     return _db_instance
 
 
-def get_db_safe() -> Optional[Database]:
+def get_db_safe() -> Database | None:
     """获取数据库单例；不可用返回 None。
 
     供 API 层使用：返回 None 时调用方降级到内存模拟存储，

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 OmniSpace AI —— UI 冒烟测试（漫剧创作页 #/storyboard 分镜管理 18 条）
 ----------------------------------------------------------------
@@ -17,7 +16,6 @@ setup 幂等：
 """
 import json
 import os
-import time
 import traceback
 import urllib.error
 import urllib.request

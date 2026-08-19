@@ -128,8 +128,8 @@ def model_005(c: Client, r: Recorder) -> None:
     assert err_code(bad) in (30001, "30001", "MODEL_FILE_NOT_FOUND"), \
         f"未知ID应返回30001/MODEL_FILE_NOT_FOUND: {bad}"
     r.record("TC-FLOW-MODEL-005", "模型详情信息查看验证", "PASS", "P1",
-             f"详情字段齐备（name/path/size_gb/status/sha256/min_vram_gb），"
-             f"未知ID拒30001；计划要求的量化精度/硬件等级/最后使用时间暂无字段")
+             "详情字段齐备（name/path/size_gb/status/sha256/min_vram_gb），"
+             "未知ID拒30001；计划要求的量化精度/硬件等级/最后使用时间暂无字段")
 
 
 # ── 7.2 模型加载与卸载 ───────────────────────────────────────────
@@ -348,7 +348,7 @@ def model_018(c: Client, r: Recorder) -> None:
             d = ok_data(c.delete(f"{API}/models/{m}"))
             assert d and d.get("deleted") == m, f"逐条删除失败: {m}"
     finally:
-        for m, p in zip(ids, paths):
+        for m, p in zip(ids, paths, strict=True):
             _cleanup(c, m, p)
     r.record("TC-FLOW-MODEL-018", "模型批量删除验证", "DEGRADED", "P2",
              "无批量删除端点；逐条循环删除组合可用（实测2条均成功并清理）；"
@@ -532,7 +532,6 @@ def model_032(c: Client, r: Recorder) -> None:
 def model_033(c: Client, r: Recorder) -> None:
     v = ok_data(c.get(f"{API}/models/vram")) or {}
     gpu = v.get("gpu") or {}
-    frag = [k for k in gpu if "frag" in k.lower()]
     r.record("TC-FLOW-MODEL-033", "显存碎片率监控验证", "DEGRADED", "P2",
              f"显存碎片率指标未实现（gpu字段无frag*，现有={sorted(gpu.keys())}）；"
              "仅 total/used/free/reserved 可查，>30%警告与整理建议未实现")

@@ -66,7 +66,7 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
       })
       .catch((err) => showToast(errMsg(err, '剧本导入失败'), 'error'))
       .finally(() => setImporting(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [script, importScript, onDone, showToast]);
 
   // AI 自动分镜第一步：本地按行预览（与后端确定性按行切分口径一致）
@@ -101,7 +101,7 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
         onDone();
       })
       .catch((err) => showToast(errMsg(err, 'AI 自动分镜失败'), 'error'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [script, autoSplit, onDone, showToast]);
 
   // DSL 文件上传导入
@@ -122,7 +122,7 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
           if (fileRef.current) fileRef.current.value = '';
         });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [currentProject, strict, fetchRows, onDone, showToast],
   );
 

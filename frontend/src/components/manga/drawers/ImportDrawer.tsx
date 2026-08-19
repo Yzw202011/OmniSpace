@@ -56,7 +56,7 @@ export function ImportDrawer({ onClose }: ImportDrawerProps) {
       })
       .catch((err) => showToast(errMsg(err, '剧本导入失败'), 'error'))
       .finally(() => setImporting(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [script, importScript, showToast]);
 
   // AI 自动分镜：本地预览
@@ -92,7 +92,7 @@ export function ImportDrawer({ onClose }: ImportDrawerProps) {
         showToast(`AI 自动分镜完成，新增 ${added} 行`, 'success');
       })
       .catch((err) => showToast(errMsg(err, 'AI 自动分镜失败'), 'error'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [script, autoSplit, showToast]);
 
   // DSL 上传
@@ -112,7 +112,7 @@ export function ImportDrawer({ onClose }: ImportDrawerProps) {
           if (fileRef.current) fileRef.current.value = '';
         });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [currentProject, fetchRows, showToast],
   );
 

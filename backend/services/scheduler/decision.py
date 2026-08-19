@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
-import time
 import logging
-from typing import Optional
+import time
+from typing import TYPE_CHECKING
 
 from ...config import HYSTERESIS_SECONDS
 from ...data.models import SynergyMode
+
+if TYPE_CHECKING:
+    from .dispatcher import TaskDispatcher
 
 logger = logging.getLogger("omnispace.scheduler.decision")
 
@@ -21,7 +24,7 @@ class DecisionEngine:
 
     def __init__(self) -> None:
         self._current_mode: SynergyMode = SynergyMode.GPU_PRIMARY
-        self._candidate_mode: Optional[SynergyMode] = None
+        self._candidate_mode: SynergyMode | None = None
         self._candidate_since: float = 0.0
         self._last_switch_time: float = 0.0
         # 最近一次切换的滞回等待时长（毫秒），供调度历史学习引擎落库
@@ -112,7 +115,7 @@ class DecisionEngine:
     def execute_strategy(
         self,
         mode: SynergyMode,
-        dispatcher: "TaskDispatcher",
+        dispatcher: TaskDispatcher,
     ) -> None:
         """执行对应模式的调度策略（规格 §5.1 策略表）。
 
@@ -142,36 +145,36 @@ class DecisionEngine:
 
     # ── 各模式策略实现 ──────────────────────────────────────────
 
-    def _strategy_gpu_primary(self, dispatcher: "TaskDispatcher") -> None:
+    def _strategy_gpu_primary(self, dispatcher: TaskDispatcher) -> None:
         """GPU 主力：全速运行，确保模型在显存中。"""
         logger.info("策略[GPU_PRIMARY]: GPU 全速运行")
         dispatcher.preload(["dialog", "paint"])
 
-    def _strategy_cpu_assist(self, dispatcher: "TaskDispatcher") -> None:
+    def _strategy_cpu_assist(self, dispatcher: TaskDispatcher) -> None:
         """CPU 辅助：将 GPU 部分层迁移到 CPU。"""
         logger.info("策略[CPU_ASSIST]: 迁移部分层到 CPU")
         # 迁移推理管线的后处理层到 CPU
         dispatcher.migrate_to_cpu(layers=["vae_decode", "postprocess"])
 
-    def _strategy_gpu_assist_cpu(self, dispatcher: "TaskDispatcher") -> None:
+    def _strategy_gpu_assist_cpu(self, dispatcher: TaskDispatcher) -> None:
         """GPU 受限：CPU 为主力，GPU 仅处理关键层。"""
         logger.info("策略[GPU_ASSIST_CPU]: CPU 为主力")
         dispatcher.migrate_to_cpu(layers=["attention", "ffn", "vae"])
         dispatcher.migrate_to_gpu(tasks=["embedding"])  # 仅 embedding 留在 GPU
 
-    def _strategy_memory_pressure(self, dispatcher: "TaskDispatcher") -> None:
+    def _strategy_memory_pressure(self, dispatcher: TaskDispatcher) -> None:
         """内存压力：压缩不活跃的模型缓存。"""
         logger.info("策略[MEMORY_PRESSURE]: 压缩模型缓存")
         dispatcher.degrade(precision="int4")
         dispatcher.compress_cache()
 
-    def _strategy_all_tense(self, dispatcher: "TaskDispatcher") -> None:
+    def _strategy_all_tense(self, dispatcher: TaskDispatcher) -> None:
         """全面紧张：强制降级 + 卸载非关键模型。"""
         logger.warning("策略[ALL_TENSE]: 强制降级")
         dispatcher.degrade(precision="int4")
         dispatcher.force_unload(except_features=["dialog"])  # 仅保留对话
 
-    def _strategy_all_idle(self, dispatcher: "TaskDispatcher") -> None:
+    def _strategy_all_idle(self, dispatcher: TaskDispatcher) -> None:
         """全部空闲：按 ML 预测预加载下一个可能使用的功能。
 
         不再盲预加载全部功能（16GB 显卡上 8B 对话模型一载即占满显存，

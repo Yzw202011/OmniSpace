@@ -21,15 +21,15 @@ import shutil
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
-from ...config import VIDEO_MAX_DURATION, LTX2_MAX_AUDIO_SYNC, DATA_DIR, MODELS_DIR
+from ...config import DATA_DIR, MODELS_DIR
 from ...data.models import (
     VideoGenerateRequest,
     VideoGenResult,
     VideoModel,
-    VIDEO_ROUTING_TABLE,
 )
 from ...middleware.error_handler import ApiError
 from ..scheduler.video_router import VideoRouter
@@ -84,7 +84,7 @@ ANIMATELCM_GUIDANCE = 1.5        # LCM 低引导
 _ANIMATELCM_NEG_PROMPT = "low quality, worst quality, blurry, watermark, text"
 
 
-def _find_sd15_base() -> Optional[Path]:
+def _find_sd15_base() -> Path | None:
     """在 SD15_BASE_CANDIDATES 中探测有效 SD1.5 diffusers 目录。"""
     for path in SD15_BASE_CANDIDATES:
         if (path / "model_index.json").is_file():
@@ -298,9 +298,9 @@ class _ProgressRelay:
     避免「推理中途取消」被当作推理失败而回落 Ken Burns 继续产出。
     """
 
-    def __init__(self, progress_cb: Optional[Callable[[float, str], None]]) -> None:
+    def __init__(self, progress_cb: Callable[[float, str], None] | None) -> None:
         self._cb = progress_cb
-        self.error: Optional[BaseException] = None
+        self.error: BaseException | None = None
 
     def __call__(self, fraction: float, stage: str = "") -> None:
         if self._cb is None:
@@ -464,7 +464,7 @@ def render_kenburns_frames(
     height: int,
     fps: int,
     duration_s: float,
-    progress_cb: Optional[Callable[[float], None]] = None,
+    progress_cb: Callable[[float], None] | None = None,
     start_index: int = 0,
     base_image: Any = None,
 ) -> int:
@@ -529,7 +529,7 @@ def render_kenburns_frames(
 def generate_fallback_video(
     request: VideoGenerateRequest,
     out_path: str | Path,
-    progress_cb: Optional[Callable[[float, str], None]] = None,
+    progress_cb: Callable[[float, str], None] | None = None,
 ) -> dict:
     """降级真实管线：渲染帧序列 → FFmpeg 编码为真实可播放视频文件。
 
@@ -539,7 +539,7 @@ def generate_fallback_video(
     Raises:
         RuntimeError: FFmpeg 不可用或编码失败（调用方标记任务 failed）。
     """
-    from ..encoder_service import (RESOLUTION_MAP, get_encoder_service)
+    from ..encoder_service import RESOLUTION_MAP, get_encoder_service
 
     enc = get_encoder_service()
     if not enc.available:
@@ -587,7 +587,7 @@ class VideoEngine:
 
     def __init__(self) -> None:
         self._pipeline: Any = None
-        self._model: Optional[VideoModel] = VideoModel.COGVIDEOX_2B_CPU
+        self._model: VideoModel | None = VideoModel.COGVIDEOX_2B_CPU
         self._model_name: str = ""
         self._loaded = False
         self._fallback_mode = False
@@ -756,7 +756,8 @@ class VideoEngine:
                 logger.debug("MotionAdapter.from_single_file 不可用（%s），"
                              "回退 diffusers 手动转换", exc)
                 from diffusers.loaders.single_file_utils import (
-                    convert_animatediff_checkpoint_to_diffusers)
+                    convert_animatediff_checkpoint_to_diffusers,
+                )
                 raw = _torch.load(str(ANIMATELCM_CKPT_PATH), map_location="cpu")
                 converted = convert_animatediff_checkpoint_to_diffusers(raw)
                 adapter = _diffusers.MotionAdapter()
@@ -768,7 +769,7 @@ class VideoEngine:
                 if real_missing or unexpected:
                     raise RuntimeError(
                         "AnimateLCM ckpt 键不匹配: "
-                        f"missing={real_missing[:3]} unexpected={unexpected[:3]}")
+                        f"missing={real_missing[:3]} unexpected={unexpected[:3]}") from exc
                 adapter = adapter.to(dtype=dtype)
 
             # 2) SD1.5 底座 + 运动模块组成 AnimateDiffPipeline
@@ -985,7 +986,7 @@ class VideoEngine:
         self,
         request: VideoGenerateRequest,
         out_path: str | Path,
-        progress_cb: Optional[Callable[[float, str], None]] = None,
+        progress_cb: Callable[[float, str], None] | None = None,
     ) -> dict:
         """降级真实管线（模块函数 generate_fallback_video 的实例封装）。"""
         return generate_fallback_video(request, out_path, progress_cb)
@@ -1021,7 +1022,7 @@ class VideoEngine:
         self._router.validate_video_duration(request, model)
 
     def generate(self, request: VideoGenerateRequest,
-                 progress_cb: Optional[Callable[[float, str], None]] = None
+                 progress_cb: Callable[[float, str], None] | None = None
                  ) -> VideoGenResult:
         """执行视频生成。
 
@@ -1091,8 +1092,9 @@ class VideoEngine:
             if request.screenshot_4in1:
                 try:
                     import base64 as _b64
-                    from PIL import Image
                     import io as _io
+
+                    from PIL import Image
                     raw = request.screenshot_4in1
                     if "," in raw and raw.split(",", 1)[0].startswith("data:"):
                         raw = raw.split(",", 1)[1]
@@ -1221,7 +1223,7 @@ class VideoEngine:
         model: VideoModel,
         gen_id: str,
         start_time: float,
-        progress_cb: Optional[Callable[[float, str], None]] = None,
+        progress_cb: Callable[[float, str], None] | None = None,
     ) -> VideoGenResult:
         """AnimateLCM 图生视频（F-07）：AI 短 clip + Ken Burns 补足时长 + FFmpeg 编码。
 
@@ -1354,7 +1356,7 @@ class VideoEngine:
         model: VideoModel,
         gen_id: str,
         start_time: float,
-        progress_cb: Optional[Callable[[float, str], None]] = None,
+        progress_cb: Callable[[float, str], None] | None = None,
     ) -> VideoGenResult:
         """降级真实管线：真实模型未加载时仍产出真实可播放视频文件。
 
@@ -1435,7 +1437,7 @@ class VideoEngine:
 # ModelManager.unload_model/force_unload 作用于另一空实例，真实管线
 # 引用（及其显存）永远无法经管理器释放，loaded_models 视图与 GPU
 # 实际占用脱节（审计修复，对齐 dialog/paint 引擎的 getter 契约）。
-_video_engine_instance: Optional[VideoEngine] = None
+_video_engine_instance: VideoEngine | None = None
 _video_engine_instance_lock = threading.Lock()
 
 

@@ -21,7 +21,6 @@ import threading
 import time
 import uuid
 from collections import Counter
-from typing import Any, Optional
 
 from ..data.crypto import decrypt_text, encrypt_text
 from ..data.database import get_db_safe
@@ -98,11 +97,11 @@ class BehaviorLearningService:
     def __init__(self) -> None:
         self._db = get_db_safe()
         self._mem_logs: list[dict] = []          # 数据库不可用时内存回退
-        self._queue: "queue.Queue[dict]" = queue.Queue()
+        self._queue: queue.Queue[dict] = queue.Queue()
         self._pending = 0                        # 已入队未落库计数
         self._pending_lock = threading.Lock()
         self._stop = threading.Event()
-        self._pref_cache: Optional[dict] = None  # 最近一次偏好分析结果
+        self._pref_cache: dict | None = None  # 最近一次偏好分析结果
         self._pref_analyzed_at = 0.0
         self._recent_summary: list[str] = []     # 最近学习摘要（滚动 10 条）
         if self._db is not None:
@@ -453,7 +452,7 @@ class BehaviorLearningService:
         remaining = (max(0, FINETUNE_MIN_PAIRS - pairs_count)
                      if pairs_count is not None else None)
         # 下次微调时间估算：按最近 100 条事件的平均速率外推
-        next_finetune: Optional[float] = None
+        next_finetune: float | None = None
         events = self._load_events(limit=100)
         if remaining and len(events) >= 2:
             span = max(1.0, events[0].get("timestamp", 0)
@@ -531,7 +530,7 @@ def e_context_of(events: list[dict], content: str) -> str:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_behavior_instance: Optional[BehaviorLearningService] = None
+_behavior_instance: BehaviorLearningService | None = None
 _behavior_lock = threading.Lock()
 
 

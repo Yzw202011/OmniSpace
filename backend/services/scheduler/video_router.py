@@ -6,10 +6,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
-from ...config import VIDEO_MAX_DURATION, LTX2_MAX_AUDIO_SYNC
-from ...data.models import VideoModel, VIDEO_ROUTING_TABLE, VideoGenerateRequest
+from ...config import LTX2_MAX_AUDIO_SYNC, VIDEO_MAX_DURATION
+from ...data.models import VIDEO_ROUTING_TABLE, VideoGenerateRequest, VideoModel
 from ...middleware.error_handler import ApiError
 
 
@@ -19,7 +17,7 @@ class VideoRouter:
     def select_model(
         self,
         available_vram_gb: float,
-        user_override: Optional[str] = None,
+        user_override: str | None = None,
     ) -> VideoModel:
         """根据可用显存选择视频模型。
 

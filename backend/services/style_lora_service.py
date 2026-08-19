@@ -34,8 +34,9 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..config import DATA_DIR, MODELS_DIR
 from ..data.database import get_db_safe
@@ -146,25 +147,25 @@ class StyleLoraService:
     串行出队执行 train() → evaluate() → 注册版本。
     """
 
-    _instance: Optional["StyleLoraService"] = None
+    _instance: StyleLoraService | None = None
     _instance_lock = threading.Lock()
 
     @classmethod
-    def instance(cls) -> "StyleLoraService":
+    def instance(cls) -> StyleLoraService:
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = cls()
             return cls._instance
 
     def __init__(self) -> None:
-        self._queue: "queue.PriorityQueue[tuple[int, int, dict]]" = queue.PriorityQueue()
+        self._queue: queue.PriorityQueue[tuple[int, int, dict]] = queue.PriorityQueue()
         self._seq = 0
-        self._worker: Optional[threading.Thread] = None
+        self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
-        self._training_task_id: Optional[str] = None
+        self._training_task_id: str | None = None
         self._mem_tasks: dict[str, dict] = {}   # DB 不可用时任务镜像
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._lock_via_fallback = False
         self._table_ready = False
         # 批 2（STYLE-017）：任务控制旗标 {task_id: {"pause": bool, "cancel": bool}}
@@ -210,7 +211,7 @@ class StyleLoraService:
         if task_id in self._mem_tasks:
             self._mem_tasks[task_id].update(fields)
 
-    def get_task(self, task_id: str) -> Optional[dict]:
+    def get_task(self, task_id: str) -> dict | None:
         db = get_db_safe()
         if db is not None and self._table_ready:
             try:
@@ -366,7 +367,7 @@ class StyleLoraService:
             if not manifest.is_file():
                 continue
             try:
-                count = sum(1 for _ in open(manifest, "r", encoding="utf-8"))
+                count = sum(1 for _ in open(manifest, encoding="utf-8"))
             except OSError:
                 count = 0
             items.append({
@@ -384,7 +385,7 @@ class StyleLoraService:
         total = 0
         if manifest.is_file():
             try:
-                total = sum(1 for line in open(manifest, "r", encoding="utf-8")
+                total = sum(1 for line in open(manifest, encoding="utf-8")
                             if line.strip())
             except OSError:
                 total = 0
@@ -433,7 +434,7 @@ class StyleLoraService:
             out[key] = clamped
         return out
 
-    def trigger_train(self, config: dict, priority: str = "low") -> Optional[str]:
+    def trigger_train(self, config: dict, priority: str = "low") -> str | None:
         """入队一次风格训练任务，返回 task_id；前置条件不满足返回 None。
 
         调用方应先经 can_train() 区分原因并映射 80010/80011/40007。
@@ -617,7 +618,7 @@ class StyleLoraService:
             return True, "cancelled"
         return True, "cancelling"
 
-    def resume_training(self, task_id: str) -> Optional[str]:
+    def resume_training(self, task_id: str) -> str | None:
         """断点续训（STYLE-018）：复制原任务配置重新入队一个新任务。
 
         原任务须存在；其数据集仍有效才可续训。返回新 task_id。
@@ -680,7 +681,7 @@ class StyleLoraService:
     # ═══════════════════════════════════════════════════════════
 
     def train(self, config: dict,
-              progress_cb: Optional[Callable[[dict], None]] = None) -> dict:
+              progress_cb: Callable[[dict], None] | None = None) -> dict:
         """LTX-2 QLoRA 风格训练。
 
         管线（diffusers + peft，文档 §8.3.7 QLoRA 4bit）：
@@ -727,7 +728,7 @@ class StyleLoraService:
 
     def _train_qlora(self, torch: Any, diffusers: Any, peft: Any,
                      config: dict,
-                     progress_cb: Optional[Callable[[dict], None]]) -> dict:
+                     progress_cb: Callable[[dict], None] | None) -> dict:
         """QLoRA 训练核心（真实权重更新回路）。
 
         注：当前出货环境 LTX-2 权重未分发，本路径在 base_ready() 门控之外
@@ -739,7 +740,7 @@ class StyleLoraService:
         style_prompt = str(config.get("style_prompt") or "")
         manifest = DATASET_DIR / dataset_id / "manifest.jsonl"
         samples = [json.loads(line) for line in
-                   open(manifest, "r", encoding="utf-8") if line.strip()]
+                   open(manifest, encoding="utf-8") if line.strip()]
         resolution = int(config.get("resolution", 512))
 
         # 1. 4bit 量化加载 LTX-2 transformer 主干
@@ -898,7 +899,7 @@ class StyleLoraService:
     #  预览（真实推理钩子，诚实门控 → 80013）
     # ═══════════════════════════════════════════════════════════
 
-    def preview(self, version: str, image_path: Optional[str] = None,
+    def preview(self, version: str, image_path: str | None = None,
                 max_frames: int = 8, strength: float = 1.0) -> dict:
         """应用风格 LoRA 生成预览（原始 vs 风格化对比帧）。
 
@@ -1071,8 +1072,8 @@ class StyleLoraService:
         merged: dict[str, Any] = {}
         skipped_keys: set[str] = set()
         config_src = None
-        first_keys: Optional[set[str]] = None
-        for ver, w in zip(versions, norm):
+        first_keys: set[str] | None = None
+        for ver, w in zip(versions, norm, strict=True):
             vdir = STYLE_LORA_DIR / ver
             adapter = self._adapter_file(vdir)
             if adapter is None:
@@ -1145,7 +1146,7 @@ class StyleLoraService:
                 "sha256": sha,
                 "sha256_file": str(sha_path.relative_to(DATA_DIR)).replace("\\", "/")}
 
-    def version_metrics(self, version: str) -> Optional[dict]:
+    def version_metrics(self, version: str) -> dict | None:
         """版本质量指标（STYLE-030）：meta quality_score + 关联训练记录。"""
         version_dir = STYLE_LORA_DIR / version
         if not version_dir.is_dir():
@@ -1169,7 +1170,7 @@ class StyleLoraService:
                 "created_at": t.get("created_at", 0)} for t in related],
         }
 
-    def clone_version(self, version: str, name: str = "") -> Optional[str]:
+    def clone_version(self, version: str, name: str = "") -> str | None:
         """克隆风格项目为新训练任务（STYLE-032）：数据集+配置复制入队。"""
         version_dir = STYLE_LORA_DIR / version
         if not version_dir.is_dir():
@@ -1229,7 +1230,7 @@ class StyleLoraService:
     # ── 版本管理内部工具 ─────────────────────────────────────────
 
     @staticmethod
-    def _read_meta(version_dir: Path) -> Optional[dict]:
+    def _read_meta(version_dir: Path) -> dict | None:
         try:
             p = version_dir / "meta.json"
             if p.is_file():
@@ -1245,7 +1246,7 @@ class StyleLoraService:
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
-    def _adapter_file(version_dir: Path) -> Optional[Path]:
+    def _adapter_file(version_dir: Path) -> Path | None:
         for name in ("adapter_model.safetensors", "adapter_model.bin"):
             p = version_dir / name
             if p.is_file():

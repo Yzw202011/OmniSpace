@@ -6,11 +6,9 @@
 
 from __future__ import annotations
 
-import os
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 from ...data.models import ModelCategory
 
@@ -180,7 +178,7 @@ class ModelClassifier:
         logger.warning("无法识别模型类型，默认归类为 AUXILIARY: %s", path)
         return ModelCategory.AUXILIARY
 
-    def _classify_by_dir(self, dir_path: Path) -> Optional[ModelCategory]:
+    def _classify_by_dir(self, dir_path: Path) -> ModelCategory | None:
         """通过目录中的特征文件识别类型。"""
         for filename, category in _DIR_SIGNATURES.items():
             if (dir_path / filename).exists():
@@ -188,13 +186,13 @@ class ModelClassifier:
                 return category
         return None
 
-    def _classify_by_metadata(self, path: Path) -> Optional[ModelCategory]:
+    def _classify_by_metadata(self, path: Path) -> ModelCategory | None:
         """尝试读取元数据文件识别类型。"""
         # 读取 config.json
         config_path = path / "config.json" if path.is_dir() else None
         if config_path and config_path.exists():
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     config = json.load(f)
                 model_type = config.get("model_type", "").lower()
 

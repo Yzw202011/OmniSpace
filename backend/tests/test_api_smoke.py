@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """API 冒烟测试 + 数据库模式测试。
 
 目标：以最低成本拦截两类历史事故——
@@ -173,7 +172,7 @@ def test_upload_exe_disguised_as_png_rejected(client):
 def test_upload_normal_jsonl_still_works(client, tmp_path, monkeypatch):
     """闸门不得误伤：正常 UTF-8 JSONL 上传仍成功（P0-03 完成标准）。"""
     monkeypatch.setattr("backend.api.learn.TRAIN_DATA_DIR", tmp_path)
-    payload = '{"instruction":"a","input":"","output":"b"}\n'.encode()
+    payload = b'{"instruction":"a","input":"","output":"b"}\n'
     resp = client.post(
         "/api/v1/learn/dataset/upload",
         files={"file": ("ok.jsonl", payload, "text/plain")})

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """上传类型闸门单元测试（TASK-P0-03，审计发现 P27）。
 
 直接测 upload_guard.validate 纯函数：后缀白名单、可执行体黑名单、
@@ -75,7 +74,7 @@ def test_rejects_utf16_text():
 # ── 正常路径放行（拦截不得误伤）────────────────────────────────
 
 def test_allows_utf8_jsonl():
-    validate("ok.jsonl", '{"instruction":"a","input":"","output":"b"}\n'.encode(),
+    validate("ok.jsonl", b'{"instruction":"a","input":"","output":"b"}\n',
              upload_guard.DATASET_TABLE)
 
 def test_allows_chinese_utf8_text():

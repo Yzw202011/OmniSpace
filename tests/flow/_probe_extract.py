@@ -1,5 +1,6 @@
 """验证新版 _unique_text：多 salt 多轮模拟，检查 extracted 与 dedup 决策。"""
 import sys
+
 sys.path.insert(0, r"e:\OmniSpace")
 
 from backend.services.knowledge_service import get_knowledge_service
@@ -8,10 +9,12 @@ svc = get_knowledge_service()
 _TOPIC = "短剧编剧技巧"
 
 # 复刻 cases_learn 的生成器（避免导入 tests.flow 触发 requests 会话）
-import random
+import random  # noqa: E402 - 探针脚本，bootstrap 后按需导入
+
 _RUN_TAGS = ["deadbeef", "cafe1234", "00ff8899"]  # 模拟 3 轮
 
-import importlib.util
+import importlib.util  # noqa: E402
+
 spec = importlib.util.spec_from_file_location(
     "cl", r"e:\OmniSpace\tests\flow\cases_learn.py")
 # 不执行模块（其顶层仅定义），直接拷模板池

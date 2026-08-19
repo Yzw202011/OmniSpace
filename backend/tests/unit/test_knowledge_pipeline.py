@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """知识处理管线单元测试（对应测试文档 TC-U-001 ~ TC-U-008）。
 
 直接调用 KnowledgeProcessingService 的真实实现（过滤/分段/提取/质量/SimHash）。

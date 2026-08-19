@@ -19,8 +19,7 @@ from __future__ import annotations
 
 import base64
 
-from .harness import (Client, Recorder, case, ok_data, err_code,
-                      tiny_png_b64, uid)
+from .harness import Client, Recorder, case, err_code, ok_data, tiny_png_b64, uid
 
 MOD = "style"
 API = "/api/v1"
@@ -263,9 +262,9 @@ def style_014(c: Client, r: Recorder) -> None:
     tasks = ok_data(c.get(f"{API}/style/tasks"))
     assert tasks is not None and "items" in tasks
     r.record("TC-FLOW-STYLE-014", "训练Loss曲线实时监控验证", "DEGRADED",
-             "P0", f"无进行中训练（基座未随包门控），Loss 曲线无数据源；"
-             f"任务查询链路真实——不存在任务如实 STYLE_TASK_NOT_FOUND"
-             f"(80014)，不伪造 Loss；曲线渲染留待 UI 冒烟")
+             "P0", "无进行中训练（基座未随包门控），Loss 曲线无数据源；"
+             "任务查询链路真实——不存在任务如实 STYLE_TASK_NOT_FOUND"
+             "(80014)，不伪造 Loss；曲线渲染留待 UI 冒烟")
 
 
 @case(MOD, "TC-FLOW-STYLE-015", "训练进度实时展示验证", "P1")

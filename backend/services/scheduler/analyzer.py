@@ -59,7 +59,6 @@ class BottleneckAnalyzer:
         gpu_temp = gpu.get("temp_celsius", 0.0)
         cpu_util = cpu.get("usage_percent", 0.0) / 100.0
         cpu_temp = cpu.get("temp_celsius", 0.0)
-        mem_ratio = mem.get("used_percent", 0.0) / 100.0
         # 可用内存比率 = available / total
         mem_available_ratio = 0.0
         if mem.get("total_gb", 0) > 0:
@@ -101,7 +100,6 @@ class BottleneckAnalyzer:
         gpu_temp_critical = gpu_temp >= gpu_temp_crit
         gpu_temp_warning = gpu_temp >= gpu_temp_warn
         cpu_critical = cpu_util >= cpu_util_crit or cpu_temp >= cpu_temp_warn
-        cpu_warning = cpu_util >= cpu_util_warn
         mem_critical = mem_available_ratio <= mem_crit_ratio
         mem_warning = mem_available_ratio <= mem_warn_ratio
 

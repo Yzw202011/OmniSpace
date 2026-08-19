@@ -7,11 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from pathlib import Path
-from typing import Optional
 
-from ...data.models import ModelInfo, ModelStatus
+from ...data.models import ModelInfo
 
 logger = logging.getLogger("omnispace.model_manager.validator")
 
@@ -97,7 +95,7 @@ class ModelValidator:
             )
             return False
 
-    def verify_path(self, path: str, expected_sha256: Optional[str] = None) -> tuple[bool, str]:
+    def verify_path(self, path: str, expected_sha256: str | None = None) -> tuple[bool, str]:
         """校验文件路径的完整性。
 
         Args:

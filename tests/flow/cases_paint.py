@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import time
 
-from .harness import (Client, Recorder, case, ok_data, err_code, err_msg,
-                      tiny_png_b64)
+from .harness import Client, Recorder, case, err_code, err_msg, ok_data, tiny_png_b64
 
 MOD = "paint"
 _state: dict = {}

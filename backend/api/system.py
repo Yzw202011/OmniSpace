@@ -33,8 +33,7 @@ from fastapi import APIRouter, Body, Query
 from fastapi.responses import FileResponse
 
 from .. import startup_check
-from ..config import (APP_VERSION, DATA_DIR, DB_PATH, HOST, LOGS_DIR,
-                      MODELS_DIR, PORT, ROOT_DIR)
+from ..config import APP_VERSION, DATA_DIR, DB_PATH, HOST, LOGS_DIR, MODELS_DIR, PORT, ROOT_DIR
 from ..data.database import get_db_safe
 from ..data.models import ProjectExport, ProjectImport, SystemSettings
 from ..middleware.error_handler import ApiError, ok
@@ -112,7 +111,7 @@ def _resolve_safe_path(raw_path: str) -> Path:
         resolved = Path(raw_path.strip()).expanduser().resolve()
     except Exception as exc:  # noqa: BLE001
         raise ApiError("SYSTEM_PARAM_INVALID", "路径无法解析",
-                       detail={"file_path": raw_path, "error": str(exc)})
+                       detail={"file_path": raw_path, "error": str(exc)}) from exc
     for root in _PATH_WHITELIST_ROOTS:
         try:
             root_resolved = Path(root).resolve()
@@ -608,7 +607,7 @@ async def system_project_export(req: ProjectExport):
     except Exception as exc:  # noqa: BLE001
         log.error("项目导出写盘失败：%s", exc)
         raise ApiError("SYSTEM_BACKUP_FAILED", "项目导出失败，请检查磁盘空间",
-                       detail={"project_id": req.project_id, "error": str(exc)})
+                       detail={"project_id": req.project_id, "error": str(exc)}) from exc
 
     return ok({"project_id": req.project_id, "archive": archive_name,
                "path": file_path, "file_path": file_path,
@@ -624,13 +623,13 @@ def _read_archive_json(zf: zipfile.ZipFile, name: str, required: bool = True):
     except KeyError:
         if required:
             raise ApiError("PROJECT_FILE_CORRUPTED",
-                           f"归档缺少必需成员 {name}")
+                           f"归档缺少必需成员 {name}") from None
         return None
     try:
         return json.loads(raw.decode("utf-8"))
     except Exception as exc:  # noqa: BLE001
         raise ApiError("PROJECT_FILE_CORRUPTED",
-                       f"归档成员 {name} 解析失败: {exc}")
+                       f"归档成员 {name} 解析失败: {exc}") from exc
 
 
 def _fresh_id(db, table: str, old_id: str) -> str:
@@ -680,7 +679,7 @@ def _parse_project_archive(path: Path):
         zf = zipfile.ZipFile(path)
     except zipfile.BadZipFile:
         raise ApiError("PROJECT_FILE_CORRUPTED",
-                       "不是有效的 .omnispace 归档（ZIP 容器损坏）")
+                       "不是有效的 .omnispace 归档（ZIP 容器损坏）") from None
     with zf:
         manifest = _read_archive_json(zf, "manifest.json")
         if not isinstance(manifest, dict) \
@@ -803,7 +802,7 @@ def _restore_project_records(db, project: dict, sb_pack: dict,
             pass
         raise ApiError("PROJECT_FILE_CORRUPTED",
                        "项目归档恢复失败，已回滚",
-                       detail={"error": str(exc)})
+                       detail={"error": str(exc)}) from exc
     return project_id, restored
 
 
@@ -850,8 +849,8 @@ def system_info():
         "timestamp": time.time(),
     }
     try:
-        from .hardware import _build_hardware_profile
         from ..data.models import detect_hardware_tier
+        from .hardware import _build_hardware_profile
         profile = _build_hardware_profile()
         gpu = profile.get("gpu", {})
         data["hardware"] = {
@@ -906,7 +905,7 @@ def inference_config_put(body: dict = Body(default_factory=dict)):
         num_threads = int(body.get("num_threads",
                                    _inference_config()["num_threads"]))
     except (TypeError, ValueError):
-        raise ApiError("SYSTEM_PARAM_INVALID", "num_threads 必须是整数")
+        raise ApiError("SYSTEM_PARAM_INVALID", "num_threads 必须是整数") from None
     if not 0 <= num_threads <= cores:
         raise ApiError("SYSTEM_PARAM_INVALID",
                        f"num_threads 取值范围 0~{cores}")
@@ -992,7 +991,7 @@ def network_config_put(body: dict = Body(default_factory=dict)):
         bandwidth = float(body.get("bandwidth_mbps",
                                    _network_config()["bandwidth_mbps"]))
     except (TypeError, ValueError):
-        raise ApiError("SYSTEM_PARAM_INVALID", "bandwidth_mbps 必须是数字")
+        raise ApiError("SYSTEM_PARAM_INVALID", "bandwidth_mbps 必须是数字") from None
     bandwidth = max(0.0, min(bandwidth, 10000.0))
 
     cfg = {"proxy_url": proxy, "hf_mirror": mirror,
@@ -1113,7 +1112,7 @@ def backup_config_put(body: dict = Body(default_factory=dict)):
     try:
         interval = float(body.get("interval_hours", cur["interval_hours"]))
     except (TypeError, ValueError):
-        raise ApiError("SYSTEM_PARAM_INVALID", "interval_hours 必须是数字")
+        raise ApiError("SYSTEM_PARAM_INVALID", "interval_hours 必须是数字") from None
     if not 1 <= interval <= 24 * 30:
         raise ApiError("SYSTEM_PARAM_INVALID",
                        "interval_hours 取值范围 1~720")
@@ -1211,7 +1210,7 @@ async def system_full_export():
     except Exception as exc:  # noqa: BLE001
         log.error("全量导出失败: %s", exc)
         raise ApiError("SYSTEM_BACKUP_FAILED", "全量导出失败，请检查磁盘空间",
-                       detail={"error": str(exc)})
+                       detail={"error": str(exc)}) from exc
     return ok({"path": str(dest), "size_bytes": dest.stat().st_size,
                "sha256": sha, "format": "tar.gz",
                "includes": ["omnispace.db(热备)", "settings_snapshot.json",
@@ -1366,7 +1365,7 @@ def system_logs_cleanup(body: dict = Body(default_factory=dict)):
     try:
         keep_days = int(body.get("keep_days", 7))
     except (TypeError, ValueError):
-        raise ApiError("SYSTEM_PARAM_INVALID", "keep_days 必须是整数")
+        raise ApiError("SYSTEM_PARAM_INVALID", "keep_days 必须是整数") from None
     keep_days = max(1, min(keep_days, 365))
     cutoff = time.time() - keep_days * 86400
     current = (LOGS_DIR / "backend.log").resolve()

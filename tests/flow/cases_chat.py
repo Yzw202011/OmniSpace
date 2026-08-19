@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import time
 
-from .harness import (Client, Recorder, case, ok_data, err_code, err_msg,
-                      tiny_png_b64, uid)
+from .harness import Client, Recorder, case, err_code, err_msg, ok_data, tiny_png_b64
 
 MOD = "chat"
 
@@ -447,6 +446,7 @@ def chat_036(c: Client, r: Recorder) -> None:
 def chat_037(c: Client, r: Recorder) -> None:
     import base64
     import io
+
     from PIL import Image
     sid = _ensure_session(c)
     for fmt in ("JPEG", "WEBP"):

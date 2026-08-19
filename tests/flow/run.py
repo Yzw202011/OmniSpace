@@ -12,7 +12,7 @@ from pathlib import Path
 # 保证 tests 包可导入（cwd=e:\OmniSpace）
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tests.flow.harness import Client, run_module, write_results, RESULT_DIR  # noqa: E402
+from tests.flow.harness import RESULT_DIR, Client, run_module, write_results  # noqa: E402
 
 MODULES = ["sys", "chat", "paint", "comic", "learn", "model", "style",
            "set", "cross"]

@@ -14,7 +14,7 @@ import importlib
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import Any
 
 from ...config import CACHE_COMPRESSION, CACHE_EVICTION
 
@@ -124,7 +124,7 @@ class ModelCache:
             self._max_size_gb,
         )
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """获取缓存条目，自动解压。
 
         LRU 语义: 访问后移到末尾（最近使用）。
@@ -198,7 +198,7 @@ class ModelCache:
             logger.info("压缩 %d 个空闲缓存条目 (LZ4)", count)
         return count
 
-    def full_unload(self, except_keys: Optional[list] = None) -> int:
+    def full_unload(self, except_keys: list | None = None) -> int:
         """完全卸载缓存条目（释放到磁盘或丢弃）。
 
         规格 §5.1 ALL_TENSE 模式调用此方法。

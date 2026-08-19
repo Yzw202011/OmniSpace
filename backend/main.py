@@ -10,9 +10,9 @@ import importlib
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match, Mount
@@ -66,8 +66,8 @@ async def lifespan(app: FastAPI):
 
     # T+3s: 文件存储与缓存
     try:
-        from .data.file_store import get_file_store
         from .data.cache import get_cache
+        from .data.file_store import get_file_store
         get_file_store()
         get_cache()
         log.info("T+3s 文件存储与缓存初始化完成")
@@ -113,10 +113,10 @@ async def lifespan(app: FastAPI):
     # T+6s: WebSocket 消息中枢（规格 §2.2 /ws 协议）
     # 绑定事件循环、启动遥测推送，并向绘画/LoRA训练/浏览器Agent 注入广播器
     try:
-        from .services.ws_hub import get_ws_hub
+        from .api import draw as _draw_api
         from .services import browser_agent_service as _agent_svc
         from .services import lora_training_service as _lora_svc
-        from .api import draw as _draw_api
+        from .services.ws_hub import get_ws_hub
         hub = get_ws_hub()
         hub.bind_loop(asyncio.get_running_loop())
         hub.start_telemetry()

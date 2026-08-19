@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """聚焦调试：行右键菜单为何不出现"""
 from playwright.sync_api import sync_playwright
 

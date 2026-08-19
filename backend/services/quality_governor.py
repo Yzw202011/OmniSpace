@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
 
 log = logging.getLogger("omnispace.services.quality_governor")
 
@@ -60,7 +59,7 @@ class QualityGovernor:
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────
-_governor_instance: Optional[QualityGovernor] = None
+_governor_instance: QualityGovernor | None = None
 _governor_lock = threading.Lock()
 
 

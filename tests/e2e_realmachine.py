@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """OmniSpace AI v2.1 实机集成测试（TC-I-001~010 + 性能/安全抽样）。
 
 对照《OmniSpace AI v2.1测试.txt》第三/五/六章，在真机（RTX 5070 Ti 16GB）
@@ -470,7 +469,7 @@ def tc_p_004_rag_latency() -> None:
     # 通过 knowledge/list 关键字检索实测检索路径延迟
     lat: list[float] = []
     try:
-        for i in range(30):
+        for _i in range(30):
             t0 = time.perf_counter()
             r = httpx.get(f"{BASE}/v1/knowledge/list",
                           params={"keyword": "钩子", "page_size": 5},

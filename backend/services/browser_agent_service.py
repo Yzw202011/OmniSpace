@@ -35,9 +35,10 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 from ..config import DATA_DIR
@@ -56,19 +57,19 @@ log = logging.getLogger("omnispace.browser_agent")
 #  提供者注入点（运行时由外部注入，未注入走规则回退）
 # ═══════════════════════════════════════════════════════════════════
 
-_decision_provider: Optional[Callable[[str], str]] = None
-_fast_decision_provider: Optional[Callable[[str], str]] = None
-_page_understanding_provider: Optional[Callable[[str], str]] = None
-_ws_broadcaster: Optional[Callable[[dict], None]] = None
+_decision_provider: Callable[[str], str] | None = None
+_fast_decision_provider: Callable[[str], str] | None = None
+_page_understanding_provider: Callable[[str], str] | None = None
+_ws_broadcaster: Callable[[dict], None] | None = None
 
 
-def set_decision_provider(fn: Optional[Callable[[str], str]]) -> None:
+def set_decision_provider(fn: Callable[[str], str] | None) -> None:
     """注入决策提供者：callable(prompt)->str，返回 A~G 决策文本。"""
     global _decision_provider
     _decision_provider = fn
 
 
-def set_fast_decision_provider(fn: Optional[Callable[[str], str]]) -> None:
+def set_fast_decision_provider(fn: Callable[[str], str] | None) -> None:
     """注入快速决策提供者（TASK-052 快速路径，轻量文本模型如 Qwen3-4B）。
 
     简单页面（博客/新闻/文档）跳过视觉理解，仅用 DOM 文本做快速决策。
@@ -78,13 +79,13 @@ def set_fast_decision_provider(fn: Optional[Callable[[str], str]]) -> None:
     _fast_decision_provider = fn
 
 
-def set_page_understanding_provider(fn: Optional[Callable[[str], str]]) -> None:
+def set_page_understanding_provider(fn: Callable[[str], str] | None) -> None:
     """注入页面理解提供者：callable(prompt)->str，返回页面摘要。"""
     global _page_understanding_provider
     _page_understanding_provider = fn
 
 
-def set_ws_broadcaster(fn: Optional[Callable[[dict], None]]) -> None:
+def set_ws_broadcaster(fn: Callable[[dict], None] | None) -> None:
     """注入 WebSocket 进度推送：callable(dict)，未注入则跳过。"""
     global _ws_broadcaster
     _ws_broadcaster = fn
@@ -100,7 +101,7 @@ def _broadcast(payload: dict) -> None:
         log.debug("进度推送失败（忽略）: %s", exc)
 
 
-def _resolve_knowledge_service() -> Optional[Any]:
+def _resolve_knowledge_service() -> Any | None:
     """按契约解析知识服务（另一 agent 实现，容忍其不存在）。"""
     try:
         from backend.services.knowledge_service import get_knowledge_service
@@ -113,7 +114,7 @@ def _resolve_knowledge_service() -> Optional[Any]:
             return None
 
 
-def _make_llm_extractor() -> Optional[Any]:
+def _make_llm_extractor() -> Any | None:
     """把对话引擎包装成知识提取 callable(prompt)->str。
 
     引擎未加载/不就绪时抛异常 —— knowledge_service 会自动回退规则提取，
@@ -268,7 +269,7 @@ class SubGoal:
                 "keywords": list(self.keywords), "done": self.done}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "SubGoal":
+    def from_dict(cls, d: dict) -> SubGoal:
         return cls(id=str(d.get("id", uuid.uuid4().hex[:8])),
                    title=str(d.get("title", "")),
                    keywords=list(d.get("keywords", []) or []),
@@ -286,7 +287,7 @@ class LearningBudget:
                 "max_pages": self.max_pages}
 
     @classmethod
-    def from_dict(cls, d: dict | None) -> "LearningBudget":
+    def from_dict(cls, d: dict | None) -> LearningBudget:
         d = d or {}
         return cls(max_time_minutes=int(d.get("max_time_minutes", 30) or 30),
                    max_pages=int(d.get("max_pages", 20) or 20))
@@ -1058,8 +1059,8 @@ class BrowserAgentService:
                    if session.started_at else 0.0)
         links = understanding.get("links", [])[:10]
         links_str = "\n".join(
-            f"  - {l.get('text', '')[:40]}: {l.get('href', '')[:80]}"
-            for l in links)
+            f"  - {link.get('text', '')[:40]}: {link.get('href', '')[:80]}"
+            for link in links)
         return DECISION_PROMPT.format(
             goal=session.goal,
             learned_summary="；".join(session.learned_summary[-5:]) or "（暂无）",
@@ -1083,7 +1084,7 @@ class BrowserAgentService:
         session.recent_actions.append(action_key)
         session.operation_count += 1
 
-    def detect_loop(self, session: LearningSession) -> Optional[str]:
+    def detect_loop(self, session: LearningSession) -> str | None:
         """循环检测：
         - 最近 10 次中连续 3 次相同操作 → "same_action_x3"
         - 操作数超过 200 次上限 → "op_limit"
@@ -1192,7 +1193,7 @@ class BrowserAgentService:
         browser = get_browser_service()
         # 决策给出的链接在前，页面全部链接作后备（决策链接被过滤光时仍可命中）
         candidates = list(action.get("links") or [])
-        candidates += [l.get("href", "") for l in browser.get_links()]
+        candidates += [link.get("href", "") for link in browser.get_links()]
         # 选择策略：跳过撞墙域名；优先未访问页面，退而允许 <阈值 次的已访问页
         target = ""
         fallback = ""
@@ -1282,7 +1283,7 @@ class BrowserAgentService:
 
     # ── 终止条件（TASK-032）───────────────────────────────────────────
 
-    def should_stop(self, session: LearningSession) -> Optional[str]:
+    def should_stop(self, session: LearningSession) -> str | None:
         """返回终止原因；None 表示继续。"""
         if session.stop_requested:
             return session.stop_reason or "user_stop"
@@ -1343,7 +1344,7 @@ class BrowserAgentService:
                  session.knowledge_extracted, session.coverage * 100)
         return path
 
-    def restore_checkpoint(self, session_id: str) -> Optional[LearningSession]:
+    def restore_checkpoint(self, session_id: str) -> LearningSession | None:
         """从检查点恢复会话（<5 秒，断电恢复）。"""
         path = CHECKPOINT_DIR / f"{session_id}.json"
         if not path.exists():
@@ -1382,7 +1383,7 @@ class BrowserAgentService:
 
     # ── 安全墙检测与离开（TC-S-001/007/008, TC-A-004）──────────────────
 
-    def check_walls_and_leave(self, session: LearningSession) -> Optional[str]:
+    def check_walls_and_leave(self, session: LearningSession) -> str | None:
         """检测登录墙/验证码/付费墙；命中则立即离开并返回墙类型。"""
         browser = get_browser_service()
         wall = ""
@@ -1639,8 +1640,8 @@ class BrowserAgentService:
     # ── 会话管理（API 层调用）──────────────────────────────────────────
 
     def create_session(self, topic_id: str, goal: str,
-                       budget: Optional[dict] = None,
-                       session_id: Optional[str] = None) -> LearningSession:
+                       budget: dict | None = None,
+                       session_id: str | None = None) -> LearningSession:
         """创建会话对象（不启动线程）。"""
         session = LearningSession(
             session_id=session_id or uuid.uuid4().hex,
@@ -1703,7 +1704,7 @@ class BrowserAgentService:
             session.resource_preempted = True
             session.pause_requested = False
 
-    def get_session(self, session_id: str) -> Optional[LearningSession]:
+    def get_session(self, session_id: str) -> LearningSession | None:
         with self._lock:
             return self._sessions.get(session_id)
 
@@ -1719,7 +1720,7 @@ class BrowserAgentService:
         with self._lock:
             return list(self._sessions.values())
 
-    def active_session(self) -> Optional[LearningSession]:
+    def active_session(self) -> LearningSession | None:
         with self._lock:
             for s in self._sessions.values():
                 if s.status in ("running", "paused"):
@@ -1731,7 +1732,7 @@ class BrowserAgentService:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_agent: Optional[BrowserAgentService] = None
+_agent: BrowserAgentService | None = None
 _agent_lock = threading.Lock()
 
 

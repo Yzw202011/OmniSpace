@@ -1,6 +1,11 @@
 # OmniSpace AI Python 代码规范（ruff 0.16+）
-# 启用方式：tools/ruff/ruff.exe check backend/ （或安装 ruff 后 `ruff check`）
-# 策略：E/F 全开（错误与 pyflakes），W/I 混入；规则从紧、存量违规基线化处理。
+# 启用方式：tools/ruff/ruff.exe check .（或安装 ruff 后 `ruff check`）
+# ruff.exe 不入库（28MB 二进制，.gitignore 排除 tools/ruff/），获取方式：
+#   curl -L -o tools/ruff/ruff.zip \
+#     https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+#   并解压到 tools/ruff/（见 docs/audit-task-checklist.md TASK-P1-03）
+# 策略：E/F 全开（错误与 pyflakes），W/I 混入；规则从紧、存量违规已清零
+# （2026-08-19 P1-03 实测 748 项 → 0，此后新增违规随提交拦截于 pre-commit）。
 
 target-version = "py310"
 line-length = 100

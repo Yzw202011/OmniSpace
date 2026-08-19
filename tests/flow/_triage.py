@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 """盘点非 PASS 用例，按可修复性启发式分类输出。"""
 import json
-import re
 from pathlib import Path
 
 R = Path(__file__).parent / "results"

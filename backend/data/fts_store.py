@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """OmniSpace AI v2.3.1 全文检索存储（TASK-051 混合检索 · 关键词路）。
 
 实现：SQLite FTS5（trigram 分词器，中文按 3 字滑窗索引）。
@@ -15,7 +14,6 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from typing import Any, Optional
 
 log = logging.getLogger("omnispace.fts")
 
@@ -185,7 +183,7 @@ class FtsStore:
             log.debug("FTS 回填跳过: %s", exc)
 
 
-_fts_instance: Optional[FtsStore] = None
+_fts_instance: FtsStore | None = None
 _fts_lock = threading.Lock()
 
 

@@ -25,7 +25,6 @@ import ctypes.wintypes as wintypes
 import logging
 import os
 import threading
-from pathlib import Path
 
 from ..config import DATA_DIR
 
@@ -52,14 +51,14 @@ class _DATA_BLOB(ctypes.Structure):
                 ("pbData", ctypes.POINTER(ctypes.c_char))]
 
 
-def _blob_from(data: bytes) -> "_DATA_BLOB":
+def _blob_from(data: bytes) -> _DATA_BLOB:
     buf = ctypes.create_string_buffer(data, len(data))
     blob = _DATA_BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
     blob._buf = buf  # type: ignore[attr-defined]  # 防 GC
     return blob
 
 
-def _blob_bytes(blob: "_DATA_BLOB") -> bytes:
+def _blob_bytes(blob: _DATA_BLOB) -> bytes:
     return ctypes.string_at(blob.pbData, blob.cbData)
 
 

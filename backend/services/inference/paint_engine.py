@@ -29,8 +29,9 @@ import logging
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ...config import MODELS_DIR
 
@@ -203,7 +204,7 @@ class PaintEngine:
         self._pipe: Any = None            # txt2img 管线
         self._pipe_i2i: Any = None        # img2img 管线（from_pipe 共享组件）
         self._model_id: str = ""
-        self._model_dir: Optional[Path] = None
+        self._model_dir: Path | None = None
         self._sampler: str = DEFAULT_SAMPLER
         self._state: str = "unavailable"
         self._last_error: str = ""
@@ -233,7 +234,7 @@ class PaintEngine:
         return [mid for mid, rel, _v in PAINT_MODEL_CANDIDATES
                 if paint_model_dir_ready(MODELS_DIR / rel)]
 
-    def _pick_model(self, model_id: Optional[str]) -> Optional[tuple[str, Path, float]]:
+    def _pick_model(self, model_id: str | None) -> tuple[str, Path, float] | None:
         for mid, rel, vram in PAINT_MODEL_CANDIDATES:
             if model_id and model_id != mid and not model_id.startswith("sdxl"):
                 continue
@@ -292,7 +293,7 @@ class PaintEngine:
 
     # ── 加载 / 卸载 ───────────────────────────────────────────────
 
-    def load_model(self, model_id: Optional[str] = None) -> bool:
+    def load_model(self, model_id: str | None = None) -> bool:
         """加载 SDXL 绘画管线。
 
         流程: 选模型 → 显存预检（不足尝试腾挪）→ diffusers 加载 →
@@ -431,7 +432,7 @@ class PaintEngine:
                             _cuda_free_gb())
             return had
 
-    def ensure_loaded(self, model_id: Optional[str] = None) -> bool:
+    def ensure_loaded(self, model_id: str | None = None) -> bool:
         """确保绘画模型已加载（先走 model_manager 契约协调）。"""
         if self._state == "ready":
             return True
@@ -461,7 +462,7 @@ class PaintEngine:
     # ── 进度回调 ──────────────────────────────────────────────────
 
     @staticmethod
-    def _make_step_callback(progress_cb: Optional[Callable[[int, int], None]],
+    def _make_step_callback(progress_cb: Callable[[int, int], None] | None,
                             total_steps: int, watch: dict):
         """构造 diffusers callback_on_step_end 回调。
 
@@ -521,7 +522,7 @@ class PaintEngine:
     # ── 生成 ──────────────────────────────────────────────────────
 
     def generate(self, params: dict,
-                 progress_cb: Optional[Callable[[int, int], None]] = None) -> dict:
+                 progress_cb: Callable[[int, int], None] | None = None) -> dict:
         """文生图。
 
         Args:
@@ -605,7 +606,7 @@ class PaintEngine:
         }
 
     def img2img(self, params: dict, init_image: Any,
-                progress_cb: Optional[Callable[[int, int], None]] = None) -> dict:
+                progress_cb: Callable[[int, int], None] | None = None) -> dict:
         """图生图。
 
         Args:
@@ -682,7 +683,7 @@ class PaintEngine:
     # ── 局部重绘（PAINT-027/028/030/031、COMIC-039）───────────────
 
     def inpaint(self, params: dict, image: Any, mask: Any,
-                progress_cb: Optional[Callable[[int, int], None]] = None
+                progress_cb: Callable[[int, int], None] | None = None
                 ) -> dict:
         """局部重绘（遮罩区域重绘后按遮罩回贴）。
 
@@ -710,20 +711,20 @@ class PaintEngine:
 
         margin = int(params.get("mask_margin", 48) or 48)
         W, H = image.size
-        l, t, r, b = bbox
-        l = max(0, l - margin)
+        left, t, r, b = bbox
+        left = max(0, left - margin)
         t = max(0, t - margin)
         r = min(W, r + margin)
         b = min(H, b + margin)
         # VAE 要求尺寸对齐 8 像素；下限 64 防止过小裁片推理失败
-        w = max(64, (r - l) // 8 * 8)
+        w = max(64, (r - left) // 8 * 8)
         h = max(64, (b - t) // 8 * 8)
-        r = min(W, l + w)
+        r = min(W, left + w)
         b = min(H, t + h)
-        w, h = r - l, b - t
+        w, h = r - left, b - t
 
-        crop = image.convert("RGB").crop((l, t, r, b))
-        mcrop = binmask.crop((l, t, r, b))
+        crop = image.convert("RGB").crop((left, t, r, b))
+        mcrop = binmask.crop((left, t, r, b))
 
         sub = dict(params)
         try:
@@ -740,18 +741,18 @@ class PaintEngine:
         soft = mcrop.filter(ImageFilter.GaussianBlur(3))
         blended = Image.composite(out, crop, soft)
         final = image.convert("RGB").copy()
-        final.paste(blended, (l, t))
+        final.paste(blended, (left, t))
 
         elapsed = (time.perf_counter() - t0) * 1000
         logger.info("局部重绘完成: 区域=(%d,%d,%d,%d) seed=%d %.0fms",
-                    l, t, r, b, res["seed"], elapsed)
+                    left, t, r, b, res["seed"], elapsed)
         return {
             "images": [final],
             "seed": res["seed"],
             "sampler": res.get("sampler", self._sampler),
             "model": self._model_id,
             "elapsed_ms": elapsed,
-            "region": [l, t, r, b],
+            "region": [left, t, r, b],
             "degraded": True,
             "backend": "masked_img2img",
             "degrade_reason": (
@@ -935,7 +936,7 @@ class PaintEngine:
 #  单例
 # ═══════════════════════════════════════════════════════════════════
 
-_engine_instance: Optional[PaintEngine] = None
+_engine_instance: PaintEngine | None = None
 _engine_lock = threading.Lock()
 
 

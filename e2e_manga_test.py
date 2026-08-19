@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
 """OmniSpace 漫剧模块 E2E 压测脚本（分阶段执行，状态落盘 e2e_state.json）。"""
 import base64
 import io
 import json
-import os
 import subprocess
 import sys
 import time
@@ -47,7 +45,7 @@ def vram_mb() -> int:
             ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
             text=True, timeout=15).strip()
         return int(out.splitlines()[0])
-    except Exception as exc:
+    except Exception:
         return -1
 
 
@@ -161,7 +159,6 @@ def p2(st):
                                      "眼神坚毅，写实漫剧风格"})
     dt = time.time() - t0
     data = body.get("data") or {}
-    honest = ("model" in data or "model_used" in data or "degraded" in data)
     ok = code == 200 and body.get("success")
     report(st, "p2.turnaround", ok,
            f"HTTP {code} 耗时{dt:.0f}s model={data.get('model') or data.get('model_used')} "
@@ -274,7 +271,6 @@ def _wait_video(st, task_id: str, timeout_s: int = 600) -> dict:
 
 def p5(st):
     print("== 阶段5 视频生成（诚实性核心验证）==")
-    pid = st["project_id"]
     rid = st["row_ids"][0]
     kf = st.get("keyframe") or {}
     shot_b64 = ""
@@ -346,7 +342,6 @@ def p5(st):
 
 def p6(st):
     print("== 阶段6 取消路径+孤本清理 ==")
-    pid = st["project_id"]
     rid = st["row_ids"][1]
     before = {p.name for p in VIDEO_OUT_DIR.glob("*.mp4")} if VIDEO_OUT_DIR.is_dir() else set()
     code, body = req("POST", "/video/generate", timeout=60,

@@ -155,10 +155,15 @@
     - 根 README.md（项目简介/快速启动/开发工作流/目录结构/文档索引/运维命令）；docs/deployment-manual.md（硬件要求/环境装配/24 目录模型资产配置表/显存路由表/首次启动验证清单/RC 交付）；docs/troubleshooting.md（通用排查入口 + 四大故障各一页：症状/根因/诊断/处置/预防 + 20xxx 错误码速查）
     - 全部事实从源码实测核对：launcher 端口默认 8765（argparse 覆盖 config 的 5800）、磁盘门槛 20GB、DB 版本守护 RuntimeError 原文、20013/20014 错误码、_MODEL_PATH_HINTS 嵌套快照、模型接线状态对齐 RTM 矩阵 M-01~M-16
 
-- [ ] **P2-04 需求基线入库**（对应 P01、P02）
+- [x] **P2-04 需求基线入库**（对应 P01、P02）
   - 动作：把《文档E》《文档B》中仍有效的需求抽取为仓库内规格章节（挂 RTM 附录）；docs/ 加 INDEX.md 声明各文档时效性，归档被覆盖的历史版本（三份模型推荐文档收敛为一份）
   - 完成标准：仓库内可独立校验需求-矩阵对应关系；INDEX.md 能回答"哪份文档代表现状"
   - 工时：1 天
+  - **完成记录（2026-08-20）**：
+    - `docs/requirements-baseline.md` 入库（RTM 附录 A）：六大模块功能清单 + 五大引擎 + 协调规则（互斥/加载优先级/后台优先级/知识反哺）+ 38 项核心要求全量 ↔ RTM 映射表（✅16 / 🟨10 / 🟦1 / ❌10）；每条含 RTM ID 反向指针，未入矩阵项显式标「—」
+    - `docs/INDEX.md` 建立：全部 docs/ 条目四态分类（现行/记录/参考/归档）+ 仓库外源文档时效定位 + 按场景找文档速查表
+    - 模型推荐三文档收敛：model-deployment-plan.md 确立唯一权威版；based-on-doc / final 两份 git mv 至 docs/archive/ 并加归档横幅（保留历史可追溯）
+    - RTM 升 v1.2：头部声明基线链接，维护规则与附录 A 挂接；38 项映射发现未追踪缺口 1 处（#29 Agent 工具调用 ❌ 无 Function Calling 实现）
 
 - [ ] **P2-05 crypto.py 接入 DB 层**（对应 P26）
   - 动作：dialog_messages.content 落地 AES-256-GCM 字段级加密（crypto.py 已实现，接 database.py 读写路径）；存量数据一次性迁移

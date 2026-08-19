@@ -1,5 +1,7 @@
 # OmniSpace AI — 大模型搭配与部署方案
 
+> **[唯一权威版 2026-08-20 确立]** 本文档为模型推荐/部署主题的单一真源（TASK-P2-04 收敛裁定）；RTM 中「部署计划」字样均指本文档。历史版本已归档至 `docs/archive/`。模型接线状态以 `docs/requirements-traceability.md`（M-01~M-16）为准——本计划描述目标架构，RTM 记录当前进度。
+>
 > RTX 5070 Ti 16GB Blackwell 专版 · 激进 FP8 策略
 >
 > 日期：2026-08-14

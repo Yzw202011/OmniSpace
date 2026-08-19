@@ -16,7 +16,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -37,6 +36,7 @@ from ..config import APP_VERSION, DATA_DIR, DB_PATH, HOST, LOGS_DIR, MODELS_DIR,
 from ..data.database import get_db_safe
 from ..data.models import ProjectExport, ProjectImport, SystemSettings
 from ..middleware.error_handler import ApiError, ok
+from ..services.offload import run_blocking
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.system")
@@ -548,7 +548,7 @@ def _collect_project_bundle(db, project_id: str) -> dict:
 
 
 def _write_project_archive(path: Path, manifest: dict, bundle: dict) -> None:
-    """同步写入 .omnispace ZIP 归档（供 asyncio.to_thread 调用）。"""
+    """同步写入 .omnispace ZIP 归档（经 run_blocking 卸载的同步核心）。"""
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json",
                     json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -584,8 +584,8 @@ async def system_project_export(req: ProjectExport):
         raise ApiError("SYSTEM_DB_UNAVAILABLE", "数据库不可用，无法导出项目")
 
     # 审计 R1-10：多轮 SQLite 查询与 ZIP 压缩均为阻塞 IO，
-    # 放线程池避免卡住事件循环
-    bundle = await asyncio.to_thread(
+    # 经 run_blocking 卸载避免卡住事件循环
+    bundle = await run_blocking(
         _collect_project_bundle, db, req.project_id)
     archive_name = f"{req.project_id}_{_now_ts()}.omnispace"
     try:
@@ -598,7 +598,7 @@ async def system_project_export(req: ProjectExport):
             "project_id": req.project_id,
             "exported_at": time.time(),
         }
-        await asyncio.to_thread(_write_project_archive, path, manifest, bundle)
+        await run_blocking(_write_project_archive, path, manifest, bundle)
         file_path = str(path)
         size_bytes = path.stat().st_size
         file_exists = True
@@ -658,10 +658,10 @@ async def system_project_import(req: ProjectImport):
         raise ApiError("SYSTEM_DB_UNAVAILABLE", "数据库不可用，无法导入项目")
 
     # 审计 R1-10：归档解析与多轮 SQLite 恢复均为阻塞 IO，
-    # 放线程池避免卡住事件循环
-    project, sb_pack, director = await asyncio.to_thread(
+    # 经 run_blocking 卸载避免卡住事件循环
+    project, sb_pack, director = await run_blocking(
         _parse_project_archive, path)
-    project_id, restored = await asyncio.to_thread(
+    project_id, restored = await run_blocking(
         _restore_project_records, db, project, sb_pack, director)
 
     return ok({"project_id": project_id, "imported": True,
@@ -670,7 +670,7 @@ async def system_project_import(req: ProjectImport):
 
 
 def _parse_project_archive(path: Path):
-    """同步解析 .omnispace 归档（供 asyncio.to_thread 调用）。
+    """同步解析 .omnispace 归档（经 run_blocking 卸载的同步核心）。
 
     返回 (project, storyboard_pack, director_pack)；容器/成员损坏时
     抛 ApiError PROJECT_FILE_CORRUPTED。
@@ -697,7 +697,7 @@ def _parse_project_archive(path: Path):
 
 def _restore_project_records(db, project: dict, sb_pack: dict,
                              director: dict) -> tuple[str, dict]:
-    """同步恢复项目数据库记录（供 asyncio.to_thread 调用）。
+    """同步恢复项目数据库记录（经 run_blocking 卸载的同步核心）。
 
     id 冲突时重映射；任何失败级联删除已建项目（回滚）并抛
     PROJECT_FILE_CORRUPTED，绝不谎报 imported:true。
@@ -1145,7 +1145,7 @@ class _HashWriter:
 
 
 def _write_full_export(dest: Path) -> str:
-    """同步打包全量数据到 tar.gz 并返回 SHA256（供 to_thread 调用）。
+    """同步打包全量数据到 tar.gz 并返回 SHA256（经 run_blocking 卸载的同步核心）。
 
     内容：omnispace.db（sqlite3 热备副本，WAL 安全）+ settings JSON +
     generated/ 生成物。排除 backups/（备份副本）与 exports/（导出产物，
@@ -1206,7 +1206,7 @@ async def system_full_export():
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     dest = EXPORT_DIR / f"omnispace_full_{_now_ts()}.tar.gz"
     try:
-        sha = await asyncio.to_thread(_write_full_export, dest)
+        sha = await run_blocking(_write_full_export, dest)
     except Exception as exc:  # noqa: BLE001
         log.error("全量导出失败: %s", exc)
         raise ApiError("SYSTEM_BACKUP_FAILED", "全量导出失败，请检查磁盘空间",

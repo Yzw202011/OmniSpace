@@ -9,12 +9,12 @@
 - GET  /art/tools/status  四引擎状态聚合（loaded/ready/degraded 如实上报）
 
 输入约定：image 字段为 base64（允许 data:image/...;base64, 前缀）。
-所有推理经 asyncio.to_thread 防阻塞事件循环；引擎权重缺失/加载失败
-如实返回 MODEL_FILE_NOT_FOUND / MODEL_LOAD_FAILED，不伪造结果。
+所有推理经 run_blocking（services/offload.py 唯一同步推理入口）防阻塞
+事件循环；引擎权重缺失/加载失败如实返回 MODEL_FILE_NOT_FOUND /
+MODEL_LOAD_FAILED，不伪造结果。
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import io
@@ -31,6 +31,7 @@ from ..services.inference.depth_engine import get_depth_engine
 from ..services.inference.detect_engine import get_detect_engine
 from ..services.inference.segment_engine import get_segment_engine
 from ..services.inference.triposr_engine import get_triposr_engine
+from ..services.offload import run_blocking
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.vision_tools")
@@ -84,7 +85,7 @@ async def art_image_to_3d(body: dict = Body(default_factory=dict)):
     _ensure_loaded(engine, "TripoSR 3D 生成引擎")
     ASSETS_3D_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        result = await asyncio.to_thread(
+        result = await run_blocking(
             engine.generate_3d, img, ASSETS_3D_DIR, mc_resolution)
     except RuntimeError as exc:
         raise ApiError("MODEL_INFERENCE_FAILED", f"3D 生成失败：{exc}") from exc
@@ -122,7 +123,7 @@ async def art_segment(body: dict = Body(default_factory=dict)):
     engine = get_segment_engine()
     _ensure_loaded(engine, "SAM 分割引擎")
     try:
-        result = await asyncio.to_thread(engine.segment, img, points, box)
+        result = await run_blocking(engine.segment, img, points, box)
     except RuntimeError as exc:
         raise ApiError("MODEL_INFERENCE_FAILED", f"图像分割失败：{exc}") from exc
     return ok(result)
@@ -135,7 +136,7 @@ async def art_depth(body: dict = Body(default_factory=dict)):
     engine = get_depth_engine()
     _ensure_loaded(engine, "深度估计引擎")
     try:
-        result = await asyncio.to_thread(engine.estimate, img)
+        result = await run_blocking(engine.estimate, img)
     except RuntimeError as exc:
         raise ApiError("MODEL_INFERENCE_FAILED", f"深度估计失败：{exc}") from exc
     return ok(result)
@@ -149,7 +150,7 @@ async def art_detect(body: dict = Body(default_factory=dict)):
     engine = get_detect_engine()
     _ensure_loaded(engine, "目标检测引擎")
     try:
-        result = await asyncio.to_thread(engine.detect, img, conf)
+        result = await run_blocking(engine.detect, img, conf)
     except RuntimeError as exc:
         raise ApiError("MODEL_INFERENCE_FAILED", f"目标检测失败：{exc}") from exc
     return ok(result)

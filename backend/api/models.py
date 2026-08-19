@@ -30,7 +30,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -57,6 +56,7 @@ from ..data.models import (
 from ..middleware.error_handler import ApiError, ok
 from ..middleware.feature_lock import get_feature_lock
 from ..services.model_manager import get_model_manager
+from ..services.offload import run_blocking
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.models")
@@ -697,8 +697,8 @@ async def models_load(req: ModelLoadRequest):
                            detail={"feature": feature,
                                    "active_feature": lock_mgr.active_feature})
     try:
-        # ensure_loaded 是数秒级阻塞调用，放到线程池避免卡住事件循环
-        loaded = await asyncio.to_thread(
+        # ensure_loaded 是数秒级阻塞调用，经 run_blocking 卸载避免卡住事件循环
+        loaded = await run_blocking(
             mgr.ensure_loaded, category, req.model_id)
     finally:
         if acquired:
@@ -736,7 +736,7 @@ def _category_to_feature(category: str) -> str:
 
 
 def _compute_model_fingerprint(file_path: str) -> str | None:
-    """同步计算模型文件 SHA256 指纹（供 asyncio.to_thread 调用）。
+    """同步计算模型文件 SHA256 指纹（经 run_blocking 卸载的同步核心）。
 
     文件模型：全量流式哈希；目录模型：对特征文件做组合指纹
     （避免全量哈希数 GB 权重）。无本地文件时返回 None。
@@ -772,8 +772,8 @@ async def models_verify(model_id: str):
         raise ApiError(30001, "模型文件未找到，请导入模型",
                        detail={"model_id": model_id})
 
-    # 审计 R1-05：大文件哈希为秒级阻塞计算，放线程池避免卡住事件循环
-    digest = await asyncio.to_thread(
+    # 审计 R1-05：大文件哈希为秒级阻塞计算，经 run_blocking 卸载避免卡住事件循环
+    digest = await run_blocking(
         _compute_model_fingerprint, model.get("file_path") or "")
     if digest is None:
         return ok({"model_id": model_id, "verified": False,
@@ -958,7 +958,7 @@ async def models_export(req: ModelExportRequest):
     out_path = out_dir / (
         f"{req.model_id}_{time.strftime('%Y%m%d_%H%M%S')}.tar.gz")
     try:
-        result = await asyncio.to_thread(
+        result = await run_blocking(
             _export_model_tarball, model, out_path)
     except Exception as exc:  # noqa: BLE001
         raise ApiError(20010, f"模型导出失败: {exc}") from exc
@@ -968,7 +968,7 @@ async def models_export(req: ModelExportRequest):
 
 
 def _run_dialog_benchmark(req: ModelBenchmarkRequest) -> dict:
-    """同步执行对话模型基准（线程池调用）：N 次真实推理采样。"""
+    """同步执行对话模型基准（经 run_blocking 卸载）：N 次真实推理采样。"""
     from ..services.inference.dialog_engine import get_dialog_engine
 
     engine = get_dialog_engine()
@@ -1030,7 +1030,7 @@ async def models_benchmark(req: ModelBenchmarkRequest):
     测 Tokens/s、首 token 延迟、显存峰值；结果落 model_benchmarks
     表供历史对比（GET /models/benchmark/history）。未加载 → 20012。
     """
-    result = await asyncio.to_thread(_run_dialog_benchmark, req)
+    result = await run_blocking(_run_dialog_benchmark, req)
     db = get_db_safe()
     persisted = False
     if db is not None:

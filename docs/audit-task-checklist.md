@@ -108,10 +108,17 @@
     - 新增 `tests/unit/test_telemetry_honesty.py` 8 用例锁定契约：psutil 不可用/GPU 探测失败/整链失败三路径必须 available=False+None（断言假读数绝迹）；vram 总显存/用量/空闲探测失败必须进 degraded_probes；无 torch 纯记账模式不算降级
     - 验证：后端 92/92 过（84+8 新增）；tsc --noEmit 过；npm run test 34/34 过；npm run lint 0 错误；ruff check 改动文件全过
 
-- [ ] **P1-06 异步边界规范固化**（对应 P08）
+- [x] **P1-06 异步边界规范固化**（对应 P08）
   - 动作：消灭 dialog.py:313 的"调用方须放线程池"注释契约——被动重推理函数内部自建 `asyncio.to_thread` 或统一走 draw.py 模式的任务调度；同步推理入口收敛为一个装饰器/工具函数
   - 完成标准：grep 确认无"须放线程池"类注释契约残留；所有同步推理调用点结构上不可能误用
   - 工时：1 天
+  - 完成记录（2026-08-19）：
+    - 新建 `services/offload.py`：唯一同步推理入口 `run_blocking()`（语义= asyncio.to_thread，收敛为可 grep 单点）+ `sync_core` 装饰器（同步核心→自调度 async 函数，漏 await 只得到 coroutine 不会阻塞循环，误用面结构性消失）
+    - dialog.py 两处注释契约（`_quick_search_supplement`/`_passive_reinfer`）改 `@sync_core` 自调度，docstring 契约删除；voice_engine.py:809 COM 契约改为结构说明
+    - 收敛 41 处调用点到 run_blocking：dialog 5 / voice 2 / vision_tools 4 / models 4 / draw 2 / manga 20 / system 5（manga/system 含 sqlite 批写与归档秒级 IO）——API 层 asyncio.to_thread 直调清零
+    - 保留合法例外（非单次阻塞调用）：dialog.py 流式生产者 run_in_executor（生产者-消费者模式）、scheduler 周期 tick 循环、ws_hub 毫秒级遥测读取（offload.py 策略明示）
+    - 新增 `tests/unit/test_async_boundary.py` 8 用例锁定：义务性契约短语全后端源码扫描必须为 0；API 层 to_thread 直调必须为 0；run_blocking 真实卸载（线程号验证）+ 异常如实传播；sync_core 协程函数性 + 工作线程执行；dialog 被动补全两助手必须为协程函数
+    - 验证：后端 100/100 过（92+8）；ruff 改动 10 文件全过；全部 TestClient 冒烟通过（应用启动无循环导入）
 
 ---
 

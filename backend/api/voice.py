@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 import threading
@@ -26,6 +25,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from ..config import DATA_DIR
 from ..data.models import VoicePreviewRequest
 from ..middleware.error_handler import ApiError, ok
+from ..services.offload import run_blocking
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.voice")
@@ -99,8 +99,8 @@ async def voice_transcribe(
 
     engine = _get_engine()
     try:
-        # Whisper 推理为同步阻塞调用，放入线程池避免阻塞事件循环
-        result = await asyncio.to_thread(
+        # Whisper 推理为同步阻塞调用，经 run_blocking 卸载避免阻塞事件循环
+        result = await run_blocking(
             engine.transcribe, str(tmp_path),
             language or None, model_id or None)
     finally:
@@ -121,8 +121,8 @@ async def voice_synthesize(req: VoicePreviewRequest):
     """
     engine = _get_engine()
     try:
-        # AI 推理 / SAPI5 COM 均为同步阻塞调用，放入线程池
-        audio_path = await asyncio.to_thread(
+        # AI 推理 / SAPI5 COM 均为同步阻塞调用，经 run_blocking 卸载
+        audio_path = await run_blocking(
             engine.synthesize, req.voice_id, req.text, req.emotion)
         raw = Path(audio_path).read_bytes()
     except ApiError:

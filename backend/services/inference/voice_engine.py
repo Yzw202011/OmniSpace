@@ -806,7 +806,9 @@ class VoiceEngine:
         """用 Windows SAPI5 将文本合成为 24kHz 16bit 单声道 WAV（真实发声）。
 
         情感以语速映射尽力表达（愤怒+2 / 悲伤-2 / 默认0）。
-        COM 调用同步阻塞，调用方须在工作线程中执行（API 层用 to_thread）。
+        引擎方法为同步核心；COM 调用阻塞由 API 层经 run_blocking
+        （services/offload.py 唯一同步推理入口）统一卸载，结构上无
+        直调误用面（P1-06）。
         """
         import comtypes.client  # noqa: PLC0415 - 惰性导入可选依赖
 

@@ -46,6 +46,7 @@ from ..services.inference.dialog_engine import (
     DEFAULT_SYSTEM_PROMPT,
     get_dialog_engine,
 )
+from ..services.offload import run_blocking, sync_core
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.dialog")
@@ -222,8 +223,9 @@ def _fire_dialog_gap(sid: str, message: str, keywords: list[str]) -> None:
         log.debug("dialog_gap 触发器触发失败（忽略）: %s", exc)
 
 
+@sync_core
 def _quick_search_supplement(keywords: list[str]) -> str:
-    """快速搜索 1~3 页并截取正文（同步阻塞，调用方须放线程池）。
+    """快速搜索 1~3 页并截取正文（P1-06：自调度 async，直接 await）。
 
     复用浏览器池（headless Chromium）：导航搜索页 → 提取结果链接 →
     依序读内容页正文。离线/浏览器不可用/超时均返回 ""。
@@ -296,11 +298,12 @@ def _quick_search_supplement(keywords: list[str]) -> str:
     return combined[:_PASSIVE_TOTAL_CHARS]
 
 
+@sync_core
 def _passive_reinfer(engine, message: str, history: list[dict],
                      knowledge_text: str, supplement: str,
                      images: list, temperature: float,
                      max_new_tokens: int, max_ctx: int) -> str:
-    """补充上下文后重推理一次（同步阻塞，调用方须放线程池）。"""
+    """补充上下文后重推理一次（P1-06：自调度 async，直接 await）。"""
     augmented = (knowledge_text or "")
     augmented += ("\n\n[联网补充资料]\n" + supplement) if supplement else ""
     messages = engine.build_context(
@@ -330,16 +333,15 @@ async def _maybe_passive_completion(
     _fire_dialog_gap(sid, message, keywords)
     supplement = ""
     try:
-        supplement = await asyncio.to_thread(_quick_search_supplement,
-                                             keywords)
+        supplement = await _quick_search_supplement(keywords)
     except Exception as exc:  # noqa: BLE001
         log.debug("被动补全搜索失败（回退原回复）: %s", exc)
     if not supplement.strip():
         return reply, {"triggered": True, "keywords": keywords,
                        "supplemented": False}
     try:
-        new_reply = await asyncio.to_thread(
-            _passive_reinfer, engine, message, history, knowledge_text,
+        new_reply = await _passive_reinfer(
+            engine, message, history, knowledge_text,
             supplement, images, temperature, max_new_tokens, max_ctx)
     except Exception as exc:  # noqa: BLE001
         log.warning("被动补全重推理失败（回退原回复）: %s", exc)
@@ -481,9 +483,9 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
         # 本次 send 之后设置，生成循环正常感知。
         _stop_flags.discard(sid)
         # 引擎未加载时尝试加载；失败 → 30xxx 段友好错误。
-        # 审计 R1-04：ensure_loaded 为 15s 级阻塞调用，放线程池执行，
-        # 避免卡住事件循环
-        if not engine.is_ready and not await asyncio.to_thread(
+        # 审计 R1-04：ensure_loaded 为 15s 级阻塞调用，经 run_blocking
+        # 卸载执行，避免卡住事件循环
+        if not engine.is_ready and not await run_blocking(
                 engine.ensure_loaded, model_req):
             status = engine.get_status()
             code = 30004 if status["state"] == "error" else 30003
@@ -517,7 +519,7 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
 
         # 非流式
         try:
-            reply = await asyncio.to_thread(
+            reply = await run_blocking(
                 engine.chat, messages, images or None,
                 temperature, max_new_tokens)
         except RuntimeError as exc:
@@ -1138,8 +1140,8 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         return
 
     try:
-        # 审计 R1-04：同 dialog_send，ensure_loaded 阻塞调用放线程池
-        if not engine.is_ready and not await asyncio.to_thread(
+        # 审计 R1-04：同 dialog_send，ensure_loaded 阻塞调用经 run_blocking 卸载
+        if not engine.is_ready and not await run_blocking(
                 engine.ensure_loaded, None):
             status = engine.get_status()
             code = 30004 if status["state"] == "error" else 30003

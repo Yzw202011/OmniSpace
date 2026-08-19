@@ -55,6 +55,7 @@ from ..services.inference.paint_engine import (
     PaintCancelledError,
     get_paint_engine,
 )
+from ..services.offload import run_blocking
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.draw")
@@ -356,7 +357,7 @@ def _dispatch_loop() -> None:
                     imgs = _task_images.pop(tid, None)
                     init_image = imgs[0] if imgs else None
                     mask = imgs[1] if imgs and len(imgs) > 1 else None
-                    await asyncio.to_thread(
+                    await run_blocking(
                         _run_generate_task, tid, t["params"],
                         init_image, mask)
                 finally:
@@ -526,7 +527,7 @@ async def draw_upscale(body: dict = Body(default_factory=dict)):
     engine = get_paint_engine()
     lock = await acquire_or_raise("paint")
     try:
-        result = await asyncio.to_thread(engine.upscale, image, scale)
+        result = await run_blocking(engine.upscale, image, scale)
     finally:
         await lock.release("paint")
 

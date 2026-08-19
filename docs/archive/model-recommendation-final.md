@@ -1,5 +1,7 @@
 # OmniSpace AI — 大模型搭配方案
 
+> **[已归档 2026-08-20]** 本文档为历史版本，已被 `docs/model-deployment-plan.md`（唯一权威版）覆盖，勿据此决策。归档原因："final" 命名与实际不符——同日产出且内容被部署计划吸收扩展。归档操作见 TASK-P2-04。
+>
 > 基于文档《显卡显存阶梯参考》16GB 档位 + RTX 5070 Ti Blackwell FP8 优化
 >
 > 硬件：RTX 5070 Ti 16GB GDDR7 · Compute 12.0 · 32GB RAM

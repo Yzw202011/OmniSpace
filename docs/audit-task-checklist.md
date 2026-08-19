@@ -177,10 +177,14 @@
     - 迁移前明文备份 bak-p205 于三重验证通过后删除（防明文副本抵消加密成果）
     - 测试：test_v3_migration_encrypts_legacy_plaintext（加密+可逆+幂等）+ test_v3_migration_idempotent_rerun 入 smoke/schema 套件；全量 102 项测试通过
 
-- [ ] **P2-06 Tauri 壳正式决策**（对应 P05）
+- [x] **P2-06 Tauri 壳正式决策**（对应 P05）
   - 动作：二选一并落档——排期落地（建 src-tauri 骨架）或矩阵标记"裁剪，理由：浏览器+launcher 形态已满足单机交付"
   - 完成标准：矩阵 A-01 不再是悬置状态；决策记录进 ADR
   - 工时：决策 1 小时 / 落地另计
+  - **完成记录（2026-08-20）**：
+    - `docs/ADR-002-tauri-shell-decision.md` 入库：裁决 = 裁剪，浏览器+launcher 升格为正式交付形态（非降级）；四条理由（单机闭环/壳层零增益/Rust 工具链违反零系统依赖铁律/#38 安装包前提失效）+ 放弃收益诚实记录 + 四条重启条件（可逆门）
+    - RTM A-01：❌ → ⚪ 合理化豁免（v1.4）；基线 #38 同步豁免，统计 ✅17/🟨10/🟦1/⚪1/❌8
+    - docs/INDEX.md 登记为新现行 ADR
 
 - [ ] **P2-07 状态文案集中化**（对应 P13）
   - 动作：VIDEO_STATUS_LABELS / SAVE_STATUS_LABELS 等枚举标签抽取到常量模块；文案 key 与后端枚举值类型绑定

@@ -27,6 +27,7 @@
 | `model-deployment-plan.md` | **模型搭配与部署** | 模型推荐主题唯一权威版（2026-08-20 收敛裁定）；接线进度以 RTM M 域为准 |
 | `audit-task-checklist.md` | 工程治理 | P0/P1/P2 任务清单与完成记录 |
 | `ADR-001.md` | 架构决策 | 从零实现架构决策（已接受） |
+| `ADR-002-tauri-shell-decision.md` | 架构决策 | Tauri 桌面壳裁剪裁决（2026-08-20）：浏览器+launcher 为正式交付形态，含重启条件 |
 
 ## 二、记录文档（历史快照，只读）
 

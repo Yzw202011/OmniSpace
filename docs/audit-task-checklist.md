@@ -165,10 +165,17 @@
     - 模型推荐三文档收敛：model-deployment-plan.md 确立唯一权威版；based-on-doc / final 两份 git mv 至 docs/archive/ 并加归档横幅（保留历史可追溯）
     - RTM 升 v1.2：头部声明基线链接，维护规则与附录 A 挂接；38 项映射发现未追踪缺口 1 处（#29 Agent 工具调用 ❌ 无 Function Calling 实现）
 
-- [ ] **P2-05 crypto.py 接入 DB 层**（对应 P26）
+- [x] **P2-05 crypto.py 接入 DB 层**（对应 P26）
   - 动作：dialog_messages.content 落地 AES-256-GCM 字段级加密（crypto.py 已实现，接 database.py 读写路径）；存量数据一次性迁移
   - 完成标准：库文件中文本字段不可明文直读；矩阵 A-02 状态改 ✅；迁移前后对话记录内容零丢失
   - 工时：2 天
+  - **完成记录（2026-08-20）**：
+    - schema v3（纯数据迁移组 `_DATA_MIGRATIONS`）：存量明文加密（dialog_messages.content + behavior_logs.content/context/before/after 四字段），前缀检测式幂等（enc:v1: 跳过），加密后解密校验失败则保留明文并告警（零丢失优先）
+    - 读写路径接线：database.py 插入路径加密（line 403）、行读取/历史读取解密（line 89/435）；behavior_service.py 写入侧同步接线
+    - 生产库迁移实测：211 条对话 + 815 条行为日志全量加密，SQL 层明文残留 0/0，解密回读 5/5 通过
+    - 字节级泄漏排查：初次终验发现孤立明文页（迁移先于 VACUUM 代码执行）——迁移逻辑内联 VACUUM 重建库文件后补跑，perf-test 孤立片段 4/4 清除、freelist 归零、WAL checkpoint 清零；残留片段全部可归因于范围外合法明文列（dialog_sessions.title 等，A-02 范围=消息正文与行为日志）
+    - 迁移前明文备份 bak-p205 于三重验证通过后删除（防明文副本抵消加密成果）
+    - 测试：test_v3_migration_encrypts_legacy_plaintext（加密+可逆+幂等）+ test_v3_migration_idempotent_rerun 入 smoke/schema 套件；全量 102 项测试通过
 
 - [ ] **P2-06 Tauri 壳正式决策**（对应 P05）
   - 动作：二选一并落档——排期落地（建 src-tauri 骨架）或矩阵标记"裁剪，理由：浏览器+launcher 形态已满足单机交付"

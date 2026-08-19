@@ -1,8 +1,10 @@
 """OmniSpace AI v2.3.1 SQLite 数据库管理（规格 §7 数据库 / §14 约束1 本地存储）。
 
-使用标准库 sqlite3 明文存储（诚实标注：未启用 SQLCipher 全库加密——
-本地单机场景按规格 §14 约束1 仅绑定 127.0.0.1，数据不出本机；
-历史 vendor/sqlcipher3 shim 与 DB_ENCRYPTION 配置为死代码，已移除）。
+敏感字段级加密（P2-05 / RTM A-02，2026-08-20）：dialog_messages.content 与
+behavior_logs.content/context/before/after 经 crypto.py AES-256-GCM 加密落盘
+（前缀 enc:v1:），读写路径在 Database 层自动加解密；schema v3 完成存量明文
+一次性迁移（迁移后 VACUUM 重建库文件，杜绝空闲页明文残留）。
+未启用 SQLCipher 全库加密——非敏感列（标题/元数据/ID）保持明文便于检索。
 开启 WAL 模式提升并发读写。提供单例 get_db() 与 query / sql / insert / update / delete 方法。
 
 规格引用：
@@ -368,7 +370,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -400,6 +402,18 @@ class Database:
             # 新建叙事项目报错 —— 自此迁移按版本登记并纳入测试守护。
             ("projects", "work_mode", "TEXT NOT NULL DEFAULT 'regular'"),
         )),
+        (3, (
+            # P2-05（要求#36 / RTM A-02）：纯数据迁移版本组——无新增列，
+            # 存量明文加密经 _DATA_MIGRATIONS[3] 执行
+            # （见 _migrate_encrypt_legacy_fields）。
+        )),
+    )
+
+    # 数据迁移（区别于列迁移）：版本号 → 方法名，在对应版本列迁移后执行。
+    # 与列迁移同受「历史组禁止修改，只许追加」铁律约束；
+    # 幂等性由迁移函数自身保证（本组为前缀检测式幂等）。
+    _DATA_MIGRATIONS: tuple[tuple[int, str], ...] = (
+        (3, "_migrate_encrypt_legacy_fields"),
     )
 
     @property
@@ -432,7 +446,75 @@ class Database:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
                     log.info("数据库迁移 v%d: %s 新增列 %s", version, table, column)
             conn.execute(f"PRAGMA user_version = {version}")
+            self._run_data_migrations(conn, version)
             log.info("数据库 schema 已升级至 v%d", version)
+
+    def _run_data_migrations(self, conn, version: int) -> None:
+        """执行指定版本登记的数据迁移（列迁移之后、版本日志之前）。"""
+        for ver, method in self._DATA_MIGRATIONS:
+            if ver == version:
+                getattr(self, method)(conn)
+
+    def _migrate_encrypt_legacy_fields(self, conn) -> None:
+        """v3 数据迁移：存量明文字段一次性加密（要求#36 / RTM A-02）。
+
+        落库前加密自接线起生效，此前的明文行在此补加密：
+        - dialog_messages.content
+        - behavior_logs 的 content/context/before/after
+
+        安全策略：逐字段加密 → 解密回读校验一致 → 才落 UPDATE；
+        校验失败保留原值并告警（宁可不加密，不可丢数据）。
+        幂等：空值与已加密行（enc:v1: 前缀）跳过，重复执行零副作用。
+        behavior_logs 由服务层自建，此刻可能尚未建表——缺表即无存量，跳过。
+        """
+        from .crypto import decrypt_text, encrypt_text, is_encrypted
+
+        def _columns(table: str) -> set[str]:
+            return {r[1] for r in conn.execute(
+                f"PRAGMA table_info({table})").fetchall()}
+
+        plans: list[tuple[str, str, list[str]]] = []
+        if "content" in _columns("dialog_messages"):
+            plans.append(("dialog_messages", "id", ["content"]))
+        behavior_cols = _columns("behavior_logs")
+        behavior_fields = [c for c in ("content", "context", "before", "after")
+                           if c in behavior_cols]
+        if behavior_fields:
+            plans.append(("behavior_logs", "event_id", behavior_fields))
+
+        migrated_rows = skipped_fields = 0
+        for table, key_col, fields in plans:
+            select_cols = ", ".join(f'"{c}"' for c in fields)
+            rows = conn.execute(
+                f'SELECT "{key_col}", {select_cols} FROM {table}').fetchall()
+            for row in rows:
+                row_id = row[0]
+                updates: dict[str, str] = {}
+                for i, col in enumerate(fields):
+                    plain = row[i + 1]
+                    if not plain or not isinstance(plain, str) or is_encrypted(plain):
+                        continue
+                    enc = encrypt_text(plain)
+                    if not enc or decrypt_text(enc) != plain:
+                        skipped_fields += 1
+                        log.warning("v3 迁移跳过字段 %s.%s（加密回读校验失败，保留明文）",
+                                    table, col)
+                        continue
+                    updates[col] = enc
+                if updates:
+                    set_clause = ", ".join(f'"{c}"=?' for c in updates)
+                    conn.execute(
+                        f'UPDATE {table} SET {set_clause} WHERE "{key_col}"=?',
+                        (*updates.values(), row_id))
+                    migrated_rows += 1
+        if migrated_rows:
+            # UPDATE 只改行指针指向的新页，明文旧页/已删行所在空闲页在文件中
+            # 仍可字节级直读——VACUUM 全量重建文件才能抹除（要求#36 验收：
+            # 库文件不可明文直读）。一次性版本迁移，代价可接受。
+            conn.execute("VACUUM")
+        if migrated_rows or skipped_fields:
+            log.info("v3 数据迁移完成：加密存量明文 %d 行（保留明文字段 %d 个）",
+                     migrated_rows, skipped_fields)
 
     # ── 查询方法 ──────────────────────────────────────────────
 

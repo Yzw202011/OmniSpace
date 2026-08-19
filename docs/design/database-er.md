@@ -255,7 +255,7 @@ task_id PK / prompt / negative / params_json / file_path / seed（-1 表密码�
 
 ## 6. 迁移与加密机制
 
-**迁移**（P0-03 版本化机制）：`PRAGMA user_version` 携带版本号，当前 SCHEMA_VERSION=2。`_MIGRATION_GROUPS` 按版本分组声明增量列（组1：17 列，含 pinned/rating/favorite/sort_index/priority 等；组2：projects.work_mode——2026-08-14 事故后纳入）。`_migrate_columns()` 用 `PRAGMA table_info` 判存后 `ALTER TABLE ADD COLUMN`。两条铁律：库版本高于代码版本直接 RuntimeError 拒绝启动（防旧程序写坏新库）；历史组禁止修改，只许追加新组。
+**迁移**（P0-03 版本化机制）：`PRAGMA user_version` 携带版本号，当前 SCHEMA_VERSION=3。`_MIGRATION_GROUPS` 按版本分组声明增量列（组1：17 列，含 pinned/rating/favorite/sort_index/priority 等；组2：projects.work_mode——2026-08-14 事故后纳入；组3：无新增列，纯数据迁移）。`_migrate_columns()` 用 `PRAGMA table_info` 判存后 `ALTER TABLE ADD COLUMN`；`_DATA_MIGRATIONS` 声明版本→数据迁移函数映射（v3：`_migrate_encrypt_legacy_fields` 存量明文加密，迁移后 VACUUM 重建库文件清空闲页明文残留）。两条铁律：库版本高于代码版本直接 RuntimeError 拒绝启动（防旧程序写坏新库）；历史组禁止修改，只许追加新组。
 
 **加密**（data/crypto.py，字段级）：AES-256-GCM，密钥 32 字节随机，经 Windows DPAPI（CurrentUser）保护存 `data/keys/dbkey.bin`，非 Windows/DPAPI 不可用回退机器指纹 HKDK。密文格式 `enc:v1:` + base64(nonce12‖ct‖tag16)，无前缀明文原样透传（兼容存量）。加密范围：dialog_messages.content 与 behavior_logs 的 content/context/before/after；知识库正文不加密（FTS5/向量检索依赖明文）。注意这是字段级加密——整库仍是普通 SQLite 文件（P2-05 覆盖范围即此口径）。
 

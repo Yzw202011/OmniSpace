@@ -89,6 +89,77 @@ def test_migration_is_idempotent(tmp_path):
     Database(path)
 
 
+@pytest.mark.schema
+def test_v3_migration_encrypts_legacy_plaintext(tmp_path):
+    """v3 数据迁移（要求#36 / RTM A-02）：存量明文一次性加密，解密回读零丢失。"""
+    from backend.data.crypto import decrypt_text, is_encrypted
+
+    path = tmp_path / "legacy_plain.db"
+    Database(path)
+    raw = sqlite3.connect(path)
+    raw.execute("INSERT INTO dialog_messages (id, session_id, role, content) "
+                "VALUES ('m1', 's1', 'user', '存量明文对话')")
+    raw.executescript("""
+        CREATE TABLE behavior_logs (
+            event_id   TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL DEFAULT '',
+            content    TEXT DEFAULT '',
+            context    TEXT DEFAULT '',
+            "before"   TEXT DEFAULT '',
+            "after"    TEXT DEFAULT '',
+            timestamp  REAL NOT NULL DEFAULT 0,
+            feature    TEXT DEFAULT ''
+        );
+        INSERT INTO behavior_logs
+            (event_id, event_type, content, context, "before", "after")
+        VALUES ('e1', 'edit', '行为内容', '行为上下文', '旧值', '新值');
+    """)
+    raw.execute("PRAGMA user_version = 2")
+    raw.commit()
+    raw.close()
+
+    db = Database(path)  # 触发 v3 数据迁移
+    msg = db.query_one("SELECT content FROM dialog_messages WHERE id='m1'")
+    assert msg is not None and is_encrypted(msg["content"]), "存量对话明文应已加密"
+    assert decrypt_text(msg["content"]) == "存量明文对话", "加密迁移必须零内容丢失"
+
+    evt = db.query_one('SELECT content, context, "before", "after" '
+                       "FROM behavior_logs WHERE event_id='e1'")
+    assert evt is not None
+    for col in ("content", "context", "before", "after"):
+        assert is_encrypted(evt[col]), f"behavior_logs.{col} 应已加密"
+    assert decrypt_text(evt["content"]) == "行为内容"
+    assert decrypt_text(evt["after"]) == "新值"
+
+
+@pytest.mark.schema
+def test_v3_migration_idempotent_and_skips_encrypted(tmp_path):
+    """v3 迁移幂等：已加密行二次执行原样跳过，不重复加密不破坏内容。"""
+    from backend.data.crypto import decrypt_text, is_encrypted
+
+    path = tmp_path / "idem_enc.db"
+    Database(path)
+    raw = sqlite3.connect(path)
+    raw.execute("INSERT INTO dialog_messages (id, session_id, role, content) "
+                "VALUES ('m1', 's1', 'user', '幂等内容')")
+    raw.execute("PRAGMA user_version = 2")
+    raw.commit()
+    raw.close()
+
+    db1 = Database(path)
+    first = db1.query_one(
+        "SELECT content FROM dialog_messages WHERE id='m1'")["content"]
+    assert is_encrypted(first)
+
+    conn = db1._conn()
+    conn.execute("PRAGMA user_version = 2")  # 回退版本号，强制重跑 v3 迁移
+    db2 = Database(path)
+    second = db2.query_one(
+        "SELECT content FROM dialog_messages WHERE id='m1'")["content"]
+    assert second == first, "已加密行重复迁移必须原样跳过"
+    assert decrypt_text(second) == "幂等内容"
+
+
 # ── API 冒烟：关键端点可用且响应信封正确 ─────────────────────────
 
 def test_health_endpoint(client):

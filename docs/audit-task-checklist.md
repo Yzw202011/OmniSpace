@@ -66,10 +66,11 @@
   - 工时：2 天
   - **完成记录（2026-08-19）**：新增 `backend/tests/unit/test_engine_logic.py` 共 43 个测试函数全过（含 7 组参数化不变式），总数 41→84。覆盖：对话候选 tier 路由 4（含 12.0 边界含/11.9 不触发）、硬件档位表 6（含 5070Ti 先于 5070 的表序依赖、未登记型号按显存保守降档）、模型路径解析 4（扁平/modelscope 嵌套/.incomplete 残留/缺失）、后端判定+显存估算+目录发现 7、`_dir_load_bytes_fp16` 7（F32 减半/F16·BF16 原值/混合保守/同名 bin 跳过/损坏头保守/递归子目录）、LTX 校验 6、候选表一致性 2。附带重构：video_engine.py 内联 LTX 约束抽取为纯函数 `_ltx_align_params`（行为不变，生成路径改调它）
 
-- [ ] **P1-02 pre-commit 钩子**（对应 P18）
+- [x] **P1-02 pre-commit 钩子**（对应 P18）
   - 动作：写 `.git/hooks/pre-commit`（或 pre-commit 框架配置），提交前跑 `pytest -m smoke` + `compileall` 语法基线；ruff 装好后追加 check
   - 完成标准：故意注入语法错误的提交被拦截；正常提交 < 60 秒完成
   - 工时：半天
+  - **完成记录（2026-08-19，eb54dee）**：钩子置于版本库内 `.githooks/pre-commit` 并以 `git config core.hooksPath .githooks` 激活（钩子本身随仓库版本化，换机只需重跑该 config 一行，用法写在钩子头部注释）。实测：注入语法错误的提交 1 秒被拦截；正常提交（compileall 全量 + 17 冒烟）15 秒通过。ruff 接入后追加 check 的挂点已预留（P1-03 落地后于钩子 [2/3] 步插入）
 
 - [ ] **P1-03 lint 工具链激活**（对应 P14、P19）
   - 动作：

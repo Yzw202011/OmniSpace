@@ -126,10 +126,16 @@
 
 > 特征：纯改善项，晚做没有代价。禁止跳过 P0/P1 直接开工。
 
-- [ ] **P2-01 manga.py 拆分**（对应 P06、P15）
+- [x] **P2-01 manga.py 拆分**（对应 P06、P15）
   - 动作：按路由域拆为 storyboard / director / video / voice 四个模块（APIRouter 各自挂载）；同步把 useMangaStore（738 行）按子域切片
   - 完成标准：单文件 < 1000 行；`tsc --noEmit && vite build` 通过；漫剧主流程（建项目→分镜→出图→导出）手工回归通过
   - 工时：3-4 天
+  - **完成记录（2026-08-20）**：
+    - 后端 manga.py（4521 行 / 95 路由）拆为 `api/manga/` 包 9 模块：common（共享层：内存态兜底/行辅助/引擎单例/出图规格铁律，无路由）/ storyboard（23 路由）/ keyframe（7）/ director（17）/ video（15）/ voice（6）/ comic（8）/ comic_asset（19）/ comic_gen（0 路由，管线层由 comic_asset 调用）；`__init__.py` 聚合 9 个子 router，main.py 经 importlib 挂载零改动。拆分用 AST 一次性脚本（tools/_tmp_split_manga.py，已删）：顶层块解析 → 按路由路径钉死域归属（行号边界对路由组起点不精确）→ 共享名定点迭代提升 common → 跨域导入环检测（环上最小非路由名提升解环）
+    - 路由对等性机器验证：拆分前后各 95 路由（path+methods）集合完全相等（FastAPI 0.141 惰性挂载，经 `_IncludedRouter.effective_candidates()` 递归物化枚举）；create_app() 13 模块全注册、全 app 295 路由
+    - 前端 useMangaStore（744 行）拆为 `stores/manga/` 六切片：project/rows/asset/keyframe/voice/video + types.ts（切片契约与后端能力边界注释）+ helpers.ts + videoPoller.ts（轮询定时器模块级单例，可见性降频）；useMangaStore.ts 仅作组装点（32 行），对外接口与切片前完全一致，22 个消费方零改动
+    - videoStatus.test.ts 同步更新：一致性测试改扫描 `backend/api/manga/` 整包（拆包后状态字面量分散于 common/keyframe/video/comic_asset 四模块，合并提取集合仍为 pending/generating/done/error/cancelled 五值，与拆分前一致）
+    - 验证：后端 100/100 过 + 17 冒烟过；ruff check 新包全绿；前端 34/34 过、tsc --noEmit 过、npm run build 生产构建过（3.4s）；各模块行数 max 718（comic_asset）全部 < 1000；临时拆分脚本与路由对等快照已清理
 
 - [ ] **P2-02 设计文档补齐**（对应 P03）
   - 动作：三份文档——架构总览（一页分层图+数据流）、API 端点总表（从 api/*.py 头注释抽取）、13 表 ER 说明（从 database.py 提取）

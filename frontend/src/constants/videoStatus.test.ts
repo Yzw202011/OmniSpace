@@ -1,14 +1,16 @@
 /* ==========================================================================
  * 视频状态枚举前后端一致性测试（TASK-P1-04，审计 P13 前置）
  * --------------------------------------------------------------------------
- * 直读 backend/api/manga.py 源码文本，提取 video_tasks.status 全部
- * 字面量取值，与前端常量（VIDEO_TASK_STATUSES / VIDEO_STATUS_LABELS）
- * 及 Zod schema 枚举三方双向核对。
+ * 直读 backend/api/manga/ 包源码文本（TASK-P2-01 拆包后状态字面量
+ * 分散于 common/keyframe/video/comic_asset 多模块，故整包扫描），
+ * 提取 video_tasks.status 全部字面量取值，与前端常量
+ * （VIDEO_TASK_STATUSES / VIDEO_STATUS_LABELS）及 Zod schema 枚举
+ * 三方双向核对。
  * 后端新增/改名状态而前端未跟随时，本测试立即红——枚举漂移不再静默。
  * ========================================================================== */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import {
   VIDEO_TASK_STATUSES,
@@ -17,8 +19,15 @@ import {
 } from './videoStatus';
 import { VideoStatusRespSchema } from '@/services/schema';
 
-/** 后端 manga.py 源码（vitest cwd = frontend/） */
-const BACKEND_MANGA = path.resolve(process.cwd(), '../backend/api/manga.py');
+/** 后端 manga 包源码目录（vitest cwd = frontend/；TASK-P2-01 拆包后为目录） */
+const BACKEND_MANGA_DIR = path.resolve(process.cwd(), '../backend/api/manga');
+
+/** 读取包内全部 .py 模块源码合并为单一文本 */
+function readBackendMangaSrc(): string {
+  const files = readdirSync(BACKEND_MANGA_DIR).filter((f) => f.endsWith('.py'));
+  if (files.length === 0) throw new Error(`manga 包为空: ${BACKEND_MANGA_DIR}`);
+  return files.map((f) => readFileSync(path.join(BACKEND_MANGA_DIR, f), 'utf-8')).join('\n');
+}
 
 /** 从源码提取 status 字面量赋值与 .get() 默认值 */
 function extractBackendStatuses(src: string): Set<string> {
@@ -32,8 +41,8 @@ function extractBackendStatuses(src: string): Set<string> {
   return values;
 }
 
-describe('视频状态枚举：前端常量 ↔ 后端 manga.py 双向一致', () => {
-  const backendSrc = readFileSync(BACKEND_MANGA, 'utf-8');
+describe('视频状态枚举：前端常量 ↔ 后端 manga 包双向一致', () => {
+  const backendSrc = readBackendMangaSrc();
   const backendStatuses = extractBackendStatuses(backendSrc);
 
   it('后端源码可读且提取到状态集合', () => {

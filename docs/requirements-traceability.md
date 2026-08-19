@@ -26,7 +26,7 @@
 | F-03 | LoRA 自动微调：数据≥100条/到频自动触发 | ❌ | 仅手动 POST /learn/train，无后台执行器 | 断点 3/5 |
 | F-04 | 知识 LoRA 接入推理（训练成果被对话加载） | ❌ | dialog_engine.py 无 PeftModel 引用，永远纯基座 | 闭环"应用"环节断裂，断点 4/5 |
 | F-05 | 学习进度 WebSocket 推送 /learn/session/progress | ❌ | 全后端无该 WS 端点，只能轮询 | 断点 5/5 |
-| F-06 | 分镜四端点：list / reorder / ai-describe / preview | 🟨 | backend/api/manga.py；storyboard_rows.sort_index 迁移已登记（R2-B06） | reorder 持久化已具备列支撑，端点层待核 |
+| F-06 | 分镜四端点：list / reorder / ai-describe / preview | ✅ | backend/api/manga/storyboard.py（TASK-P2-01 拆包后路径）；reorder 真实持久化 sort_index（DB update per row） | 2026-08-20 核验上调：四端点齐备且 reorder 落库，前端 reorderRows 有测试守护 |
 | F-07 | 导演台 /export 导出端点 | ❌ | 仅 panorama / screenshot-4in1 | |
 | F-08 | G1 解说漫剧（work_mode=narrative） | ✅ | projects.work_mode v2 迁移（2026-08-14 修复事故后验证通过） | 本表首个由测试守护的需求 |
 

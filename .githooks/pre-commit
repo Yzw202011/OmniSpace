@@ -1,0 +1,36 @@
+#!/bin/sh
+# pre-commit 钩子（TASK-P1-02，审计 P18）
+# 启用方式（每台开发机执行一次）:
+#   git config core.hooksPath .githooks
+# 检查内容: compileall 语法基线 + pytest -m smoke 冒烟
+# 绕过（自担风险）: git commit --no-verify
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+PY="$REPO_ROOT/runtime/py310/python.exe"
+
+if [ ! -f "$PY" ]; then
+  echo "[pre-commit] 未找到嵌入式 Python ($PY)，跳过检查"
+  exit 0
+fi
+
+cd "$REPO_ROOT" || exit 1
+
+echo "[pre-commit] [1/2] compileall 语法基线..."
+"$PY" -m compileall -q backend launcher tools
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "[pre-commit] ✗ 语法错误，提交被拦截（修复后重试）"
+  exit 1
+fi
+
+echo "[pre-commit] [2/2] pytest -m smoke 冒烟测试..."
+"$PY" -m pytest -m smoke -q
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "[pre-commit] ✗ 冒烟测试未过，提交被拦截（修复后重试；"
+  echo "             或 git commit --no-verify 绕过，自担风险）"
+  exit 1
+fi
+
+echo "[pre-commit] ✓ 全部通过"
+exit 0

@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import { formatDuration, formatDateTime } from '@utils/format';
+import { LEARN_SESSION_STATUS_LABELS } from '@/constants/statusLabels';
 import Modal from '@/components/common/Modal';
 
 import {
@@ -25,12 +26,12 @@ import {
   ScrollText,
 } from 'lucide-react';
 
-/** 会话状态 → 中文/徽章样式（dot 为状态点颜色） */
-const STATUS_META: Record<string, { label: string; dot: string }> = {
-  idle: { label: '空闲', dot: 'var(--color-text-tertiary)' },
-  running: { label: '学习中', dot: 'var(--color-success)' },
-  paused: { label: '已暂停', dot: 'var(--color-warning)' },
-  stopped: { label: '已停止', dot: 'var(--color-text-tertiary)' },
+/** 会话状态 → 状态点颜色（标签文案走 LEARN_SESSION_STATUS_LABELS） */
+const STATUS_DOT: Record<string, string> = {
+  idle: 'var(--color-text-tertiary)',
+  running: 'var(--color-success)',
+  paused: 'var(--color-warning)',
+  stopped: 'var(--color-text-tertiary)',
 };
 
 /** 状态点（替代 emoji 圆点，颜色随主题） */
@@ -62,7 +63,8 @@ export const LearningDashboard: React.FC = () => {
   const [showLogs, setShowLogs] = useState(false);
 
   const status = session?.status ?? 'idle';
-  const meta = STATUS_META[status] ?? STATUS_META.idle;
+  const dotColor = STATUS_DOT[status] ?? STATUS_DOT.idle;
+  const statusLabel = LEARN_SESSION_STATUS_LABELS[status] ?? status;
   const active = status === 'running' || status === 'paused';
 
   /* 运行/暂停中每 3 秒轮询一次会话状态 */
@@ -82,13 +84,13 @@ export const LearningDashboard: React.FC = () => {
     <section className="card hoverable" aria-label="实时学习状态">
       <div className="flex items-center justify-between mb-3">
         <h3 className="card-title" style={{ marginBottom: 0 }}><Radar size={16} aria-hidden="true" /> 实时学习状态</h3>
-        <span className="badge info"><StatusDot color={meta.dot} /> {meta.label}</span>
+        <span className="badge info"><StatusDot color={dotColor} /> {statusLabel}</span>
       </div>
 
       {active && session ? (
         <div className="flex flex-col gap-2 text-sm">
           <div className="inline-flex items-center gap-2">
-            <StatusDot color={meta.dot} /> 正在学习：<strong>{session.topic || '未命名主题'}</strong>
+            <StatusDot color={dotColor} /> 正在学习：<strong>{session.topic || '未命名主题'}</strong>
           </div>
           <div className="text-secondary inline-flex items-center gap-1.5">
             <FileText size={14} aria-hidden="true" className="shrink-0" /> 当前页面：

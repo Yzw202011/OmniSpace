@@ -17,77 +17,11 @@ import { useEffect, useState } from 'react';
 import { Loader2, Settings2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { listAvailableModels } from '@/services/mangaApi';
+import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
+import { DEFAULT_MODEL_CONFIG, writeModelConfig, type MangaModelConfig } from '@/constants/modelConfig';
+import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig';
 import type { AvailableModel } from '@/types';
 import { Modal } from '../../common/Modal';
-
-/** 模型配置 localStorage 键（本弹窗写入，VideoConfirmModal 读取回填） */
-const MODEL_CFG_KEY = 'omnispace.manga.modelConfig';
-
-/** 漫剧模型配置 */
-export interface MangaModelConfig {
-  /** 推理模型 ID（'' = 系统默认，跟随后端自动选择） */
-  dialogModel: string;
-  /** 绘画模型 ID（'' = 系统默认） */
-  paintModel: string;
-  /** 视频模型 ID（'' = 系统默认） */
-  videoModel: string;
-  /** 视频默认画幅 */
-  aspect: '16:9' | '9:16';
-  /** 视频默认时长（秒） */
-  duration: number;
-}
-
-/** 默认配置（模型空串 = 系统默认；横屏 16:9；4 秒） */
-const DEFAULT_MODEL_CONFIG: MangaModelConfig = {
-  dialogModel: '',
-  paintModel: '',
-  videoModel: '',
-  aspect: '16:9',
-  duration: 4,
-};
-
-/** 可选视频时长（秒，竞品对齐 4/8/11/15） */
-export const VIDEO_DURATION_OPTIONS: readonly number[] = [4, 8, 11, 15];
-
-/** 模型可用性中文标签（对齐 AvailableModel.status 全集） */
-export const MODEL_STATUS_LABELS: Record<AvailableModel['status'], string> = {
-  ready: '可用',
-  loading: '加载中',
-  not_installed: '未安装',
-  offload: '需卸载',
-};
-
-/** 读取模型配置（localStorage 损坏/缺字段时逐项回退默认） */
-export function loadModelConfig(): MangaModelConfig {
-  try {
-    const raw = localStorage.getItem(MODEL_CFG_KEY);
-    if (!raw) return { ...DEFAULT_MODEL_CONFIG };
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_MODEL_CONFIG };
-    const obj = parsed as Record<string, unknown>;
-    return {
-      dialogModel: typeof obj.dialogModel === 'string' ? obj.dialogModel : DEFAULT_MODEL_CONFIG.dialogModel,
-      paintModel: typeof obj.paintModel === 'string' ? obj.paintModel : DEFAULT_MODEL_CONFIG.paintModel,
-      videoModel: typeof obj.videoModel === 'string' ? obj.videoModel : DEFAULT_MODEL_CONFIG.videoModel,
-      aspect: obj.aspect === '9:16' ? '9:16' : '16:9',
-      duration:
-        typeof obj.duration === 'number' && VIDEO_DURATION_OPTIONS.includes(obj.duration)
-          ? obj.duration
-          : DEFAULT_MODEL_CONFIG.duration,
-    };
-  } catch {
-    return { ...DEFAULT_MODEL_CONFIG };
-  }
-}
-
-/** 写入模型配置（隐私模式写入失败静默，本次会话内状态仍生效） */
-function writeModelConfig(cfg: MangaModelConfig): void {
-  try {
-    localStorage.setItem(MODEL_CFG_KEY, JSON.stringify(cfg));
-  } catch {
-    /* 静默：与 readPromptCfg 同策略 */
-  }
-}
 
 /** 模型下拉属性 */
 interface ModelSelectProps {
@@ -123,7 +57,7 @@ function ModelSelect({ label, value, models, loading, onChange }: ModelSelectPro
           <option value="">系统默认（自动选择）</option>
           {models.map((m) => (
             <option key={m.id} value={m.id} disabled={m.status !== 'ready'}>
-              {`${m.name}（${MODEL_STATUS_LABELS[m.status]}）`}
+              {`${m.name}（${MODEL_AVAILABLE_STATUS_LABELS[m.status]}）`}
             </option>
           ))}
           {savedMissing && (

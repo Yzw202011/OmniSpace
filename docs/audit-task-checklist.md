@@ -186,10 +186,16 @@
     - RTM A-01：❌ → ⚪ 合理化豁免（v1.4）；基线 #38 同步豁免，统计 ✅17/🟨10/🟦1/⚪1/❌8
     - docs/INDEX.md 登记为新现行 ADR
 
-- [ ] **P2-07 状态文案集中化**（对应 P13）
+- [x] **P2-07 状态文案集中化**（对应 P13）
   - 动作：VIDEO_STATUS_LABELS / SAVE_STATUS_LABELS 等枚举标签抽取到常量模块；文案 key 与后端枚举值类型绑定
   - 完成标准：组件内不再散落状态标签字面量；一致性纳入 P1-04 的 vitest 用例
   - 工时：1 天
+  - **完成记录（2026-08-20）**：
+    - 新建 `src/constants/statusLabels.ts`（状态文案集中营）：TRAIN/ROW_GEN/SAVE/MODEL_RUNTIME/MODEL_AVAILABLE/LEARN_SESSION 六域标签 + 转发 P1-04 的 VIDEO 域，各 Record 键与前端类型字面量绑定（Record<TrainTask['status'], string> 等编译期完备约束）
+    - 新建 `src/constants/modelConfig.ts`：漫剧模型配置持久化 helper（loadModelConfig/writeModelConfig/DEFAULT_MODEL_CONFIG）自 ModelConfigModal 迁出（跨组件共享逻辑归位常量层）
+    - 13 个组件收编：MangaWorkspace/StoryboardTable（含 ShotSaveStatus 类型迁至 @/types）/VideoDrawer/InspectorPanel/RecordsModal/BatchConfirmModal/ModelConfigModal/VideoConfirmModal/LearnView/StylePage/RightPanel×2/ModelManager/LearningDashboard/BottomStatusBar/TopBar；清理 55 处散落状态标签字面量至 2 处合理残留（导演台完成态布尔标签、AssetDetailPanel 错误兜底文案——非枚举域）
+    - 一致性测试 `statusLabels.test.ts` 9 例入套件：直读 backend/data/models.py 提取 TrainStatus/ModelStatus/GenerationStatus 枚举真值 + learnApi TRAIN_STATUS_MAP 适配层覆盖核对（后端 queued/training/evaluating → 前端 pending/running 漂移即红）；标签 Record 键集完备、值非空
+    - 验证：tsc 0 错、ESLint 0 错（10 个既有 console warning 与本任务无关）、vitest 43/43（34→43）、生产构建通过；组件散落字面量扫描归零（枚举域）
 
 - [ ] **P2-08 前端错误呈现统一**（对应 P16）
   - 动作：约定组件层错误处置策略（toast/console/静默三分法），把 MangaWorkspace.tsx:153 的 `catch(() => undefined)` 类静默吞错改为可见反馈

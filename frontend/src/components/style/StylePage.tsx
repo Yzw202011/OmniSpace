@@ -32,20 +32,12 @@ import { useStyleStore } from '@/stores/useStyleStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import * as styleApi from '@/services/styleApi';
+import { TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
 import { formatPercent, formatRelativeTime, formatVRAM } from '@utils/format';
 import Slider from '@/components/common/Slider';
 
 /** 支持的素材类型 */
 const ACCEPT = 'video/mp4,video/webm,video/quicktime,image/png,image/jpeg,image/webp';
-
-/** 训练任务状态 → 中文 */
-const TASK_STATUS_LABELS: Record<string, string> = {
-  pending: '排队中',
-  running: '训练中',
-  done: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-};
 
 /** 学习率候选项（后端钳制边界 1e-7 ~ 1e-3，文档 §8.3.7 默认 2e-5） */
 const LR_OPTIONS = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4];
@@ -415,7 +407,7 @@ export const StylePage: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <h3 className="card-title" style={{ marginBottom: 0 }}><LineChart size={16} aria-hidden="true" /> 训练进度</h3>
               <span className={`badge ${task.status === 'done' ? 'success' : task.status === 'error' ? 'error' : 'info'}`}>
-                {TASK_STATUS_LABELS[task.status] ?? task.status}
+                {TRAIN_STATUS_LABELS[task.status] ?? task.status}
               </span>
             </div>
             <div className="progress">

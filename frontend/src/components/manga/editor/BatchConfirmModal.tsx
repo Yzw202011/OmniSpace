@@ -27,6 +27,7 @@ import {
 } from './batchOps';
 import type { BatchResult } from './batchOps';
 import { listAvailableModels } from '@/services/mangaApi';
+import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import type { AvailableModel, ModelConfig } from '@/types';
 
 /** 执行阶段 */
@@ -290,7 +291,7 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
                   >
                     <span className="model-name">{m.name}</span>
                     <span className={`model-status ${m.status}`}>
-                      {m.status === 'ready' ? '可用' : m.status === 'not_installed' ? '未加载' : '需卸载'}
+                      {MODEL_AVAILABLE_STATUS_LABELS[m.status] ?? m.status}
                     </span>
                     <span className="model-meta">{m.vram_gb}GB · {m.speed_label}</span>
                   </button>

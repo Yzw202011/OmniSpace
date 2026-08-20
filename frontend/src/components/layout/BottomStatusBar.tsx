@@ -15,6 +15,7 @@ import { useHardwareStore } from '@/stores/useHardwareStore';
 import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
 import { getStyleStatus } from '@/services/styleApi';
+import { LEARN_SESSION_STATUS_LABELS } from '@/constants/statusLabels';
 
 /** learn 端点轮询周期（ms） */
 const LEARN_POLL_MS = 5000;
@@ -58,11 +59,10 @@ function pct(v: number | undefined | null): string {
 /** 学习进度摘要（规格示例：进行中(短剧编剧技巧 12/20页)） */
 function learningSummary(s: learningApi.LearnSessionStatus | null): string {
   if (!s || s.status === 'idle' || !s.topic) {
-    return '空闲';
+    return LEARN_SESSION_STATUS_LABELS.idle;
   }
   const pages = s.max_pages ? ` ${s.pages_visited ?? 0}/${s.max_pages}页` : '';
-  const statusText =
-    s.status === 'running' ? '进行中' : s.status === 'paused' ? '已暂停' : '已停止';
+  const statusText = LEARN_SESSION_STATUS_LABELS[s.status] ?? s.status;
   return `${statusText}(${s.topic}${pages})`;
 }
 

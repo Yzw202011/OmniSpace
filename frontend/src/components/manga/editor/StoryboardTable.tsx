@@ -34,8 +34,9 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { aiDescribe, assetMediaVersion, generateKeyframe, getMediaUrl } from '@/services/mangaApi';
-import type { ComicAsset, ComicAssetKind, KeyframeItem, StoryboardRow as StoryboardRowData } from '@/types';
+import type { ComicAsset, ComicAssetKind, KeyframeItem, ShotSaveStatus, StoryboardRow as StoryboardRowData } from '@/types';
 import type { MangaVideoTask } from '@/stores/useMangaStore';
+import { VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
 import { batchDescribe, batchKeyframes, readPromptPrefix } from './batchOps';
 
 /** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS） */
@@ -43,17 +44,8 @@ const MAX_ROWS = 50;
 /** 文本编辑防抖间隔 */
 const SAVE_DEBOUNCE = 1200;
 
-/** 保存状态（顶栏状态点） */
-export type ShotSaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
-
-/** 视频状态中文名 */
-const VIDEO_STATUS_LABELS: Record<string, string> = {
-  pending: '排队中',
-  generating: '生成中',
-  done: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-};
+/** 保存状态（顶栏状态点）：类型真源在 @/types（TASK-P2-07 迁出） */
+export type { ShotSaveStatus };
 
 function getErrMessage(err: unknown, fallback: string) {
   return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;

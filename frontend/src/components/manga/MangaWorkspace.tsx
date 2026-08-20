@@ -31,8 +31,8 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { inferEntities } from '@/services/mangaApi';
-import { VIDEO_STATUS_LABELS } from '@/constants/videoStatus';
-import type { StoryboardRow } from '@/types';
+import { SAVE_STATUS_LABELS, VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
+import type { ShotSaveStatus, StoryboardRow } from '@/types';
 import { ScriptImport } from './ScriptImport';
 import { DirectorStage } from './DirectorStage';
 import { VoiceBinder } from './VoiceBinder';
@@ -43,7 +43,7 @@ import { ExportDrawer } from './drawers/ExportDrawer';
 import AssetDock from './editor/AssetDock';
 import AssetDetailPanel from './editor/AssetDetailPanel';
 import InspectorPanel from './editor/InspectorPanel';
-import StoryboardTable, { type ShotSaveStatus } from './editor/StoryboardTable';
+import StoryboardTable from './editor/StoryboardTable';
 import BatchConfirmModal from './editor/BatchConfirmModal';
 import PromptModal from './editor/PromptModal';
 import RecordsModal from './editor/RecordsModal';
@@ -55,15 +55,6 @@ type DrawerKind = '' | 'import' | 'video' | 'export' | 'voice';
 
 /** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS） */
 const MAX_ROWS = 50;
-
-/** 保存状态点文案 */
-const SAVE_STATUS_LABELS: Record<ShotSaveStatus, string> = {
-  idle: '',
-  dirty: '未保存',
-  saving: '保存中…',
-  saved: '已保存',
-  error: '保存失败',
-};
 
 export default function MangaWorkspace() {
   const showToast = useAppStore((s) => s.showToast);

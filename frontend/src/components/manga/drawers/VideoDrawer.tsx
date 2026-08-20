@@ -12,24 +12,9 @@ import { Images, PlayCircle } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import * as mangaApi from '@/services/mangaApi';
-import type { StoryboardGenerationStatus, StoryboardRow } from '@/types';
+import { ROW_GEN_STATUS_BADGE, ROW_GEN_STATUS_LABELS } from '@/constants/statusLabels';
+import type { StoryboardRow } from '@/types';
 import DrawerFrame from './DrawerFrame';
-
-const STATUS_LABELS: Record<StoryboardGenerationStatus, string> = {
-  pending: '待生成',
-  generating: '生成中',
-  done: '已完成',
-  error: '失败',
-  skipped: '已跳过',
-};
-
-const STATUS_BADGE: Record<StoryboardGenerationStatus, string> = {
-  pending: 'neutral',
-  generating: 'warning',
-  done: 'success',
-  error: 'error',
-  skipped: 'neutral',
-};
 
 interface VideoDrawerProps {
   onClose: () => void;
@@ -122,8 +107,8 @@ export function VideoDrawer({ onClose }: VideoDrawerProps) {
                   <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-primary)', flexShrink: 0 }}>
                     镜 {row.shot_number}
                   </span>
-                  <span className={`badge ${STATUS_BADGE[row.generation_status]}`}>
-                    {STATUS_LABELS[row.generation_status]}
+                  <span className={`badge ${ROW_GEN_STATUS_BADGE[row.generation_status]}`}>
+              {ROW_GEN_STATUS_LABELS[row.generation_status]}
                   </span>
                   <button
                     type="button"

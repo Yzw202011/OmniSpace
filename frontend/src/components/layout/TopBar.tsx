@@ -27,8 +27,26 @@ import {
 } from 'lucide-react';
 import { NAV_ITEMS } from '@/router';
 import { useAppStore } from '@/stores/useAppStore';
+import type { Theme } from '@/stores/useAppStore';
 import { useTaskStore } from '@/stores/useTaskStore';
+import { TRAIN_STATUS_LABELS, type TrainStatusKey } from '@/constants/statusLabels';
 import type { OmniTask } from '@/types';
+
+/** 主题四态循环顺序（夜樱→拂晓→深空→晨辉→夜樱） */
+const NEXT_THEME: Record<Theme, Theme> = {
+  sakura: 'light',
+  light: 'tech',
+  tech: 'tech-light',
+  'tech-light': 'sakura',
+};
+
+/** 主题显示名（与 Settings 主题选择器保持一致） */
+const THEME_LABEL: Record<Theme, string> = {
+  sakura: 'Sakura · 夜樱',
+  light: 'Sakura · 拂晓',
+  tech: 'Nebula · 深空',
+  'tech-light': 'Nebula · 晨辉',
+};
 
 /** 点击元素外部时触发（下拉面板关闭用） */
 function useClickOutside(onOutside: () => void) {
@@ -191,9 +209,7 @@ export default function TopBar() {
                     <span className="topbar-task-progress">
                       {t.status === 'running' || t.status === 'pending'
                         ? `${Math.round((t.progress || 0) * 100)}%`
-                        : t.status === 'done'
-                          ? '完成'
-                          : '失败'}
+                        : TRAIN_STATUS_LABELS[t.status as TrainStatusKey] ?? t.status}
                     </span>
                   </div>
                 ))
@@ -202,15 +218,19 @@ export default function TopBar() {
           )}
         </div>
 
-        {/* 主题切换 */}
+        {/* 主题切换（双主题体系四态循环：夜樱→拂晓→深空→晨辉） */}
         <button
           type="button"
           className="topbar-icon-btn"
-          onClick={() => setTheme(theme === 'light' ? 'sakura' : 'light')}
-          title={theme === 'light' ? '切换为暗色主题' : '切换为亮色主题'}
-          aria-label={theme === 'light' ? '切换为暗色主题' : '切换为亮色主题'}
+          onClick={() => setTheme(NEXT_THEME[theme])}
+          title={`切换为 ${THEME_LABEL[NEXT_THEME[theme]]}`}
+          aria-label={`切换为 ${THEME_LABEL[NEXT_THEME[theme]]}`}
         >
-          {theme === 'light' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
+          {NEXT_THEME[theme] === 'light' || NEXT_THEME[theme] === 'tech-light' ? (
+            <Sun size={17} aria-hidden="true" />
+          ) : (
+            <Moon size={17} aria-hidden="true" />
+          )}
         </button>
 
         {/* 用户头像下拉 */}

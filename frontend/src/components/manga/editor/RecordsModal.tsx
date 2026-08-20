@@ -15,13 +15,14 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { getVideoDownloadUrl, listVideoTasks } from '@/services/mangaApi';
 import type { VideoTaskRecord } from '@/services/mangaApi';
+import { VIDEO_STATUS_LABELS, type VideoTaskStatus } from '@/constants/statusLabels';
 import { Modal } from '../../common/Modal';
 
-/** 状态过滤页签 */
+/** 状态过滤页签（label 复用视频状态文案真源） */
 const FILTERS: { key: string; label: string }[] = [
   { key: 'all', label: '全部' },
-  { key: 'done', label: '已完成' },
-  { key: 'error', label: '失败' },
+  { key: 'done', label: VIDEO_STATUS_LABELS.done },
+  { key: 'error', label: VIDEO_STATUS_LABELS.error },
 ];
 
 /** 状态徽标 */
@@ -30,14 +31,6 @@ const STATUS_BADGE: Record<string, string> = {
   error: 'error',
   pending: 'warning',
   generating: 'warning',
-};
-
-/** 状态中文名 */
-const STATUS_LABEL: Record<string, string> = {
-  done: '已完成',
-  error: '失败',
-  pending: '排队中',
-  generating: '生成中',
 };
 
 /** 在途任务自动刷新间隔 */
@@ -193,7 +186,7 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="manga-records-td c-status">
                   <span className={`badge ${STATUS_BADGE[t.status] ?? 'primary'}`}>
-                    {STATUS_LABEL[t.status] ?? t.status}
+                    {VIDEO_STATUS_LABELS[t.status as VideoTaskStatus] ?? t.status}
                   </span>
                   {(t.status === 'pending' || t.status === 'generating') && (
                     <span className="text-tertiary" style={{ fontSize: 10, marginLeft: 4 }}>

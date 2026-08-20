@@ -13,29 +13,12 @@ import React, { useState, useEffect } from 'react';
 import { Dumbbell } from 'lucide-react';
 import { formatPercent, formatRelativeTime } from '@utils/format';
 import type { TrainTask } from '@/types';
+import { TRAIN_STATUS_CLASSES, TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
 import { useLearnStore } from '@/stores/useLearnStore';
 import { useTaskStore } from '@/stores/useTaskStore';
 import { useAppStore } from '@/stores/useAppStore';
 
-/** 训练状态 → 中文标签（TrainTask.status） */
-const STATUS_LABELS: Record<TrainTask['status'], string> = {
-  pending: '排队中',
-  running: '训练中',
-  done: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-};
-
-/** 训练状态 → CSS 类名（app.css learn-status-*） */
-const STATUS_CLASSES: Record<TrainTask['status'], string> = {
-  pending: 'learn-status-queued',
-  running: 'learn-status-running',
-  done: 'learn-status-completed',
-  error: 'learn-status-failed',
-  cancelled: 'learn-status-cancelled',
-};
-
-/** 默认表单值（base_model 随可训练模型列表动态确定） */
+/** 与 learnApi.DEFAULT_BASE_MODEL 对齐的兜底基座 */
 const DEFAULT_FORM = {
   name: '',
   base_model: '',
@@ -292,8 +275,8 @@ export const LearnView: React.FC = () => {
                   <div className="learn-task-title-row">
                     <span className="learn-task-name">{task.name}</span>
                     <span className={`learn-priority-badge ${pri.cls}`}>{pri.text}</span>
-                    <span className={`learn-status-badge ${STATUS_CLASSES[task.status]}`}>
-                      {STATUS_LABELS[task.status]}
+                    <span className={`learn-status-badge ${TRAIN_STATUS_CLASSES[task.status]}`}>
+                      {TRAIN_STATUS_LABELS[task.status]}
                     </span>
                   </div>
                   <div className="learn-task-meta">

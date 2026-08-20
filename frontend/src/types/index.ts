@@ -389,6 +389,9 @@ export interface PaintResult {
 /** 分镜行生成状态（对齐后端 _row_to_storyboard_row） */
 export type StoryboardGenerationStatus = 'pending' | 'generating' | 'done' | 'error' | 'skipped';
 
+/** 保存状态（顶栏状态点；前端本地状态机，无后端对应） */
+export type ShotSaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+
 /** 分镜行（对齐后端 manga.py _row_to_storyboard_row 返回格式） */
 export interface StoryboardRow {
   /** 行 ID */

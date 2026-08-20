@@ -43,6 +43,7 @@ import { useStyleStore } from '@/stores/useStyleStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
+import { LEARN_SESSION_STATUS_LABELS, TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
 
 /** 面板折叠态本地持久化键 */
 const PANEL_COLLAPSED_KEY = 'omnispace.layout.rightPanelCollapsed';
@@ -507,14 +508,6 @@ function StoryboardPanel() {
 
 /* ============================== 4. 知识学习面板（/learning，5s 轮询） ============================== */
 
-/** 学习状态中文映射（LearnSessionStatus.status） */
-const LEARN_STATUS_TEXT: Record<string, string> = {
-  idle: '空闲',
-  running: '进行中',
-  paused: '已暂停',
-  stopped: '已停止',
-};
-
 function LearningPanel() {
   const [session, setSession] = useState<learningApi.LearnSessionStatus | null>(null);
   const [knowledgeCount, setKnowledgeCount] = useState<number | null>(null);
@@ -559,7 +552,7 @@ function LearningPanel() {
     };
   }, []);
 
-  const statusText = session ? LEARN_STATUS_TEXT[session.status] ?? session.status : '--';
+  const statusText = session ? LEARN_SESSION_STATUS_LABELS[session.status] ?? session.status : '--';
   const progressPct =
     session && session.max_pages
       ? Math.round(((session.pages_visited ?? 0) / session.max_pages) * 100)
@@ -664,15 +657,6 @@ function ModelsPanel() {
 
 /* ============================== 6. 视频风格面板（/style） ============================== */
 
-/** 训练任务状态中文映射（TrainTask.status） */
-const TRAIN_STATUS_TEXT: Record<string, string> = {
-  pending: '排队中',
-  running: '训练中',
-  done: '已完成',
-  error: '失败',
-  cancelled: '已取消',
-};
-
 function StylePanel() {
   const rank = useStyleStore((s) => s.rank);
   const alpha = useStyleStore((s) => s.alpha);
@@ -747,7 +731,7 @@ function StylePanel() {
         {task ? (
           <>
             <Row label="任务" value={task.name} title={task.name} />
-            <Row label="状态" value={TRAIN_STATUS_TEXT[task.status] ?? task.status} />
+            <Row label="状态" value={TRAIN_STATUS_LABELS[task.status] ?? task.status} />
             {taskProgressPct !== null && <PanelProgress percent={taskProgressPct} />}
             <Row label="进度" value={`${taskProgressPct ?? 0}%`} />
           </>

@@ -23,17 +23,8 @@ import {
   regenerateKeyframe,
   rollbackKeyframe,
 } from '@/services/mangaApi';
-import type { StoryboardGenerationStatus } from '@/types';
+import { ROW_GEN_STATUS_LABELS } from '@/constants/statusLabels';
 import { readPromptPrefix } from './batchOps';
-
-/** 生成状态中文名 */
-const STATUS_LABELS: Record<StoryboardGenerationStatus, string> = {
-  pending: '待生成',
-  generating: '生成中',
-  done: '已完成',
-  error: '失败',
-  skipped: '已跳过',
-};
 
 function formatTime(ts?: number) {
   if (!ts) return '';
@@ -188,7 +179,7 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
         <h3 className="manga-ed-inspector-title">
           镜 {row.shot_number}
           <span className={`badge ${row.generation_status === 'done' ? 'success' : row.generation_status === 'error' ? 'error' : row.generation_status === 'generating' ? 'warning' : 'primary'}`} style={{ marginLeft: 6 }}>
-            {STATUS_LABELS[row.generation_status] ?? row.generation_status}
+            {ROW_GEN_STATUS_LABELS[row.generation_status] ?? row.generation_status}
           </span>
         </h3>
         <button type="button" className="btn-icon" style={{ width: 26, height: 26 }} title="关闭检查器" aria-label="关闭检查器" onClick={() => { setSelectedRow(null); onBack?.(); }}>

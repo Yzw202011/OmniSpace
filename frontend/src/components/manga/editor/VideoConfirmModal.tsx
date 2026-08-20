@@ -26,9 +26,10 @@ import { Clapperboard, Loader2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { listAvailableModels } from '@/services/mangaApi';
+import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import type { AvailableModel } from '@/types';
 import { Modal } from '../../common/Modal';
-import { MODEL_STATUS_LABELS, VIDEO_DURATION_OPTIONS, loadModelConfig } from './ModelConfigModal';
+import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig';
 
 /** 时长（秒）→ 帧数：按 16fps 且帧数 ≡ 1 (mod 8) */
 const DURATION_TO_FRAMES: Record<number, number> = { 4: 65, 8: 129, 11: 177, 15: 241 };
@@ -175,7 +176,7 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
               <option value="">系统默认（自动选择）</option>
               {models.map((m) => (
                 <option key={m.id} value={m.id} disabled={m.status !== 'ready'}>
-                  {`${m.name}（${MODEL_STATUS_LABELS[m.status]}）`}
+                  {`${m.name}（${MODEL_AVAILABLE_STATUS_LABELS[m.status]}）`}
                 </option>
               ))}
               {savedMissing && (

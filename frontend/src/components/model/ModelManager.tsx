@@ -30,6 +30,7 @@ import { useModelStore } from '@/stores/useModelStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { categoryToFeature } from '@/services/modelApi';
+import { MODEL_RUNTIME_STATUS_LABELS } from '@/constants/statusLabels';
 import { Modal } from '@/components/common/Modal';
 import type { ModelInfo, ModelCategory } from '@/types';
 
@@ -63,14 +64,6 @@ const CategoryIcon: React.FC<{ category: ModelCategory | 'all'; size?: number }>
 }) => {
   const Icon = CATEGORY_ICONS[category] ?? PackageOpen;
   return <Icon size={size} aria-hidden="true" />;
-};
-
-/** 状态 → 中文标签 */
-const STATUS_LABELS: Record<string, string> = {
-  ready: '就绪',
-  not_ready: '未就绪',
-  loading: '加载中',
-  error: '错误',
 };
 
 /**
@@ -572,7 +565,7 @@ export const ModelManager: React.FC = () => {
     const isSelected = selectedId === model.id;
     const isBusy = busy === model.id;
     const statusKey = model.loaded ? 'loaded' : model.status;
-    const statusText = model.loaded ? '已加载' : (STATUS_LABELS[model.status] || model.status);
+    const statusText = model.loaded ? '已加载' : (MODEL_RUNTIME_STATUS_LABELS[model.status] || model.status);
     return (
       <div key={model.id} className={`model-card ${isSelected ? 'selected' : ''}`}>
         <div className="model-info">

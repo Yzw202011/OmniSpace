@@ -13,6 +13,7 @@ import { Download, FileJson, FileSpreadsheet, Package, PackageOpen } from 'lucid
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import * as mangaApi from '@/services/mangaApi';
+import { getErrorMessage as errMsg } from '@/utils/errors';
 import DrawerFrame from './DrawerFrame';
 
 /** 触发浏览器下载（blob 内容） */
@@ -49,11 +50,6 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
   const currentProject = useMangaStore((s) => s.currentProject);
 
   const [busy, setBusy] = useState('');
-
-  const errMsg = (err: unknown, fallback: string): string =>
-    err && typeof err === 'object' && 'message' in err
-      ? (err as { message: string }).message
-      : fallback;
 
   // 分镜表导出（JSON/CSV）
   const handleExportStoryboard = useCallback(

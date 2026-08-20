@@ -32,6 +32,7 @@ import {
   getMediaUrl,
   listLibraryCharacters,
 } from '@/services/mangaApi';
+import { getErrorMessage } from '@/utils/errors';
 import type { ComicAsset, ComicAssetKind } from '@/types';
 import { Modal } from '../../common/Modal';
 
@@ -48,10 +49,6 @@ const KIND_LABELS: Record<string, string> = {
   scene: '场景',
   prop: '道具',
 };
-
-function getErrMessage(err: unknown, fallback: string) {
-  return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;
-}
 
 /** 资产卡（缩略图 + 名称；绑定模式带勾选徽标） */
 function AssetCard({
@@ -137,7 +134,7 @@ export default function AssetDock() {
   // 首开预取（工作台亦预取，此处兜底）
   useEffect(() => {
     if (!currentProject || assetsLoaded) return;
-    fetchAssets().catch((err: unknown) => showToast(getErrMessage(err, '资产列表加载失败'), 'error'));
+    fetchAssets().catch((err: unknown) => showToast(getErrorMessage(err, '资产列表加载失败'), 'error'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
 
@@ -157,7 +154,7 @@ export default function AssetDock() {
         setLibraryLoaded(true);
       })
       .catch((err: unknown) => {
-        if (alive) showToast(getErrMessage(err, '角色库加载失败'), 'error');
+        if (alive) showToast(getErrorMessage(err, '角色库加载失败'), 'error');
       });
     return () => {
       alive = false;
@@ -232,7 +229,7 @@ export default function AssetDock() {
             ?.asset_ids?.includes(asset.asset_id);
           showToast(nowBound ? `已绑定「${asset.name}」到 镜${targetRow.shot_number}` : `已解绑「${asset.name}」`, 'success');
         })
-        .catch((err: unknown) => showToast(getErrMessage(err, '绑定操作失败'), 'error'))
+        .catch((err: unknown) => showToast(getErrorMessage(err, '绑定操作失败'), 'error'))
         .finally(() => setBinding(''));
       return;
     }
@@ -253,7 +250,7 @@ export default function AssetDock() {
       })
       .then(() => listLibraryCharacters())
       .then((items) => setLibraryChars(items))
-      .catch((err: unknown) => showToast(getErrMessage(err, '引入角色失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '引入角色失败'), 'error'))
       .finally(() => setAdopting(''));
   };
 
@@ -278,7 +275,7 @@ export default function AssetDock() {
         setMultiviewOpen(false); setMvName(''); setMvDesc('');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '生成失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '生成失败'), 'error'))
       .finally(() => setGenerating(false));
   };
 
@@ -301,7 +298,7 @@ export default function AssetDock() {
         setBatchOpen(false); setBatchNames('');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '批量生成失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '批量生成失败'), 'error'))
       .finally(() => setGenerating(false));
   };
 
@@ -333,7 +330,7 @@ export default function AssetDock() {
           style={{ width: 28, height: 28 }}
           title="刷新资产"
           aria-label="刷新资产"
-          onClick={() => fetchAssets().catch((err: unknown) => showToast(getErrMessage(err, '资产列表加载失败'), 'error'))}
+          onClick={() => fetchAssets().catch((err: unknown) => showToast(getErrorMessage(err, '资产列表加载失败'), 'error'))}
         >
           <RefreshCw size={13} />
         </button>

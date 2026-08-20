@@ -102,7 +102,8 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
     void (async () => {
       let submitted = 0;
       for (const row of targetRows) {
-        // 失败时 store 内部已 toast（含功能锁阻断提示），此处仅计数
+        // 白名单静默（三分法第 4 条）：失败已由 store 内部 toast 透出，
+        // 此 catch 仅把 rejection 收敛成 false 供计数，不得二次呈现
         const ok = await generateVideo(row).catch(() => false);
         if (ok) submitted += 1;
       }

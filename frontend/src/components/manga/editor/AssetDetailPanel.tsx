@@ -46,6 +46,7 @@ import {
   type AssetHistoryItem,
   type TurnaroundViewKey,
 } from '@/services/mangaApi';
+import { getErrorMessage } from '@/utils/errors';
 import AssetLightbox from './AssetLightbox';
 
 /** 资产类型中文名 */
@@ -67,10 +68,6 @@ const TURNAROUND_VIEWS: { key: TurnaroundViewKey; label: string }[] = [
   { key: 'back', label: '背面' },
   { key: 'closeup', label: '特写' },
 ];
-
-function getErrMessage(err: unknown, fallback: string) {
-  return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;
-}
 
 /** 读取 meta.views 单视图路径（兼容 string 与 {file_path} 两种形态） */
 function viewPathOf(views: unknown, key: string): string {
@@ -223,7 +220,7 @@ export default function AssetDetailPanel() {
         showToast(field === 'name' ? '资产名称已保存' : '描述词已保存', 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '保存失败'), 'error'));
+      .catch((err: unknown) => showToast(getErrorMessage(err, '保存失败'), 'error'));
   };
 
   /** ✦ 生成描述词（对话引擎扩写，DIALOG_NOT_READY 如实 toast） */
@@ -235,7 +232,7 @@ export default function AssetDetailPanel() {
         showToast('描述词已生成', 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '描述词生成失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '描述词生成失败'), 'error'))
       .finally(() => setBusy(''));
   };
 
@@ -267,7 +264,7 @@ export default function AssetDetailPanel() {
         showToast('本地图片已上传为新资产', 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '图片上传失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '图片上传失败'), 'error'))
       .finally(() => setBusy(''));
   };
 
@@ -280,7 +277,7 @@ export default function AssetDetailPanel() {
         showToast('AI 参考图已上传', 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '参考图上传失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '参考图上传失败'), 'error'))
       .finally(() => setBusy(''));
   };
 
@@ -293,7 +290,7 @@ export default function AssetDetailPanel() {
         showToast('AI 参考图已删除', 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '参考图删除失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '参考图删除失败'), 'error'))
       .finally(() => setBusy(''));
   };
 
@@ -307,7 +304,7 @@ export default function AssetDetailPanel() {
         showToast(`${viewLabel}视图已重新生成`, 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, `${viewLabel}视图重生失败`), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, `${viewLabel}视图重生失败`), 'error'))
       .finally(() => setViewBusy(''));
   };
 
@@ -337,7 +334,7 @@ export default function AssetDetailPanel() {
         }
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '资产图生成失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '资产图生成失败'), 'error'))
       .finally(() => setBusy(''));
   };
 
@@ -349,7 +346,7 @@ export default function AssetDetailPanel() {
     setHistoryLoading(true);
     fetchAssetHistory(asset.asset_id)
       .then((items) => setHistoryItems(items))
-      .catch((err: unknown) => showToast(getErrMessage(err, '生成历史加载失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '生成历史加载失败'), 'error'))
       .finally(() => setHistoryLoading(false));
   };
 
@@ -359,7 +356,7 @@ export default function AssetDetailPanel() {
     setVoiceBusy('bind');
     bindVoice(voiceSel, asset.name)
       .then(() => showToast(`音色已绑定到「${asset.name}」`, 'success'))
-      .catch((err: unknown) => showToast(getErrMessage(err, '音色绑定失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '音色绑定失败'), 'error'))
       .finally(() => setVoiceBusy(''));
   };
 
@@ -382,7 +379,7 @@ export default function AssetDetailPanel() {
         }
       })
       .catch((err: unknown) => {
-        showToast(getErrMessage(err, '试听失败'), 'error');
+        showToast(getErrorMessage(err, '试听失败'), 'error');
         setVoiceBusy('');
       });
   };

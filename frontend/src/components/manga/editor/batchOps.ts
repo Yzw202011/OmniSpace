@@ -17,6 +17,7 @@ import {
   generateVideoNarrative,
 } from '@/services/mangaApi';
 import { useMangaStore } from '@/stores/useMangaStore';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 import type { StoryboardRow, ModelConfig } from '@/types';
 
 /** 批量执行结果汇总 */
@@ -34,12 +35,7 @@ export interface BatchResult {
 /** 批量进度回调（processed 含成功/跳过/失败，从 1 递增到 total） */
 export type BatchProgress = (processed: number, total: number) => void;
 
-/** 提取错误消息（与 StoryboardTable getErrMessage 同款内联实现） */
-function getErrMessage(err: unknown, fallback: string): string {
-  return err && typeof err === 'object' && 'message' in err
-    ? (err as { message: string }).message
-    : fallback;
-}
+/** 提取错误消息（TASK-P2-08 收敛至 @/utils/errors，全站唯一定义） */
 
 /** 本地新建行先全量保存（单行端点要求服务端已有该行） */
 async function ensurePersisted(): Promise<void> {
@@ -213,13 +209,13 @@ export async function batchStoryNarrative(
         useMangaStore.getState().updateRow(updated.id, {
           description: updated.description,
           is_ai_generated: true,
-        }).catch(() => undefined);
+        }).catch((err) => reportBgError('batchStoryNarrative.updateRow', err));
       }
     }
   } catch (err) {
     console.warn('[batchStoryNarrative] 批量故事生词失败:', err);
     res.failed = runnable.length;
-    if (!res.firstError) res.firstError = getErrMessage(err, '未知错误');
+    if (!res.firstError) res.firstError = getErrorMessage(err, '未知错误');
   }
   onProgress?.(rows.length, rows.length);
   return res;
@@ -254,12 +250,14 @@ export async function batchStoryKeyframe(
     // 刷新所有相关行的关键帧缓存
     for (const kf of result.succeeded) {
       useMangaStore.getState().invalidateKeyframes(kf.row_id);
-      useMangaStore.getState().fetchKeyframes(kf.row_id).catch(() => undefined);
+      useMangaStore.getState().fetchKeyframes(kf.row_id).catch((err) =>
+        reportBgError('batchStoryKeyframe.fetchKeyframes', err),
+      );
     }
   } catch (err) {
     console.warn('[batchStoryKeyframe] 批量故事生图失败:', err);
     res.failed = runnable.length;
-    if (!res.firstError) res.firstError = getErrMessage(err, '未知错误');
+    if (!res.firstError) res.firstError = getErrorMessage(err, '未知错误');
   }
   onProgress?.(rows.length, rows.length);
   return res;
@@ -299,13 +297,13 @@ export async function batchVideoNarrative(
         useMangaStore.getState().updateRow(updated.id, {
           description: updated.description,
           is_ai_generated: true,
-        }).catch(() => undefined);
+        }).catch((err) => reportBgError('batchVideoNarrative.updateRow', err));
       }
     }
   } catch (err) {
     console.warn('[batchVideoNarrative] 批量视频生词失败:', err);
     res.failed = runnable.length;
-    if (!res.firstError) res.firstError = getErrMessage(err, '未知错误');
+    if (!res.firstError) res.firstError = getErrorMessage(err, '未知错误');
   }
   onProgress?.(rows.length, rows.length);
   return res;

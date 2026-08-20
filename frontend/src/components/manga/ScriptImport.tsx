@@ -15,6 +15,7 @@ import { ChevronLeft, FileUp, Wand2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import * as mangaApi from '@/services/mangaApi';
+import { getErrorMessage as errMsg, reportBgError } from '@/utils/errors';
 
 /** DSL 语法示例（与后端 import-dsl 的 shot: 分镜标记口径一致） */
 const DSL_EXAMPLE = `shot: 清晨的教室，樱花瓣沿窗飘落，空镜
@@ -45,11 +46,6 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
   const [uploading, setUploading] = useState(false);
   const [strict, setStrict] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const errMsg = (err: unknown, fallback: string): string =>
-    err && typeof err === 'object' && 'message' in err
-      ? (err as { message: string }).message
-      : fallback;
 
   // 直接导入（按行追加）
   const handleImport = useCallback(() => {
@@ -113,7 +109,7 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
         .importDslFile(currentProject.id, file, strict)
         .then(async (res) => {
           showToast(`DSL 导入完成，新增 ${res.added} 行`, 'success');
-          await fetchRows().catch(() => undefined);
+          await fetchRows().catch((err) => reportBgError('ScriptImport.fetchRows', err));
           onDone();
         })
         .catch((err) => showToast(errMsg(err, 'DSL 导入失败'), 'error'))

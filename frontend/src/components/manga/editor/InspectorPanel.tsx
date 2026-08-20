@@ -24,6 +24,7 @@ import {
   rollbackKeyframe,
 } from '@/services/mangaApi';
 import { ROW_GEN_STATUS_LABELS } from '@/constants/statusLabels';
+import { getErrorMessage, reportActionError, reportBgError } from '@/utils/errors';
 import { readPromptPrefix } from './batchOps';
 
 function formatTime(ts?: number) {
@@ -32,9 +33,7 @@ function formatTime(ts?: number) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
 }
 
-function getErrMessage(err: unknown, fallback: string) {
-  return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;
-}
+/* 错误消息提取/呈现统一走 @/utils/errors（TASK-P2-08） */
 
 export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () => void; onOpenVoice: () => void }) {
   const showToast = useAppStore((s) => s.showToast);
@@ -59,7 +58,9 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
   useEffect(() => {
     setPreviewUrl(null);
     if (!selectedRowId) return;
-    fetchKeyframes(selectedRowId).catch(() => undefined);
+    fetchKeyframes(selectedRowId).catch((err) =>
+      reportBgError('InspectorPanel.fetchKeyframes', err),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRowId]);
 
@@ -81,11 +82,14 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
       .then(() => aiDescribe(row.id, currentProject.id, readPromptPrefix()))
       .then((description) => {
         if (description) {
-          updateRow(row.id, { description, is_ai_generated: true }).catch(() => undefined);
+          // 描述词落库失败会让「已生成」toast 变成误导，必须 TOAST 级透出
+          updateRow(row.id, { description, is_ai_generated: true }).catch((err) =>
+            reportActionError(err, '描述词保存'),
+          );
         }
         showToast('AI 描述已生成', 'success');
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, 'AI 描述生成失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, 'AI 描述生成失败'), 'error'))
       .finally(() => setBusy(''));
   }, [currentProject, row, ensurePersisted, updateRow, showToast]);
 
@@ -105,7 +109,7 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
           showToast('预览图已生成', 'success');
         }
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '预览图生成失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '预览图生成失败'), 'error'))
       .finally(() => setBusy(''));
   }, [currentProject, row, ensurePersisted, showToast]);
 
@@ -120,11 +124,13 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
       .then((res) => {
         if (res.degraded) showToast(res.degrade_reason || '情绪识别为降级规则产出', 'warning');
         if (res.emotion) {
-          updateRow(row.id, { voice_emotion: res.emotion }).catch(() => undefined);
+          updateRow(row.id, { voice_emotion: res.emotion }).catch((err) =>
+            reportActionError(err, '情绪标签保存'),
+          );
           showToast(`情绪识别：${res.emotion}`, 'success');
         }
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '情绪识别失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '情绪识别失败'), 'error'))
       .finally(() => setBusy(''));
   }, [currentProject, row, updateRow, showToast]);
 
@@ -143,7 +149,7 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
           invalidateKeyframes(selectedRowId);
           return fetchKeyframes(selectedRowId);
         })
-        .catch((err: unknown) => showToast(getErrMessage(err, '关键帧生成失败'), 'error'))
+        .catch((err: unknown) => showToast(getErrorMessage(err, '关键帧生成失败'), 'error'))
         .finally(() => setGenerating(false));
     },
     [currentProject, selectedRowId, ensurePersisted, invalidateKeyframes, fetchKeyframes, showToast],
@@ -160,7 +166,7 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
           invalidateKeyframes(selectedRowId);
           return fetchKeyframes(selectedRowId);
         })
-        .catch((err: unknown) => showToast(getErrMessage(err, op === 'rollback' ? '回退失败' : '删除失败'), 'error'))
+        .catch((err: unknown) => showToast(getErrorMessage(err, op === 'rollback' ? '回退失败' : '删除失败'), 'error'))
         .finally(() => setBusyId(''));
     },
     [selectedRowId, invalidateKeyframes, fetchKeyframes, showToast],

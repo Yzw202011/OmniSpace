@@ -11,6 +11,7 @@ import { FileUp, Wand2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import * as mangaApi from '@/services/mangaApi';
+import { getErrorMessage as errMsg, reportBgError } from '@/utils/errors';
 import DrawerFrame from './DrawerFrame';
 
 /** 分镜表行数硬上限（后端 STORYBOARD_MAX_ROWS） */
@@ -34,11 +35,6 @@ export function ImportDrawer({ onClose }: ImportDrawerProps) {
   const [splitPreview, setSplitPreview] = useState<string[] | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const errMsg = (err: unknown, fallback: string): string =>
-    err && typeof err === 'object' && 'message' in err
-      ? (err as { message: string }).message
-      : fallback;
 
   // 直接导入
   const handleImport = useCallback(() => {
@@ -104,7 +100,7 @@ export function ImportDrawer({ onClose }: ImportDrawerProps) {
         .importDslFile(currentProject.id, file)
         .then(async (res) => {
           showToast(`DSL 导入完成，新增 ${res.added} 行`, 'success');
-          await fetchRows().catch(() => undefined);
+          await fetchRows().catch((err) => reportBgError('ImportDrawer.fetchRows', err));
         })
         .catch((err) => showToast(errMsg(err, 'DSL 导入失败'), 'error'))
         .finally(() => {

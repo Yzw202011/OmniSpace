@@ -37,6 +37,7 @@ import { aiDescribe, assetMediaVersion, generateKeyframe, getMediaUrl } from '@/
 import type { ComicAsset, ComicAssetKind, KeyframeItem, ShotSaveStatus, StoryboardRow as StoryboardRowData } from '@/types';
 import type { MangaVideoTask } from '@/stores/useMangaStore';
 import { VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { batchDescribe, batchKeyframes, readPromptPrefix } from './batchOps';
 
 /** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS） */
@@ -47,9 +48,7 @@ const SAVE_DEBOUNCE = 1200;
 /** 保存状态（顶栏状态点）：类型真源在 @/types（TASK-P2-07 迁出） */
 export type { ShotSaveStatus };
 
-function getErrMessage(err: unknown, fallback: string) {
-  return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;
-}
+/* 错误消息提取统一走 @/utils/errors（TASK-P2-08） */
 
 function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -504,7 +503,7 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
     const st = useMangaStore.getState();
     st.rows.forEach((r) => {
       if (!st.keyframes[r.id]) {
-        fetchKeyframes(r.id).catch(() => undefined);
+        fetchKeyframes(r.id).catch((err) => reportBgError('StoryboardTable.prefetchKeyframes', err));
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -519,7 +518,7 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
         .then(() => onSaveStatus?.('saved'))
         .catch((err: unknown) => {
           onSaveStatus?.('error');
-          showToast(getErrMessage(err, '分镜保存失败'), 'error');
+          showToast(getErrorMessage(err, '分镜保存失败'), 'error');
         });
     },
     [onSaveStatus, saveRows, showToast],
@@ -635,7 +634,7 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
         }
         showToast(`镜 ${row.shot_number} 描述词已生成`, 'success');
       } catch (err: unknown) {
-        showToast(getErrMessage(err, 'AI 生词失败'), 'error');
+        showToast(getErrorMessage(err, 'AI 生词失败'), 'error');
       } finally {
         setBusyKey('');
       }
@@ -652,7 +651,7 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
       }
       updateRow(row.id, { is_locked: !row.is_locked })
         .then(() => showToast(row.is_locked ? `镜 ${row.shot_number} 已解锁` : `镜 ${row.shot_number} 已锁定，批量操作将跳过`, 'success'))
-        .catch((err: unknown) => showToast(getErrMessage(err, '锁定状态更新失败'), 'error'));
+        .catch((err: unknown) => showToast(getErrorMessage(err, '锁定状态更新失败'), 'error'));
     },
     [showToast, updateRow],
   );
@@ -673,7 +672,7 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
         await fetchKeyframes(row.id);
         showToast(`镜 ${row.shot_number} 分镜图已生成`, 'success');
       } catch (err: unknown) {
-        showToast(getErrMessage(err, '分镜图生成失败'), 'error');
+        showToast(getErrorMessage(err, '分镜图生成失败'), 'error');
       } finally {
         setBusyKey('');
       }
@@ -736,7 +735,7 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
       if (res.firstError) parts.push(`原因：${res.firstError}`);
       showToast(parts.join(' · '), res.failed ? 'warning' : 'success');
     } catch (err) {
-      showToast(getErrMessage(err, '批量执行失败'), 'error');
+      showToast(getErrorMessage(err, '批量执行失败'), 'error');
     } finally {
       setBatching(false);
     }

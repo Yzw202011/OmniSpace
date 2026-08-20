@@ -2,6 +2,7 @@
 
 import type { StateCreator } from 'zustand';
 import * as mangaApi from '@/services/mangaApi';
+import { reportBgError } from '@/utils/errors';
 import { stopVideoPoll, videoPollers } from './videoPoller';
 import type { MangaState, ProjectSlice } from './types';
 
@@ -93,11 +94,14 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
       set({ loading: false });
       throw err;
     }
-    // 资产并行拉取（失败不阻塞分镜工作区）
+    // 资产并行拉取（失败不阻塞分镜工作区，CONSOLE 级留痕）
     void mangaApi
       .listAssets(project.project_id)
       .then((assets) => set({ assets, assetsLoaded: true }))
-      .catch(() => set({ assetsLoaded: true }));
+      .catch((err) => {
+        reportBgError('projectSlice.listAssets', err);
+        set({ assetsLoaded: true });
+      });
   },
 
   closeProject: () => {

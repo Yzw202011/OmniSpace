@@ -22,6 +22,7 @@
 | `design/architecture-overview.md` | 架构现状 | 分层结构/中间件链/推理引擎/数据流 |
 | `design/api-endpoints.md` | API 现状 | 270 HTTP + 4 WS 端点总表（机器枚举零遗漏） |
 | `design/database-er.md` | 数据库现状 | 30 张表 ER + 迁移机制 + 加密范围 |
+| `design/frontend-error-policy.md` | 前端错误策略 | 错误呈现三分法（TOAST/CONSOLE/SILENT 白名单），代码载体 @/utils/errors |
 | `deployment-manual.md` | 部署 | 硬件门槛/环境装配/模型资产配置表/RC 交付 |
 | `troubleshooting.md` | 故障排查 | OOM/端口冲突/DB 版本冲突/模型探测失败四大故障 |
 | `model-deployment-plan.md` | **模型搭配与部署** | 模型推荐主题唯一权威版（2026-08-20 收敛裁定）；接线进度以 RTM M 域为准 |
@@ -74,6 +75,7 @@
 | 查某条需求的状态与决策 | `requirements-traceability.md`（状态）→ `requirements-baseline.md`（需求原文） |
 | 找某个 API 端点 | `design/api-endpoints.md` |
 | 查某张表结构 | `design/database-er.md` |
+| 写前端的 catch/错误提示 | `design/frontend-error-policy.md`（三分法）→ `@/utils/errors` 两个入口 |
 | 理解系统架构 | `design/architecture-overview.md` |
 | 配置模型资产 | `deployment-manual.md` §3 → `model-deployment-plan.md`（目标架构） |
 | 排查故障 | `troubleshooting.md` |

@@ -197,10 +197,18 @@
     - 一致性测试 `statusLabels.test.ts` 9 例入套件：直读 backend/data/models.py 提取 TrainStatus/ModelStatus/GenerationStatus 枚举真值 + learnApi TRAIN_STATUS_MAP 适配层覆盖核对（后端 queued/training/evaluating → 前端 pending/running 漂移即红）；标签 Record 键集完备、值非空
     - 验证：tsc 0 错、ESLint 0 错（10 个既有 console warning 与本任务无关）、vitest 43/43（34→43）、生产构建通过；组件散落字面量扫描归零（枚举域）
 
-- [ ] **P2-08 前端错误呈现统一**（对应 P16）
+- [x] **P2-08 前端错误呈现统一**（对应 P16）
   - 动作：约定组件层错误处置策略（toast/console/静默三分法），把 MangaWorkspace.tsx:153 的 `catch(() => undefined)` 类静默吞错改为可见反馈
   - 完成标准：保存失败类操作用户必有感知；错误处置策略写入前端 README 或 ADR
   - 工时：1 天
+  - **完成记录（2026-08-20）**：
+    - 策略落档 `docs/design/frontend-error-policy.md`：TOAST（用户主动动作失败，必有感知）/ CONSOLE（后台刷新回写，console.warn 留痕）/ SILENT（仅限四种白名单：localStorage 隐私模式、AbortError 主动取消、竞态守护丢弃、下层已 toast 后的控制流收敛）+ 决策流程图
+    - 代码载体 `src/utils/errors.ts`：getErrorMessage（全站唯一定义）/ reportActionError / reportBgError / isBenignError 四出口
+    - 清零 14 处静默吞错：MangaWorkspace（资产预取/推理刷新→CONSOLE，导演台进度保存→TOAST，取消/推理内联提取→统一 helper）、rowsSlice 重排回滚重拉、projectSlice 资产并行拉取（保留 assetsLoaded 兜底语义）、videoSlice 行状态持久化、InspectorPanel（关键帧预取→CONSOLE；描述词/情绪标签落库→TOAST——落库失败会让「已生成」toast 变成误导）、StoryboardTable 关键帧预取、ImportDrawer/ScriptImport DSL 导入后刷新、batchOps 批量回写 ×3；VideoConfirmModal `.catch(() => false)` 转白名单第 4 条 + 显式注释
+    - 消灭 10 处本地 getErrMessage/errMsg 副本（batchOps/InspectorPanel/StoryboardTable/RecordsModal/AssetDock/AssetDetailPanel/MangaLibrary/ImportDrawer/ExportDrawer/ScriptImport）→ 统一 import 自 @/utils/errors
+    - 审计原始指认点核验：MangaWorkspace 保存链路已在 P2-01 拆分时收敛至 StoryboardTable.persist（防抖全量保存失败 → toast + 顶栏保存状态点 error），本次扫描确认无回归
+    - 防回归 `errors.test.ts` 12 例入套件：静态扫描（禁止 `.catch(() => undefined/null/void 0/{})`、空 catch 块、本地副本定义，漂移即红）+ 单元语义（消息提取/白名单判定/两入口输出格式）
+    - 验证：tsc 0 错、ESLint 0 错（仅剩 6 个存量 console warning，非本任务引入；errors.ts 新增 1 处为 CONSOLE 入口本体已加豁免注释）、vitest 55/55（43→55）、生产构建通过（3.47s）；全站静默 catch 扫描归零
 
 - [ ] **P2-09 双测试入口整合**（对应 P24）
   - 动作：根目录 tests/（流程编排脚本）与 backend/tests/ 关系明确化——迁移或注明定位，pytest.ini testpaths 收口

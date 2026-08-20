@@ -14,16 +14,13 @@ import { ChevronRight, Clapperboard, Film, FolderPlus, Pencil, Plus, RotateCcw, 
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import type { ComicProject } from '@/types';
+import { getErrorMessage } from '@/utils/errors';
 import { Modal } from '../common/Modal';
 
 function formatTs(ts?: number) {
   if (!ts) return '';
   const d = new Date(ts > 1e12 ? ts : ts * 1000);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
-}
-
-function getErrMessage(err: unknown, fallback: string) {
-  return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;
 }
 
 export default function MangaLibrary() {
@@ -68,7 +65,7 @@ export default function MangaLibrary() {
     if (openingId) return;
     setOpeningId(p.project_id);
     openProject(p).catch((err: unknown) => {
-      showToast(getErrMessage(err, '项目打开失败'), 'error');
+      showToast(getErrorMessage(err, '项目打开失败'), 'error');
       setOpeningId(null);
     });
   };
@@ -88,7 +85,7 @@ export default function MangaLibrary() {
         setUseTemplate(false);
         setWorkMode('regular');
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '项目创建失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '项目创建失败'), 'error'))
       .finally(() => setCreating(false));
   };
 
@@ -105,7 +102,7 @@ export default function MangaLibrary() {
         showToast('已重命名', 'success');
         setRenameTarget(null);
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '重命名失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '重命名失败'), 'error'))
       .finally(() => setRenaming(false));
   };
 
@@ -117,7 +114,7 @@ export default function MangaLibrary() {
         showToast('项目已删除', 'success');
         setDeleteTarget(null);
       })
-      .catch((err: unknown) => showToast(getErrMessage(err, '删除失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '删除失败'), 'error'))
       .finally(() => setDeleting(false));
   };
 

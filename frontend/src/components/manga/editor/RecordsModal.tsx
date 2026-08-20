@@ -16,6 +16,7 @@ import { useMangaStore } from '@/stores/useMangaStore';
 import { getVideoDownloadUrl, listVideoTasks } from '@/services/mangaApi';
 import type { VideoTaskRecord } from '@/services/mangaApi';
 import { VIDEO_STATUS_LABELS, type VideoTaskStatus } from '@/constants/statusLabels';
+import { getErrorMessage } from '@/utils/errors';
 import { Modal } from '../../common/Modal';
 
 /** 状态过滤页签（label 复用视频状态文案真源） */
@@ -51,10 +52,6 @@ function formatDuration(ms: number) {
   return `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`;
 }
 
-function getErrMessage(err: unknown, fallback: string) {
-  return err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : fallback;
-}
-
 export default function RecordsModal({ onClose }: { onClose: () => void }) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
@@ -74,7 +71,7 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
       setItems(res.items);
       setLoaded(true);
     } catch (err: unknown) {
-      showToast(getErrMessage(err, '视频记录加载失败'), 'error');
+      showToast(getErrorMessage(err, '视频记录加载失败'), 'error');
       setLoaded(true);
     }
   }, [currentProject, showToast]);

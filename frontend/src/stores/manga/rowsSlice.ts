@@ -2,6 +2,7 @@
 
 import type { StateCreator } from 'zustand';
 import * as mangaApi from '@/services/mangaApi';
+import { reportBgError } from '@/utils/errors';
 import { currentPid } from './helpers';
 import type { MangaState, RowsSlice } from './types';
 
@@ -75,10 +76,10 @@ export const createRowsSlice: StateCreator<MangaState, [], [], RowsSlice> = (set
       const rows = await mangaApi.reorderStoryboard(rowIds, currentPid(get));
       set({ rows });
     } catch (err) {
-      // 失败回滚：重新拉取服务端行序
+      // 失败回滚：重新拉取服务端行序（拉取本身失败属后台刷新，CONSOLE 级）
       void get()
         .fetchRows()
-        .catch(() => undefined);
+        .catch((rollbackErr) => reportBgError('rowsSlice.reorderRollback', rollbackErr));
       throw err;
     }
   },

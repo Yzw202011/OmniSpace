@@ -4,6 +4,7 @@
 import type { StateCreator } from 'zustand';
 import type { StoryboardGenerationStatus } from '@/types';
 import * as mangaApi from '@/services/mangaApi';
+import { reportBgError } from '@/utils/errors';
 import { useAppStore } from '../useAppStore';
 import { useTaskStore } from '../useTaskStore';
 import { currentPid } from './helpers';
@@ -18,8 +19,9 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
         r.id === rowId ? { ...r, generation_status: status } : r,
       ),
     }));
-    void mangaApi.saveStoryboardRows(currentPid(get), get().rows).catch(() => {
-      /* 状态持久化失败不影响主流程，下次手动保存时收敛 */
+    void mangaApi.saveStoryboardRows(currentPid(get), get().rows).catch((err) => {
+      // 状态持久化失败不影响主流程（下次手动保存收敛），CONSOLE 级留痕
+      reportBgError('videoSlice.syncRowGenerationStatus', err);
     });
   };
 

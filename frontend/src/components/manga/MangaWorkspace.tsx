@@ -32,6 +32,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { inferEntities } from '@/services/mangaApi';
 import { SAVE_STATUS_LABELS, VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
+import { getErrorMessage, reportActionError, reportBgError } from '@/utils/errors';
 import type { ShotSaveStatus, StoryboardRow } from '@/types';
 import { ScriptImport } from './ScriptImport';
 import { DirectorStage } from './DirectorStage';
@@ -105,7 +106,7 @@ export default function MangaWorkspace() {
   // 打开项目时预取资产（右栏资产面板 + 工序条状态判定）
   useEffect(() => {
     if (!currentProject || assetsLoaded) return;
-    fetchAssets().catch(() => showToast('资产列表加载失败', 'error'));
+    fetchAssets().catch((err) => reportBgError('MangaWorkspace.fetchAssets', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
 
@@ -134,7 +135,9 @@ export default function MangaWorkspace() {
   const closeDirector = useCallback(() => {
     setDirectorOpen(false);
     if (directorShotId) {
-      updateRow(directorShotId, { director_stage_done: true }).catch(() => undefined);
+      updateRow(directorShotId, { director_stage_done: true }).catch((err) =>
+        reportActionError(err, '导演台进度保存'),
+      );
       setDirectorShotId(undefined);
     }
   }, [directorShotId, updateRow]);
@@ -163,8 +166,7 @@ export default function MangaWorkspace() {
   const handleCancelVideo = useCallback(
     (taskId: string) => {
       cancelVideo(taskId).catch((err) => {
-        const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : '取消失败';
-        showToast(msg, 'error');
+        showToast(getErrorMessage(err, '取消失败'), 'error');
       });
     },
     [cancelVideo, showToast],
@@ -186,7 +188,7 @@ export default function MangaWorkspace() {
     setInferring(true);
     try {
       const res = await inferEntities(currentProject.id);
-      await fetchAssets().catch(() => undefined);
+      await fetchAssets().catch((err) => reportBgError('MangaWorkspace.fetchAssets', err));
       // 后端响应 items 仅含本次新建的资产桩，按 kind 统计「新增 N 个角色/场景/道具」
       // （注：mangaApi 声明的 created/reused 与后端实际形状不符，以 items 为可靠来源）
       const counts = { character: 0, scene: 0, prop: 0 };
@@ -207,8 +209,7 @@ export default function MangaWorkspace() {
       setInspectRowId(null);
       setSelectedAsset(null);
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : '角色推理失败';
-      showToast(msg, 'error');
+      showToast(getErrorMessage(err, '角色推理失败'), 'error');
     } finally {
       setInferring(false);
     }

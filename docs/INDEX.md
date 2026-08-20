@@ -79,6 +79,7 @@
 | 理解系统架构 | `design/architecture-overview.md` |
 | 配置模型资产 | `deployment-manual.md` §3 → `model-deployment-plan.md`（目标架构） |
 | 排查故障 | `troubleshooting.md` |
+| 跑全量测试 | `../tools/run_tests.py`（唯一入口）→ 定位见 `../tests/README.md` |
 | 查治理任务进度 | `audit-task-checklist.md` |
 | 查历史审计结论 | `audit/` 对应轮次 → 以 RTM 为最终口径 |
 

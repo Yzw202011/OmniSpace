@@ -29,11 +29,14 @@ Launcher 会依次完成：环境自检（OS / CUDA / 磁盘 ≥ 20GB）→ 端�
 ## 开发工作流
 
 ```powershell
-# 后端冒烟测试（提交前必须通过，pytest.ini 已注册 smoke/schema 标记）
-runtime\py310\python.exe -m pytest -m smoke
+# 全量测试唯一入口（L1 后端 pytest + L2 前端 vitest；TASK-P2-09 收口）
+runtime\py310\python.exe tools\run_tests.py
 
-# 后端全量测试
-runtime\py310\python.exe -m pytest
+# 仅后端冒烟（提交前最小集；提交钩子 .githooks/ 亦跑此命令）
+runtime\py310\python.exe tools\run_tests.py --smoke
+
+# 发版前实机验证：追加 L3 E2E 流程编排（需先启动后端）
+runtime\py310\python.exe tools\run_tests.py --e2e
 
 # 后端静态检查（ruff，配置 ruff.toml）
 tools\ruff\ruff.exe check backend/ tools/ launcher/
@@ -41,13 +44,12 @@ tools\ruff\ruff.exe check backend/ tools/ launcher/
 # 前端开发服务器（端口 5173，代理 /api 到本地后端）
 cd frontend; npm run dev
 
-# 前端单测（vitest：store 状态流转 / Zod 解析 / 前后端枚举一致性）
-cd frontend; npm run test
-
 # 前端静态检查 + 类型检查 + 生产构建
 cd frontend; npm run lint
 cd frontend; npm run build
 ```
+
+测试体系三层定位：`backend/tests/`（pytest，离线）｜ `frontend/src/**/*.test.ts`（vitest）｜ `tests/`（E2E 流程编排脚本，需活后端，见 `tests/README.md`）。
 
 依赖锁定：`requirements-lock.txt`（154 包，精确版本，环境可复现的唯一真源）。前端依赖见 `frontend/package.json`。
 

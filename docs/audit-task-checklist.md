@@ -210,10 +210,16 @@
     - 防回归 `errors.test.ts` 12 例入套件：静态扫描（禁止 `.catch(() => undefined/null/void 0/{})`、空 catch 块、本地副本定义，漂移即红）+ 单元语义（消息提取/白名单判定/两入口输出格式）
     - 验证：tsc 0 错、ESLint 0 错（仅剩 6 个存量 console warning，非本任务引入；errors.ts 新增 1 处为 CONSOLE 入口本体已加豁免注释）、vitest 55/55（43→55）、生产构建通过（3.47s）；全站静默 catch 扫描归零
 
-- [ ] **P2-09 双测试入口整合**（对应 P24）
+- [x] **P2-09 双测试入口整合**（对应 P24）
   - 动作：根目录 tests/（流程编排脚本）与 backend/tests/ 关系明确化——迁移或注明定位，pytest.ini testpaths 收口
   - 完成标准：一处命令跑全量测试；入口唯一
   - 工时：半天
+  - **完成记录（2026-08-20）**：
+    - 定位落档 `tests/README.md`：三层测试体系——L1 `backend/tests/`（pytest 离线）｜ L2 `frontend/src/**/*.test.ts`（vitest）｜ L3 `tests/`（E2E 流程编排，需活后端 5800，含真实模型推理）；附目录清单（flow 主套件 / e2e_realmachine / strict_test / Playwright UI 批次 / 历史 smoke_batch1~6 已被 pytest 冒烟取代 / _probe_* 调试探针）与新用例归位规则（禁止再新增散装批次脚本）
+    - 唯一入口 `tools/run_tests.py`：默认 L1+L2；`--smoke` 提交前最小集；`--e2e` 追加 L3（tests.flow.run 自带 /health 预检）；任一层失败退出码 1；npm 缺失时 L2 显式 SKIP 不误报
+    - pytest.ini 收口注释：testpaths=backend/tests 设计意图写明（根目录脚本无 test_ 前缀 + 依赖活后端，双保险不被收集）；README 开发工作流改为统一入口三命令
+    - 事实核验：`pytest --collect-only` 102 用例全部来自 backend/tests，根目录 tests/ 零收集；`tools/run_tests.py` 实跑 L1+L2 全绿（后端全量 pytest PASS + 前端 vitest 55/55 PASS）；ruff 检查通过
+    - 未做迁移裁定：flow/e2e/ui 脚本依赖活后端与 GPU 真实推理，与 pytest 离线定位本质不同，强行迁移会制造「离线跑不动」的假测试——保留脚本形态 + 定位声明即为正解（用户任务书「迁移或注明定位」二选一，取后者）
 
 ---
 

@@ -12,7 +12,7 @@
  * 注意：后端暂无 LoRA 列表 / 图片上传 / 收藏端点，相关 UI 不展示。
  * ========================================================================== */
 
-import { get, post } from './api';
+import { get, post, del, API_BASE } from './api';
 import type { QueryParams } from './api';
 import type { PaintRequest, Paginated } from '@/types';
 
@@ -26,6 +26,87 @@ export function generate(params: PaintRequest) {
 /** 图生图（init_image base64 + strength） */
 export function img2img(params: PaintRequest) {
   return post<{ task_id: string }>('/draw/img2img', params);
+}
+
+/* ------------------------------ 视频生成（复用漫剧 /video/*） ------------------------------ */
+
+/** 绘画视频生成请求体（I2V：文+图；T2V 模式不带 image_base64） */
+export interface PaintVideoGenerateBody {
+  /** 动作描述提示词 */
+  description: string;
+  /** 输入图 base64（无 data: 前缀）；缺省 = 纯文生视频 */
+  image_base64?: string;
+  /** 时长秒（1~20） */
+  duration_seconds: number;
+  /** 帧率（1~48） */
+  fps: number;
+  /** 分辨率 720p/1080p/2k/4k */
+  resolution: string;
+}
+
+/** 发起绘画视频生成（POST /video/generate，复用漫剧视频管线） */
+export function generatePaintVideo(body: PaintVideoGenerateBody) {
+  return post<{ task_id: string; status: string; degraded?: boolean }>(
+    '/video/generate',
+    {
+      storyboard_row_id: `paint_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      description: body.description,
+      screenshot_4in1: body.image_base64 ?? '',
+      character_assets: [],
+      resolution: body.resolution,
+      fps: body.fps,
+      duration_seconds: body.duration_seconds,
+    },
+  );
+}
+
+/** 视频任务状态响应 */
+export interface PaintVideoStatus {
+  task_id: string;
+  status: string;
+  progress: number;
+  error?: string;
+  degraded?: boolean;
+  /** 预计剩余秒数（生成中且引擎已采样到步耗时才返回，2026-08-22） */
+  eta_seconds?: number;
+}
+
+/** 轮询视频任务状态 */
+export function getPaintVideoStatus(taskId: string) {
+  return get<PaintVideoStatus>(`/video/${taskId}/status`);
+}
+
+/** 视频播放/下载 URL（后端流式返回 mp4） */
+export function paintVideoUrl(taskId: string) {
+  return `${API_BASE}/video/${taskId}/download`;
+}
+
+/* ------------------------------ 视频历史（2026-08-22 持久化修复） ------------------------------ */
+
+/** 视频历史条目（后端 /video/history，storyboard_row_id 以 paint_ 开头的任务） */
+export interface PaintVideoHistoryItem {
+  task_id: string;
+  /** i2v 纯图 / ti2v 文+图（后端按 description 是否为空推断） */
+  mode: 'i2v' | 'ti2v';
+  prompt: string;
+  duration_seconds: number;
+  fps: number;
+  resolution: string;
+  status: string;
+  degraded?: boolean;
+  created_at: number;
+}
+
+/** 拉取绘画模块视频生成历史（新→旧；跨浏览器/重开可见） */
+export function getPaintVideoHistory(limit = 100) {
+  return get<{ items: PaintVideoHistoryItem[]; total: number }>(
+    '/video/history', { limit });
+}
+
+/** 删除视频历史记录（DB 行 + 已生成文件；仅限绘画来源任务） */
+export function deletePaintVideoTask(taskId: string) {
+  return del<{ task_id: string; deleted: boolean }>(
+    `/video/history/${taskId}`);
 }
 
 /* ------------------------------ 状态/结果 ------------------------------ */
@@ -78,6 +159,18 @@ export interface DrawHistoryItem {
 /** 历史列表 */
 export function listHistory(query?: QueryParams) {
   return get<Paginated<DrawHistoryItem>>('/draw/history', query);
+}
+
+/** 删除单条历史（记录 + 图文件，后端 PAINT-050） */
+export function deleteHistory(taskId: string) {
+  return del<{ task_id: string; deleted: boolean; file_deleted: boolean }>(
+    `/draw/history/${taskId}`);
+}
+
+/** 批量删除历史（上限 200，后端 PAINT-051） */
+export function batchDeleteHistory(ids: string[]) {
+  return post<{ deleted: number; files_deleted: number; missing: string[] }>(
+    '/draw/history/batch-delete', { ids });
 }
 
 /* ------------------------------ 模型 ------------------------------ */

@@ -15,6 +15,7 @@ import type {
   KeyboardEvent,
 } from 'react';
 import { Button } from '../common/Button';
+import { VirtualList } from '../common/VirtualList';
 import { Paperclip, X, MessageSquare, Flower2 } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from './MessageBubble';
@@ -50,8 +51,16 @@ export interface DialogViewProps {
   onSelectSession: (id: string) => void;
   /** 新建会话 */
   onCreateSession: () => void;
+  /**
+   * 确保存在活跃会话（2026-08-23 输入即自动创建对话）：
+   * 无会话时自动创建并返回新会话 id，失败返回 null。
+   * 由 DialogPage 提供防重入保证（并发触发共享同一创建 Promise）。
+   */
+  onEnsureSession?: () => Promise<string | null>;
   /** 删除会话 */
   onDeleteSession: (id: string) => void;
+  /** 批量删除会话（SessionList 批量管理模式） */
+  onBatchDeleteSessions?: (ids: string[]) => void;
   /** 重命名会话 */
   onRenameSession?: (id: string, title: string) => void;
   /** 置顶/取消置顶会话 */
@@ -88,7 +97,9 @@ export function DialogView({
   messagesLoading = false,
   onSelectSession,
   onCreateSession,
+  onEnsureSession,
   onDeleteSession,
+  onBatchDeleteSessions,
   onRenameSession,
   onTogglePinSession,
   onSearchSessions,
@@ -144,6 +155,8 @@ export function DialogView({
     if (!quoted) return;
     setInput((prev) => `> ${quoted.replace(/\n/g, '\n> ')}\n\n${prev}`);
     inputRef.current?.focus();
+    // 输入即自动创建：引用回填也是输入行为
+    autoEnsureSession();
   }, [quoteRequest]);
 
   // 审计 R3-FE4：组件卸载时释放未发送的附件 blob: URL（经 ref 读取最新附件列表）
@@ -159,10 +172,26 @@ export function DialogView({
     };
   }, []);
 
-  function send() {
+  // ── 输入即自动创建会话（2026-08-23）────────────────────────────
+  // 经 ref 读取最新回调，避免触发点依赖数组膨胀
+  const ensureSessionRef = useRef(onEnsureSession);
+  ensureSessionRef.current = onEnsureSession;
+  /** 无会话时自动创建（fire-and-forget：不阻塞输入；失败由父级 toast） */
+  function autoEnsureSession() {
+    if (activeSessionId) return;
+    ensureSessionRef.current?.();
+  }
+
+  async function send() {
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     if (generating) return;
+    // 兜底：输入后立刻发送而自动创建尚未完成（或未触发）时，
+    // 等待会话就绪再发——输入内容保留（仅成功发送才清空）
+    if (!activeSessionId) {
+      const sid = await ensureSessionRef.current?.();
+      if (!sid) return; // 创建失败已 toast，保留输入待重试
+    }
     onSend(text, attachments.length > 0 ? attachments : undefined);
     // 审计 R3-FE4：发送后释放附件 blob: 预览 URL，避免内存泄漏
     attachments.forEach((a) => {
@@ -244,6 +273,18 @@ export function DialogView({
     setInput(v);
     setCmdIdx(0);
     setCmdDismissed(false); // 输入变化时重新允许浮层
+    // 输入即自动创建会话：首字符触发（键盘输入/文本粘贴/语音转文字
+    // 最终都汇聚到本收口）。IME 组合期（拼音未上屏）不触发，选定
+    // 汉字的那次 onChange 才建；斜杠命令是系统指令而非对话内容，
+    // 由 applyCommand 显式处理，不自动建会话
+    if (
+      !activeSessionId &&
+      v.trim() &&
+      !(e.nativeEvent as InputEvent).isComposing &&
+      !v.startsWith('/')
+    ) {
+      autoEnsureSession();
+    }
     // 自适应高度（上限 160px）
     const el = e.target;
     el.style.height = 'auto';
@@ -252,6 +293,10 @@ export function DialogView({
 
   // 共享图片入列（文件选择 / 拖拽 / 粘贴三通道同一校验漏斗，CHAT-008/009/012）
   function addImageFiles(files: File[]) {
+    // 输入即自动创建：图片入列也是输入行为（选文件/拖拽/粘贴图片）
+    if (files.some((f) => f.type.startsWith('image/'))) {
+      autoEnsureSession();
+    }
     const toast = useAppStore.getState().showToast;
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
@@ -342,6 +387,7 @@ export function DialogView({
           onSelect={onSelectSession}
           onCreate={onCreateSession}
           onDelete={onDeleteSession}
+          onBatchDelete={onBatchDeleteSessions}
           onRename={onRenameSession}
           onTogglePin={onTogglePinSession}
           onSearch={onSearchSessions}
@@ -358,7 +404,7 @@ export function DialogView({
               <div>
                 <div className="flex justify-center mb-3 text-[var(--color-primary)]"><MessageSquare size={36} strokeWidth={1.5} aria-hidden="true" /></div>
                 <div className="text-base">开始一段新对话吧</div>
-                <div className="text-sm mt-1">从左侧新建对话，支持剧本讨论与图片理解。</div>
+                <div className="text-sm mt-1">直接在下方输入内容即可自动创建对话，支持剧本讨论与图片理解。</div>
               </div>
             </div>
           ) : messagesLoading ? (
@@ -376,16 +422,24 @@ export function DialogView({
             </div>
           ) : (
             <>
-              {messages.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  message={m}
-                  onQuote={onQuote}
-                  onCopy={onCopy}
-                  onRegenerate={onRegenerate}
-                />
-              ))}
-              <div ref={messagesEndRef} />
+              {/* 消息列表窗口化（P3-⑥）：超阈值(60条)线程按可视窗口渲染 +
+                overscan 缓冲，行高实测校正；短会话走普通流式渲染 */}
+              <VirtualList
+                items={messages}
+                scrollRef={scrollRef}
+                estimate={80}
+                gap={20}
+                threshold={60}
+                endRef={messagesEndRef}
+                renderItem={(m: ChatMessage) => (
+                  <MessageBubble
+                    message={m}
+                    onQuote={onQuote}
+                    onCopy={onCopy}
+                    onRegenerate={onRegenerate}
+                  />
+                )}
+              />
             </>
           )}
         </div>
@@ -471,7 +525,8 @@ export function DialogView({
               onChange={onFilesChange}
             />
 
-            {/* 输入框 */}
+            {/* 输入框（输入即自动创建会话：无会话时不再禁用，
+                输入/粘贴/语音首内容自动新建，2026-08-23） */}
             <textarea
               ref={inputRef}
               value={input}
@@ -480,13 +535,14 @@ export function DialogView({
               onPaste={onPaste}
               rows={1}
               placeholder={
-                activeSessionId ? '输入消息，Enter 发送，Shift+Enter 换行…' : '请先新建对话…'
+                activeSessionId
+                  ? '输入消息，Enter 发送，Shift+Enter 换行…'
+                  : '输入内容将自动开始新对话…'
               }
-              disabled={!activeSessionId}
-              className="flex-1 min-h-9 max-h-40 px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400 disabled:opacity-60"
+              className="flex-1 min-h-9 max-h-40 px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
             />
 
-            {/* 发送 / 停止 */}
+            {/* 发送 / 停止（无会话时点击/回车发送：先自动建会话再发） */}
             {generating ? (
               <Button variant="danger" onClick={onStop} size="md">
                 停止
@@ -494,7 +550,7 @@ export function DialogView({
             ) : (
               <Button
                 onClick={send}
-                disabled={!activeSessionId || (!input.trim() && attachments.length === 0)}
+                disabled={!input.trim() && attachments.length === 0}
               >
                 发送
               </Button>

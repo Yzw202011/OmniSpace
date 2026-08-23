@@ -192,12 +192,16 @@ _CANCELLABLE_STATUSES = {
 
 @router.post("/learn/tasks/{task_id}/cancel")
 def learn_task_cancel(task_id: str):
-    """取消训练任务（审计 R3-BE1）：状态翻转为 cancelled。
+    """强制取消训练任务（审计 R3-BE1 + 用户最高权限铁律）。
 
     仅 queued/training/evaluating 可取消；终态任务返回
-    TRAINING_TASK_STATE_INVALID。训练服务无运行时中断机制：
-    训练中的任务仅落库 cancelled 标记并留痕，排队任务由
-    服务工作线程取出时跳过（见 lora_training_service._run_task）。
+    TRAINING_TASK_STATE_INVALID。
+
+    取消语义（强制真实中断）：
+    - queued：落库 cancelled，工作线程出队时跳过；
+    - training：置位运行时中断标志，训练循环在下一个 step 边界
+      经 control.should_training_stop 干净退出，半成品 adapter 不落盘；
+    - evaluating：评估完成后按取消收敛，已评估版本不注册。
     """
     db = get_db_safe()
     if db is None:
@@ -225,12 +229,12 @@ def learn_task_cancel(task_id: str):
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务取消落库失败: %s", exc)
         raise ApiError(40006, "训练任务取消失败", detail={"error": str(exc)}) from exc
-    if status != TrainStatus.QUEUED.value:
-        # 训练服务无中断机制：进行中的训练可能跑到结束并覆盖状态，
-        # 如实留痕（排队任务的取消由工作线程跳过逻辑保证生效）
-        log.warning("任务 %s 处于 %s 状态，已落库 cancelled 标记"
-                    "（训练服务无中断机制，进行中训练可能继续到结束）",
-                    task_id, status)
+    # 强制取消：置位运行时中断标志（训练/评估中的任务于下一检查点中断）
+    try:
+        from ..services.lora_training_service import get_lora_training_service
+        get_lora_training_service().request_cancel(task_id)
+    except Exception as exc:  # noqa: BLE001 - 中断置位失败不影响落库语义
+        log.warning("训练中断标志置位失败（任务仍标记 cancelled）: %s", exc)
     return ok({"id": task_id, "status": TrainStatus.CANCELLED.value},
               message="训练任务已取消")
 

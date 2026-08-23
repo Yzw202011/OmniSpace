@@ -139,7 +139,7 @@
 | `POST` | `/api/v1/comic/asset/generate-character` | `_handler` | 角色资产生成（工厂端点，kind=character） |
 | `POST` | `/api/v1/comic/asset/generate-scene` | `_handler` | 场景资产生成（工厂端点，kind=scene） |
 | `POST` | `/api/v1/comic/asset/generate-prop` | `_handler` | 道具资产生成（工厂端点，kind=prop） |
-| `POST` | `/api/v1/comic/asset/generate-turnaround` | `comic_asset_generate_turnaround` | 角色多视图（正面/侧面/背面/特写四视图） |
+| `POST` | `/api/v1/comic/asset/generate-turnaround` | `comic_asset_generate_turnaround` | 角色四视图 one-pass（FLUX.2 Klein 中文直入，单图 2560×1440（16:9，1×4 竖格）出四视图 + PIL 中文标注；FLUX.2 不可用回退 SDXL 逐视图并标 degraded） |
 | `POST` | `/api/v1/comic/asset/batch-generate` | `comic_asset_batch_generate` | 批量生成（逐项串行，聚合明细） |
 | `POST` | `/api/v1/comic/asset/{asset_id}/regenerate` | `comic_asset_regenerate` | 按现有 prompt 重生成覆盖 |
 | `POST` | `/api/v1/comic/asset/{asset_id}/regenerate-view` | `comic_asset_regenerate_view` | 单视图重生（四视图资产指定视图） |

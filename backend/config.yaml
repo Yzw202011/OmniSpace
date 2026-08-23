@@ -5,7 +5,10 @@ app:
 server:
   host: "127.0.0.1"  # §14约束2: 仅本地，不可更改
   port: 5800
-  rate_limit: 100  # requests/minute per endpoint
+  # 仅回环绑定的单用户桌面应用：前端多页面/多标签页合法轮询（0.5~1Hz/端点）
+  # 叠加即超 100/min，产生误伤 429（表现为状态刷新失败、按钮偶发无响应）。
+  # 提升至 300/min（≈5 req/s，仍可拦截失控重试循环）。
+  rate_limit: 300  # requests/minute per endpoint
 
 scheduler:
   sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）
@@ -14,7 +17,11 @@ scheduler:
   cpu_sample_interval_s: 5   # CPU 利用率/温度
   disk_sample_interval_s: 10 # 磁盘 IO/余量
   hysteresis_seconds: 30  # 滞回控制
-  idle_reclaim_seconds: 300  # 无用户活动超过该时长后，卸载非常驻大模型释放显存
+  # 两级空闲回收（P2 分级，原单档 300s 粒度粗）：
+  #   shallow_reclaim_seconds 60 → 表层：释放 embed/aux/voice 小模型（快速可重载）
+  #   idle_reclaim_seconds    300 → 深层：卸载非常驻大模型释放显存
+  shallow_reclaim_seconds: 60
+  idle_reclaim_seconds: 300
   # 阈值表已对齐文档B §4.1（审计 BK-023）：
   #   GPU 显存 > 90%        → 降低模型精度 / 卸载非活跃模型（critical=0.90）
   #   GPU 利用率 > 95% 持续10s → 降低生成质量参数（critical=0.95 + sustained_s=10）
@@ -29,7 +36,12 @@ scheduler:
     gpu_vram_force_unload: 0.95
     gpu_util_warning: 0.85
     gpu_util_critical: 0.95
-    gpu_util_critical_sustained_s: 10  # 利用率越线须持续的秒数（文档B §4.1）
+    # GPU 利用率越线持续秒数拆两档（P2 分级降参）：
+    #   mild_s 越线 5s → 轻度降参（在途任务 steps×0.67）
+    #   deep_s 越线 15s → 深度降档（在途任务 steps×0.4）
+    # 10s 单档过长，超高频生成空转体验差。
+    gpu_util_mild_sustained_s: 5
+    gpu_util_deep_sustained_s: 15
     gpu_temp_warning: 85
     gpu_temp_critical: 90
     cpu_util_warning: 0.80
@@ -52,6 +64,13 @@ database:
   # 明文 SQLite，仅本地 127.0.0.1 运行（规格 §14 约束1/2）。
   wal_mode: true
   busy_timeout_ms: 5000
+  # 写同步模式（性能优化）：WAL 下 NORMAL 为标准推荐——数据库不会损坏，
+  # 仅在断电时可能丢失最近一笔已提交事务（应用崩溃仍安全）。如需严格
+  # 逐笔同步落盘可改 FULL（写延迟上升）。本地创作数据丢失容忍度较高。
+  synchronous: NORMAL
+  # SQLite 页缓存上限（KB，负值表示页数）。提升读缓存可减少重复磁盘读，
+  # 内存成本按页面大小计，受 85% RAM 硬顶约束；默认 16MB。
+  cache_size_kb: 16384
 
 # 诚实标注：Redis 未部署/未启用。以下为文档 §7.1 架构中的目标形态，
 # 当前实现为进程内缓存（backend/data/cache.py），无外部 Redis 依赖。
@@ -97,10 +116,30 @@ manga:
   pose_presets_count: 15
   voice_preset_emotions: ["默认", "愤怒", "悲伤"]
 
+# 磁盘可用空间阈值（P2 统一口径，单一来源：launcher / startup_check / installer
+# 均从此处读取，不再各自硬编码）。
+# 语义拆分（对应三处不同入口的判定，数值为审计后基准）：
+#   start_min_gb      20 → 启动最低可用空间（launcher 启动预检 _check_disk_space）
+#   models_min_gb     50 → 含模型部署可运行（startup_check 项14 磁盘可用空间）
+#   installer_min_gb 500 → 安装器完整包所需（完整安装前置检查）
+disk:
+  start_min_gb: 20
+  models_min_gb: 50
+  installer_min_gb: 500
+
 installer:
   full_size_gb: 390
   base_size_gb: 5
-  min_disk_space_gb: 500
+  # 磁盘门槛已统一收敛到 disk.installer_min_gb（P2 统一口径），不再在 installer 下重复定义
+
+# 多卡与设备策略（P3 §5.3）：默认单卡；双卡辅助卸载仅显式开启并做可用性校验，
+# 避免错误路由变慢（方案风险控制）。enumerate_gpus 枚举全部 NVIDIA 设备；
+# primary_device 为主计算卡；secondary_offload=true 且 auxiliary_device 有效且
+# 与主卡不同时，才把视频等大任务的 embed/aux 辅助部分压到辅助卸载卡。
+gpu:
+  primary_device: 0
+  auxiliary_device: 1
+  secondary_offload: false
 
 logging:
   level: "INFO"

@@ -208,6 +208,17 @@ ERR_TRAFFIC_LIMIT = 61006
 ERR_TOPIC_LIMIT = 61007
 ERR_SESSION_RUNNING = 61008
 
+# Agent 决策枚举 → 前端「当前操作」中文描述（to_status_dict 透出）
+_ACTION_LABELS = {
+    "A": "正在滚动浏览页面",
+    "B": "正在点击链接深入阅读",
+    "C": "正在返回上一页",
+    "D": "正在搜索新关键词",
+    "E": "正在打开新标签页",
+    "F": "学习目标已达成",
+    "G": "正在调整学习方向",
+}
+
 
 class LearningError(Exception):
     """学习域业务异常，携带统一错误码。"""
@@ -309,10 +320,12 @@ class LearningSession:
     created_at: float = field(default_factory=time.time)
     started_at: float = 0.0
     last_checkpoint_at: float = 0.0
-    # ── 运行态（不入检查点的控制标志）──
+    # 运行态（不入检查点的控制标志）
     stop_requested: bool = False
     pause_requested: bool = False
     resource_preempted: bool = False
+    # 连续感知失败计数（无活动标签页自愈用，感知成功即清零）
+    perceive_failures: int = 0
     stop_reason: str = ""
     current_url: str = ""
     coverage: float = 0.0
@@ -340,6 +353,20 @@ class LearningSession:
 
     def to_status_dict(self) -> dict:
         elapsed = (time.time() - self.started_at) / 60.0 if self.started_at else 0.0
+        # 前端 BrowserView「当前操作/AI 思考」展示（2026-08-22）：
+        # current_action 取最近一次操作翻译为中文；thinking 取当前子目标
+        current_action = ""
+        if self.recent_actions:
+            last = str(self.recent_actions[-1])
+            choice = last[:1]
+            label = _ACTION_LABELS.get(choice, last[:40])
+            extra = last[2:] if len(last) > 2 else ""
+            current_action = f"{label}（{extra}）" if extra else label
+        thinking = ""
+        for g in self.sub_goals:
+            if not g.done:
+                thinking = g.title
+                break
         return {
             "session_id": self.session_id,
             "topic_id": self.topic_id,
@@ -354,6 +381,8 @@ class LearningSession:
             "sub_goals": [g.to_dict() for g in self.sub_goals],
             "operation_count": self.operation_count,
             "stop_reason": self.stop_reason,
+            "current_action": current_action,
+            "thinking": thinking,
             "created_at": self.created_at,
             "started_at": self.started_at,
         }
@@ -1425,8 +1454,22 @@ class BrowserAgentService:
         TASK-054：浏览器实例从进程池获取（预热后 acquire <1s），
         结束归还时由池执行会话隔离清理（Cookie/缓存清除+预建干净快照）；
         池获取失败时回退原直取路径（优雅降级）。
+        执行流程追踪（2026-08-23）：会话级 flow，每轮「执行动作」为
+        节点（轮次推进即追踪心跳），卡住=长时间无新动作节点。
         """
         from .browser_pool import get_browser_pool
+        from .flow_trace import NULL_FLOW, start_flow
+        try:
+            flow = start_flow(
+                "learn", "session",
+                f"知识学习：{session.goal[:20]}"
+                f"{'…' if len(session.goal) > 20 else ''}",
+                trigger="启动学习会话",
+                input_summary=f"预算 {session.budget.max_time_minutes}分钟/"
+                              f"{session.budget.max_pages}页",
+                detail=f"session={session.session_id}")
+        except Exception:  # noqa: BLE001 - 追踪失败不阻断业务
+            flow = NULL_FLOW
         pool = get_browser_pool()
         pooled = False
         browser = None
@@ -1440,6 +1483,15 @@ class BrowserAgentService:
         session.status = "running"
         session.started_at = time.time()
         session.last_checkpoint_at = time.time()
+        # 新会话=用户明确要看 AI 操作：清除上一会话遗留的用户接管标志
+        # （否则循环 L1477 判定 is_user_takeover 会话永久挂起 paused、0 操作）
+        try:
+            if browser.is_user_takeover():
+                browser.set_user_takeover(False)
+                session.log_entry("takeover_reset",
+                                  "清除遗留的用户接管标志", "新会话启动")
+        except Exception:  # noqa: BLE001
+            pass
         session.log_entry("session_start", f"开始学习主题「{session.goal}」",
                           f"预算: {session.budget.max_time_minutes}分钟/"
                           f"{session.budget.max_pages}页")
@@ -1455,6 +1507,8 @@ class BrowserAgentService:
                 if pooled:
                     pool.release(browser)
                 self._finalize_session(session)
+                flow.end("error", error_code="browser_unavailable",
+                         error_detail="浏览器初始化失败")
                 return
         try:
             browser.begin_session()
@@ -1466,6 +1520,8 @@ class BrowserAgentService:
             if pooled:
                 pool.release(browser)
             self._finalize_session(session)
+            flow.end("error", error_code="browser_unavailable",
+                     error_detail=f"无法创建浏览上下文: {exc.message}")
             return
         try:
             while True:
@@ -1499,6 +1555,25 @@ class BrowserAgentService:
                     page_data = self.perceive_page()
                     session.current_url = page_data.get(
                         "url", session.current_url)
+                    # 1.5 感知自愈（2026-08-22）：无活动标签页（点击导航后
+                    # 标签丢失等）→ 前两次重新搜索恢复；连续第 3 次失败
+                    # 诚实终止（stop_reason=page_lost），杜绝空转到预算耗尽
+                    if not page_data.get("text") and not page_data.get("url"):
+                        session.perceive_failures += 1
+                        if session.perceive_failures >= 3:
+                            session.log_entry(
+                                "page_lost", "连续感知失败（无活动标签页）",
+                                "自动终止会话")
+                            session.stop_reason = "page_lost"
+                            break
+                        kw = _next_keyword(session) or session.goal
+                        self._execute_search(session, kw[:40])
+                        session.log_entry(
+                            "perceive_recover",
+                            f"感知失败自愈（第 {session.perceive_failures} 次）",
+                            f"重新搜索「{kw[:40]}」")
+                        continue
+                    session.perceive_failures = 0
                     # 2. 墙检测（命中即离开，continue 重新决策）
                     wall = self.check_walls_and_leave(session)
                     if wall:
@@ -1508,11 +1583,18 @@ class BrowserAgentService:
                     # 4. 分级决策（TASK-052：classify_page → 快速/慢速路径）
                     action = self.decide_action_graded(
                         session, understanding, page_data)
-                    # 5. 执行
+                    # 5. 执行（追踪节点：轮次动作即心跳）
                     self.record_action(
                         session, f"{action.get('choice', '?')}"
                                  f":{action.get('keyword', '')[:20]}")
-                    self.execute_action(session, action)
+                    with flow.node(
+                            "执行动作",
+                            input_summary=f"第{session.pages_visited + 1}页 "
+                                          f"{action.get('choice', '?')}"
+                                          f":{str(action.get('keyword', ''))[:20]}",
+                            friendly="AI 执行页面操作") as n:
+                        self.execute_action(session, action)
+                        n.output(f"已访问 {session.pages_visited} 页")
                     # 6. 知识提取（内容页才提取）
                     new_knowledge: list = []
                     if understanding.get("is_content_page"):
@@ -1555,6 +1637,28 @@ class BrowserAgentService:
                 except Exception:  # noqa: BLE001
                     pass
             self._finalize_session(session)
+            # 执行流程追踪收尾（2026-08-23）：reason 映射与
+            # _finalize_session 同一裁定（正常达成→success；用户停→
+            # cancelled；环境/资源中断→error 带 stop_reason）
+            try:
+                reason = session.stop_reason or "completed"
+                out = (f"页数={session.pages_visited} "
+                       f"知识={session.knowledge_extracted} "
+                       f"覆盖={session.coverage:.0%}")
+                if reason == "user_stop":
+                    flow.end("cancelled", output_summary=out,
+                             error_detail="用户手动停止")
+                elif reason in ("goal_achieved", "budget_pages",
+                                "budget_time", "hard_time_cap",
+                                "traffic_limit", "all_login_walls",
+                                "op_limit", "completed"):
+                    flow.end("success", output_summary=out)
+                else:
+                    flow.end("error", output_summary=out,
+                             error_code=reason,
+                             error_detail=f"会话中断: {reason}")
+            except Exception:  # noqa: BLE001 - 追踪失败不影响业务
+                pass
 
     @staticmethod
     def _sync_traffic(session: LearningSession) -> None:

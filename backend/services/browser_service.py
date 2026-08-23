@@ -58,6 +58,38 @@ def playwright_available() -> bool:
     return bool(_PLAYWRIGHT_AVAILABLE) and _sync_playwright is not None
 
 
+# ── 环境级失败熔断（2026-08-20 资源爆满事故修复）───────────────────
+# Chromium 二进制缺失（playwright install 未执行）属环境级错误，重试
+# 永远失败且每次都要 spawn playwright driver 子进程（历史上被
+# learning_scheduler 每 30s 循环触发，4 天 3.7 万次失败刷屏 ~50MB
+# 日志并侵蚀内存）。首次探测到该错误后置位模块级标志，后续 init()
+# 直接快速失败，不再 spawn 进程。
+_ENV_BROKEN_MARKERS = (
+    "Executable doesn't exist",   # 浏览器二进制缺失
+    "playwright install",         # 官方 banner 提示
+    "Looks like Playwright",      # 官方 banner 前缀
+)
+_env_chromium_missing = False
+
+
+def chromium_env_broken() -> bool:
+    """Chromium 二进制是否缺失（环境级熔断标志，进程内持久）。"""
+    return _env_chromium_missing
+
+
+def _mark_env_broken_if_match(error_text: str) -> None:
+    """init 失败原因命中环境级标记时置位熔断（模块级，跨实例）。"""
+    global _env_chromium_missing
+    if not error_text:
+        return
+    if any(m in error_text for m in _ENV_BROKEN_MARKERS):
+        _env_chromium_missing = True
+        log.warning(
+            "检测到 Chromium 浏览器未安装（环境级错误，本进程内不再"
+            "尝试启动浏览器；请执行 `playwright install chromium` 后"
+            "重启后端恢复）")
+
+
 def playwright_unavailable_reason() -> str:
     """返回 playwright 不可用的原因描述。"""
     if playwright_available():
@@ -374,6 +406,9 @@ class _BrowserWorker(threading.Thread):
             self.browser = self.pw.chromium.launch(
                 headless=self.headless,
                 args=[
+                    "--disable-gpu",               # 爬虫无需 GPU 合成（2026-08-23
+                                                   # 显存锚定事故：满载卡上 Chromium
+                                                   # GPU 进程挤占 WDDM 预算）
                     "--disable-webgl",            # TC-S-006：禁 WebGL 防挖矿
                     "--disable-3d-apis",
                     "--mute-audio",
@@ -388,7 +423,11 @@ class _BrowserWorker(threading.Thread):
             self.init_ok = True
         except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
             self.init_error = f"{type(exc).__name__}: {exc}"
-            log.warning("Chromium 启动失败: %s", self.init_error)
+            # 单行截断记录：官方 banner 含 30+ 行边框文本，完整输出
+            # 曾 4 天刷屏 3.7 万条（~50MB）；完整原因已在父层
+            # _mark_env_broken_if_match 标记。
+            log.warning("Chromium 启动失败: %s",
+                        self.init_error.splitlines()[0][:160])
             self._cleanup()
         finally:
             self.ready.set()
@@ -937,6 +976,13 @@ class BrowserService:
         with self._lock:
             if self._running:
                 return True
+            # 环境级熔断：Chromium 缺失已探测过 → 快速失败，不 spawn 进程
+            if _env_chromium_missing:
+                self._unavailable_reason = (
+                    "Chromium 浏览器未安装（环境级熔断生效，"
+                    "请执行 `playwright install chromium` 并重启后端）")
+                log.debug("BrowserService init 跳过（Chromium 缺失熔断）")
+                return False
             if not playwright_available():
                 self._unavailable_reason = (
                     f"playwright 不可用：{playwright_unavailable_reason()}")
@@ -962,8 +1008,9 @@ class BrowserService:
             if not worker.init_ok:
                 self._unavailable_reason = (worker.init_error
                                             or "chromium 启动失败")
+                _mark_env_broken_if_match(worker.init_error or "")
                 log.warning("BrowserService 初始化失败（优雅降级）: %s",
-                            self._unavailable_reason)
+                            self._unavailable_reason.splitlines()[0][:160])
                 self._worker = None
                 return False
             self._running = True

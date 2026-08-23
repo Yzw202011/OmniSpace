@@ -2,16 +2,19 @@
  * BrowserView.tsx —— 内置浏览器实时查看（TASK-036 / TASK-037）
  * --------------------------------------------------------------------------
  * - 截图轮询：每 2s GET /v1/browser/screenshot（展开时）
- * - 地址栏显示当前 URL（GET /v1/browser/current-page）
+ * - 地址栏显示当前 URL（复用 browserStatus.current_url，不调 current-page；
+ *   该端点内部含 3 个 ≥1s 节流操作，轮询它会导致操作队列积压、
+ *   占满连接池，表现为所有按钮点击延迟过高）
  * - AI 当前操作描述 / AI 思考内容（复用 session status）
  * - [用户接管] / [交还AI] 按钮（POST /v1/browser/takeover|handback）
  * 后端未就绪时显示占位提示（fallback）。
  * ========================================================================== */
 
 import React, { useEffect, useState } from 'react';
-import { Globe, Bot, User, MousePointerClick, Flower2, MessageCircle } from 'lucide-react';
+import { Globe, Bot, User, MousePointerClick, Flower2, MessageCircle, ArrowRight } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
-import { getBrowserScreenshot, getBrowserCurrentPage } from '@/services/learningApi';
+import { getBrowserScreenshot, browserNavigate } from '@/services/learningApi';
+import { isApiError } from '@/services/api';
 
 export const BrowserView: React.FC = () => {
   const isBrowserVisible = useLearningStore((s) => s.isBrowserVisible);
@@ -24,18 +27,73 @@ export const BrowserView: React.FC = () => {
   const [shot, setShot] = useState<string | null>(null);
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [available, setAvailable] = useState<boolean>(true);
+  /** 后端不可用原因（如 Chromium 未安装；轮询成功即清除，服务恢复自动切回） */
+  const [unavailableReason, setUnavailableReason] = useState<string>('');
+  /** 地址栏输入值（受控；聚焦时不再被轮询覆盖，见 syncInput） */
+  const [urlInput, setUrlInput] = useState<string>('');
+  const [navigating, setNavigating] = useState<boolean>(false);
+  const urlInputRef = React.useRef<HTMLInputElement | null>(null);
+  const lastShownUrlRef = React.useRef<string>('');
 
-  /* 展开时：每 2 秒轮询截图与当前页 */
+  /** 轮询到的当前 URL 同步到输入框（用户聚焦输入时不打断编辑） */
+  const syncUrlInput = (url: string) => {
+    const focused = urlInputRef.current === document.activeElement;
+    if (!focused && url !== lastShownUrlRef.current) {
+      lastShownUrlRef.current = url;
+      setUrlInput(url);
+    }
+  };
+
+  /** 手动导航（回车/按钮提交；POST /browser/navigate，成功后立即刷新截图） */
+  const handleNavigate = async () => {
+    let url = urlInput.trim();
+    if (!url || navigating) return;
+    if (!/^https?:\/\//i.test(url)) {
+      url = `https://${url}`;
+    }
+    setNavigating(true);
+    try {
+      await browserNavigate(url);
+      // 导航已使后端截图缓存失效，立即拉取新截图（不等下个轮询周期）
+      const shotRes = await getBrowserScreenshot();
+      let src: string | null = null;
+      if (typeof shotRes === 'string') {
+        src = shotRes.startsWith('data:') ? shotRes : `data:image/png;base64,${shotRes}`;
+      } else if (shotRes?.image_base64) {
+        src = `data:${shotRes.mime || 'image/png'};base64,${shotRes.image_base64}`;
+      } else if (shotRes?.data_url) {
+        src = shotRes.data_url;
+      } else if (shotRes?.image) {
+        src = shotRes.image.startsWith('data:') ? shotRes.image : `data:image/png;base64,${shotRes.image}`;
+      }
+      if (src) {
+        setShot(src);
+        setAvailable(true);
+        setUnavailableReason('');
+      }
+      // 刷新状态获取跳转后的真实 URL（可能被重定向），驱动地址栏显示
+      await fetchBrowserStatus();
+      const finalUrl = useLearningStore.getState().browserStatus?.current_url || url;
+      lastShownUrlRef.current = finalUrl;
+      setUrlInput(finalUrl);
+      setCurrentUrl(finalUrl);
+    } catch (err) {
+      setUnavailableReason(
+        isApiError(err) && err.message ? err.message : '导航失败，请检查地址后重试',
+      );
+    } finally {
+      setNavigating(false);
+    }
+  };
+
+  /* 展开时：每 2 秒轮询截图（后端 2.5s 结果缓存，隔次命中） */
   useEffect(() => {
     if (!isBrowserVisible) return;
     let cancelled = false;
 
     const poll = async () => {
       try {
-        const [shotRes, pageRes] = await Promise.all([
-          getBrowserScreenshot(),
-          getBrowserCurrentPage(),
-        ]);
+        const shotRes = await getBrowserScreenshot();
         if (cancelled) return;
         // 截图响应兼容：string（base64 或 dataURL）/ {image} / {data_url} / {image_base64, mime}
         let src: string | null = null;
@@ -51,10 +109,16 @@ export const BrowserView: React.FC = () => {
             : `data:image/png;base64,${shotRes.image}`;
         }
         setShot(src);
-        setCurrentUrl(pageRes?.url || '');
         setAvailable(true);
-      } catch {
-        if (!cancelled) setAvailable(false);
+        setUnavailableReason('');
+      } catch (err) {
+        // 透传后端真实原因（如"Chromium 浏览器未安装"），避免"未实现"误导文案
+        if (!cancelled) {
+          setAvailable(false);
+          setUnavailableReason(
+            isApiError(err) && err.message ? err.message : '截图服务暂不可用，请稍后重试',
+          );
+        }
       }
       fetchBrowserStatus();
     };
@@ -67,9 +131,23 @@ export const BrowserView: React.FC = () => {
     };
   }, [isBrowserVisible, fetchBrowserStatus]);
 
+  /* 当前 URL 由 browserStatus.current_url 驱动（fetchBrowserStatus 每 2s 刷新，
+     /browser/status 不走节流队列，几毫秒即返回） */
+  useEffect(() => {
+    const url = browserStatus?.current_url || '';
+    if (!url) return;
+    setCurrentUrl(url);
+    syncUrlInput(url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserStatus?.current_url]);
+
   if (!isBrowserVisible) return null;
 
-  const controller = browserStatus?.controller ?? 'ai';
+  // 控制权判定：后端字段 user_takeover（bool）优先；旧 controller 字段兜底
+  const controller: 'ai' | 'user' =
+    browserStatus?.user_takeover === true
+      ? 'user'
+      : browserStatus?.controller ?? 'ai';
 
   return (
     <section className="card hoverable" aria-label="内置浏览器">
@@ -93,11 +171,30 @@ export const BrowserView: React.FC = () => {
         </div>
       </div>
 
-      {/* 地址栏 */}
-      <div className="input flex items-center mb-3" style={{ cursor: 'default' }}>
-        <span className="text-tertiary mono" style={{ fontSize: 'var(--font-size-xs)' }}>
-          {currentUrl || browserStatus?.current_url || 'about:blank'}
-        </span>
+      {/* 地址栏（可输入导航：回车或点击箭头提交，POST /browser/navigate） */}
+      <div className="flex items-center gap-2 mb-3">
+        <input
+          ref={urlInputRef}
+          className="input mono flex-1"
+          style={{ fontSize: 'var(--font-size-xs)' }}
+          value={urlInput}
+          onChange={(e) => setUrlInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleNavigate();
+          }}
+          placeholder={currentUrl || browserStatus?.current_url || '输入网址，回车导航（如 baidu.com）'}
+          aria-label="浏览器地址栏"
+          spellCheck={false}
+        />
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={handleNavigate}
+          disabled={navigating || !urlInput.trim()}
+          title="导航到该地址"
+          aria-label="导航"
+        >
+          {navigating ? <div className="spinner" style={{ width: 14, height: 14 }} /> : <ArrowRight size={14} aria-hidden="true" />}
+        </button>
       </div>
 
       {/* 截图区域 */}
@@ -121,7 +218,7 @@ export const BrowserView: React.FC = () => {
           <div className="loading-block">
             {available ? <div className="spinner" /> : <Flower2 size={28} aria-hidden="true" style={{ color: 'var(--color-primary)' }} />}
             <div className="text-secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
-              {available ? '截图加载中…' : '浏览器截图服务未就绪（后端 /v1/browser/screenshot 未实现）'}
+              {available ? '截图加载中…' : unavailableReason || '截图服务暂不可用，请稍后重试'}
             </div>
           </div>
         )}

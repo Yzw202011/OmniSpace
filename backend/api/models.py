@@ -74,6 +74,15 @@ _EXTRA_KNOWN_MODELS = {
                       "min_vram_gb": 8.0},
     "bge-large-zh": {"category": ModelCategory.LANGUAGE.value, "purpose": "文本嵌入",
                      "min_vram_gb": 0.0},
+    # 视觉语音全模态（omni 类，2026-08-21 新增）：
+    # qwen2.5-omni-7b / -int4 已入 DIALOG_ROUTING_TABLE，此处兜底
+    # ModelScope 镜像目录名变体，防止磁盘扫描漏登记
+    "qwen2.5-omni-7b": {"category": ModelCategory.OMNI.value,
+                        "purpose": "视觉语音对话（文/图/视/音输入，文+语音输出）",
+                        "min_vram_gb": 16.0},
+    "qwen2.5-omni-7b-int4": {"category": ModelCategory.OMNI.value,
+                             "purpose": "视觉语音对话（int4 量化，12GB 档）",
+                             "min_vram_gb": 6.0},
 }
 
 
@@ -129,14 +138,27 @@ def _row_to_model(row: dict) -> dict:
     }
 
 
+def _dialog_entry_category(mid: str) -> tuple[str, str]:
+    """DIALOG_ROUTING_TABLE 条目 id → (category, purpose)。
+
+    视觉语音全模态（omni）模型独立归类（2026-08-21 用户裁定），
+    其余对话模型保持 dialog。
+    """
+    if "omni" in mid.lower():
+        return (ModelCategory.OMNI.value, "视觉语音对话（文/图/视/音输入，文+语音输出）")
+    return (ModelCategory.DIALOG.value, "对话")
+
+
 def _seed_db(db) -> None:
     """表为空时从路由表播种初始模型到数据库。"""
     if db.count("models") > 0:
         return
     for m in DIALOG_ROUTING_TABLE:
+        mid = m["model"]
+        cat, purpose = _dialog_entry_category(mid)
         db.insert("models", {
-            "id": m["model"], "name": m["model"],
-            "category": ModelCategory.DIALOG.value, "purpose": "对话",
+            "id": mid, "name": mid,
+            "category": cat, "purpose": purpose,
             "size_gb": 4.0, "min_vram_gb": float(m["min_vram_gb"]),
             "associated_features": [], "status": ModelStatus.READY.value,
             "file_path": "", "sha256": "",
@@ -165,7 +187,8 @@ def _seed_memory() -> None:
     if _models:
         return
     for m in DIALOG_ROUTING_TABLE:
-        _register(m["model"], m["model"], ModelCategory.DIALOG, "对话",
+        cat, purpose = _dialog_entry_category(m["model"])
+        _register(m["model"], m["model"], ModelCategory(cat), purpose,
                   float(m["min_vram_gb"]), 4.0)
     for m in PAINT_ROUTING_TABLE:
         _register(m["model"], m["model"], ModelCategory.VISION, "绘画",
@@ -250,6 +273,7 @@ def _merged_models() -> list[dict]:
     classifier = mgr.classifier
     _purpose_map = {
         ModelCategory.DIALOG.value: "对话/文本生成（自动发现）",
+        ModelCategory.OMNI.value: "视觉语音对话（自动发现）",
         ModelCategory.VOICE.value: "语音识别/合成（自动发现）",
         ModelCategory.VIDEO.value: "视频生成（自动发现）",
         ModelCategory.VISION.value: "绘画/视觉（自动发现）",
@@ -727,10 +751,116 @@ def models_unload(req: ModelUnloadRequest):
               message="模型已卸载")
 
 
+class ModuleReleaseRequest(BaseModel):
+    """模块切换资源释放请求（用户裁定 2026-08-21）。"""
+    module: str                # 目标模块功能名（dialog/paint/video_gen/training）
+    timeout_ms: int = 3000     # 释放时间预算（默认 3s）
+
+
+@router.post("/models/release-for-module")
+async def models_release_for_module(req: ModuleReleaseRequest):
+    """模块切换资源调度：其他模块 3 秒内释放显存/内存，优先供应目标模块。
+
+    前端导航切换模块/进入漫剧项目时调用。时间预算内尽力卸载其他
+    模块已加载模型；超预算部分释放返回 completed=False（部分完成）。
+    运行中任务（功能锁持有）的模型跳过，共享小模型保留。
+    vLLM 独立子进程（AWQ 对话模型）同样纳入释放：目标模块非对话时
+    杀进程秒级回收显存（2026-08-21 vLLM 集成扩展；功能锁持有中
+    跳过——2026-08-22 竞态修复）。
+    """
+    mgr = get_model_manager()
+    result = await run_blocking(
+        mgr.release_for_module, req.module, req.timeout_ms / 1000.0)
+    return ok(result)
+
+
+class ModuleWarmupRequest(BaseModel):
+    """模块常驻模型预热请求（2026-08-22 思考过长事故）。"""
+    feature: str              # 目标功能名（目前支持 dialog）
+    model_id: str | None = None  # 对话模型（前端 localStorage 持久化的选择）
+
+
+# 预热去重（防重复点击/快速路由抖动起多线程排队等引擎锁）
+_warmup_inflight: set[str] = set()
+
+
+@router.post("/models/warmup")
+async def models_warmup(req: ModuleWarmupRequest):
+    """后台预热模块常驻模型（fire-and-forget，立即返回 started）。
+
+    对话模块主用（2026-08-22 思考过长事故）：vLLM 冷启动 ~157s，
+    用户切入对话页即点火，打字/阅读时间即加载时间，发消息时已
+    就绪。model_id 透传前端持久化选择（localStorage）——引擎可能
+    已加载默认 4b 而用户选择 8b-awq，发消息才热切换即二次冷启动；
+    预热直接以用户选择为目标。刻意不持功能锁——用户切走时
+    release_for_module 可正常终止预热中的 vLLM（不阻塞互斥功能）；
+    与对话请求的并发安全由 dialog_engine 内部引擎锁串行化。
+    """
+    import threading
+
+    feature = (req.feature or "").strip().lower()
+    if feature != "dialog":
+        return ok({"feature": feature, "started": False,
+                   "reason": "unsupported"},
+                  message="该模块无需预热")
+
+    from ..services.inference.dialog_engine import get_dialog_engine
+    engine = get_dialog_engine()
+    status = engine.get_status()
+    # 已就绪判定按目标模型：ready 且（未指定模型 或 已加载即目标）
+    want_model = (req.model_id or "").strip() or None
+    if (status.get("state") == "ready"
+            and (want_model is None or status.get("model") == want_model)):
+        _warmup_inflight.discard("dialog")
+        return ok({"feature": "dialog", "started": False,
+                   "reason": "already_ready"}, message="对话模型已就绪")
+    if "dialog" in _warmup_inflight:
+        return ok({"feature": "dialog", "started": False,
+                   "reason": "inflight"}, message="对话模型预热中")
+
+    _warmup_inflight.add("dialog")
+
+    def _bg_warmup() -> None:
+        try:
+            engine.ensure_loaded(want_model)
+        except Exception:  # noqa: BLE001 - 预热失败静默（发消息时如实报错）
+            pass
+        finally:
+            _warmup_inflight.discard("dialog")
+
+    threading.Thread(target=_bg_warmup, daemon=True,
+                     name="dialog-warmup").start()
+    return ok({"feature": "dialog", "started": True,
+               "model_id": want_model or "auto"},
+              message="对话模型预热已启动（冷启动约 2-3 分钟）")
+
+
+@router.get("/models/vllm/status")
+def vllm_status():
+    """vLLM 推理服务状态（runtime 安装/进程存活/健康/PID/运行时长）。"""
+    from ..engines.vllm_service import get_vllm_service
+    return ok(get_vllm_service().status())
+
+
+@router.post("/models/vllm/stop")
+async def vllm_stop():
+    """停止 vLLM 子进程并回收显存（用户操作最高权限，强制终止）。"""
+    from ..engines.vllm_service import get_vllm_service
+    svc = get_vllm_service()
+    stopped = await run_blocking(svc.stop)
+    if not stopped:
+        raise ApiError(20020, "vLLM 子进程终止失败（详见 logs/vllm-server.log）")
+    return ok({"running": False}, message="vLLM 服务已停止，显存已回收")
+
+
 def _category_to_feature(category: str) -> str:
-    """模型类别 -> 功能锁功能名（用于互斥检查）。"""
+    """模型类别 -> 功能锁功能名（用于互斥检查）。
+
+    omni（视觉语音全模态）归 dialog 功能：语音/视频对话仍是对话
+    模块的形态，与 dialog 共用功能锁与模块资源调度保留集。
+    """
     return {
-        "dialog": "dialog", "language": "dialog",
+        "dialog": "dialog", "language": "dialog", "omni": "dialog",
         "vision": "paint", "video": "video_gen",
     }.get((category or "").strip().lower(), "")
 
@@ -818,6 +948,87 @@ def models_delete(model_id: str):
         if mid == model_id:
             _selections.pop(feat, None)
     return ok({"deleted": model_id})
+
+
+@router.delete("/models/{model_id}/files")
+def models_purge_files(model_id: str):
+    """彻底删除模型磁盘文件（2026-08-20 卸载按钮升级：卸载+删盘）。
+
+    流程：已加载先卸载 → 删除磁盘权重（目录 rmtree / 文件 unlink）→
+    移除注册表记录 → 清理功能选择引用。返回删除的路径与释放体积。
+    安全约束：解析后路径必须位于 models/ 目录内（防路径穿越误删任意
+    目录）；models/ 根目录本身与过浅路径（直接等于 models/）拒绝。
+    """
+    import shutil as _shutil
+
+    model = _find_model(model_id)
+    if model is None:
+        raise ApiError(30001, "模型不存在", detail={"model_id": model_id})
+    raw_path = (model.get("file_path") or "").strip()
+    if not raw_path or not model.get("downloaded"):
+        raise ApiError(30002, "模型文件不在本地磁盘，无需删除",
+                       detail={"model_id": model_id})
+
+    from ..config import MODELS_DIR as _MODELS_ROOT
+    target = Path(raw_path)
+    if not target.is_absolute():
+        target = _MODELS_ROOT.parent / target
+    target = target.resolve()
+    models_root = _MODELS_ROOT.resolve()
+    # 路径安全闸门：必须在 models/ 内且不能是 models/ 根自身
+    if target == models_root or models_root not in target.parents:
+        raise ApiError(40003, "拒绝删除：路径不在 models/ 目录内",
+                       detail={"path": str(target)})
+    if not target.exists():
+        raise ApiError(30001, "模型文件不存在（可能已被删除）",
+                       detail={"path": str(target)})
+
+    # 体积统计（删除前）
+    if target.is_dir():
+        size_gb = sum(f.stat().st_size for f in target.rglob("*")
+                      if f.is_file()) / (1024 ** 3)
+    else:
+        size_gb = target.stat().st_size / (1024 ** 3)
+
+    # 1. 卸载（未加载时 no-op；对话等常驻引擎一并释放）
+    mgr = get_model_manager()
+    mgr.unload_model(model_id)
+
+    # 2. 删除磁盘文件
+    try:
+        if target.is_dir():
+            _shutil.rmtree(target)
+        else:
+            target.unlink()
+    except OSError as exc:
+        raise ApiError(50001, f"文件删除失败：{exc}",
+                       detail={"path": str(target)}) from exc
+
+    # 3. 移除注册表记录（DB 优先，内存兜底）
+    db = get_db_safe()
+    if db is not None:
+        try:
+            db.delete("models", "id=?", (model_id,))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("purge 注册表清理失败（文件已删）: %s", exc)
+    _models.pop(model_id, None)
+
+    # 4. 清理功能选择引用
+    for feat, mid in list(_selections.items()):
+        if mid == model_id:
+            _selections.pop(feat, None)
+
+    # 5. 强制失效磁盘扫描缓存（2026-08-20 幽灵卡片修复）：扫描器带
+    # 30s 缓存，purge 后若不失效，前端紧接着拉 /models 会从缓存读到
+    # 已删条目——磁盘已无文件但卡片仍显示"就绪+体积"定格在页面
+    try:
+        mgr.scan_downloaded_models(force=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("purge 后扫描缓存刷新失败（30s 后自然过期）: %s", exc)
+
+    log.info("模型文件已彻底删除: %s (%.1fGB)", target, size_gb)
+    return ok({"deleted": model_id, "path": str(target),
+               "freed_gb": round(size_gb, 2)})
 
 
 @router.put("/models/select")

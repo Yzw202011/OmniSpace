@@ -23,7 +23,13 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
-from ..config import DB_BUSY_TIMEOUT, DB_PATH, DB_WAL_MODE
+from ..config import (
+    DB_BUSY_TIMEOUT,
+    DB_CACHE_SIZE_KB,
+    DB_PATH,
+    DB_SYNCHRONOUS,
+    DB_WAL_MODE,
+)
 
 log = logging.getLogger("omnispace.db")
 
@@ -55,6 +61,7 @@ CREATE TABLE IF NOT EXISTS dialog_messages (
     model_used  TEXT DEFAULT '',
     rating      INTEGER NOT NULL DEFAULT 0, -- 1 赞 / -1 踩 / 0 未评（DIALOG-024）
     favorite    INTEGER NOT NULL DEFAULT 0, -- 0/1 收藏（DIALOG-046）
+    reasoning   TEXT DEFAULT '',        -- 深度思考过程（加密，与 content 同链路）
     timestamp   REAL NOT NULL DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES dialog_sessions(id) ON DELETE CASCADE
 );
@@ -136,7 +143,8 @@ CREATE TABLE IF NOT EXISTS comic_assets (
     file_path   TEXT DEFAULT '',
     prompt      TEXT DEFAULT '',
     meta        TEXT DEFAULT '{}',   -- JSON（尺寸/种子/子视图等）
-    created_at  REAL NOT NULL DEFAULT 0
+    created_at  REAL NOT NULL DEFAULT 0,
+    scope       TEXT NOT NULL DEFAULT 'project'    -- project=项目资产 / global=全局资产（跨项目）
 );
 CREATE INDEX IF NOT EXISTS idx_comic_assets_project ON comic_assets(project_id);
 
@@ -350,6 +358,10 @@ class Database:
             if DB_WAL_MODE:
                 conn.execute("PRAGMA journal_mode = WAL")
             conn.execute(f"PRAGMA busy_timeout = {int(DB_BUSY_TIMEOUT)}")
+            # 性能优化：WAL 下 NORMAL 同步 + 提升页缓存，降低写 fsync 与重复磁盘读。
+            # synchronous 仅对写生效，cache_size 提升读命中；内存成本受 RAM 85% 硬顶约束。
+            conn.execute(f"PRAGMA synchronous = {DB_SYNCHRONOUS}")
+            conn.execute(f"PRAGMA cache_size = -{int(DB_CACHE_SIZE_KB)}")
             self._local.conn = conn
         return conn
 
@@ -370,7 +382,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 5
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -406,6 +418,17 @@ class Database:
             # P2-05（要求#36 / RTM A-02）：纯数据迁移版本组——无新增列，
             # 存量明文加密经 _DATA_MIGRATIONS[3] 执行
             # （见 _migrate_encrypt_legacy_fields）。
+        )),
+        (4, (
+            # 全局资产体系：资产分 project/global 两域，global 跨项目复用
+            # （删除项目时项目资产转全局保留，新库 _SCHEMA 已含，幂等跳过）
+            ("comic_assets", "scope", "TEXT NOT NULL DEFAULT 'project'"),
+        )),
+        (5, (
+            # 深度思考模式（2026-08-22 思考过程展示）：assistant 消息的
+            # 思考过程独立落库（与 content 同等加密；新库 _SCHEMA 已含，
+            # 幂等跳过）。不入 FTS 索引（M-3：搜索不命中思考噪音）。
+            ("dialog_messages", "reasoning", "TEXT DEFAULT ''"),
         )),
     )
 

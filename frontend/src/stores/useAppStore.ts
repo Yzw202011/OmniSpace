@@ -12,23 +12,32 @@ import { create } from 'zustand';
 import type { ActiveFeature } from '@/types';
 import { canSwitchFeature } from '@/types';
 import { getSettings, updateSettings } from '@/services/systemApi';
+import { trackBehavior } from '@/services/learningApi';
 
-/** 主题（暗色 Sakura 默认；亮色可选切换，文档D §1.1.3） */
-export type Theme = 'sakura' | 'light';
+/** 主题（双主题体系 × 亮暗双模式，2026-08-20 用户裁定脱离文档 COM-009）：
+ *  - sakura     Sakura · 夜樱（暗色，默认）
+ *  - light      Sakura · 拂晓（亮色）
+ *  - tech       Nebula · 深空（高科技暗色）
+ *  - tech-light Nebula · 晨辉（高科技亮色）
+ * DOM 契约：<html data-family="tech"?> + <html data-theme="light"?>；
+ * sakura 暗色 = 双属性皆缺省（向后兼容存量 CSS）。 */
+export type Theme = 'sakura' | 'light' | 'tech' | 'tech-light';
 
 /** 主题本地持久化键 */
 const THEME_KEY = 'omnispace.theme';
 
-/** 读取持久化主题（异常回退暗色 Sakura） */
+/** 读取持久化主题（异常/旧值回退 Sakura 暗色；旧 'light' 值平滑迁移） */
 function loadTheme(): Theme {
   try {
-    return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'sakura';
+    const v = localStorage.getItem(THEME_KEY);
+    if (v === 'light' || v === 'tech' || v === 'tech-light') return v;
+    return 'sakura';
   } catch {
     return 'sakura';
   }
 }
 
-/** 应用主题到 <html data-theme> 并持久化 */
+/** 应用主题到 <html>（data-family + data-theme 双属性）并持久化 */
 function applyTheme(theme: Theme): void {
   try {
     localStorage.setItem(THEME_KEY, theme);
@@ -36,10 +45,18 @@ function applyTheme(theme: Theme): void {
     /* 隐私模式写入失败静默 */
   }
   if (typeof document !== 'undefined') {
-    if (theme === 'light') {
-      document.documentElement.setAttribute('data-theme', 'light');
+    const el = document.documentElement;
+    const family = theme.startsWith('tech') ? 'tech' : 'sakura';
+    const isLight = theme === 'light' || theme === 'tech-light';
+    if (family === 'tech') {
+      el.setAttribute('data-family', 'tech');
     } else {
-      document.documentElement.removeAttribute('data-theme');
+      el.removeAttribute('data-family');
+    }
+    if (isLight) {
+      el.setAttribute('data-theme', 'light');
+    } else {
+      el.removeAttribute('data-theme');
     }
   }
 }
@@ -152,6 +169,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       return false;
     }
     set({ activeFeature: feature, featureBlockedMessage: null });
+    // 行为学习埋点（fire-and-forget，失败静默）
+    trackBehavior('module_switch', {
+      content: feature,
+      context: activeFeature ?? 'start',
+      feature,
+    });
     return true;
   },
 

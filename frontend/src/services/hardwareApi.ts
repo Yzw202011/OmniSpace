@@ -80,6 +80,29 @@ export function getSynergy() {
   return get<SynergyState>('/hardware/synergy');
 }
 
+/** P3-⑤ 资源占用采样样本（后台采样器近 2 小时 RAM/显存/磁盘 30s 快照） */
+export interface ResourceSample {
+  timestamp: number;
+  ram_pct: number | null;
+  vram_pct: number | null;
+  disk_pct: number | null;
+  disk_free_gb: number | null;
+}
+
+/** P3-⑤ 资源占用采样趋势响应（/hardware/resource-samples） */
+export interface ResourceSamplesResp {
+  interval_s: number;
+  backlog_s: number;
+  count: number;
+  samples: ResourceSample[];
+  note?: string;
+}
+
+/** 获取资源占用采样趋势（limit 默认 240≈2 小时） */
+export function getResourceSamples(limit = 240) {
+  return get<ResourceSamplesResp>('/hardware/resource-samples', { limit });
+}
+
 /** 硬件实时 WebSocket 端点（供 store 直接订阅） */
 export const HARDWARE_REALTIME_WS = HARDWARE_REALTIME_URL;
 

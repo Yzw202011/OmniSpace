@@ -403,6 +403,20 @@ export async function deleteProject(projectId: string): Promise<void> {
   await del(`/comic/project/${projectId}`);
 }
 
+/** 批量删除项目结果（POST /comic/project/batch-delete，上限 100） */
+export interface BatchDeleteProjectsResult {
+  deleted: number;
+  deleted_ids: string[];
+  missing_ids: string[];
+}
+
+/** 批量删除项目（逐个级联删除；不存在的跳过并记入 missing_ids） */
+export async function batchDeleteProjects(projectIds: string[]): Promise<BatchDeleteProjectsResult> {
+  return post<BatchDeleteProjectsResult>('/comic/project/batch-delete', {
+    project_ids: projectIds,
+  });
+}
+
 /* ============================== 六、剧本导入（DSL 文件） ============================== */
 
 /** DSL 剧本文件上传导入（POST /comic/script/import-dsl，multipart .txt/.dsl ≤10MB） */
@@ -476,14 +490,16 @@ export async function detectEmotion(
 
 /* ============================== 八、资产库（/comic/asset/*） ============================== */
 
-/** 资产清单（GET /comic/asset/library?project_id&kind） */
+/** 资产清单（GET /comic/asset/library?project_id&kind&scope） */
 export async function listAssets(
   projectId: string,
   kind?: ComicAssetKind,
+  scope?: 'project' | 'global',
 ): Promise<ComicAsset[]> {
   const res = await get<{ items: ComicAsset[]; total: number }>('/comic/asset/library', {
     project_id: projectId,
     kind,
+    scope,
   });
   return res.items ?? [];
 }
@@ -580,19 +596,12 @@ export async function regenerateAsset(
   return post(`/comic/asset/${assetId}/regenerate`, body);
 }
 
-/** 本地图片上传为资产（POST /comic/asset/upload，multipart png/jpg/jpeg/webp ≤10MB） */
-export async function uploadAsset(
-  projectId: string,
-  kind: ComicAssetKind,
-  name: string,
-  file: File,
-): Promise<ComicAsset> {
+/** 替换资产图片（POST /comic/asset/{assetId}/image，multipart png/jpg/jpeg/webp ≤10MB）：
+ *  落盘 asset_id 专属子目录，只改当前资产，不影响同名资产，不新建资产行 */
+export async function replaceAssetImage(assetId: string, file: File): Promise<ComicAsset> {
   const fd = new FormData();
   fd.append('file', file);
-  fd.append('project_id', projectId);
-  fd.append('kind', kind);
-  fd.append('name', name);
-  const res = await upload<{ asset: ComicAsset }>('/comic/asset/upload', fd);
+  const res = await upload<{ asset: ComicAsset }>(`/comic/asset/${assetId}/image`, fd);
   return res.asset;
 }
 
@@ -644,6 +653,11 @@ export async function deleteAssetReference(assetId: string): Promise<void> {
   await del(`/comic/asset/${assetId}/reference`);
 }
 
+/** 删除资产（DELETE /comic/asset/{assetId}）：DB 行 + 分镜行绑定清理 + 磁盘目录 */
+export async function deleteAsset(assetId: string): Promise<{ name: string; kind: string }> {
+  return del<{ name: string; kind: string }>(`/comic/asset/${assetId}`);
+}
+
 /** 资产生成历史项（GET /comic/asset/{assetId}/history data.items 元素；url 可直接作 img src） */
 export interface AssetHistoryItem {
   /** 生成时间戳（秒或毫秒，前端自适应） */
@@ -672,12 +686,23 @@ export async function adoptAsset(
   return { asset: res.asset, alreadyAdopted: res.already_adopted === true };
 }
 
-/** 跨项目全部角色资产（GET /comic/asset/library?kind=character，不传 project_id = 资产库全量） */
+/** 跨项目角色库（GET /comic/asset/library?kind=character，不传 project_id = 资产库全量：
+ *  含全局资产 + 其他项目资产，前端按 project_id 区分「全局/他项目」徽标） */
 export async function listLibraryCharacters(): Promise<ComicAsset[]> {
   const res = await get<{ items: ComicAsset[]; total: number }>('/comic/asset/library', {
     kind: 'character',
   });
   return res.items ?? [];
+}
+
+/** 项目资产转全局资产（POST /comic/asset/{id}/to-global：跨项目复用，磁盘目录同步迁移） */
+export async function toGlobalAsset(
+  assetId: string,
+): Promise<{ asset: ComicAsset; alreadyGlobal: boolean }> {
+  const res = await post<{ asset: ComicAsset; already_global?: boolean }>(
+    `/comic/asset/${assetId}/to-global`,
+  );
+  return { asset: res.asset, alreadyGlobal: res.already_global === true };
 }
 
 /* ============================== 九、关键帧（/manga/keyframe/*） ============================== */
@@ -901,12 +926,13 @@ export default {
   updateAsset,
   regenerateAsset,
   regenerateAssetView,
-  uploadAsset,
+  replaceAssetImage,
   uploadAssetReference,
   deleteAssetReference,
   fetchAssetHistory,
   adoptAsset,
   listLibraryCharacters,
+  toGlobalAsset,
   inferEntities,
   describeAsset,
   exportAssetPack,

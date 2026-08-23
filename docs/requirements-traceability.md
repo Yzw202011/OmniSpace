@@ -48,7 +48,7 @@
 | ID | 要求 | 状态 | 本地路径 | 备注（2026-08-19 实测刷新 + 处置决策） |
 |----|------|------|---------|------|
 | M-01 | Qwen3-VL-8B 对话/视觉理解（8K 上下文高档路由） | ✅ | models/qwen3-vl-8b/（16.34GB） | dialog_engine.py:54 `_HIGH_TIER_DIALOG_CANDIDATE`（R2-B10）；实测本机候选 8B 首选；嵌套 modelscope 快照经 _resolve_candidate_dir 解析。原记录"代码固定 4B"过时 |
-| M-02 | FLUX 系文生图主力 | 🟦 | models/paint/flux2-klein-4b/（13.22GB） | **决策：接线排期 P1**——部署计划文生图主力；paint_engine 候选表需增 Flux 加载分支（现仅 sdxl-base-1.0） |
+| M-02 | FLUX 系文生图主力 | ✅ | models/paint/flux2-klein-4b/（13.22GB）；paint_engine.py Flux2KleinPipeline 加载分支 + generate/img2img FLUX.2 参数映射（2026-08-20）；四视图 one-pass 主路径实测通过（131s 含加载，2560×1440 seed 可复现，2026-08-20 画幅对齐 参考图.png）；PAINT_ROUTING_TABLE/HARDWARE_TIER_TABLE 已登记 12GB 闸门 | 角色/场景/道具常规生成仍走 SDXL 缺省；FLUX.2 仅四视图路径显式点名（comparator 路线对齐裁定） |
 | M-03 | LTX-2 系视频主力（720p） | ✅ | models/video_gen/ltx-video-0.9.5/（23.65GB） | model_index.json `_class_name=LTXPipeline` 命中 video_engine `_VIDEO_PIPELINE_CLASSES` 动态发现；Ken Burns 仅作无模型兜底。原记录"ltx-2.3 95.34GB 含 3 版本"数据过时 |
 | M-04 | HunyuanVideo 1.5 画质备选 | ⚪ | 目录已删除（磁盘危机清理） | **决策：裁剪**——fp32 权重 98GB 超 16GB 显存，已在项目排除名单（2026-08-15） |
 | M-05 | Qwen3-TTS-1.7B（文档评分⭐9.4） | 🟦 | models/qwen3-tts/（4.21GB） | **决策：接线排期 P1**——选定 TTS 主力；voice_engine 已识别为 tts_qwen 但门控（transformers 4.51 无 Qwen3TTS 管线类，需官方推理包或升级 transformers） |
@@ -65,7 +65,7 @@
 | M-16 | FLUX.1-dev FP8 / Kolors 2.1 / ControlNet-OpenPose / IP-Adapter-Plus / Wan 2.1 / CogVideoX / Real-ESRGAN / CLIP / Blip2 | ❌ | 未下载 | 修正版E 原清单；部分已被 M-02~M-04 新模型替代，建议重裁清单 |
 | M-17 | vLLM 推理后端（§1.2.1） | ❌ | transformers 直接推理 | 离线单机可容忍，吞吐差距未量化 |
 
-> **P0-04 决策汇总**（2026-08-19）：🟦 剩 6 条全部落档——接线排期 4 条（M-02/M-05/M-08 为 P1，M-07/M-09 为 P2）、待确认删除 2 条（M-06/M-12 合计 7.79GB，删除属破坏性操作需用户批准）。
+> **P0-04 决策汇总**（2026-08-19，2026-08-20 刷新）：🟦 剩 5 条——接线排期 3 条（M-05/M-08 为 P1，M-07/M-09 为 P2）、待确认删除 2 条（M-06/M-12 合计 7.79GB，删除属破坏性操作需用户批准）。M-02 已于 2026-08-20 完成接线并上调 ✅（四视图 one-pass 主路径）。
 > 磁盘清理候选（非矩阵需求）：sd15 冗余副本 ~22GB。models/ 实测总计 193.25GB / 24 目录。
 
 ## 四、架构与安全需求

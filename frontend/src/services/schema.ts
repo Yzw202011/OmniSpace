@@ -191,6 +191,8 @@ export const VideoStatusRespSchema = z
     status: z.enum(['pending', 'generating', 'done', 'error', 'cancelled']),
     progress: z.number().min(0).max(1),
     error: z.string().optional(),
+    /** 预计剩余秒数（生成中且引擎已采样到步耗时才返回，2026-08-22） */
+    eta_seconds: z.number().int().nonnegative().optional(),
   })
   .passthrough();
 export type VideoStatusResp = z.infer<typeof VideoStatusRespSchema>;

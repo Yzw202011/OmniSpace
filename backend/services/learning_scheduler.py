@@ -246,6 +246,13 @@ class LearningScheduler:
         self._last_trigger_eval_at = 0.0      # 上次触发器评估时间
         self._last_auto_finetune_at = 0.0     # 上次自动微调触发/尝试时间
         self._auto_finetune_inflight = False  # 自动微调防重入旗标
+        # ── auto 学习环境退避（2026-08-20 资源爆满事故修复）──
+        # Chromium 缺失时 auto 触发会话必然 browser_unavailable，
+        # 调度器 30s 后再触发 → 死循环（历史 4 天 3.7 万次）。前置
+        # 环境检查 + 连续失败熔断：连续 3 次环境不可用即停 auto，
+        # 成功启动一次会话后自动恢复计数。
+        self._auto_env_fail_streak = 0        # 连续环境不可用次数
+        self._auto_circuit_opened = False     # 熔断已打开（已打日志）
         # R2-B02 接线：注册默认触发器回调（可被 register_trigger 覆盖）
         self._triggers[TRIGGER_IDLE] = self._default_learn_trigger
         self._triggers[TRIGGER_SCHEDULED] = self._default_learn_trigger
@@ -501,6 +508,8 @@ class LearningScheduler:
 
     def _drain_session_waiting_queue(self) -> None:
         """LEARN-056：无活跃会话且配额允许时，自动启动等待队列队首。"""
+        if not self._auto_browser_env_ok():
+            return
         if not _read_waiting_queue():
             return
         from .browser_agent_service import (
@@ -571,10 +580,76 @@ class LearningScheduler:
                 continue
         return False
 
+    def _auto_browser_env_ok(self) -> bool:
+        """auto 学习环境闸门（2026-08-20 事故修复）。
+
+        前置检查浏览器组件可用性：playwright 缺失或 Chromium 二进制
+        缺失（环境级熔断已打开）时拦截 auto 触发；连续 3 次不可用打
+        开调度层熔断并只打一次警告，杜绝 30s 死循环。手动触发
+        （start_session 由 API 直接调用）不受此闸门影响。
+        """
+        from .browser_service import chromium_env_broken, playwright_available
+        if playwright_available() and not chromium_env_broken():
+            self._auto_env_fail_streak = 0
+            return True
+        self._auto_env_fail_streak += 1
+        if self._auto_env_fail_streak >= 3 and not self._auto_circuit_opened:
+            self._auto_circuit_opened = True
+            log.warning(
+                "浏览器组件不可用连续 %d 次，auto 学习触发已熔断（安装"
+                " Chromium 并重启后端后自动恢复；手动学习不受影响）",
+                self._auto_env_fail_streak)
+        return False
+
+    def _auto_resource_ok(self) -> bool:
+        """auto 学习资源闸门（2026-08-23 后端 OOM 死亡事故修复）。
+
+        学习会话的 Chromium 爬虫常驻数 GB RAM；当重资源功能（绘画/
+        对话推理等）持功能锁运行、或系统可用 RAM 水位不足时，叠加
+        装载会导致 RAM 逼近 100% → 后端进程被系统杀死（本次事故：
+        qwen GGUF 12.31GB 常驻 + auto 学习 Chromium → RAM 99%）。
+
+        auto 触发仅是"锦上添花"，遇资源紧张一律让位跳过；手动触发
+        （start_session 由 API 直接调用）不受此闸门影响。
+        """
+        active = self._feature_lock_state()
+        if active is not None:
+            log.debug("auto 学习跳过：功能锁被 %s 持有（重资源任务"
+                      "进行中）", active)
+            return False
+        try:
+            import psutil
+            available_gb = psutil.virtual_memory().available / 1024 ** 3
+            if available_gb < 8:
+                log.debug("auto 学习跳过：可用 RAM 仅 %.1fGB（阈值 8GB）",
+                          available_gb)
+                return False
+        except Exception:  # noqa: BLE001 - psutil 缺失保守放行
+            pass
+        # 显存闸门（2026-08-23）：Chromium 硬件合成会挤占 WDDM 共享
+        # 预算，重模型驻留期（vRAM>88%）拉起爬虫易把推理 GPU 工作集
+        # 挤爆（device lost）；auto 让位，手动触发不受限
+        try:
+            from .model_manager import get_model_manager
+            gpu = get_model_manager().get_gpu_status()
+            used_mb = int(gpu.get("vram_used_mb", 0))
+            total_mb = int(gpu.get("vram_total_mb", 0))
+            if total_mb > 0 and used_mb / total_mb > 0.88:
+                log.debug("auto 学习跳过：显存占用 %.0f%%（阈值 88%%）",
+                          used_mb / total_mb * 100)
+                return False
+        except Exception:  # noqa: BLE001 - 探测失败保守放行
+            pass
+        return True
+
     def _default_learn_trigger(self, payload: dict) -> None:
         """默认触发动作（R2-B02）：无活跃会话且学习开关开启时，
         为最近活跃主题启动一个学习会话（复用学习会话入口逻辑）。"""
         trigger = str((payload or {}).get("trigger") or "auto")
+        if not self._auto_browser_env_ok():
+            return
+        if not self._auto_resource_ok():
+            return
         try:
             from .browser_agent_service import (
                 ensure_learning_tables,

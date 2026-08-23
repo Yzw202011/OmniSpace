@@ -3,11 +3,11 @@
  * --------------------------------------------------------------------------
  * 右栏槽位成员（优先级：抽屉 > 资产详情 > 行检查器 > 资产面板），字段顺序严格对齐竞品：
  *   1. 头部：← 返回（清除 selectedAssetId）+ 「{资产名} 详情」+ 类型徽标
- *   2. 预览区：有四视图（meta.turnaround 且 meta.views 非空）→ 2×2 网格四张 16:9 图
- *      （正面/侧面/背面/特写，hover 浮出「重生」单视图重生，点击开灯箱）；否则单图 160px contain
+ *   2. 预览区：有四视图（meta.turnaround 且 meta.canvas 非空）→ 单图整图四视图
+ *      （one-pass 一图四格，PIL 已标角色名/视图标签，点击开灯箱）；否则单图 160px contain
  *   3. 角色切换器（仅角色）：select 列出本项目全部角色资产，切换 = setSelectedAsset
  *   4. 名称 input（失焦 PUT /comic/asset/{id} 保存）
- *   5. 按钮行：✦ 生成描述词（describeAsset）/ ☁ 本地图片（uploadAsset 登记新资产）
+ *   5. 按钮行：✦ 生成描述词（describeAsset）/ ☁ 替换图片（replaceAssetImage，asset_id 隔离落盘）
  *   6. 参考图行：上传AI参考图（multipart → img2img 保持人设）；已上传显示 60×60 缩略图 + 删除
  *   7. 描述词 textarea（失焦保存）
  *   8. AI 生图主按钮（全宽 btn-primary）：角色走四视图管线（无 meta.turnaround 首次
@@ -22,10 +22,10 @@ import {
   ArrowLeft,
   ChevronDown,
   CloudUpload,
+  Globe,
   History,
   ImagePlus,
   Mic,
-  RefreshCw,
   Sparkles,
   Trash2,
   Volume2,
@@ -39,12 +39,11 @@ import {
   fetchAssetHistory,
   getMediaUrl,
   regenerateAsset,
-  regenerateAssetView,
+  replaceAssetImage,
+  toGlobalAsset,
   updateAsset,
-  uploadAsset,
   uploadAssetReference,
   type AssetHistoryItem,
-  type TurnaroundViewKey,
 } from '@/services/mangaApi';
 import { getErrorMessage } from '@/utils/errors';
 import AssetLightbox from './AssetLightbox';
@@ -60,26 +59,6 @@ const KIND_LABELS: Record<string, string> = {
 const UPLOAD_ACCEPT = '.png,.jpg,.jpeg,.webp';
 /** 上传大小上限 10MB（对齐后端 _ASSET_UPLOAD_MAX_BYTES） */
 const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
-
-/** 四视图槽位（key 对齐后端 meta.views 键名，label 为图下小标签） */
-const TURNAROUND_VIEWS: { key: TurnaroundViewKey; label: string }[] = [
-  { key: 'front', label: '正面' },
-  { key: 'side', label: '侧面' },
-  { key: 'back', label: '背面' },
-  { key: 'closeup', label: '特写' },
-];
-
-/** 读取 meta.views 单视图路径（兼容 string 与 {file_path} 两种形态） */
-function viewPathOf(views: unknown, key: string): string {
-  if (!views || typeof views !== 'object') return '';
-  const v = (views as Record<string, unknown>)[key];
-  if (typeof v === 'string') return v;
-  if (v && typeof v === 'object' && 'file_path' in v) {
-    const fp = (v as { file_path: unknown }).file_path;
-    return typeof fp === 'string' ? fp : '';
-  }
-  return '';
-}
 
 /** 历史记录时间戳格式化（MM-DD HH:mm；ts 秒/毫秒自适应） */
 function formatHistoryTime(ts: number): string {
@@ -102,9 +81,7 @@ export default function AssetDetailPanel() {
   const [nameDraft, setNameDraft] = useState('');
   const [promptDraft, setPromptDraft] = useState('');
   /** 操作忙碌（describe/upload/regenerate/refUp/refDel 互斥） */
-  const [busy, setBusy] = useState<'' | 'describe' | 'upload' | 'regenerate' | 'refUp' | 'refDel'>('');
-  /** 单视图重生中的视图键（"" 空闲，仅该张局部 loading） */
-  const [viewBusy, setViewBusy] = useState('');
+  const [busy, setBusy] = useState<'' | 'describe' | 'upload' | 'regenerate' | 'refUp' | 'refDel' | 'toGlobal'>('');
   /** 灯箱（null 关闭；srcs 为点击时快照，idx 为 srcs 索引） */
   const [lightbox, setLightbox] = useState<{ srcs: string[]; idx: number } | null>(null);
   /** 历史记录折叠区 */
@@ -159,10 +136,9 @@ export default function AssetDetailPanel() {
     setPromptDraft(asset?.prompt ?? '');
   }, [asset?.asset_id, asset?.name, asset?.prompt]);
 
-  // 选中资产切换：重置灯箱/单视图忙碌/历史折叠（避免跨资产串状态）
+  // 选中资产切换：重置灯箱/历史折叠（避免跨资产串状态）
   useEffect(() => {
     setLightbox(null);
-    setViewBusy('');
     setHistoryOpen(false);
     setHistoryItems([]);
     setHistoryLoading(false);
@@ -175,19 +151,14 @@ export default function AssetDetailPanel() {
   /* ------------------------------ 预览区数据推导 ------------------------------ */
   /** 角色多视图缓存破除版本信号（meta.seed / meta.regenerated_at） */
   const assetVer = assetMediaVersion(asset);
-  /** 四视图（兼容 meta.views 值 string / {file_path} 两种形态） */
-  const turnaroundViews = TURNAROUND_VIEWS.map((v) => {
-    const path = viewPathOf(asset.meta?.views, v.key);
-    return { ...v, url: path ? getMediaUrl(path, assetVer) : '' };
-  });
-  /** 有四视图：meta.turnaround 为真且 meta.views 非空（至少一张有效图） */
-  const hasTurnaround = isCharacter && !!asset.meta?.turnaround && turnaroundViews.some((v) => v.url);
+  /** 四视图整图 URL（meta.canvas：one-pass 一图四格，PIL 已标角色名/视图标签） */
+  const canvas = asset.meta?.canvas;
+  const canvasUrl = typeof canvas === 'string' && canvas
+    ? getMediaUrl(canvas, assetVer)
+    : '';
+  /** 有四视图：meta.turnaround 为真且整图存在（缺 canvas 的老资产回退主图预览） */
+  const hasTurnaround = isCharacter && !!asset.meta?.turnaround && !!canvasUrl;
   const mainUrl = asset.file_path ? getMediaUrl(asset.file_path, assetVer) : '';
-  /** 单图模式灯箱图源：主图 + 多视图（若有） */
-  const singleSrcs = [
-    ...(mainUrl ? [mainUrl] : []),
-    ...turnaroundViews.filter((v) => v.url).map((v) => v.url),
-  ];
   /** 本项目全部角色资产（角色切换器数据源） */
   const characterAssets = assets.filter((a) => a.kind === 'character');
   /** AI 参考图 URL（meta.reference_image 为真时：file_path 去文件名 + /reference.png） */
@@ -196,14 +167,6 @@ export default function AssetDetailPanel() {
     const dir = asset.file_path.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
     return getMediaUrl(dir ? `${dir}/reference.png` : 'reference.png', assetVer);
   })();
-
-  /** 打开四视图灯箱（srcs 仅含有效图，按槽位顺序） */
-  const openTurnaroundLightbox = (key: TurnaroundViewKey) => {
-    const withUrl = turnaroundViews.filter((v) => v.url);
-    const idx = withUrl.findIndex((v) => v.key === key);
-    if (idx < 0) return;
-    setLightbox({ srcs: withUrl.map((v) => v.url), idx });
-  };
 
   /** 失焦保存（名称/描述词；仅变更时调用） */
   const commitField = (field: 'name' | 'prompt') => {
@@ -242,6 +205,26 @@ export default function AssetDetailPanel() {
     fileRef.current?.click();
   };
 
+  /** 🌐 转为全局资产（跨项目复用）：迁移磁盘目录 + 脱离当前项目 */
+  const handleToGlobal = () => {
+    if (busy) return;
+    setBusy('toGlobal');
+    toGlobalAsset(asset.asset_id)
+      .then(({ alreadyGlobal }) => {
+        showToast(
+          alreadyGlobal
+            ? `「${asset.name}」已是全局资产`
+            : `「${asset.name}」已转为全局资产，可在全部项目中使用`,
+          alreadyGlobal ? 'info' : 'success',
+        );
+        // 转全局后资产脱离当前项目列表 → 清除选中回到资产面板
+        setSelectedAsset(null);
+        return fetchAssets();
+      })
+      .catch((err: unknown) => showToast(getErrorMessage(err, '转为全局资产失败'), 'error'))
+      .finally(() => setBusy(''));
+  };
+
   /** 上传前置校验（扩展名 + 10MB 上限，对齐后端约束） */
   const validateImageFile = (file: File): boolean => {
     const ext = `.${(file.name.split('.').pop() || '').toLowerCase()}`;
@@ -259,12 +242,12 @@ export default function AssetDetailPanel() {
   const handleFileChange = (file: File | undefined) => {
     if (!file || !validateImageFile(file)) return;
     setBusy('upload');
-    uploadAsset(currentProject.id, asset.kind, nameDraft.trim() || asset.name, file)
+    replaceAssetImage(asset.asset_id, file)
       .then(() => {
-        showToast('本地图片已上传为新资产', 'success');
+        showToast(`「${asset.name}」图片已替换`, 'success');
         return fetchAssets();
       })
-      .catch((err: unknown) => showToast(getErrorMessage(err, '图片上传失败'), 'error'))
+      .catch((err: unknown) => showToast(getErrorMessage(err, '图片替换失败'), 'error'))
       .finally(() => setBusy(''));
   };
 
@@ -292,20 +275,6 @@ export default function AssetDetailPanel() {
       })
       .catch((err: unknown) => showToast(getErrorMessage(err, '参考图删除失败'), 'error'))
       .finally(() => setBusy(''));
-  };
-
-  /** 四视图单视图重生（该张局部 loading，约 10-30s） */
-  const handleRegenerateView = (view: TurnaroundViewKey) => {
-    if (viewBusy) return;
-    const viewLabel = TURNAROUND_VIEWS.find((v) => v.key === view)?.label ?? view;
-    setViewBusy(view);
-    regenerateAssetView(asset.asset_id, view)
-      .then(() => {
-        showToast(`${viewLabel}视图已重新生成`, 'success');
-        return fetchAssets();
-      })
-      .catch((err: unknown) => showToast(getErrorMessage(err, `${viewLabel}视图重生失败`), 'error'))
-      .finally(() => setViewBusy(''));
   };
 
   /** AI 生图（角色走四视图管线；场景/道具走现有 regenerate；degraded 如实展示） */
@@ -404,44 +373,16 @@ export default function AssetDetailPanel() {
         <span className="badge primary">{kindLabel}</span>
       </div>
 
-      {/* 2. 预览区：四视图 2×2 网格 / 单图 */}
+      {/* 2. 预览区：四视图单图整图 / 单图 */}
       {hasTurnaround ? (
-        <div className="manga-view-grid">
-          {turnaroundViews.map((v) => (
-            <div key={v.key} className="manga-view-item">
-              <div className="manga-view-frame">
-                <button
-                  type="button"
-                  className="manga-view-thumb"
-                  disabled={!v.url}
-                  title={v.url ? `点击放大查看${v.label}视图` : `${v.label}视图缺失`}
-                  onClick={() => openTurnaroundLightbox(v.key)}
-                >
-                  {v.url ? (
-                    <img src={v.url} alt={`${asset.name} ${v.label}`} loading="lazy" />
-                  ) : (
-                    <span className="manga-view-ph">暂无图</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className={`manga-view-regen${viewBusy === v.key ? ' loading' : ''}`}
-                  disabled={viewBusy !== ''}
-                  title={`重新生成${v.label}视图（约 10-30 秒）`}
-                  onClick={() => handleRegenerateView(v.key)}
-                >
-                  {viewBusy === v.key ? (
-                    <span className="spinner manga-mini-spin" />
-                  ) : (
-                    <RefreshCw size={10} />
-                  )}
-                  重生
-                </button>
-              </div>
-              <span className="manga-view-label">{v.label}</span>
-            </div>
-          ))}
-        </div>
+        <button
+          type="button"
+          className="manga-view-sheet"
+          title="点击放大查看四视图整图（正面/侧面/背面/特写）"
+          onClick={() => setLightbox({ srcs: [canvasUrl], idx: 0 })}
+        >
+          <img src={canvasUrl} alt={`${asset.name} 四视图`} loading="lazy" />
+        </button>
       ) : (
         <div className="manga-asset-preview">
           {mainUrl ? (
@@ -449,7 +390,7 @@ export default function AssetDetailPanel() {
               type="button"
               className="manga-asset-preview-btn"
               title="点击放大查看"
-              onClick={() => setLightbox({ srcs: singleSrcs, idx: 0 })}
+              onClick={() => setLightbox({ srcs: [mainUrl], idx: 0 })}
             >
               <img src={mainUrl} alt={asset.name} />
             </button>
@@ -492,7 +433,7 @@ export default function AssetDetailPanel() {
         />
       </div>
 
-      {/* 5. 按钮行：✦ 生成描述词 / ☁ 本地图片 */}
+      {/* 5. 按钮行：✦ 生成描述词 / ☁ 本地图片 / 🌐 转为全局 */}
       <div className="flex gap-2">
         <button
           type="button"
@@ -508,11 +449,21 @@ export default function AssetDetailPanel() {
           type="button"
           className="btn btn-secondary btn-sm flex-1"
           disabled={busy !== ''}
-          title="上传本地图片登记为新资产（png/jpg/jpeg/webp ≤10MB）"
+          title="用本地图片替换当前资产的图片（png/jpg/jpeg/webp ≤10MB，不影响其他资产）"
           onClick={handlePickFile}
         >
           <CloudUpload size={13} />
-          {busy === 'upload' ? '上传中…' : '本地图片'}
+          {busy === 'upload' ? '替换中…' : '替换图片'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm flex-1"
+          disabled={busy !== ''}
+          title="转为全局资产：脱离当前项目，全部项目可复用（删除项目时全局资产保留）"
+          onClick={handleToGlobal}
+        >
+          <Globe size={13} />
+          {busy === 'toGlobal' ? '转换中…' : '转为全局'}
         </button>
         <input
           ref={fileRef}
@@ -693,7 +644,7 @@ export default function AssetDetailPanel() {
         </div>
       )}
 
-      {/* 灯箱（四视图 / 主图 + 多视图） */}
+      {/* 灯箱（四视图整图 / 主图） */}
       {lightbox !== null && (
         <AssetLightbox srcs={lightbox.srcs} initialIndex={lightbox.idx} onClose={() => setLightbox(null)} />
       )}

@@ -116,6 +116,33 @@ export interface HardwareProfile {
   ram: RamInfo;
   disk: DiskInfo;
   power: PowerInfo;
+  /** 硬件档位（文档B §4.2，如 rtx4070ti / rx6600 / cpu） */
+  tier?: { tier: string; label: string; matched_by?: string; [k: string]: unknown };
+  /** 手动档位覆盖（"auto" 表示自动探测） */
+  tier_override?: string;
+  /** P3 精度×量化兼容矩阵规格（见 engines.gpu_backend.resolve_precision） */
+  precision_spec?: {
+    compute_class?: string;
+    label?: string;
+    requested?: string;
+    resolved?: string;
+    quant_supported?: boolean;
+    quant?: boolean;
+    warned?: boolean;
+    supported_precisions?: string[];
+    recommended_backend?: string;
+    [k: string]: unknown;
+  };
+  /** P3 降级提示（实际运行设备 / 是否降级 / 中文诚实说明） */
+  degradation?: {
+    device?: string;
+    backend?: string;
+    degraded?: boolean;
+    directml_available?: boolean;
+    reason?: string;
+    compute_class?: string;
+    [k: string]: unknown;
+  };
 }
 
 /**
@@ -219,7 +246,7 @@ export interface HardwareRealtime {
 
 /* ------------------------------ 模型相关 ------------------------------ */
 
-/** 模型类别（规格 §3.1） */
+/** 模型类别（规格 §3.1 + omni 视觉语音全模态 2026-08-21） */
 export type ModelCategory =
   | 'dialog'
   | 'video'
@@ -227,7 +254,8 @@ export type ModelCategory =
   | 'vision'
   | 'language'
   | '3d'
-  | 'auxiliary';
+  | 'auxiliary'
+  | 'omni';
 
 /** 模型就绪状态 */
 export type ModelStatus = 'ready' | 'not_ready' | 'loading' | 'error';
@@ -298,6 +326,11 @@ export interface DialogMessage {
   favorite?: boolean;
   /** 引擎来源标注（如 qwen2vl） */
   engine?: string;
+  /** 深度思考过程（<think> 双通道 reasoning 帧；与 content 分离存储/渲染） */
+  reasoning?: string;
+  /** 思考耗时（毫秒；store 在首个 token 帧定格——正文开始即思考结束。
+   *  仅实时流式消息携带，历史回放无此字段（显示字数兜底） */
+  reasoning_ms?: number;
   /** 关联图片（多模态上传，DIALOG-031/038） */
   images?: string[];
   /** 令牌数估算 */
@@ -485,6 +518,8 @@ export interface ComicAsset {
   prompt: string;
   meta: Record<string, unknown>;
   created_at: number;
+  /** project=项目资产 / global=全局资产（跨项目复用，删除项目时保留） */
+  scope?: 'project' | 'global';
 }
 
 /** 关键帧版本（/manga/keyframe/list item） */

@@ -30,11 +30,9 @@ import type { StoryboardRow } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import {
   useDialogStore,
-  DIALOG_MODEL_OPTIONS,
   CONTEXT_TOKEN_OPTIONS,
   TEMPERATURE_MIN,
   TEMPERATURE_MAX,
-  type DialogModelSize,
 } from '@/stores/useDialogStore';
 import { usePaintStore } from '@/stores/usePaintStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -134,31 +132,55 @@ function elapsedText(sec: number | undefined): string {
 /* ============================== 1. AI 对话面板（/chat） ============================== */
 function ChatPanel() {
   const model = useDialogStore((s) => s.model);
+  const modelId = useDialogStore((s) => s.modelId);
+  const modelOptions = useDialogStore((s) => s.modelOptions);
   const temperature = useDialogStore((s) => s.temperature);
   const contextTokens = useDialogStore((s) => s.contextTokens);
-  const setModel = useDialogStore((s) => s.setModel);
+  const thinking = useDialogStore((s) => s.thinking);
+  const setModelId = useDialogStore((s) => s.setModelId);
+  const loadDialogModels = useDialogStore((s) => s.loadDialogModels);
   const setTemperature = useDialogStore((s) => s.setTemperature);
   const setContextTokens = useDialogStore((s) => s.setContextTokens);
+  const setThinking = useDialogStore((s) => s.setThinking);
   const currentSession = useDialogStore((s) => s.currentSession);
   const messages = useDialogStore((s) => s.messages);
   const generating = useDialogStore((s) => s.generating);
+
+  // 挂载时拉取可选模型清单（含可承载判定；不可承载自动回退）
+  useEffect(() => {
+    void loadDialogModels();
+  }, [loadDialogModels]);
+
+  /** 当前选中模型的清单项（清单为空 = 后端未就绪，回退档位展示） */
+  const current = modelOptions.find((m) => m.model_id === modelId);
 
   return (
     <>
       <Section title="对话设置">
         <div className="form-row">
-          <label className="form-label" htmlFor="rp-chat-model">模型选择</label>
+          <label className="form-label" htmlFor="rp-chat-model">
+            模型选择
+            <span className="form-value">{model}</span>
+          </label>
           <select
             id="rp-chat-model"
             className="input"
-            value={model}
-            onChange={(e) => setModel(e.target.value as DialogModelSize)}
+            value={modelOptions.length ? modelId : ''}
+            onChange={(e) => setModelId(e.target.value)}
           >
-            {DIALOG_MODEL_OPTIONS.map((m) => (
-              <option key={m} value={m}>{m}</option>
+            {modelOptions.length === 0 ? (
+              <option value="">{model}（清单加载中…）</option>
+            ) : modelOptions.map((m) => (
+              <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
+                {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
+              </option>
             ))}
           </select>
-          <div className="form-hint">档位说明：8B 质量最佳 / 4B 均衡 / 2B 速度最快</div>
+          <div className="form-hint">
+            {current
+              ? `${current.name} · 预估 ${current.est_vram_gb}GB${current.loaded ? ' · 已加载' : ' · 首次发送时加载/切换'}`
+              : '档位说明：8B 质量最佳 / 4B 均衡 / 2B 速度最快'}
+          </div>
         </div>
         <div className="form-row">
           <label className="form-label" htmlFor="rp-chat-temp">
@@ -189,6 +211,37 @@ function ChatPanel() {
               <option key={n} value={n}>{n} tokens</option>
             ))}
           </select>
+        </div>
+        {/* 深度思考开关（reasoning 双通道：思考过程与最终回答分离流式展示） */}
+        <div className="form-row">
+          <label className="form-label" htmlFor="rp-chat-thinking">
+            深度思考
+            <span className="form-value">{thinking ? '开启' : '关闭'}</span>
+          </label>
+          <button
+            id="rp-chat-thinking"
+            type="button"
+            role="switch"
+            aria-checked={thinking}
+            onClick={() => setThinking(!thinking)}
+            className={[
+              'relative w-10 h-5 rounded-full transition-colors duration-200 shrink-0',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]',
+              thinking ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-border)]',
+            ].join(' ')}
+            title={thinking ? '关闭深度思考' : '开启深度思考'}
+          >
+            <span
+              className={[
+                'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm',
+                'transition-transform duration-200',
+                thinking ? 'translate-x-5' : 'translate-x-0',
+              ].join(' ')}
+            />
+          </button>
+          <div className="form-hint">
+            开启后展示完整推理路径：问题分析 → 信息检索 → 方案评估 → 决策依据，思考完成再输出最终回答
+          </div>
         </div>
         {/* 诚实标注：WS 流式通道（_ws_handle_message）当前不消费 model/temperature/context_tokens，
             模型由后端按硬件档位自动路由；以上选择仅本地持久化，后续版本接入生成通道 */}

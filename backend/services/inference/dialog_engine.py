@@ -1,18 +1,16 @@
 """OmniSpace AI v2.3 对话推理引擎（TASK-004 真实推理实现）。
 
+专属推理框架的**编排层**（2026-08-21 统一后端协议裁定）：本模块只负责
+选型、物理显存闸门、显存腾挪协调、上下文组装与统一指标计时；推理介质
+细节收敛在可插拔后端（backends/ 包，DialogBackend 协议）：
+
+- vl/text → TransformersBackend（本进程直载，含知识 LoRA 挂载 R2-B04）
+- gguf    → GGUFBackend（llama.cpp，未安装时诚实门控，绝不伪造推理）
+- vllm    → VLLMBackend（独立子进程 py313，PagedAttention + AWQ int4）
+
 首选硬编码候选 Qwen3-VL（qwen3-vl-4b/8b，回退 qwen2-vl-2b）；同时支持
-**models/ 目录动态发现**——导入即用的三种后端：
-
-- vl   : 多模态模型（Qwen2/3-VL、LLaVA、InternVL2、MiniCPM-V、Phi-4-mm…）
-         AutoModelForImageTextToText + AutoProcessor
-- text : 纯文本/代码 LLM（Qwen3、Llama 3.x/4、GLM-4、DeepSeek 全系、Mistral、
-         Yi-1.5、Phi-3、StarCoder2、Codestral、Qwen-Coder…）
-         AutoModelForCausalLM + AutoTokenizer（trust_remote_code 覆盖自定义架构）
-- gguf : llama.cpp 后端（《显存阶梯参考》Q4_K_M 等量化格式单文件；
-         llama-cpp-python 未安装时诚实门控并给出安装指引，绝不伪造推理）
-
-加载安全：bfloat16 + device_map=cuda + 显存预检（不足先腾挪绘画引擎）。
-TextIteratorStreamer / llama.cpp stream 逐 token 产出，记录首 token 延迟。
+**models/ 目录动态发现**（导入即用）。接入新推理引擎只须实现
+backends.base.DialogBackend 并在 backends.create_backend 注册。
 
 单例用法::
 
@@ -29,9 +27,10 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from ...config import DIALOG_MAX_PREFILL_TOKENS, MODELS_DIR
+from .backends import DialogBackend, TransformersBackend, create_backend
 
 logger = logging.getLogger("omnispace.inference.dialog")
 
@@ -46,8 +45,12 @@ def _try_import(name: str) -> Any:
 
 # ── 候选对话模型（按优先级排序）─────────────────────────────────────
 # model_id -> (相对 models/ 的目录, 需求显存 GB)
+# 2026-08-21 多模型热切换：qwen3-vl-8b-awq（AWQ int4 ~6GB 权重，vLLM
+# 子进程后端）纳入候选。自动选择默认仍 4b（保留知识 LoRA 能力），
+# 显式请求 8b-awq 时经 load_model 热切换（杀 vLLM 进程 → 换目录重启）。
 DIALOG_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     ("qwen3-vl-4b", "qwen3-vl-4b", 9.0),
+    ("qwen3-vl-8b-awq", "qwen3-vl-8b-awq", 7.5),
     ("qwen2-vl-2b", "qwen2-vl-2b", 5.0),
 ]
 
@@ -106,12 +109,20 @@ def _read_config_model_type(model_dir: Path) -> tuple[str, list[str]]:
 
 
 def _detect_backend(model_dir: Path) -> str:
-    """判定 transformers 目录的对话后端：vl / text；不适合对话返回 ""。"""
+    """判定 transformers 目录的对话后端：vl / text / vllm；不适合对话返回 ""。
+
+    vllm：仅 vLLM 可推理的量化目录（quant_method ∈ awq /
+    compressed-tensors）——py310 主进程无 autoawq / compressed_tensors
+    包，transformers 加载不了，必须走 vllm_service 独立子进程
+    （runtime/py313）推理。
+    """
     model_type, archs = _read_config_model_type(model_dir)
     if model_type in _NON_DIALOG_MODEL_TYPES:
         return ""
     if any("whisper" in a or "bark" in a for a in archs):
         return ""
+    if _is_awq_model(model_dir):
+        return "vllm"
     if model_type in _VL_MODEL_TYPES:
         return "vl"
     if any("forcausallm" in a for a in archs):
@@ -133,6 +144,30 @@ def _detect_backend(model_dir: Path) -> str:
     if model_type and (model_dir / "tokenizer_config.json").is_file():
         return "text"
     return ""
+
+
+def _is_awq_model(model_dir: Path) -> bool:
+    """config.json 是否声明仅 vLLM 可推理的量化格式。
+
+    覆盖 quant_method ∈ {awq, compressed-tensors}：
+    - awq: py310 无 autoawq，transformers 加载不了
+    - compressed-tensors: int4 pack-quantized（2026-08-21 实测
+      Qwen3-VL-8B AWQ 官方包实为该格式），py310 无 compressed_tensors
+      包同样加载不了；两种格式 vLLM（py313）均原生支持
+    """
+    try:
+        import json as _json
+        with open(model_dir / "config.json", encoding="utf-8") as f:
+            raw = _json.load(f)
+        qcfg = raw.get("quantization_config")
+        if isinstance(qcfg, dict):
+            method = str(qcfg.get("quant_method") or "").lower()
+        else:
+            # 顶层 fmt（部分打包工具布局）
+            method = str(raw.get("quant_method") or "").lower()
+        return method in ("awq", "compressed-tensors")
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _estimate_vram_gb(path: Path, backend: str) -> float:
@@ -243,15 +278,128 @@ def _effective_candidates() -> list[tuple[str, str, float]]:
 
     高档位（HARDWARE_TIER_TABLE min_vram_gb ≥ 12，即 RTX 4090/5090 档）
     将 qwen3-vl-8b 纳入首选候选；其余档位保持 4b/2b 保守路由不变。
+
+    2026-08-20 修复：tier 表 min_vram_gb=12 严重低估 8b bf16 真实体积
+    （磁盘实测 16.3GB）——16GB 卡（5070 Ti 等）纳入 8b 首选后必然
+    OOM/驱动级崩溃。纳入前必须通过物理显存闸门校验。
     """
     if _gpu_tier_min_vram_gb() >= _HIGH_TIER_DIALOG_CANDIDATE[2]:
-        return [_HIGH_TIER_DIALOG_CANDIDATE, *DIALOG_MODEL_CANDIDATES]
+        path = _resolve_candidate_dir(_HIGH_TIER_DIALOG_CANDIDATE[1])
+        over = _exceeds_physical_vram(path, "vl") if path else 0.0
+        if over <= 0:
+            return [_HIGH_TIER_DIALOG_CANDIDATE, *DIALOG_MODEL_CANDIDATES]
+        logger.info(
+            "高档位候选 %s 剔除：估算加载 %.1fGB 超过物理显存 %.1fGB（回退 4b/2b 路由）",
+            _HIGH_TIER_DIALOG_CANDIDATE[0], over, _cuda_total_gb())
     return list(DIALOG_MODEL_CANDIDATES)
 
 DEFAULT_SYSTEM_PROMPT = (
     "你是 OmniSpace AI 的内置创作助手，精通中文，擅长绘画提示词、剧本、"
     "分镜与创作相关问答。回答简洁准确，必要时使用 Markdown 格式。"
 )
+
+# 深度思考模式追加段（2026-08-22 思考过程展示）：Qwen3-VL Instruct
+# 模板无 enable_thinking 变量（实测渲染 diff 为空）；实测模型对
+# <think> 标签指令遵守度不足（0/1 输出标签），但对【步骤名】标记
+# 协议 100% 遵守 → 思考/正文分界改用【最终回答】标记协议。
+THINKING_SYSTEM_SUFFIX = (
+    "\n\n【深度思考模式】收到问题后，请先展示你的思考过程，"
+    "严格按以下四步框架组织，每步以【步骤名】开头：\n"
+    "【问题分析】拆解问题的核心诉求与关键约束；\n"
+    "【信息检索】列出回答所需的已知信息与缺失信息；\n"
+    "【方案评估】对比候选方案的优劣；\n"
+    "【决策依据】说明最终选择的理由。\n"
+    "四步思考完成后，另起一行输出标记【最终回答】，然后在标记之后"
+    "输出最终回答（简洁准确，不要重复思考内容）。"
+)
+
+# 思考/正文分界标记（与 THINKING_SYSTEM_SUFFIX 协议配对）
+_ANSWER_MARKER = "【最终回答】"
+
+
+class _ThinkingStreamParser:
+    """流式思考分隔解析器（思考过程展示，2026-08-22）。
+
+    协议（实测裁定）：把后端原始文本流切分为 reasoning / content 双通道——
+      - thinking 模式下初始即 reasoning 态（思考先行）；
+      - reasoning 态遇 ``【最终回答】`` 切换 content 态（标记本身吞掉
+        不输出，正文气泡只见答案）；
+      - holdback：产出尾部若是标记真前缀（``【`` ``【最`` ``【最终`` 等）
+        扣留至可判定（标记跨 chunk 分割安全），其余直通零缓冲；
+      - 退化：EOF 仍未见标记（模型未遵守协议）→ reasoning 全文复制为
+        content 一条事件（保底气泡可见正文，宁重复不丢答案）。
+    """
+
+    _SEP = _ANSWER_MARKER
+    # 标记的全部真前缀，用于尾部扣留判定
+    _PREFIXES = tuple(sorted(
+        {_ANSWER_MARKER[:i] for i in range(1, len(_ANSWER_MARKER))},
+        key=len, reverse=True))
+
+    def __init__(self) -> None:
+        self._in_reasoning = True    # thinking 模式思考先行
+        self._seen_sep = False
+        self._reasoning_all = ""     # 退化复制用（全文累积）
+        self._buf = ""
+
+    def _tail_prefix_len(self, s: str) -> int:
+        """s 尾部匹配标记前缀的最长长度（0 = 无扣留）。"""
+        for p in self._PREFIXES:
+            if s.endswith(p):
+                return len(p)
+        return 0
+
+    def feed(self, text: str):
+        """喂入一段增量，产出 [(kind, chunk), ...]（kind: reasoning/content）。"""
+        self._buf += text
+        out: list[tuple[str, str]] = []
+        while True:
+            if self._in_reasoning:
+                idx = self._buf.find(self._SEP)
+                if idx >= 0:
+                    if idx:
+                        chunk = self._buf[:idx]
+                        out.append(("reasoning", chunk))
+                        self._reasoning_all += chunk
+                    self._buf = self._buf[idx + len(self._SEP):]
+                    self._in_reasoning = False
+                    self._seen_sep = True
+                    continue
+                keep = self._tail_prefix_len(self._buf)
+                emit, self._buf = self._buf[:len(self._buf) - keep], \
+                    self._buf[len(self._buf) - keep:]
+                if emit:
+                    out.append(("reasoning", emit))
+                    self._reasoning_all += emit
+            else:
+                # 正文态：分隔只切一次，其后标记按字面量直通
+                if self._buf:
+                    out.append(("content", self._buf))
+                    self._buf = ""
+            return out
+
+    def flush(self):
+        """EOF 冲刷：残余按当前状态归属；未见标记时思考全文复制为正文。"""
+        out: list[tuple[str, str]] = []
+        if self._buf:
+            if self._in_reasoning:
+                out.append(("reasoning", self._buf))
+                self._reasoning_all += self._buf
+            else:
+                out.append(("content", self._buf))
+            self._buf = ""
+        if not self._seen_sep and self._reasoning_all:
+            out.append(("content", self._reasoning_all))
+        return out
+
+
+def strip_think_tags(text: str) -> str:
+    """非流式兜底剥离（M-4）：解析器异常路径残留标签不再污染上下文。"""
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1]
+    if "<think>" in text:
+        text = text.replace("<think>", "", 1)
+    return text
 
 
 def _find_weight_file(model_dir: Path) -> bool:
@@ -307,6 +455,35 @@ def _cuda_free_gb() -> float:
         return 0.0
 
 
+def _cuda_total_gb() -> float:
+    """GPU 物理显存总量（GB）；无 CUDA 时返回 0。"""
+    torch = _try_import("torch")
+    if torch is None or not torch.cuda.is_available():
+        return 0.0
+    try:
+        return torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    except Exception:
+        return 0.0
+
+
+def _exceeds_physical_vram(path: Path, backend: str) -> float:
+    """硬闸门：估算加载量超过物理显存总量 98% 时返回估算值（>0 = 拒绝）。
+
+    2026-08-20 后端崩溃修复：qwen3-vl-8b bf16 权重 16.3GB 被显式请求加载进
+    15.92GB 的 5070 Ti，device_map 塞下后推理时 CUDA 驱动级崩溃直接杀死
+    进程（后端失联 → 前端代理 500）。任何模型（显式指定也不例外）超过
+    物理总量都必须在选型阶段拒绝——这不是"空闲不足可腾挪"的问题，是
+    物理装不下。返回 0 表示通过。
+    """
+    total = _cuda_total_gb()
+    if total <= 0:
+        return 0.0
+    est = _estimated_load_gb(path, backend)
+    if est > total * 0.98:
+        return est
+    return 0.0
+
+
 def _release_cuda_memory() -> None:
     """彻底释放 CUDA 显存：多轮 gc（拆引用环）+ 清空缓存 + 同步 + IPC 回收。"""
     for _ in range(3):
@@ -327,52 +504,15 @@ def _release_cuda_memory() -> None:
 
 
 def _precision_pref() -> str:
-    """读取 models.config.precision 加载偏好（bf16/fp16/fp32/int8/int4）。
-
-    读取失败一律回退 bf16（历史默认行为）。
-    """
-    try:
-        import json as _json
-
-        from ...data.database import get_db_safe
-        db = get_db_safe()
-        if db is not None:
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key='models.config'")
-            if row:
-                return str((_json.loads(row["value"]) or {}).get(
-                    "precision", "bf16")).lower()
-    except Exception:  # noqa: BLE001
-        pass
-    return "bf16"
-
-
-def _preferred_load_dtype(torch) -> tuple:
-    """读取 models.config.precision 加载偏好（MODEL-034，PUT /models/config）。
-
-    Returns:
-        (dtype, extra_kwargs)：bf16/fp16/fp32 直接映射；int8/int4 需
-        bitsandbytes（未安装回退 bf16 并记日志，绝不伪造量化）。
-    """
-    prec = _precision_pref()
-    if prec == "fp16":
-        return torch.float16, {}
-    if prec == "fp32":
-        return torch.float32, {}
-    if prec in ("int8", "int4"):
-        if _try_import("bitsandbytes") is not None:
-            logger.info("按 models.config 偏好启用 %s 量化加载", prec)
-            if prec == "int8":
-                return torch.bfloat16, {"load_in_8bit": True}
-            return torch.bfloat16, {"load_in_4bit": True}
-        logger.warning("bitsandbytes 未安装，%s 量化不可用，回退 bf16", prec)
-    return torch.bfloat16, {}
+    """读取 models.config.precision 加载偏好（转发 backends.base，兼容旧引用）。"""
+    from .backends.base import _precision_pref as _pref
+    return _pref()
 
 
 def _estimated_load_gb(path: Path, backend: str) -> float:
     """按当前精度偏好估算实际加载显存（GB）。
 
-    与 _preferred_load_dtype 口径一致：int8/int4 量化按权重量化比例折减；
+    与 preferred_load_dtype 口径一致：int8/int4 量化按权重量化比例折减；
     bitsandbytes 缺失时量化不可用，保持 bf16 估算（诚实不低估）。
     """
     est = _estimate_vram_gb(path, backend)
@@ -386,36 +526,35 @@ def _estimated_load_gb(path: Path, backend: str) -> float:
 
 
 class DialogEngine:
-    """对话推理引擎——Qwen3-VL / Qwen2-VL（transformers 后端）。
+    """对话推理引擎（编排层）——后端可插拔（transformers/gguf/vllm）。
 
     状态机: unavailable -> unloaded -> ready / error
       - unavailable: 依赖缺失或所有候选模型目录不完整
       - unloaded:    至少一个候选模型就绪但尚未加载
       - ready:       模型已加载可推理
       - error:       上次加载失败（可重试 load_model）
+
+    推理串行化由各后端自治（transformers/gguf 持锁，vLLM 子进程天然
+    并发）；引擎层只做生命周期串行（_lock）与统一指标计时。
     """
 
     def __init__(self) -> None:
-        self._model: Any = None
-        self._processor: Any = None
+        # 当前后端实例（None 表示未加载）
+        self._backend: DialogBackend | None = None
+        # 当前后端类型字符串（vl/text/gguf/vllm，get_status 兼容口径）
+        self._backend_name: str = ""
         self._model_id: str = ""
         self._model_dir: Path | None = None
         self._state: str = "unavailable"
         self._last_error: str = ""
-        # 当前后端类型：vl / text / gguf（"" 表示未加载）
-        self._backend: str = ""
-        # 当前挂载的知识 LoRA 版本（R2-B04，"" 表示纯基座推理）
-        self._lora_version: str = ""
         self._lock = threading.Lock()
-        # 推理串行锁：单 GPU 单模型实例，并发 generate 会叠加 KV 缓存与
-        # logits 显存导致分配器颠簸（实测 16GB 显存两路并发 prefill 卡死）。
-        # 功能锁同功能可重入（规格 §6.1），故在引擎层串行化推理。
-        self._infer_lock = threading.Lock()
 
-        # 推理统计
+        # 推理统计（编排层统一计时，后端无感知）
         self.last_first_token_ms: float = 0.0
         self.last_total_ms: float = 0.0
         self.last_output_tokens: int = 0
+        # 深度思考模式：正文首字延迟（首个 content 片段时刻）
+        self.last_first_content_ms: float = 0.0
 
         self._refresh_availability()
 
@@ -446,26 +585,49 @@ class DialogEngine:
     def _pick_model(self, model_id: str | None) -> tuple[str, Path, float, str] | None:
         """选择要加载的模型：指定优先，否则按候选顺序取第一个就绪的。
 
+        物理显存硬闸门（2026-08-20 修复）：无论显式指定还是自动选择，
+        估算加载量超过物理总量 98% 一律拒绝——16.3GB 权重塞 16GB 卡
+        会在推理时触发 CUDA 驱动级崩溃直接杀死后端进程。
+
         Returns:
             (model_id, 路径, 预估显存GB, 后端类型 vl|text|gguf)；无可用返回 None
         """
+        total = _cuda_total_gb()
         for mid, rel, vram in _effective_candidates():
             if model_id and mid != model_id:
                 continue
             path = _resolve_candidate_dir(rel)
             if path is None:
                 continue
+            # 后端按目录真实探测（2026-08-21 热切换修复：候选表纳入
+            # qwen3-vl-8b-awq 后曾硬编码 "vl" 导致 AWQ 误走 transformers
+            # 加载失败 compressed_tensors ImportError——必须经
+            # _detect_backend 路由到 vllm 子进程后端）
+            kind = _detect_backend(path) or "vl"
+            # 物理闸门：超物理总量的模型显式指定也拒绝（防止进程级崩溃）
+            over = _exceeds_physical_vram(path, kind)
+            if over > 0:
+                if model_id is None:
+                    logger.info(
+                        "自动选择跳过 %s：预估加载 %.1fGB 超过物理显存 %.1fGB",
+                        mid, over, total)
+                    continue
+                self._last_error = (
+                    f"模型 {mid} 预估加载 {over:.1f}GB 超过本机物理显存 "
+                    f"{total:.1f}GB，无法加载（请选择更小的模型或量化版本）")
+                logger.warning("物理闸门拒绝加载 %s: %s", mid, self._last_error)
+                return None
             if model_id is None:
-                # 自动选择：预估显存装不下时跳过（候选常量仅为档位下限，
-                # bf16 实载可能远超，如 8B/16.3GB 权重在 16GB 卡上 OOM）
-                est = _estimated_load_gb(path, "vl")
+                # 自动选择：预估显存装不下当前空闲时跳过（候选常量仅为
+                # 档位下限，bf16 实载可能远超；空闲不足可腾挪故仅自动跳过）
+                est = _estimated_load_gb(path, kind)
                 free = _cuda_free_gb()
                 if est > free:
                     logger.info(
                         "自动选择跳过 %s：预估加载 %.1fGB > 空闲 %.1fGB",
                         mid, est, free)
                     continue
-            return mid, path, vram, "vl"
+            return mid, path, vram, kind
         # 动态发现（导入 models/ 即可用）
         discovered = discover_dialog_models()
         if model_id:
@@ -479,6 +641,14 @@ class DialogEngine:
                         break
             if hit is None:
                 return None
+            # 动态发现命中同样过物理闸门
+            over = _exceeds_physical_vram(Path(hit["path"]), hit["backend"])
+            if over > 0:
+                self._last_error = (
+                    f"模型 {model_id} 预估加载 {over:.1f}GB 超过本机物理显存 "
+                    f"{total:.1f}GB，无法加载（请选择更小的模型或量化版本）")
+                logger.warning("物理闸门拒绝加载 %s: %s", model_id, self._last_error)
+                return None
             return model_id, Path(hit["path"]), float(hit["vram_gb"]), hit["backend"]
         # 自动选择：按显存需求升序取第一个能放下的（小模型优先，加载更快更稳）
         free = _cuda_free_gb()
@@ -486,13 +656,40 @@ class DialogEngine:
                                 key=lambda kv: kv[1]["vram_gb"]):
             if info["vram_gb"] <= max(free, 0.1):
                 return mid, Path(info["path"]), float(info["vram_gb"]), info["backend"]
-        # 全部超过空闲显存时仍返回最小者（由 check_vram 腾挪/报错）
+        # 全部超过空闲显存时仍返回最小者（由 check_vram 腾挪/报错）；
+        # 但最小者也超物理总量时拒绝（物理装不下腾挪无意义）
         if discovered:
             mid, info = min(discovered.items(), key=lambda kv: kv[1]["vram_gb"])
+            over = _exceeds_physical_vram(Path(info["path"]), info["backend"])
+            if over > 0:
+                self._last_error = (
+                    f"模型 {mid} 预估加载 {over:.1f}GB 超过本机物理显存 "
+                    f"{total:.1f}GB，无法加载（请选择更小的模型或量化版本）")
+                return None
             return mid, Path(info["path"]), float(info["vram_gb"]), info["backend"]
         return None
 
     # ── 显存协调 ──────────────────────────────────────────────────
+
+    # 2026-08-22 VACE 误卸事故：video_gen 任务持锁生成期间，VL 腾挪把
+    # 刚装载的 VACE 视为"冲突模型"卸载，任务回退到弱能力 LTX 重组管线
+    # （画面质量投诉根因）。功能锁活动期间，其依赖类别的模型受保护。
+    _LOCK_CATEGORY_SHIELD: ClassVar[dict[str, frozenset[str]]] = {
+        "video_gen": frozenset({"video", "video_gen"}),
+        "paint": frozenset({"paint", "image"}),
+    }
+
+    @classmethod
+    def _locked_shielded_categories(cls) -> frozenset[str]:
+        """当前功能锁持有者所保护、不可腾挪卸载的模型类别。"""
+        try:
+            from ...middleware.feature_lock import get_feature_lock
+            holder = get_feature_lock().active_feature
+            if holder:
+                return cls._LOCK_CATEGORY_SHIELD.get(holder, frozenset())
+        except Exception:  # noqa: BLE001 - 锁查询失败不阻断腾挪
+            pass
+        return frozenset()
 
     def _try_free_vram(self, required_gb: float) -> float:
         """显存不足时尝试腾挪：先走 model_manager 契约，再直接卸载绘画引擎。
@@ -504,11 +701,17 @@ class DialogEngine:
         if free >= required_gb:
             return free
 
+        shielded = self._locked_shielded_categories()
+        if shielded:
+            logger.info("显存腾挪: 功能锁保护类别 %s（持锁任务模型不卸载）",
+                        sorted(shielded))
         # 契约 1: model_manager（容错 import）——卸载记账中的冲突类别模型
         try:
             from ..model_manager import get_model_manager  # type: ignore
             mgr = get_model_manager()
             for entry in mgr.get_loaded_models():
+                if entry.get("category") in shielded:
+                    continue
                 if entry.get("category") in ("vision", "paint", "image",
                                              "video", "video_gen"):
                     logger.info("经 model_manager 卸载冲突模型: %s",
@@ -516,9 +719,18 @@ class DialogEngine:
                     mgr.unload_model(entry["model_id"])
             # 审计 R2-C01：单模型驻留多类别（paint+embedding+3D 等）时
             # 驱逐一个可能仍不足，循环驱逐最低优先级直到满足或无可驱逐。
+            # 驱逐了盾类别模型时立即停止（锁保护止损）。
             free = _cuda_free_gb()
             while free < required_gb and mgr.get_loaded_models():
+                before = {e["model_id"]: e.get("category")
+                          for e in mgr.get_loaded_models()}
                 if not mgr.evict_lowest_priority():
+                    break
+                after_ids = {e["model_id"] for e in mgr.get_loaded_models()}
+                evicted = [(mid, cat) for mid, cat in before.items()
+                           if mid not in after_ids]
+                if any(cat in shielded for _, cat in evicted):
+                    logger.warning("腾挪驱逐了功能锁保护模型，停止后续腾挪")
                     break
                 free = _cuda_free_gb()
         except Exception as exc:
@@ -552,10 +764,11 @@ class DialogEngine:
     # ── 加载 / 卸载 ───────────────────────────────────────────────
 
     def load_model(self, model_id: str | None = None) -> bool:
-        """加载对话模型到 GPU。
+        """加载对话模型到 GPU（统一后端协议路由）。
 
-        流程: 选模型（硬编码候选 ∪ models/ 动态发现）→ 显存预检（不足尝试
-        腾挪）→ 按后端加载（vl/text 走 transformers，gguf 走 llama.cpp）。
+        流程: 选模型（硬编码候选 ∪ models/ 动态发现，物理显存闸门）
+        → transformers 系显存预检（不足尝试腾挪；gguf 可部分 offload、
+        vllm 子进程预算制，二者无须硬闸）→ create_backend(kind).load()。
         任何失败都收敛为状态 error/unavailable，不抛异常。
 
         Args:
@@ -565,6 +778,9 @@ class DialogEngine:
             True 加载成功
         """
         with self._lock:
+            self._last_error = ""
+            _t0 = time.perf_counter()
+            _prev_model = self._model_id
             if self._state == "ready":
                 if not model_id or model_id in (self._model_id,
                                                 Path(self._model_id).stem):
@@ -574,303 +790,216 @@ class DialogEngine:
                 # 引擎直连路径）
                 logger.info("load_model 请求模型 %s 与当前 %s 不同，先卸载切换",
                             model_id, self._model_id)
-                self._model = None
-                self._processor = None
-                self._model_id = ""
-                self._model_dir = None
-                self._backend = ""
-                self._lora_version = ""
-                self._state = "unloaded"
-                _release_cuda_memory()
+                try:  # 大白话事件：模型热切换开始
+                    from ..event_log import log_event
+                    log_event(
+                        "dialog", "model_switching",
+                        f"正在切换对话模型：从「{_prev_model or '未加载'}」"
+                        f"换成「{model_id}」（需要先释放旧模型的显存，"
+                        "大约需要 1 分钟）",
+                        level="info",
+                        detail=f"from={_prev_model}, to={model_id}")
+                except Exception:  # noqa: BLE001
+                    pass
+                self._switch_reset()
+                # 同步 model_manager 旧条目（2026-08-22 事故根修）：
+                # 不清理会残留 stale loaded 条目，resource_guard 驱逐
+                # stale 时经 dialog 关联回调 unload_model() 误杀引擎
+                # 新持有模型（台账与实际错位）；release_stale 只清台账
+                # 不回调引擎（引擎侧 _switch_reset 已释放完毕）
+                try:
+                    from ..model_manager import get_model_manager
+                    get_model_manager().release_stale(_prev_model)
+                except Exception:  # noqa: BLE001 - 台账同步失败不阻断加载
+                    pass
 
             pick = self._pick_model(model_id)
             if pick is None:
-                self._last_error = (
-                    f"对话模型未找到（尝试过: "
-                    f"{[c[0] for c in _effective_candidates()]} + models/ 动态发现），"
-                    "请先把模型目录或 GGUF 文件放入 models/"
-                )
+                # 物理闸门拒绝时 _last_error 已有详细原因，优先保留
+                if not self._last_error:
+                    self._last_error = (
+                        f"对话模型未找到（尝试过: "
+                        f"{[c[0] for c in _effective_candidates()]} + models/ 动态发现），"
+                        "请先把模型目录或 GGUF 文件放入 models/"
+                    )
                 self._state = "unavailable"
                 logger.warning(self._last_error)
                 return False
 
-            mid, path, required_gb, backend = pick
+            mid, path, required_gb, kind = pick
 
-            if backend == "gguf":
-                return self._load_gguf_model(mid, path, required_gb)
+            # transformers 系（vl/text）：本进程直载，须显存预检
+            if kind in ("vl", "text"):
+                torch = _try_import("torch")
+                transformers = _try_import("transformers")
+                if torch is None or transformers is None:
+                    self._last_error = "torch/transformers 依赖不可用"
+                    self._state = "unavailable"
+                    logger.warning("对话引擎不可用: %s", self._last_error)
+                    return False
 
-            torch = _try_import("torch")
-            transformers = _try_import("transformers")
-            if torch is None or transformers is None:
-                self._last_error = "torch/transformers 依赖不可用"
-                self._state = "unavailable"
-                logger.warning("对话引擎不可用: %s", self._last_error)
-                return False
+                if not torch.cuda.is_available():
+                    self._last_error = "未检测到 CUDA GPU，无法加载对话模型"
+                    self._state = "error"
+                    logger.warning(self._last_error)
+                    return False
 
-            if not torch.cuda.is_available():
-                self._last_error = "未检测到 CUDA GPU，无法加载对话模型"
-                self._state = "error"
-                logger.warning(self._last_error)
-                return False
+                ok_vram, free_gb = self.check_vram(required_gb)
+                if not ok_vram:
+                    self._last_error = (
+                        f"显存不足：空闲 {free_gb:.1f}GB，需求约 {required_gb:.0f}GB"
+                    )
+                    self._state = "error"
+                    logger.warning(self._last_error)
+                    try:  # 大白话事件：显存不足
+                        from ..event_log import log_event
+                        log_event(
+                            "dialog", "model_load_failed",
+                            f"对话模型「{mid}」没加载成功：显存不够了"
+                            f"（空闲 {free_gb:.1f}GB，需要约 {required_gb:.0f}GB）。"
+                            "建议先关掉其他占显存的功能，或换个小一点的模型",
+                            level="error",
+                            detail=f"free={free_gb:.1f}GB, "
+                                   f"required={required_gb:.0f}GB")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return False
 
-            ok_vram, free_gb = self.check_vram(required_gb)
-            if not ok_vram:
-                self._last_error = (
-                    f"显存不足：空闲 {free_gb:.1f}GB，需求约 {required_gb:.0f}GB"
-                )
-                self._state = "error"
-                logger.warning(self._last_error)
-                return False
-
+            backend = create_backend(kind)
             try:
-                logger.info("开始加载对话模型 %s <- %s（后端: %s）", mid, path, backend)
-                if backend == "text":
-                    model, processor = self._load_text_transformers(
-                        torch, transformers, path)
-                else:
-                    model, processor = self._load_vl_transformers(
-                        torch, transformers, path)
+                if not backend.load(mid, path, required_gb):
+                    self._last_error = backend.last_error()
+                    self._state = "error"
+                    self._backend = None
+                    self._backend_name = ""
+                    logger.warning("后端加载失败(%s): %s", kind,
+                                   self._last_error)
+                    try:  # 大白话事件：后端加载失败
+                        from ..event_log import log_event
+                        log_event(
+                            "dialog", "model_load_failed",
+                            f"对话模型「{mid}」加载失败："
+                            f"{backend.last_error()[:120]}",
+                            level="error",
+                            detail=f"backend={kind}")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    gc.collect()
+                    return False
 
-                self._processor = processor
-                # R2-B04 自主进化闭环：基座加载成功后挂载当前生效的知识
-                # LoRA adapter（训练成果影响推理）；失败回退基座，不崩溃。
-                model, lora_version = self._attach_knowledge_lora(model, path)
-                self._model = model
-                self._lora_version = lora_version
+                self._backend = backend
+                self._backend_name = kind
                 self._model_id = mid
                 self._model_dir = path
-                self._backend = backend
                 self._state = "ready"
                 self._last_error = ""
+                _load_ms = (time.perf_counter() - _t0) * 1000
                 logger.info("对话模型加载成功: %s（后端: %s，知识 LoRA: %s）",
-                            mid, backend, lora_version or "无")
+                            mid, kind, backend.lora_version or "无")
+                try:  # 大白话事件：模型加载成功
+                    from ..event_log import log_event
+                    _friendly = (
+                        f"对话模型「{mid}」切换完成，用了 {_load_ms/1000:.0f} 秒"
+                        if _prev_model else
+                        f"对话模型「{mid}」加载完成，用了 {_load_ms/1000:.0f} 秒")
+                    log_event(
+                        "dialog", "model_loaded", _friendly,
+                        level="success", duration_ms=_load_ms,
+                        detail=(f"backend={kind}, vram_free="
+                                f"{_cuda_free_gb():.1f}GB, "
+                                f"lora={backend.lora_version or 'none'}"))
+                except Exception:  # noqa: BLE001
+                    pass
                 return True
             except Exception as exc:  # noqa: BLE001 - 加载失败收敛为状态
                 self._last_error = f"对话模型加载失败: {exc}"
                 self._state = "error"
-                self._model = None
-                self._processor = None
-                self._backend = ""
+                self._backend = None
+                self._backend_name = ""
                 logger.exception("对话模型加载失败")
                 gc.collect()
-                try:
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                except Exception:
+                _release_cuda_memory()
+                try:  # 大白话事件：加载异常
+                    from ..event_log import log_event
+                    log_event(
+                        "dialog", "model_load_failed",
+                        f"对话模型「{model_id or '自动选择'}」加载出错了："
+                        f"{exc}。可以重试一次，或换个小一点的模型",
+                        level="error", detail=f"exc={exc}")
+                except Exception:  # noqa: BLE001
                     pass
                 return False
 
-    @staticmethod
-    def _load_vl_transformers(torch, transformers, path: Path):
-        """VL 多模态加载路径（Qwen-VL / LLaVA / InternVL 等）。
-
-        Returns:
-            (model, processor)
-        """
-        try:
-            processor = transformers.AutoProcessor.from_pretrained(
-                str(path), trust_remote_code=True)
-        except TypeError:  # 旧版 transformers 无 trust_remote_code 参数
-            processor = transformers.AutoProcessor.from_pretrained(str(path))
-
-        model_cls = getattr(transformers, "AutoModelForImageTextToText", None)
-        if model_cls is None:
-            model_cls = getattr(transformers, "AutoModelForVision2Seq", None)
-        if model_cls is None:
-            raise RuntimeError("当前 transformers 版本不支持视觉对话模型")
-
-        dtype, extra = _preferred_load_dtype(torch)
-        try:
-            model = model_cls.from_pretrained(
-                str(path),
-                torch_dtype=dtype,
-                device_map="cuda",
-                trust_remote_code=True,
-                **extra,
-            )
-        except Exception as exc:
-            # Qwen3-VL 类不可用时回退 Vision2Seq
-            logger.warning("主加载路径失败(%s)，尝试回退加载", exc)
-            fallback_cls = transformers.AutoModelForVision2Seq
-            model = fallback_cls.from_pretrained(
-                str(path),
-                torch_dtype=dtype,
-                device_map="cuda",
-                trust_remote_code=True,
-                **extra,
-            )
-        return model, processor
-
-    @staticmethod
-    def _load_text_transformers(torch, transformers, path: Path):
-        """纯文本 LLM 加载路径（Qwen3 / Llama / GLM-4 / DeepSeek / Mistral /
-        Yi / Phi / 代码模型等，trust_remote_code 覆盖 GLM/MiniCPM 自定义架构）。
-
-        Returns:
-            (model, tokenizer)
-        """
-        tokenizer = transformers.AutoTokenizer.from_pretrained(
-            str(path), trust_remote_code=True)
-        dtype, extra = _preferred_load_dtype(torch)
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            str(path),
-            torch_dtype=dtype,
-            device_map="cuda",
-            trust_remote_code=True,
-            **extra,
-        )
-        return model, tokenizer
-
-    def _load_gguf_model(self, mid: str, path: Path, required_gb: float) -> bool:
-        """GGUF 后端加载（llama.cpp，文档《显存阶梯参考》主力量化格式）。
-
-        llama-cpp-python 未安装时诚实门控（状态 error + 明确指引），
-        绝不伪造推理结果。
-        """
-        llama_cpp = _try_import("llama_cpp")
-        if llama_cpp is None:
-            self._last_error = (
-                f"模型 {mid} 为 GGUF 格式，需要 llama.cpp 推理后端；"
-                "请执行: pip install llama-cpp-python 后重启服务"
-            )
-            self._state = "error"
-            logger.warning("GGUF 加载门控: llama-cpp-python 不可用")
-            return False
-
-        torch = _try_import("torch")
-        cuda_ok = bool(torch is not None and torch.cuda.is_available())
-        if cuda_ok:
-            ok_vram, free_gb = self.check_vram(required_gb)
-            if not ok_vram:
-                # llama.cpp 支持部分 offload：显存不足时不直接失败，
-                # 由 n_gpu_layers 自动截断到可放入显存的层数
-                logger.info("显存 %.1fGB < 预估 %.1fGB，GGUF 将部分层 offload 到 CPU",
-                            free_gb, required_gb)
-
-        try:
-            logger.info("开始加载 GGUF 对话模型 %s <- %s", mid, path)
-            llm = llama_cpp.Llama(
-                model_path=str(path),
-                n_ctx=8192,
-                n_gpu_layers=-1 if cuda_ok else 0,  # -1=尽可能全量 offload
-                verbose=False,
-            )
-            self._model = llm
-            self._processor = None
-            self._model_id = mid
-            self._model_dir = path
-            self._backend = "gguf"
-            self._lora_version = ""   # llama.cpp 路径不挂载 peft LoRA
-            self._state = "ready"
-            self._last_error = ""
-            logger.info("GGUF 对话模型加载成功: %s（GPU offload: %s）",
-                        mid, "全量尝试" if cuda_ok else "纯 CPU")
-            return True
-        except Exception as exc:  # noqa: BLE001
-            self._last_error = f"GGUF 模型加载失败: {exc}"
-            self._state = "error"
-            self._model = None
-            self._backend = ""
-            logger.exception("GGUF 模型加载失败")
-            return False
+    def _switch_reset(self) -> None:
+        """热切换前的就地重置（调用方须持 _lock）。"""
+        backend, self._backend = self._backend, None
+        self._backend_name = ""
+        self._model_id = ""
+        self._model_dir = None
+        self._state = "unloaded"
+        if backend is not None:
+            try:
+                backend.unload()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("切换卸载旧后端异常: %s", exc)
+        _release_cuda_memory()
 
     def unload_model(self) -> bool:
-        """卸载模型并释放显存。返回是否有模型被卸载。"""
+        """卸载模型并释放显存（统一走 backend.unload）。
+
+        vLLM 后端卸载 = 杀整棵子进程树，显存随进程销毁瞬时回收
+        （独立进程架构核心收益）；transformers/gguf 由后端置空引用 +
+        引擎层 _release_cuda_memory 兜底。
+        """
         with self._lock:
-            had = self._model is not None
-            self._model = None
-            self._processor = None
+            backend, self._backend = self._backend, None
+            had = backend is not None
+            _unloaded_name = self._model_id
+            _unloaded_backend = self._backend_name
+            self._backend_name = ""
             self._model_id = ""
             self._model_dir = None
-            self._backend = ""
-            self._lora_version = ""
             if had:
                 self._state = "unloaded"
+                try:
+                    backend.unload()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("后端卸载异常: %s", exc)
             _release_cuda_memory()
             if had:
                 logger.info("对话模型已卸载，显存已释放（空闲 %.1fGB）",
                             _cuda_free_gb())
+                try:  # 大白话事件：模型卸载
+                    from ..event_log import log_event
+                    log_event(
+                        "dialog", "model_unloaded",
+                        f"对话模型「{_unloaded_name}」已卸载，"
+                        f"显存已释放（当前空闲 {_cuda_free_gb():.1f}GB）",
+                        level="info",
+                        detail=f"backend={_unloaded_backend or 'unknown'}")
+                except Exception:  # noqa: BLE001
+                    pass
             return had
 
     # ── 知识 LoRA 挂载（R2-B04 自主进化闭环）────────────────────
-
-    def _attach_knowledge_lora(self, model: Any,
-                               model_dir: Path | None) -> tuple[Any, str]:
-        """基座加载后挂载当前生效的知识 LoRA adapter。
-
-        查询 lora_training_service 的 current 版本（models/lora/vN，
-        adapter_model.bin/safetensors + adapter_config.json），基座匹配时
-        用 peft.PeftModel 包装（QLoRA adapter 仅数十 MB，不破坏现有
-        generate 调用）。无版本/基座不匹配/peft 缺失/挂载异常 →
-        log warning 并回退基座推理，绝不崩溃。
-
-        Returns:
-            (模型（可能为 PeftModel 包装）, 已挂载版本号（"" 表示基座）)
-        """
-        try:
-            from ..lora_training_service import LORA_DIR, get_lora_training_service
-            svc = get_lora_training_service()
-            version = svc.get_current()
-            if not version:
-                return model, ""
-            adapter_dir = LORA_DIR / version
-            if not (adapter_dir / "adapter_config.json").is_file():
-                logger.warning("知识 LoRA %s 缺 adapter_config.json，"
-                               "回退基座推理", version)
-                return model, ""
-            # 基座匹配校验：adapter 训练基座须与当前加载模型目录一致
-            meta = svc._read_meta(adapter_dir) or {}
-            base_name = Path(str(meta.get("base_model") or "")).name
-            if (base_name and model_dir is not None
-                    and base_name != model_dir.name):
-                logger.warning("知识 LoRA %s 训练基座(%s)与当前模型(%s)不匹配，"
-                               "跳过挂载（回退基座推理）",
-                               version, base_name, model_dir.name)
-                return model, ""
-            peft = _try_import("peft")
-            if peft is None:
-                logger.warning("peft 不可用，知识 LoRA %s 跳过挂载"
-                               "（回退基座推理）", version)
-                return model, ""
-            wrapped = peft.PeftModel.from_pretrained(model, str(adapter_dir))
-            wrapped.eval()
-            logger.info("知识 LoRA 已挂载: %s → %s", version,
-                        self._model_id or model_dir)
-            return wrapped, version
-        except Exception as exc:  # noqa: BLE001 - 挂载失败回退基座
-            logger.warning("知识 LoRA 挂载失败，回退基座推理: %s", exc)
-            return model, ""
+    # 实现收敛在 TransformersBackend（仅 transformers 路径支持 peft）
 
     def refresh_knowledge_lora(self) -> dict:
-        """热更新知识 LoRA（R2-B04）：current 版本变化时卸载旧 adapter 挂新版。
+        """热更新知识 LoRA（R2-B04）：current 版本变化时卸载旧挂新版。
 
         低成本切换路径：引擎未 ready 时无需动作（下次 load_model 自动
         挂载最新版）；已 ready 时经 PeftModel.unload() 退回基座后重新挂载。
         训练完成（lora_training_service._run_task）会调用本方法。
         """
         with self._lock:
-            if self._state != "ready" or self._model is None:
-                return {"changed": False, "version": self._lora_version,
+            backend = self._backend
+            if self._state != "ready" or backend is None:
+                return {"changed": False, "version": "",
                         "reason": "engine_not_ready"}
-            try:
-                from ..lora_training_service import get_lora_training_service
-                target = get_lora_training_service().get_current()
-            except Exception:  # noqa: BLE001
-                target = ""
-            if target == self._lora_version:
-                return {"changed": False, "version": self._lora_version}
-            base = self._model
-            if self._lora_version and hasattr(base, "unload"):
-                try:
-                    base = base.unload()      # 退回基座（卸载旧 adapter）
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("知识 LoRA 旧版本卸载失败，保持现状: %s", exc)
-                    return {"changed": False, "version": self._lora_version}
-            self._model, self._lora_version = self._attach_knowledge_lora(
-                base, self._model_dir)
-            logger.info("知识 LoRA 热更新完成: → %s",
-                        self._lora_version or "基座")
-            return {"changed": True, "version": self._lora_version}
+            if not isinstance(backend, TransformersBackend):
+                return {"changed": False, "version": "",
+                        "reason": "backend_no_lora"}
+            return backend.refresh_lora()
 
     def ensure_loaded(self, model_id: str | None = None) -> bool:
         """确保模型已加载（供 API 调用前使用）。
@@ -885,7 +1014,14 @@ class DialogEngine:
             # 请求了不同的已发现模型：先卸载当前模型再切换
             logger.info("请求模型 %s 与当前 %s 不同，执行热切换",
                         model_id, self._model_id)
+            _old_model = self._model_id
             self.unload_model()
+            # 同步 mgr 旧条目（stale 防误杀，同 load_model 热切换路径）
+            try:
+                from ..model_manager import get_model_manager
+                get_model_manager().release_stale(_old_model)
+            except Exception:  # noqa: BLE001
+                pass
 
         # model_manager 协调契约（容错 import）
         try:
@@ -900,7 +1036,31 @@ class DialogEngine:
         except Exception:
             pass
 
-        return self.load_model(model_id)
+        ok = self.load_model(model_id)
+        if ok:
+            # 台账补登记（2026-08-23 显存锚定事故根修）：显存紧张时
+            # mgr.allocate_memory 拒绝（mgr.ensure_loaded 失败未入账），
+            # 但引擎直连 load_model 经自身腾挪仍可加载成功——此后
+            # /models/unload 报 MODEL_NOT_LOADED、resource_guard 看不到
+            # 可卸模型（"越线但无空闲模型可卸"）、深回收也不触达，
+            # 显存被不可治地锚定。成功后核查台账缺失即补登记
+            # （register_external_load 与正常 ensure_loaded 记账同构）。
+            mid = self._model_id
+            if mid:
+                try:
+                    from ..model_manager import get_model_manager
+                    mgr = get_model_manager()
+                    if not any(e.get("model_id") == mid
+                               for e in mgr.get_loaded_models()):
+                        required = mgr.estimate_vram_gb(mid, "dialog")
+                        path = mgr.resolve_model_path(mid) or mid
+                        mgr.register_external_load(
+                            "dialog", mid, str(path), max(0.5, required))
+                        logger.info("补登记引擎直连加载模型: %s "
+                                    "(%.1fGB)", mid, max(0.5, required))
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("台账补登记跳过: %s", exc)
+        return ok
 
     def _default_model_id(self) -> str:
         pick = self._pick_model(None)
@@ -909,20 +1069,11 @@ class DialogEngine:
     # ── 上下文组装 ────────────────────────────────────────────────
 
     def _count_tokens(self, text: str) -> int:
-        """token 计数：有 processor/tokenizer 用真实计数，否则按字符估算。"""
-        tokenizer = self._processor
-        if tokenizer is not None:
-            try:
-                tok = getattr(tokenizer, "tokenizer", tokenizer)
-                return len(tok(text, add_special_tokens=False).input_ids)
-            except Exception:
-                pass
-        # 粗估：中英文混合约 1 token / 1.5 字符
+        """token 计数：转发当前后端（真实 tokenizer 或粗估）；
+        未加载时按字符粗估（build_context 可在加载前调用）。"""
+        if self._backend is not None:
+            return self._backend.count_tokens(text)
         return max(1, int(len(text) / 1.5))
-
-    def _history_token_count(self, messages: list[dict]) -> int:
-        return sum(self._count_tokens(m.get("content", "")) + 8
-                   for m in messages)
 
     # 输入截断标记（头 1/4 + 尾 3/4 之间插入）
     _TRUNC_MARK = "\n...[中间内容过长已截断]...\n"
@@ -1016,11 +1167,12 @@ class DialogEngine:
                         len(history) // 2, len(kept) // 2, max_tokens)
 
         user_content: Any
-        if images and self._backend not in ("vl", ""):
+        backend = self._backend
+        if images and (backend is None or not backend.supports_images):
             # 纯文本 / GGUF 后端不支持图片输入：诚实丢弃并记日志，
-            # 不伪造多模态理解
+            # 不伪造多模态理解（vl/vllm 后端支持图片透传）
             logger.info("当前后端(%s)不支持图片输入，已忽略 %d 张图片",
-                        self._backend, len(images))
+                        self._backend_name or "未加载", len(images))
             images = None
         if images:
             # Qwen-VL 多模态 content 格式
@@ -1032,83 +1184,8 @@ class DialogEngine:
         return [system_msg, *kept, {"role": "user", "content": user_content}]
 
     # ── 推理 ──────────────────────────────────────────────────────
-
-    def _prepare_inputs(self, messages: list[dict], images: list | None):
-        """应用 chat template 并编码输入（transformers 后端：vl / text）。"""
-        processor = self._processor
-        text = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        if self._backend == "text":
-            # 纯文本后端：processor 即 tokenizer
-            inputs = processor(text, return_tensors="pt")
-        else:
-            kwargs: dict[str, Any] = {"text": [text], "return_tensors": "pt"}
-            if images:
-                kwargs["images"] = images
-            inputs = processor(**kwargs)
-        try:
-            inputs = inputs.to("cuda")
-        except AttributeError:
-            inputs = {k: (v.cuda() if hasattr(v, "cuda") else v)
-                      for k, v in inputs.items()}
-        return inputs
-
-    @staticmethod
-    def _flatten_messages_for_gguf(messages: list[dict]) -> list[dict]:
-        """把 chat messages 压平为 llama.cpp 兼容格式（content 必须为 str）。"""
-        flat: list[dict] = []
-        for m in messages:
-            content = m.get("content")
-            if isinstance(content, list):
-                content = "".join(
-                    str(p.get("text", "")) for p in content
-                    if isinstance(p, dict) and p.get("type") == "text")
-            flat.append({"role": m.get("role", "user"),
-                         "content": content or ""})
-        return flat
-
-    def _chat_stream_gguf(
-        self,
-        messages: list[dict],
-        temperature: float,
-        max_new_tokens: int,
-        stop_check: Callable[[], bool] | None = None,
-    ) -> Iterator[str]:
-        """GGUF（llama.cpp）流式推理：create_chat_completion 逐段产出。"""
-        start = time.perf_counter()
-        self.last_first_token_ms = 0.0
-        self.last_output_tokens = 0
-        produced = 0
-        kwargs: dict[str, Any] = dict(
-            messages=self._flatten_messages_for_gguf(messages),
-            stream=True,
-            max_tokens=max_new_tokens,
-        )
-        if temperature and temperature > 0:
-            kwargs.update(temperature=temperature, top_p=0.9)
-        else:
-            kwargs.update(temperature=0.0)
-        try:
-            for chunk in self._model.create_chat_completion(**kwargs):
-                if stop_check is not None and stop_check():
-                    break
-                text = ""
-                try:
-                    text = (chunk["choices"][0].get("delta") or {}).get("content") or ""
-                except Exception:  # noqa: BLE001
-                    continue
-                if not text:
-                    continue
-                if produced == 0:
-                    self.last_first_token_ms = (time.perf_counter() - start) * 1000
-                produced += 1
-                yield text
-        finally:
-            self.last_total_ms = (time.perf_counter() - start) * 1000
-            self.last_output_tokens = produced
-            logger.info("GGUF 流式完成: %d 片段, 首token %.0fms, 总 %.0fms",
-                        produced, self.last_first_token_ms, self.last_total_ms)
+    # 介质细节（streamer / llama.cpp chunk / vLLM SSE）在各后端，
+    # 引擎层统一做：就绪校验、中断检查、首 token / 总耗时指标。
 
     def chat_stream(
         self,
@@ -1118,7 +1195,7 @@ class DialogEngine:
         max_new_tokens: int = 1024,
         stop_check: Callable[[], bool] | None = None,
     ) -> Iterator[str]:
-        """流式推理：后台线程 generate + TextIteratorStreamer 逐 token 产出。
+        """流式推理：路由到当前后端，统一计时与中断检查。
 
         Args:
             messages: build_context 组装的消息列表
@@ -1133,74 +1210,92 @@ class DialogEngine:
         Raises:
             RuntimeError: 引擎未就绪
         """
-        if self._state != "ready" or self._model is None:
+        backend = self._backend
+        if self._state != "ready" or backend is None:
             raise RuntimeError(self._last_error or "对话模型未就绪")
 
-        # GGUF 后端走 llama.cpp 独立流式路径（不依赖 transformers streamer）
-        if self._backend == "gguf":
-            with self._infer_lock:
-                yield from self._chat_stream_gguf(
-                    messages, temperature, max_new_tokens, stop_check)
+        start = time.perf_counter()
+        self.last_first_token_ms = 0.0
+        self.last_output_tokens = 0
+        produced = 0
+        try:
+            for text in backend.chat_stream(
+                    messages, images=images,
+                    temperature=temperature,
+                    max_new_tokens=max_new_tokens):
+                if stop_check is not None and stop_check():
+                    break
+                if text:
+                    if produced == 0:
+                        self.last_first_token_ms = \
+                            (time.perf_counter() - start) * 1000
+                    produced += 1
+                    yield text
+        finally:
+            self.last_total_ms = (time.perf_counter() - start) * 1000
+            self.last_output_tokens = produced
+            logger.info("对话流式完成[%s]: %d 片段, 首token %.0fms, 总 %.0fms",
+                        self._backend_name, produced,
+                        self.last_first_token_ms, self.last_total_ms)
+
+    def chat_stream_ex(
+        self,
+        messages: list[dict],
+        images: list | None = None,
+        temperature: float = 0.7,
+        max_new_tokens: int = 1024,
+        enable_thinking: bool = False,
+        stop_check: Callable[[], bool] | None = None,
+    ) -> Iterator[dict]:
+        """结构化流式推理（思考过程展示，2026-08-22）。
+
+        在 chat_stream 原始文本流之上叠加 _ThinkingStreamParser 切分
+        reasoning / content 双通道——解析收敛在编排层一处实现，
+        vllm / transformers / gguf 三后端统一免费支持。
+
+        Args:
+            enable_thinking: 思考模式（messages 的 system prompt 须已
+                拼接 THINKING_SYSTEM_SUFFIX，本方法不重复注入）
+
+        Yields:
+            {"type": "reasoning" | "content", "text": str}；
+            enable_thinking=False 时全部为 content（调用方无需分支）。
+        """
+        if not enable_thinking:
+            for text in self.chat_stream(
+                    messages, images=images, temperature=temperature,
+                    max_new_tokens=max_new_tokens, stop_check=stop_check):
+                yield {"type": "content", "text": text}
             return
 
-        transformers = _try_import("transformers")
+        parser = _ThinkingStreamParser()
+        self.last_first_content_ms = 0.0
+        start = time.perf_counter()
+        got_content = False
 
-        # 串行化推理：并发 generate 在同一模型实例上叠加显存并互相拖慢，
-        # 这里排队执行（lock 在生成器生命周期内持有，close 时自动释放）。
-        with self._infer_lock:
-            inputs = self._prepare_inputs(messages, images)
-            streamer = transformers.TextIteratorStreamer(
-                getattr(self._processor, "tokenizer", self._processor),
-                skip_prompt=True,
-                skip_special_tokens=True,
-            )
+        def _emit(kind: str, chunk: str) -> dict:
+            nonlocal got_content
+            if kind == "content" and not got_content:
+                got_content = True
+                # 首个 content 片段时刻（M-1 双口径：first_token_ms=
+                # 首个任意产出=感知延迟；first_content_ms=正文首字）
+                self.last_first_content_ms = \
+                    (time.perf_counter() - start) * 1000
+            return {"type": kind, "text": chunk}
 
-            gen_kwargs: dict[str, Any] = dict(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                streamer=streamer,
-            )
-            if temperature and temperature > 0:
-                gen_kwargs.update(do_sample=True, temperature=temperature, top_p=0.9)
-            else:
-                gen_kwargs.update(do_sample=False)
-
-            start = time.perf_counter()
-            self.last_first_token_ms = 0.0
-            self.last_output_tokens = 0
-
-            def _generate_worker() -> None:
-                """后台生成线程：异常须显式记录并收尾 streamer，
-                否则 daemon 线程静默死亡导致主流 0 产出且无法定位。"""
-                try:
-                    self._model.generate(**gen_kwargs)
-                except Exception:  # noqa: BLE001
-                    logger.exception("对话生成线程异常")
-                    try:
-                        streamer.end()
-                    except Exception:  # noqa: BLE001
-                        pass
-
-            thread = threading.Thread(target=_generate_worker, daemon=True)
-            thread.start()
-
-            produced = 0
-            try:
-                for text in streamer:
-                    if stop_check is not None and stop_check():
-                        break
-                    if produced == 0 and text:
-                        self.last_first_token_ms = (time.perf_counter() - start) * 1000
-                    if text:
-                        produced += 1
-                        yield text
-            finally:
-                # 等待生成线程结束，避免后台残留写 streamer
-                thread.join(timeout=5.0)
-                self.last_total_ms = (time.perf_counter() - start) * 1000
-                self.last_output_tokens = produced
-                logger.info("对话流式完成: %d 片段, 首token %.0fms, 总 %.0fms",
-                            produced, self.last_first_token_ms, self.last_total_ms)
+        try:
+            for text in self.chat_stream(
+                    messages, images=images, temperature=temperature,
+                    max_new_tokens=max_new_tokens, stop_check=stop_check):
+                for kind, chunk in parser.feed(text):
+                    yield _emit(kind, chunk)
+            for kind, chunk in parser.flush():
+                yield _emit(kind, chunk)
+        finally:
+            if got_content:
+                logger.info(
+                    "深度思考流式完成[%s]: 正文首字 %.0fms（思考通道已分离）",
+                    self._backend_name, self.last_first_content_ms)
 
     def chat(
         self,
@@ -1231,16 +1326,17 @@ class DialogEngine:
 
     def get_status(self) -> dict:
         """引擎状态快照。"""
+        backend = self._backend
         return {
             "engine": "dialog",
             "state": self._state,               # unavailable/unloaded/ready/error
             "loaded": self._state == "ready",
             "model": self._model_id,
             "model_dir": str(self._model_dir) if self._model_dir else "",
-            "backend": self._backend,           # vl / text / gguf
+            "backend": self._backend_name,      # vl / text / gguf / vllm
             "available_models": self.available_models(),
             "discovered_models": sorted(discover_dialog_models().keys()),
-            "knowledge_lora": self._lora_version,   # R2-B04 挂载的知识 LoRA 版本
+            "knowledge_lora": backend.lora_version if backend else "",
             "last_error": self._last_error,
             "vram_free_gb": round(_cuda_free_gb(), 2),
             "last_first_token_ms": round(self.last_first_token_ms, 1),

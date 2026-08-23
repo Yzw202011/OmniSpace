@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import concurrent.futures
 import importlib
 import logging
 import os
@@ -23,6 +24,7 @@ import time
 from .config import (
     APP_VERSION,
     DATA_DIR,
+    DISK_MODELS_MIN_GB,  # 磁盘"含模型部署"可用门槛（P2 统一口径，读取 config.yaml `disk` 节）
     HOST,
     LOGS_DIR,
     MODELS_DIR,
@@ -33,9 +35,6 @@ log = logging.getLogger("omnispace.startup_check")
 
 # 最低 Python 版本
 _MIN_PYTHON = (3, 10)
-
-# 最低磁盘空间（GB）
-_MIN_DISK_GB = 50
 
 # 最低内存（GB）
 _MIN_RAM_GB = 8
@@ -328,16 +327,16 @@ def _check_ram_available() -> CheckResult:
 
 
 def _check_disk_free() -> CheckResult:
-    """14. 磁盘可用空间。"""
+    """14. 磁盘可用空间（门槛 = config.yaml disk.models_min_gb，P2 统一口径）。"""
     try:
         import psutil
         usage = psutil.disk_usage(str(DATA_DIR))
         free_gb = round(usage.free / (1024**3), 1)
-        passed = free_gb >= _MIN_DISK_GB
+        passed = free_gb >= DISK_MODELS_MIN_GB
         return CheckResult(14, "磁盘可用空间", passed,
-                           f"{free_gb} GB 可用" + (f"（最低 {_MIN_DISK_GB} GB）" if not passed else ""),
+                           f"{free_gb} GB 可用" + (f"（最低 {DISK_MODELS_MIN_GB:.0f} GB）" if not passed else ""),
                            "error" if not passed else "info",
-                           {"free_gb": free_gb, "min_gb": _MIN_DISK_GB})
+                           {"free_gb": free_gb, "min_gb": DISK_MODELS_MIN_GB})
     except Exception:
         return CheckResult(14, "磁盘可用空间", False,
                            "无法检测磁盘空间", "warning", {"free_gb": 0})
@@ -542,34 +541,72 @@ _CHECKS = [
 ]
 
 
+def _run_check(idx: int, check_fn) -> dict:
+    """执行单项目检并返回结果 dict（含异常兜底与日志）。"""
+    try:
+        result = check_fn()
+        res_dict = result.to_dict()
+        log.log(
+            logging.ERROR if not res_dict["passed"] and res_dict["level"] == "error"
+            else logging.WARNING if not res_dict["passed"]
+            else logging.INFO,
+            "自检 [%02d] %s: %s", res_dict["idx"], res_dict["name"],
+            res_dict["detail"],
+        )
+        return res_dict
+    except Exception as exc:
+        log.error("自检项 %s 执行异常: %s", check_fn.__name__, exc)
+        return {
+            "idx": idx + 1,
+            "name": check_fn.__doc__.strip().split(".")[0] if check_fn.__doc__ else check_fn.__name__,
+            "passed": False,
+            "detail": f"检查执行异常: {exc}",
+            "level": "error",
+            "data": {},
+        }
+
+
+# P2 启动并行化：GPU/pynvml 与 torch、chromadb 检查共用 CUDA/pynvml 资源
+# （nvmlInit/Shutdown 与 torch 首 import 均非线程安全，并发会触发竞态/DLL
+# 加载失败），归入串行组；其余相互独立的自检用线程池并行，压缩就绪窗口。
+# 0-based 序号 → 检查：2-8=GPU/CUDA(3-9)、16=PyTorch(17)、20=ChromaDB(21)。
+_SERIAL_CHECK_INDEXES = {2, 3, 4, 5, 6, 7, 8, 16, 20}
+
+
 def run_startup_check() -> list[dict]:
-    """执行全部 26 项启动自检，返回结果列表。
+    """执行全部 26 项启动自检，返回结果列表（P2 并行化）。
 
     Returns:
         [{"idx":1, "name":..., "passed":bool, "detail":..., "level":..., "data":{}}, ...]
     """
-    results: list[dict] = []
-    for check_fn in _CHECKS:
-        try:
-            result = check_fn()
-            results.append(result.to_dict())
-            log.log(
-                logging.ERROR if not result.passed and result.level == "error"
-                else logging.WARNING if not result.passed
-                else logging.INFO,
-                "自检 [%02d] %s: %s", result.idx, result.name, result.detail,
-            )
-        except Exception as exc:
-            log.error("自检项 %s 执行异常: %s", check_fn.__name__, exc)
-            results.append({
-                "idx": len(results) + 1,
-                "name": check_fn.__doc__.strip().split(".")[0] if check_fn.__doc__ else check_fn.__name__,
-                "passed": False,
-                "detail": f"检查执行异常: {exc}",
-                "level": "error",
-                "data": {},
-            })
-    return results
+    serial = [(i, fn) for i, fn in enumerate(_CHECKS)
+              if i in _SERIAL_CHECK_INDEXES]
+    parallel = [(i, fn) for i, fn in enumerate(_CHECKS)
+                if i not in _SERIAL_CHECK_INDEXES]
+
+    results_by_idx: dict[int, dict] = {}
+
+    # 并行组：轻量自检（psutil / 文件系统 / 轻依赖 import）彼此独立
+    workers = max(1, min(8, (os.cpu_count() or 4)))
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="startup") as executor:
+        futures = {executor.submit(_run_check, i, fn): i for i, fn in parallel}
+        for fut in concurrent.futures.as_completed(futures):
+            idx = futures[fut]
+            try:
+                results_by_idx[idx] = fut.result()
+            except Exception as exc:  # noqa: BLE001 - 并行包装兜底
+                log.error("自检并行项执行异常: %s", exc)
+                results_by_idx[idx] = {
+                    "idx": idx + 1, "name": "未知自检", "passed": False,
+                    "detail": f"并行执行异常: {exc}", "level": "error", "data": {},
+                }
+
+    # 串行组：pynvml / torch import 非线程安全，避免并发触发竞态
+    for idx, fn in serial:
+        results_by_idx[idx] = _run_check(idx, fn)
+
+    return [results_by_idx[i] for i in range(len(_CHECKS))]
 
 
 def run_startup_check_summary() -> dict:

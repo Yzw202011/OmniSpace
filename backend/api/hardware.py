@@ -15,7 +15,7 @@ import logging
 import platform
 import time
 
-from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Query, WebSocket, WebSocketDisconnect
 
 from ..config import ROOT_DIR
 from ..data.models import HardwareProfile
@@ -229,6 +229,15 @@ def hardware_info():
     data["tier"] = get_effective_tier(
         str(gpu.get("name", "")), int(gpu.get("vram_total_mb", 0)))
     data["tier_override"] = read_tier_override()
+    # P3 精度×量化兼容矩阵：当前硬件可用的精度与量化门槛、生效后端，
+    # 供前端对 DirectML/CPU 等降级链路呈现诚实提示（见 engines.gpu_backend）
+    from ..engines import gpu_backend
+    data["precision_spec"] = gpu_backend.get_effective_spec(
+        requested="bf16", gpu_info=gpu)
+    # P3 降级提示：实际运行设备 + 是否降级 + 中文诚实说明
+    data["degradation"] = gpu_backend.resolve_device(precision="bf16", gpu_info=gpu)
+    # P3 多卡枚举与设备计划：全部 GPU 列表 + 主/辅助卡（默认单卡，双卡显式开启）
+    data["device_plan"] = gpu_backend.resolve_device_plan(gpu_info=gpu)
     return ok(data)
 
 
@@ -257,6 +266,25 @@ def hardware_tier_set(body: dict = Body(default_factory=dict)):
 def hardware_realtime():
     """实时遥测（规格 §4.6 GET /v1/hardware/realtime）。"""
     return ok(_realtime_data())
+
+
+@router.get("/hardware/resource-samples")
+def hardware_resource_samples(limit: int = Query(240, ge=1, le=2880)):
+    """资源占用采样趋势（P3-⑤）：后台采样器近 2 小时 RAM/显存/磁盘快照。
+
+    采样器每 30s 采集一次；端点返回最近 limit（默认 240≈2 小时）条
+    样本，供前端渲染占用趋势仪表。采样器为幂等单例，访问即自启。
+    """
+    from ..services.resource_sampler import get_resource_sampler
+    samples = get_resource_sampler().get_samples(limit=limit)
+    return ok({
+        "interval_s": 30,
+        "backlog_s": 2 * 3600,
+        "count": len(samples),
+        "samples": samples,
+        "note": "RAM/显存/磁盘 30s 采样；异常字段为 None 表示当次采集失败"
+                "（诚实零读数，非伪造模拟值）",
+    })
 
 
 @router.get("/hardware/synergy")
@@ -323,8 +351,17 @@ def hardware_synergy():
     except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
         log.warning("热保护状态获取失败: %s", exc)
 
+    # 5. 资源硬限制守卫快照（用户裁定 2026-08-22：RAM ≤85% / VRAM ≤90%）
+    resource_guard: dict = {}
+    try:
+        from ..services.resource_guard import get_resource_guard
+        resource_guard = get_resource_guard().get_status()
+    except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
+        log.warning("资源守卫状态获取失败: %s", exc)
+
     return ok({"scheduler": scheduler, "vram": vram,
-               "feature_lock": feature_lock, "thermal_guard": thermal_guard})
+               "feature_lock": feature_lock, "thermal_guard": thermal_guard,
+               "resource_guard": resource_guard})
 
 
 @router.websocket("/hardware/realtime")

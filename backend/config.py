@@ -69,9 +69,24 @@ GPU_SAMPLE_INTERVAL_S = float(_cfg["scheduler"].get("gpu_sample_interval_s", 2))
 CPU_SAMPLE_INTERVAL_S = float(_cfg["scheduler"].get("cpu_sample_interval_s", 5))
 DISK_SAMPLE_INTERVAL_S = float(_cfg["scheduler"].get("disk_sample_interval_s", 10))
 HYSTERESIS_SECONDS = _cfg["scheduler"]["hysteresis_seconds"]
-# 空闲显存回收：无功能锁活动超过该秒数后卸载非常驻大模型（默认 300s）
+# 空闲显存回收（P2 两级空闲回收）：
+#   表层 60s → 释放 embed/aux/voice 小模型；深层默认 300s → 卸载非常驻大模型
+SHALLOW_RECLAIM_SECONDS = float(_cfg["scheduler"].get("shallow_reclaim_seconds", 60))
 IDLE_RECLAIM_SECONDS = float(_cfg["scheduler"].get("idle_reclaim_seconds", 300))
 THRESHOLDS = _cfg["scheduler"]["thresholds"]
+
+# ── 磁盘阈值（P2 统一口径：单一来源 config.yaml `disk` 节）─────────
+# 语义拆分：launcher 启动预检 / startup_check 含模型运行 / 安装器完整包，
+# 消除昔日 launcher 20GB / startup_check 50GB / installer 500GB 三套硬编码。
+DISK_START_MIN_GB = float(_cfg["disk"]["start_min_gb"])
+DISK_MODELS_MIN_GB = float(_cfg["disk"]["models_min_gb"])
+DISK_INSTALLER_MIN_GB = float(_cfg["disk"]["installer_min_gb"])
+
+# ── 多卡与设备策略（P3 §5.3）──────────────────────────────────────
+# 默认单卡；secondary_offload 显式开启且辅助索引有效时才启用双卡卸载。
+GPU_PRIMARY_DEVICE = int(_cfg.get("gpu", {}).get("primary_device", 0))
+GPU_AUXILIARY_DEVICE = int(_cfg.get("gpu", {}).get("auxiliary_device", 1))
+GPU_SECONDARY_OFFLOAD = bool(_cfg.get("gpu", {}).get("secondary_offload", False))
 
 # ── 模型缓存 ─────────────────────────────────────────────────────
 CACHE_COMPRESSION = _cfg["model_cache"]["compression"]
@@ -82,6 +97,9 @@ CACHE_EVICTION = _cfg["model_cache"]["eviction_policy"]
 # 数据库为明文 SQLite，仅本地 127.0.0.1 运行（规格 §14 约束1/2）。
 DB_WAL_MODE = _cfg["database"]["wal_mode"]
 DB_BUSY_TIMEOUT = _cfg["database"]["busy_timeout_ms"]
+# 写同步模式与页缓存上限（WAL 下 NORMAL 为标准推荐，性能优化见 config.yaml 注释）
+DB_SYNCHRONOUS = _cfg["database"].get("synchronous", "NORMAL")
+DB_CACHE_SIZE_KB = int(_cfg["database"].get("cache_size_kb", 16384))
 
 # ── 视频 ─────────────────────────────────────────────────────────
 VIDEO_DEFAULT_CODEC = _cfg["video"]["default_codec"]

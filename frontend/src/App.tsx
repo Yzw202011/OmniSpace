@@ -15,7 +15,7 @@
  *              COM-011（WS 断线重连灯）、COM-013（响应式）、COM-016（全中文界面）
  * ========================================================================== */
 
-import { Component, useEffect, useState } from 'react';
+import { Component, useEffect, useRef, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { RouterProvider, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
@@ -29,13 +29,18 @@ import {
 } from 'lucide-react';
 import { router, NAV_ITEMS } from './router';
 import Tooltip from './components/common/Tooltip';
+import TechParticles from './components/common/TechParticles';
+import WarmupModal from './components/common/WarmupModal';
 import TopBar from './components/layout/TopBar';
 import RightPanel from './components/layout/RightPanel';
 import BottomStatusBar from './components/layout/BottomStatusBar';
 import { useAppStore, type ToastItem, type ToastLevel } from './stores/useAppStore';
+import { useDialogStore } from './stores/useDialogStore';
 import { useHardwareStore } from './stores/useHardwareStore';
 import { useMangaStore } from './stores/useMangaStore';
 import { useTaskStore } from './stores/useTaskStore';
+import { useWarmupStore } from './stores/useWarmupStore';
+import { releaseForModule, warmupFeature } from './services/modelApi';
 import { canSwitchFeature, type ActiveFeature } from './types';
 
 /**
@@ -52,6 +57,44 @@ const ROUTE_FEATURE: Record<string, Exclude<ActiveFeature, null>> = {
   learning: 'training',
   style: 'training',
 };
+
+/* ============================== 模块切换资源调度（用户裁定 2026-08-21） ==============================
+ * 切入任一重量级模块（或进入漫剧项目）时，其他模块 3 秒内释放显存/内存，
+ * 优先供应目标模块；Toast 反馈释放进度与结果（后端 /models/release-for-module）。
+ * ================================================================================================ */
+
+/** 功能名 → 中文模块名（Toast 展示用） */
+const MODULE_LABELS: Record<string, string> = {
+  dialog: 'AI对话',
+  paint: 'AI绘画',
+  video_gen: '漫剧创作',
+  training: '知识学习',
+};
+
+/** 释放触发序号：仅展示最新一次切换的结果（快速连续切换时过期结果静默） */
+let releaseSeq = 0;
+
+/** 触发模块资源释放（fire-and-forget，不阻塞导航） */
+async function triggerModuleResourceRelease(feature: string): Promise<void> {
+  const label = MODULE_LABELS[feature] ?? feature;
+  const seq = ++releaseSeq;
+  const { showToast } = useAppStore.getState();
+  showToast(`正在释放其他模块资源，优先供应【${label}】…`, 'info');
+  try {
+    const result = await releaseForModule(feature);
+    if (seq !== releaseSeq) return; // 已有更新的切换，忽略过期结果
+    if (result.freed_count > 0) {
+      const freed = `释放 ${result.freed_vram_gb}GB 显存（${result.freed_count} 个模型）`;
+      if (result.completed) {
+        showToast(`已${freed}，优先供应【${label}】`, 'success');
+      } else {
+        showToast(`3秒内完成部分释放：已${freed}，优先供应【${label}】`, 'warning');
+      }
+    }
+  } catch {
+    // 后端不可达（离线/启动中）静默，不打扰导航
+  }
+}
 
 /** 侧栏折叠态本地持久化键 */
 const SIDEBAR_COLLAPSED_KEY = 'omnispace.layout.sidebarCollapsed';
@@ -198,6 +241,55 @@ export function AppShell() {
     }
   }, [collapsed]);
 
+  /* --------------------- 模块切换资源调度（2026-08-21） --------------------- */
+  // 上一个重量级模块（跨轻量页面保留：paint→models→storyboard 仍触发释放；
+  // 会话首次进入仅记基线静默——启动时通常无已加载模型，避免无意义提示）
+  const lastHeavyFeatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    const route = location.pathname.split('/')[1] || '';
+    const feature = ROUTE_FEATURE[route] ?? null;
+    if (!feature) return; // 轻量页面（模型管理/设置/帮助）：不触发
+    const isFirst = lastHeavyFeatureRef.current === null;
+    const switched = !isFirst && feature !== lastHeavyFeatureRef.current;
+    lastHeavyFeatureRef.current = feature;
+    void (async () => {
+      // 模块切换（非首次）：其他模块 3s 内释放，优先供应目标模块
+      if (switched) {
+        await triggerModuleResourceRelease(feature);
+      }
+      // 对话模块预热（2026-08-22 思考过长事故）：vLLM 冷启动 ~157s，
+      // 进入页面即点火（含首次——首句等待正是主诉），打字/阅读时间
+      // 即加载时间。带用户持久化选择的 modelId——引擎默认加载 4b 而
+      // 用户选 8b-awq 时发消息才热切换即二次冷启动，预热直接以用户
+      // 选择为目标。先等释放完成再点火避免装载竞争显存；预热不持
+      // 功能锁，用户切走时 release_for_module 可正常终止。
+      if (feature === 'dialog') {
+        try {
+          const targetModel = useDialogStore.getState().modelId;
+          const r = await warmupFeature('dialog', targetModel);
+          if (r.started) {
+            // 冷启动进度弹窗（2026-08-23 替代一次性 toast）：
+            // 时间渐近进度条 + /dialog/status 就绪校正，见 WarmupModal
+            useWarmupStore.getState().begin(targetModel || undefined);
+          }
+        } catch {
+          // 后端不可达静默
+        }
+      }
+    })();
+  }, [location.pathname]);
+
+  // 进入漫剧项目（currentProject: null → 项目）：漫剧工作台即将进行重型生成，
+  // 其他模块 3 秒内释放显存/内存优先供应（用户裁定 2026-08-21）
+  const prevProjectOpenRef = useRef(false);
+  useEffect(() => {
+    if (mangaProjectOpen && !prevProjectOpenRef.current) {
+      void triggerModuleResourceRelease('video_gen');
+      lastHeavyFeatureRef.current = 'video_gen';
+    }
+    prevProjectOpenRef.current = mangaProjectOpen;
+  }, [mangaProjectOpen]);
+
   // 漫剧工作台全屏：仅渲染主内容出口 + Toast（竞品编辑器=独立整页）
   if (mangaFullscreen) {
     return (
@@ -212,6 +304,9 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
+      {/* 星云粒子环境层（Nebula 主题专属：fixed z-index:-1，不占布局） */}
+      <TechParticles />
+
       {/* 顶层导航栏（48px 通栏，文档D §1.1.1） */}
       <TopBar />
 
@@ -290,6 +385,9 @@ export function AppShell() {
 
       {/* 全局 Toast 容器 */}
       <ToastContainer />
+
+      {/* 对话模型冷启动进度弹窗（全局单例，App 根渲染不随路由卸载） */}
+      <WarmupModal />
     </div>
   );
 }

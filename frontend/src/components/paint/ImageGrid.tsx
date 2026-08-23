@@ -3,10 +3,11 @@
  * OmniSpace AI v2.1 — Sakura 主题
  * --------------------------------------------------------------------------
  * 展示生成的图片，支持点击放大（弹窗查看大图）与下载。
+ * 删除：悬浮操作栏单删 / 大图弹窗删除 / 批量选择模式（全选·批量删除）。
  * 规格 §9.3 绘画模块。
  */
 import { useState } from 'react';
-import { Download, Heart, ImagePlus } from 'lucide-react';
+import { Download, Heart, ImagePlus, Trash2, CheckSquare, Square, X } from 'lucide-react';
 import { Modal } from '../common/Modal';
 
 /** 生成图片项 */
@@ -38,6 +39,10 @@ export interface ImageGridProps {
   onDownload?: (image: GeneratedImage) => void;
   /** 收藏切换回调 */
   onToggleFavorite?: (image: GeneratedImage) => void;
+  /** 删除单张回调（不传则不显示删除入口） */
+  onDelete?: (image: GeneratedImage) => void | Promise<void>;
+  /** 批量删除回调（不传则不显示批量管理入口） */
+  onBatchDelete?: (ids: string[]) => void | Promise<void>;
 }
 
 export function ImageGrid({
@@ -46,8 +51,16 @@ export function ImageGrid({
   progress,
   onDownload,
   onToggleFavorite,
+  onDelete,
+  onBatchDelete,
 }: ImageGridProps) {
   const [viewer, setViewer] = useState<GeneratedImage | null>(null);
+  /** 批量选择模式（仅 onBatchDelete 提供时可用） */
+  const [selectMode, setSelectMode] = useState(false);
+  /** 已选中的图片 ID 集 */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** 批量删除进行中 */
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   function handleDownload(image: GeneratedImage) {
     if (onDownload) {
@@ -64,8 +77,103 @@ export function ImageGrid({
     document.body.removeChild(a);
   }
 
+  function handleDelete(image: GeneratedImage) {
+    if (!window.confirm('确定删除这张图片吗？删除后不可恢复。')) return;
+    setViewer(null);
+    void onDelete?.(image);
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) =>
+      prev.size === images.length
+        ? new Set()
+        : new Set(images.map((i) => i.id)),
+    );
+  }
+
+  async function handleBatchDelete() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    if (!window.confirm(`确定删除选中的 ${ids.length} 张图片吗？删除后不可恢复。`)) return;
+    setBatchDeleting(true);
+    try {
+      await onBatchDelete?.(ids);
+      exitSelectMode();
+    } finally {
+      setBatchDeleting(false);
+    }
+  }
+
+  const canBatch = typeof onBatchDelete === 'function' && images.length > 0;
+
   return (
     <>
+      {/* 批量管理工具栏（有图且支持批量删除时显示） */}
+      {canBatch ? (
+        <div className="flex items-center gap-2 mb-3 min-h-9">
+          {selectMode ? (
+            <>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[var(--color-divider)] text-[var(--color-text-secondary)] text-sm font-medium hover:bg-[var(--color-border-light)] transition-colors"
+              >
+                {selected.size === images.length && images.length > 0 ? (
+                  <CheckSquare className="w-4 h-4 text-sakura-500" aria-hidden="true" />
+                ) : (
+                  <Square className="w-4 h-4" aria-hidden="true" />
+                )}
+                {selected.size === images.length && images.length > 0 ? '取消全选' : '全选'}
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                disabled={selected.size === 0 || batchDeleting}
+                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[var(--color-error)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+                {batchDeleting ? '删除中…' : `删除选中（${selected.size}）`}
+              </button>
+              <span className="text-xs text-[var(--color-text-tertiary)]">已选 {selected.size} / {images.length} 张</span>
+              <button
+                type="button"
+                onClick={exitSelectMode}
+                aria-label="退出批量管理"
+                className="ml-auto w-9 h-9 inline-flex items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-divider)] hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSelectMode(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[var(--color-divider)] text-[var(--color-text-secondary)] text-sm font-medium hover:bg-[var(--color-border-light)] hover:text-[var(--color-text-primary)] transition-colors"
+            >
+              <CheckSquare className="w-4 h-4" aria-hidden="true" />
+              批量管理
+            </button>
+          )}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {/* 加载骨架 */}
         {loading
@@ -84,62 +192,104 @@ export function ImageGrid({
 
         {/* 图片项 */}
         {!loading &&
-          images.map((img) => (
-            <div
-              key={img.id}
-              className="group relative aspect-square rounded-xl overflow-hidden bg-[var(--color-divider)] cursor-pointer"
-              onClick={() => setViewer(img)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setViewer(img);
+          images.map((img) => {
+            const isSelected = selected.has(img.id);
+            return (
+              <div
+                key={img.id}
+                className="group relative aspect-square rounded-xl overflow-hidden bg-[var(--color-divider)] cursor-pointer"
+                onClick={() => (selectMode ? toggleSelected(img.id) : setViewer(img))}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (selectMode) {
+                      toggleSelected(img.id);
+                    } else {
+                      setViewer(img);
+                    }
+                  }
+                }}
+                aria-label={
+                  selectMode
+                    ? `选择图片${img.prompt ? '：' + img.prompt : ''}`
+                    : `查看图片${img.prompt ? '：' + img.prompt : ''}`
                 }
-              }}
-              aria-label={`查看图片${img.prompt ? '：' + img.prompt : ''}`}
-            >
-              <img
-                src={img.url}
-                alt={img.prompt || '生成图片'}
-                loading="lazy"
-                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-              />
-              {/* 悬浮操作栏 */}
-              <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDownload(img);
-                  }}
-                  aria-label="下载图片"
-                  className="w-7 h-7 rounded-md bg-[var(--color-card)]/90 text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-sakura-500 flex items-center justify-center"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-                {onToggleFavorite ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleFavorite(img);
-                    }}
-                    aria-label={img.favorite ? '取消收藏' : '收藏'}
-                    className={`w-7 h-7 rounded-md bg-[var(--color-card)]/90 hover:bg-[var(--color-card)] flex items-center justify-center ${
-                      img.favorite ? 'text-sakura-500' : 'text-[var(--color-text-secondary)]'
+              >
+                <img
+                  src={img.url}
+                  alt={img.prompt || '生成图片'}
+                  loading="lazy"
+                  className={`w-full h-full object-cover transition-transform duration-300 ${
+                    selectMode ? '' : 'group-hover:scale-105'
+                  } ${selectMode && !isSelected ? 'opacity-50' : ''}`}
+                />
+                {/* 选择模式：选中角标 */}
+                {selectMode ? (
+                  <span
+                    className={`absolute top-2 left-2 w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+                      isSelected
+                        ? 'bg-sakura-500 text-white'
+                        : 'bg-black/40 text-white/80 backdrop-blur-sm'
                     }`}
+                    aria-hidden="true"
                   >
-                    <Heart className={`w-3.5 h-3.5 ${img.favorite ? 'fill-current' : ''}`} />
-                  </button>
+                    {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                  </span>
+                ) : null}
+                {/* 悬浮操作栏（选择模式下隐藏） */}
+                {!selectMode ? (
+                  <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownload(img);
+                      }}
+                      aria-label="下载图片"
+                      className="w-7 h-7 rounded-md bg-[var(--color-card)]/90 text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-sakura-500 flex items-center justify-center"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                    {onToggleFavorite ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleFavorite(img);
+                        }}
+                        aria-label={img.favorite ? '取消收藏' : '收藏'}
+                        className={`w-7 h-7 rounded-md bg-[var(--color-card)]/90 hover:bg-[var(--color-card)] flex items-center justify-center ${
+                          img.favorite ? 'text-sakura-500' : 'text-[var(--color-text-secondary)]'
+                        }`}
+                      >
+                        <Heart className={`w-3.5 h-3.5 ${img.favorite ? 'fill-current' : ''}`} />
+                      </button>
+                    ) : null}
+                    {onDelete ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(img);
+                        }}
+                        aria-label="删除图片"
+                        title="删除图片"
+                        className="w-7 h-7 rounded-md bg-[var(--color-card)]/90 text-[var(--color-text-secondary)] hover:bg-[var(--color-error)] hover:text-white flex items-center justify-center transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {/* 收藏标记 */}
+                {img.favorite && !selectMode ? (
+                  <Heart className="absolute top-1.5 right-1.5 w-4 h-4 text-sakura-500 fill-current drop-shadow" aria-hidden="true" />
                 ) : null}
               </div>
-              {/* 收藏标记 */}
-              {img.favorite ? (
-                <Heart className="absolute top-1.5 right-1.5 w-4 h-4 text-sakura-500 fill-current drop-shadow" aria-hidden="true" />
-              ) : null}
-            </div>
-          ))}
+            );
+          })}
 
         {/* 空状态（引导至右侧参数面板） */}
         {!loading && images.length === 0 && typeof progress !== 'number' ? (
@@ -163,6 +313,16 @@ export function ImageGrid({
           onClose={() => setViewer(null)}
           footer={
             <>
+              {onDelete ? (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(viewer)}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[var(--color-error)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  删除
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => handleDownload(viewer)}

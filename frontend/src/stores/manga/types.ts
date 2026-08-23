@@ -33,6 +33,7 @@ import type {
 } from '@/types';
 import type { VoiceItem } from '@/services/schema';
 import type { VideoTaskStatus } from '@/constants/videoStatus';
+import type { BatchDeleteProjectsResult } from '@/services/mangaApi';
 
 /** 漫剧项目引用（对齐后端 /comic/project/* 端点，含创建/重命名/删除/列表） */
 export interface MangaProjectRef {
@@ -86,6 +87,8 @@ export interface ProjectSlice {
   renameProject: (projectId: string, name: string) => Promise<void>;
   /** 删除项目（级联；删除当前项目时回项目库） */
   removeProject: (projectId: string) => Promise<void>;
+  /** 批量删除项目（POST /comic/project/batch-delete；返回删除/缺失统计） */
+  batchRemoveProjects: (projectIds: string[]) => Promise<BatchDeleteProjectsResult>;
   /** 打开项目进入工作区（设置当前项目并拉取分镜表/资产） */
   openProject: (project: ComicProject) => Promise<void>;
   /** 关闭项目回项目库 */

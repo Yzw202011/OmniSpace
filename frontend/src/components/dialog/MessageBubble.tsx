@@ -9,11 +9,24 @@
  * 流式输出期间渲染纯文本 + 光标（避免逐 token 全量解析抖动），完成后切换 Markdown。
  * 规格 §9.2 对话模块。
  */
-import { memo } from 'react';
-import { User, Flower2, AlertCircle } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
+import {
+  User,
+  Flower2,
+  AlertCircle,
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  FileSearch,
+  Lightbulb,
+  Scale,
+  type LucideIcon,
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { Modal } from '../common/Modal';
 
 /** 消息角色 */
 export type MessageRole = 'user' | 'assistant' | 'system';
@@ -32,10 +45,16 @@ export interface ChatMessage {
   model?: string;
   /** 是否正在流式输出 */
   streaming?: boolean;
+  /** 深度思考过程（reasoning 双通道；与 content 分离渲染，四步框架分段展示） */
+  reasoning?: string;
+  /** 思考耗时毫秒（store 首 token 帧定格；历史回放无） */
+  reasoningMs?: number;
   /** 错误文案 */
   errorText?: string;
   /** 引用消息 */
   quote?: { id: string; content: string } | null;
+  /** 用户消息附带图片（多模态，dataUrl 格式） */
+  images?: string[];
 }
 
 export interface MessageBubbleProps {
@@ -57,6 +76,205 @@ function formatTime(ts?: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** 四步框架步骤名 → 语义图标（未知标记用 ChevronRight 兜底） */
+const STEP_ICONS: Record<string, LucideIcon> = {
+  问题分析: FileSearch,
+  信息检索: Database,
+  方案评估: Scale,
+  决策依据: Lightbulb,
+};
+
+/** 思考步骤（【步骤名】标记解析产物；title 为空 = 无标记头部内容） */
+interface ThinkingStep {
+  title: string;
+  body: string;
+}
+
+/** 【步骤名】标记 → 结构化步骤序列（结构容忍：无标记时整体作正文） */
+function parseThinkingSteps(reasoning: string): ThinkingStep[] {
+  const parts = reasoning.split(/(【[^】]*】)/).filter((s) => s.length > 0);
+  const steps: ThinkingStep[] = [];
+  let current: ThinkingStep | null = null;
+  for (const part of parts) {
+    if (part.startsWith('【') && part.endsWith('】')) {
+      if (current) steps.push(current);
+      current = { title: part.slice(1, -1), body: '' };
+    } else {
+      if (!current) current = { title: '', body: '' };
+      current.body += part;
+    }
+  }
+  if (current) steps.push(current);
+  return steps;
+}
+
+/** 耗时格式化：<60s 显秒，否则 M 分 N 秒 */
+function formatThinkingDuration(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 ? `${s} 秒` : `${Math.floor(s / 60)} 分 ${s % 60} 秒`;
+}
+
+/**
+ * 深度思考面板（reasoning 双通道渲染端）。
+ * - 流式期间自动展开 + 尾部光标 + 自动跟随滚动（用户上滚暂停、滚回底部恢复）；
+ *   正文开始输出或流式结束自动折叠一次，用户手动切换后不再干预（意图优先）
+ * - 展开/折叠用 grid-template-rows 0fr↔1fr 过渡（动画铁律：禁 height/margin 动画）
+ * - 【步骤名】解析为结构化步骤，竖向时间线渲染（节点图标 + 序号 + 连接线，
+ *   进行中步骤呼吸高亮）；无标记时整体作为正文渲染
+ * - 折叠态摘要：思考中显示步骤进度；完成显示 步数 · 耗时
+ *   （耗时由 store 在首 token 帧定格写入消息；历史回放无耗时 → 字数兜底）
+ */
+function ThinkingPanel({ reasoning, streaming, hasContent, reasoningMs }: {
+  reasoning: string;
+  streaming: boolean;
+  hasContent: boolean;
+  reasoningMs?: number;
+}) {
+  const thinking = streaming && !hasContent;
+  const [expanded, setExpanded] = useState(thinking);
+  // 用户手动切换后，自动折叠不再干预（修复旧实现注释与行为不符）
+  const userToggledRef = useRef(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+
+  // 思考完成（正文开始输出 或 流式结束）自动折叠一次
+  useEffect(() => {
+    if (!userToggledRef.current && !thinking) {
+      setExpanded(false);
+    }
+  }, [thinking]);
+
+  // 流式自动跟随滚动到底部
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && thinking && stickRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [reasoning, thinking]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // 距底 <32px 视为"贴底"，恢复跟随；上滚即暂停
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+  };
+
+  const steps = parseThinkingSteps(reasoning);
+  const titledCount = steps.filter((s) => s.title).length;
+  const activeStep = thinking ? steps[steps.length - 1] : null;
+  const doneSummary = [
+    titledCount > 0 ? `${titledCount} 步` : '',
+    reasoningMs != null ? formatThinkingDuration(reasoningMs) : `${reasoning.length} 字`,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-ai-bg)]/60 mb-1 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => {
+          setExpanded((v) => !v);
+          userToggledRef.current = true;
+        }}
+        aria-expanded={expanded}
+        className="flex items-center gap-1.5 w-full px-3 py-2 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+        title={expanded ? '收起思考过程' : '展开思考过程'}
+      >
+        <Brain size={13} aria-hidden="true" className="shrink-0 text-[var(--color-primary)]" />
+        <span className="font-medium shrink-0">
+          {thinking ? '深度思考中' : '已深度思考'}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-left text-[var(--color-text-tertiary)]">
+          {thinking && activeStep?.title
+            ? `第 ${steps.length} 步 · ${activeStep.title}`
+            : doneSummary}
+        </span>
+        {thinking ? (
+          <span className="inline-flex gap-0.5 shrink-0" aria-hidden="true">
+            <span className="w-1 h-1 rounded-full bg-[var(--color-text-tertiary)] animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 rounded-full bg-[var(--color-text-tertiary)] animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 rounded-full bg-[var(--color-text-tertiary)] animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+        ) : null}
+        <ChevronDown
+          size={13}
+          aria-hidden="true"
+          className={[
+            'shrink-0 transition-transform duration-200',
+            expanded ? 'rotate-180' : '',
+          ].join(' ')}
+        />
+      </button>
+      <div
+        className={[
+          'grid transition-[grid-template-rows] duration-300 ease-in-out',
+          expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        ].join(' ')}
+      >
+        <div className="overflow-hidden">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="px-3 pb-2.5 pt-0.5 max-h-72 overflow-y-auto text-xs"
+          >
+            <ol className="m-0 p-0 list-none">
+              {steps.map((step, i) => {
+                const isLast = i === steps.length - 1;
+                const active = thinking && isLast;
+                const Icon = step.title ? STEP_ICONS[step.title] ?? ChevronRight : ChevronRight;
+                return (
+                  <li key={i} className="relative pl-6 pb-2.5 last:pb-0">
+                    {/* 时间线连接线（非最后一步） */}
+                    {!isLast ? (
+                      <span
+                        className="absolute left-2 top-5 bottom-0 w-px bg-[var(--color-border)]"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    {/* 节点（进行中呼吸高亮） */}
+                    <span
+                      className={[
+                        'absolute left-0 top-0.5 flex items-center justify-center w-4 h-4 rounded-full border bg-[var(--color-bg-base)]',
+                        active
+                          ? 'border-[var(--color-primary)] text-[var(--color-primary)] animate-pulse'
+                          : 'border-[var(--color-border)] text-[var(--color-text-tertiary)]',
+                      ].join(' ')}
+                      aria-hidden="true"
+                    >
+                      <Icon size={9} />
+                    </span>
+                    {step.title ? (
+                      <div className="flex items-center gap-1.5 font-medium text-[var(--color-text-secondary)]">
+                        <span className="tabular-nums text-[var(--color-text-tertiary)]">
+                          {String(i + 1).padStart(2, '0')}
+                        </span>
+                        <span>{step.title}</span>
+                        {active ? (
+                          <span
+                            className="w-1 h-1 rounded-full bg-[var(--color-primary)] animate-pulse"
+                            aria-hidden="true"
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.body ? (
+                      <div className="mt-0.5 text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-wrap break-words">
+                        {step.body}
+                        {active ? (
+                          <span className="inline-block w-1.5 h-3 ml-0.5 bg-[var(--color-primary)] animate-pulse align-middle" />
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * 审计 R3-FE1：React.memo 包裹（具名函数便于 devtools），阻断流式期间
  * store 每 token 重建 messages 数组导致的全列表重渲染（全量重跑 Markdown 解析）。
@@ -71,6 +289,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isError = !!message.errorText;
+  const [viewerIdx, setViewerIdx] = useState<number | null>(null);
+  const images = isUser ? message.images ?? [] : [];
 
   return (
     <div className={['flex gap-3', isUser ? 'flex-row-reverse' : 'flex-row'].join(' ')}>
@@ -104,7 +324,42 @@ export const MessageBubble = memo(function MessageBubble({
           </blockquote>
         ) : null}
 
-        {/* 气泡 */}
+        {/* 深度思考面板（reasoning 双通道；仅助手消息且有思考内容时渲染） */}
+        {!isUser && message.reasoning ? (
+          <ThinkingPanel
+            reasoning={message.reasoning}
+            streaming={!!message.streaming}
+            hasContent={!!message.content}
+            reasoningMs={message.reasoningMs}
+          />
+        ) : null}
+
+        {/* 附件图片缩略图（多模态，CHAT-008/009/012 上传链路的展示端） */}
+        {images.length > 0 ? (
+          <div className="flex flex-wrap gap-2 justify-end mb-1 max-w-full">
+            {images.map((src, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setViewerIdx(i)}
+                className="shrink-0 rounded-xl overflow-hidden border border-[var(--color-border)] hover:opacity-90 focus-visible:opacity-90 transition-opacity"
+                title={`查看图片 ${i + 1}/${images.length}`}
+                aria-label={`查看附件图片 ${i + 1}`}
+              >
+                <img
+                  src={src}
+                  alt={`附件图片 ${i + 1}`}
+                  className="w-28 h-28 object-cover"
+                  loading="lazy"
+                />
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {/* 气泡（纯图片消息不渲染空气泡；深度思考进行中由思考面板承担状态展示，
+            不再渲染重复的"思考中"占位气泡） */}
+        {message.content || (message.streaming && !message.reasoning) || isError ? (
         <div
           className={[
             'px-4 py-2.5 rounded-2xl text-sm text-[var(--color-text-primary)] break-words',
@@ -152,6 +407,7 @@ export const MessageBubble = memo(function MessageBubble({
             </span>
           ) : null}
         </div>
+        ) : null}
 
         {/* 操作按钮 */}
         <div
@@ -189,6 +445,21 @@ export const MessageBubble = memo(function MessageBubble({
           ) : null}
         </div>
       </div>
+
+      {/* 图片放大预览（复用通用 Modal，遮罩/ESC 关闭） */}
+      {viewerIdx !== null && images[viewerIdx] ? (
+        <Modal
+          onClose={() => setViewerIdx(null)}
+          width={720}
+          title={`附件图片 ${viewerIdx + 1} / ${images.length}`}
+        >
+          <img
+            src={images[viewerIdx]}
+            alt={`附件图片 ${viewerIdx + 1}`}
+            className="w-full h-auto rounded-lg"
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }, messageBubblePropsEqual);
@@ -205,8 +476,11 @@ function messageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubblePr
       a.timestamp === b.timestamp &&
       a.model === b.model &&
       a.streaming === b.streaming &&
+      a.reasoning === b.reasoning &&
+      a.reasoningMs === b.reasoningMs &&
       a.errorText === b.errorText &&
-      a.quote === b.quote);
+      a.quote === b.quote &&
+      a.images === b.images);
   return (
     sameMessage &&
     prev.onQuote === next.onQuote &&

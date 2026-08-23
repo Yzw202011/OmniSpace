@@ -1,0 +1,158 @@
+/* ==========================================================================
+   OmniSpace AI —— Dazzle 视觉高潮层（双主题共享，2026-08-20 深度美化终层）
+   --------------------------------------------------------------------------
+   用户裁定：脱离文档"净面"约束，恢复并增幅动态视觉——
+   一眼吸引 × 高级质感 × 动效。本层为加载链最后一层，裁定一切。
+
+   作用域：
+     - Sakura 暗色：极光增幅 + 主按钮镜面扫光 + 卡片樱粉辉光
+     - Sakura 亮色：极光提亮 + 亮色辉光（解决"浅底发灰"）
+     - 双主题共享：主题选择器（.theme-grid）视觉规格
+   注：tech 主题的对应规则位于 tech-theme.css（特异性更高，必然覆盖本层同项）。
+   ========================================================================== */
+
+/* ============================== 1. Sakura 暗色 · 极光增幅 ==============================
+ * deep-polish 原值 0.26/0.20 —— 提升一档光斑浓度，暗室氛围更"活"。 */
+body::before {
+  background: radial-gradient(circle at center,
+    rgba(255, 107, 157, 0.32) 0%,
+    rgba(255, 107, 157, 0.15) 36%,
+    transparent 70%);
+}
+body::after {
+  background: radial-gradient(circle at center,
+    rgba(78, 205, 196, 0.26) 0%,
+    rgba(78, 205, 196, 0.10) 38%,
+    transparent 72%);
+}
+
+/* ============================== 2. Sakura 亮色 · 极光提亮 ==============================
+ * deep-polish 原值 0.18/0.15 近乎隐去，浅底显灰 —— 提至 0.32/0.28
+ * 恢复"拂晓粉霞"氛围（tech 亮色经 tech-theme 换色后同为柔和青紫霞光）。 */
+[data-theme='light'] body::before { opacity: 0.32; }
+[data-theme='light'] body::after { opacity: 0.28; }
+
+/* ============================== 3. 主按钮 · 镜面扫光（全主题） ==============================
+ * hover 时一道斜向高光扫过按钮表面（600ms 单程，不循环不喧哗）。 */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 45%;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.38), transparent);
+  transform: skewX(-20deg);
+  transition: left 600ms var(--ease-out);
+}
+.btn-primary:hover::after { left: 135%; }
+/* 亮色高光略收敛（白系表面高光过曝） */
+[data-theme='light'] .btn-primary::after {
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+}
+
+/* ============================== 4. 卡片悬浮辉光 · 增幅 ============================== */
+/* Sakura 暗色：樱粉外晕加深一档 */
+.card.hoverable:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    var(--shadow-card-hover),
+    0 0 34px rgba(255, 107, 157, 0.16);
+}
+/* Sakura 亮色：柔粉外晕（原无外晕，浅底"发灰"主因之一） */
+[data-theme='light'] .card.hoverable:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--shadow-card-hover),
+    0 0 26px rgba(255, 107, 157, 0.13);
+}
+
+/* ============================== 5. 导航项 hover · 主色浸染 ============================== */
+.nav-item:not(.active):not(:disabled):hover {
+  background: var(--color-primary-100);
+  color: var(--color-text-primary);
+}
+
+/* ============================== 6. 主题选择器（Settings 页 · 双主题体系） ============================== */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+@media (max-width: 1024px) {
+  .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  background: var(--color-input-bg);
+  cursor: pointer;
+  transition:
+    transform var(--duration-hover) var(--ease-out),
+    box-shadow var(--duration-hover) var(--ease-out),
+    border-color var(--duration-hover) var(--ease-out);
+  text-align: left;
+}
+.theme-option:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-primary-300);
+  box-shadow: var(--shadow-md);
+}
+.theme-option.active {
+  border-color: var(--color-primary);
+  box-shadow:
+    0 0 0 1px var(--color-primary),
+    0 0 20px var(--color-focus-ring);
+}
+/* 主题预览色板：底色为该主题 bg，双圆点为主色/辅助色 */
+.theme-option-swatch {
+  position: relative;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid rgba(128, 140, 160, 0.25);
+  overflow: hidden;
+}
+/* 色板顶部一道主题主色渐隐光带（预览"辉光"气质） */
+.theme-option-swatch::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+  background: linear-gradient(180deg, var(--swatch-glow, transparent), transparent);
+  opacity: 0.7;
+}
+.theme-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  position: relative;
+  z-index: 1;
+}
+.theme-option-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
+}
+.theme-option-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-normal);
+}

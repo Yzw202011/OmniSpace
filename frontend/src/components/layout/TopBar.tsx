@@ -28,7 +28,7 @@ import {
 import { NAV_ITEMS } from '@/router';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Theme } from '@/stores/useAppStore';
-import { useTaskStore } from '@/stores/useTaskStore';
+import { useTaskStore, TASK_TYPE_LABELS } from '@/stores/useTaskStore';
 import { TRAIN_STATUS_LABELS, type TrainStatusKey } from '@/constants/statusLabels';
 import type { OmniTask } from '@/types';
 
@@ -205,7 +205,9 @@ export default function TopBar() {
                 recentTasks.map((t) => (
                   <div key={t.id} className={`topbar-task ${t.status}`}>
                     <TaskStatusIcon status={t.status} />
-                    <span className="topbar-task-name">{t.name || t.type}</span>
+                    <span className="topbar-task-name">
+                      {t.name || TASK_TYPE_LABELS[t.type] || t.type}
+                    </span>
                     <span className="topbar-task-progress">
                       {t.status === 'running' || t.status === 'pending'
                         ? `${Math.round((t.progress || 0) * 100)}%`

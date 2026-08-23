@@ -116,6 +116,15 @@ class TaskDispatcher:
         Args:
             layers: 需要迁移的层名列表，如 ["vae_decode", "postprocess"]
         """
+        # 功能锁保护（2026-08-22 e2e OOM 教训）：生成任务运行期间，
+        # 本方法附带的 gc×2 + synchronize + empty_cache 会清空
+        # allocator 缓存块，去噪下一步大块分配需重新 cudaMalloc，
+        # 碎片化下可复用块失效，推向 sysmem fallback（28.13GiB
+        # allocated 事故链一环）。整体跳过：记账 + offload 标记 +
+        # 缓存释放同进同退，保持与 ModelManager 状态同步。
+        if self._feature_lock_active():
+            logger.info("功能锁占用中，跳过层迁移: %s", layers)
+            return
         for layer in layers:
             if layer in self._gpu_layers:
                 self._gpu_layers.remove(layer)
@@ -176,6 +185,12 @@ class TaskDispatcher:
         Args:
             precision: 目标精度
         """
+        # 功能锁保护（同 migrate_to_cpu，2026-08-22）。边界：策略仅在
+        # 模式切换时执行，持锁期间跳过 = 该次降级意图丢弃（当前精度
+        # 标记无消费方无实害；未来接线消费方时需锁释放后补执行）。
+        if self._feature_lock_active():
+            logger.info("功能锁占用中，跳过精度降级: %s", precision)
+            return
         precision_order = ["fp32", "fp16", "bf16", "fp8", "int8", "int4"]
         old = self._current_precision
         changed = False
@@ -300,6 +315,17 @@ class TaskDispatcher:
             except_features: 保留的功能列表
         """
         keep = set(except_features or [])
+        # 2026-08-22 VACE 误卸事故：功能锁活动期间，持锁功能的模型是
+        # 当前任务的工作集（如 video_gen 生成中的 VACE——ALL_TENSE
+        # 强卸致任务回退弱能力 LTX 管线，画面质量投诉根因）。
+        # 持锁功能自动纳入保留，强卸只回收真正空闲的模型。
+        try:
+            from ...middleware.feature_lock import get_feature_lock
+            holder = get_feature_lock().active_feature
+            if holder:
+                keep.add(holder)
+        except Exception:  # noqa: BLE001 - 锁查询失败不阻断卸载
+            pass
         keep_cats = {_FEATURE_TO_CATEGORY.get(f, f) for f in keep}
         mgr = self._get_model_manager()
         if mgr is not None:

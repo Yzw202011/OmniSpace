@@ -68,16 +68,28 @@ def test_dialog_low_tier_excludes_8b(monkeypatch):
 
 
 def test_dialog_high_tier_prepends_8b(monkeypatch):
-    """高档位（RTX 4090/5090 档 min_vram≥20）：8b 成为首选候选。"""
+    """高档位（RTX 4090/5090 档 min_vram≥20）：8b 成为首选候选。
+
+    物理显存闸门须一并隔离（本用例只测 tier 路由）：开发机装 8b
+    bf16 权重 + 16GB 卡时，闸门会正确剔除 8b 候选导致断言失败
+    （环境依赖事故，2026-08-21 修复）。
+    """
     monkeypatch.setattr(dialog_engine, "_gpu_tier_min_vram_gb", lambda: 20.0)
+    monkeypatch.setattr(dialog_engine, "_exceeds_physical_vram",
+                        lambda *a, **k: 0.0)
     cands = dialog_engine._effective_candidates()
     assert cands[0] == ("qwen3-vl-8b", "qwen3-vl-8b", 12.0)
     assert cands[1:] == dialog_engine.DIALOG_MODEL_CANDIDATES
 
 
 def test_dialog_tier_boundary_is_inclusive(monkeypatch):
-    """min_vram 恰为 12.0 时触发高档路由（>= 比较，边界含）。"""
+    """min_vram 恰为 12.0 时触发高档路由（>= 比较，边界含）。
+
+    物理显存闸门隔离同上。
+    """
     monkeypatch.setattr(dialog_engine, "_gpu_tier_min_vram_gb", lambda: 12.0)
+    monkeypatch.setattr(dialog_engine, "_exceeds_physical_vram",
+                        lambda *a, **k: 0.0)
     cands = dialog_engine._effective_candidates()
     assert cands[0][0] == "qwen3-vl-8b"
 

@@ -1,0 +1,687 @@
+/* ==========================================================================
+   OmniSpace AI —— Nebula 星云科技主题（高科技感，双主题体系之二）
+   --------------------------------------------------------------------------
+   2026-08-20 用户裁定：脱离文档 COM-009（Sakura 唯一主题），升级为
+   双主题体系（Sakura 夜樱/拂晓 + Nebula 深空/晨辉）。
+
+   设计语言：深空蓝黑底 × 电光青主色 × 星云紫辅助；
+             HUD 角标、蓝图网格底纹、辉光交互、扫描线动效。
+
+   挂载契约（useAppStore.applyTheme）：
+     <html data-family="tech">            → 星云 · 深空（暗色默认）
+     <html data-family="tech" data-theme="light"> → 星云 · 晨辉（亮色）
+
+   核心 trick：Tailwind v4 的 @theme 变量在 @layer theme 内发射，
+   本文件为无层 CSS —— 依据层叠规则（未分层 > 分层），
+   此处对 --color-sakura-* / --color-mint-* 的重映射必然生效，
+   从而让全站 bg-sakura-500 / text-mint-* 等工具类整体换色，零组件改动。
+   ========================================================================== */
+
+/* ============================== 1. 令牌覆盖 · 深空（暗色默认） ============================== */
+[data-family='tech'] {
+  /* 色彩体系：深空底 × 电光青 × 星云紫 */
+  --color-primary: #22D3EE;              /* 电光青主色 */
+  --color-accent: #8B7CF8;               /* 星云紫辅助色 */
+  --color-bg: #060B18;                   /* 深空背景（近黑蓝） */
+  --color-card: #0B1626;                 /* 深空卡片 */
+  --color-text-primary: #E8F2FF;         /* 冰白一级文字 */
+  --color-highlight: #FFC94D;            /* 琥珀强调 */
+  --color-success: #3DDC97;
+  --color-warning: #FFB454;
+  --color-error: #FF6B81;
+  --color-info: #38BDF8;
+  --color-input-bg: #0E1C31;             /* 输入井 */
+  --color-slider-track: rgba(150, 170, 199, 0.18);
+
+  /* 派生文字色（深空底） */
+  --color-text-secondary: #96AAC7;
+  --color-text-tertiary: #5E7192;
+
+  /* 主色衍生刻度（电光青） */
+  --color-primary-50: rgba(34, 211, 238, 0.08);
+  --color-primary-100: rgba(34, 211, 238, 0.14);
+  --color-primary-200: rgba(34, 211, 238, 0.24);
+  --color-primary-300: #67E8F9;
+  --color-primary-400: #38BDF8;
+  --color-primary-500: #22D3EE;
+  --color-primary-600: #06B6D4;
+  --color-primary-700: #0891B2;
+
+  /* 辅助色衍生（星云紫） */
+  --color-accent-100: rgba(139, 124, 248, 0.14);
+  --color-accent-300: #B4A8FF;
+  --color-accent-600: #6D5BE0;
+
+  /* 边框/分隔/遮罩（青调微光边） */
+  --color-border: rgba(56, 189, 248, 0.25);
+  --color-border-light: rgba(56, 189, 248, 0.12);
+  --color-input-border: rgba(56, 189, 248, 0.32);
+  --color-divider: rgba(142, 177, 255, 0.10);
+  --color-overlay: rgba(2, 6, 16, 0.70);
+  --color-focus-ring: rgba(34, 211, 238, 0.45);
+
+  /* 语义底色 */
+  --color-success-bg: rgba(61, 220, 151, 0.12);
+  --color-warning-bg: rgba(255, 180, 84, 0.12);
+  --color-error-bg: rgba(255, 107, 129, 0.12);
+  --color-info-bg: rgba(56, 189, 248, 0.12);
+  --color-ai-generated: rgba(139, 124, 248, 0.16);
+
+  /* 毛玻璃（深空） */
+  --color-glass: rgba(11, 22, 38, 0.75);
+
+  /* 阴影（深空重投影） */
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-card-hover: 0 8px 20px rgba(0, 0, 0, 0.55);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.65);
+  --shadow-toast: 0 8px 28px rgba(0, 0, 0, 0.5);
+
+  /* ---- Tailwind 工具类变量重映射（sakura-* → 电光青 / mint-* → 星云紫） ---- */
+  --color-sakura-50: rgba(34, 211, 238, 0.09);
+  --color-sakura-100: rgba(34, 211, 238, 0.16);
+  --color-sakura-200: rgba(34, 211, 238, 0.28);
+  --color-sakura-300: #67E8F9;
+  --color-sakura-400: #38BDF8;
+  --color-sakura-500: #22D3EE;
+  --color-sakura-600: #06B6D4;
+  --color-sakura-700: #A5F3FC;           /* 暗底芯片激活文字：浅青 */
+
+  --color-mint-100: rgba(139, 124, 248, 0.15);
+  --color-mint-300: #B4A8FF;
+  --color-mint-500: #8B7CF8;
+  --color-mint-600: #6D5BE0;
+  --color-ai-bg: rgba(139, 124, 248, 0.14);
+}
+
+/* ============================== 2. 令牌覆盖 · 晨辉（亮色） ============================== */
+[data-family='tech'][data-theme='light'] {
+  --color-primary: #0891B2;              /* 深青（白底对比达标） */
+  --color-accent: #7C6BE8;
+  --color-bg: #EEF4FB;                   /* 冰蓝白背景 */
+  --color-card: #FFFFFF;
+  --color-input-bg: #E6EEF8;
+  --color-slider-track: rgba(11, 27, 51, 0.14);
+
+  --color-text-primary: #0B1B33;
+  --color-text-secondary: #4A5E7C;
+  --color-text-tertiary: #7A8EA9;
+
+  --color-primary-50: rgba(8, 145, 178, 0.07);
+  --color-primary-100: rgba(8, 145, 178, 0.12);
+  --color-primary-200: rgba(8, 145, 178, 0.20);
+  --color-primary-300: #0EA5E9;
+  --color-primary-400: #0284C7;
+  --color-primary-500: #0891B2;
+  --color-primary-600: #0E7490;
+  --color-primary-700: #155E75;
+
+  --color-accent-100: rgba(124, 107, 232, 0.12);
+  --color-accent-300: #9B8DF2;
+  --color-accent-600: #6453D6;
+
+  --color-border: #D3E1F0;
+  --color-border-light: #E4EDF7;
+  --color-input-border: #B7CBE0;
+  --color-divider: rgba(11, 27, 51, 0.08);
+  --color-overlay: rgba(9, 18, 32, 0.45);
+  --color-focus-ring: rgba(8, 145, 178, 0.40);
+
+  /* 亮色语义色加深（白底可读） */
+  --color-success: #0FA968;
+  --color-warning: #D97706;
+  --color-error: #E11D48;
+  --color-info: #0284C7;
+  --color-success-bg: rgba(15, 169, 104, 0.10);
+  --color-warning-bg: rgba(217, 119, 6, 0.10);
+  --color-error-bg: rgba(225, 29, 72, 0.08);
+  --color-info-bg: rgba(2, 132, 199, 0.10);
+  --color-ai-generated: rgba(124, 107, 232, 0.12);
+
+  --color-glass: rgba(255, 255, 255, 0.78);
+
+  --shadow-sm: 0 1px 2px rgba(11, 27, 51, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(11, 27, 51, 0.10);
+  --shadow-lg: 0 10px 15px -3px rgba(11, 27, 51, 0.10);
+  --shadow-card-hover: 0 8px 20px rgba(11, 27, 51, 0.14);
+  --shadow-modal: 0 24px 64px rgba(11, 27, 51, 0.20);
+  --shadow-toast: 0 8px 28px rgba(11, 27, 51, 0.14);
+
+  /* 工具类重映射（亮色档：深青 + 深紫） */
+  --color-sakura-50: rgba(8, 145, 178, 0.07);
+  --color-sakura-100: rgba(8, 145, 178, 0.13);
+  --color-sakura-200: rgba(8, 145, 178, 0.22);
+  --color-sakura-300: #0EA5E9;
+  --color-sakura-400: #0284C7;
+  --color-sakura-500: #0891B2;
+  --color-sakura-600: #0E7490;
+  --color-sakura-700: #155E75;           /* 白底芯片激活文字：深青 */
+
+  --color-mint-100: rgba(124, 107, 232, 0.12);
+  --color-mint-300: #8F80EE;
+  --color-mint-500: #7C6BE8;
+  --color-mint-600: #6453D6;
+  --color-ai-bg: rgba(124, 107, 232, 0.12);
+}
+
+/* ============================== 3. 深层特效重着色（覆盖 deep-polish 硬编码樱粉） ============================== */
+
+/* 极光团换色：樱粉→电光青 / 薄荷→星云紫 */
+[data-family='tech'] body::before {
+  background: radial-gradient(circle at center,
+    rgba(34, 211, 238, 0.22) 0%,
+    rgba(34, 211, 238, 0.10) 36%,
+    transparent 70%);
+}
+[data-family='tech'] body::after {
+  background: radial-gradient(circle at center,
+    rgba(139, 124, 248, 0.20) 0%,
+    rgba(139, 124, 248, 0.08) 38%,
+    transparent 72%);
+}
+[data-family='tech'][data-theme='light'] body::before {
+  background: radial-gradient(circle at center,
+    rgba(8, 145, 178, 0.12) 0%,
+    rgba(8, 145, 178, 0.05) 36%,
+    transparent 70%);
+}
+[data-family='tech'][data-theme='light'] body::after {
+  background: radial-gradient(circle at center,
+    rgba(124, 107, 232, 0.10) 0%,
+    rgba(124, 107, 232, 0.04) 38%,
+    transparent 72%);
+}
+
+/* 玻璃底换色：深空半透 */
+[data-family='tech'] [class*='bg-[var(--color-bg)]'] { background-color: rgba(6, 11, 24, 0.50); }
+[data-family='tech'] [class*='bg-[var(--color-card)]'] { background-color: rgba(11, 22, 38, 0.60); }
+[data-family='tech'][data-theme='light'] [class*='bg-[var(--color-bg)]'] { background-color: rgba(238, 244, 251, 0.72); }
+[data-family='tech'][data-theme='light'] [class*='bg-[var(--color-card)]'] { background-color: rgba(255, 255, 255, 0.80); }
+
+/* 卡片渐变描边：青→紫 HUD 光边 */
+[data-family='tech'] .card {
+  background:
+    linear-gradient(rgba(11, 22, 38, 0.78), rgba(11, 22, 38, 0.78)) padding-box,
+    linear-gradient(135deg,
+      rgba(34, 211, 238, 0.40) 0%,
+      rgba(56, 189, 248, 0.16) 30%,
+      rgba(139, 124, 248, 0.28) 68%,
+      rgba(34, 211, 238, 0.18) 100%) border-box;
+}
+[data-family='tech'] .card.hoverable:hover {
+  background:
+    linear-gradient(rgba(13, 26, 45, 0.85), rgba(11, 22, 38, 0.85)) padding-box,
+    linear-gradient(135deg,
+      rgba(34, 211, 238, 0.65) 0%,
+      rgba(56, 189, 248, 0.30) 30%,
+      rgba(139, 124, 248, 0.45) 68%,
+      rgba(34, 211, 238, 0.30) 100%) border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    var(--shadow-card-hover),
+    0 0 30px rgba(34, 211, 238, 0.14);
+}
+[data-family='tech'][data-theme='light'] .card {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) padding-box,
+    linear-gradient(135deg,
+      rgba(8, 145, 178, 0.32) 0%,
+      rgba(56, 189, 248, 0.16) 30%,
+      rgba(124, 107, 232, 0.24) 68%,
+      rgba(8, 145, 178, 0.14) 100%) border-box;
+}
+[data-family='tech'][data-theme='light'] .card.hoverable:hover {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.94)) padding-box,
+    linear-gradient(135deg,
+      rgba(8, 145, 178, 0.52) 0%,
+      rgba(56, 189, 248, 0.26) 30%,
+      rgba(124, 107, 232, 0.36) 68%,
+      rgba(8, 145, 178, 0.24) 100%) border-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--shadow-card-hover),
+    0 0 24px rgba(8, 145, 178, 0.12);
+}
+
+/* 模型卡三态换色 */
+[data-family='tech'] .model-card {
+  background:
+    linear-gradient(rgba(11, 22, 38, 0.74), rgba(11, 22, 38, 0.74)) padding-box,
+    linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(139, 124, 248, 0.22)) border-box;
+}
+[data-family='tech'] .model-card:hover {
+  background:
+    linear-gradient(rgba(13, 26, 45, 0.82), rgba(11, 22, 38, 0.82)) padding-box,
+    linear-gradient(135deg, rgba(34, 211, 238, 0.52), rgba(139, 124, 248, 0.36)) border-box;
+  box-shadow: var(--shadow-card-hover), 0 0 22px rgba(34, 211, 238, 0.12);
+}
+[data-family='tech'] .model-card.selected {
+  background:
+    linear-gradient(rgba(34, 211, 238, 0.10), rgba(11, 22, 38, 0.78)) padding-box,
+    linear-gradient(135deg, rgba(34, 211, 238, 0.68), rgba(56, 189, 248, 0.40)) border-box;
+  box-shadow: var(--shadow-card-hover), 0 0 26px rgba(34, 211, 238, 0.18);
+}
+[data-family='tech'][data-theme='light'] .model-card {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) padding-box,
+    linear-gradient(135deg, rgba(8, 145, 178, 0.26), rgba(124, 107, 232, 0.20)) border-box;
+}
+[data-family='tech'][data-theme='light'] .model-card.selected {
+  background:
+    linear-gradient(rgba(232, 246, 252, 0.92), rgba(255, 255, 255, 0.88)) padding-box,
+    linear-gradient(135deg, rgba(8, 145, 178, 0.58), rgba(56, 189, 248, 0.36)) border-box;
+}
+
+/* 页面标题渐变：冰白→电光青（覆盖 deep-polish #ffd9e6 粉白） */
+[data-family='tech'] .page-title {
+  background: linear-gradient(105deg,
+    var(--color-text-primary) 0%,
+    #CFF3FF 38%,
+    var(--color-primary-300) 62%,
+    var(--color-text-primary) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--color-text-primary);
+  -webkit-text-fill-color: transparent;
+}
+[data-family='tech'][data-theme='light'] .page-title {
+  background: linear-gradient(105deg,
+    var(--color-text-primary) 0%,
+    #1B7FA6 38%,
+    #7C6BE8 62%,
+    var(--color-text-primary) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+/* 标题底部光带：青→紫 */
+[data-family='tech'] .page-title::after {
+  background: linear-gradient(90deg,
+    var(--color-primary) 0%,
+    rgba(34, 211, 238, 0.35) 42%,
+    rgba(139, 124, 248, 0.28) 100%);
+}
+/* 卡片标题光条辉光换青 */
+[data-family='tech'] .card-title::before {
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+}
+
+/* ============================== 4. 科技签名特效 ============================== */
+
+/* ---- 4.1 蓝图网格底纹（html 层 fixed，画在极光之下、画布之上） ---- */
+[data-family='tech'] html::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 75% at 50% 0%, black 25%, transparent 100%);
+  mask-image: radial-gradient(ellipse 90% 75% at 50% 0%, black 25%, transparent 100%);
+}
+[data-family='tech'][data-theme='light'] html::before {
+  background-image:
+    linear-gradient(rgba(8, 47, 73, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(8, 47, 73, 0.05) 1px, transparent 1px);
+}
+
+/* ---- 4.2 HUD 角标（卡片四角电光青括线，hover 点亮） ---- */
+[data-family='tech'] .card {
+  position: relative;
+}
+[data-family='tech'] .card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.4;
+  transition: opacity var(--duration-hover) var(--ease-out);
+  background:
+    linear-gradient(var(--color-primary), var(--color-primary)) top left / 14px 2px,
+    linear-gradient(var(--color-primary), var(--color-primary)) top left / 2px 14px,
+    linear-gradient(var(--color-primary), var(--color-primary)) top right / 14px 2px,
+    linear-gradient(var(--color-primary), var(--color-primary)) top right / 2px 14px,
+    linear-gradient(var(--color-primary), var(--color-primary)) bottom left / 14px 2px,
+    linear-gradient(var(--color-primary), var(--color-primary)) bottom left / 2px 14px,
+    linear-gradient(var(--color-primary), var(--color-primary)) bottom right / 14px 2px,
+    linear-gradient(var(--color-primary), var(--color-primary)) bottom right / 2px 14px;
+  background-repeat: no-repeat;
+}
+[data-family='tech'] .card:hover::before { opacity: 1; }
+
+/* ---- 4.3 主按钮：电光青渐变面 + 深空墨字 + 辉光 ----
+ * 覆盖 noir.css 硬编码 #ff6b9d 三态背景。 */
+[data-family='tech'] .btn-primary {
+  background: linear-gradient(135deg, #38E5FF 0%, #22D3EE 48%, #0BB8D6 100%);
+  color: #041018;                          /* 青底配墨字（终端配色范式） */
+  font-weight: var(--font-weight-semibold);
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    0 2px 14px rgba(34, 211, 238, 0.28);
+}
+[data-family='tech'] .btn-primary:not(:disabled):hover {
+  background: linear-gradient(135deg, #5CEBFF 0%, #38BDF8 48%, #22D3EE 100%);
+  color: #041018;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 4px 22px rgba(34, 211, 238, 0.42);
+}
+[data-family='tech'] .btn-primary:not(:disabled):active {
+  background: linear-gradient(135deg, #22D3EE 0%, #0BB8D6 48%, #09A8C4 100%);
+  color: #041018;
+}
+/* 分段控件/预设按钮激活态（bg-sakura-500 类）：与 .btn-primary 同套渐变+墨字+辉光。
+ * 完整覆盖 noir.css 第 1 节硬编码 #ff6b9d 三态背景（背景简写一并重置 image/color）。 */
+[data-family='tech'] button.bg-sakura-500:not(:disabled) {
+  background: linear-gradient(135deg, #38E5FF 0%, #22D3EE 48%, #0BB8D6 100%);
+  color: #041018;
+  font-weight: var(--font-weight-semibold);
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    0 2px 14px rgba(34, 211, 238, 0.28);
+}
+[data-family='tech'] button.bg-sakura-500:not(:disabled):hover {
+  background: linear-gradient(135deg, #5CEBFF 0%, #38BDF8 48%, #22D3EE 100%);
+  color: #041018;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 4px 22px rgba(34, 211, 238, 0.42);
+}
+[data-family='tech'] button.bg-sakura-500:not(:disabled):active {
+  background: linear-gradient(135deg, #22D3EE 0%, #0BB8D6 48%, #09A8C4 100%);
+  color: #041018;
+}
+[data-family='tech'] button.bg-sakura-500:disabled {
+  background: rgba(120, 128, 148, 0.22);   /* 中性灰（与 refinement R3 同语言） */
+  box-shadow: none;
+}
+[data-family='tech'] button.bg-sakura-500::after { content: none; }
+/* 亮色：深青渐变底白字（对比达标，无需墨字） */
+[data-family='tech'][data-theme='light'] .btn-primary {
+  background: linear-gradient(135deg, #0EA5E9 0%, #0891B2 48%, #0E7490 100%);
+  color: #FFFFFF;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 2px 12px rgba(8, 145, 178, 0.30);
+}
+[data-family='tech'][data-theme='light'] .btn-primary:not(:disabled):hover {
+  background: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 48%, #0891B2 100%);
+  color: #FFFFFF;
+}
+[data-family='tech'][data-theme='light'] .btn-primary:not(:disabled):active {
+  background: linear-gradient(135deg, #0891B2 0%, #0E7490 48%, #155E75 100%);
+  color: #FFFFFF;
+}
+/* 亮色 bg-sakura-500：深青渐变底白字（覆盖 noir.css 第 9 节 light 粉色三态误命中） */
+[data-family='tech'][data-theme='light'] button.bg-sakura-500:not(:disabled) {
+  background: linear-gradient(135deg, #0EA5E9 0%, #0891B2 48%, #0E7490 100%);
+  color: #FFFFFF;
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 2px 12px rgba(8, 145, 178, 0.30);
+}
+[data-family='tech'][data-theme='light'] button.bg-sakura-500:not(:disabled):hover {
+  background: linear-gradient(135deg, #38BDF8 0%, #0EA5E9 48%, #0891B2 100%);
+  color: #FFFFFF;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 4px 18px rgba(8, 145, 178, 0.38);
+}
+[data-family='tech'][data-theme='light'] button.bg-sakura-500:not(:disabled):active {
+  background: linear-gradient(135deg, #0891B2 0%, #0E7490 48%, #155E75 100%);
+  color: #FFFFFF;
+}
+[data-family='tech'][data-theme='light'] button.bg-sakura-500:disabled {
+  background: rgba(120, 128, 148, 0.18);
+  color: rgba(255, 255, 255, 0.65);
+  box-shadow: none;
+}
+/* 非 button 的 bg-sakura-500（用户消息气泡 div / 进度条填充 div 等）：
+ * 与按钮同套渐变语言，覆盖 polish.css 第 17 节通用粉色渐变。
+ * 特异性 (0,2,0) 低于上方 button 规则 (0,2,2)——按钮三态不受影响。 */
+[data-family='tech'] .bg-sakura-500 {
+  background-image: linear-gradient(135deg, #38E5FF 0%, #22D3EE 48%, #0BB8D6 100%);
+  background-color: #22D3EE;
+  color: #041018;
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 12px rgba(34, 211, 238, 0.26);
+}
+/* 进度条填充：青色流光晕（覆盖 polish.css 粉色光晕） */
+[data-family='tech'] .animate-pulse.bg-sakura-500 {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 10px rgba(34, 211, 238, 0.42);
+}
+/* 亮色非 button：深青渐变底白字（气泡文字较长，白字对比达标） */
+[data-family='tech'][data-theme='light'] .bg-sakura-500 {
+  background-image: linear-gradient(135deg, #0EA5E9 0%, #0891B2 48%, #0E7490 100%);
+  background-color: #0891B2;
+  color: #FFFFFF;
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 2px 10px rgba(8, 145, 178, 0.28);
+}
+[data-family='tech'][data-theme='light'] .animate-pulse.bg-sakura-500 {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 9px rgba(8, 145, 178, 0.40);
+}
+
+/* ---- 4.4 滑块：电光青 thumb + 辉光 ---- */
+[data-family='tech'] .omni-slider::-webkit-slider-thumb {
+  background: #041018;
+  border-color: #22D3EE;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.55);
+}
+[data-family='tech'] .omni-slider::-moz-range-thumb {
+  background: #041018;
+  border-color: #22D3EE;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.55);
+}
+[data-family='tech'][data-theme='light'] .omni-slider::-webkit-slider-thumb {
+  background: #FFFFFF;
+  border-color: #0891B2;
+  box-shadow: 0 0 10px rgba(8, 145, 178, 0.40);
+}
+[data-family='tech'][data-theme='light'] .omni-slider::-moz-range-thumb {
+  background: #FFFFFF;
+  border-color: #0891B2;
+  box-shadow: 0 0 10px rgba(8, 145, 178, 0.40);
+}
+
+/* ---- 4.5 导航激活：青紫渐变指示条 + 辉光 ---- */
+[data-family='tech'] .nav-item.active::before {
+  background: linear-gradient(180deg, #22D3EE, #8B7CF8);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.65);
+}
+
+/* ---- 4.6 状态栏扫描线（电光青流光，7s 一轮） ---- */
+[data-family='tech'] .statusbar {
+  position: relative;
+  overflow: hidden;
+}
+[data-family='tech'] .statusbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 180px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.13), transparent);
+  transform: translateX(-200px);
+  animation: tech-scan 7s linear infinite;
+}
+[data-family='tech'][data-theme='light'] .statusbar::before {
+  background: linear-gradient(90deg, transparent, rgba(8, 145, 178, 0.10), transparent);
+}
+@keyframes tech-scan {
+  to { transform: translateX(100vw); }
+}
+
+/* ---- 4.7 顶栏：青色微光压边 ---- */
+[data-family='tech'] .topbar {
+  box-shadow:
+    0 1px 0 rgba(56, 189, 248, 0.16),
+    0 4px 24px rgba(2, 6, 16, 0.42);
+}
+[data-family='tech'][data-theme='light'] .topbar {
+  box-shadow:
+    0 1px 0 rgba(8, 145, 178, 0.14),
+    0 4px 20px rgba(11, 27, 51, 0.08);
+}
+
+/* ---- 4.8 文本选区 / 滚动条 ---- */
+[data-family='tech'] ::selection {
+  background: rgba(34, 211, 238, 0.32);
+}
+[data-family='tech'][data-theme='light'] ::selection {
+  background: rgba(8, 145, 178, 0.22);
+}
+
+/* ---- 4.9 输入聚焦：电光青辉光环（叠加在既有 ring 之上） ---- */
+[data-family='tech'] .input:focus,
+[data-family='tech'] input[class*='bg-[var(--color-input-bg)]']:focus,
+[data-family='tech'] textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  box-shadow:
+    0 0 0 2px var(--color-focus-ring),
+    0 0 18px rgba(34, 211, 238, 0.18);
+}
+[data-family='tech'][data-theme='light'] .input:focus,
+[data-family='tech'][data-theme='light'] input[class*='bg-[var(--color-input-bg)]']:focus,
+[data-family='tech'][data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]']:focus {
+  box-shadow:
+    0 0 0 2px var(--color-focus-ring),
+    0 0 16px rgba(8, 145, 178, 0.15);
+}
+
+/* ============================== 5. 深层粉色清洗（noir.css / refinement.css 硬编码覆盖） ==============================
+ * noir.css（精炼层）与 refinement.css（精修层）存在大量硬编码樱粉/薄荷绿，
+ * 且其 [data-theme='light'] 规则会命中 tech-light。本节逐条换为电光青/星云紫。
+ * 本文件加载于两者之后 + [data-family] 前缀提特异性，必然覆盖。
+ * ============================================================== */
+
+/* ---- 5.1 输入聚焦边框 + 光标（noir §3/§4：border-color #ff6b9d 漏覆盖项） ---- */
+[data-family='tech'] input[class*='bg-[var(--color-input-bg)]']:focus,
+[data-family='tech'] textarea[class*='bg-[var(--color-input-bg)]']:focus,
+[data-family='tech'] .input:focus {
+  border-color: var(--color-primary);
+}
+[data-family='tech'] input[class*='bg-[var(--color-input-bg)]'],
+[data-family='tech'] textarea[class*='bg-[var(--color-input-bg)]'] {
+  caret-color: #22D3EE;
+}
+[data-family='tech'][data-theme='light'] input[class*='bg-[var(--color-input-bg)]']:focus,
+[data-family='tech'][data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]']:focus,
+[data-family='tech'][data-theme='light'] .input:focus {
+  border-color: var(--color-primary);
+}
+[data-family='tech'][data-theme='light'] input[class*='bg-[var(--color-input-bg)]'],
+[data-family='tech'][data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]'] {
+  caret-color: #0891B2;
+}
+
+/* ---- 5.2 select 聚焦箭头（noir §4：data URI 内 %23FF6B9D 粉箭头换青） ---- */
+[data-family='tech'] select.input:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%2322D3EE' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+[data-family='tech'][data-theme='light'] select.input:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%230891B2' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+/* ---- 5.3 芯片 hover / 选中芯片（noir §5：粉底粉边粉字换青） ---- */
+[data-family='tech'] button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
+  background-color: rgba(34, 211, 238, 0.08);
+  border-color: rgba(34, 211, 238, 0.55);
+  color: #67E8F9;
+}
+[data-family='tech'] button.border-sakura-500 {
+  background-color: rgba(34, 211, 238, 0.13);
+  border-color: #22D3EE;
+  color: #A5F3FC;
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.18);
+}
+[data-family='tech'][data-theme='light'] button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
+  background-color: rgba(8, 145, 178, 0.08);
+  border-color: rgba(8, 145, 178, 0.5);
+  color: #0E7490;
+}
+[data-family='tech'][data-theme='light'] button.border-sakura-500 {
+  background-color: rgba(8, 145, 178, 0.10);
+  border-color: #0891B2;
+  color: #155E75;
+  box-shadow: inset 0 0 0 1px rgba(8, 145, 178, 0.14);
+}
+
+/* ---- 5.4 图标按钮 / ghost 按钮 hover（noir §6/§8：粉染底换青） ---- */
+[data-family='tech'] button[class*='hover:bg-sakura-50']:not(:disabled):hover {
+  background-color: rgba(34, 211, 238, 0.1);
+}
+[data-family='tech'] .btn-ghost:not(:disabled):hover {
+  background: rgba(34, 211, 238, 0.1);
+}
+[data-family='tech'][data-theme='light'] button[class*='hover:bg-sakura-50']:not(:disabled):hover {
+  background-color: rgba(8, 145, 178, 0.1);
+}
+
+/* ---- 5.5 次级按钮（noir §8 + refinement R1：硬编码薄荷绿换星云紫） ---- */
+[data-family='tech'] .btn-secondary {
+  border: 1px solid rgba(139, 124, 248, 0.6);
+  color: #B4A8FF;
+  background: transparent;
+  box-shadow: none;
+}
+[data-family='tech'] .btn-secondary:not(:disabled):hover {
+  background: rgba(139, 124, 248, 0.10);
+  border-color: rgba(139, 124, 248, 0.75);
+  box-shadow: none;
+  transform: none;
+}
+[data-family='tech'][data-theme='light'] .btn-secondary {
+  border-color: rgba(109, 91, 224, 0.55);
+  color: #6D5BE0;
+}
+[data-family='tech'][data-theme='light'] .btn-secondary:not(:disabled):hover {
+  background: rgba(109, 91, 224, 0.09);
+  border-color: rgba(109, 91, 224, 0.7);
+}
+
+/* ---- 5.6 虚线拖拽/占位区 hover（refinement R4b：粉染换青染） ---- */
+[data-family='tech'] .border-dashed:hover,
+[data-family='tech'] [class*='border-dashed']:hover {
+  border-color: rgba(34, 211, 238, 0.55);
+  background-color: rgba(34, 211, 238, 0.04);
+}
+[data-family='tech'][data-theme='light'] .border-dashed:hover,
+[data-family='tech'][data-theme='light'] [class*='border-dashed']:hover {
+  border-color: rgba(8, 145, 178, 0.5);
+  background-color: rgba(8, 145, 178, 0.04);
+}
+
+/* ---- 5.7 嵌套卡 hover + 序号胶囊阴影（refinement R6b/R6c：粉色光效换青） ---- */
+[data-family='tech'] .card .card:hover {
+  border-color: rgba(34, 211, 238, 0.35);
+  box-shadow: 0 8px 24px rgba(34, 211, 238, 0.12);
+}
+[data-family='tech'][data-theme='light'] .card .card:hover {
+  border-color: rgba(8, 145, 178, 0.3);
+  box-shadow: 0 8px 24px rgba(8, 145, 178, 0.10);
+}
+[data-family='tech'] .page ol > li::before {
+  box-shadow: 0 2px 8px rgba(34, 211, 238, 0.3);
+}
+[data-family='tech'][data-theme='light'] .page ol > li::before {
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.25);
+}

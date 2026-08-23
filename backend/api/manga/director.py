@@ -313,7 +313,7 @@ def _text_to_3d_sync(req: TextTo3DRequest) -> dict:
     TripoSR 生成带顶点色的 glb 网格。任一环缺失即诚实报错，绝不
     伪造网格产物。
     """
-    from ..services.inference.triposr_engine import get_triposr_engine
+    from ...services.inference.triposr_engine import get_triposr_engine
 
     tsr = get_triposr_engine()
     if not tsr.is_ready and not tsr.load_model():

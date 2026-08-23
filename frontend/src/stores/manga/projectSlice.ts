@@ -75,6 +75,52 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
     });
   },
 
+  batchRemoveProjects: async (projectIds) => {
+    // 后端单请求上限 500；按 100 一批顺序提交，聚合结果（部分失败
+    // 不回滚已删批次——批量删除本身为逐项级联，幂等可重试）
+    const BATCH = 100;
+    let res: mangaApi.BatchDeleteProjectsResult = {
+      deleted: 0, deleted_ids: [], missing_ids: [],
+    };
+    for (let i = 0; i < projectIds.length; i += BATCH) {
+      const part = await mangaApi.batchDeleteProjects(projectIds.slice(i, i + BATCH));
+      res = {
+        deleted: res.deleted + part.deleted,
+        deleted_ids: [...res.deleted_ids, ...part.deleted_ids],
+        missing_ids: [...res.missing_ids, ...part.missing_ids],
+      };
+    }
+    const deleted = new Set(res.deleted_ids);
+    set((state) => {
+      const isCurrent =
+        state.currentProject != null && deleted.has(state.currentProject.id);
+      // 删除集合含当前项目时，清理全部轮询器并回项目库
+      if (isCurrent) {
+        for (const taskId of videoPollers.keys()) {
+          stopVideoPoll(taskId);
+        }
+        videoPollers.clear();
+      }
+      return {
+        projects: state.projects.filter((p) => !deleted.has(p.project_id)),
+        ...(isCurrent
+          ? {
+              currentProject: null,
+              rows: [],
+              selectedRowId: null,
+              assets: [],
+              assetsLoaded: false,
+              keyframes: {},
+              selectedAssetId: null,
+              bindingTarget: null,
+              videoTasks: [],
+            }
+          : {}),
+      };
+    });
+    return res;
+  },
+
   openProject: async (project) => {
     set({
       currentProject: { id: project.project_id, name: project.name, work_mode: project.work_mode },

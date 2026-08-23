@@ -52,8 +52,20 @@ def _try_import(name: str) -> Any:
 
 # ── 绘画模型注册表 ────────────────────────────────────────────────
 # model_id -> (相对 models/ 的目录, 需求显存 GB)
+# 缺省底座 sdxl-base-1.0：paint 模块通用生成（采样器/负向提示词语义完整）。
+# flux2-klein-4b：FLUX.2 Klein（Qwen3-4B 中文文本编码器，512 token），
+# 四视图 one-pass 中文直入路径专用底座（2026-08-20 重构裁定）——仅显式
+# 点名加载，不作通用缺省。显存：transformer 4B bf16 ≈7.4GB +
+# text_encoder ≈7.7GB + vae，cpu_offload 下按 12GB 闸门登记。
+# qwen-image-2512：Qwen-Image-2512（20B MMDiT + Qwen2.5-VL 7B 文本
+# 编码器，原生中文理解/中英文字渲染）。transformer 走 unsloth
+# Q4_K_M GGUF 流式推理（量化权重常驻 CPU，GPU 峰值 ~1GB，
+# 实测 2.15s/步），编码器 leaf_level offload 常驻 RAM——
+# 12GB+ 显存 / 28GB+ RAM 档位"高精度模式"底座（2026-08-22 接入）。
 PAINT_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     ("sdxl-base-1.0", "paint/sdxl-base-1.0", 7.0),
+    ("flux2-klein-4b", "paint/flux2-klein-4b", 12.0),
+    ("qwen-image-2512", "paint/qwen-image-2512", 6.0),
 ]
 
 # sampler 名称 -> (diffusers 调度器类名, 额外 kwargs)
@@ -130,8 +142,94 @@ def _release_cuda_memory() -> None:
         pass
 
 
+# ── SDXL 原生分辨率分桶（2026-08-20 图片崩坏修复）─────────────────
+# SDXL 训练分布集中在 1024²（边长约 512~1408、总量 ≈1MP）。前端翻倍
+# 预设（1536×2688 等 ≈4MP）直喂 UNet 采样会严重超分布——主体重复、
+# 肢体崩坏、画面平铺。修复：请求超原生时先吸附到原生桶内采样保
+# 画质，采样完成后 LANCZOS 精确放大到请求尺寸（meta 标注）。
+_SDXL_NATIVE_MP = 1024 * 1024      # 原生面积锚点
+_SDXL_NATIVE_MAX_SIDE = 1408       # 单边上限（训练分布 ~2 倍 704）
+_SDXL_NATIVE_MIN_SIDE = 512
+
+
+def _native_bucket(width: int, height: int) -> tuple[int, int]:
+    """把请求尺寸吸附到 SDXL 原生桶（64 倍数、保持宽高比、面积 ≈1MP）。
+
+    超分布（任一边 >1408 或面积 >1.5MP）按面积比例缩到原生锚点后
+    64 对齐；原生范围内原样返回（不改变既有行为）。
+    """
+    area_over = width * height > int(_SDXL_NATIVE_MP * 1.5)
+    side_over = max(width, height) > _SDXL_NATIVE_MAX_SIDE
+    if not area_over and not side_over:
+        return width, height
+    scale = (_SDXL_NATIVE_MP / (width * height)) ** 0.5
+    w = int(round(width * scale / 64)) * 64
+    h = int(round(height * scale / 64)) * 64
+    w = max(_SDXL_NATIVE_MIN_SIDE, min(_SDXL_NATIVE_MAX_SIDE, w))
+    h = max(_SDXL_NATIVE_MIN_SIDE, min(_SDXL_NATIVE_MAX_SIDE, h))
+    return w, h
+
+
+def _upscale_images(images: list, width: int, height: int) -> list:
+    """采样结果 LANCZOS 精确放大到请求尺寸（保比例由分桶保证近似）。"""
+    return [im.convert("RGB").resize((width, height), resample=1)
+            for im in images]
+
+
+def _flux_model_dir_ready(model_dir: Path) -> bool:
+    """FLUX.2 Klein diffusers 目录是否可加载（model_index 声明
+    Flux2KleinPipeline + transformer 权重就位）。"""
+    mi = model_dir / "model_index.json"
+    if not mi.is_file():
+        return False
+    try:
+        import json
+        with open(mi, encoding="utf-8") as f:
+            idx = json.load(f)
+        if idx.get("_class_name") != "Flux2KleinPipeline":
+            return False
+    except Exception:
+        return False
+    tr = model_dir / "transformer"
+    if not tr.is_dir():
+        return False
+    for f in tr.iterdir():
+        if f.suffix == ".safetensors" and f.stat().st_size > 1024 * 1024:
+            return True
+    return False
+
+
+def _qwen_image_dir_ready(model_dir: Path) -> bool:
+    """Qwen-Image-2512 目录是否可加载（model_index 声明
+    QwenImagePipeline + transformer 权重就位：GGUF 量化或 safetensors）。"""
+    mi = model_dir / "model_index.json"
+    if not mi.is_file():
+        return False
+    try:
+        import json
+        with open(mi, encoding="utf-8") as f:
+            idx = json.load(f)
+        if idx.get("_class_name") != "QwenImagePipeline":
+            return False
+    except Exception:
+        return False
+    tr = model_dir / "transformer"
+    if not tr.is_dir():
+        return False
+    for f in tr.iterdir():
+        if (f.suffix in (".gguf", ".safetensors")
+                and f.stat().st_size > 1024 * 1024):
+            return True
+    return False
+
+
 def paint_model_dir_ready(model_dir: Path) -> bool:
-    """SDXL diffusers 目录是否可加载（model_index.json + unet 权重齐全）。"""
+    """绘画模型目录是否可加载（SDXL / FLUX.2 Klein / Qwen-Image 布局）。"""
+    if _flux_model_dir_ready(model_dir):
+        return True
+    if _qwen_image_dir_ready(model_dir):
+        return True
+    # SDXL 布局：model_index.json + unet 权重齐全
     if not (model_dir / "model_index.json").is_file():
         return False
     unet = model_dir / "unet"
@@ -234,9 +332,31 @@ class PaintEngine:
         return [mid for mid, rel, _v in PAINT_MODEL_CANDIDATES
                 if paint_model_dir_ready(MODELS_DIR / rel)]
 
+    def cjk_default_model(self) -> str:
+        """中文提示词的缺省双语底座 id（qwen-image* 目录就绪时）。
+
+        背景（2026-08-23 图文不符修复）：SDXL 的 CLIP 文本编码器无
+        中文语义能力，中文提示词直接送入会生成与文本无关的图像；
+        Qwen-Image 系列编码器（Qwen2.5-VL）原生中英双语。无可用
+        双语底座时返回空串——调用方应走提示词中译英兜底
+        （prompt_translator.translate_prompt_zh2en）。
+        """
+        for mid, rel, _v in PAINT_MODEL_CANDIDATES:
+            if mid.startswith("qwen-image") and paint_model_dir_ready(MODELS_DIR / rel):
+                return mid
+        return ""
+
     def _pick_model(self, model_id: str | None) -> tuple[str, Path, float] | None:
+        """解析目标底座目录。
+
+        显式 id 精确匹配（sdxl* 前缀宽容归一到 sdxl-base-1.0，兼容
+        前端自由填写）；缺省取候选表首位 sdxl-base-1.0——
+        flux2-klein-4b 仅 one-pass 四视图路径显式点名，不作通用缺省。
+        """
+        want = (model_id or "").strip().lower()
         for mid, rel, vram in PAINT_MODEL_CANDIDATES:
-            if model_id and model_id != mid and not model_id.startswith("sdxl"):
+            if want and want != mid and not (
+                    want.startswith("sdxl") and mid.startswith("sdxl")):
                 continue
             path = MODELS_DIR / rel
             if paint_model_dir_ready(path):
@@ -301,7 +421,24 @@ class PaintEngine:
         """
         with self._lock:
             if self._state == "ready":
-                return True
+                target = self._pick_model(model_id)
+                if target is None:
+                    if model_id:
+                        # 显式点名却不可用：如实报错，不静默沿用当前底座
+                        self._last_error = f"绘画模型不可用: {model_id}"
+                        return False
+                    return True
+                if target[0] == self._model_id:
+                    return True
+                # 底座切换（sdxl ↔ flux2-klein-4b）：先释放当前管线腾显存
+                # （单管线引擎无法双底座驻留；重入锁内就地卸载，不再取锁）
+                logger.info("绘画底座切换: %s -> %s", self._model_id, target[0])
+                self._pipe = None
+                self._pipe_i2i = None
+                self._model_id = ""
+                self._model_dir = None
+                self._state = "unloaded"
+                _release_cuda_memory()
 
             torch = _try_import("torch")
             diffusers = _try_import("diffusers")
@@ -313,7 +450,8 @@ class PaintEngine:
 
             pick = self._pick_model(model_id)
             if pick is None:
-                self._last_error = "绘画模型未找到（models/paint/sdxl-base-1.0），请先下载模型"
+                self._last_error = (f"绘画模型未找到: {model_id or 'sdxl-base-1.0'}"
+                                    "（models/paint/），请先下载模型")
                 self._state = "unavailable"
                 logger.warning(self._last_error)
                 return False
@@ -347,42 +485,149 @@ class PaintEngine:
 
             try:
                 logger.info("开始加载绘画模型 %s <- %s", mid, path)
-                sdxl_cls = diffusers.StableDiffusionXLPipeline
+                # qwen-image GGUF 专属布局旗标（见分支内注释）：
+                # True 时跳过下方通用 cpu offload（会破坏 GPU 常驻布局）
+                qwen_gguf_layout = False
 
-                # 优先 fp16 variant（component 级回退由 diffusers 处理）
-                fp16_unet = (path / "unet"
-                             / "diffusion_pytorch_model.fp16.safetensors").is_file()
-                kwargs: dict[str, Any] = {
-                    "torch_dtype": torch.float16,
-                    "use_safetensors": True,
-                }
-                if fp16_unet:
-                    kwargs["variant"] = "fp16"
+                if mid.startswith("flux2"):
+                    # FLUX.2 Klein 分支：Qwen3 文本编码器（中文直入），
+                    # bf16（FLUX.2 官方推荐，fp16 有溢出风险），
+                    # 调度器 FlowMatchEulerDiscreteScheduler 内置。
+                    flux_cls = getattr(diffusers, "Flux2KleinPipeline", None)
+                    if flux_cls is None:
+                        raise RuntimeError(
+                            "diffusers 缺少 Flux2KleinPipeline（需 0.36+）")
+                    pipe = flux_cls.from_pretrained(
+                        str(path), torch_dtype=torch.bfloat16,
+                        use_safetensors=True)
+                elif mid.startswith("qwen-image"):
+                    # Qwen-Image-2512 分支：20B MMDiT + Qwen2.5-VL 7B
+                    # 文本编码器（原生中文理解/中英文字渲染）。transformer
+                    # 优先走 GGUF Q4_K_M（unsloth 量化，13.2GB 常驻 GPU）；
+                    # text_encoder/vae/tokenizer/scheduler 用官方 diffusers
+                    # 组件，经 model_cpu_offload 常驻 RAM（16GB 编码器不占
+                    # 显存）。调度器 FlowMatchEuler 内置，无 sampler 概念。
+                    qwen_cls = getattr(diffusers, "QwenImagePipeline", None)
+                    if qwen_cls is None:
+                        raise RuntimeError(
+                            "diffusers 缺少 QwenImagePipeline（需 0.35+）")
+                    ggufs = sorted((path / "transformer").glob("*.gguf"))
+                    if ggufs:
+                        trans_cls = getattr(
+                            diffusers, "QwenImageTransformer2DModel", None)
+                        if trans_cls is None:
+                            raise RuntimeError(
+                                "diffusers 缺少 QwenImageTransformer2DModel")
+                        # GGUF 加载必须带 quantization_config：
+                        # ① GGUFQuantizer 接管 shape 校验（量化字节 shape ≠
+                        #    逻辑 shape，无 quantizer 会误报 shape 不匹配）；
+                        # ② diffusers 0.39 不认 GGUF 的 BF16 小张量
+                        #    （仅 F32/F16 走原生路径），需 quantizer 的
+                        #    dequantize 分支处理（unsloth 量化版小张量用
+                        #    BF16 存储）。config 指向本地 transformer/ 目录
+                        #    （否则按 GGUF 架构回退 SD1.5 默认仓库联网拉取）。
+                        quant_cfg_cls = getattr(
+                            diffusers, "GGUFQuantizationConfig", None)
+                        if quant_cfg_cls is None:
+                            raise RuntimeError(
+                                "diffusers 缺少 GGUFQuantizationConfig"
+                                "（需 0.32+）")
+                        transformer = trans_cls.from_single_file(
+                            str(ggufs[0]),
+                            config=str(path / "transformer"),
+                            quantization_config=quant_cfg_cls(
+                                compute_dtype=torch.bfloat16),
+                            torch_dtype=torch.bfloat16)
+                        # 流式布局（2026-08-22 性能攻关裁定，39 倍加速）：
+                        # ① transformer（GGUF Q4_K_M ~12.4GB）量化权重常驻
+                        #    CPU，install_streaming 替换 GGUFLinear.forward
+                        #    为逐层 H2D 传输 + GPU 反量化（Triton）+ GEMM。
+                        #    GPU 常驻仅 ~0.5GB（原 12.9GB）——12GB 基线卡可
+                        #    跑；实测 2.15s/步（GPU 常驻版因 WDDM demand-
+                        #    paging 慢到 84s/步，详见 qwen_gguf_stream.py
+                        #    头部踩坑记录）；
+                        # ② text_encoder（Qwen2.5-VL 7B bf16 ~15.5GB）常驻
+                        #    RAM，挂 leaf_level group offloading（逐层上 GPU
+                        #    推理，单层 ~0.2GB；组件级 model_cpu_offload 需
+                        #    整体搬运 15.5GB，超出空闲显存放不下）；
+                        # ③ vae（~0.24GB）常驻 GPU。
+                        # RAM 峰值 ≈ 12.4 + 15.5 = 27.9GB——32GB 基线贴线，
+                        # 编码器 RAM 页在 transformer 阶段 dormant 由页面
+                        # 文件兜底（实测可跑）。
+                        # 因此不走下方通用 offload——那会移动/重挂组件破坏
+                        # 流式布局。
+                        from .qwen_gguf_stream import install_streaming
 
-                if (path / "model_index.json").is_file():
-                    pipe = sdxl_cls.from_pretrained(str(path), **kwargs)
+                        stream_info = install_streaming(transformer)
+                        logger.info("qwen-image 流式布局: %s", stream_info)
+                        pipe = qwen_cls.from_pretrained(
+                            str(path), transformer=transformer,
+                            torch_dtype=torch.bfloat16)
+                        hooks_mod = _try_import("diffusers.hooks")
+                        apply_offload = getattr(
+                            hooks_mod, "apply_group_offloading", None)
+                        if apply_offload is None:
+                            raise RuntimeError(
+                                "diffusers 缺少 apply_group_offloading"
+                                "（需 0.34+）")
+                        apply_offload(
+                            pipe.text_encoder,
+                            onload_device=torch.device("cuda"),
+                            offload_device=torch.device("cpu"),
+                            offload_type="leaf_level",
+                            use_stream=True,
+                            # WDDM 踩坑（2026-08-22）：默认逐层 pin_memory，
+                            # 15.5GB 编码器会吃光 GPU commit budget（实测
+                            # pin 累计 ~11GB 后任何 CUDA 分配都 OOM）。
+                            # low_cpu_mem_usage=True = pageable 常驻，逐层
+                            # 搬运仅慢 ~20%，32GB RAM 环境唯一可行路径。
+                            low_cpu_mem_usage=True,
+                        )
+                        pipe.vae.to("cuda")
+                        qwen_gguf_layout = True
+                    else:
+                        pipe = qwen_cls.from_pretrained(
+                            str(path), torch_dtype=torch.bfloat16)
                 else:
-                    # 单文件兜底
-                    pipe = sdxl_cls.from_single_file(
-                        str(path / "sd_xl_base_1.0.safetensors"),
-                        torch_dtype=torch.float16,
-                        use_safetensors=True,
-                    )
+                    sdxl_cls = diffusers.StableDiffusionXLPipeline
+
+                    # 优先 fp16 variant（component 级回退由 diffusers 处理）
+                    fp16_unet = (path / "unet"
+                                 / "diffusion_pytorch_model.fp16.safetensors").is_file()
+                    kwargs: dict[str, Any] = {
+                        "torch_dtype": torch.float16,
+                        "use_safetensors": True,
+                    }
+                    if fp16_unet:
+                        kwargs["variant"] = "fp16"
+
+                    if (path / "model_index.json").is_file():
+                        pipe = sdxl_cls.from_pretrained(str(path), **kwargs)
+                    else:
+                        # 单文件兜底
+                        pipe = sdxl_cls.from_single_file(
+                            str(path / "sd_xl_base_1.0.safetensors"),
+                            torch_dtype=torch.float16,
+                            use_safetensors=True,
+                        )
 
                 # 16GB 显存保护策略：
                 # - 低显存模式：sequential_cpu_offload（最低 ~4GB 可跑，较慢）
                 # - 常规模式：model_cpu_offload（accelerate 可用时）
                 # - 兜底：整管线上 GPU + vae slicing
-                offload_done = False
-                try:
-                    if _try_import("accelerate") is not None:
-                        if low_vram_mode:
-                            pipe.enable_sequential_cpu_offload()
-                        else:
-                            pipe.enable_model_cpu_offload()
-                        offload_done = True
-                except Exception as exc:
-                    logger.warning("offload 启用失败，尝试整管线上 GPU: %s", exc)
+                # qwen-image GGUF 专属布局已完成放置（transformer/vae 常驻
+                # GPU + 编码器 group offloading），跳过通用 offload
+                offload_done = qwen_gguf_layout
+                if not offload_done:
+                    try:
+                        if _try_import("accelerate") is not None:
+                            if low_vram_mode:
+                                pipe.enable_sequential_cpu_offload()
+                            else:
+                                pipe.enable_model_cpu_offload()
+                            offload_done = True
+                    except Exception as exc:
+                        logger.warning("offload 启用失败，尝试整管线上 GPU: %s", exc)
                 if not offload_done:
                     try:
                         pipe = pipe.to("cuda")
@@ -420,6 +665,15 @@ class PaintEngine:
         """卸载绘画管线并释放显存。返回是否有模型被卸载。"""
         with self._lock:
             had = self._pipe is not None
+            if had and self._model_id.startswith("qwen-image"):
+                # 恢复 GGUFLinear 原生 forward + 释放流式 buffer，
+                # 防止类级替换泄漏到后续加载的 GGUF 模型
+                try:
+                    from .qwen_gguf_stream import uninstall_streaming
+
+                    uninstall_streaming()
+                except Exception:
+                    pass
             self._pipe = None
             self._pipe_i2i = None
             self._model_id = ""
@@ -433,16 +687,26 @@ class PaintEngine:
             return had
 
     def ensure_loaded(self, model_id: str | None = None) -> bool:
-        """确保绘画模型已加载（先走 model_manager 契约协调）。"""
-        if self._state == "ready":
+        """确保绘画模型已加载（先走 model_manager 契约协调）。
+
+        底座切换（sdxl ↔ flux2-klein-4b）时先经 model_manager 卸载台账
+        中的旧绘画底座（记账与真实管线同步释放），再加载目标底座。
+        """
+        want = (model_id or "").strip()
+        if self._state == "ready" and (not want or want == self._model_id):
             return True
         try:
             from ..model_manager import get_model_manager  # type: ignore
             mgr = get_model_manager()
+            if want and want != self._model_id:
+                for entry in mgr.get_loaded_models():
+                    if (entry.get("category") in ("paint", "vision", "image")
+                            and entry.get("model_id") != want):
+                        mgr.unload_model(entry["model_id"])
             ensure = getattr(mgr, "ensure_loaded", None)
             if callable(ensure):
                 try:
-                    ensure("paint", model_id or "sdxl-base-1.0")
+                    ensure("paint", want or "sdxl-base-1.0")
                 except Exception as exc:
                     logger.debug("model_manager.ensure_loaded 调用失败: %s", exc)
         except Exception:
@@ -453,9 +717,17 @@ class PaintEngine:
         """懒加载 img2img 管线：from_pipe 复用 txt2img 全部组件（零额外显存）。"""
         if self._pipe_i2i is None:
             diffusers = _try_import("diffusers")
-            i2i_cls = getattr(diffusers, "StableDiffusionXLImg2ImgPipeline", None)
-            if i2i_cls is None:
-                raise RuntimeError("diffusers 缺少 StableDiffusionXLImg2ImgPipeline")
+            if self._model_id.startswith("qwen-image"):
+                i2i_cls = getattr(diffusers, "QwenImageImg2ImgPipeline", None)
+                if i2i_cls is None:
+                    raise RuntimeError(
+                        "diffusers 缺少 QwenImageImg2ImgPipeline")
+            else:
+                i2i_cls = getattr(
+                    diffusers, "StableDiffusionXLImg2ImgPipeline", None)
+                if i2i_cls is None:
+                    raise RuntimeError(
+                        "diffusers 缺少 StableDiffusionXLImg2ImgPipeline")
             self._pipe_i2i = i2i_cls.from_pipe(self._pipe)
         return self._pipe_i2i
 
@@ -554,7 +826,12 @@ class PaintEngine:
         seed = resolve_seed(int(params.get("seed", -1)))
 
         with self._infer_lock:
-            self._sampler = apply_sampler(self._pipe, sampler)
+            model_id = self._model_id  # 入口快照：调度器可在推理期间
+            # 强制卸载并发清空 _model_id（2026-08-20 one-pass 冒烟实测）
+            is_flux = model_id.startswith("flux2")
+            is_qwen = model_id.startswith("qwen-image")
+            if not is_flux and not is_qwen:
+                self._sampler = apply_sampler(self._pipe, sampler)
 
             generator = torch.Generator(device="cuda").manual_seed(seed)
             # F-10 降参（启动时）：命中旗标降步数，采样跑完整调度
@@ -563,16 +840,57 @@ class PaintEngine:
             steps = self._apply_governor_steps(steps, watch)
             cb = self._make_step_callback(progress_cb, steps, watch)
 
-            call_kwargs: dict[str, Any] = dict(
-                prompt=prompt,
-                negative_prompt=negative,
-                width=width,
-                height=height,
-                num_inference_steps=steps,
-                guidance_scale=cfg,
-                num_images_per_prompt=batch,
-                generator=generator,
-            )
+            if is_flux:
+                # FLUX.2 Klein：无 negative_prompt（负向语义由调用方写入
+                # 正向禁令）；无 sampler 概念（FlowMatch 固定）；
+                # cfg 映射 guidance_scale（distilled 默认 4.0）。
+                call_kwargs: dict[str, Any] = dict(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=steps,
+                    guidance_scale=cfg,
+                    num_images_per_prompt=batch,
+                    generator=generator,
+                )
+            elif is_qwen:
+                # Qwen-Image-2512：Qwen2.5-VL 编码器原生中文（提示词与
+                # 负向提示词均可中文语义直入，不套 SDXL 英文 tag 负向
+                # 表）；true_cfg_scale 走 true-CFG 通道（官方默认 4.0，
+                # 仅用户显式传 cfg 才覆盖）；分辨率上限 2048（原生
+                # 1328×1328）；调度器 FlowMatchEuler 内置，无 sampler。
+                has_cfg = any(k in params
+                              for k in ("cfg", "cfg_scale", "guidance_scale"))
+                neg = (params.get("negative")
+                       or params.get("negative_prompt") or "").strip()
+                call_kwargs = dict(
+                    prompt=prompt,
+                    negative_prompt=neg or " ",
+                    true_cfg_scale=float(cfg) if has_cfg else 4.0,
+                    width=min(width, 2048),
+                    height=min(height, 2048),
+                    num_inference_steps=steps,
+                    num_images_per_prompt=batch,
+                    generator=generator,
+                )
+            else:
+                # SDXL 原生分桶：超分布尺寸先在原生桶内采样（2026-08-20
+                # 图片崩坏修复），采样后统一 LANCZOS 放大回请求尺寸
+                native_w, native_h = _native_bucket(width, height)
+                if (native_w, native_h) != (width, height):
+                    logger.info(
+                        "SDXL 原生分桶: 请求 %dx%d → 原生 %dx%d 采样后放大",
+                        width, height, native_w, native_h)
+                call_kwargs = dict(
+                    prompt=prompt,
+                    negative_prompt=negative,
+                    width=native_w,
+                    height=native_h,
+                    num_inference_steps=steps,
+                    guidance_scale=cfg,
+                    num_images_per_prompt=batch,
+                    generator=generator,
+                )
             call_kwargs["callback_on_step_end"] = cb
             call_kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
 
@@ -593,11 +911,17 @@ class PaintEngine:
         else:
             logger.info("文生图完成: %dx%d %d步 seed=%d %.0fms",
                         width, height, steps, seed, self.last_elapsed_ms)
+        # SDXL 超分布请求：原生桶采样后放大回请求尺寸（保请求画幅）
+        images = list(result.images)
+        if not model_id.startswith(("flux2", "qwen-image")):
+            native_w, native_h = _native_bucket(width, height)
+            if (native_w, native_h) != (width, height):
+                images = _upscale_images(images, width, height)
         return {
-            "images": list(result.images),
+            "images": images,
             "seed": seed,
             "sampler": self._sampler,
-            "model": self._model_id,
+            "model": model_id,
             "elapsed_ms": self.last_elapsed_ms,
             # F-10 降参元数据：命中标注 quality_reduced + 原/实际步数
             "quality_reduced": bool(watch["reduced"]),
@@ -618,7 +942,6 @@ class PaintEngine:
             raise RuntimeError(self._last_error or "绘画模型未就绪")
 
         torch = _try_import("torch")
-        pipe = self._get_img2img_pipe()
 
         prompt = (params.get("prompt") or "").strip()
         negative = params.get("negative") or params.get("negative_prompt") \
@@ -632,7 +955,20 @@ class PaintEngine:
         sampler = params.get("sampler") or DEFAULT_SAMPLER
         seed = resolve_seed(int(params.get("seed", -1)))
 
-        apply_sampler(pipe, sampler)
+        model_id = self._model_id  # 入口快照（同 generate：防并发卸载清空）
+        is_flux = model_id.startswith("flux2")
+        is_qwen = model_id.startswith("qwen-image")
+        if is_flux:
+            # FLUX.2 Klein：image 为参考条件图（≤1MP 缩放后作条件
+            # token 拼入序列，非传统强度 img2img——latent 仍从纯噪声
+            # 起步，strength 不参与；输出尺寸跟随参考图）
+            pipe = self._pipe
+        elif is_qwen:
+            pipe = self._get_img2img_pipe()
+        else:
+            pipe = self._get_img2img_pipe()
+            apply_sampler(pipe, sampler)
+
         generator = torch.Generator(device="cuda").manual_seed(seed)
         # F-10 降参（启动时）：命中旗标降步数，采样跑完整调度
         watch: dict = {"reduced": False, "last_step": 0,
@@ -640,15 +976,45 @@ class PaintEngine:
         steps = self._apply_governor_steps(steps, watch)
         cb = self._make_step_callback(progress_cb, steps, watch)
 
-        call_kwargs: dict[str, Any] = dict(
-            prompt=prompt,
-            negative_prompt=negative,
-            image=init_image.convert("RGB"),
-            strength=strength,
-            num_inference_steps=steps,
-            guidance_scale=cfg,
-            generator=generator,
-        )
+        if is_flux:
+            call_kwargs: dict[str, Any] = dict(
+                prompt=prompt,
+                image=init_image.convert("RGB"),
+                num_inference_steps=steps,
+                guidance_scale=cfg,
+                generator=generator,
+            )
+            # 显式画幅优先：参考条件图不决定输出尺寸（缺省才跟参考图，
+            # 局部重绘裁片路径即依赖缺省跟随语义）
+            if params.get("width") and params.get("height"):
+                call_kwargs["width"] = int(params["width"])
+                call_kwargs["height"] = int(params["height"])
+        elif is_qwen:
+            # Qwen-Image img2img：true_cfg 语义通道 + strength；负向
+            # 提示词缺省空格（官方语义，true_cfg 生效需负向分支存在）
+            has_cfg = any(k in params
+                          for k in ("cfg", "cfg_scale", "guidance_scale"))
+            neg = (params.get("negative")
+                   or params.get("negative_prompt") or "").strip()
+            call_kwargs = dict(
+                prompt=prompt,
+                negative_prompt=neg or " ",
+                true_cfg_scale=float(cfg) if has_cfg else 4.0,
+                image=init_image.convert("RGB"),
+                strength=strength,
+                num_inference_steps=steps,
+                generator=generator,
+            )
+        else:
+            call_kwargs = dict(
+                prompt=prompt,
+                negative_prompt=negative,
+                image=init_image.convert("RGB"),
+                strength=strength,
+                num_inference_steps=steps,
+                guidance_scale=cfg,
+                generator=generator,
+            )
         call_kwargs["callback_on_step_end"] = cb
         call_kwargs["callback_on_step_end_tensor_inputs"] = ["latents"]
 
@@ -671,7 +1037,7 @@ class PaintEngine:
             "images": list(result.images),
             "seed": seed,
             "sampler": self._sampler,
-            "model": self._model_id,
+            "model": model_id,
             "strength": strength,
             "elapsed_ms": self.last_elapsed_ms,
             # F-10 降参元数据：命中标注 quality_reduced + 原/实际步数

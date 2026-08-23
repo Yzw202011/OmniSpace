@@ -10,6 +10,8 @@
  * - PUT    /models/select           手动选择模型（body: {feature, model_id}）
  * - POST   /models/load             加载到 GPU（body: {model_id, category?}）
  * - POST   /models/unload           从 GPU 卸载（body: {model_id}）
+ * - GET    /models/vllm/status      vLLM 推理引擎运行状态（2026-08-21）
+ * - POST   /models/vllm/stop        停止 vLLM 子进程回收显存（2026-08-21）
  *
  * 已移除悬空端点（后端不存在，调用必然 404）：
  *   /models/replace、/models/rollback、/models/cache/lock、
@@ -83,6 +85,12 @@ export function deleteModel(modelId: string) {
   return del<{ deleted: string }>(`/models/${encodeURIComponent(modelId)}`);
 }
 
+/** 彻底删除模型磁盘文件（卸载+删盘；DELETE /models/{id}/files，2026-08-20） */
+export function purgeModelFiles(modelId: string) {
+  return del<{ deleted: string; path: string; freed_gb: number }>(
+    `/models/${encodeURIComponent(modelId)}/files`);
+}
+
 /* ------------------------------ 手动选择 ------------------------------ */
 
 /** 可选择模型的功能名（后端 models_select 合法值：dialog/paint/video/voice） */
@@ -103,13 +111,16 @@ export interface SelectModelResult {
 
 /**
  * 模型类别 → 可选择功能名映射。
- * 与后端 _category_to_feature 对齐：dialog/language→dialog，vision→paint，
- * video→video，voice→voice；3d/auxiliary 不可手动选择，返回 null。
+ * 与后端 _category_to_feature 对齐：dialog/language/omni→dialog，
+ * vision→paint，video→video，voice→voice；3d/auxiliary 不可手动选择，
+ * 返回 null。omni（视觉语音全模态）归 dialog：语音/视频对话是对话
+ * 模块的功能形态。
  */
 export function categoryToFeature(category: ModelCategory): SelectableFeature | null {
   switch (category) {
     case 'dialog':
     case 'language':
+    case 'omni':
       return 'dialog';
     case 'vision':
       return 'paint';
@@ -157,6 +168,103 @@ export function unloadModel(modelId: string) {
   return post<LoadStateResult>('/models/unload', { model_id: modelId });
 }
 
+/* --------------------- vLLM 推理引擎（2026-08-21） --------------------- */
+
+/** vLLM 推理引擎运行状态（对齐后端 GET /models/vllm/status 返回 data） */
+export interface VllmStatus {
+  /** vLLM Python runtime 是否已安装（false 时无法启动） */
+  runtime_installed: boolean;
+  /** vLLM 推理子进程是否运行中 */
+  running: boolean;
+  /** 健康检查是否通过（运行中且 /health 探测成功） */
+  healthy: boolean;
+  /** P3 常驻热备：是否正在后台无阻塞预冷（进程未起、预热点火中） */
+  booting?: boolean;
+  /** 子进程 PID（未运行时为 null） */
+  pid: number | null;
+  /** 模型权重目录（空串表示未知） */
+  model_dir: string;
+  /** 对外服务模型名（served_model_name，空串表示未知） */
+  served_name: string;
+  /** OpenAI 兼容服务端口（0 表示未知） */
+  port: number;
+  /** 累计运行时长（秒，未运行为 0） */
+  uptime_s: number;
+  /** 最近一次错误信息（无错误为 null） */
+  last_error: string | null;
+}
+
+/** 停止 vLLM 响应（对齐后端 models_vllm_stop 返回；未运行时幂等成功） */
+export interface VllmStopResult {
+  /** 是否已确认停止 */
+  stopped: boolean;
+}
+
+/** 查询 vLLM 推理引擎运行状态（GET /models/vllm/status） */
+export function getVllmStatus() {
+  return get<VllmStatus>('/models/vllm/status');
+}
+
+/**
+ * 停止 vLLM 推理子进程并回收显存（POST /models/vllm/stop）。
+ * 未运行时后端幂等返回成功；启动请复用 loadModel（qwen3-vl-8b-awq / dialog）。
+ */
+export function stopVllm() {
+  return post<VllmStopResult>('/models/vllm/stop', {});
+}
+
+/* --------------------- 模块切换资源调度（2026-08-21） --------------------- */
+
+/** 模块资源释放结果（对齐后端 ModelManager.release_for_module 返回） */
+export interface ModuleReleaseResult {
+  /** 归一化后的目标模块功能名 */
+  module: string;
+  /** 是否在时间预算内完成全部释放（false=超预算部分释放） */
+  completed: boolean;
+  /** 已卸载模型 ID 列表 */
+  freed_models: string[];
+  /** 已卸载模型数 */
+  freed_count: number;
+  /** 释放显存量（GB） */
+  freed_vram_gb: number;
+  /** 跳过未卸载的模型（运行中任务/超预算） */
+  skipped: string[];
+  /** 是否终止了 vLLM 子进程（重显存模块切换按需终止） */
+  vllm_stopped?: boolean;
+  /** P3 常驻热备：是否保留 vLLM 子进程后台热备（轻量切换复用 worker） */
+  vllm_kept_hot?: boolean;
+  /** 后端实际耗时（ms） */
+  duration_ms: number;
+}
+
+/**
+ * 模块切换资源释放：其他模块 3 秒内释放显存/内存，优先供应目标模块。
+ * 导航切换模块 / 进入漫剧项目时调用（fire-and-forget + Toast 反馈）。
+ * 客户端超时 = 预算 + 2s 余量（后端自身也受预算约束）。
+ */
+export function releaseForModule(module: string, timeoutMs = 3000) {
+  return post<ModuleReleaseResult>(
+    '/models/release-for-module',
+    { module, timeout_ms: timeoutMs },
+    { timeout: timeoutMs + 2000 },
+  );
+}
+
+/** 模块常驻模型预热结果（fire-and-forget，后端立即返回） */
+export interface ModuleWarmupResult {
+  feature: string;
+  started: boolean;
+  reason?: string;
+}
+
+/** 后台预热模块常驻模型（对话模块 vLLM 冷启动 ~157s，切入页面即点火） */
+export function warmupFeature(feature: string, modelId?: string) {
+  return post<ModuleWarmupResult>('/models/warmup', {
+    feature,
+    model_id: modelId,
+  });
+}
+
 export default {
   listModels,
   getModelDetail,
@@ -167,4 +275,7 @@ export default {
   categoryToFeature,
   loadModel,
   unloadModel,
+  getVllmStatus,
+  stopVllm,
+  releaseForModule,
 };

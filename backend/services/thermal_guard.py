@@ -61,7 +61,6 @@ class ThermalGuard:
         self._state_since = time.time()
         self._pause_count = 0                # 累计进入暂停次数（会话统计）
         self._throttle_count = 0             # 累计进入降频次数（会话统计）
-        self._last_broadcast_ts = 0.0        # 广播节流（同状态最多每 5s 一次）
 
     @classmethod
     def instance(cls) -> ThermalGuard:
@@ -146,11 +145,11 @@ class ThermalGuard:
             util_cap = self._util_cap
             hot_events = self._consecutive_hot_events
 
-        # 状态迁移或周期节流广播（锁外执行，广播异常不影响状态机）
-        if new_state != prev_state or new_state != STATE_NORMAL:
+        # P2 事件化广播：仅在状态迁移时推送一次，不再非 normal 态下每 5s
+        # 重复刷 WS（同状态持续期间的实时温度由 /hardware 遥测承载）。
+        if new_state != prev_state:
             self._broadcast_state(new_state, temp_celsius, util_cap,
-                                  hot_events,
-                                  force=new_state != prev_state)
+                                  hot_events)
         return new_state
 
     # ── 对外查询 ────────────────────────────────────────────────
@@ -191,13 +190,12 @@ class ThermalGuard:
     # ── 广播 ────────────────────────────────────────────────────
 
     def _broadcast_state(self, state: str, temp: float,
-                         util_cap: float | None, hot_events: int,
-                         force: bool = False) -> None:
-        """向 UI 广播热保护事件（5s 节流；状态迁移时立即广播）。"""
-        now = time.time()
-        if not force and now - self._last_broadcast_ts < 5.0:
-            return
-        self._last_broadcast_ts = now
+                         util_cap: float | None, hot_events: int) -> None:
+        """向 UI 广播热保护状态迁移事件（P2 事件化：仅状态变化时调用一次）。
+
+        附带事件时间戳 event_ts（迁移时刻），供前端展示；不代替 /hardware
+        遥测的周期性温度更新。
+        """
         try:
             from .ws_hub import get_ws_hub
             event = {
@@ -214,6 +212,7 @@ class ThermalGuard:
                     "util_cap": util_cap,
                     "consecutive_hot_events": hot_events,
                     "message": self._event_message(state, temp),
+                    "event_ts": time.time(),
                 },
             })
         except Exception as exc:  # noqa: BLE001 - 广播失败不影响保护逻辑

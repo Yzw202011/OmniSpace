@@ -110,6 +110,17 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.warning("浏览器进程池预热调度失败（降级懒初始化）: %s", exc)
 
+    # T+5.8s: 资源占用采样与巡检仪表（P3-⑤）：后台守护线程 30s 采集
+    # RAM/显存/磁盘 快照（近 2 小时趋势 + 每日 JSONL），巡检越界告警。
+    # 采样器幂等自愈：即使此处失败，访问 /hardware/resource-samples 时
+    # 也会经单例自启，不阻塞就绪时序。
+    try:
+        from .services.resource_sampler import get_resource_sampler
+        get_resource_sampler().start()
+        log.info("T+5.8s 资源占用采样器已启动（巡检仪表化）")
+    except Exception as exc:
+        log.warning("资源占用采样器启动失败（降级：访问时自启）: %s", exc)
+
     # T+6s: WebSocket 消息中枢（规格 §2.2 /ws 协议）
     # 绑定事件循环、启动遥测推送，并向绘画/LoRA训练/浏览器Agent 注入广播器
     try:
@@ -129,10 +140,35 @@ async def lifespan(app: FastAPI):
 
     log.info("T+10s 后端就绪，等待请求")
     log.info("=" * 60)
+    # ── 统一事件日志（2026-08-21 日志可视化）─────────────────
+    try:
+        from .services.event_log import log_event, start_cleanup_task
+        start_cleanup_task()  # 30 天自动清除（启动即清一次 + 每日巡检）
+        log_event(
+            "system", "backend_started",
+            f"OmniSpace 后端已启动就绪（版本 {config.APP_VERSION}），"
+            f"监听地址 {config.HOST}:{config.PORT}",
+            level="success",
+            detail=f"db={config.DB_PATH}, api_prefix={config.API_PREFIX}")
+    except Exception:  # noqa: BLE001 - 事件日志失败不阻断启动
+        log.warning("事件日志初始化异常（可视化降级）")
+    # ── 执行流程追踪（2026-08-23 流程记录机制优化）─────────
+    try:
+        from .services import flow_trace
+        flow_trace.recover_orphans()   # 上一进程遗留 running → orphan
+        flow_trace.start_cleanup_task()
+    except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
+        log.warning("流程追踪初始化异常（降级运行）")
     yield
 
     # 关闭
     log.info("OmniSpace AI 后端关闭中...")
+    try:
+        from .services.event_log import log_event
+        log_event("system", "backend_stopped", "OmniSpace 后端已正常关闭",
+                  level="info")
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from .services.browser_pool import get_browser_pool
         get_browser_pool().shutdown()
@@ -172,6 +208,7 @@ _API_MODULES = [
     "voice",     # 语音API（/voice/transcribe Whisper ASR + /voice/synthesize TTS 自动装载链）
     "hardware",  # §4.6 硬件API
     "system",    # §4.7 系统API
+    "logs",      # 系统日志API（2026-08-21 日志可视化：事件查询/统计/清理）
 ]
 
 
@@ -261,6 +298,15 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_handler(_: Request, exc: Exception):
         log.exception("未捕获异常: %s", exc)
+        try:  # 大白话事件：系统异常（用户可见）
+            from .services.event_log import log_event
+            log_event(
+                "system", "unexpected_error",
+                f"系统遇到了一个意外错误（{type(exc).__name__}），"
+                "相关功能可能暂时不可用，其他功能不受影响",
+                level="error", detail=str(exc)[:300])
+        except Exception:  # noqa: BLE001
+            pass
         return error("SYSTEM_INTERNAL_ERROR", "内部错误，请查看服务端日志",
                      {"type": type(exc).__name__})
 
@@ -315,9 +361,15 @@ def create_app() -> FastAPI:
     dist_dir = config.FRONTEND_DIR / "dist"
     static_dir = dist_dir if dist_dir.exists() else config.FRONTEND_DIR
     # favicon 必须在根路径挂载之前注册，否则被 Mount("/") 吞掉
+    # 注意：必须用无 body 的 Response——JSONResponse(content=None) 会渲染
+    # 4 字节 b"null"，而 starlette 对 204 不下发 content-length，uvicorn
+    # 对 204 期望 0 字节 body，收到即抛 "Response content longer than
+    # Content-Length"（2026-08-22 修复，存量日志 288 次该错误均源于此）
+    from fastapi import Response as _FResponse
+
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
-        return JSONResponse(status_code=204, content=None)
+        return _FResponse(status_code=204)
     if static_dir.exists():
         # Vite 构建产物引用 /assets/...（base=/），挂载在根路径使其可直接访问；
         # html=True 使 GET / 返回 index.html（前端使用 Hash 路由，无需 SPA fallback）。

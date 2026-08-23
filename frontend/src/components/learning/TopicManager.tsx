@@ -55,6 +55,24 @@ export const TopicManager: React.FC = () => {
 
   const sessionActive = session?.status === 'running' || session?.status === 'paused';
 
+  /* 实时刷新（2026-08-23）：学习会话运行期间每 5s 轮询主题列表，
+     「知识 X 条 · 已浏览 X 页」与进度条随会话推进实时更新
+     （后端 /learn/topic/list 每次调用都会叠加活跃会话的实时进度）；
+     会话结束（active→inactive）时补一次拉取，展示最终计数 */
+  const wasActiveRef = useRef(false);
+  useEffect(() => {
+    if (sessionActive) {
+      wasActiveRef.current = true;
+      const timer = window.setInterval(() => void fetchTopics(), 5000);
+      return () => window.clearInterval(timer);
+    }
+    if (wasActiveRef.current) {
+      wasActiveRef.current = false;
+      void fetchTopics();
+    }
+    return undefined;
+  }, [sessionActive, fetchTopics]);
+
   const handleAdd = async () => {
     const name = newName.trim();
     if (!name) return;

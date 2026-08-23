@@ -66,21 +66,29 @@ export const BehaviorStatsPanel: React.FC = () => {
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>已记录操作数</div>
           <div className="mono" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-medium)' }}>
-            {stats ? formatNumber(stats.event_count) : '--'}
+            {stats ? formatNumber(stats.total_events) : '--'}
           </div>
         </div>
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>偏好模型状态</div>
-          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>{stats?.preference_status || '学习中'}</div>
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>
+            {stats?.preference_model?.status === 'ready' ? '已生成偏好画像' : '学习中'}
+          </div>
         </div>
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>下次微调</div>
-          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>{stats?.next_finetune_at ? formatDateTime(stats.next_finetune_at) : '按计划自动'}</div>
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>
+            {stats?.finetune?.next_estimate
+              ? formatDateTime(stats.finetune.next_estimate * 1000)
+              : stats?.finetune?.remaining_pairs != null && stats.finetune.remaining_pairs > 0
+                ? `还差 ${stats.finetune.remaining_pairs} 条训练数据`
+                : '按计划自动'}
+          </div>
         </div>
         <div>
           <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>最近学习摘要</div>
-          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {stats?.recent_summary || '暂无摘要'}
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={stats?.recent_summary?.length ? stats.recent_summary.join('；') : undefined}>
+            {stats?.recent_summary?.length ? stats.recent_summary.join('；') : '暂无摘要'}
           </div>
         </div>
       </div>

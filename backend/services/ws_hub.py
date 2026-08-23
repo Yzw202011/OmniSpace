@@ -74,6 +74,9 @@ def _translate(payload: Any) -> dict:
             return {"type": "task_complete", "data": out}
         if event == "training_failed":
             return {"type": "task_error", "data": out}
+        # 用户强制取消：收敛为任务终态（前端全局任务停止跟踪）
+        if event == "training_cancelled":
+            return {"type": "task_complete", "data": out}
         return {"type": "task_progress", "data": out}
 
     if ptype.startswith("learn_"):  # services.browser_agent_service

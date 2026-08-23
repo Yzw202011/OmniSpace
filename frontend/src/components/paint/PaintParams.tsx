@@ -2,10 +2,12 @@
  * PaintParams 绘画参数面板
  * OmniSpace AI v2.1 — Sakura 主题
  * --------------------------------------------------------------------------
- * 正向 / 负向提示词、尺寸（512~2048）、步数（4~50）、引导强度（1~20）、
- * 种子（-1 随机）、批量（1~4）、ControlNet 选项与 LoRA 管理。
+ * 正向 / 负向提示词、画面比例（9:16~16:9 七档 + 自定义尺寸）、步数
+ * （4~50）、引导强度（1~20）、种子（-1 随机）、批量（1~4）、ControlNet
+ * 选项与 LoRA 管理。
  * 模型选择支持自动 / 手动。规格 §9.3 绘画模块。
  */
+import { useState } from 'react';
 import { Dices } from 'lucide-react';
 import { Slider } from '../common/Slider';
 
@@ -85,13 +87,15 @@ export const SAMPLER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'ddim', label: 'DDIM' },
 ];
 
-/** 分辨率预设 */
-const RES_PRESETS = [
-  { label: '512 × 512', w: 512, h: 512 },
-  { label: '768 × 768', w: 768, h: 768 },
-  { label: '1024 × 1024', w: 1024, h: 1024 },
-  { label: '512 × 768', w: 512, h: 768 },
-  { label: '768 × 512', w: 768, h: 512 },
+/** 画面比例预设（2x 高清档：≈4MP、64 倍数对齐 VAE 下采样；2026-08-20 全档翻倍裁定） */
+const RATIO_PRESETS = [
+  { label: '9:16', w: 1536, h: 2688 },
+  { label: '2:3', w: 1664, h: 2432 },
+  { label: '3:4', w: 1792, h: 2304 },
+  { label: '1:1', w: 2048, h: 2048 },
+  { label: '4:3', w: 2304, h: 1792 },
+  { label: '3:2', w: 2432, h: 1664 },
+  { label: '16:9', w: 2688, h: 1536 },
 ];
 
 export function PaintParams({
@@ -104,6 +108,9 @@ export function PaintParams({
   onModelChange,
   disabled = false,
 }: PaintParamsProps) {
+  /** 自定义尺寸输入模式（点预设即退出；进入后宽高自由输入） */
+  const [customSize, setCustomSize] = useState(false);
+
   /** 更新部分参数 */
   function patch(p: Partial<PaintParamsValue>) {
     onChange({ ...value, ...p });
@@ -186,51 +193,85 @@ export function PaintParams({
         <p className="text-xs text-[var(--color-text-tertiary)] mt-1.5">留空时将自动填充默认负面词。</p>
       </div>
 
-      {/* 分辨率预设 */}
+      {/* 画面比例预设 + 自定义尺寸（2026-08-20：宽/高滑块移除，比例档一键切换） */}
       <div>
-        <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-1.5">尺寸预设</label>
-        <div className="flex flex-wrap gap-2">
-          {RES_PRESETS.map((p) => {
-            const active = value.width === p.w && value.height === p.h;
+        <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-1.5">画面比例</label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {RATIO_PRESETS.map((p) => {
+            const active = !customSize && value.width === p.w && value.height === p.h;
             return (
               <button
                 key={p.label}
                 type="button"
                 disabled={disabled}
-                onClick={() => patch({ width: p.w, height: p.h })}
+                title={`${p.w} × ${p.h}`}
+                onClick={() => {
+                  setCustomSize(false);
+                  patch({ width: p.w, height: p.h });
+                }}
                 className={[
-                  'inline-flex items-center justify-center leading-none px-2.5 h-7 text-xs rounded-md border transition-colors whitespace-nowrap',
+                  'flex flex-col items-center justify-center gap-0.5 h-11 rounded-md border transition-colors',
                   active
                     ? 'border-sakura-500 bg-sakura-100 text-sakura-700'
                     : 'border-[var(--color-input-border)] text-[var(--color-text-secondary)] hover:bg-sakura-50',
                 ].join(' ')}
               >
-                {p.label}
+                <span className="text-xs font-medium leading-none">{p.label}</span>
+                <span className={[
+                  'text-[10px] leading-none tabular-nums',
+                  active ? 'text-sakura-600' : 'text-[var(--color-text-tertiary)]',
+                ].join(' ')}>
+                  {p.w}×{p.h}
+                </span>
               </button>
             );
           })}
+          {/* 自定义档 */}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setCustomSize(true)}
+            className={[
+              'flex flex-col items-center justify-center gap-0.5 h-11 rounded-md border transition-colors',
+              customSize
+                ? 'border-sakura-500 bg-sakura-100 text-sakura-700'
+                : 'border-dashed border-[var(--color-input-border)] text-[var(--color-text-secondary)] hover:bg-sakura-50',
+            ].join(' ')}
+          >
+            <span className="text-xs font-medium leading-none">自定义</span>
+            <span className="text-[10px] leading-none text-[var(--color-text-tertiary)]">自由输入</span>
+          </button>
         </div>
+        {/* 自定义宽高输入（512~2688、64 步进对齐 VAE） */}
+        {customSize ? (
+          <div className="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              min={512}
+              max={2688}
+              step={64}
+              value={value.width}
+              disabled={disabled}
+              aria-label="自定义宽度"
+              onChange={(e) => patch({ width: parseInt(e.target.value, 10) || 512 })}
+              className="flex-1 h-8 px-2 rounded-md border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-xs text-[var(--color-text-primary)] tabular-nums focus:outline-none focus:ring-2 focus:ring-sakura-300"
+            />
+            <span className="text-xs text-[var(--color-text-tertiary)]">×</span>
+            <input
+              type="number"
+              min={512}
+              max={2688}
+              step={64}
+              value={value.height}
+              disabled={disabled}
+              aria-label="自定义高度"
+              onChange={(e) => patch({ height: parseInt(e.target.value, 10) || 512 })}
+              className="flex-1 h-8 px-2 rounded-md border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-xs text-[var(--color-text-primary)] tabular-nums focus:outline-none focus:ring-2 focus:ring-sakura-300"
+            />
+            <span className="text-[10px] text-[var(--color-text-tertiary)] whitespace-nowrap">512~2688</span>
+          </div>
+        ) : null}
       </div>
-
-      {/* 宽高滑块（512~2048） */}
-      <Slider
-        label="宽度"
-        min={512}
-        max={2048}
-        step={64}
-        value={value.width}
-        disabled={disabled}
-        onChange={(v) => patch({ width: v })}
-      />
-      <Slider
-        label="高度"
-        min={512}
-        max={2048}
-        step={64}
-        value={value.height}
-        disabled={disabled}
-        onChange={(v) => patch({ height: v })}
-      />
 
       {/* 采样步数（4~50） */}
       <Slider

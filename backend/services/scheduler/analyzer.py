@@ -21,16 +21,21 @@ from ...data.models import SynergyMode
 class BottleneckAnalyzer:
     """瓶颈分析器——按 6 个场景判断最优协同模式。
 
-    文档B §4.1：GPU 利用率 >95% 持续 10s 才判定为临界（降低生成质量），
+    文档B §4.1：GPU 利用率 >95% 需持续才判定为临界（降低生成质量），
     瞬时尖峰不触发——用 _gpu_util_high_since 跟踪持续起点。
+    P2 分级降参：越线持续 5s → 轻度降参（level=1），15s → 深度降档
+    （level=2）。单档 10s 偏长，超高频生成空转体验差。
     """
 
     def __init__(self) -> None:
         # GPU 利用率越临界线的持续起点（time.monotonic 时间戳，0=未越线）
         self._gpu_util_high_since: float = 0.0
-        # 最近一次 analyze 的持续越线判定结果（F-10：供 scheduler tick
-        # 同步质量总督旗标，驱动在途生成任务降参）
+        # 最近一次 analyze 的持续越线判定结果：
+        #   last_gpu_util_critical（bool，供 scheduler tick 同步质量总督旗标）
+        #   last_gpu_util_level（0/1/2，0=正常 1=轻度降参 2=深度降档，
+        #                      驱动在途生成任务分级降参）
         self.last_gpu_util_critical: bool = False
+        self.last_gpu_util_level: int = 0
 
     def analyze(
         self,
@@ -82,21 +87,27 @@ class BottleneckAnalyzer:
         gpu_vram_critical = gpu_vram_ratio >= gpu_vram_crit
         gpu_vram_warning = gpu_vram_ratio >= gpu_vram_warn
         gpu_util_warning = gpu_util >= gpu_util_warn
-        # 文档B §4.1：GPU 利用率 >95% 须持续 10s 才成立（瞬时尖峰忽略）
-        gpu_util_sustained_s = float(
-            THRESHOLDS.get("gpu_util_critical_sustained_s", 10))
+        # 文档B §4.1 + P2 分级降参：GPU 利用率 >95% 持续 5s 轻度降参、
+        # 持续 15s 深度降档（瞬时尖峰忽略）。
+        gpu_util_mild_s = float(
+            THRESHOLDS.get("gpu_util_mild_sustained_s", 5))
+        gpu_util_deep_s = float(
+            THRESHOLDS.get("gpu_util_deep_sustained_s", 15))
         if gpu_util >= gpu_util_crit:
             if self._gpu_util_high_since == 0.0:
                 self._gpu_util_high_since = time.monotonic()
-            gpu_util_critical = (
-                time.monotonic() - self._gpu_util_high_since
-                >= gpu_util_sustained_s
-            )
+            elapsed = time.monotonic() - self._gpu_util_high_since
+            # 轻度降参会先于深度降档命中（5s vs 15s）
+            gpu_util_critical = elapsed >= gpu_util_mild_s
+            level = 2 if elapsed >= gpu_util_deep_s else (1 if gpu_util_critical else 0)
         else:
             self._gpu_util_high_since = 0.0
             gpu_util_critical = False
-        # F-10：暴露持续越线判定，供 scheduler tick 同步质量总督旗标
+            level = 0
+        # F-10 / P2：暴露持续越线判定，供 scheduler tick 同步质量总督
+        # 分级降参旗标（level 0/1/2）
         self.last_gpu_util_critical = gpu_util_critical
+        self.last_gpu_util_level = level
         gpu_temp_critical = gpu_temp >= gpu_temp_crit
         gpu_temp_warning = gpu_temp >= gpu_temp_warn
         cpu_critical = cpu_util >= cpu_util_crit or cpu_temp >= cpu_temp_warn

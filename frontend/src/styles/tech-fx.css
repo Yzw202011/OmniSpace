@@ -1,0 +1,474 @@
+/* ==========================================================================
+   OmniSpace AI —— Nebula FX 未来科技特效层（深空/晨辉专属，2026-08-20）
+   --------------------------------------------------------------------------
+   用户裁定：Nebula 双主题脱离文档约束，注入"一眼吸引"的未来科技动效。
+   设计语言：HUD 锁定、全息入场、数据流光、星尘呼吸——
+             动效克制而连续，全部走 transform/opacity/background-position，
+             避开 layout 属性（铁律：禁 width/height/top/left/margin 动画）。
+
+   作用域：全部规则带 [data-family='tech'] 前缀，Sakura 家族零影响。
+
+   引入：sakura.css 中置于 tech-theme.css 之后、dazzle.css 之前。
+   挂载契约（与 tech-theme 一致）：
+     html[data-family='tech']                 → 深空（暗色）
+     html[data-family='tech'][data-theme='light'] → 晨辉（亮色，特效降档）
+   ========================================================================== */
+
+/* ============================== A. 环境层 ============================== */
+
+/* ---- A1. 星尘层（html::after，画在网格之上、极光之下）----
+ * 双层星点（大小/亮度错落）+ 整层呼吸——深空有了"生命感"。
+ * 亮色档静态淡显（白底星尘几乎不可见，避免噪点感）。 */
+[data-family='tech'] html::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 12% 22%, rgba(207, 243, 255, 0.75), transparent 100%),
+    radial-gradient(1.5px 1.5px at 28% 68%, rgba(255, 255, 255, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 42% 12%, rgba(103, 232, 249, 0.7), transparent 100%),
+    radial-gradient(2px 2px at 55% 45%, rgba(180, 168, 255, 0.5), transparent 100%),
+    radial-gradient(1px 1px at 63% 82%, rgba(207, 243, 255, 0.65), transparent 100%),
+    radial-gradient(1.5px 1.5px at 74% 18%, rgba(255, 255, 255, 0.55), transparent 100%),
+    radial-gradient(1px 1px at 82% 58%, rgba(103, 232, 249, 0.55), transparent 100%),
+    radial-gradient(2px 2px at 90% 34%, rgba(207, 243, 255, 0.45), transparent 100%),
+    radial-gradient(1px 1px at 8% 88%, rgba(180, 168, 255, 0.55), transparent 100%),
+    radial-gradient(1.5px 1.5px at 48% 90%, rgba(255, 255, 255, 0.4), transparent 100%);
+  animation: tech-starfield 6s ease-in-out infinite alternate;
+}
+@keyframes tech-starfield {
+  from { opacity: 0.45; }
+  to { opacity: 0.95; }
+}
+
+/* ---- A2. 蓝图网格呼吸（叠加于 tech-theme 4.1 的 html::before）----
+ * 网格微弱明暗脉动——像雷达在"扫描呼吸"。opacity 动画，GPU 合成。 */
+[data-family='tech'] html::before {
+  animation: tech-grid-breathe 8s ease-in-out infinite alternate;
+}
+@keyframes tech-grid-breathe {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
+}
+
+/* ---- A3. 顶栏流光光束（覆盖 polish.css 粉色静态光带）----
+ * 青→紫渐变光带沿顶栏底缘循环流动（1px 高度，重绘代价可忽略）。
+ * background-position 流动而非 transform——线状渐变无缝循环的唯一解。 */
+[data-family='tech'] .topbar::after {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(34, 211, 238, 0.35) 22%,
+    rgba(103, 232, 249, 0.7) 50%,
+    rgba(139, 124, 248, 0.5) 78%,
+    transparent 100%);
+  background-size: 200% 100%;
+  animation: tech-beam-flow 5s linear infinite;
+}
+@keyframes tech-beam-flow {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* ---- A4. 顶栏 Logo：青紫渐变字（补 tech-theme 漏项，覆盖 polish 粉渐变）---- */
+[data-family='tech'] .topbar-logo .logo-text {
+  background: linear-gradient(120deg, #A5F3FC 0%, #22D3EE 38%, #B4A8FF 68%, #E8F2FF 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--color-primary);
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.35));
+}
+
+/* ============================== B. 组件层 ============================== */
+
+/* ---- B1. 卡片扫掠光带（.card::after，hover 触发的"扫描仪"效果）----
+ * 一道青色斜光横穿卡片内部；移出后 300ms 快速淡出（回程不可见）。
+ * inset: 0 光带天然不溢出卡片边界——零 overflow 剪裁需求。 */
+[data-family='tech'] .card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg,
+    transparent 42%,
+    rgba(56, 229, 255, 0.05) 46%,
+    rgba(103, 232, 249, 0.15) 50%,
+    rgba(56, 229, 255, 0.05) 54%,
+    transparent 58%);
+  transform: translateX(-110%);
+  opacity: 0;
+  transition: transform 950ms var(--ease-out), opacity 300ms ease;
+}
+[data-family='tech'] .card:hover::after {
+  transform: translateX(110%);
+  opacity: 1;
+}
+
+/* ---- B2. HUD 角标锁定展开（叠加于 tech-theme 4.2 的 .card::before）----
+ * hover 时四角括线从 14px 伸展至 22px——"目标锁定"的确定性反馈。 */
+[data-family='tech'] .card::before {
+  background-size:
+    14px 2px, 2px 14px,
+    14px 2px, 2px 14px,
+    14px 2px, 2px 14px,
+    14px 2px, 2px 14px;
+  transition:
+    opacity var(--duration-hover) var(--ease-out),
+    background-size var(--duration-hover) var(--ease-out);
+}
+[data-family='tech'] .card:hover::before {
+  background-size:
+    22px 2px, 2px 22px,
+    22px 2px, 2px 22px,
+    22px 2px, 2px 22px,
+    22px 2px, 2px 22px;
+}
+
+/* ---- B3. 主按钮辉光脉冲（电光青呼吸，3.2s 一轮）----
+ * box-shadow 呼吸在小面积按钮上代价可控；disabled 态不脉冲。
+ * hover 的渐变提亮 / active 的 translateY 下沉不受影响（不同属性）。 */
+[data-family='tech'] .btn-primary,
+[data-family='tech'] button.bg-sakura-500:not(:disabled) {
+  animation: tech-btn-pulse 3.2s ease-in-out infinite;
+}
+@keyframes tech-btn-pulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.30),
+      0 2px 14px rgba(34, 211, 238, 0.28);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.30),
+      0 4px 26px rgba(34, 211, 238, 0.52);
+  }
+}
+
+/* ---- B4. 导航激活指示器脉冲（青紫渐变条辉光呼吸）---- */
+[data-family='tech'] .nav-item.active::before {
+  animation: tech-nav-pulse 2.6s ease-in-out infinite;
+}
+@keyframes tech-nav-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(34, 211, 238, 0.65); }
+  50% { box-shadow: 0 0 18px rgba(34, 211, 238, 0.95); }
+}
+
+/* ---- B5. 滚动条：青紫渐变辉光（补 tech-theme 4.8 漏项）---- */
+[data-family='tech'] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.38), rgba(139, 124, 248, 0.32));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+}
+[data-family='tech'] ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.62), rgba(139, 124, 248, 0.52));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ---- B6. 滑块 thumb 悬浮放大（"捕获"手感）---- */
+[data-family='tech'] .omni-slider::-webkit-slider-thumb {
+  transition: transform 160ms var(--ease-out);
+}
+[data-family='tech'] .omni-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.18);
+}
+[data-family='tech'] .omni-slider::-moz-range-thumb {
+  transition: transform 160ms var(--ease-out);
+}
+[data-family='tech'] .omni-slider:hover::-moz-range-thumb {
+  transform: scale(1.18);
+}
+
+/* ---- B7. 空态：数据微粒上浮（覆盖 aurora-motion 樱花飘落）----
+ * 深空语境下花瓣违和——换为青色光尘自底部升起（"数据在苏醒"）。
+ * 保留原 left/duration/delay 错落节奏，仅换形状/颜色/方向。 */
+[data-family='tech'] .empty-state::before,
+[data-family='tech'] .empty-state::after {
+  top: auto;
+  bottom: 8%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(103, 232, 249, 0.95), rgba(34, 211, 238, 0.1) 72%);
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+  animation-name: tech-particle-rise;
+  animation-timing-function: linear;
+}
+@keyframes tech-particle-rise {
+  0% { transform: translateY(36px) scale(0.6); opacity: 0; }
+  18% { opacity: 0.85; }
+  78% { opacity: 0.4; }
+  100% { transform: translateY(-130px) scale(1); opacity: 0; }
+}
+
+/* ---- B8. 选中芯片微脉冲（激活态的"能量在场"感）---- */
+[data-family='tech'] button.border-sakura-500:not(:disabled) {
+  animation: tech-chip-pulse 2.6s ease-in-out infinite;
+}
+@keyframes tech-chip-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.18);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(34, 211, 238, 0.32),
+      0 0 12px rgba(34, 211, 238, 0.24);
+  }
+}
+
+/* ============================== C. 入场动效 ============================== */
+
+/* ---- C1. 消息全息入场（覆盖 aurora-motion msg-pop）----
+ * 模糊聚焦 + 上浮——消息像"全息投影成像"。限定对话流容器。 */
+[data-family='tech'] .space-y-5 > div {
+  animation: tech-msg-in 420ms var(--ease-out) both;
+}
+@keyframes tech-msg-in {
+  from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* ---- C2. 模态全息展开（覆盖 aurora-motion 粉色描边 + modalIn）----
+ * 三件套：青紫渐变描边（换掉粉薄荷）、青辉光、blur 成像入场。
+ * Modal.tsx 的 animate-[modalIn] 在 utilities 层，本层无层 CSS 必然覆盖。 */
+[data-family='tech'] [role='dialog'] {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(11, 22, 38, 0.96), rgba(11, 22, 38, 0.96)) padding-box,
+    linear-gradient(135deg,
+      rgba(34, 211, 238, 0.45) 0%,
+      rgba(56, 189, 248, 0.18) 32%,
+      rgba(139, 124, 248, 0.32) 70%,
+      rgba(34, 211, 238, 0.2) 100%) border-box;
+  box-shadow: var(--shadow-modal), 0 0 44px rgba(34, 211, 238, 0.14);
+  animation: tech-modal-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes tech-modal-in {
+  from { opacity: 0; transform: scale(0.93) translateY(8px); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+/* 弹窗顶部天光线：粉薄荷 → 青紫 */
+[data-family='tech'] [role='dialog']::before {
+  background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.65), rgba(139, 124, 248, 0.55), transparent);
+}
+
+/* ---- C3. 页面标题周期流光（覆盖 signature hover 移位）----
+ * 渐变文字周期往返（7s），像信号在标题上周期扫描。 */
+[data-family='tech'] .page-title {
+  animation: tech-title-flow 7s ease-in-out infinite alternate;
+}
+@keyframes tech-title-flow {
+  from { background-position: 0% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* ============================== D. 晨辉（亮色）降档 ==============================
+ * 亮底上辉光/星尘易显噪——幅度收敛、呼吸放缓、星尘静态淡显。
+ * ============================================================== */
+/* 星尘：静态淡显（白底闪烁会呈"噪点"） */
+[data-family='tech'][data-theme='light'] html::after {
+  animation: none;
+  opacity: 0.45;
+}
+/* 网格呼吸：幅度减半 */
+[data-family='tech'][data-theme='light'] html::before {
+  animation-duration: 11s;
+}
+/* 顶栏光束：透明度降档 */
+[data-family='tech'][data-theme='light'] .topbar::after {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(8, 145, 178, 0.28) 22%,
+    rgba(14, 165, 233, 0.5) 50%,
+    rgba(109, 91, 224, 0.34) 78%,
+    transparent 100%);
+  background-size: 200% 100%;
+}
+/* 主按钮脉冲：亮底弱辉光版 */
+[data-family='tech'][data-theme='light'] .btn-primary,
+[data-family='tech'][data-theme='light'] button.bg-sakura-500:not(:disabled) {
+  animation-name: tech-btn-pulse-light;
+}
+@keyframes tech-btn-pulse-light {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 2px 12px rgba(8, 145, 178, 0.28);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 3px 18px rgba(8, 145, 178, 0.44);
+  }
+}
+/* 导航脉冲：弱化 */
+[data-family='tech'][data-theme='light'] .nav-item.active::before {
+  animation-name: tech-nav-pulse-light;
+}
+@keyframes tech-nav-pulse-light {
+  0%, 100% { box-shadow: 0 0 8px rgba(8, 145, 178, 0.4); }
+  50% { box-shadow: 0 0 14px rgba(8, 145, 178, 0.6); }
+}
+/* 卡片扫掠光带：更淡 */
+[data-family='tech'][data-theme='light'] .card::after {
+  background: linear-gradient(105deg,
+    transparent 42%,
+    rgba(14, 165, 233, 0.04) 46%,
+    rgba(56, 189, 248, 0.11) 50%,
+    rgba(14, 165, 233, 0.04) 54%,
+    transparent 58%);
+}
+/* 空态微粒：深青版 */
+[data-family='tech'][data-theme='light'] .empty-state::before,
+[data-family='tech'][data-theme='light'] .empty-state::after {
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.8), rgba(8, 145, 178, 0.08) 72%);
+  filter: drop-shadow(0 0 5px rgba(8, 145, 178, 0.4));
+}
+/* 芯片脉冲：弱化 */
+[data-family='tech'][data-theme='light'] button.border-sakura-500:not(:disabled) {
+  animation-name: tech-chip-pulse-light;
+}
+@keyframes tech-chip-pulse-light {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(8, 145, 178, 0.14); }
+  50% { box-shadow: inset 0 0 0 1px rgba(8, 145, 178, 0.26), 0 0 9px rgba(8, 145, 178, 0.16); }
+}
+/* 模态：亮色描边 + 弱辉光 */
+[data-family='tech'][data-theme='light'] [role='dialog'] {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.97)) padding-box,
+    linear-gradient(135deg,
+      rgba(8, 145, 178, 0.4) 0%,
+      rgba(56, 189, 248, 0.16) 32%,
+      rgba(124, 107, 232, 0.28) 70%,
+      rgba(8, 145, 178, 0.16) 100%) border-box;
+  box-shadow: var(--shadow-modal), 0 0 32px rgba(8, 145, 178, 0.10);
+}
+[data-family='tech'][data-theme='light'] [role='dialog']::before {
+  background: linear-gradient(90deg, transparent, rgba(8, 145, 178, 0.5), rgba(124, 107, 232, 0.4), transparent);
+}
+
+/* ============================== F. 科技面板（section.card：功能面板 HUD 化） ==============================
+ * 作用对象：设置/学习/风格/帮助页的 section.card（20 处功能面板）。
+ * 面板语言：表面电路微网格 + 右上数据刻度线组 + 标题右侧渐隐数据总线。
+ * 层叠说明：特异性 [data-family] section.card（0,1,2）> tech-theme 的
+ * [data-family] .card（0,1,1），且本文件加载更后——hover 态需同步七层覆盖。
+ * ============================================================== */
+
+/* 粒子画布：fixed 全窗，与极光同层（body 底色之上、内容之下） */
+.tech-particles {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ---- F1. 面板本体：七层背景（3 刻度线 + 2 微网格 + 深空底 + 青紫描边） ---- */
+[data-family='tech'] section.card {
+  background:
+    /* 右上角数据刻度线组（18/12/8px 递减，"仪表读数"感） */
+    linear-gradient(rgba(34, 211, 238, 0.42), rgba(34, 211, 238, 0.42)) right 14px top 12px / 18px 1px no-repeat padding-box,
+    linear-gradient(rgba(34, 211, 238, 0.26), rgba(34, 211, 238, 0.26)) right 14px top 16px / 12px 1px no-repeat padding-box,
+    linear-gradient(rgba(34, 211, 238, 0.15), rgba(34, 211, 238, 0.15)) right 14px top 20px / 8px 1px no-repeat padding-box,
+    /* 表面电路微网格（12px，极淡——面板有了"仪器表面"质感） */
+    linear-gradient(rgba(56, 189, 248, 0.028) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(90deg, rgba(56, 189, 248, 0.028) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    /* 深空底（比普通卡片略实——面板是"设备"，卡片是"悬浮物"） */
+    linear-gradient(rgba(11, 22, 38, 0.86), rgba(11, 22, 38, 0.86)) padding-box,
+    /* 青紫渐变描边 */
+    linear-gradient(135deg,
+      rgba(34, 211, 238, 0.44) 0%,
+      rgba(56, 189, 248, 0.16) 30%,
+      rgba(139, 124, 248, 0.32) 68%,
+      rgba(34, 211, 238, 0.18) 100%) border-box;
+}
+
+/* ---- F2. 面板 hover：刻度线点亮 + 网格加亮 + 描边增幅（同步七层） ---- */
+[data-family='tech'] section.card.hoverable:hover {
+  background:
+    linear-gradient(rgba(56, 229, 255, 0.75), rgba(56, 229, 255, 0.75)) right 14px top 12px / 18px 1px no-repeat padding-box,
+    linear-gradient(rgba(56, 229, 255, 0.5), rgba(56, 229, 255, 0.5)) right 14px top 16px / 12px 1px no-repeat padding-box,
+    linear-gradient(rgba(56, 229, 255, 0.3), rgba(56, 229, 255, 0.3)) right 14px top 20px / 8px 1px no-repeat padding-box,
+    linear-gradient(rgba(56, 189, 248, 0.05) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(90deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(rgba(13, 26, 45, 0.88), rgba(13, 26, 45, 0.88)) padding-box,
+    linear-gradient(135deg,
+      rgba(34, 211, 238, 0.68) 0%,
+      rgba(56, 189, 248, 0.3) 30%,
+      rgba(139, 124, 248, 0.48) 68%,
+      rgba(34, 211, 238, 0.3) 100%) border-box;
+}
+
+/* ---- F3. 标题数据总线：标题右侧渐隐青线（HUD 分区语言） ---- */
+[data-family='tech'] section.card .card-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  margin-left: var(--space-3, 12px);
+  background: linear-gradient(90deg,
+    rgba(34, 211, 238, 0.4) 0%,
+    rgba(34, 211, 238, 0.08) 68%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+/* ---- F4. 晨辉降档：深青刻度 / 白底 / 微网格减弱 ---- */
+[data-family='tech'][data-theme='light'] section.card {
+  background:
+    linear-gradient(rgba(8, 145, 178, 0.4), rgba(8, 145, 178, 0.4)) right 14px top 12px / 18px 1px no-repeat padding-box,
+    linear-gradient(rgba(8, 145, 178, 0.26), rgba(8, 145, 178, 0.26)) right 14px top 16px / 12px 1px no-repeat padding-box,
+    linear-gradient(rgba(8, 145, 178, 0.16), rgba(8, 145, 178, 0.16)) right 14px top 20px / 8px 1px no-repeat padding-box,
+    linear-gradient(rgba(11, 27, 51, 0.03) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(90deg, rgba(11, 27, 51, 0.03) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.9)) padding-box,
+    linear-gradient(135deg,
+      rgba(8, 145, 178, 0.34) 0%,
+      rgba(56, 189, 248, 0.14) 30%,
+      rgba(124, 107, 232, 0.26) 68%,
+      rgba(8, 145, 178, 0.14) 100%) border-box;
+}
+[data-family='tech'][data-theme='light'] section.card.hoverable:hover {
+  background:
+    linear-gradient(rgba(8, 145, 178, 0.6), rgba(8, 145, 178, 0.6)) right 14px top 12px / 18px 1px no-repeat padding-box,
+    linear-gradient(rgba(8, 145, 178, 0.42), rgba(8, 145, 178, 0.42)) right 14px top 16px / 12px 1px no-repeat padding-box,
+    linear-gradient(rgba(8, 145, 178, 0.26), rgba(8, 145, 178, 0.26)) right 14px top 20px / 8px 1px no-repeat padding-box,
+    linear-gradient(rgba(11, 27, 51, 0.045) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(90deg, rgba(11, 27, 51, 0.045) 1px, transparent 1px) 0 0 / 12px 12px repeat padding-box,
+    linear-gradient(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.95)) padding-box,
+    linear-gradient(135deg,
+      rgba(8, 145, 178, 0.52) 0%,
+      rgba(56, 189, 248, 0.24) 30%,
+      rgba(124, 107, 232, 0.38) 68%,
+      rgba(8, 145, 178, 0.24) 100%) border-box;
+}
+[data-family='tech'][data-theme='light'] section.card .card-title::after {
+  background: linear-gradient(90deg,
+    rgba(8, 145, 178, 0.35) 0%,
+    rgba(8, 145, 178, 0.07) 68%,
+    transparent 100%);
+}
+
+/* ============================== E. 动效降级（prefers-reduced-motion） ==============================
+ * 循环动画全停；入场动效压缩至 1ms 即时呈现（保留 both 终态）。
+ * ============================================================== */
+@media (prefers-reduced-motion: reduce) {
+  [data-family='tech'] html::after,
+  [data-family='tech'] html::before,
+  [data-family='tech'] .topbar::after,
+  [data-family='tech'] .btn-primary,
+  [data-family='tech'] button.bg-sakura-500:not(:disabled),
+  [data-family='tech'] .nav-item.active::before,
+  [data-family='tech'] button.border-sakura-500:not(:disabled),
+  [data-family='tech'] .page-title,
+  [data-family='tech'] .empty-state::before,
+  [data-family='tech'] .empty-state::after { animation: none; }
+  [data-family='tech'] .card::after,
+  [data-family='tech'] .card::before { transition: none; }
+  [data-family='tech'] .space-y-5 > div,
+  [data-family='tech'] [role='dialog'] { animation-duration: 1ms; }
+  [data-family='tech'] .omni-slider::-webkit-slider-thumb,
+  [data-family='tech'] .omni-slider::-moz-range-thumb { transition: none; }
+}

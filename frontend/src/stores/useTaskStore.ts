@@ -15,6 +15,17 @@ import { getWsHub } from '@/services/ws';
 /** WsHub 广播的原始载荷（各后端服务字段不完全一致，统一在此规整） */
 type TaskBroadcastPayload = Record<string, unknown>;
 
+/** 任务模块/类型中文标签（通知中心与任务列表显示用，禁止英文透出） */
+export const TASK_TYPE_LABELS: Record<string, string> = {
+  paint: 'AI 绘画',
+  learn: '知识学习',
+  system: '系统任务',
+  task: '后台任务',
+  text2img: '文生图',
+  img2img: '图生图',
+  video_gen: '视频生成',
+};
+
 /** 规整后的任务事件 */
 interface NormalizedTaskEvent {
   /** 任务 ID（兼容 id / task_id） */
@@ -137,7 +148,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         get().upsertTask({
           id: ev.id,
           type: ev.module || 'task',
-          name: ev.module || '后台任务',
+          name: TASK_TYPE_LABELS[ev.module || 'task'] || '后台任务',
           status: 'running',
           progress: ev.progress ?? 0,
         });

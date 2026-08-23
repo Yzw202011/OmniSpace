@@ -18,9 +18,31 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 import threading
 
 logger = logging.getLogger("omnispace.inference.prompt_translator")
+
+
+def shrink_working_set() -> None:
+    """Windows：收缩本进程 working set（翻译路径资源卫生）。
+
+    2026-08-23 实测：翻译用 transformers 后端对话引擎（qwen3-vl-4b，
+    ~9GB），任务后腾挪逻辑只释放显存；torch/pymalloc 卸载后进程
+    RAM 不归还 OS，python 进程滞留 ~9GB → 系统可用 RAM 被压低 →
+    中文绘画任务永远过不了 qwen 双语底座的 RAM 门槛 → 永远走翻译
+    兜底（恶性循环）。EmptyWorkingSet 把不再访问的死页挤出物理
+    RAM（回落 pagefile/standby），调用点须在对话引擎卸载之后。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.psapi.EmptyWorkingSet(
+            ctypes.windll.kernel32.GetCurrentProcess())
+        logger.debug("working set 已收缩（翻译引擎死页挤出物理 RAM）")
+    except Exception as exc:  # noqa: BLE001 - 收缩失败无碍主流程
+        logger.debug("working set 收缩跳过: %s", exc)
 
 # CJK 统一表意文字 + 常用中文标点
 _CJK_RE = re.compile(r"[一-鿿　-〿＀-￯]")
@@ -30,11 +52,21 @@ _SYSTEM_PROMPT = (
     "提示词。硬性要求：\n"
     "1. 总长度不超过 40 个英文单词——SDXL 文本编码器 77 token 硬截断，"
     "超出的内容会完全丢失；\n"
-    "2. 逗号分隔的关键词/短语，按重要性排序：美术风格 > 用户显式指定的"
-    "背景 > 发色/发型/脸型 > 服装 > 姿势/构图 > 其他细节（放不下从尾部舍弃）；\n"
-    "3. 忽略视图排版指令（如\"生成四视图\"\"正面侧面背面\"），版式由模板控制，"
+    "2. 逗号分隔的关键词/短语。第一个词组必须是画面主体（用户描述的核心"
+    "人物/物体/身体部位）——SDXL 按词序分配注意力，主体前置才能锁定构图；"
+    "若主体是人物某部位或物品的特写，主体用标签词组 + 构图强化词开头"
+    "（如脚→'feet, foot focus'，手→'hands'，脸→'face, portrait'），"
+    "标签写法对构图的控制力远强于自然语言描述。其后依次：主体属性"
+    "（发色/服装）> 美术风格 > 用户显式指定的背景 > 其他细节"
+    "（放不下从尾部舍弃）；\n"
+    "3. 风格词翻译对照：中文\"真实/写实/照片感\"是绘画风格指令，译为 "
+    "'realistic photo' 或 'photorealistic'（不是 real/true）；"
+    "\"动漫/二次元/卡通\"译为 'anime style'/'cartoon'；\n"
+    "4. 严格忠实原文：禁止添加原文未提及的元素（服饰/道具/背景一律不"
+    "脑补）；一次只输出一种风格，写实与动漫词禁止同时出现；\n"
+    "5. 忽略视图排版指令（如\"生成四视图\"\"正面侧面背面\"），版式由模板控制，"
     "只翻译外观、风格、背景描述；\n"
-    "4. 只输出英文提示词本身，不要解释、不要输出中文、不要引号。"
+    "6. 只输出英文提示词本身，不要解释、不要输出中文、不要引号。"
 )
 
 _lock = threading.Lock()
@@ -55,7 +87,8 @@ def _clean_output(text: str) -> str:
     return text.strip().strip(",").strip()
 
 
-def _dialog_translate(prompt: str, max_tokens: int) -> str:
+def _dialog_translate(prompt: str, max_tokens: int,
+                      system_prompt: str | None = None) -> str:
     """经对话引擎翻译；不可用/失败返回空串（调用方回退原文）。"""
     from .dialog_engine import get_dialog_engine
     engine = get_dialog_engine()
@@ -64,7 +97,7 @@ def _dialog_translate(prompt: str, max_tokens: int) -> str:
                        engine.get_status().get("last_error"))
         return ""
     text = engine.chat(
-        [{"role": "system", "content": _SYSTEM_PROMPT},
+        [{"role": "system", "content": system_prompt or _SYSTEM_PROMPT},
          {"role": "user", "content": prompt}],
         temperature=0.3,
         max_new_tokens=max_tokens,
@@ -72,12 +105,15 @@ def _dialog_translate(prompt: str, max_tokens: int) -> str:
     return _clean_output(text)
 
 
-def translate_prompt_zh2en(prompt: str, max_tokens: int = 120) -> str:
-    """中文绘画提示词 → 英文 SD 提示词；非中文或失败时原样返回。
+def translate_prompt_zh2en(prompt: str, max_tokens: int = 120,
+                           system_prompt: str | None = None) -> str:
+    """中文提示词 → 英文提示词；非中文或失败时原样返回。
 
     Args:
         prompt: 用户原始描述词（可中可英）
         max_tokens: 翻译输出上限（系统提示词约束 ≤40 词，120 token 足够）
+        system_prompt: 覆盖默认绘画模板（如视频生成需保留动作动词，
+            2026-08-22 视频链路接入；None 用默认绘画模板）
 
     Returns:
         英文提示词；含 CJK 但翻译失败时返回原文（诚实降级）。
@@ -87,7 +123,8 @@ def translate_prompt_zh2en(prompt: str, max_tokens: int = 120) -> str:
         return prompt
     with _lock:
         try:
-            translated = _dialog_translate(prompt, max_tokens)
+            translated = _dialog_translate(prompt, max_tokens,
+                                           system_prompt=system_prompt)
         except Exception as exc:  # noqa: BLE001
             logger.warning("提示词翻译异常（回退原文）: %s", exc)
             return prompt

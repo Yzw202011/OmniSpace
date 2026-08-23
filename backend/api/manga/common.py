@@ -32,6 +32,9 @@ _cameras: dict[str, dict] = {}             # camera_id -> 机位 dict
 _characters: dict[str, dict] = {}           # character_id -> {position, rotation, scale, locked}
 _video_tasks: dict[str, dict] = {}         # task_id -> 任务 dict
 _video_cancel_flags: dict[str, bool] = {}  # task_id -> 取消旗标（批 1.7 COMIC-131）
+# 视频任务预计剩余时间（2026-08-22）：task_id -> (eta_seconds, 更新时间戳)。
+# 引擎 step callback 实时外推，瞬时值内存缓存（免 DB 迁移，任务结束清除）
+_video_eta: dict[str, tuple[float, float]] = {}
 _voices: list[dict] = [
     {"id": "voice_preset_01", "name": "温柔女声", "character_id": "", "is_preset": True},
     {"id": "voice_preset_02", "name": "沉稳男声", "character_id": "", "is_preset": True},
@@ -338,7 +341,7 @@ def _get_video_engine():
     if _video_engine_instance is None:
         with _video_engine_lock:
             if _video_engine_instance is None:
-                from ..services.inference.video_engine import get_video_engine
+                from ...services.inference.video_engine import get_video_engine
                 _video_engine_instance = get_video_engine()
     return _video_engine_instance
 
@@ -349,7 +352,7 @@ def _get_voice_engine():
     if _voice_engine_instance is None:
         with _voice_engine_lock:
             if _voice_engine_instance is None:
-                from ..services.inference.voice_engine import VoiceEngine
+                from ...services.inference.voice_engine import VoiceEngine
                 _voice_engine_instance = VoiceEngine()
     return _voice_engine_instance
 
@@ -378,7 +381,7 @@ _KEYFRAME_DIR = DATA_DIR / "keyframes"
 #  批 1.4 资产图链路（COMIC-025~037、138）
 # ═══════════════════════════════════════════════════════════════════
 
-_ASSET_COLS = "id, project_id, kind, name, file_path, prompt, meta, created_at"
+_ASSET_COLS = "id, project_id, kind, name, file_path, prompt, meta, created_at, scope"
 
 # ── 出图统一规格与参考图风格对齐（2026-08-14 用户铁律）──────────────
 # 资产图/分镜图统一出图 2560×1440（16:9）。SDXL 直出 2560×1440 构图

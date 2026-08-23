@@ -44,6 +44,7 @@ from .common import (
     _load_project_rows,
     _now,
     _video_cancel_flags,
+    _video_eta,
     _video_tasks,
 )
 from .director import (
@@ -102,7 +103,8 @@ def _video_update_task(task_id: str, fields: dict) -> None:
         task.update(fields)
 
 
-def _video_worker(task_id: str, req: VideoGenerateRequest, loop) -> None:
+def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
+                  flow=None) -> None:
     """后台线程：真实产出视频文件，进度实时落库。
 
     生成链路（模型全维度对接，导入 models/ 即可用）：
@@ -112,10 +114,16 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop) -> None:
       3. Ken Burns 降级真实管线（TASK-010）：PIL 帧渲染 + FFmpeg 编码，
          产出真实可播放 MP4/AV1 到 data/generated/videos/
     完成后释放 "video_gen" 功能锁。
+    执行流程追踪（2026-08-23）：flow 由 video_generate 显式传入，
+    节点链 管线探测→视频生成，progress 回调作追踪心跳。
     """
+    from ...services.flow_trace import NULL_FLOW
+    flow = flow or NULL_FLOW
+
     out_path = VIDEO_OUT_DIR / f"{task_id}.mp4"
     start = time.time()
     real_file = ""  # 真实管线产出文件路径（完成后才检测取消时清理孤本用）
+    gen_node = None  # 生成节点引用（心跳）
 
     class _VideoCancelled(Exception):
         """任务取消信号（批 1.7：progress 回调检查点抛出）。"""
@@ -127,24 +135,48 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop) -> None:
     try:
         def progress_cb(fraction: float, stage: str = "") -> None:
             _check_cancel()
+            # ETA 提取（引擎 step callback 编码 "denoise;eta=N"）：
+            # 瞬时值存内存即可，无需持久化（任务重启 ETA 本就失效）
+            if "eta=" in stage:
+                try:
+                    eta = float(stage.split("eta=")[1].split(";")[0])
+                    _video_eta[task_id] = (eta, time.time())
+                except (ValueError, IndexError):
+                    pass
             _video_update_task(task_id, {
                 "progress": round(min(0.99, max(0.0, fraction)), 4),
                 "status": "generating",
             })
+            if gen_node is not None:
+                gen_node.progress(
+                    f"{round(fraction * 100)}%"
+                    + (f"（{stage.split(';')[0]}）" if stage else ""))
 
-        # 真实模型探测链（引擎 generate 已接入逐步去噪进度回调：
-        # diffusers callback_on_step_end 实时上报 denoise 段 0→0.9，
-        # 不支持回调的管线维持分段粗粒度；推理前/后各设一个取消检查点）
-        path = "kenburns"
-        try:
-            path = _get_video_engine().prepare_generation()
-        except Exception as exc:  # noqa: BLE001 - 探测失败直走降级管线
-            log.info("视频引擎探测失败，回落 Ken Burns: %s", exc)
+        # 节点1：管线探测（真实模型 vs Ken Burns 降级）
+        with flow.node("管线探测", friendly="探测可用视频生成管线") as n:
+            # 真实模型探测链（轻探测：models/ 有可装载模型即走真实管线，
+            # 实际装载在 generate() 内部按正确时序完成——VL 预处理先于
+            # 视频管线装载，避免探测装载被 VL 加载驱逐的乒乓换载）
+            path = "kenburns"
+            try:
+                path = _get_video_engine().prepare_generation(light=True)
+            except Exception as exc:  # noqa: BLE001 - 探测失败直走降级管线
+                log.info("视频引擎探测失败，回落 Ken Burns: %s", exc)
+            n.output(f"管线: {path}")
 
         if path != "kenburns":
             _check_cancel()
             _video_update_task(task_id, {"progress": 0.05, "status": "generating"})
-            result = _get_video_engine().generate(req, progress_cb=progress_cb)
+            # 节点2：视频生成（真实管线，progress 心跳）
+            with flow.node(
+                    "视频生成",
+                    input_summary=f"{req.resolution} {req.duration_seconds}s"
+                                  f" {req.fps}fps",
+                    friendly="视频模型推理生成") as gen_node:
+                result = _get_video_engine().generate(req, progress_cb=progress_cb)
+                gen_node.output(
+                    f"model={result.model_used} "
+                    f"{(result.generation_time_ms or 0) / 1000:.1f}s")
             real_file = result.file_path or ""
             _check_cancel()
             elapsed_ms = int((time.time() - start) * 1000)
@@ -157,9 +189,17 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop) -> None:
             })
             log.info("视频任务完成: %s → %s（%dms, pipeline=%s）",
                      task_id, result.file_path, elapsed_ms, result.model_used)
+            flow.end("success", output_summary=result.file_path)
             return
 
-        info = generate_fallback_video(req, out_path, progress_cb)
+        # 节点2：视频生成（Ken Burns 降级管线）
+        with flow.node(
+                "视频生成",
+                input_summary=f"{req.resolution} {req.duration_seconds}s"
+                              f" {req.fps}fps（Ken Burns 降级）",
+                friendly="降级管线渲染视频（Ken Burns 效果）") as gen_node:
+            info = generate_fallback_video(req, out_path, progress_cb)
+            gen_node.output(f"encoder={info.get('encoder')}")
         elapsed_ms = int((time.time() - start) * 1000)
         _video_update_task(task_id, {
             "progress": 1.0, "status": "done",
@@ -171,6 +211,7 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop) -> None:
         })
         log.info("视频任务完成: %s → %s（%dms, encoder=%s）",
                  task_id, info.get("output"), elapsed_ms, info.get("encoder"))
+        flow.end("success", output_summary=str(info.get("output", out_path)))
     except _VideoCancelled:
         log.info("视频任务已取消: %s", task_id)
         _video_update_task(task_id, {"status": "cancelled"})
@@ -188,14 +229,18 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop) -> None:
                 log.info("已清理取消任务的真实管线孤本: %s", real_file)
             except OSError as exc:
                 log.warning("真实管线孤本清理失败 %s: %s", real_file, exc)
+        flow.end("cancelled", error_detail="用户取消")
     except Exception as exc:  # noqa: BLE001 - 任务失败标记 error，不崩溃
         log.error("视频任务失败: %s: %s", task_id, exc)
         _video_update_task(task_id, {"status": "error", "error": str(exc)[:500]})
         # 内存镜像保存错误详情（video_tasks 表无 error 列，供 status 端点读取）
         mirror = _video_tasks.setdefault(task_id, {"id": task_id, "progress": 0.0})
         mirror.update({"status": "error", "error": str(exc)[:500]})
+        flow.end("error", error_code="VIDEO_FAILED",
+                 error_detail=str(exc)[:500])
     finally:
         _video_cancel_flags.pop(task_id, None)
+        _video_eta.pop(task_id, None)
         # 释放 video_gen 功能锁（锁由 asyncio 管理，回投到主事件循环）
         try:
             if loop is not None and not loop.is_closed():
@@ -227,6 +272,16 @@ async def video_generate(req: VideoGenerateRequest):
     started = False
     try:
         task_id = uuid.uuid4().hex
+        # 执行流程追踪（2026-08-23）：触发=用户提交视频生成
+        from ...services.flow_trace import start_flow
+        flow = start_flow(
+            "video", "generate",
+            f"视频生成：{(req.description or '')[:20]}"
+            f"{'…' if len(req.description or '') > 20 else ''}",
+            trigger="用户提交视频生成任务",
+            input_summary=f"{req.resolution} {req.duration_seconds}s "
+                          f"{req.fps}fps row={req.storyboard_row_id[:16]}",
+            detail=f"task_id={task_id} audio={bool(req.audio_path)}")
         now = _now()
         db = get_db_safe()
         persisted = False
@@ -264,7 +319,7 @@ async def video_generate(req: VideoGenerateRequest):
         VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
         threading.Thread(
             target=_video_worker,
-            args=(task_id, req, asyncio.get_running_loop()),
+            args=(task_id, req, asyncio.get_running_loop(), flow),
             daemon=True, name=f"video-task-{task_id[:8]}",
         ).start()
         started = True
@@ -279,7 +334,7 @@ async def video_generate(req: VideoGenerateRequest):
         if req.style_lora_version:
             style_note = "风格参数已接收（降级管线不应用）"
             try:
-                from ..services.style_lora_service import get_style_lora_service
+                from ...services.style_lora_service import get_style_lora_service
                 svc = get_style_lora_service()
                 if not any(v["version"] == req.style_lora_version
                            for v in svc.list_versions()):
@@ -291,9 +346,32 @@ async def video_generate(req: VideoGenerateRequest):
             resp["style_strength"] = req.style_strength
             resp["style_note"] = style_note
         return ok(resp)
+    except Exception as exc:  # noqa: BLE001 - 启动失败收敛为错误响应
+        flow.end("error", error_code="SUBMIT_FAILED",
+                 error_detail=str(exc)[:300])
+        raise
     finally:
         if not started:
             await lock.release("video_gen")
+
+
+def _attach_eta(resp: dict, task_id: str) -> None:
+    """生成中任务附加预计剩余时间（2026-08-22 进度条 ETA 需求）。
+
+    仅 generating 状态且缓存 120s 内有效时返回 eta_seconds（int 秒）；
+    eta 随流逝时间实时递减——denoise 结束进入 VAE 解码/编码尾段后
+    step callback 不再刷新，ETA 依靠最后一次采样倒数至 0 而非突然消失。
+    """
+    if resp.get("status") != "generating":
+        return
+    entry = _video_eta.get(task_id)
+    if not entry:
+        return
+    eta, ts = entry
+    age = time.time() - ts
+    if age > 120:
+        return
+    resp["eta_seconds"] = max(0, int(eta - age))
 
 
 @router.get("/manga/video/{task_id}/status")
@@ -311,6 +389,7 @@ def video_status(task_id: str):
             resp = {"task_id": task_id,
                     "status": row.get("status", "pending"),
                     "progress": float(row.get("progress", 0.0) or 0.0)}
+            _attach_eta(resp, task_id)
             task = _video_tasks.get(task_id)
             if task and task.get("error"):
                 resp["error"] = task["error"]
@@ -328,6 +407,7 @@ def video_status(task_id: str):
         raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
     resp = {"task_id": task_id, "status": task["status"],
             "progress": task["progress"]}
+    _attach_eta(resp, task_id)
     if task.get("error"):
         resp["error"] = task["error"]
     if _is_fallback_video(task.get("model_used", "")):
@@ -412,6 +492,74 @@ def video_download(task_id: str):
                                "status": row.get("status", "pending")})
     return FileResponse(str(path), media_type="video/mp4",
                         filename=f"{task_id}.mp4")
+
+
+@router.get("/video/history")
+def video_paint_history(limit: int = Query(100, ge=1, le=500,
+                                          description="返回条数上限")):
+    """绘画模块视频生成历史（2026-08-22 记录持久化修复）。
+
+    绘画模块发起的视频任务 storyboard_row_id 以 ``paint_`` 开头（见
+    前端 paintApi.generatePaintVideo），据此与漫剧任务区分；按
+    created_at 倒序返回。前端挂载时拉取，实现跨浏览器/重开可见。
+
+    mode 推断：i2v 纯图模式无提示词输入（description 恒空）→ i2v；
+    description 非空 → ti2v（文+图）。
+    """
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询视频历史")
+    try:
+        rows = db.query(
+            "SELECT id, description, resolution, fps, duration_seconds,"
+            " status, progress, file_path, model_used, created_at"
+            " FROM video_tasks"
+            " WHERE storyboard_row_id LIKE 'paint\\_%' ESCAPE '\\'"
+            " ORDER BY created_at DESC LIMIT ?", (limit,))
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError("SYSTEM_DB_DEGRADED", f"视频历史查询失败：{exc}") from exc
+    items = [{
+        "task_id": r["id"],
+        "mode": "ti2v" if (r.get("description") or "").strip() else "i2v",
+        "prompt": r.get("description", "") or "",
+        "duration_seconds": float(r.get("duration_seconds", 5) or 5),
+        "fps": int(r.get("fps", 16) or 16),
+        "resolution": r.get("resolution", "720p") or "720p",
+        "status": r.get("status", "done") or "done",
+        "degraded": _is_fallback_video(r.get("model_used", "")),
+        "created_at": r.get("created_at", 0) or 0,
+    } for r in rows]
+    return ok({"items": items, "total": len(items)})
+
+
+@router.delete("/video/history/{task_id}")
+def video_paint_history_delete(task_id: str):
+    """删除绘画模块视频历史记录（仅限 paint_ 来源任务，防误删漫剧任务）。
+
+    删除 DB 行；已生成的视频文件一并清理（不存在则静默跳过）。
+    """
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除记录")
+    row = db.query_one(
+        "SELECT id, storyboard_row_id, file_path FROM video_tasks WHERE id=?",
+        (task_id,))
+    if row is None:
+        raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+    if not str(row.get("storyboard_row_id", "")).startswith("paint_"):
+        raise ApiError(40008, "仅允许删除绘画模块的视频记录",
+                       detail={"task_id": task_id})
+    db.delete("video_tasks", "id=?", (task_id,))
+    file_path = row.get("file_path") or ""
+    if file_path:
+        try:
+            p = Path(file_path)
+            if p.is_file():
+                p.unlink()
+        except OSError as exc:
+            log.warning("视频文件清理失败 %s: %s", file_path, exc)
+    _video_tasks.pop(task_id, None)
+    return ok({"task_id": task_id, "deleted": True}, message="记录已删除")
 
 
 @router.get("/manga/video/tasks")
@@ -535,8 +683,8 @@ async def list_available_models(task_type: str = Query("dialog")):
     响应 items: [{id, name, status, vram_gb, speed_label, notes}]
     status: ready=已加载 | not_installed=已下载未加载 | offload=需先卸载其他
     """
-    from ..api.models import _merged_models
-    from ..services.model_manager import get_model_manager
+    from ...api.models import _merged_models
+    from ...services.model_manager import get_model_manager
     mgr = get_model_manager()
 
     all_models = _merged_models()

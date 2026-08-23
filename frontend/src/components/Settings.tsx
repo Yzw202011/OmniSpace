@@ -10,12 +10,46 @@
  * 覆盖测试用例：COM-009（Sakura 唯一主题）、COM-016（全中文界面）
  * ========================================================================== */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
-import { useAppStore, type FontSize } from '@/stores/useAppStore';
+import { useAppStore, type FontSize, type Theme } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
+
+/** 主题四态配置（双主题体系 × 亮暗双模式，2026-08-20 用户裁定脱离 COM-009） */
+const THEME_OPTIONS: Array<{
+  value: Theme;
+  name: string;
+  desc: string;
+  /** 色板：[主色, 辅助色, 背景色, 顶部辉光] */
+  colors: [string, string, string, string];
+}> = [
+  {
+    value: 'sakura',
+    name: 'Sakura · 夜樱',
+    desc: '暗色樱粉 × 薄荷绿',
+    colors: ['#FF6B9D', '#4ECDC4', '#1A1A2E', 'rgba(255,107,157,0.45)'],
+  },
+  {
+    value: 'light',
+    name: 'Sakura · 拂晓',
+    desc: '亮色樱粉 × 柔白',
+    colors: ['#FF6B9D', '#4ECDC4', '#F8F9FC', 'rgba(255,107,157,0.35)'],
+  },
+  {
+    value: 'tech',
+    name: 'Nebula · 深空',
+    desc: '高科技电光青 × 星云紫',
+    colors: ['#22D3EE', '#8B7CF8', '#060B18', 'rgba(34,211,238,0.45)'],
+  },
+  {
+    value: 'tech-light',
+    name: 'Nebula · 晨辉',
+    desc: '高科技冰蓝 × 淡紫',
+    colors: ['#0891B2', '#7C6BE8', '#EEF4FB', 'rgba(8,145,178,0.35)'],
+  },
+];
 
 /** 字号档位配置（实际生效值见 sakura.css [data-font-size] 覆盖：基准 --font-size-base） */
 const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string; desc: string }> = [
@@ -27,6 +61,8 @@ const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string; desc: string }>
 export default function Settings() {
   const fontSize = useAppStore((s) => s.fontSize);
   const setFontSize = useAppStore((s) => s.setFontSize);
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
   const settings = useAppStore((s) => s.settings);
   const settingsLoaded = useAppStore((s) => s.settingsLoaded);
   const loadSettings = useAppStore((s) => s.loadSettings);
@@ -76,14 +112,34 @@ export default function Settings() {
       <div className="settings-section card">
         <h2 className="settings-section-title">外观</h2>
 
-        {/* 主题 */}
-        <div className="settings-row">
+        {/* 主题（双主题体系 × 亮暗双模式） */}
+        <div className="settings-row" style={{ alignItems: 'stretch', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="settings-row-label">
             <span className="settings-row-name">主题</span>
-            <span className="settings-row-desc">Sakura 唯一主题（COM-009）</span>
+            <span className="settings-row-desc">双主题体系：Sakura 樱花系列 / Nebula 星云科技系列，各含亮暗双模式</span>
           </div>
-          <div className="settings-row-control">
-            <span className="settings-static-value">Sakura</span>
+          <div className="theme-grid" role="radiogroup" aria-label="主题选择">
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={theme === opt.value}
+                className={`theme-option ${theme === opt.value ? 'active' : ''}`}
+                onClick={() => setTheme(opt.value)}
+                title={opt.desc}
+              >
+                <div
+                  className="theme-option-swatch"
+                  style={{ background: opt.colors[2], '--swatch-glow': opt.colors[3] } as CSSProperties}
+                >
+                  <span className="theme-dot" style={{ background: opt.colors[0] }} aria-hidden="true" />
+                  <span className="theme-dot" style={{ background: opt.colors[1] }} aria-hidden="true" />
+                </div>
+                <span className="theme-option-name">{opt.name}</span>
+                <span className="theme-option-desc">{opt.desc}</span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -209,6 +265,7 @@ export default function Settings() {
             <p>无法获取硬件信息，后端服务可能未就绪。</p>
           </div>
         ) : (
+          <>
           <div className="settings-hardware-grid">
             <div className="settings-hw-item">
               <span className="settings-hw-label">GPU</span>
@@ -247,6 +304,16 @@ export default function Settings() {
               </span>
             </div>
           </div>
+          {hardwareProfile.degradation?.degraded && (
+            <div className="settings-degradation" role="alert">
+              <span className="settings-degradation-dot" aria-hidden="true" />
+              <span>
+                {hardwareProfile.degradation.reason ||
+                  '当前为 DirectML/CPU 降级档，生成速度可能较慢。'}
+              </span>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>

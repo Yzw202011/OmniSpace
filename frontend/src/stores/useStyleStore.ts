@@ -16,14 +16,37 @@ import type { StyleDataset, StyleLoraVersion, StyleStatus } from '@/services/sty
 import type { TrainTask } from '@/types';
 import { useAppStore } from './useAppStore';
 
-/** 轮询定时器（模块级单例） */
+/** 轮询定时器与可见性监听（模块级单例） */
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollVisHandler: (() => void) | null = null;
+
+// 性能优化：训练为分钟级长任务，前台 5s / 后台 10s 轮询足够跟踪进度；
+// 可见性切换时重排间隔，隐藏时降频避免无意义请求。
+const STYLE_POLL_FG_MS = 5000;
+const STYLE_POLL_BG_MS = 10000;
+function _pollDelay(): number {
+  return typeof document !== 'undefined' && document.hidden
+    ? STYLE_POLL_BG_MS : STYLE_POLL_FG_MS;
+}
 
 function clearPoll() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  if (pollVisHandler) {
+    document.removeEventListener('visibilitychange', pollVisHandler);
+    pollVisHandler = null;
+  }
+}
+
+function schedulePoll() {
+  clearPoll();
+  pollTimer = setInterval(() => {
+    useStyleStore.getState().pollTask();
+  }, _pollDelay());
+  pollVisHandler = () => schedulePoll();
+  document.addEventListener('visibilitychange', pollVisHandler);
 }
 
 /** 视频风格状态 */
@@ -180,11 +203,8 @@ export const useStyleStore = create<StyleState>((set, get) => ({
       });
       set({ task: styleApi.mapStyleTask(raw), training: true });
       appStore.showToast('风格 LoRA 训练已开始', 'success');
-      // 启动 2 秒轮询
-      clearPoll();
-      pollTimer = setInterval(() => {
-        get().pollTask();
-      }, 2000);
+      // 启动自适应轮询（前台 5s / 后台 10s，性能优化）
+      schedulePoll();
       return true;
     } catch (err) {
       const msg = err && typeof err === 'object' && 'message' in err

@@ -11,7 +11,12 @@ import logging
 import threading
 import time
 
-from ...config import IDLE_RECLAIM_SECONDS, SCHEDULER_INTERVAL_MS, THRESHOLDS
+from ...config import (
+    IDLE_RECLAIM_SECONDS,
+    SCHEDULER_INTERVAL_MS,
+    SHALLOW_RECLAIM_SECONDS,
+    THRESHOLDS,
+)
 
 log = logging.getLogger("omnispace.scheduler")
 
@@ -60,7 +65,8 @@ class SchedulerEngine:
         self._disk_busy: bool = False
         self._disk_busy_percent: float = 0.0
 
-        # 空闲显存回收：本段空闲期内是否已执行过回收（防每 tick 重复卸载）
+        # 两级空闲显存回收防抖标记（P2：表层 60s / 深层 300s 各执行一次）
+        self._shallow_reclaimed: bool = False
         self._idle_reclaimed: bool = False
 
     # ── 生命周期 ──────────────────────────────────────────────────
@@ -138,6 +144,21 @@ class SchedulerEngine:
         except Exception as exc:  # noqa: BLE001 - 热保护异常不阻断调度
             log.debug("温度保护检查跳过: %s", exc)
 
+        # 1.7 资源硬限制守卫（用户裁定 2026-08-22）：RAM ≤85% /
+        # VRAM ≤90%。超线卸载空闲模型（活动功能与共享小模型保留），
+        # 无可卸时由既有 offload 链保质量（时间换空间）。独立于
+        # 协同模式滞回，守卫做最后兜底。
+        try:
+            from ..resource_guard import get_resource_guard
+            vram_ratio = 0.0
+            if int(gpu.get("vram_total_mb", 0)) > 0:
+                vram_ratio = (int(gpu.get("vram_used_mb", 0))
+                              / int(gpu["vram_total_mb"]))
+            get_resource_guard().check(
+                float(mem.get("used_percent", 0.0)), vram_ratio)
+        except Exception as exc:  # noqa: BLE001 - 守卫异常不阻断调度
+            log.debug("资源守卫检查跳过: %s", exc)
+
         # 1.6 学习调度器周期评估（R2-B02 触发器接线 / R2-B03 自动微调，
         #     内部 30s 节流，异常不阻断调度主循环）
         try:
@@ -149,14 +170,14 @@ class SchedulerEngine:
         # 2. 瓶颈分析
         new_mode = self.analyzer.analyze(gpu, cpu, mem, power)
 
-        # 2.5 文档B §4.1.2（F-10）：GPU 利用率 >95% 持续 10s → 在途生成
-        # 任务降参。analyzer 持续越线判定命中时置位质量总督旗标，
-        # 恢复正常后清除；绘画生成循环每 step 查询并提前停止
-        # （paint_engine callback_on_step_end）。
+        # 2.5 文档B §4.1.2（F-10）+ P2 分级降参：GPU 利用率 >95% 持续
+        # 5s/15s → 在途生成任务轻度/深度降参。analyzer 分级判定命中时
+        # 置位质量总督等级（0/1/2），恢复正常后清除；绘画生成循环每
+        # step 查询并提前停止（paint_engine callback_on_step_end）。
         try:
             from ..quality_governor import get_quality_governor
-            get_quality_governor().set_reduce(
-                self.analyzer.last_gpu_util_critical)
+            get_quality_governor().set_level(
+                self.analyzer.last_gpu_util_level)
         except Exception as exc:  # noqa: BLE001 - 降参旗标同步不阻断调度
             log.debug("质量总督旗标同步跳过: %s", exc)
 
@@ -197,40 +218,70 @@ class SchedulerEngine:
                 log.debug("调度历史记录跳过: %s", exc)
 
     def _reclaim_idle_vram(self) -> None:
-        """空闲显存回收：无功能锁活动超 IDLE_RECLAIM_SECONDS 时，
-        卸载全部非常驻大模型（保留 embedding 常驻小模型）。
+        """两级空闲显存回收（P2 分级，原单档 300s 粒度粗）：
 
-        活动期间（功能锁持有 / 空闲时长不足）重置回收标记并返回；
-        每段空闲期最多执行一次真实卸载，避免逐 tick 重复扫描日志。
+          - 表层 60s：释放 embed/aux/voice 小模型（体量小、快速可重载，
+            空闲即归还，避免常驻空占显存）；
+          - 深层 300s：卸载非常驻大模型（dialog/paint/video 等重模型）。
+
+        活动期间（功能锁持有 / 空闲时长不足）重置两级回收标记并返回；
+        每级每段空闲期最多执行一次真实卸载，避免逐 tick 重复扫描日志。
         """
         from ...middleware.feature_lock import get_feature_lock
         lock = get_feature_lock()
         if lock.active_feature is not None:
+            self._shallow_reclaimed = False
             self._idle_reclaimed = False
             return
         idle_s = lock.idle_seconds
-        if idle_s < IDLE_RECLAIM_SECONDS:
-            return
-        if self._idle_reclaimed:
-            return
-        self._idle_reclaimed = True
+        # 跨模块共享小模型类别（embedding 检索 / voice 语音 / auxiliary
+        # 辅助），与 model_manager._SHARED_KEEP_CATEGORIES 口径一致
+        shared_small = {"embedding", "voice", "auxiliary"}
         from ..model_manager import get_model_manager
         mgr = get_model_manager()
-        loaded = [e for e in mgr.get_loaded_models()
-                  if e.get("category") not in ("embedding",)]
-        if not loaded:
-            return
-        log.warning("空闲 %.0fs 超阈值，回收 %d 个驻留模型释放显存: %s",
-                    idle_s, len(loaded),
-                    [e.get("model_id") for e in loaded])
-        for entry in loaded:
+
+        # ── 表层（60s）：释放 embed/aux/voice 小模型 ──
+        if idle_s >= SHALLOW_RECLAIM_SECONDS and not self._shallow_reclaimed:
+            self._shallow_reclaimed = True
+            small = [e for e in mgr.get_loaded_models()
+                     if (e.get("category") or "").strip().lower() in shared_small]
+            if small:
+                log.info("空闲 %.0fs 达表层阈值，释放 %d 个小模型（embed/aux）: %s",
+                         idle_s, len(small), [e.get("model_id") for e in small])
+                for entry in small:
+                    try:
+                        mgr.unload_model(entry["model_id"])
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("表层释放失败 (%s): %s",
+                                    entry.get("model_id"), exc)
+
+        # ── 深层（300s）：卸载非常驻大模型 ──
+        if idle_s >= IDLE_RECLAIM_SECONDS and not self._idle_reclaimed:
+            self._idle_reclaimed = True
+            # 表层已回收小模型，深层聚焦剩余重模型（排除共享小模型）
+            heavy = [e for e in mgr.get_loaded_models()
+                     if (e.get("category") or "").strip().lower() not in shared_small]
+            if heavy:
+                log.warning("空闲 %.0fs 达深层阈值，回收 %d 个驻留大模型释放显存: %s",
+                            idle_s, len(heavy), [e.get("model_id") for e in heavy])
+                for entry in heavy:
+                    try:
+                        mgr.unload_model(entry["model_id"])
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("深层卸载失败 (%s): %s",
+                                    entry.get("model_id"), exc)
+                # 同步分发器预加载记账，防止状态页误报"已预载"
+                self.dispatcher._preloaded.clear()
+            # 池压缩（2026-08-23 显存锚定修复）：卸载后 empty_cache
+            # 无法释放被 bge 等长驻小模型活跃块钉死的大 segment
+            # （实测 loaded=0 仍锚定 15.3GB 物理）——bge 停靠 CPU →
+            # 清池全段归还 → 回卡，物理显存才真正回到系统。
+            # 台账为空同样执行（卸载已发生但池仍臃肿的场景）
             try:
-                mgr.unload_model(entry["model_id"])
+                from ..model_manager import deflate_cuda_pool
+                deflate_cuda_pool()
             except Exception as exc:  # noqa: BLE001
-                log.warning("空闲回收卸载失败 (%s): %s",
-                            entry.get("model_id"), exc)
-        # 同步分发器预加载记账，防止状态页误报"已预载"
-        self.dispatcher._preloaded.clear()
+                log.debug("深回收后池压缩跳过: %s", exc)
 
     def get_state(self) -> dict:
         """返回当前调度状态快照（对齐 SchedulerState 模型全部字段）。

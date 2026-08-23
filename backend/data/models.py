@@ -21,6 +21,10 @@ class ModelCategory(str, Enum):
     LANGUAGE = "language"
     THREE_D = "3d"
     AUXILIARY = "auxiliary"
+    # 视觉语音大模型（Omni 全模态，2026-08-21 用户裁定新增）：
+    # 文字/图片/视频/音频四模态输入，文字+自然语音输出
+    #（代表：Qwen2.5-Omni，Thinker-Talker 架构）
+    OMNI = "omni"
 
 
 class SynergyMode(str, Enum):
@@ -37,6 +41,10 @@ class VideoModel(str, Enum):
     WAN21_14B_FP8 = "wan2.1-14b-fp8"
     WAN21_14B_INT4 = "wan2.1-14b-int4"
     WAN21_1_3B = "wan2.1-1.3b"
+    # Wan2.2-TI2V-5B：单 ckpt 原生 T2V+I2V+TI2V 双条件统一底座
+    # （2026-08-23 混合架构裁定：视频侧统一到该权重，I2V 与文+图
+    # 生视频共用；目录名 wan22-ti2v-5b 与发现层约定一致）
+    WAN22_TI2V_5B = "wan22-ti2v-5b"
     LTX_VIDEO_095 = "ltx-video-0.9.5"  # 2B diffusers，T5 int8 量化加载
     COGVIDEOX_2B = "cogvideox-2b"
     COGVIDEOX_2B_CPU = "cogvideox-2b-cpu"
@@ -80,6 +88,9 @@ class ActiveFeature(str, Enum):
 VIDEO_ROUTING_TABLE = [
     {"min_vram_gb": 24, "model": VideoModel.LTX2},
     {"min_vram_gb": 16, "model": VideoModel.WAN21_14B_FP8},
+    # TI2V-5B：split 常驻需求 = DiT 10.2 + VAE 0.5 + 激活余量 2.5
+    # ≈ 13.3GB（T5 编码窗口临时上卡，不占常态），16GB 卡可跑
+    {"min_vram_gb": 13, "model": VideoModel.WAN22_TI2V_5B},
     {"min_vram_gb": 12, "model": VideoModel.WAN21_14B_INT4},
     {"min_vram_gb": 8,  "model": VideoModel.WAN21_1_3B},
     # LTX-Video 0.9.5 (2B)：T5 int8 量化加载后约 9GB，16GB 卡可真实生成
@@ -91,21 +102,34 @@ VIDEO_ROUTING_TABLE = [
 ]
 
 DIALOG_ROUTING_TABLE = [
+    # 视觉语音全模态（omni）：文/图/视/音输入，文+语音输出；
+    # bf16 权重 Thinker3B+Talker0.5B 约 15GB（16GB 档），
+    # AWQ int4 约 6GB（12GB 档，入门基线 3060 可用）
+    {"min_vram_gb": 16, "model": "qwen2.5-omni-7b"},
+    {"min_vram_gb": 12, "model": "qwen2.5-omni-7b-int4"},
     {"min_vram_gb": 12, "model": "qwen3-vl-8b"},
-    {"min_vram_gb": 8,  "model": "qwen3-vl-4b"},
-    {"min_vram_gb": 4,  "model": "qwen3-vl-2b"},
-    {"min_vram_gb": 0,  "model": "qwen3-vl-2b-int4-cpu"},
+    {"min_vram_gb": 8, "model": "qwen3-vl-4b"},
+    {"min_vram_gb": 4, "model": "qwen3-vl-2b"},
+    {"min_vram_gb": 0, "model": "qwen3-vl-2b-int4-cpu"},
 ]
 
 PAINT_ROUTING_TABLE = [
     {"min_vram_gb": 24, "model": "flux.1-dev-fp8"},
     {"min_vram_gb": 16, "model": "flux.1-schnell-fp8"},
+    # Qwen-Image-2512（20B MMDiT + Qwen2.5-VL 编码器，中文原生理解/
+    # 中英文字渲染开源第一）：GGUF 流式推理（量化权重常驻 CPU，
+    # GPU 峰值 ~1GB + 编码器逐层 + VAE，实测 2.15s/步）——
+    # 12GB 档位"高精度模式"底座，RAM 需 28GB+（2026-08-22 接入）
+    {"min_vram_gb": 6, "model": "qwen-image-2512"},
+    # 四视图 one-pass 中文直入底座（FLUX.2 Klein，cpu_offload 实测
+    # 权重 transformer 7.4GB + Qwen3 text_encoder 7.7GB，12GB 闸门）
+    {"min_vram_gb": 12, "model": "flux2-klein-4b"},
     {"min_vram_gb": 12, "model": "kolors-2.1"},
     # 实际出货的基座模型（models/paint/sdxl-base-1.0，bf16 实测约 7GB）；
     # 缺此条时 model_manager 显存预估回退到 磁盘大小×1.2≈31GB，永远分配失败
     {"min_vram_gb": 8,  "model": "sdxl-base-1.0"},
-    {"min_vram_gb": 8,  "model": "sdxl-lcm"},
-    {"min_vram_gb": 0,  "model": "sdxl-cpu"},
+    {"min_vram_gb": 8, "model": "sdxl-lcm"},
+    {"min_vram_gb": 0, "model": "sdxl-cpu"},
 ]
 
 
@@ -129,7 +153,7 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx5080", "label": "RTX 5080 16GB",
         "name_patterns": ["rtx 5080", "5080"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-4b",
                    "video": "wan2.1-14b-fp8"},
         "learn_tabs": 4,
     },
@@ -137,7 +161,7 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx5070ti", "label": "RTX 5070 Ti 16GB",
         "name_patterns": ["rtx 5070 ti", "5070 ti", "5070ti"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-4b",
                    "video": "wan2.1-14b-fp8"},
         "learn_tabs": 4,
     },
@@ -502,8 +526,8 @@ class DialogMessage(BaseModel):
 class DrawRequest(BaseModel):
     prompt: str
     negative_prompt: str = ""
-    width: int = Field(default=1024, ge=512, le=2048)
-    height: int = Field(default=1024, ge=512, le=2048)
+    width: int = Field(default=1024, ge=512, le=2688)
+    height: int = Field(default=1024, ge=512, le=2688)
     steps: int = Field(default=20, ge=4, le=50)
     guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
     model: str | None = None
@@ -596,6 +620,17 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+
+class ProjectBatchDelete(BaseModel):
+    """批量删除项目请求体（COMIC-004 扩展：一次最多 500 个）。"""
+    project_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class SessionBatchDelete(BaseModel):
+    """批量删除对话会话请求体（2026-08-20：单批最多 100，
+    前端超量自动分批提交）。"""
+    session_ids: list[str] = Field(min_length=1, max_length=100)
 
 
 # ── G1 解说漫剧：故事级生词/生图/视频生词 ──────────────────────────────

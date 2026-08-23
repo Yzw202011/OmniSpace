@@ -24,6 +24,7 @@ class VideoRouter:
         规格 §5.2 路由表（从高到低）:
           - 24GB+ -> LTX-2
           - 16GB+ -> Wan2.1-14B-FP8
+          - 13GB+ -> Wan2.2-TI2V-5B（视频统一底座，I2V/TI2V）
           - 12GB+ -> Wan2.1-14B-INT4
           - 8GB+  -> Wan2.1-1.3B
           - 6GB+  -> CogVideoX-2B
@@ -99,6 +100,20 @@ class VideoRouter:
                 "supports_audio_sync": False,
                 "max_audio_sync_seconds": 0,
                 "vram_required_gb": 8,
+            },
+            VideoModel.WAN22_TI2V_5B: {
+                # Wan2.2-TI2V-5B：单 ckpt 原生双条件（umT5 文本 + 首帧
+                # 图），I2V 与文+图生视频统一底座（2026-08-23 混合架构）。
+                # split 布局 16GB 卡可跑；720p 预设实际映射 1024x576
+                # （引擎 Wan 家族对齐），激活余量充裕。官方片段 5s
+                # （121 帧 @24fps）。
+                "max_resolution": "720p",
+                "max_fps": 24,
+                "max_duration_seconds": 5,
+                "precision": "bf16",
+                "supports_audio_sync": False,
+                "max_audio_sync_seconds": 0,
+                "vram_required_gb": 13,
             },
             VideoModel.LTX_VIDEO_095: {
                 # LTX-Video 0.9.5 2B：768x512@24fps 原生，

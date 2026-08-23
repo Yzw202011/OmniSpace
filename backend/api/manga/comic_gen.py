@@ -41,10 +41,11 @@ log = logging.getLogger("omnispace.api.manga.comic_gen")
 
 
 # ── 角色多视图（四视图）生成（COMIC-033~037）────────────────────────
-# 规格（竞品 yl.man-tui.com 对齐，2026-08-14 改造）：四张独立 16:9 图
-# （正面全身/侧面全身/背面全身/上半身特写，每张可单独重生），逐视图
-# 1280×720 生成 + LANCZOS 2x 上采样至 2560×1440；canvas.png 为 2×2
-# 拼图。FLUX.1-dev 未随包时 SDXL 兜底并诚实标注 degraded。
+# 规格（对齐根目录 参考图.png，2026-08-20 裁定）：整图资产统一
+# 2560×1440（16:9，1 行 4 列等宽竖格，每格 640×1440）；one-pass 主路径
+# 一次推理整图直出；legacy 逐视图为四张独立 2560×1440 图（每张可单独
+# 重生），canvas.png 按 1×4 横排 contain 拼图。FLUX.2 未随包时 SDXL
+# 兜底并诚实标注 degraded。
 
 _TURNAROUND_VIEWS = ("front", "side", "back", "closeup")
 _TURNAROUND_W, _TURNAROUND_H = IMG_TARGET_W, IMG_TARGET_H  # 2560×1440
@@ -63,6 +64,677 @@ _TURNAROUND_VIEW_SUFFIX = {
     "closeup": ", upper body close-up portrait, single person",
 }
 
+# ── one-pass 单图四视图（2026-08-20 竞品对齐重构）─────────────────
+# 底座 flux2-klein-4b（Qwen3 中文文本编码器，512 token 上限）：中文
+# 提示词全文直入，一次推理在单图内出四视图——竞品同款技术路线。
+# 画幅 2560×1440（16:9，对齐根目录 参考图.png 版式：1 行 4 列等宽
+# 竖格横排，每格 640×1440 全身竖构图；宽高均 8 的倍数满足 VAE 下采样
+# 对齐；3.69MP 在 FLUX.2 的 4MP 上限内）。
+_ONEPASS_W, _ONEPASS_H = 2560, 1440
+_ONEPASS_MAX_ATTEMPTS = 5   # 三关闸门（视角/纯白/相符）换 seed 重 roll 上限
+_ONEPASS_STEPS = 28          # FLUX.2 Klein distilled 推荐步数量级
+_ONEPASS_GUIDANCE = 4.0      # 引擎默认 guidance
+
+# 视图标签文案（竞品逐字对齐，PIL 叠加用）
+_ONEPASS_VIEW_LABELS = {
+    "front": "正面全身",
+    "side": "侧面全身",
+    "back": "背面全身",
+    "closeup": "上半身特写",
+}
+
+# 中文字体候选（Windows 系统字体，按优先级回退）
+_ZH_FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\msyh.ttc",      # 微软雅黑
+    r"C:\Windows\Fonts\simhei.ttf",    # 黑体
+    r"C:\Windows\Fonts\simsun.ttc",    # 宋体
+)
+
+
+def _load_zh_font(size: int):
+    """加载中文字体（按候选路径回退；全失败返回 None 降级跳过标注）。"""
+    from PIL import ImageFont
+    for path in _ZH_FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return None
+
+
+def _sam_whiten(image, bg):
+    """SAM 人物分割背景漂白（主路径，2026-08-20 接线本地 sam-vit-h）。
+
+    四视图整图逐格（1/4 画宽）多点联合提示（头/胸/腰/腿，覆盖整
+    个人）→ SAM 人物精确 mask（发丝级，米白 T 恤/浅蓝牛仔裤完整
+    保留）→ 成功格内反选背景一次性置纯白（灰渐变/脚边阴影/灰斑
+    全清）。
+
+    三重 mask 校验（2026-08-20 目视实测教训）：①裁回本格列范围
+    （多点可能跨格吃到邻格人物）②提示点必须全部落在 mask 内
+    （防「背景环」假 mask 挖空人物）③score≥0.5 且面积 2%~30%。
+    校验失败的格保持原样不动（宁留灰底，不挖空人物）；全部失败
+    返回 None 回退启发式。SAM 推理后立即卸载释放显存（2.5GB）。
+    """
+    import base64
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    arr = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    h, w = arr.shape[:2]
+    fg_mask = np.zeros((h, w), dtype=bool)
+    ok_zone = np.zeros((h, w), dtype=bool)  # 分割成功格的列范围
+    got_any = False
+    try:
+        from backend.services.inference.segment_engine import (
+            get_segment_engine)
+        seg = get_segment_engine()
+        if not seg.load_model():
+            log.warning("SAM 加载失败，背景漂白回退启发式: %s",
+                        seg.unavailable_reason)
+            return None
+        try:
+            cell_w = w // 4
+            ys = (int(h * 0.12), int(h * 0.30), int(h * 0.50),
+                  int(h * 0.75))
+            def _check_mask(m, score, probe_pts):
+                """三重校验：点包含 + 分数 + 面积。通过 True。"""
+                area = float(m.mean())
+                pts_in = all(m[min(y, h - 1), min(px, w - 1)]
+                             for px, y in probe_pts)
+                if score >= 0.5 and pts_in and 0.02 < area < 0.30:
+                    return True
+                log.warning("格 %d SAM 结果异常弃用 "
+                            "(score=%.3f pts_in=%s area=%.1f%%)",
+                            idx, score, pts_in, area * 100)
+                return False
+
+            def _mask_of(r):
+                m_img = Image.open(io.BytesIO(
+                    base64.b64decode(r["mask_png_b64"]))).convert("L")
+                m = np.asarray(m_img.resize((w, h))) > 127
+                m[:, :idx * cell_w] = False
+                m[:, (idx + 1) * cell_w:] = False
+                return m
+
+            for idx in range(4):
+                cx = idx * cell_w + cell_w // 2
+                pts = [[cx, y] for y in ys]
+                try:
+                    # ① 多点联合（头/胸/腰/腿）
+                    r = seg.segment(image, points=pts)
+                    m = _mask_of(r)
+                    if not _check_mask(m, r["score"], pts):
+                        # ② 腰部单点（瘦人物多点易给「背景环」假mask）
+                        m = None
+                        r = seg.segment(image, points=[[cx, int(h * 0.40)]])
+                        m2 = _mask_of(r)
+                        if _check_mask(m2, r["score"], [[cx, int(h * 0.40)]]):
+                            m = m2
+                    if m is None:
+                        # ③ 整格包围盒（瘦长侧面人物最稳的提示方式）
+                        r = seg.segment(image, box=[
+                            idx * cell_w + 40, int(h * 0.03),
+                            (idx + 1) * cell_w - 40, int(h * 0.97)])
+                        m3 = _mask_of(r)
+                        probe = [[cx, int(h * 0.40)], [cx, int(h * 0.10)]]
+                        if _check_mask(m3, r["score"], probe):
+                            m = m3
+                    if m is not None:
+                        fg_mask |= m
+                        ok_zone[:, idx * cell_w:(idx + 1) * cell_w] = True
+                        got_any = True
+                except Exception as exc:  # noqa: BLE001 - 单格失败不阻塞
+                    log.warning("格 %d SAM 分割失败: %s", idx, exc)
+        finally:
+            seg.unload_model()
+    except Exception as exc:  # noqa: BLE001 - SAM 不可用保人物原样
+        log.warning("SAM 分割不可用，背景保持原样: %s", exc)
+        return None
+    if not got_any:
+        return None
+    out = arr.copy()
+    # 仅成功格内置白：失败格原样保留（防止假 mask 挖空人物）
+    out[ok_zone & ~fg_mask] = 255
+    return Image.fromarray(out)
+
+
+def _whiten_background(image):
+    """背景漂白（交付格式保底，对齐 参考图.png 纯白底）。
+
+    FLUX.2 Klein 对「纯白背景」遵循不稳定（2026-08-20 实测角点
+    RGB≈(207,221) 灰底）——与中文标注同哲学：交付格式不交给概率
+    模型，代码确定性完成。
+
+    编排：边框采样背景色（中位数），本身 ≥250 零改动 → SAM 人物
+    分割精确漂白 → SAM 显存不足时卸载绘画管线（FLUX.2 ~13GB +
+    SAM 2.5GB > 16GB）重试一次 → 仍失败保持原图（人物完整优先
+    于背景纯白，启发式漂白已实测腐蚀浅色衣物故弃用）。
+    """
+    import numpy as np
+    from PIL import Image
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32)
+    border = np.concatenate([
+        arr[:2].reshape(-1, 3), arr[-2:].reshape(-1, 3),
+        arr[:, :2].reshape(-1, 3), arr[:, -2:].reshape(-1, 3)])
+    bg = np.median(border, axis=0)
+    if float(bg.min()) >= 250.0:
+        return Image.fromarray(arr.astype(np.uint8))
+
+    out = _sam_whiten(image, bg)
+    if out is not None:
+        return out
+    # SAM 直接失败常见于显存被绘画管线占满（FLUX.2 ~13GB + SAM
+    # 2.5GB > 16GB）：卸载绘画管线腾显存重试一次（下次生成为ensure_
+    # loaded 语义，自动重载）
+    try:
+        if get_paint_engine().unload_model():
+            out = _sam_whiten(image, bg)
+            if out is not None:
+                return out
+    except Exception as exc:  # noqa: BLE001 - 卸载失败保持原图
+        log.warning("绘画管线卸载重试 SAM 失败: %s", exc)
+    log.warning("背景漂白未生效，保持原图（人物完整优先于背景纯白）")
+    return Image.fromarray(arr.astype(np.uint8))
+
+
+def _verify_view_layout(image):
+    """VL 视角组合校验（本地 qwen3-vl 多模态，2026-08-20 接线）。
+
+    修复「视图与标签不对应」：one-pass 是概率模型整图直出，四格
+    视角组合有抽卡率（实测第2格画背面/第3格残缺等）。校验器把
+    缩略图交给 VL 模型逐格判视角，返回 (是否全对, 逐格判定list)。
+
+    返回 (True, labels)=组合正确 / (False, labels)=错位（labels
+    供调用方定位错格做局部修复）/ (None, [])=VL 不可用（跳过校验，
+    不阻塞交付）。显存协调：校验前卸载绘画管线（FLUX.2 ~13GB 与
+    VL 4B ~9GB 互斥）；修复格/重生时 ensure_loaded 自动重载。
+    """
+    import re
+    try:
+        from ...services.inference.dialog_engine import get_dialog_engine
+        eng = get_dialog_engine()
+        # FLUX.2 让位 VL（16GB 显存互斥）
+        if get_paint_engine().is_loaded:
+            get_paint_engine().unload_model()
+        if not eng.is_ready and not eng.ensure_loaded("qwen3-vl-4b"):
+            log.warning("VL 模型不可用，跳过视角校验: %s",
+                        eng.get_status().get("last_error", ""))
+            return None, []
+        thumb = image.copy()
+        thumb.thumbnail((1280, 720))  # 省 prefill，判视角足够
+        msgs = [{"role": "user", "content": [
+            {"type": "image"},
+            {"type": "text", "text": (
+                "这张图从左到右有4格，每格应是一个人物的全身或"
+                "半身视图。请逐格判定：视角类型为 正面、侧面、"
+                "背面、特写 之一；若该格是剪影、空白轮廓、残缺"
+                "人物或没有人物，则判为 异常。只输出4个判定词，"
+                "用逗号分隔。")},
+        ]}]
+        reply = eng.chat(msgs, images=[thumb], temperature=0.1,
+                         max_new_tokens=24).strip()
+        found = re.findall(r"正面|侧面|背面|特写|异常", reply)
+        if len(found) < 4:
+            log.warning("VL 视角校验答案不可解析（%r），跳过", reply)
+            return None, []
+        labels = found[:4]
+        ok = labels == ["正面", "侧面", "背面", "特写"]
+        log.info("VL 视角校验: %s → %s", "/".join(labels),
+                 "正确" if ok else "错位")
+        return ok, labels
+    except Exception as exc:  # noqa: BLE001 - 校验失败不阻塞交付
+        log.warning("VL 视角校验异常（跳过）: %s", exc)
+        return None, []
+
+
+def _verify_background_white(image) -> bool:
+    """交付前背景纯白硬校验（2026-08-20 三关闸门·关2）。
+
+    像素级确定性判定（不依赖概率模型）：边框采样（上下各 2 行 +
+    左右各 2 列）中位数 RGB 三通道均 ≥245 才算纯白。漂白
+    （_whiten_background）后仍不达标（SAM 分割失败保持原图的灰底）
+    → 判不合格，触发换 seed 重 roll，不交付。
+    """
+    import numpy as np
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32)
+    border = np.concatenate([
+        arr[:2].reshape(-1, 3), arr[-2:].reshape(-1, 3),
+        arr[:, :2].reshape(-1, 3), arr[:, -2:].reshape(-1, 3)])
+    med = np.median(border, axis=0)
+    ok = bool(med.min() >= 245.0)
+    if not ok:
+        log.info("背景纯白校验未过: 边框中位数 RGB=%s",
+                 [int(v) for v in med])
+    return ok
+
+
+def _verify_prompt_match(image, desc_zh: str):
+    """VL 图文符合度校验（2026-08-20 三关闸门·关3）。
+
+    判断图中人物外观（发型发色/脸型/服装款式与颜色/鞋子等主要
+    特征）与角色设定描述词是否大体相符——不要求逐字逐句，防 VL
+    对细粒度文本过度苛刻导致无限重 roll。
+
+    返回 True=相符 / False=不符（触发重 roll）/ None=VL 不可用
+    或答案不可解析（跳过，不阻塞交付——与视角校验同哲学：VL 尽
+    力校验，像素校验（关2）才是硬闸）。显存协调：校验前卸载绘画
+    管线（FLUX.2 与 VL 16GB 互斥）。
+    """
+    desc = (desc_zh or "").strip()[:300]  # Qwen3 编码器 512 token 内
+    if not desc:
+        return None
+    try:
+        from ...services.inference.dialog_engine import get_dialog_engine
+        eng = get_dialog_engine()
+        if get_paint_engine().is_loaded:
+            get_paint_engine().unload_model()
+        if not eng.is_ready and not eng.ensure_loaded("qwen3-vl-4b"):
+            log.warning("VL 模型不可用，跳过图文符合度校验: %s",
+                        eng.get_status().get("last_error", ""))
+            return None
+        thumb = image.copy()
+        thumb.thumbnail((1280, 720))
+        msgs = [{"role": "user", "content": [
+            {"type": "image"},
+            {"type": "text", "text": (
+                "判断图中人物的外观是否与以下角色描述相符"
+                "（发型发色、脸型、服装款式与颜色、鞋子等主要特征"
+                "大体一致即算相符，不要求逐字逐句）。"
+                "只回答两个词之一：相符 或 不相符。\n"
+                f"角色描述：{desc}")},
+        ]}]
+        reply = eng.chat(msgs, images=[thumb], temperature=0.1,
+                         max_new_tokens=8).strip()
+        if "不相符" in reply:
+            log.info("VL 图文符合度校验: 不相符（%r）", reply[:40])
+            return False
+        if "相符" in reply:
+            return True
+        log.warning("VL 图文符合度答案不可解析（%r），跳过", reply[:40])
+        return None
+    except Exception as exc:  # noqa: BLE001 - VL 失败不阻塞交付
+        log.warning("VL 图文符合度校验异常（跳过）: %s", exc)
+        return None
+
+
+def _repair_view_cell(engine, image, idx: int, prompt_zh_clean: str,
+                      seed: int):
+    """错位格局部修复（VL 校验定位 → 单格 FLUX.2 inpaint，2026-08-20）。
+
+    整图重生换 seed 是「推倒重来」——实测 6 连抽每次恰好只错 1 格。
+    本函数只重绘错格（整格 mask + margin 8 不越格污染邻格），其余
+    三格逐像素保留，收敛性远优于整图重 roll。显存前置：卸载 VL
+    （校验时占位）→ ensure FLUX.2。返回修复后整图（失败返回原图）。
+    """
+    import random
+    from PIL import Image, ImageDraw
+
+    view = _TURNAROUND_VIEWS[idx]
+    label = _ONEPASS_VIEW_LABELS[view]
+    closeup = "，面部大而清晰" if view == "closeup" else "，人物从头到脚完整"
+    prompt = (
+        f"角色设定图。角色：{prompt_zh_clean}。"
+        f"画面：同一角色的{label}视图，单人{closeup}。"
+        "背景：纯白色，均匀干净。"
+        "美术风格：韩国网漫风，干净线稿，清晰上色，"
+        "表情表现力强，色彩干净明快。"
+        "姿态：常态平静表情，眼睛平视，空手，画面干净无文字。"
+    )
+    try:
+        # VL 让位 FLUX.2（16GB 互斥）
+        from ...services.inference.dialog_engine import get_dialog_engine
+        eng = get_dialog_engine()
+        if eng.is_ready:
+            eng.unload_model()
+        if not engine.ensure_loaded("flux2-klein-4b"):
+            log.warning("格修复失败：FLUX.2 不可用，保持原格")
+            return image
+        W, H = image.size
+        cell_w = W // 4
+        mask = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(mask).rectangle(
+            [idx * cell_w, 0, (idx + 1) * cell_w - 1, H - 1], fill=255)
+        if seed is None or seed < 0:
+            seed = random.randint(0, 2 ** 31 - 1)
+        params = {"prompt": prompt, "steps": _ONEPASS_STEPS,
+                  "cfg": _ONEPASS_GUIDANCE, "seed": seed, "mask_margin": 8}
+        res = engine.inpaint(params, image, mask)
+        fixed = res["images"][0].convert("RGB")
+        if fixed.size != (W, H):
+            fixed = fixed.resize((W, H), Image.LANCZOS)
+        log.info("格 %d（%s）局部修复完成", idx, view)
+        return fixed
+    except Exception as exc:  # noqa: BLE001 - 修复失败保原图不阻塞
+        log.warning("格 %d 局部修复失败（保持原格）: %s", idx, exc)
+        return image
+
+
+def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
+    """装配 one-pass 中文长提示词（人设前置 + 全正向语义，2026-08-20
+    v2 重构：修复「与描述词差距过大」）。
+
+    实测教训：4B 蒸馏小模型对否定语义（禁止X）处理差——负向禁令
+    占半篇幅时正面指令被稀释，且模型易画出被禁止的内容。v2 结构：
+    ①人设置首（512 token 截断时最先保住，最核心）②版式逐格正向
+    描述 ③背景/风格正向短语 ④姿态。全篇无「禁止」，篇幅 ~200
+    token（v1 ~360）。纯白底与去风格化由 SAM 漂白 + PIL 标注代
+    码保底，不依赖模型遵循。中文标注由 PIL 叠加（零漂移）。
+    """
+    return (
+        f"角色设定图。角色：{prompt_zh_clean}。"
+        "画面：同一角色的四视图设定图，从左到右依次为——"
+        "第1格正面全身（面对镜头，可见完整面部）、"
+        "第2格左侧面全身（侧对镜头，只见侧脸轮廓）、"
+        "第3格背面全身（背对镜头，完全看不到面部，只见头发覆盖"
+        "的后脑勺与衣服背面的背影）、"
+        "第4格上半身特写（胸部以上近景，面部大而清晰）。"
+        "恰好四格，互不重复，横向等宽排成一行；"
+        "前三格为竖构图全身像，人物从头到脚完整。"
+        "背景：纯白色，均匀干净。"
+        "美术风格：韩国网漫风，干净线稿，清晰上色，"
+        "表情表现力强，色彩干净明快。"
+        "姿态：常态平静表情，眼睛平视，空手，画面干净无文字。"
+    )
+
+
+def _draw_label_with_backdrop(canvas, draw, xy, text, font, *, pad=14,
+                              radius=12):
+    """白底圆角衬底 + 黑字标注：角色肢体可能延伸到画幅底部，黑字直接
+    叠深色衣物即失去对比度（2026-08-20 冒烟实测「背面全身」不可读）。"""
+    from PIL import ImageDraw
+    x, y = xy
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    backdrop = ImageDraw.Draw(canvas)
+    backdrop.rounded_rectangle(
+        [x - pad, y - pad, x + tw + pad, y + th + pad + bbox[1]],
+        radius=radius, fill=(255, 255, 255))
+    draw.text((x, y), text, fill=(24, 24, 24), font=font)
+
+
+def _draw_onepass_labels(image, name: str):
+    """整图叠加中文标注（竞品交付形态对齐）：左上角角色名 +
+    各视图格下方视图标签（白底衬底保证任意构图下可读）。
+    字体缺失时跳过标注（降级不阻断）。"""
+    from PIL import ImageDraw
+    font_name = _load_zh_font(56)
+    font_label = _load_zh_font(40)
+    if font_name is None or font_label is None:
+        log.warning("中文字体不可用，跳过四视图标注叠加")
+        return image
+    canvas = image.convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+    _draw_label_with_backdrop(canvas, draw, (72, 56), name, font_name)
+    cell_w = canvas.width // 4
+    for idx, view in enumerate(_TURNAROUND_VIEWS):
+        label = _ONEPASS_VIEW_LABELS[view]
+        bbox = draw.textbbox((0, 0), label, font=font_label)
+        tw = bbox[2] - bbox[0]
+        cx = idx * cell_w + (cell_w - tw) // 2
+        _draw_label_with_backdrop(canvas, draw,
+                                  (cx, canvas.height - 104), label,
+                                  font_label)
+    return canvas
+
+
+def _slice_onepass_views(image) -> dict:
+    """整图等分四格横排裁切（front/side/back/closeup，左→右）。
+
+    提示词约束四视图等宽并排，等分即视图边界；格间白底分隔使
+    裁切边缘干净。返回 view → PIL.Image。
+    """
+    canvas = image.convert("RGB")
+    cell_w = canvas.width // 4
+    views: dict = {}
+    for idx, view in enumerate(_TURNAROUND_VIEWS):
+        views[view] = canvas.crop((idx * cell_w, 0,
+                                   (idx + 1) * cell_w, canvas.height))
+    return views
+
+
+def _load_onepass_reference(out_dir: Path):
+    """读取资产目录参考图（原尺寸保比例——FLUX.2 管线内部缩至 ≤1MP
+    作条件 token，等价竞品「参考图」层）。缺失/损坏返回 None 忽略。"""
+    ref_path = out_dir / "reference.png"
+    if not ref_path.is_file():
+        return None
+    try:
+        from PIL import Image
+        with Image.open(ref_path) as im:
+            return im.convert("RGB")
+    except Exception as exc:  # noqa: BLE001 - 参考图损坏则忽略不阻断
+        log.warning("参考图读取失败，one-pass 忽略参考图: %s", exc)
+        return None
+
+
+def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
+                                 prompt: str, seed: int,
+                                 transparent: bool = False) -> dict:
+    """one-pass 单图四视图核心（竞品技术路线对齐，2026-08-20 重构）。
+
+    1. 中文长文直入：六段式模板（版式/约束/风格/人设/姿态），FLUX.2
+       Klein 的 Qwen3 文本编码器 512 token 全量消化，无中译英环节
+    2. 一次推理 2560×1440（16:9）整图出四视图（1 行 4 列等宽竖格，
+       每格 640×1440，对齐根目录 参考图.png 版式）
+    3. PIL 叠加中文标注（角色名 + 视图标签——字体零漂移，不交给概率模型）
+    4. 干净整图（master.png）等分裁切四格落盘 portrait_views/，
+       供分镜引用与单视图局部重生
+
+    竞品语义：全图一体成败（无逐视图局部修补）；资产目录 reference.png
+    存在时作参考条件图（同 seed + 参考图，可复现）。
+    """
+    import random
+    from PIL import Image
+
+    if seed is None or seed < 0:
+        seed = random.randint(0, 2 ** 31 - 1)
+    prompt_zh = _build_onepass_prompt_zh(_sanitize_character_prompt_zh(prompt))
+    params = {"prompt": prompt_zh, "steps": _ONEPASS_STEPS,
+              "cfg": _ONEPASS_GUIDANCE, "seed": seed,
+              "width": _ONEPASS_W, "height": _ONEPASS_H}
+    ref_image = _load_onepass_reference(out_dir)
+    ref_used = ref_image is not None
+
+    # 三关验证闸门（2026-08-20 用户裁定）：每轮生成后依次过三关——
+    # ①VL 视角组合（正面/侧面/背面/特写，≤2 格错先局部修复再复检）
+    # ②背景漂白 + 像素级纯白硬校验 ③VL 图文符合度（人物外观 vs
+    # 角色设定）。任一关不过即弃图换 seed 无感重 roll（用户全程
+    # 无感知，只见最终合格图）；全部轮次未收敛抛错，由
+    # _run_turnaround_pipeline 回退逐视图路径——绝不落盘不合格图。
+    result = None
+    image = None
+    layout_verified: bool | None = None
+    bg_verified: bool | None = None
+    match_verified: bool | None = None
+    clean_prompt = _sanitize_character_prompt_zh(prompt)
+    expected = ["正面", "侧面", "背面", "特写"]
+    passed = False
+    for attempt in range(1, _ONEPASS_MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            params["seed"] = seed = random.randint(0, 2 ** 31 - 1)
+            # VL 校验让位时卸载过 FLUX.2：重生前重载
+            engine.ensure_loaded("flux2-klein-4b")
+        if ref_used:
+            # 参考条件生成（FLUX.2 reference conditioning，画幅显式指定）
+            result = engine.img2img(params, ref_image)
+        else:
+            result = engine.generate(params)
+        image = result["images"][0].convert("RGB")
+        if image.size != (_ONEPASS_W, _ONEPASS_H):
+            image = image.resize((_ONEPASS_W, _ONEPASS_H), Image.LANCZOS)
+
+        # 关1：VL 视角校验（实测整图直出每次恰好错 1 格的概率结构
+        # ——修复单格远优于重 roll；≥3 格错说明整轮质量差直接弃）
+        ok, labels = _verify_view_layout(image)
+        layout_verified = ok
+        labels2: list = []
+        if ok is False:
+            wrong = [i for i in range(4)
+                     if labels and labels[i] != expected[i]]
+            if labels and 0 < len(wrong) <= 2:
+                log.warning("视角错位格 %s（第 %d 轮），局部 inpaint 修复",
+                            wrong, attempt)
+                for i in wrong:
+                    image = _repair_view_cell(
+                        engine, image, i, clean_prompt,
+                        random.randint(0, 2 ** 31 - 1))
+                layout_verified, labels2 = _verify_view_layout(image)
+            if layout_verified is False:
+                log.warning("第 %d 轮关1（视角）未过（%s），弃图换 seed",
+                            attempt,
+                            "/".join(labels2) if labels2 else "?")
+                continue
+
+        # 关2：背景漂白 + 像素级纯白硬校验（确定性判定，不过必弃）
+        image = _whiten_background(image)
+        bg_verified = _verify_background_white(image)
+        if not bg_verified:
+            log.warning("第 %d 轮关2（纯白背景）未过，弃图换 seed",
+                        attempt)
+            continue
+
+        # 关3：VL 图文符合度（None=VL 不可用跳过，不阻塞交付）
+        match_verified = _verify_prompt_match(image, clean_prompt)
+        if match_verified is False:
+            log.warning("第 %d 轮关3（图文相符）未过，弃图换 seed",
+                        attempt)
+            continue
+
+        passed = True
+        break
+
+    if not passed:
+        raise ApiError(
+            "ASSET_QUALITY_CHECK_FAILED",
+            f"四视图 {attempt} 轮生成均未通过质量校验"
+            f"（视角={layout_verified}/纯白={bg_verified}/"
+            f"相符={match_verified}），已弃全部轮次，不交付不合格图")
+
+    views_dir = out_dir / "portrait_views"
+    views_dir.mkdir(parents=True, exist_ok=True)
+    views: dict[str, str] = {}
+    view_imgs = []
+    for view, cell in _slice_onepass_views(image).items():
+        if transparent:
+            cell = _remove_background(cell)
+        p = views_dir / f"{view}.png"
+        cell.save(p, "PNG")
+        views[view] = str(p.relative_to(DATA_DIR)).replace("\\", "/")
+        view_imgs.append(cell)
+
+    # 干净整图留档（单视图局部重生的底图）+ 标注交付图（竞品单图交付形态）
+    master_path = out_dir / "master.png"
+    image.save(master_path, "PNG")
+    canvas_path = out_dir / "canvas.png"
+    _draw_onepass_labels(image, name).save(canvas_path, "PNG")
+
+    return {
+        "pipeline": "onepass",
+        "views": views,
+        "canvas": str(canvas_path.relative_to(DATA_DIR)).replace("\\", "/"),
+        "master": str(master_path.relative_to(DATA_DIR)).replace("\\", "/"),
+        "consistency": _views_consistency(view_imgs),
+        "seed": result.get("seed", seed),
+        "model": result.get("model", ""),
+        "prompt_zh": prompt_zh,
+        "ref_used": ref_used,
+        "view_errors": {},
+        "layout_verified": layout_verified,
+        "bg_verified": bg_verified,
+        "match_verified": match_verified,
+        "verify_attempts": attempt,
+    }
+
+
+def _run_turnaround_pipeline(engine, out_dir: Path, *, name: str,
+                             prompt: str, seed: int,
+                             transparent: bool = False) -> dict:
+    """四视图生成统一编排：one-pass 主路径（FLUX.2 Klein 中文直入，
+    竞品同款 1 次推理单图四视图）→ 不可用/推理失败时回退 legacy
+    SDXL 逐视图四张独立图（中译英 + 2x 上采样，诚实降级）。
+
+    返回统一 gen dict：{pipeline, views, canvas, consistency, seed,
+    model, ref_used, view_errors, prompt_zh | prompt_en}。
+    """
+    gen = None
+    if engine.ensure_loaded("flux2-klein-4b"):
+        try:
+            gen = _generate_turnaround_onepass(
+                engine, out_dir, name=name, prompt=prompt, seed=seed,
+                transparent=transparent)
+            log.info("one-pass 四视图完成: %s seed=%d model=%s",
+                     name, gen["seed"], gen["model"])
+        except Exception as exc:  # noqa: BLE001 - FLUX.2 失败回退逐视图
+            log.exception("one-pass 四视图生成失败，回退逐视图路径: %s", exc)
+            engine.unload_model()  # 释放 FLUX.2 显存给回退路径
+    else:
+        log.warning("FLUX.2 Klein 不可用（%s），四视图走逐视图回退路径",
+                    engine.get_status().get("last_error", ""))
+    if gen is not None:
+        return gen
+
+    # legacy 回退：SDXL 逐视图（中文净化→译英→四张独立 16:9）
+    prompt_en = _prepare_turnaround_prompt_en(prompt)
+    if not engine.is_ready and not engine.ensure_loaded(None):
+        status = engine.get_status()
+        raise ApiError("PAINT_ENGINE_NOT_READY",
+                       status.get("last_error") or "绘画模型未就绪")
+    gen = _generate_four_views(engine, prompt_en, seed, out_dir,
+                               transparent=transparent)
+    gen["pipeline"] = "views4"
+    gen["prompt_en"] = prompt_en
+    return gen
+
+
+def _apply_turnaround_meta(meta: dict, gen: dict) -> None:
+    """把 gen dict 刷新进资产 meta（one-pass / views4 双形态归一）。"""
+    meta["turnaround"] = True
+    meta["pipeline"] = gen["pipeline"]
+    meta["onepass"] = gen["pipeline"] == "onepass"
+    meta["views"] = gen["views"]
+    meta["canvas"] = gen["canvas"]
+    meta["consistency"] = gen["consistency"]
+    meta["seed"] = gen["seed"]
+    meta["model"] = gen["model"]
+    if gen["pipeline"] == "onepass":
+        meta["width"], meta["height"] = _ONEPASS_W, _ONEPASS_H
+        meta["view_width"], meta["view_height"] = _ONEPASS_W // 4, _ONEPASS_H
+        meta["prompt_zh"] = gen["prompt_zh"]
+        meta["master"] = gen["master"]
+        meta["layout_verified"] = gen.get("layout_verified")
+        meta["bg_verified"] = gen.get("bg_verified")
+        meta["match_verified"] = gen.get("match_verified")
+        meta["verify_attempts"] = gen.get("verify_attempts")
+        meta.pop("prompt_en", None)
+        meta.pop("degraded", None)
+        meta.pop("degrade_reason", None)
+    else:
+        meta["width"], meta["height"] = _TURNAROUND_W, _TURNAROUND_H
+        meta.pop("view_width", None)
+        meta.pop("view_height", None)
+        meta.pop("master", None)
+        meta.pop("prompt_zh", None)
+        meta["prompt_en"] = gen["prompt_en"]
+        meta["degraded"] = True
+        meta["degrade_reason"] = (
+            "FLUX.2 Klein 不可用：SDXL 兜底逐视图生成四张 2560×1440 "
+            "独立视图（1280×720 生成 + 2x 上采样），视图一致性为尽力而为")
+    if gen.get("view_errors"):
+        meta["view_errors"] = gen["view_errors"]
+    else:
+        meta.pop("view_errors", None)
+    if gen.get("ref_used"):
+        meta["ref_used"] = True
+    else:
+        meta.pop("ref_used", None)
+    if gen.get("ref_fallback"):
+        meta["ref_fallback"] = True
+    else:
+        meta.pop("ref_fallback", None)
+
 # 资产生成历史留痕上限（meta.history，超出截掉最旧）
 _ASSET_HISTORY_MAX = 12
 
@@ -75,15 +747,38 @@ def _sanitize_character_prompt_zh(text: str) -> str:
     上半身特写。」等整版式指令；逐视图独立生成前必须在中文阶段剥掉，
     否则每张图都会画成 4 宫格。白底/禁止类由 _STYLE_WHITE_BG /
     _STYLE_NEGATIVE 统一兜底。
+
+    2026-08-20 角色推理 v2：prompt 为五段式 AI 描述词（【角色】/
+    绘图提示词/美术风格/时代背景/角色设定）——剥版式与标注句之外，
+    额外剥「【角色】：xxx」「绘图提示词：」「时代背景：xxx。」段
+    标签行与固定段（美术风格/时代背景由生图模板统一注入网漫风，
+    角色设定正文与时代背景语义词保留），防段标签与模板重复冲突。
     """
     import re
     cleaned = text or ""
-    for pat in (r"[^。]*[四4]视图[^。]*(?:。|$)",   # 生成角色4视图：…。
-                r"图片[左右]上角[^。]*(?:。|$)",     # 图片左上角/右上角…。
-                r"[^。]*标注[^。]*(?:。|$)",         # 含「标注」的整句
-                r"禁止[^。]*(?:。|$)",               # 禁止纹理/投影等禁令
-                r"纯白色背景[^。]*(?:。|$)"):        # 白底（风格词兜底）
-        cleaned = re.sub(pat, "", cleaned)
+    # 句内正则一律 [^。\n]*（不跨行）——2026-08-20 实测教训：[^。]*
+    # 含换行，行尾残句会跨行吞掉后续整段（美术风格/时代背景/角色
+    # 设定首句被「纯白色背景，」残句连吃）
+    for pat in (r"【[^】]*】[：:][^\n。]*。?",           # 【角色】：夏沐沐
+                r"[^。\n]*[四4]视图[^。\n]*(?:。|$)",   # 生成角色4视图：…。
+                r"图片[左右]上角[^。\n]*(?:。|$)",     # 图片左上角/右上角…。
+                r"[^。\n]*标注[^。\n]*(?:。|$)",       # 含「标注」的整句
+                r"禁止[^。\n]*(?:。|$)",               # 禁止纹理/投影等禁令
+                r"纯白色背景[^。\n]*(?:。|$)",         # 白底（风格词兜底）
+                r"全局光照[^。\n]*(?:。|$)",           # 全局光照（模板兜底）
+                r"^\s*绘图提示词[：:]\s*$",          # 段标签行（内容已剥空）
+                r"^\s*美术风格[：:]\s*[^。\n]*(?:。|$)",  # 美术风格段（模板注入）
+                r"^\s*时代背景[：:]\s*",             # 时代背景段标签（正文保留）
+                ):  # noqa: E128
+        cleaned = re.sub(pat, "", cleaned, flags=re.MULTILINE)
+    # 剥模板自有段（防与六段式模板重复）：角色设定前缀 + 姿态短语
+    # （模板尾部统一收口「常态平静表情，眼睛平视镜头，空手」）
+    cleaned = re.sub(r"^\s*角色设定[：:]\s*", "", cleaned,
+                     flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*角色[：:]\s*", "", cleaned, flags=re.MULTILINE)
+    for phrase in ("常态平静表情", "眼睛平视镜头"):
+        cleaned = cleaned.replace(phrase, "")
+    cleaned = re.sub(r"(?:^|[。,，;；])空手(?=[。,，;；]|$)", "", cleaned)
     # 清理多余标点与空白（剥句后残留的孤标点/连续句号/首尾标点）
     cleaned = re.sub(r"[，,；;、\s]+。", "。", cleaned)
     cleaned = re.sub(r"。{2,}", "。", cleaned)
@@ -159,6 +854,8 @@ def _generate_single_view(engine, prompt_en: str, view: str, seed: int,
     else:
         result = engine.generate(params)
     image = _upscale_to(result["images"][0], _TURNAROUND_W, _TURNAROUND_H)
+    # 交付格式保底：漂白至纯白底（transparent 抠图前先漂白，白底更净）
+    image = _whiten_background(image)
     if transparent:
         # 四视图一键去背（COMIC-036，PIL 阈值降级；SAM 未接 /art/segment）
         image = _remove_background(image)
@@ -187,24 +884,32 @@ def _load_view_images(out_dir: Path) -> dict:
 
 def _rebuild_turnaround_canvas(out_dir: Path,
                                view_imgs: dict | None = None) -> str:
-    """由四视图重建 canvas.png 2×2 拼图（每格 1280×720，总 2560×1440）。
+    """由四视图重建 canvas.png 1×4 横排拼图（对齐 参考图.png 版式：
+    1 行 4 列等宽竖格，每格 640×1440，总 2560×1440）。
 
-    格序 front/side/back/closeup（左上/右上/左下/右下）；缺失/失败格
-    白底占位。view_imgs 缺省时从 portrait_views/ 读盘。
+    格序 front/side/back/closeup（左→右）；16:9 横构图视图等比 contain
+    居中贴入竖格（白底留边，人物完整）；缺失/失败格白底占位。
+    view_imgs 缺省时从 portrait_views/ 读盘。
     返回 canvas 的 DATA_DIR 相对路径。
     """
     from PIL import Image
     if view_imgs is None:
         view_imgs = _load_view_images(out_dir)
-    cell_w, cell_h = _TURNAROUND_W // 2, _TURNAROUND_H // 2  # 1280×720
+    cell_w, cell_h = _TURNAROUND_W // 4, _TURNAROUND_H  # 640×1440
     canvas = Image.new("RGB", (_TURNAROUND_W, _TURNAROUND_H),
                        (255, 255, 255))
     for idx, view in enumerate(_TURNAROUND_VIEWS):
         im = view_imgs.get(view)
         if im is None:
             continue
-        cell = im.convert("RGB").resize((cell_w, cell_h), Image.LANCZOS)
-        canvas.paste(cell, ((idx % 2) * cell_w, (idx // 2) * cell_h))
+        im = im.convert("RGB")
+        # 等比缩放 contain 进 640×1440 竖格，白底垂直居中
+        ratio = min(cell_w / im.width, cell_h / im.height)
+        fit = (max(1, round(im.width * ratio)),
+               max(1, round(im.height * ratio)))
+        cell = im.resize(fit, Image.LANCZOS)
+        canvas.paste(cell, (idx * cell_w + (cell_w - fit[0]) // 2,
+                            (cell_h - fit[1]) // 2))
     canvas_path = out_dir / "canvas.png"
     canvas.save(canvas_path, "PNG")
     return str(canvas_path.relative_to(DATA_DIR)).replace("\\", "/")
@@ -217,7 +922,8 @@ def _generate_four_views(engine, prompt_en: str, seed: int,
     四张同 seed 保一致性（seed<0 时先解析为固定随机种子）；资产目录
     reference.png 存在时走 img2img（strength=0.55），失败回退 txt2img。
     单视图失败不阻塞其他视图（per-view 错误记入 errors）；全部失败才
-    抛 ApiError。canvas.png 为 2×2 拼图。out_dir 须已存在。
+    抛 ApiError。canvas.png 为 1×4 横排拼图（2560×1440，对齐参考图
+    版式）。out_dir 须已存在。
     """
     if seed < 0:
         # 解析为固定种子：四视图共用同一种子保证角色一致性
@@ -320,55 +1026,32 @@ def _views_consistency(view_imgs: list) -> dict:
 
 
 def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
-    """同步执行四视图生成（竞品对齐：四张独立 16:9 图逐视图生成 →
-    2x 上采样 2560×1440 → 落盘 → 入库）。
+    """同步执行四视图生成（2026-08-20 竞品对齐重构：one-pass 单图四视图
+    为主路径——中文长文直入 FLUX.2 Klein，1 次推理整图出四视图 + PIL
+    中文标注；FLUX.2 不可用时回退 SDXL 逐视图四张独立图，诚实降级）。
 
-    目录结构（COMIC-037）：characters/{name}/portrait.png（=front）
-    + portrait_views/{front,side,back,closeup}.png + canvas.png（2×2
-    拼图）。由线程池调用（端点为 async，避免阻塞事件循环）。
+    目录结构（COMIC-037）：characters/{name}/portrait.png（=front 切片）
+    + portrait_views/{front,side,back,closeup}.png + canvas.png（one-pass
+    为带中文标注的 2560×1440（16:9）横排整图 + master.png 干净底图；
+    legacy 为同规格 1×4 横排拼图）。由线程池调用（端点为 async，避免
+    阻塞事件循环）。
     """
-    # 中文描述词先净化（剥离四视图版式指令，防止逐视图生成时每张都
-    # 画成 4 宫格）再译英（SDXL CLIP 不理解中文）；翻译先于 paint 加载。
-    prompt_en = _prepare_turnaround_prompt_en(req.prompt)
     engine = get_paint_engine()
-    if not engine.is_ready and not engine.ensure_loaded(None):
-        status = engine.get_status()
-        raise ApiError("PAINT_ENGINE_NOT_READY",
-                       status.get("last_error") or "绘画模型未就绪")
     asset_id = uuid.uuid4().hex
     out_dir = _COMIC_ASSET_DIR / req.project_id / "characters" / req.name
     out_dir.mkdir(parents=True, exist_ok=True)
-    gen = _generate_four_views(engine, prompt_en, req.seed, out_dir,
-                               transparent=req.transparent)
+    gen = _run_turnaround_pipeline(engine, out_dir, name=req.name,
+                                   prompt=req.prompt, seed=req.seed,
+                                   transparent=req.transparent)
     views = gen["views"]
     # portrait.png 约定为正面视图（COMIC-037 资产目录结构）
     _sync_portrait_from_views(out_dir)
     rel_path = str((out_dir / "portrait.png")
                    .relative_to(DATA_DIR)).replace("\\", "/")
 
-    meta = {"turnaround": True, "width": _TURNAROUND_W,
-            "height": _TURNAROUND_H, "views": views,
-            "canvas": gen["canvas"],
-            "consistency": gen["consistency"],
-            "seed": gen["seed"], "model": gen["model"],
-            "prompt_en": prompt_en,
-            "transparent": bool(req.transparent), "resized": True,
-            "degraded": True,
-            "degrade_reason": "FLUX.1-dev 未随包：SDXL 兜底逐视图生成四张 "
-                              "2560×1440 独立视图（1280×720 生成 + 2x "
-                              "上采样），视图一致性为尽力而为"}
-    if gen["errors"]:
-        # 单视图失败不阻塞其他视图，per-view 错误留痕
-        meta["view_errors"] = gen["errors"]
-    # ref 标记反映最近一次生成实况（无参考图/未走 img2img 时清除）
-    if gen["ref_used"]:
-        meta["ref_used"] = True
-    else:
-        meta.pop("ref_used", None)
-    if gen["ref_fallback"]:
-        meta["ref_fallback"] = True
-    else:
-        meta.pop("ref_fallback", None)
+    meta: dict = {"pipeline": gen["pipeline"],
+                  "transparent": bool(req.transparent)}
+    _apply_turnaround_meta(meta, gen)
     _append_asset_history(meta, "generate", None, rel_path)
     db = get_db_safe()
     if db is not None:
@@ -395,39 +1078,32 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
             "kind": "character", "name": req.name, "file_path": rel_path,
             "prompt": req.prompt, "views": views,
             "consistency": gen["consistency"],
-            "view_errors": gen["errors"] or None,
-            "degraded": True, "degrade_reason": meta["degrade_reason"],
+            "view_errors": gen["view_errors"] or None,
+            "pipeline": gen["pipeline"],
+            "onepass": gen["pipeline"] == "onepass",
+            "degraded": gen["pipeline"] != "onepass",
+            "degrade_reason": meta.get("degrade_reason"),
             "meta": meta}
 
 
 def _regenerate_asset_sync(asset: dict) -> dict:
-    """同步重生成资产图（与 _generate_asset_sync 同一 SDXL 生成路径）。
+    """同步重生成资产图。
 
-    以资产现有 kind/prompt 重新文生图，覆盖 file_path 指向的图片文件
+    以资产现有 kind/prompt 重新生成，覆盖 file_path 指向的图片文件
     （file_path 为空时按资产目录约定新建），并刷新 meta 留痕。
-    四视图资产走 _generate_four_views 逐视图独立重生成（与首次生成
-    同构）。引擎未就绪抛 PAINT_ENGINE_NOT_READY（由端点收敛为
-    degraded 响应）。
+    四视图资产：one-pass 整图重 roll（FLUX.2 Klein 中文直入，竞品
+    「全图一体成败」语义）为主路径，FLUX.2 不可用回退 SDXL 逐视图。
+    引擎未就绪抛 PAINT_ENGINE_NOT_READY（由端点收敛为 degraded 响应）。
     """
     kind = asset.get("kind", "character")
     conf = _ASSET_KIND_CONF.get(kind, _ASSET_KIND_CONF["character"])
     meta = parse_json(asset.get("meta"), {})
     if not isinstance(meta, dict):
         meta = {}
-    # 多视图资产必须逐视图独立重生成——否则单肖像模板会把四视图资产
+    # 多视图资产必须走四视图管线——否则单肖像模板会把四视图资产
     # 覆盖成单图，构图与描述词不符。
     is_turnaround = bool(meta.get("turnaround"))
-    # 中文描述词先译英（SDXL CLIP 不理解中文）；翻译先于 paint 加载，
-    # 避免对话/绘画双模型显存换载抖动。四视图路径先净化剥离版式指令。
-    if is_turnaround:
-        prompt_en = _prepare_turnaround_prompt_en(asset["prompt"])
-    else:
-        prompt_en = translate_prompt_zh2en(asset["prompt"])
     engine = get_paint_engine()
-    if not engine.is_ready and not engine.ensure_loaded(None):
-        status = engine.get_status()
-        raise ApiError("PAINT_ENGINE_NOT_READY",
-                       status.get("last_error") or "绘画模型未就绪")
     rel_path = (asset.get("file_path") or "").strip()
     if rel_path:
         out_path = DATA_DIR / rel_path
@@ -440,29 +1116,24 @@ def _regenerate_asset_sync(asset: dict) -> dict:
                               else "image.png")
         rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     if is_turnaround:
-        # 与首次四视图生成同构：逐视图独立生成 → portrait=front → 2×2 canvas
-        gen = _generate_four_views(engine, prompt_en, -1, out_path.parent,
-                                   transparent=bool(meta.get("transparent")))
+        # 与首次生成同构：one-pass 整图重 roll（新 seed）→ legacy 回退
+        gen = _run_turnaround_pipeline(
+            engine, out_path.parent, name=asset.get("name") or "asset",
+            prompt=asset["prompt"], seed=-1,
+            transparent=bool(meta.get("transparent")))
         _sync_portrait_from_views(out_path.parent)
-        meta["views"] = gen["views"]
-        meta["canvas"] = gen["canvas"]
-        meta["consistency"] = gen["consistency"]
-        if gen["errors"]:
-            meta["view_errors"] = gen["errors"]
-        else:
-            meta.pop("view_errors", None)
-        # ref 标记反映最近一次生成实况（无参考图/未走 img2img 时清除）
-        if gen["ref_used"]:
-            meta["ref_used"] = True
-        else:
-            meta.pop("ref_used", None)
-        if gen["ref_fallback"]:
-            meta["ref_fallback"] = True
-        else:
-            meta.pop("ref_fallback", None)
-        width, height = _TURNAROUND_W, _TURNAROUND_H
+        _apply_turnaround_meta(meta, gen)
+        width, height = meta["width"], meta["height"]
         seed_out, model_out = gen["seed"], gen["model"]
+        prompt_out: str | None = None
     else:
+        # 中文描述词先译英（SDXL CLIP 不理解中文）；翻译先于 paint 加载，
+        # 避免对话/绘画双模型显存换载抖动。
+        prompt_en = translate_prompt_zh2en(asset["prompt"])
+        if not engine.is_ready and not engine.ensure_loaded(None):
+            status = engine.get_status()
+            raise ApiError("PAINT_ENGINE_NOT_READY",
+                           status.get("last_error") or "绘画模型未就绪")
         # 参考图风格对齐：角色/道具纯白底，场景写实影调不加白底
         style = _STYLE_PHOTO + (_STYLE_WHITE_BG
                                 if kind in ("character", "prop") else "")
@@ -482,11 +1153,13 @@ def _regenerate_asset_sync(asset: dict) -> dict:
         image.save(out_path, "PNG")
         seed_out = result.get("seed", -1)
         model_out = result.get("model", "")
+        prompt_out = prompt_en
     meta.update({"width": width, "height": height,
                  "seed": seed_out,
                  "model": model_out,
-                 "prompt_en": prompt_en,
                  "regenerated_at": _now()})
+    if prompt_out is not None:
+        meta["prompt_en"] = prompt_out
     _append_asset_history(meta, "regenerate", None, rel_path)
     db = get_db_safe()
     if db is not None:
@@ -499,15 +1172,18 @@ def _regenerate_asset_sync(asset: dict) -> dict:
 def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
     """同步重生成四视图资产的单个视图（线程池调用）。
 
-    净化 → 译英 → 该视图后缀，1280×720 生成 → LANCZOS 2x 上采样
-    2560×1440 覆盖 portrait_views/{view}.png；view==front 时同步
-    覆盖 portrait.png；重建 canvas.png 2×2 拼图并刷新 meta。
-    资产目录 reference.png 存在时走 img2img（strength=0.55），
-    img2img 失败回退 txt2img（记 ref_fallback，不抛错）。
+    one-pass 资产（meta.onepass）：master.png 该视图整格参考条件重绘
+    （超越竞品——竞品不支持单视图重生，只能整图重 roll），其余三格
+    原样保留 → 重新裁切/标注/交付图重建。
+    legacy 资产：净化 → 译英 → 该视图后缀，1280×720 生成 → LANCZOS
+    2x 上采样 2560×1440 覆盖 portrait_views/{view}.png；view==front
+    时同步覆盖 portrait.png；重建 canvas.png 2×2 拼图并刷新 meta。
     """
     meta = parse_json(asset.get("meta"), {})
     if not isinstance(meta, dict):
         meta = {}
+    if meta.get("onepass"):
+        return _regenerate_view_onepass(asset, view, prompt_zh, meta)
     # 中文描述词先净化（剥离版式指令）再译英；翻译先于 paint 加载。
     prompt_en = _prepare_turnaround_prompt_en(prompt_zh)
     engine = get_paint_engine()
@@ -565,3 +1241,105 @@ def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
                   (asset["asset_id"],))
     asset = {**asset, "meta": meta}
     return {"asset": asset, "view": view, "file_path": r["path"]}
+
+
+def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
+                             meta: dict) -> dict:
+    """one-pass 资产单视图局部重生（线程池调用，超越竞品能力）。
+
+    竞品「不支持单视图重生，整图重 roll」；本路径对干净整图
+    master.png 的该视图整格做 FLUX.2 参考条件重绘（遮罩区域 inpaint，
+    其余三格逐像素保留）→ 重新裁切该视图格 → 重建中文标注交付图。
+    底图缺失（历史资产）时报错引导整图重生成，不静默换形态。
+    """
+    import random
+    from PIL import Image, ImageDraw
+
+    engine = get_paint_engine()
+    # 显式点名 FLUX.2（is_ready 可能是 SDXL 在载——ensure_loaded 负责
+    # 底座切换；已是 flux2 则短路零开销）
+    if not engine.ensure_loaded("flux2-klein-4b"):
+        status = engine.get_status()
+        raise ApiError("PAINT_ENGINE_NOT_READY",
+                       status.get("last_error") or "绘画模型未就绪")
+    rel_path = (asset.get("file_path") or "").strip()
+    if not rel_path:
+        raise ApiError(40008, "资产缺少主图文件，无法定位视图目录",
+                       detail={"asset_id": asset.get("asset_id")})
+    out_dir = (DATA_DIR / rel_path).parent
+    master_path = out_dir / "master.png"
+    if not master_path.is_file():
+        raise ApiError(40008, "one-pass 底图缺失，请先整图重生成",
+                       detail={"asset_id": asset.get("asset_id")})
+    with Image.open(master_path) as im:
+        master = im.convert("RGB")
+
+    W, H = master.size  # 竞品形态 2560×1440；容忍历史尺寸按实宽等分
+    cell_w = W // 4
+    idx = _TURNAROUND_VIEWS.index(view)
+    # 遮罩 = 该视图整格（引擎 inpaint 内部 bbox 裁剪 + 软边回贴，
+    # margin 压到 8px 让重绘尽量不越格污染邻格）
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rectangle(
+        [idx * cell_w, 0, (idx + 1) * cell_w - 1, H - 1], fill=255)
+
+    try:
+        seed = int(meta.get("seed", -1))
+    except (TypeError, ValueError):
+        seed = -1
+    if seed < 0:
+        seed = random.randint(0, 2 ** 31 - 1)
+    label = _ONEPASS_VIEW_LABELS[view]
+    prompt = (
+        f"生成角色视图：{label}，单人，竖构图全身像，人物完整呈现。"
+        "背景必须为纯白色（#FFFFFF），从边缘到中心完全均匀，"
+        "禁止灰色调，禁止米色，禁止渐变，禁止阴影，禁止投影，禁止纹理，"
+        "禁止环境景物，画面中禁止出现任何文字。"
+        "美术风格：照片级写实人像摄影，真实自然的肤色与皮肤质感，"
+        "柔和均匀的影棚白光布光，画面锐利通透，高细节。"
+        "禁止动漫风格，禁止卡通风格，禁止插画，禁止绘画笔触，"
+        "禁止素描，禁止3D渲染感。"
+        f"角色设定：{_sanitize_character_prompt_zh(prompt_zh)}。"
+        "常态平静表情，眼睛平视镜头，空手。"
+    )
+    params = {"prompt": prompt, "steps": _ONEPASS_STEPS,
+              "cfg": _ONEPASS_GUIDANCE, "seed": seed, "mask_margin": 8}
+    res = engine.inpaint(params, master, mask)
+    new_master = res["images"][0].convert("RGB")
+    if new_master.size != (W, H):
+        new_master = new_master.resize((W, H), Image.LANCZOS)
+    new_master = _whiten_background(new_master)
+    new_master.save(master_path, "PNG")
+
+    # 重切该视图格落盘 + 重建标注交付图
+    views_dir = out_dir / "portrait_views"
+    views_dir.mkdir(parents=True, exist_ok=True)
+    cell = _slice_onepass_views(new_master)[view]
+    if meta.get("transparent"):
+        cell = _remove_background(cell)
+    p = views_dir / f"{view}.png"
+    cell.save(p, "PNG")
+    view_rel = str(p.relative_to(DATA_DIR)).replace("\\", "/")
+    if view == "front":
+        # portrait.png 约定为正面视图（COMIC-037），随 front 同步覆盖
+        _sync_portrait_from_views(out_dir)
+    _draw_onepass_labels(new_master,
+                         asset.get("name") or "asset").save(
+        out_dir / "canvas.png", "PNG")
+
+    view_imgs = _load_view_images(out_dir)
+    views = meta.get("views")
+    if not isinstance(views, dict):
+        views = {}
+    views[view] = view_rel
+    meta["views"] = views
+    meta["consistency"] = _views_consistency(list(view_imgs.values()))
+    meta["seed"] = res.get("seed", seed)
+    meta["regenerated_at"] = _now()
+    _append_asset_history(meta, "view", view, view_rel)
+    db = get_db_safe()
+    if db is not None:
+        db.update("comic_assets", {"meta": meta}, "id=?",
+                  (asset["asset_id"],))
+    asset = {**asset, "meta": meta}
+    return {"asset": asset, "view": view, "file_path": view_rel}

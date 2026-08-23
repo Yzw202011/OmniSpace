@@ -27,6 +27,28 @@ import type {
 
 /* ------------------------------ 会话 CRUD ------------------------------ */
 
+/** 预热对话模型（进入对话页后台加载，fire-and-forget，失败静默）。
+ *  modelId 透传用户持久化选择（2026-08-23 幽灵热切换修复：与
+ *  /models/warmup 共享 inflight 去重，目标不一致会把先载好的模型
+ *  热切换到引擎默认（显存紧时 GGUF 0.5B）再换回，双倍加载耗时） */
+export function prewarmModel(modelId?: string): void {
+  void post<{ state: string; prewarmed: boolean }>(
+    '/dialog/prewarm', modelId ? { model_id: modelId } : {},
+  ).catch(() => { /* 预热失败不打扰用户 */ });
+}
+
+/** 对话引擎状态快照（冷启动弹窗轮询就绪信号） */
+export interface DialogEngineStatus {
+  state: string;        // unavailable/unloaded/ready/error
+  model: string | null;
+  backend: string;      // vl/text/gguf/vllm
+}
+
+/** 查询对话引擎状态（预热进度弹窗 2s 轮询） */
+export function getDialogEngineStatus() {
+  return get<DialogEngineStatus>('/dialog/status');
+}
+
 /** 会话列表查询参数 */
 export interface SessionListQuery extends QueryParams {
   /** 标题/消息内容搜索关键词 */
@@ -86,6 +108,29 @@ export function updateSession(sessionId: string, body: UpdateSessionBody) {
 /** 删除会话及消息 */
 export function deleteSession(sessionId: string) {
   return del<void>(`/chat/sessions/${sessionId}`);
+}
+
+/** 对话可用模型项（GET /dialog/models） */
+export interface DialogModelInfo {
+  model_id: string;
+  name: string;
+  size_label: string;
+  est_vram_gb: number;
+  fits_local: boolean;
+  loaded: boolean;
+}
+
+/** 拉取对话可用模型清单（含可承载判定与已加载标记） */
+export function getDialogModels() {
+  return get<{ models: DialogModelInfo[]; total_vram_gb: number }>(
+    '/dialog/models');
+}
+
+/** 批量删除会话（POST /chat/sessions/batch-delete，单批 ≤100）
+ *  返回 {deleted, deleted_ids, missing_ids}，幂等：不存在的不报错 */
+export function batchDeleteSessions(sessionIds: string[]) {
+  return post<{ deleted: number; deleted_ids: string[]; missing_ids: string[] }>(
+    '/chat/sessions/batch-delete', { session_ids: sessionIds });
 }
 
 /** 清空历史保留会话 */
@@ -184,6 +229,7 @@ export default {
   createSession,
   updateSession,
   deleteSession,
+  batchDeleteSessions,
   clearMessages,
   rateMessage,
   toggleFavorite,

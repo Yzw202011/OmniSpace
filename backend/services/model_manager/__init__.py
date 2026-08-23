@@ -70,7 +70,29 @@ _FEATURE_ALIASES = {"manga": "video_gen", "video": "video_gen", "draw": "paint"}
 _EVICTION_PRIORITY = {
     "auxiliary": 0, "embedding": 0, "voice": 1,
     "training": 2, "video": 3, "vision": 4, "dialog": 5,
+    # omni（视觉语音全模态）与 dialog 同服务对话功能，优先级对齐
+    "omni": 5,
 }
+
+# 功能 -> 模块切换资源释放时保留的模型类别（用户裁定 2026-08-21：
+# 切入某模块时其他模块 3 秒内释放显存/内存，优先供应目标模块）
+_FEATURE_KEEP_CATEGORIES: dict[str, set[str]] = {
+    "dialog":    {"dialog", "language", "omni"},
+    "paint":     {"paint", "vision", "image"},
+    "video_gen": {"video", "video_gen"},
+    "training":  {"training", "ltx2_training"},
+}
+
+# 跨模块共享的小体量类别（embedding 检索 / 语音 / 辅助）始终保留，
+# 不参与模块切换释放（显存占用小且各模块常驻复用）
+_SHARED_KEEP_CATEGORIES: set[str] = {"embedding", "voice", "auxiliary"}
+
+# P3 §3.2 常驻热备：重显存目标模块（需要抢占 vLLM 的 ~12GB 显存）集合。
+# 切到这些模块时 vLLM 按需终止腾显存（过度占用必然 OOM）；其余轻量
+# 切换（设置/日志/学习视图等不加载重模型）保留 vLLM 热备、复用已加载
+# worker，切回对话免二次 ~157s 冷启动。
+_VRAM_HEAVY_FEATURES: frozenset[str] = frozenset(
+    {"paint", "video_gen", "training", "ltx2_training"})
 
 # 已知模型的磁盘相对路径提示（MODELS_DIR 下），磁盘扫描的权威补充
 _MODEL_PATH_HINTS: dict[str, str] = {
@@ -78,8 +100,39 @@ _MODEL_PATH_HINTS: dict[str, str] = {
     "qwen2-vl-2b":   "qwen2-vl-2b",
     # modelscope 嵌套快照布局（两层通用扫描无法命中）
     "qwen3-vl-8b":   "qwen3-vl-8b/models/Qwen--Qwen3-VL-8B-Instruct/snapshots/master",
+    # AWQ int4 量化版（vLLM 子进程后端，2026-08-21 集成）
+    "qwen3-vl-8b-awq": "qwen3-vl-8b-awq",
+    # 视觉语音全模态（omni，2026-08-21 新增）
+    "qwen2.5-omni-7b": "qwen2.5-omni-7b/models/Qwen--Qwen2.5-Omni-7B/snapshots/master",
     "sdxl-base-1.0": "paint/sdxl-base-1.0",
+    # 四视图 one-pass 中文直入底座（paint/ 下 diffusers 布局）
+    "flux2-klein-4b": "paint/flux2-klein-4b",
     "bge-large-zh":  "embed/bge-large-zh",
+}
+
+# 孙层组件目录黑名单：父模型仓库的组成部分，不是独立模型
+# （diffusers 布局组件 / GPT-SoVITS 说话人验证 / 通用资产目录名）
+_COMPONENT_DIR_NAMES: set[str] = {
+    "unet", "vae", "text_encoder", "text_encoder_2", "text_encoder_3",
+    "safety_checker", "feature_extractor", "scheduler", "tokenizer",
+    "tokenizer_2", "tokenizer_3", "speech_tokenizer", "sv",
+    "checkpoints", "snapshots", "blobs", "hub", "models", "torch_hub_cache",
+}
+
+# LoRA/说话人版本目录（lora/v1、lora/v2、gpt-sovits/sv 之外的 vN 命名）
+import re as _re
+_LORA_VERSION_RE = _re.compile(r"^v\d{1,2}$")
+
+# 显存估算人工覆盖（引擎候选表/路由表之后、磁盘大小回退之前）：
+# 磁盘含 fp32 全量权重导致 size×1.2 严重高估的模型按真实加载档位修正
+_VRAM_OVERRIDES: dict[str, float] = {
+    "sd15": 4.0,             # SD1.5 fp16 实加载约 3.5~4GB（AnimateLCM 基座）
+    "ltx-video-0.9.5": 12.0, # fp16 权重约 12GB（磁盘 23.6GB 为 fp32 全量）
+    "qwen3-vl-8b": 16.3,     # bf16 真实权重（2026-08-20 崩溃修复：候选表 12GB
+                             # 严重低估，16GB 卡加载必然 OOM 杀进程）
+    # 视觉语音全模态（omni）：Thinker3B + Talker0.5B bf16 约 15GB；
+    # AWQ int4 约 6GB（磁盘约 6.5GB，×1.2 高估幅度小，不覆盖）
+    "qwen2.5-omni-7b": 15.0,
 }
 
 # 模型目录的“已下载”判定特征文件
@@ -87,6 +140,52 @@ _DIR_SIGNATURES = (
     "config.json", "model_index.json", "model.safetensors.index.json",
     "model.safetensors", "pytorch_model.bin", "modules.json",
 )
+
+
+def deflate_cuda_pool(min_reserved_gb: float = 4.0) -> float:
+    """压缩 CUDA 缓存池，归还大模型卸载后的显存锚定（2026-08-23 修复）。
+
+    根因：PyTorch caching allocator 的 empty_cache() 只释放无活跃块的
+    segment。大模型（视频 DiT/T5、对话 4b/8b）卸载后，长驻小模型
+    （bge ~1.3GB）的活跃块仍散布在大 segment 中，把整个缓存池钉死
+    （实测：loaded=0 但 reserved=18.2GB，物理显存 15.3GB 锚定，
+    vLLM 0.85 预算三连启动失败；进程退出才归还）。
+
+    压缩编排：bge 临时停靠 CPU → empty_cache()（此时无活跃块，
+    全 segment 释放，物理显存归还驱动）→ bge 回卡。
+
+    Args:
+        min_reserved_gb: reserved 低于该值视为池已干净，跳过（省
+            2-4s 停靠开销）。
+
+    Returns:
+        实际释放的 reserved GB（失败返回 0）。
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return 0.0
+        before = float(torch.cuda.memory_reserved(0)) / (1024 ** 3)
+        if before < min_reserved_gb:
+            return 0.0
+        # bge 停靠（未加载/哈希回退态返回 True，同样执行清池）
+        from ...data.vector_db import get_vector_db as _get_vdb
+        vdb = _get_vdb()
+        parked = vdb.park_embed_model()
+        try:
+            torch.cuda.empty_cache()
+        finally:
+            if parked:
+                vdb.restore_embed_model()
+        after = float(torch.cuda.memory_reserved(0)) / (1024 ** 3)
+        released = max(0.0, before - after)
+        if released >= 0.1:
+            log.info("显存缓存池压缩完成: reserved %.1fGB → %.1fGB"
+                     "（归还 %.1fGB）", before, after, released)
+        return released
+    except Exception as exc:  # noqa: BLE001 - 压缩失败不影响主流程
+        log.debug("显存池压缩跳过: %s", exc)
+        return 0.0
 
 
 class ModelManager:
@@ -264,6 +363,12 @@ class ModelManager:
 
         合并策略：显式路径提示（_MODEL_PATH_HINTS）+ 两层目录特征扫描。
         结果缓存 30 秒避免高频 IO。
+
+        剪枝（模型管理页分组视图的准确性前提）：
+        - 孙层组件目录黑名单：diffusers 组件（unet/vae/text_encoder/...）、
+          说话人/适配器版本（sv、v1~v9）不是独立模型，是父仓库的组成部分；
+        - 祖先包含剪枝：路径位于另一已登记模型目录内的条目视为组件剔除
+          （如 sd15/unet、qwen3-tts/speech_tokenizer）。
         """
         if not force and (time.time() - self._disk_scan_ts) < 30.0 \
                 and self._disk_scan_cache:
@@ -295,7 +400,13 @@ class ModelManager:
                             "downloaded": True,
                         })
                     for grand in sorted(child.iterdir()):
-                        if grand.is_dir() and self._looks_like_model_dir(grand):
+                        if not grand.is_dir():
+                            continue
+                        # 组件目录黑名单：父仓库组成部分，不是独立模型
+                        if (grand.name in _COMPONENT_DIR_NAMES
+                                or _LORA_VERSION_RE.match(grand.name)):
+                            continue
+                        if self._looks_like_model_dir(grand):
                             found.setdefault(grand.name, {
                                 "path": str(grand),
                                 "size_gb": self._dir_size_gb(grand),
@@ -313,9 +424,21 @@ class ModelManager:
         except Exception as exc:  # noqa: BLE001
             log.warning("模型目录扫描异常: %s", exc)
 
-        self._disk_scan_cache = found
+        # 祖先包含剪枝：路径位于另一模型目录内 → 是组件而非独立模型
+        pruned: dict[str, dict] = {}
+        paths = sorted(found.items(), key=lambda kv: len(kv[1]["path"]))
+        for mid, hit in paths:
+            nested = any(
+                other is not hit
+                and Path(hit["path"]).is_relative_to(Path(other["path"]))
+                for other in found.values()
+            )
+            if not nested:
+                pruned[mid] = hit
+
+        self._disk_scan_cache = pruned
         self._disk_scan_ts = time.time()
-        return dict(found)
+        return dict(pruned)
 
     @staticmethod
     def _looks_like_model_dir(p: Path) -> bool:
@@ -352,12 +475,19 @@ class ModelManager:
         return hit["path"] if hit else None
 
     def estimate_vram_gb(self, model_id: str, category: str = "") -> float:
-        """估计加载所需显存：引擎候选表 → 路由表 min_vram_gb → 磁盘大小 × 1.2 → 默认 4GB。
+        """估计加载所需显存：人工覆盖 → 引擎候选表 → 路由表 min_vram_gb → 磁盘大小 × 1.2 → 默认 4GB。
 
-        引擎候选表优先：模型目录常含 fp32/fp16 双份权重与单文件兜底
+        人工覆盖最高优先（2026-08-20 崩溃修复）：_VRAM_OVERRIDES 是实测
+        裁定值，路由表/候选表的静态 min_vram_gb 可能严重低估（如
+        qwen3-vl-8b 标 12GB 实测 bf16 权重 16.3GB），低估值放行会导致
+        allocate_memory 误判通过 → 引擎加载时 OOM 杀进程。
+
+        引擎候选表其次：模型目录常含 fp32/fp16 双份权重与单文件兜底
         （如 sdxl-base-1.0 磁盘 25.9GB 实需约 7GB），磁盘扫描会严重高估，
         导致 allocate_memory 永远失败、驱逐记账失真。
         """
+        if model_id in _VRAM_OVERRIDES:
+            return _VRAM_OVERRIDES[model_id]
         try:
             from ..inference.dialog_engine import DIALOG_MODEL_CANDIDATES
             from ..inference.paint_engine import PAINT_MODEL_CANDIDATES
@@ -532,7 +662,8 @@ class ModelManager:
             return self._engines[cat]
 
         engine = None
-        if cat in ("dialog", "language"):
+        if cat in ("dialog", "language", "omni"):
+            # omni（视觉语音全模态）同样由对话引擎承载（语音/视频对话）
             mod = _try_import("backend.services.inference.dialog_engine")
             if mod is not None:
                 try:
@@ -682,6 +813,34 @@ class ModelManager:
                  model_id, time.time() - t0, required)
         return True
 
+    def release_stale(self, model_id: str) -> bool:
+        """仅清台账与显存记账，不回调引擎（2026-08-22 事故根修）。
+
+        适用场景：引擎侧已自行释放旧模型（如 dialog_engine 热切换
+        _switch_reset），但台账条目残留 loaded —— resource_guard 驱逐
+        stale 条目时会经 dialog 关联回调 unload_model() 误杀引擎当前
+        持有模型。热切换完成时调用本方法同步台账，消除错位。
+        """
+        with self._loaded_lock:
+            entry = self._loaded.pop(model_id, None)
+        if entry is None:
+            return False
+        with self._vram_lock:
+            self._reserved_vram_gb = max(
+                0.0, self._reserved_vram_gb - float(entry.get("vram_gb", 0.0)))
+        try:
+            from ...engines.vram_manager import get_vram_manager
+            get_vram_manager().track_free(model_id)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("vram_manager 释放跟踪跳过: %s", exc)
+        try:
+            from ...engines.memory_manager import get_memory_manager
+            get_memory_manager().unregister(f"model:{model_id}")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("memory_manager 注销跳过: %s", exc)
+        log.info("模型台账清理（引擎已自行释放）: %s", model_id)
+        return True
+
     def unload_model(self, model_id: str) -> bool:
         """从 GPU 卸载模型并释放记账显存。"""
         with self._loaded_lock:
@@ -693,6 +852,19 @@ class ModelManager:
         # 获取共享单例，否则自动装载登记的模型会出现「台账已清、真实
         # 管线引用未释放」的脱节
         engine = self._get_engine(entry.get("category", ""))
+        # 防御 stale 台账（2026-08-22 事故）：dialog 引擎当前持有模型与
+        # 台账条目不一致（热切换竞态窗口残留）时，回调 unload_model()
+        # 会误杀引擎新持有模型——只清台账不动引擎
+        if engine is not None and entry.get("category", "") == "dialog":
+            try:
+                cur = engine.get_status().get("model") or ""
+            except Exception:  # noqa: BLE001 - 状态查询失败按正常路径走
+                cur = model_id
+            if cur and cur != model_id:
+                log.warning(
+                    "卸载 %s 跳过引擎回调（引擎当前持有 %s，台账 stale）",
+                    model_id, cur)
+                engine = None
         if engine is not None:
             try:
                 unload_fn = getattr(engine, "unload_model", None)
@@ -804,6 +976,166 @@ class ModelManager:
         """返回当前已加载模型列表（含类别/路径/显存/优先级/加载时间）。"""
         with self._loaded_lock:
             return [dict(model_id=mid, **info) for mid, info in self._loaded.items()]
+
+    # ═══════════════════════════════════════════════════════════════
+    #  模块切换资源调度（用户裁定 2026-08-21）
+    # ═══════════════════════════════════════════════════════════════
+
+    def release_for_module(self, target_feature: str,
+                           timeout_seconds: float = 3.0) -> dict:
+        """切入 target_feature 模块时释放其他模块已加载模型（显存/内存优先供应）。
+
+        整个释放过程带时间预算（默认 3s）：每次卸载前检查剩余预算，
+        超出预算停止后续卸载并标记 completed=False（部分释放）。
+
+        安全约束：
+        - 功能锁持有中的模型（该功能有生成任务正在运行）跳过不卸，
+          避免拆掉运行中任务的推理管线；
+        - 目标模块自身类别与共享小模型类别（embedding/voice/auxiliary）保留；
+        - 卸载链复用 unload_model（释放引擎引用 + vram/memory 记账 +
+          gc + cuda empty_cache）。
+
+        Returns:
+            {module, completed, freed_models, freed_count,
+             freed_vram_gb, skipped, duration_ms}
+        """
+        t0 = time.monotonic()
+        target = self._normalize_feature(target_feature)
+        keep_cats = set(_FEATURE_KEEP_CATEGORIES.get(target, set()))
+        keep_cats |= _SHARED_KEEP_CATEGORIES
+
+        # 功能锁持有中的类别不可卸（运行中任务的管线引用）
+        locked_cats: set[str] = set()
+        try:
+            from ...middleware.feature_lock import get_feature_lock
+            active = get_feature_lock().active_feature
+            if active and self._normalize_feature(active) != target:
+                locked_cats = (_FEATURE_KEEP_CATEGORIES.get(
+                    self._normalize_feature(active), set()) - keep_cats)
+        except Exception:  # noqa: BLE001
+            pass
+
+        freed_models: list[str] = []
+        freed_vram = 0.0
+        skipped: list[str] = []
+        completed = True
+
+        for entry in self.get_loaded_models():
+            cat = (entry.get("category") or "").strip().lower()
+            model_id = entry.get("model_id", "")
+            if cat in keep_cats:
+                continue
+            if cat in locked_cats:
+                skipped.append(model_id)
+                continue
+            if time.monotonic() - t0 > timeout_seconds:
+                completed = False
+                skipped.append(model_id)
+                continue
+            vram = float(entry.get("vram_gb", 0.0) or 0.0)
+            if self.unload_model(model_id):
+                freed_models.append(model_id)
+                freed_vram += vram
+
+        # 内存侧补充：释放闲置内存块（unload_model 已做进程级 gc）
+        try:
+            from ...engines.memory_manager import get_memory_manager
+            get_memory_manager().release()
+        except Exception:  # noqa: BLE001
+            pass
+
+        # vLLM 独立子进程（AWQ 对话模型）：不在 _loaded 台账，显存由
+        # 子进程整卡持有。P3 §3.2 常驻热备 + 按需冷启双策略：
+        #  - 目标为重显存模块（绘画/视频/训练）→ 按需终止 vLLM 腾
+        #    ~12GB 显存（否则重模型加载必然 OOM）；
+        #  - 目标非对话且非重显存（设置/日志等轻量切换）→ 保留 vLLM
+        #    热备、复用已加载 worker，切回对话免二次 ~157s 冷启动。
+        # 功能锁保护（2026-08-22 竞态事故）：dialog 锁持有中（对话请求
+        # 进行中，含 vLLM 冷启动窗口）不可杀——实测用户发消息后
+        # 切走再切回，release_for_module(paint) 把刚就绪的 vLLM 杀掉，
+        # 对话流式直接失败"服务未就绪"。锁保护与台账模型同权。
+        vllm_stopped = False
+        vllm_kept_hot = False
+        if ("dialog" not in keep_cats
+                and "dialog" not in locked_cats):
+            if _VRAM_HEAVY_FEATURES.intersection({target}):
+                try:
+                    from ...engines.vllm_service import get_vllm_service
+                    svc = get_vllm_service()
+                    if svc.is_running():
+                        t_vllm = time.monotonic()
+                        vllm_stopped = svc.stop(timeout_s=2.0)
+                        if vllm_stopped:
+                            freed_models.append("qwen3-vl-8b-awq(vllm)")
+                            log.info("vLLM 子进程按需终止(→%s)供显存: %dms",
+                                     target,
+                                     round((time.monotonic() - t_vllm) * 1000))
+                except Exception as exc:  # noqa: BLE001 - vLLM 释放失败不阻断
+                    log.warning("vLLM 子进程释放异常: %s", exc)
+            else:
+                try:
+                    from ...engines.vllm_service import get_vllm_service
+                    svc = get_vllm_service()
+                    if svc.is_running() or svc.is_booting():
+                        vllm_kept_hot = True
+                        log.info("vLLM 子进程热备保留(→%s): 复用已加载 worker"
+                                 "免二次冷启动", target)
+                except Exception:  # noqa: BLE001
+                    pass
+        elif "dialog" in locked_cats:
+            skipped.append("qwen3-vl-8b-awq(vllm)")
+            log.info("vLLM 子进程跳过释放（dialog 功能锁持有中）")
+
+        duration_ms = round((time.monotonic() - t0) * 1000)
+        if freed_models or not vllm_kept_hot:
+            log.info(
+                "模块资源释放(→%s): 卸载 %d 个模型释放 %.1fGB 显存, "
+                "耗时 %dms%s",
+                target, len(freed_models), freed_vram, duration_ms,
+                "" if completed else "（超预算部分跳过）")
+        try:  # 大白话事件：模块切换资源释放（2026-08-21 日志可视化）
+            from ..event_log import log_event
+            _names = "、".join(freed_models[:4])
+            if _names or vllm_kept_hot:
+                if freed_models:
+                    _msg = (f"你切到了新功能，已自动腾出显存：卸载了 "
+                            f"{len(freed_models)} 个其他模块的模型（{_names}"
+                            f"{'等' if len(freed_models) > 4 else ''}），"
+                            f"释放约 {freed_vram:.1f}GB 显存，"
+                            f"用了 {duration_ms / 1000:.1f} 秒"
+                            + ("。有个别模型因为正在干活先保留了"
+                               if skipped else ""))
+                else:
+                    _msg = (f"切换到了 {target}（不占显存），AI 对话引擎保持"
+                            "后台热备：切回对话时不用重新加载，秒回。")
+                log_event(
+                    "models", "module_released", _msg,
+                    level="success" if (completed or vllm_kept_hot)
+                    else "warning",
+                    detail=(f"target={target}, models={freed_models}, "
+                            f"skipped={skipped}, vllm_stopped={vllm_stopped}, "
+                            f"vllm_kept_hot={vllm_kept_hot}"),
+                    duration_ms=duration_ms)
+            elif skipped:
+                log_event(
+                    "models", "module_release_skipped",
+                    f"切换到新功能时没有可释放的模型，但 "
+                    f"{len(skipped)} 个模型因为正在运行任务被保留了",
+                    level="warning",
+                    detail=f"target={target}, skipped={skipped}")
+        except Exception:  # noqa: BLE001 - 事件日志失败不影响释放
+            pass
+        return {
+            "module": target,
+            "completed": completed,
+            "freed_models": freed_models,
+            "freed_count": len(freed_models),
+            "freed_vram_gb": round(freed_vram, 2),
+            "skipped": skipped,
+            "vllm_stopped": vllm_stopped,
+            "vllm_kept_hot": vllm_kept_hot,
+            "duration_ms": duration_ms,
+        }
 
     # ═══════════════════════════════════════════════════════════════
     #  ML 预测预加载（委托 FeaturePredictor）

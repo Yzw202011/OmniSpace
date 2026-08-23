@@ -23,6 +23,9 @@
 @import './premium.css'; /* 静态重设计层（宝石表面按钮/凹槽输入井/胶囊芯片/粉色光标） */
 @import './noir.css'; /* 精炼层（最终裁定：净面按钮/利落聚焦环/胶囊芯片/效果去噪） */
 @import './refinement.css'; /* 全站精修层（对比度/禁用态/激活态/FAQ箭头/序号胶囊/状态栏分隔） */
+@import './tech-theme.css'; /* Nebula 星云科技主题（双主题体系之二：令牌重映射/HUD角标/网格底纹/辉光） */
+@import './tech-fx.css'; /* Nebula FX 未来科技特效层（星尘/流光/扫掠/全息入场/脉冲辉光，仅 tech 家族） */
+@import './dazzle.css'; /* 视觉高潮层（终层裁定：极光增幅/镜面扫光/卡片辉光/主题选择器） */
 
 /* ------------------------------ 兼容别名（旧名 → 规格令牌） ------------------------------
  * 仅为本文件少量历史引用提供解析，全部为 tokens.css 未定义的新名，不会覆盖规格令牌。
@@ -827,6 +830,81 @@
 .model-status-badge.not_ready { background: var(--color-error-bg); color: var(--color-error); }
 .model-status-badge.loaded { background: var(--color-info-bg); color: var(--color-info); }
 .model-status-badge.selected { background: var(--color-primary); color: #fff; }
+/* 本机配置推荐徽标 */
+.model-status-badge.reco-best { background: var(--color-primary); color: #fff; }
+.model-status-badge.reco-ok { background: var(--color-success-bg); color: var(--color-success); }
+.model-status-badge.reco-over { background: var(--color-warning-bg); color: var(--color-warning); }
+
+/* ── 本机配置推荐横幅 ── */
+.mm-reco {
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.mm-reco-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.mm-reco-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+  font-size: var(--font-size-md);
+}
+.mm-reco-gpu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+.mm-reco-desc {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+.mm-reco-desc strong { color: var(--color-primary); }
+.mm-reco-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.mm-reco-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mm-reco-chip:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+.mm-reco-chip-type { color: var(--color-text-tertiary); }
+.mm-reco-chip-name { font-weight: var(--font-weight-medium); }
+.mm-reco-chip-badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--font-size-xs);
+}
 /* VRAM 使用条 */
 .vram-usage-bar {
   width: 100%;
@@ -1045,6 +1123,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* P3 DirectML/CPU 降级提示横幅（诚实低档位说明） */
+.settings-degradation {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warning, #d9a13b);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning, #d9a13b) 8%, transparent);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+.settings-degradation-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--color-warning, #d9a13b);
 }
 
 /* ==========================================================================

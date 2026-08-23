@@ -64,6 +64,10 @@ _NAME_KEYWORDS = {
     "bigvgan": ModelCategory.VOICE,       # BigVGAN 声码器
     "wav2vec": ModelCategory.VOICE,
     "encodec": ModelCategory.VOICE,
+    # ── 视觉语音全模态（omni）：文/图/视/音输入，文+语音输出 ────
+    # 必须排在 "qwen" 之前（qwen2.5-omni 含 qwen 前缀会被遮蔽）
+    "-omni": ModelCategory.OMNI,          # Qwen2.5-Omni-7B
+    "_omni": ModelCategory.OMNI,
     # ── 文本编码器/嵌入（非对话生成模型）─────────────────────────
     "roberta": ModelCategory.LANGUAGE,    # chinese-roberta-wwm（SoVITS 文本编码）
     "-bert": ModelCategory.LANGUAGE,
@@ -203,6 +207,12 @@ class ModelClassifier:
                     "qwen3": ModelCategory.DIALOG,
                     "qwen3_vl": ModelCategory.DIALOG,
                     "qwen3_moe": ModelCategory.DIALOG,
+                    # ── 视觉语音全模态 → OMNI（Thinker/Talker 端到端）──
+                    # Qwen2.5-Omni Thinker 的 model_type；Talker/Tokenize
+                    # 组件目录含 speaker 配置时同样归 OMNI
+                    "qwen2_5_omni": ModelCategory.OMNI,
+                    "qwen2_5_omni_thinker": ModelCategory.OMNI,
+                    "qwen2_5_omni_talker": ModelCategory.OMNI,
                     "llama": ModelCategory.DIALOG,
                     "mistral": ModelCategory.DIALOG,
                     "mixtral": ModelCategory.DIALOG,

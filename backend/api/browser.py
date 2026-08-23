@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 
 from fastapi import APIRouter, Body
 
@@ -72,32 +73,45 @@ def browser_status():
     return ok(svc.get_status())
 
 
+# ── 截图结果缓存 ──────────────────────────────────────────────────────
+# 背景：browser_service 所有页面操作强制 ≥1s 节流（TC-S-004）且单工作线程
+# 串行执行。前端 2s 轮询截图若无缓存，请求会在节流队列积压 6-7s，
+# 挂起连接占满 Chromium 同域 6 连接上限，导致按钮触发的 API 全部排队
+# （表现为"所有点击按钮延迟过高"）。
+# 方案：TTL 2.5s > 轮询周期 2s，隔次轮询命中缓存直接返回，截图操作量
+# 减半且队列不再积压。导航后缓存主动失效（见 browser_navigate）。
+_SCREENSHOT_CACHE_TTL = 2.5
+_shot_cache: tuple[float, str] | None = None  # (monotonic 时间戳, base64)
+
+
 @router.get("/browser/screenshot")
 def browser_screenshot():
-    """当前页面截图，返回 base64 编码 PNG（前端 2s 轮询用）。"""
+    """当前页面截图，返回 base64 PNG（前端 2s 轮询用；2.5s 结果缓存）。"""
+    global _shot_cache
     svc = _ensure_ready()
+    if _shot_cache is not None and time.monotonic() - _shot_cache[0] < _SCREENSHOT_CACHE_TTL:
+        return ok({"image_base64": _shot_cache[1], "mime": "image/png"})
     png = _call_browser(svc.screenshot)
-    return ok({"image_base64": base64.b64encode(png).decode("ascii"),
-               "mime": "image/png"})
+    _shot_cache = (time.monotonic(), base64.b64encode(png).decode("ascii"))
+    return ok({"image_base64": _shot_cache[1], "mime": "image/png"})
 
 
 @router.get("/browser/current-page")
 def browser_current_page():
-    """当前页面信息：url/title/文本长度/链接数。"""
+    """当前页面信息：url/title。
+
+    仅 1 个节流操作（list_tabs）。曾在此处调 get_text + get_links 统计
+    文本长度/链接数，但前端无任何消费者，且每调用一次占用 2 个 ≥1s
+    节流操作额度，是轮询期操作队列积压的元凶之一，已移除。
+    """
     svc = _ensure_ready()
     status = svc.get_status()
-    page: dict = {"url": status.get("current_url", ""), "title": "",
-                  "text_length": 0, "link_count": 0}
+    page: dict = {"url": status.get("current_url", ""), "title": ""}
     tabs = _call_browser(svc.list_tabs)
     for t in tabs:
         if t.get("active"):
             page["title"] = t.get("title", "")
             page["url"] = t.get("url", page["url"])
-    try:
-        page["text_length"] = len(_call_browser(svc.get_text))
-        page["link_count"] = len(_call_browser(svc.get_links))
-    except ApiError:
-        pass  # 页面尚未加载完成时允许部分信息缺失
     return ok(page)
 
 
@@ -113,11 +127,13 @@ def browser_tabs():
 @router.post("/browser/navigate")
 def browser_navigate(body: dict = Body(default_factory=dict)):
     """用户手动导航（仅 http/https；黑名单拒绝；≥1s 节流）。"""
+    global _shot_cache
     url = str((body or {}).get("url", "") or "").strip()
     if not url:
         raise ApiError(40008, "缺少必填参数: url")
     svc = _ensure_ready()
     info = _call_browser(svc.navigate, url)
+    _shot_cache = None  # 页面已变化，截图缓存立即失效
     return ok(info, message="导航完成")
 
 

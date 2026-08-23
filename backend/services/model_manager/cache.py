@@ -220,7 +220,20 @@ class ModelCache:
 
         if count > 0:
             logger.warning("完全卸载 %d 个缓存条目", count)
+            # P2 防显存碎片：卸载后立即归还 CUDA 缓存块，不依赖外部 GC。
+            # 权重为 CUDA 张量时置 None 仅释放引用，caching allocator 缓存块
+            # 需 empty_cache 才归还驱动。
+            self._release_cuda_cache()
         return count
+
+    def _release_cuda_cache(self) -> None:
+        """卸载后立即清空 CUDA 缓存（无 GPU / 无 torch 时静默跳过）。"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001 - 缓存回收失败不影响功能
+            pass
 
     def keep_in_ram(self, key: str) -> None:
         """将指定条目标记为常驻内存（不被压缩/卸载）。"""

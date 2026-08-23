@@ -71,6 +71,16 @@ export interface HardwareState {
 
 /** 解订函数集合 */
 let wsUnsubscribers: Array<() => void> = [];
+let _synergyVisHandler: (() => void) | null = null;
+
+// 性能优化：硬件 synergy 轮询前台 5s / 页面隐藏 15s（实时遥测已由 WS 每 2s
+// 推送，HTTP 轮询非关键路径，隐藏时降频即可，避免无意义请求叠加）。
+const SYNERGY_POLL_FG_MS = 5000;
+const SYNERGY_POLL_BG_MS = 15000;
+function _synergyDelay(): number {
+  return typeof document !== 'undefined' && document.hidden
+    ? SYNERGY_POLL_BG_MS : SYNERGY_POLL_FG_MS;
+}
 
 export const useHardwareStore = create<HardwareState>((set, get) => ({
   hardwareProfile: null,
@@ -116,17 +126,30 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
 
     wsUnsubscribers = [offStatus, offRealtime];
 
-    // 3. 启动 2s 轮询 /hardware/synergy（C-1/C-2）
+    // 3. 轮询 /hardware/synergy（C-1/C-2）：前台 5s / 后台 15s，
+    //    可见性切换时重排间隔（性能优化）
     get().fetchSynergy();
-    const timer = setInterval(() => {
-      get().fetchSynergy();
-    }, 2000);
-    set({ _synergyTimer: timer });
+    const schedule = () => {
+      if (get()._synergyTimer) {
+        clearInterval(get()._synergyTimer as ReturnType<typeof setInterval>);
+      }
+      const timer = setInterval(() => {
+        get().fetchSynergy();
+      }, _synergyDelay());
+      set({ _synergyTimer: timer });
+    };
+    schedule();
+    _synergyVisHandler = () => schedule();
+    document.addEventListener('visibilitychange', _synergyVisHandler);
   },
 
   destroy: () => {
     if (get()._synergyTimer) {
       clearInterval(get()._synergyTimer as ReturnType<typeof setInterval>);
+    }
+    if (_synergyVisHandler) {
+      document.removeEventListener('visibilitychange', _synergyVisHandler);
+      _synergyVisHandler = null;
     }
     wsUnsubscribers.forEach((off) => {
       try {

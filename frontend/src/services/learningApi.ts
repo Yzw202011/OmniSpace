@@ -103,8 +103,10 @@ export interface LearnSettings {
 /** 浏览器状态（GET /browser/status） */
 export interface BrowserStatus {
   running: boolean;
-  /** 控制权：ai / user */
+  /** 控制权：ai / user（旧字段；新判定优先 user_takeover） */
   controller?: 'ai' | 'user';
+  /** 后端实际返回字段：用户接管中（AI 暂停） */
+  user_takeover?: boolean;
   current_url?: string;
   tabs?: number;
 }
@@ -192,16 +194,30 @@ export interface KnowledgeGraph {
   total_edges?: number;
 }
 
-/** 行为学习统计（GET /behavior/stats） */
+/** 行为学习统计（GET /behavior/stats，结构对齐后端 BehaviorService.stats()） */
 export interface BehaviorStats {
-  /** 已记录操作数 */
-  event_count: number;
+  /** 已记录事件总数 */
+  total_events: number;
+  /** 已构建 LoRA 训练对数（不可用为 null） */
+  training_pairs: number | null;
   /** 偏好模型状态 */
-  preference_status?: string;
-  /** 下次微调时间 */
-  next_finetune_at?: string | number;
-  /** 最近学习摘要 */
-  recent_summary?: string;
+  preference_model: {
+    status: 'ready' | 'not_analyzed' | string;
+    analyzed_at?: number | null;
+    tokenizer?: string;
+  };
+  /** 微调进度 */
+  finetune: {
+    min_pairs: number;
+    remaining_pairs: number | null;
+    should_trigger: boolean;
+    /** 下次微调预估时间（unix 秒；事件不足 2 条时为 null） */
+    next_estimate: number | null;
+  };
+  /** 最近学习摘要条目（空数组 = 暂无） */
+  recent_summary: string[];
+  /** 行为库落盘可用 */
+  db_available: boolean;
 }
 
 /* ------------------------------ 学习主题 ------------------------------ */
@@ -346,9 +362,28 @@ export function importDocument(file: File) {
 
 /* ------------------------------ 行为学习 ------------------------------ */
 
-/** 上报行为事件 */
-export function postBehaviorEvent(body: { type: string; payload?: Record<string, unknown> }) {
+/** 上报行为事件（字段对齐后端 BehaviorEventRequest 契约） */
+export function postBehaviorEvent(body: {
+  event_type: string;
+  content?: string;
+  context?: string;
+  feature?: string;
+}) {
   return post<void>('/behavior/event', body);
+}
+
+/**
+ * 埋行为事件（fire-and-forget）：关键用户操作时上报，
+ * 驱动行为学习面板「已记录操作数 / 最近学习摘要」实时变化。
+ * 失败静默，绝不影响业务主流程。
+ */
+export function trackBehavior(
+  eventType: string,
+  opts?: { content?: string; context?: string; feature?: string },
+): void {
+  void postBehaviorEvent({ event_type: eventType, ...opts }).catch(() => {
+    /* 后端未就绪时静默丢弃 */
+  });
 }
 
 /** 行为学习统计 */

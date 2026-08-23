@@ -55,6 +55,11 @@ from ..services.inference.paint_engine import (
     PaintCancelledError,
     get_paint_engine,
 )
+from ..services.inference.prompt_translator import (
+    contains_cjk,
+    shrink_working_set,
+    translate_prompt_zh2en,
+)
 from ..services.offload import run_blocking
 
 router = APIRouter()
@@ -138,6 +143,22 @@ def _task_create(task_type: str, params: dict) -> dict:
         "created_at": now,
         "updated_at": now,
     }
+    # 执行流程追踪（2026-08-23）：触发时刻=任务创建（含排队时长），
+    # Flow 对象随 task dict 跨线程显式传递到执行线程
+    try:
+        from ..services.flow_trace import start_flow
+        prompt_brief = (params.get("prompt") or "")[:24]
+        task["_flow"] = start_flow(
+            "paint", task_type,
+            f"AI 绘画（{'文生图' if task_type == 'txt2img' else task_type}）："
+            f"{prompt_brief}{'…' if len(params.get('prompt') or '') > 24 else ''}",
+            trigger="用户提交生成任务",
+            input_summary=f"{params.get('width', 1024)}x{params.get('height', 1024)}"
+                          f" {params.get('steps', 30)}步"
+                          f" {task['model']} 优先级{task['priority']}",
+            detail=f"task_id={task['task_id']}")
+    except Exception:  # noqa: BLE001 - 追踪失败不影响业务
+        pass
     with _tasks_lock:
         if len(_tasks) >= _TASK_KEEP:
             oldest = sorted(_tasks.values(),
@@ -156,6 +177,20 @@ def _task_update(task_id: str, **fields) -> None:
             task["updated_at"] = time.time()
 
 
+def _end_flow(task_id: str, status: str, *,
+              error_code: str = "", error_detail: str = "") -> None:
+    """结束任务携带的追踪流程（调度层取消/失败路径的收尾，幂等）。"""
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+        flow = task.pop("_flow", None) if task else None
+    if flow is not None:
+        try:
+            flow.end(status, error_code=error_code,
+                     error_detail=error_detail)
+        except Exception:  # noqa: BLE001 - 追踪失败不影响业务
+            pass
+
+
 def _task_get(task_id: str) -> dict | None:
     with _tasks_lock:
         task = _tasks.get(task_id)
@@ -169,7 +204,7 @@ def _clamp_size(value, default: int = 1024) -> int:
         v = int(value)
     except (TypeError, ValueError):
         return default
-    return max(512, min(v, 2048))
+    return max(512, min(v, 2688))
 
 
 def _parse_common(body: dict) -> dict:
@@ -229,47 +264,261 @@ def _run_generate_task(task_id: str, params: dict,
 
     mask 非空时走局部重绘（inpaint）链路；协作式取消：进度回调发现
     取消旗标即抛 _TaskCancelled 中断推理。
+
+    执行流程追踪（2026-08-23）：Flow 从 task dict 显式跨线程传入，
+    节点链 排队等待→模型加载→提示词优化→图像生成→结果落盘，
+    推理进度回调同时作为追踪心跳（stalled 卡住检测依据）。
     """
+    from ..services.flow_trace import NULL_FLOW
+
     engine = get_paint_engine()
     _task_update(task_id, status="running")
+    # 取出任务创建时启动的流程（排队时长回溯到触发时刻）；
+    # _task_get 返回浅拷贝，须从原始字典 pop 防引用滞留
+    with _tasks_lock:
+        flow = (_tasks.get(task_id) or {}).pop("_flow", None) or NULL_FLOW
+    flow.attach()
+
+    gen_node = None  # 推理节点引用（progress 心跳写入）
 
     def progress(percent: int, step: int) -> None:
         if task_id in _cancel_flags:
             raise _TaskCancelled()
         _task_update(task_id, percent=percent, step=step)
         _broadcast_progress(task_id, percent, step)
+        if gen_node is not None:
+            gen_node.progress(f"{percent}%（{step}/{params.get('steps', 30)} 步）")
 
     try:
         if task_id in _cancel_flags:
             raise _TaskCancelled()
 
-        if not engine.is_ready and not engine.ensure_loaded(params.get("model")):
-            status = engine.get_status()
-            _task_update(task_id, status="error", code="MODEL_LOAD_FAILED",
-                         error=status["last_error"] or "绘画模型未就绪")
-            _broadcast_progress(task_id, 0, 0, status="error")
-            return
+        # 节点1：排队等待（回溯到流程触发时刻，duration=排队时长）
+        with flow.node("排队等待", start_at=flow.started_at,
+                       input_summary=f"优先级 {params.get('priority', 5)}",
+                       friendly="任务排队等待调度") as n:
+            n.output(f"等待 {time.time() - flow.started_at:.1f} 秒后开始执行")
 
         prompt = params["prompt"]
+        model_hint = params.get("model")
+        translated_fallback = False  # 走了翻译兜底（模型加载后需收缩 RAM）
+
+        # ── 语言感知路由（2026-08-23 图文不符修复）─────────────────
+        # SDXL 的 CLIP 文本编码器无中文语义能力，中文提示词直接送入
+        # 会生成与文本无关的图像。缺省（未显式指定 model）且提示词
+        # 含中文时：
+        #   a. 冷启动 + 双语底座（qwen-image-2512）可用 → 加载双语底座
+        #      （原生中文理解，零翻译损耗）；
+        #   b. 双语底座不可用 或 sdxl 已驻留（避免反复换载）→
+        #      提示词中译英后走英文底座（诚实降级，翻译失败回退原文）。
+        # 显式点名 model 时尊重用户意图，不做改写。
+        if not model_hint and contains_cjk(prompt):
+            current = (engine.get_status().get("model") or "") \
+                if engine.is_ready else ""
+            if not current.startswith(("qwen-image", "flux2")):
+                dual = engine.cjk_default_model()
+                # RAM 预检（2026-08-23 后端 OOM 死亡事故）：qwen GGUF
+                # 流式推理 12.31GB 权重常驻 RAM，叠加后台学习会话
+                # （Chromium 数 GB）时 RAM 99% → 进程死亡。可用 RAM
+                # 不足时放弃双语底座，走翻译兜底（sdxl 权重在显存，
+                # 不占 RAM）
+                ram_ok = False
+                if dual and not current:
+                    try:
+                        import psutil
+                        # 22GB 门槛（2026-08-23 实测定界）：qwen GGUF
+                        # 峰值需求 17.3GB（权重 12.31 + 开销 3 + 生成
+                        # 2），但 pageable 权重换页边界效应显著——
+                        # 20/20.9GB 起步两次实测均 device mismatch 失败
+                        # （部分层被换到 CPU），22.5GB 起步成功。22GB
+                        # 是稳定下界。用户约束"RAM ≤85%；硬件不足时
+                        # 确保质量"——低于 22GB 时质量最优解 = 翻译
+                        # 兜底 + 四轮对照实验定论的提示词工程（主体
+                        # 前置/鞋类污染剔除/场景锚定/风格护栏负面词，
+                        # 实测 3/3 命中目标构图）。
+                        ram_ok = psutil.virtual_memory().available \
+                            >= 22 * 1024 ** 3
+                    except Exception:  # noqa: BLE001 - psutil 缺失保守放行
+                        ram_ok = True
+                if dual and not current and ram_ok:
+                    model_hint = dual
+                elif (not current
+                      and "flux2-klein-4b" in engine.available_models()):
+                    # RAM 不足 qwen 时的次优解（2026-08-23 图文不符
+                    # v2 排查定论）：SDXL 翻译兜底链路的 CLIP 是
+                    # bag-of-words 弱语义，叠加 WDDM 桌面显存状态
+                    # 噪声（GUI 应用占显存 → fp16 kernel 数值路径
+                    # 变化 → 去噪轨迹混沌发散），同 prompt 同 seed
+                    # 在干净态出写实脚特写、翻译态出黑白线条胸像
+                    # ——出图对中文语义不可信。flux2-klein-4b 的
+                    # Qwen3-4B 编码器原生中文，显存够时中文直入
+                    # （零翻译损耗）；显存闸门由 ensure_loaded 内部
+                    # check_vram 把守，失败走翻译兜底。
+                    try:
+                        flux_ok, _free = engine.check_vram(12.0)
+                    except Exception:  # noqa: BLE001 - 查询失败保守放行
+                        flux_ok = True
+                    if flux_ok:
+                        model_hint = "flux2-klein-4b"
+                if not model_hint:
+                    # 翻译须在模型加载前（调方约定：翻译用对话引擎，
+                    # 翻译完 paint 加载按需腾显存卸载对话引擎）
+                    with flow.node(
+                            "提示词翻译",
+                            input_summary=f"原文={prompt[:40]}",
+                            friendly="中文提示词翻译为英文（当前底座"
+                                     "不识中文）") as n:
+                        translated = translate_prompt_zh2en(prompt)
+                        n.output(f"译文={translated[:60]}"
+                                 if translated != prompt else "翻译失败，原样使用")
+                        if translated != prompt:
+                            prompt = translated
+                            translated_fallback = True
+                            # SDXL 兜底风格护栏（2026-08-23 图文不符
+                            # v2 实测教训）：CLIP 是 bag-of-words 弱语义，
+                            # 负面提示词为空时译文中的风格词会失效
+                            # （译出 realistic 仍生成动漫半身像、构图
+                            # 焦点被 "beautiful girl" 权重淹没）。按译文
+                            # 风格动态补负面词拉回目标风格 + 通用质量词；
+                            # 用户已填 negative 时追加不覆盖。
+                            tl = translated.lower()
+                            if any(w in tl for w in
+                                   ("realistic", "photo", "real beauty",
+                                    "real skin", "real person",
+                                    "real-life")):
+                                style_neg = ("cartoon, anime, illustration,"
+                                             " 3d render, painting")
+                                # 硬过滤：剔除译文中矛盾的动漫词——
+                                # 翻译器偶发混入 "anime style"（如把
+                                # "美少女"联想成二次元），与负面词 anime
+                                # 正负对冲后 CFG 互相抵消，护栏失效
+                                # （2026-08-23 实测：含 anime style 的
+                                # 译文仍生成动漫半身像）。代码级保证，
+                                # 不依赖 LLM 遵从模板。
+                                parts = [p.strip() for p in
+                                         translated.split(",")]
+                                kept = [p for p in parts
+                                        if not any(b in p.lower() for b in
+                                                   ("anime", "cartoon",
+                                                    "manga", "illustration",
+                                                    "chibi", "3d render"))]
+                                if kept and kept != parts:
+                                    translated = ", ".join(kept)
+                                    prompt = translated
+                                    tl = translated.lower()
+                            elif any(w in tl for w in
+                                     ("anime", "manga", "cartoon",
+                                      "illustration", "chibi")):
+                                style_neg = "photo, photorealistic, 3d"
+                            else:
+                                style_neg = ""
+                            # 部位特写锚定（2026-08-23 五轮对照实验
+                            # 定论）：成功写法（手动 3/3 写实脚特写）=
+                            # "feet, foot focus, realistic photo,
+                            # detailed toes, soft lighting, wooden
+                            # floor" + 负面 "cartoon, anime,
+                            # illustration, 3d render, painting"。
+                            # d4d398ed 失败反证：token 集合一致但
+                            # 顺序不同（detailed toes 第 6 位、
+                            # wooden floor 重复）+ 负面词多
+                            # watermark/text 即翻车——CLIP 77 token
+                            # 内位置敏感。故核心词按成功顺序固定
+                            # 重构，非核心词去重后尾部追加，负面词
+                            # 与成功写法逐字对齐。
+                            first = tl.split(",")[0].strip()
+                            if first in ("feet", "foot", "barefoot"):
+                                parts = [p.strip() for p in
+                                         prompt.split(",")]
+                                kept = [p for p in parts
+                                        if p and not any(b in p.lower()
+                                                         for b in (
+                                                             "sneaker",
+                                                             "shoe",
+                                                             "boot",
+                                                             "heel",
+                                                             "sandal",
+                                                             "sock",
+                                                             "footwear",
+                                                             "background"))]
+                                core = ["feet", "foot focus",
+                                        "realistic photo", "detailed toes",
+                                        "soft lighting", "wooden floor"]
+                                core_l = {c.lower() for c in core}
+                                tail: list[str] = []
+                                for p in kept:
+                                    lp = p.lower()
+                                    if lp in core_l or lp in tail \
+                                            or any(lp == t.lower()
+                                                   for t in tail):
+                                        continue
+                                    tail.append(p)
+                                prompt = ", ".join(core + tail)
+                                style_neg = ("cartoon, anime, illustration,"
+                                             " 3d render, painting")
+                            extra = [x for x in (style_neg,) if x]
+                            user_neg = (params.get("negative") or "").strip()
+                            params = {**params, "negative": ", ".join(
+                                [user_neg] + extra if user_neg else extra)}
+
+        # 节点2：模型加载（引擎已就绪时跳过——不记节点）
+        if not engine.is_ready:
+            with flow.node(
+                    "模型加载", input_summary=f"model={model_hint}",
+                    friendly="加载绘画模型到显存") as n:
+                loaded = engine.ensure_loaded(model_hint)
+                if not loaded:
+                    raise RuntimeError(
+                        "MODEL_LOAD_FAILED: "
+                        + (engine.get_status().get("last_error")
+                           or "绘画模型未就绪"))
+                n.output(f"模型就绪: {engine.get_status().get('model')}")
+        if translated_fallback:
+            # 翻译兜底资源卫生：模型加载的腾挪已卸载对话引擎
+            # （transformers 后端 ~9GB），但 torch/pymalloc 卸载后
+            # 进程 RAM 不归还 OS——不收缩会把系统可用 RAM 永久压
+            # 低 9GB，后续中文任务全部过不了 qwen 的 22GB 门槛
+            # （恶性循环，2026-08-23 实测根因）。
+            shrink_working_set()
+
+        # 节点3：提示词优化（仅启用时）
         if params.get("optimize"):
-            prompt, used = engine.optimize_prompt(prompt)
-            if used:
-                _task_update(task_id, optimized_prompt=prompt)
+            with flow.node("提示词优化", input_summary=f"prompt={prompt[:40]}",
+                           friendly="AI 优化提示词") as n:
+                prompt, used = engine.optimize_prompt(prompt)
+                n.output("已优化" if used else "原样保留（无需优化）")
+                if used:
+                    _task_update(task_id, optimized_prompt=prompt)
 
-        if mask is not None and init_image is not None:
-            result = engine.inpaint(params, init_image, mask,
-                                    progress_cb=progress)
-        elif init_image is not None:
-            result = engine.img2img(params, init_image, progress_cb=progress)
-        else:
-            result = engine.generate(params, progress_cb=progress)
+        # 节点4：图像生成（推理主链路，progress 心跳续命）
+        with flow.node(
+                "图像生成",
+                input_summary=f"{params.get('width', 1024)}x"
+                              f"{params.get('height', 1024)} "
+                              f"{params.get('steps', 30)}步 "
+                              f"cfg={params.get('cfg', 7.5)}",
+                friendly="模型推理生成图像") as gen_node:
+            if mask is not None and init_image is not None:
+                result = engine.inpaint(params, init_image, mask,
+                                        progress_cb=progress)
+            elif init_image is not None:
+                result = engine.img2img(params, init_image, progress_cb=progress)
+            else:
+                result = engine.generate(params, progress_cb=progress)
+            gen_node.output(
+                f"seed={result['seed']} 实际{result.get('actual_steps', params.get('steps', 30))}步"
+                f" 用时 {result['elapsed_ms'] / 1000:.1f}s"
+                + ("（质量降参）" if result.get("quality_reduced") else ""))
+        gen_node = None
 
-        image = result["images"][0]
-        rel_path = engine.save_result(
-            image, task_id, prompt, params.get("negative", ""),
-            {k: v for k, v in params.items() if k != "optimize"},
-            result["seed"])
-        image_b64 = engine.image_to_base64(image)
+        # 节点5：结果落盘
+        with flow.node("结果落盘", friendly="保存图像并写入历史记录") as n:
+            image = result["images"][0]
+            rel_path = engine.save_result(
+                image, task_id, prompt, params.get("negative", ""),
+                {k: v for k, v in params.items() if k != "optimize"},
+                result["seed"])
+            image_b64 = engine.image_to_base64(image)
+            n.output(rel_path)
 
         _task_update(task_id, status="done", percent=100,
                      file_path=rel_path, image_b64=image_b64,
@@ -279,15 +528,43 @@ def _run_generate_task(task_id: str, params: dict,
                      degraded=bool(result.get("degraded", False)),
                      backend=str(result.get("backend", "")))
         _broadcast_progress(task_id, 100, params["steps"], status="done")
+        if translated_fallback:
+            # 兜底任务后的 RAM 让路（恶性循环最后一环）：sdxl 的
+            # cpu_offload 在 host RAM 常驻 ~7.8GB 权重副本（is_ready
+            # 常驻设计）。RAM 紧张时（<22GB，即 qwen 进不来的场景）
+            # 任务结束卸载引擎并收缩进程内存，让下一次中文任务恢复
+            # qwen 双语底座（质量优先）；RAM 充足时保持常驻（性能
+            # 优先，免重载）。2026-08-23 实测：不卸载时可用 RAM 卡
+            # 在 12GB，永远过不了 22GB 门槛。
+            try:
+                import psutil
+                if psutil.virtual_memory().available < 22 * 1024 ** 3:
+                    engine.unload_model()
+                    shrink_working_set()
+                    log.info("RAM 紧张（<22GB），兜底任务后已卸载绘画"
+                             "引擎 host 副本，为下次 qwen 路由让路")
+            except Exception as exc:  # noqa: BLE001 - 让路失败不影响结果
+                log.warning("兜底任务后引擎让路失败（忽略）: %s", exc)
+        flow.end("success", output_summary=rel_path)
     except _TaskCancelled:
         _cancel_flags.discard(task_id)
         log.info("绘画任务已取消: %s", task_id)
         _task_update(task_id, status="cancelled", error="用户取消")
         _broadcast_progress(task_id, 0, 0, status="cancelled")
+        flow.end("cancelled", error_detail="用户取消")
     except Exception as exc:  # noqa: BLE001 - 任务失败收敛为状态
         log.exception("绘画任务失败: %s", task_id)
-        _task_update(task_id, status="error", code=50001, error=str(exc))
+        msg = str(exc)
+        code = 50001
+        flow_code = "GENERATE_FAILED"
+        if msg.startswith("MODEL_LOAD_FAILED"):
+            code = "MODEL_LOAD_FAILED"   # 保持既有错误码语义
+            flow_code = "MODEL_LOAD_FAILED"
+            msg = msg.split(":", 1)[-1].strip()
+        _task_update(task_id, status="error", code=code, error=msg)
         _broadcast_progress(task_id, 0, 0, status="error")
+        flow.end("error", error_code=flow_code,
+                 error_detail=str(exc)[:500])
 
 
 def _submit_precheck() -> None:
@@ -349,6 +626,8 @@ def _dispatch_loop() -> None:
                 _task_images.pop(pick, None)
                 _task_update(pick, status="cancelled", error="排队中被取消")
                 _broadcast_progress(pick, 0, 0, status="cancelled")
+                # 追踪收尾：排队中被取消（流程对象随任务字典丢弃前结束）
+                _end_flow(pick, "cancelled", error_detail="排队中被用户取消")
                 continue
 
             async def _run_locked(tid: str = pick, t: dict = task) -> None:
@@ -371,6 +650,9 @@ def _dispatch_loop() -> None:
                 _task_update(pick, status="error", code=50001,
                              error=str(exc))
                 _broadcast_progress(pick, 0, 0, status="error")
+                # 追踪收尾：功能锁竞争/热保护等调度层失败
+                _end_flow(pick, "error", error_code="DISPATCH_FAILED",
+                          error_detail=str(exc)[:500])
     finally:
         with _pending_lock:
             _dispatcher_running = False
@@ -919,14 +1201,18 @@ def draw_models():
     items = []
     for m in PAINT_ROUTING_TABLE:
         model_id = m["model"]
-        # 本地实际就绪判定：sdxl 系列映射到 sdxl-base-1.0 目录
+        # 本地实际就绪判定：sdxl 系列映射到 sdxl-base-1.0 目录；
+        # 其余候选表模型（flux2-klein-4b / qwen-image-2512 等）按
+        # 磁盘就绪判定（available_models 列 PAINT_MODEL_CANDIDATES
+        # 中目录可加载的模型）
         if model_id.startswith("sdxl"):
             ready = "sdxl-base-1.0" in available
             status = "ready" if ready else "not_installed"
             local_id = "sdxl-base-1.0" if ready else ""
         else:
-            status = "not_installed"
-            local_id = ""
+            ready = model_id in available
+            status = "ready" if ready else "not_installed"
+            local_id = model_id if ready else ""
         items.append({
             "id": model_id,
             "name": model_id,

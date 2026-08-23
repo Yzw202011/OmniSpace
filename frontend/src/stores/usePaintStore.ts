@@ -15,6 +15,7 @@ import type { PaintRequest, PaintResult } from '@/types';
 import * as paintApi from '@/services/paintApi';
 import type { DrawModelItem } from '@/services/paintApi';
 import { API_BASE } from '@/services/api';
+import { trackBehavior } from '@/services/learningApi';
 import { useAppStore } from './useAppStore';
 import { useTaskStore } from './useTaskStore';
 
@@ -39,6 +40,42 @@ function fileUrl(filePath: string): string {
   return name ? `${API_BASE}/draw/image/${name}` : '';
 }
 
+/** 绘画视频任务（页面内存态；status: generating/done/error/cancelled） */
+export interface PaintVideoTask {
+  taskId: string;
+  /** 生成模式：i2v 纯图 / ti2v 文+图 */
+  mode: 'i2v' | 'ti2v';
+  prompt: string;
+  durationSeconds: number;
+  fps: number;
+  resolution: string;
+  status: string;
+  progress: number;
+  /** 预计剩余秒数（后端 step 采样外推；null = 引擎尚未采样） */
+  etaSeconds?: number;
+  error?: string;
+  degraded?: boolean;
+  createdAt: number;
+}
+
+/** 视频轮询句柄（taskId → interval） */
+const _videoTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+/** 图片 URL → 纯 base64（fetch → blob → FileReader） */
+async function imageUrlToBase64(url: string): Promise<string> {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const dataUrl = String(fr.result || '');
+      resolve(dataUrl.slice(dataUrl.indexOf(',') + 1));
+    };
+    fr.onerror = () => reject(new Error('图片读取失败'));
+    fr.readAsDataURL(blob);
+  });
+}
+
 /** 绘画状态 */
 export interface PaintState {
   /* ------------------------------ 数据 ------------------------------ */
@@ -54,6 +91,10 @@ export interface PaintState {
   models: DrawModelItem[];
   /** 历史是否已加载 */
   historyLoaded: boolean;
+  /** 视频任务列表（新→旧，页面内存态） */
+  videoTasks: PaintVideoTask[];
+  /** 是否有视频任务生成中 */
+  videoGenerating: boolean;
 
   /* ------------------------------ 动作 ------------------------------ */
   /** 更新绘画参数（局部合并） */
@@ -68,6 +109,23 @@ export interface PaintState {
   fetchHistory: () => Promise<void>;
   /** 拉取绘画模型列表 */
   fetchModels: () => Promise<void>;
+  /** 删除单张图片（历史记录 + 文件，乐观移除本地条目） */
+  deleteImage: (id: string) => Promise<boolean>;
+  /** 批量删除图片（上限 200，成功后移除本地条目） */
+  batchDeleteImages: (ids: string[]) => Promise<boolean>;
+  /** 发起视频生成（i2v 纯图 / ti2v 文+图；imageSource 为图片 URL 或 dataURL） */
+  generateVideo: (opts: {
+    mode: 'i2v' | 'ti2v';
+    prompt: string;
+    imageSource?: string;
+    durationSeconds: number;
+    fps: number;
+    resolution: string;
+  }) => Promise<boolean>;
+  /** 拉取视频生成历史（后端 video_tasks 表 paint_ 来源任务，跨浏览器可见） */
+  fetchVideoHistory: () => Promise<void>;
+  /** 移除一条视频任务记录（停止其轮询；同步删除后端记录与文件） */
+  removeVideoTask: (taskId: string) => void;
 }
 
 export const usePaintStore = create<PaintState>((set, get) => ({
@@ -77,6 +135,8 @@ export const usePaintStore = create<PaintState>((set, get) => ({
   currentTaskId: null,
   models: [],
   historyLoaded: false,
+  videoTasks: [],
+  videoGenerating: false,
 
   setPaintRequest: (patch) => {
     set((state) => ({ paintRequest: { ...state.paintRequest, ...patch } }));
@@ -120,6 +180,13 @@ export const usePaintStore = create<PaintState>((set, get) => ({
 
       // 轮询状态直到完成（进度逐次回写任务 store，驱动进度条）
       pollTaskStatus(task_id, paintRequest);
+
+      // 行为学习埋点（fire-and-forget，失败静默）
+      trackBehavior('paint_generate', {
+        content: paintRequest.prompt.slice(0, 200),
+        context: paintRequest.model ? `model:${paintRequest.model}` : 'auto',
+        feature: 'paint',
+      });
       return true;
     } catch (err) {
       const msg =
@@ -198,6 +265,152 @@ export const usePaintStore = create<PaintState>((set, get) => ({
       /* 忽略：模型列表拉取失败时手动模式为空 */
     }
   },
+
+  deleteImage: async (id) => {
+    try {
+      await paintApi.deleteHistory(id);
+      set((state) => ({
+        results: state.results.filter((r) => r.id !== id),
+      }));
+      return true;
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? (err as { message: string }).message
+          : '删除失败';
+      useAppStore.getState().showToast(msg, 'error');
+      return false;
+    }
+  },
+
+  batchDeleteImages: async (ids) => {
+    if (!ids.length) return false;
+    try {
+      const res = await paintApi.batchDeleteHistory(ids);
+      const removed = new Set(ids.filter((i) => !res.missing?.includes(i)));
+      set((state) => ({
+        results: state.results.filter((r) => !removed.has(r.id)),
+      }));
+      return true;
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? (err as { message: string }).message
+          : '批量删除失败';
+      useAppStore.getState().showToast(msg, 'error');
+      return false;
+    }
+  },
+
+  generateVideo: async (opts) => {
+    const toast = useAppStore.getState().showToast;
+    if (opts.mode === 'ti2v' && !opts.prompt.trim()) {
+      toast('请输入动作/运镜描述', 'warning');
+      return false;
+    }
+    if (!opts.imageSource) {
+      toast('请先选择或上传输入图片', 'warning');
+      return false;
+    }
+    try {
+      // 输入图 → 纯 base64（dataURL 直取 / http URL fetch 转换）
+      const imageBase64 = opts.imageSource!.startsWith('data:')
+        ? opts.imageSource!.slice(opts.imageSource!.indexOf(',') + 1)
+        : await imageUrlToBase64(opts.imageSource!);
+      const res = await paintApi.generatePaintVideo({
+        description: opts.prompt.trim(),
+        image_base64: imageBase64,
+        duration_seconds: opts.durationSeconds,
+        fps: opts.fps,
+        resolution: opts.resolution,
+      });
+      const task: PaintVideoTask = {
+        taskId: res.task_id,
+        mode: opts.mode,
+        prompt: opts.prompt.trim(),
+        durationSeconds: opts.durationSeconds,
+        fps: opts.fps,
+        resolution: opts.resolution,
+        status: 'generating',
+        progress: 0,
+        degraded: res.degraded,
+        createdAt: Date.now(),
+      };
+      set((state) => ({
+        videoTasks: [task, ...state.videoTasks],
+        videoGenerating: true,
+      }));
+      pollVideoStatus(res.task_id);
+
+      // 行为学习埋点（fire-and-forget，失败静默）
+      trackBehavior('video_generate', {
+        content: opts.prompt.trim().slice(0, 200),
+        context: `${opts.mode}/${opts.durationSeconds}s`,
+        feature: 'video',
+      });
+      return true;
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? (err as { message: string }).message
+          : '视频生成发起失败';
+      toast(msg, 'error');
+      return false;
+    }
+  },
+
+  fetchVideoHistory: async () => {
+    try {
+      const res = await paintApi.getPaintVideoHistory(100);
+      const known = new Set(usePaintStore.getState().videoTasks.map((t) => t.taskId));
+      const items: PaintVideoTask[] = res.items.map((h) => ({
+        taskId: h.task_id,
+        mode: h.mode,
+        prompt: h.prompt,
+        durationSeconds: h.duration_seconds,
+        fps: h.fps,
+        resolution: h.resolution,
+        status: h.status,
+        progress: h.status === 'done' ? 100 : 0,
+        degraded: h.degraded,
+        createdAt: (h.created_at || 0) * 1000,
+      }));
+      // 生成中的历史任务恢复轮询（后端重启/页面刷新后 ETA 丢失属预期）
+      for (const it of items) {
+        if (it.status === 'generating' && !known.has(it.taskId)) {
+          pollVideoStatus(it.taskId);
+        }
+      }
+      set((state) => ({
+        // 已存在的本地任务（含实时进度）优先，历史仅补齐缺口
+        videoTasks: [
+          ...state.videoTasks,
+          ...items.filter((it) => !known.has(it.taskId)),
+        ],
+        videoGenerating: state.videoGenerating
+          || items.some((it) => it.status === 'generating'),
+      }));
+    } catch {
+      // 历史拉取失败不阻断页面（如后端重启中）；生成流程不受影响
+    }
+  },
+
+  removeVideoTask: (taskId) => {
+    const timer = _videoTimers.get(taskId);
+    if (timer) {
+      clearInterval(timer);
+      _videoTimers.delete(taskId);
+    }
+    set((state) => ({
+      videoTasks: state.videoTasks.filter((t) => t.taskId !== taskId),
+      videoGenerating: state.videoTasks.some(
+        (t) => t.taskId !== taskId && t.status === 'generating'),
+    }));
+    // 同步删除后端记录与文件（fire-and-forget；失败仅提示，本地已移除）
+    paintApi.deletePaintVideoTask(taskId).catch(() => {
+      useAppStore.getState().showToast('后端记录删除失败，重新打开后该记录可能仍存在', 'warning');
+    });
+  },
 }));
 
 /**
@@ -207,12 +420,22 @@ export const usePaintStore = create<PaintState>((set, get) => ({
  */
 function pollTaskStatus(taskId: string, request: PaintRequest) {
   let stopped = false;
+  let failStreak = 0; // 连续轮询失败计数（后端不可达检测）
+  const finishError = (message: string) => {
+    stopped = true;
+    clearInterval(timer);
+    useTaskStore.getState().failTask(taskId, message);
+    useAppStore.getState().showToast(message, 'error');
+    usePaintStore.setState({ generating: false, currentTaskId: null });
+    useAppStore.getState().releaseActiveFeature();
+  };
   const timer = setInterval(async () => {
     if (stopped) {
       return;
     }
     try {
       const task = await paintApi.getStatus(taskId);
+      failStreak = 0;
       // 进度回写（OmniTask.progress 约定 0~1）
       useTaskStore
         .getState()
@@ -241,29 +464,87 @@ function pollTaskStatus(taskId: string, request: PaintRequest) {
         useTaskStore.getState().completeTask(taskId, result.url);
         useAppStore.getState().releaseActiveFeature();
       } else if (task.status === 'error') {
-        stopped = true;
-        clearInterval(timer);
-        useTaskStore
-          .getState()
-          .failTask(taskId, task.error || '生成失败');
-        useAppStore
-          .getState()
-          .showToast(task.error || '生成失败', 'error');
-        usePaintStore.setState({ generating: false, currentTaskId: null });
-        useAppStore.getState().releaseActiveFeature();
+        finishError(task.error || '生成失败');
       }
     } catch {
-      // 单次失败不中断轮询
+      // 单次失败不中断轮询；但后端进程死亡（OOM 等）会导致轮询持续
+      // 抛网络错误、UI 永远转圈——连续 10 次（10s）判定后端不可达，
+      // 收敛任务为 error（2026-08-23 后端 OOM 前端卡死事故修复）
+      failStreak += 1;
+      if (failStreak >= 10) {
+        finishError('后端连接失败：服务可能已中断，请检查服务状态后重试');
+      }
     }
   }, 1000);
 
-  // 兜底超时（180s：首次含模型加载可能较慢）
+  // 兜底超时（180s：首次含模型加载可能较慢）——超时必须收敛任务
+  // 状态并释放功能锁（历史 bug：只停表不收敛，UI 永远停在"生成中"）
   setTimeout(() => {
     if (!stopped && usePaintStore.getState().generating) {
-      stopped = true;
-      clearInterval(timer);
+      finishError('生成超时（180s）：任务已停止，请重试');
     }
   }, 180000);
+}
+
+/**
+ * 轮询视频任务状态直到完成（2s 间隔，30 分钟兜底超时——视频生成含
+ * 模型装载可能远慢于图片；完成/失败/取消即停表并收敛 videoGenerating）。
+ */
+function pollVideoStatus(taskId: string) {
+  const timer = setInterval(async () => {
+    try {
+      const s = await paintApi.getPaintVideoStatus(taskId);
+      const done = s.status === 'done';
+      const failed = s.status === 'error' || s.status === 'cancelled';
+      usePaintStore.setState((state) => ({
+        videoTasks: state.videoTasks.map((t) =>
+          t.taskId === taskId
+            ? {
+                ...t,
+                status: done ? 'done' : failed ? s.status : 'generating',
+                progress: Math.round((s.progress ?? 0) * 100),
+                // 生成中透出后端外推 ETA；终态清空（完成后无意义）
+                etaSeconds: done || failed ? undefined : s.eta_seconds,
+                error: s.error,
+                degraded: t.degraded || s.degraded,
+              }
+            : t,
+        ),
+        ...(done || failed ? { videoGenerating: false } : {}),
+      }));
+      if (done) {
+        useAppStore.getState().showToast('视频生成完成', 'success');
+      } else if (failed) {
+        useAppStore
+          .getState()
+          .showToast(s.error || '视频生成失败', 'error');
+      }
+      if (done || failed) {
+        clearInterval(timer);
+        _videoTimers.delete(taskId);
+      }
+    } catch {
+      // 单次失败不中断轮询（由兜底超时收敛）
+    }
+  }, 2000);
+  _videoTimers.set(taskId, timer);
+  setTimeout(
+    () => {
+      if (_videoTimers.has(taskId)) {
+        clearInterval(timer);
+        _videoTimers.delete(taskId);
+        usePaintStore.setState((state) => ({
+          videoTasks: state.videoTasks.map((t) =>
+            t.taskId === taskId && t.status === 'generating'
+              ? { ...t, status: 'error', error: '生成超时' }
+              : t,
+          ),
+          videoGenerating: false,
+        }));
+      }
+    },
+    30 * 60 * 1000,
+  );
 }
 
 export default usePaintStore;

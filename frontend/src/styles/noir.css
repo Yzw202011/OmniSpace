@@ -271,15 +271,18 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
 
 /* ============================== 9. 亮色主题适配 ============================== */
 [data-theme='light'] button.bg-sakura-500:not(:disabled) {
+  background-image: none; /* 归零 premium 亮色宝石渐变（特异性同为 0,3,1，本层后加载裁定） */
   background-color: #ff6b9d;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     0 1px 3px rgba(140, 27, 66, 0.28);
 }
 [data-theme='light'] button.bg-sakura-500:not(:disabled):hover {
+  background-image: none;
   background-color: #ff7fab;
 }
 [data-theme='light'] button.bg-sakura-500:not(:disabled):active {
+  background-image: none;
   background-color: #f0608f;
 }
 [data-theme='light'] input[class*='bg-[var(--color-input-bg)]'],

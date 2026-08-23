@@ -17,6 +17,8 @@ import type { ChatSession } from './SessionList';
 import type { ChatMessage } from './MessageBubble';
 import { useDialogStore } from '@/stores/useDialogStore';
 import { useAppStore } from '@/stores/useAppStore';
+import { getErrorMessage } from '@/utils/errors';
+import { prewarmModel } from '@/services/dialogApi';
 import type { DialogSession, DialogMessage } from '@/types';
 
 /** 时间戳统一转毫秒 */
@@ -46,6 +48,9 @@ function mapMessage(m: DialogMessage, isStreaming: boolean): ChatMessage {
     timestamp: toMs(m.created_at),
     model: m.engine,
     streaming: isStreaming,
+    reasoning: m.reasoning,
+    reasoningMs: m.reasoning_ms,
+    images: m.images,
   };
 }
 
@@ -59,10 +64,13 @@ export default function DialogPage() {
   const selectSession = useDialogStore((s) => s.selectSession);
   const createSession = useDialogStore((s) => s.createSession);
   const deleteSession = useDialogStore((s) => s.deleteSession);
+  const batchDeleteSessions = useDialogStore((s) => s.batchDeleteSessions);
   const updateSession = useDialogStore((s) => s.updateSession);
   const sendMessage = useDialogStore((s) => s.sendMessage);
   const stopGenerate = useDialogStore((s) => s.stopGenerate);
   const showToast = useAppStore((s) => s.showToast);
+  // 用户持久化的模型选择（预热目标，与 /models/warmup 口径一致）
+  const modelId = useDialogStore((s) => s.modelId);
 
   /** 引用请求（seq 递增驱动 DialogView 输入框回填） */
   const [quoteRequest, setQuoteRequest] = useState<{ seq: number; message: ChatMessage } | null>(null);
@@ -79,7 +87,11 @@ export default function DialogPage() {
     if (!sessionsLoaded) {
       fetchSessions();
     }
-  }, [sessionsLoaded, fetchSessions]);
+    // 性能优化（2026-08-22）：进入对话页即后台预热模型，用户打字期间
+    // 完成加载，首条消息不再等冷启动（幂等，后端引擎锁串行化）；
+    // modelId 与 /models/warmup 同目标（2026-08-23 幽灵热切换修复）
+    prewarmModel(modelId || undefined);
+  }, [sessionsLoaded, fetchSessions, modelId]);
 
   // 映射数据
   const mappedSessions: ChatSession[] = sessions.map(mapSession);
@@ -99,11 +111,53 @@ export default function DialogPage() {
     createSession('新对话');
   }, [createSession]);
 
+  /**
+   * 确保存在活跃会话（2026-08-23 输入即自动创建对话）：
+   * 无会话时自动创建（遵循系统默认命名"新对话"），返回会话 id。
+   * - 防重入：并发触发共享同一个创建 Promise（输入首字符与立刻回车
+   *   发送两路触发只建一个会话）
+   * - 竞态收敛：若期间用户已手动新建/选中会话，直接返回现有会话
+   */
+  const ensureSessionRef = useRef<Promise<string | null> | null>(null);
+  const handleEnsureSession = useCallback((): Promise<string | null> => {
+    const existing = useDialogStore.getState().currentSession;
+    if (existing) return Promise.resolve(existing.id);
+    if (ensureSessionRef.current) return ensureSessionRef.current;
+    const p = (async () => {
+      try {
+        // 不传 title → 后端默认命名规则（"新对话"）
+        const session = await createSession();
+        return session.id;
+      } catch (err) {
+        showToast(getErrorMessage(err, '自动创建对话失败'), 'error');
+        return null;
+      } finally {
+        ensureSessionRef.current = null;
+      }
+    })();
+    ensureSessionRef.current = p;
+    return p;
+  }, [createSession, showToast]);
+
   const handleDeleteSession = useCallback(
     (id: string) => {
       deleteSession(id);
     },
     [deleteSession],
+  );
+
+  // 批量删除会话（2026-08-20：SessionList 批量管理模式）
+  const handleBatchDeleteSessions = useCallback(
+    async (ids: string[]) => {
+      try {
+        const deleted = await batchDeleteSessions(ids);
+        showToast(`已删除 ${deleted} 个对话`, 'success');
+      } catch (err) {
+        showToast(getErrorMessage(err, '批量删除失败'), 'error');
+        throw err; // 通知 SessionList 保持批量态（不清空勾选）
+      }
+    },
+    [batchDeleteSessions, showToast],
   );
 
   const handleSend = useCallback(
@@ -194,7 +248,9 @@ export default function DialogPage() {
       sessionsLoading={!sessionsLoaded}
       onSelectSession={handleSelectSession}
       onCreateSession={handleCreateSession}
+      onEnsureSession={handleEnsureSession}
       onDeleteSession={handleDeleteSession}
+      onBatchDeleteSessions={handleBatchDeleteSessions}
       onRenameSession={handleRenameSession}
       onTogglePinSession={handleTogglePinSession}
       onSearchSessions={handleSearchSessions}

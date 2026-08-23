@@ -10,7 +10,7 @@
  * ========================================================================== */
 
 import { useEffect, useState } from 'react';
-import { ChevronRight, Clapperboard, Film, FolderPlus, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Clapperboard, Film, FolderPlus, ListChecks, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import type { ComicProject } from '@/types';
@@ -32,6 +32,7 @@ export default function MangaLibrary() {
   const openProject = useMangaStore((s) => s.openProject);
   const renameProject = useMangaStore((s) => s.renameProject);
   const removeProject = useMangaStore((s) => s.removeProject);
+  const batchRemoveProjects = useMangaStore((s) => s.batchRemoveProjects);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -47,6 +48,12 @@ export default function MangaLibrary() {
   const [deleteTarget, setDeleteTarget] = useState<ComicProject | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [loadError, setLoadError] = useState(false);
+
+  // 批量管理模式：选中集合 + 批删确认
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   const loadProjects = () => {
     setLoadError(false);
@@ -122,6 +129,61 @@ export default function MangaLibrary() {
     ? projects.filter((p) => p.name.toLowerCase().includes(keyword.trim().toLowerCase()))
     : projects;
 
+  /* ------------------ 批量管理模式 ------------------ */
+
+  /** 进入/退出批量管理（进入时清空既有选择，退出时同步清理） */
+  const toggleBatchMode = () => {
+    setBatchMode((v) => !v);
+    setSelectedIds(new Set());
+  };
+
+  /** 勾选/取消勾选单个项目 */
+  const toggleSelect = (projectId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  };
+
+  /** 全选当前筛选结果 / 取消全选 */
+  const selectAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === filtered.length ? new Set() : new Set(filtered.map((p) => p.project_id)),
+    );
+  };
+
+  /** 批量删除确认执行：调 store 后按服务端结果收敛本地选择 */
+  const handleBatchDelete = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBatchDeleting(true);
+    batchRemoveProjects(ids)
+      .then((res) => {
+        if (res.missing_ids.length > 0) {
+          showToast(`已删除 ${res.deleted} 个项目，${res.missing_ids.length} 个不存在（已跳过）`, 'warning');
+        } else {
+          showToast(`已删除 ${res.deleted} 个项目`, 'success');
+        }
+        setBatchDeleteOpen(false);
+        setBatchMode(false);
+        setSelectedIds(new Set());
+      })
+      .catch((err: unknown) => showToast(getErrorMessage(err, '批量删除失败'), 'error'))
+      .finally(() => setBatchDeleting(false));
+  };
+
+  /** 批删确认弹窗内展示的名称列表（最多 5 个 + 省略） */
+  const batchDeleteNames = filtered
+    .filter((p) => selectedIds.has(p.project_id))
+    .map((p) => p.name);
+  const batchPreview = batchDeleteNames.slice(0, 5).join('、');
+  const batchMore = batchDeleteNames.length - 5;
+
   return (
     <div className="manga-lib">
       {/* 页头（竞品：标题文案 + 搜索 + 主 CTA） */}
@@ -141,12 +203,47 @@ export default function MangaLibrary() {
               onChange={(e) => setKeyword(e.target.value)}
             />
           </div>
-          <button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>
-            <FolderPlus size={15} />
-            新建作品
-          </button>
+          {projects.length > 0 && (
+            <button
+              type="button"
+              className={`btn ${batchMode ? 'btn-primary' : 'btn-ghost'}`}
+              disabled={batchDeleting}
+              onClick={toggleBatchMode}
+            >
+              {batchMode ? <X size={15} /> : <ListChecks size={15} />}
+              {batchMode ? '退出管理' : '批量管理'}
+            </button>
+          )}
+          {!batchMode && (
+            <button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>
+              <FolderPlus size={15} />
+              新建作品
+            </button>
+          )}
         </div>
       </div>
+
+      {/* 批量管理操作条（仅批量模式显示） */}
+      {batchMode && (
+        <div className="manga-batch-bar">
+          <span className="manga-batch-count">
+            已选 <strong>{selectedIds.size}</strong> / {filtered.length} 个作品
+          </span>
+          <button type="button" className="btn btn-ghost" disabled={batchDeleting || filtered.length === 0} onClick={selectAll}>
+            <Check size={14} />
+            {selectedIds.size === filtered.length && filtered.length > 0 ? '取消全选' : '全选'}
+          </button>
+          <button
+            type="button"
+            className="btn manga-batch-delete"
+            disabled={batchDeleting || selectedIds.size === 0}
+            onClick={() => setBatchDeleteOpen(true)}
+          >
+            <Trash2 size={14} />
+            删除选中{selectedIds.size > 0 ? `（${selectedIds.size}）` : ''}
+          </button>
+        </div>
+      )}
 
       {/* 封面网格（首格新建大卡 + 作品封面卡） */}
       {loading && projects.length === 0 ? (
@@ -184,62 +281,86 @@ export default function MangaLibrary() {
           </button>
         </div>
       ) : (
-        <div className="manga-lib-grid">
-          <button type="button" className="manga-create-card" onClick={() => setCreateOpen(true)}>
-            <span className="manga-create-icon">
-              <Plus size={24} />
-            </span>
-            <span style={{ fontWeight: 600 }}>新建作品</span>
-            <span style={{ fontSize: 'var(--font-size-xs)' }}>从剧本开始，AI 自动切分分镜</span>
-          </button>
+        <div className={`manga-lib-grid${batchMode ? ' batching' : ''}`}>
+          {!batchMode && (
+            <button type="button" className="manga-create-card" onClick={() => setCreateOpen(true)}>
+              <span className="manga-create-icon">
+                <Plus size={24} />
+              </span>
+              <span style={{ fontWeight: 600 }}>新建作品</span>
+              <span style={{ fontSize: 'var(--font-size-xs)' }}>从剧本开始，AI 自动切分分镜</span>
+            </button>
+          )}
 
-          {filtered.map((p) => (
-            <div
-              key={p.project_id}
-              role="button"
-              tabIndex={0}
-              className="manga-cover-card"
-              onClick={() => handleOpen(p)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleOpen(p);
-              }}
-              title={p.name}
-            >
-              <div className="manga-cover">
-                <Film size={36} style={{ opacity: 0.85 }} />
-                <span className="manga-cover-name">{p.name}</span>
-                <span className="manga-cover-actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    title="重命名"
-                    aria-label={`重命名 ${p.name}`}
-                    onClick={() => {
-                      setRenameTarget(p);
-                      setRenameValue(p.name);
-                    }}
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    title="删除"
-                    aria-label={`删除 ${p.name}`}
-                    onClick={() => setDeleteTarget(p)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </span>
+          {filtered.map((p) => {
+            const checked = selectedIds.has(p.project_id);
+            return (
+              <div
+                key={p.project_id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={batchMode ? checked : undefined}
+                className={`manga-cover-card${batchMode && checked ? ' selected' : ''}`}
+                onClick={() => (batchMode ? toggleSelect(p.project_id) : handleOpen(p))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (batchMode) toggleSelect(p.project_id);
+                    else handleOpen(p);
+                  }
+                }}
+                title={p.name}
+              >
+                <div className="manga-cover">
+                  <Film size={36} style={{ opacity: 0.85 }} />
+                  <span className="manga-cover-name">{p.name}</span>
+                  {batchMode && (
+                    <span className={`manga-cover-check${checked ? ' checked' : ''}`} aria-hidden="true">
+                      {checked && <Check size={14} />}
+                    </span>
+                  )}
+                  {!batchMode && (
+                    <span className="manga-cover-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        title="重命名"
+                        aria-label={`重命名 ${p.name}`}
+                        onClick={() => {
+                          setRenameTarget(p);
+                          setRenameValue(p.name);
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-icon"
+                        title="删除"
+                        aria-label={`删除 ${p.name}`}
+                        onClick={() => setDeleteTarget(p)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+                <div className="manga-cover-body flex items-center gap-2">
+                  <span className="manga-cover-meta flex-1">
+                    {batchMode
+                      ? checked
+                        ? '已选中'
+                        : '点击勾选'
+                      : openingId === p.project_id
+                        ? '打开中…'
+                        : `更新于 ${formatTs(p.updated_at)}`}
+                  </span>
+                  {!batchMode && (
+                    <ChevronRight size={14} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} />
+                  )}
+                </div>
               </div>
-              <div className="manga-cover-body flex items-center gap-2">
-                <span className="manga-cover-meta flex-1">
-                  {openingId === p.project_id ? '打开中…' : `更新于 ${formatTs(p.updated_at)}`}
-                </span>
-                <ChevronRight size={14} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {filtered.length === 0 && !loading && keyword.trim() && (
             <div className="text-tertiary" style={{ padding: 'var(--space-5) 0', fontSize: 'var(--font-size-sm)' }}>
@@ -337,7 +458,8 @@ export default function MangaLibrary() {
         <Modal title="确认删除" onClose={() => !deleting && setDeleteTarget(null)} width={400}>
           <div className="flex flex-col gap-3">
             <p className="text-secondary" style={{ margin: 0, fontSize: 'var(--font-size-sm)' }}>
-              确定要删除项目「{deleteTarget.name}」吗？该操作会同时删除其全部分镜与资产，且无法恢复。
+              确定要删除项目「{deleteTarget.name}」吗？其分镜与关键帧将被删除且无法恢复；
+              生成的资产将转为全局资产保留，可跨项目继续使用。
             </p>
             <div className="flex gap-3" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>
@@ -351,6 +473,35 @@ export default function MangaLibrary() {
                 onClick={handleDelete}
               >
                 {deleting ? '删除中…' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 批量删除确认 */}
+      {batchDeleteOpen && (
+        <Modal title="批量删除确认" onClose={() => !batchDeleting && setBatchDeleteOpen(false)} width={440}>
+          <div className="flex flex-col gap-3">
+            <p className="text-secondary" style={{ margin: 0, fontSize: 'var(--font-size-sm)' }}>
+              确定要删除选中的 <strong>{selectedIds.size}</strong> 个项目吗？其分镜与关键帧将被删除且无法恢复；
+              各项目生成的资产将转为全局资产保留，可跨项目继续使用。
+            </p>
+            <p className="text-tertiary" style={{ margin: 0, fontSize: 'var(--font-size-xs)', wordBreak: 'break-all' }}>
+              {batchPreview}
+              {batchMore > 0 ? ` 等 ${batchDeleteNames.length} 个项目` : ''}
+            </p>
+            <div className="flex gap-3" style={{ justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-ghost" disabled={batchDeleting} onClick={() => setBatchDeleteOpen(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary manga-batch-delete"
+                disabled={batchDeleting}
+                onClick={handleBatchDelete}
+              >
+                {batchDeleting ? '删除中…' : `确认删除（${selectedIds.size}）`}
               </button>
             </div>
           </div>

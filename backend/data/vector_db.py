@@ -225,6 +225,40 @@ class VectorDB:
         """
         self.embed("warmup")
 
+    # ── GPU 池压缩支持（2026-08-23 显存锚定修复）─────────────────
+
+    def park_embed_model(self) -> bool:
+        """bge 嵌入模型临时停靠 CPU（供显存池压缩，见
+        model_manager.deflate_cuda_pool）。
+
+        大模型卸载后 empty_cache 只能释放无活跃块的 segment；bge
+        1.3GB 活跃块散布在大 segment 中会把整个缓存池钉死（实测
+        reserved 18.2GB 物理锚定）。临时停靠 → empty_cache 全段
+        释放 → restore 回卡，即可归还。设备迁移失败返回 False。
+        """
+        m = self._embed_model
+        if m is None:
+            return True  # 未加载（哈希回退态），无需停靠
+        try:
+            if str(getattr(m, "device", "")).startswith("cuda"):
+                m.to("cpu")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("bge 停靠 CPU 失败（池压缩跳过）: %s", exc)
+            return False
+
+    def restore_embed_model(self) -> None:
+        """停靠后回卡（失败留在 CPU：RAG 退化为慢速但可用）。"""
+        m = self._embed_model
+        if m is None:
+            return
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                m.to("cuda")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("bge 回卡失败（暂用 CPU 检索）: %s", exc)
+
     def embed(self, text: str) -> list[float]:
         """将文本转换为向量。
 
@@ -253,6 +287,23 @@ class VectorDB:
         norm = math.sqrt(sum(v * v for v in vec)) or 1.0
         return [v / norm for v in vec]
 
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """批量嵌入（性能优化：单次模型前向替代逐条 encode，降低调用开销）。
+
+        使用 sentence-transformers 的批式 encode(列表)；若模型不接受列表
+        （降级/包装层限制）则自动回退为逐条 embed，语义结果一致。
+        """
+        if not texts:
+            return []
+        model = self._get_embed_model()
+        if model is not None:
+            try:
+                vecs = model.encode(texts, normalize_embeddings=True)
+                return [v.tolist() for v in vecs]
+            except Exception:
+                pass  # 批量编码失败，回退逐条
+        return [self.embed(t) for t in texts]
+
     def add(self, documents: list[str], ids: list[str] | None = None,
             metadatas: list[dict] | None = None) -> list[str]:
         """批量添加文档到向量库，返回实际使用的 ID 列表。
@@ -274,7 +325,7 @@ class VectorDB:
 
         if self._use_chroma and self._collection is not None:
             try:
-                embeddings = [self.embed(doc) for doc in documents]
+                embeddings = self._embed_batch(documents)
                 self._collection.upsert(
                     ids=ids,
                     documents=documents,

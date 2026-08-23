@@ -20,19 +20,35 @@ import threading
 import time
 import webbrowser
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import psutil
+import yaml
 
 # 添加项目路径
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def _load_disk_start_min_gb(default: float = 20.0) -> float:
+    """从 config.yaml `disk.start_min_gb` 读取启动磁盘门槛（P2 统一口径）。
+
+    Launcher 是独立启动进程，不 import backend.config（避免其目录创建 /
+    回环校验副作用），直接轻量读取同一份 config.yaml；解析失败回退默认值。
+    """
+    try:
+        cfg_path = PROJECT_ROOT / 'backend' / 'config.yaml'
+        with open(cfg_path, encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+        return float(cfg['disk']['start_min_gb'])
+    except Exception:
+        return default
+
+
 @dataclass
-class LauncherConfig:
+class LauncherConfig: 
     """Launcher配置"""
     backend_port: int = 5800
     frontend_port: int = 0  # 0=自动选择
@@ -40,7 +56,9 @@ class LauncherConfig:
     health_check_interval: float = 5.0
     max_restart_attempts: int = 5
     restart_cooldown: float = 30.0
-    min_disk_space_gb: float = 20.0  # 审计 R3-ARCH6：5GB 对模型库+生成物写入余量不足，提至 20GB
+    # P2 统一口径：启动磁盘门槛读取 config.yaml `disk.start_min_gb`（单一起源，
+    # 与 startup_check / installer 不再各自硬编码；读取失败回退 20GB）
+    min_disk_space_gb: float = field(default_factory=_load_disk_start_min_gb)
     port_range: tuple[int, int] = (5800, 5835)
 
 
@@ -327,10 +345,15 @@ class BackendProcess:
         self._crash_lock = threading.Lock()
 
     # L-H1: 子进程环境变量白名单，仅传递必要变量，避免敏感信息泄露
+    # 用户身份变量（USERNAME 等）必须传递：torch._dynamo 导入链经
+    # getpass.getuser() 解析缓存目录，缺全部身份变量时 fallback 到
+    # Unix-only 的 pwd 模块 → Windows 上 ModuleNotFoundError → dynamo
+    # 半途失败 → 注册表残留 → 二次导入必炸（2026-08-22 对话故障根因）
     _ENV_WHITELIST = (
         'PATH', 'SYSTEMROOT', 'PYTHONPATH', 'PYTHONUNBUFFERED',
         'CUDA_VISIBLE_DEVICES', 'HF_HOME', 'OMP_NUM_THREADS',
         'LANG', 'LC_ALL', 'TEMP', 'TMP',
+        'USERNAME', 'USERPROFILE', 'USER', 'LOGNAME',
     )
 
     def _build_child_env(self, port: int) -> dict:
@@ -492,6 +515,21 @@ class BackendProcess:
 
     def _handle_crash_locked(self, port: int):
         now = time.time()
+
+        # 端口归属检查（2026-08-22 僵尸循环修复）：双 launcher 共存时，
+        # 对方 watchdog 拉起的 uvicorn 已占用端口，本实例重启的 uvicorn
+        # 必然 bind 失败退出，而 wait_until_ready 探测到对方的健康响应
+        # 还会清零重启计数 → 无限拉起短命进程（每轮完整跑 lifespan：
+        # 加载 bge 嵌入模型 1.3GB + 调度引擎，实测每 17-30s 一轮，
+        # RAM 周期性抖动 + 日志刷屏）。自己子进程已死但端口仍健康
+        # = 响应来自别的实例 → 本实例退位退出，让幸存者继续服务。
+        if self.is_healthy(port) and (not self.process or self.process.poll() is not None):
+            self._running = False
+            if self.on_status_change:
+                self.on_status_change(
+                    'crash_permanent',
+                    f'端口 {port} 已被另一健康后端实例占用，本实例退位退出（避免僵尸重启循环）')
+            return
 
         # 冷却检查
         if now - self._last_restart_time < self.config.restart_cooldown:

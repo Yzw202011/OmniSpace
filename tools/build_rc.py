@@ -17,6 +17,7 @@
   - tools/git:            MinGit 版本控制工具（开发机专用，交付不需要）
   - node_modules:         前端构建期依赖，交付运行只用 frontend/dist
   - .vscode / .trae-html-share-packages: IDE/工具链私有目录
+  - .cache:                vLLM/Triton 编译缓存（机器本地可再生，2026-08-21 vLLM 集成新增）
   - tmp_* / _tmp_* / *.log / e2e_state.json / *.pyc / Thumbs.db: 临时脚本与运行残留
 
 pydeps 必须交付（2026-08-19 TASK-P0-06 实测裁定，推翻审计 P23 结论）:
@@ -45,7 +46,7 @@ DEFAULT_DEST = Path(r"E:\RC1002")
 # 顶层排除（绝对路径，防误杀同名源码目录）
 EXCLUDE_DIRS_TOP = [
     ".git", "data", "logs", ".pytest_cache", ".vscode",
-    ".trae-html-share-packages", "tools/git",
+    ".trae-html-share-packages", "tools/git", ".cache",
 ]
 # 全树同名排除（裸名，任意层级生效）
 EXCLUDE_DIRS_ANY = ["__pycache__", "node_modules"]

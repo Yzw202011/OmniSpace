@@ -33,18 +33,20 @@ import re
 import time
 import uuid
 
-from fastapi import APIRouter, Body, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from ..config import DIALOG_MAX_INPUT_CHARS
 from ..data.crypto import decrypt_text, encrypt_text
 from ..data.database import get_db_safe, parse_json
-from ..data.models import DialogSessionCreate
+from ..data.models import DialogSessionCreate, SessionBatchDelete
 from ..middleware.error_handler import ApiError, ok
 from ..middleware.feature_lock import acquire_or_raise
 from ..services.inference.dialog_engine import (
     DEFAULT_SYSTEM_PROMPT,
+    THINKING_SYSTEM_SUFFIX,
     get_dialog_engine,
+    strip_think_tags,
 )
 from ..services.offload import run_blocking, sync_core
 
@@ -87,6 +89,9 @@ def _row_to_message(row: dict) -> dict:
         "role": row["role"],
         # 要求#36：content 落库加密，读取统一经此漏斗解密（明文历史透传）
         "content": decrypt_text(row.get("content", "")),
+        # 深度思考过程（2026-08-22）：同链路加密/解密，空值不产生密文
+        "reasoning": decrypt_text(row.get("reasoning", "") or "")
+        if row.get("reasoning") else "",
         "attachments": parse_json(row.get("attachments"), None),
         "images": parse_json(row.get("attachments"), None) or [],
         "model_used": row.get("model_used", ""),
@@ -105,8 +110,19 @@ def _sse(payload) -> str:
 
 # ── 多模态图片解码 ──────────────────────────────────────────────────
 
+# 上传图片最长边上限（Qwen-VL 官方推荐 1280；超过则等比压缩——
+# 视觉 token 随面积线性增长，大图是 prefill 超时的首要诱因）
+_MAX_IMAGE_EDGE = 1280
+
 def _decode_images(images: list | None) -> list:
-    """把 base64 图片列表解码为 PIL.Image；坏数据跳过。"""
+    """把 base64 图片列表解码为 PIL.Image；坏数据跳过。
+
+    大图统一等比缩放（2026-08-21 prefill 超时事故）：Qwen-VL 视觉编码
+    按 patch 计费，一张 2560×1440 截图产生数千视觉 token，prefill 实测
+    可慢至 12.5 tok/s → 首字延迟超 180s 读超时（前端「生成失败」）。
+    最长边压到 1280（Qwen-VL 官方推荐上限）后视觉 token 数量级下降，
+    对话理解质量不受影响。
+    """
     if not images:
         return []
     try:
@@ -123,7 +139,12 @@ def _decode_images(images: list | None) -> list:
             if "," in item and item.split(",", 1)[0].startswith("data:"):
                 item = item.split(",", 1)[1]
             img = Image.open(io.BytesIO(base64.b64decode(item)))
-            out.append(img.convert("RGB"))
+            img = img.convert("RGB")
+            if max(img.size) > _MAX_IMAGE_EDGE:
+                img.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE),
+                              Image.LANCZOS)
+                log.info("图片过大已等比压缩: -> %dx%d", *img.size)
+            out.append(img)
         except Exception as exc:
             log.warning("图片解码失败（跳过）: %s", exc)
     return out
@@ -385,7 +406,8 @@ def _ensure_session(sid: str, title_seed: str, model: str) -> None:
 
 
 def _save_message(sid: str, role: str, content: str,
-                  model_used: str = "", attachments=None) -> dict:
+                  model_used: str = "", attachments=None,
+                  reasoning: str = "") -> dict:
     msg = {
         "id": uuid.uuid4().hex,
         "session_id": sid,
@@ -393,14 +415,17 @@ def _save_message(sid: str, role: str, content: str,
         "content": content,
         "attachments": attachments,
         "model_used": model_used,
+        "reasoning": reasoning,
         "timestamp": _now(),
     }
     db = get_db_safe()
     if db is not None:
         try:
-            # 要求#36：落库前加密 content；返回值保持明文供调用方使用
+            # 要求#36：落库前加密 content/reasoning；返回值保持明文供调用方使用
             stored = dict(msg)
             stored["content"] = encrypt_text(content)
+            if reasoning:
+                stored["reasoning"] = encrypt_text(reasoning)
             db.insert("dialog_messages", stored)
             db.update("dialog_sessions", {"updated_at": msg["timestamp"]},
                       "id=?", (sid,))
@@ -438,6 +463,89 @@ def _load_history(sid: str, max_rounds: int = 20) -> list[dict]:
 
 # ── 发送消息 ────────────────────────────────────────────────────────
 
+@router.get("/dialog/models")
+def dialog_list_models():
+    """对话可用模型清单（2026-08-20：模型选择 + 档位选择前端数据源）。
+
+    返回每个本地就绪模型：model_id / 显示名 / 参数量档位 / 预估显存 /
+    本机物理显存可承载判定（不可承载前端置灰）/ 是否当前已加载。
+    """
+    engine = get_dialog_engine()
+    items: list[dict] = []
+    try:
+        from ..services.inference.dialog_engine import (
+            DIALOG_MODEL_CANDIDATES,
+            _cuda_total_gb,
+            _effective_candidates,
+            _estimated_load_gb,
+            _resolve_candidate_dir,
+            discover_dialog_models,
+        )
+        total_vram = _cuda_total_gb()
+        # 候选表 + 动态发现合并（保序去重）。物理装不下的候选（如 16GB
+        # 卡上的 8b bf16 16.3GB）也要展示——前端置灰标注"超本机显存"，
+        # 让用户知道该档位存在而非凭空消失
+        entries: list[tuple[str, str]] = [
+            (mid, rel) for mid, rel, _v in _effective_candidates()]
+        from ..services.inference.dialog_engine import (
+            DIALOG_MODEL_CANDIDATES as _BASE_CANDS,
+            _HIGH_TIER_DIALOG_CANDIDATE as _HI_CAND,
+        )
+        extra = [(_HI_CAND[0], _HI_CAND[1])] + [c[:2] for c in _BASE_CANDS]
+        for mid, rel in extra:
+            if mid not in [m for m, _r in entries]:
+                entries.append((mid, rel))
+        for mid in discover_dialog_models():
+            if mid not in [m for m, _r in entries]:
+                entries.append((mid, mid))
+        for mid, rel in entries:
+            path = _resolve_candidate_dir(rel)
+            if path is None:
+                continue  # 磁盘不存在不入清单
+            # 语音合成等非对话模型不入清单（动态发现误收，如 qwen3-tts）
+            if any(k in mid.lower() for k in ("tts", "voice", "speech",
+                                              "asr", "audio")):
+                continue
+            est = _estimated_load_gb(path, "vl")
+            fits = total_vram <= 0 or est <= total_vram * 0.98
+            items.append({
+                "model_id": mid,
+                "name": _dialog_model_display_name(mid),
+                "size_label": _dialog_model_size_label(mid),
+                "est_vram_gb": round(est, 1),
+                "fits_local": fits,
+                "loaded": engine.is_ready and engine.model_name == mid,
+            })
+        items.sort(key=lambda x: (not x["fits_local"],))
+        return ok({"models": items, "total_vram_gb": round(total_vram, 1)})
+    except Exception as exc:  # noqa: BLE001 - 清单失败不阻断对话主流程
+        log.warning("对话模型清单构建失败: %s", exc)
+        return ok({"models": [], "total_vram_gb": 0})
+
+
+def _dialog_model_display_name(mid: str) -> str:
+    """模型 id → 中文显示名（档位描述对齐规格 §6.2.1）。"""
+    m = mid.lower()
+    if "qwen3-vl-8b" in m:
+        return "Qwen3-VL 8B · 旗舰"
+    if "qwen3-vl-4b" in m:
+        return "Qwen3-VL 4B · 均衡"
+    if "qwen3-vl-2b" in m:
+        return "Qwen3-VL 2B · 轻量"
+    if "qwen2-vl-2b" in m:
+        return "Qwen2-VL 2B · 轻量"
+    if "qwen3-32b" in m:
+        return "Qwen3 32B · 文本旗舰"
+    return mid
+
+
+def _dialog_model_size_label(mid: str) -> str:
+    """模型 id → 参数量档位标签（8B/4B/2B/…）。"""
+    import re as _re
+    m = _re.search(r"(\d+(?:\.\d+)?)\s*b\b", mid.lower())
+    return f"{m.group(1).upper()}B" if m else ""
+
+
 @router.post("/dialog/send")
 @router.post("/chat/send")
 async def dialog_send(body: dict = Body(default_factory=dict)):
@@ -462,6 +570,7 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
     sid = str(body.get("session_id") or "").strip() or uuid.uuid4().hex
     model_req = body.get("model") or None
     stream = bool(body.get("stream", False))
+    thinking = bool(body.get("thinking", False))
     try:
         temperature = float(body.get("temperature", 0.7))
     except (TypeError, ValueError):
@@ -470,12 +579,26 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
         max_new_tokens = int(body.get("max_new_tokens", 1024))
     except (TypeError, ValueError):
         max_new_tokens = 1024
+    if thinking:
+        max_new_tokens = max(max_new_tokens, 2048)  # 思考通道独立预算
 
     images = _decode_images(body.get("images") or body.get("attachments"))
 
     engine = get_dialog_engine()
     lock = await acquire_or_raise("dialog", task_id=sid)
     lock_handed_off = False  # 流式路径下锁移交给 SSE 生成器
+    # 执行流程追踪（2026-08-23）：触发=用户发送消息，节点链
+    # 模型加载→上下文组装→流式/一次性生成→消息落库
+    from ..services.flow_trace import start_flow
+    flow = start_flow(
+        "dialog", "chat",
+        f"AI 对话：{message[:20]}{'…' if len(message) > 20 else ''}",
+        trigger="用户发送消息",
+        input_summary=f"{len(message)} 字"
+                      + (f" +{len(images)} 图" if images else "")
+                      + (" · 深度思考" if thinking else "")
+                      + (" · 流式" if stream else ""),
+        detail=f"session={sid} model={model_req or 'auto'}")
     try:
         # 新一轮发送开始时丢弃陈旧停止标记：/chat/stop 在空闲会话上
         # 置标记后无活跃流触发 finally 清理，若不清除会使下一次流式
@@ -485,25 +608,35 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
         # 引擎未加载时尝试加载；失败 → 30xxx 段友好错误。
         # 审计 R1-04：ensure_loaded 为 15s 级阻塞调用，经 run_blocking
         # 卸载执行，避免卡住事件循环
-        if not engine.is_ready and not await run_blocking(
-                engine.ensure_loaded, model_req):
-            status = engine.get_status()
-            code = 30004 if status["state"] == "error" else 30003
-            raise ApiError(code,
-                           status["last_error"] or "对话模型未就绪，请稍后再试",
-                           detail={"engine": status})
+        if not engine.is_ready:
+            with flow.node("模型加载", input_summary=f"model={model_req or 'auto'}",
+                           friendly="加载对话模型") as n:
+                if not await run_blocking(engine.ensure_loaded, model_req):
+                    status = engine.get_status()
+                    code = 30004 if status["state"] == "error" else 30003
+                    raise ApiError(
+                        code,
+                        status["last_error"] or "对话模型未就绪，请稍后再试",
+                        detail={"engine": status})
+                n.output(f"模型就绪: {engine.model_name}")
 
-        # RAG 注入
-        knowledge_text, refs = _rag_enhance(message)
-
-        # 组装上下文（系统 Prompt + 注入 + 历史 + 当前输入）
-        history = _load_history(sid)
-        max_ctx = min(int(body.get("context_length", 8192) or 8192), 8192)
-        messages = engine.build_context(
-            message, history=history, knowledge_text=knowledge_text,
-            system_prompt=DEFAULT_SYSTEM_PROMPT, images=images or None,
-            max_tokens=max_ctx,
-        )
+        # 节点：上下文组装（RAG 检索 + 历史 + build_context）
+        with flow.node("上下文组装", friendly="检索知识库并组装上下文") as n:
+            # RAG 注入
+            knowledge_text, refs = _rag_enhance(message)
+            # 组装上下文（系统 Prompt + 注入 + 历史 + 当前输入）；
+            # 深度思考模式追加四步框架引导（THINKING_SYSTEM_SUFFIX）
+            sys_prompt = (DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
+                          if thinking else DEFAULT_SYSTEM_PROMPT)
+            history = _load_history(sid)
+            max_ctx = min(int(body.get("context_length", 8192) or 8192), 8192)
+            messages = engine.build_context(
+                message, history=history, knowledge_text=knowledge_text,
+                system_prompt=sys_prompt, images=images or None,
+                max_tokens=max_ctx,
+            )
+            n.output(f"历史 {len(history)} 条"
+                     + (f"，知识库引用 {len(refs)} 条" if refs else ""))
 
         _ensure_session(sid, message, model_req or engine.model_name)
         _save_message(sid, "user", message,
@@ -513,24 +646,41 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
             resp = await _stream_response(
                 engine, lock, sid, message, history, knowledge_text,
                 messages, images, refs,
-                temperature, max_new_tokens, max_ctx)
-            lock_handed_off = True
+                temperature, max_new_tokens, max_ctx, thinking, flow)
+            lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
             return resp
 
-        # 非流式
-        try:
-            reply = await run_blocking(
-                engine.chat, messages, images or None,
-                temperature, max_new_tokens)
-        except RuntimeError as exc:
-            raise ApiError(30004, str(exc) or "对话推理失败") from exc
+        # 非流式：节点=一次性生成
+        with flow.node("生成回复", input_summary=f"max_tokens={max_new_tokens}",
+                       friendly="AI 生成回复") as n:
+            try:
+                reply = await run_blocking(
+                    engine.chat, messages, images or None,
+                    temperature, max_new_tokens)
+            except RuntimeError as exc:
+                raise ApiError(30004, str(exc) or "对话推理失败") from exc
+            n.output(f"首字 {engine.last_first_token_ms:.0f}ms "
+                     f"总 {engine.last_total_ms:.0f}ms")
+        # 深度思考：整段产出切分 reasoning/content（与流式同语义）
+        reply_reasoning = ""
+        if thinking and "</think>" in reply:
+            parts = reply.split("</think>", 1)
+            reply_reasoning = parts[0].replace("<think>", "", 1).strip()
+            reply = parts[1]
         # 被动补全（文档B §7.1.6.1 步骤4，R2-B01）：
         # 不确定性回复 → 快速搜索 1~3 页 → 补充上下文重推理一次
+        # （检测只作用于 content 段；重推理走非思考 prompt）
         reply, passive = await _maybe_passive_completion(
             engine, message, reply, history, knowledge_text, sid,
             images, temperature, max_new_tokens, max_ctx)
-        msg = _save_message(sid, "assistant", reply,
-                            model_used=engine.model_name)
+        with flow.node("消息落库", friendly="保存对话记录") as n:
+            msg = _save_message(sid, "assistant", reply,
+                                model_used=engine.model_name,
+                                reasoning=reply_reasoning)
+            n.output(f"回复 {len(reply)} 字")
+        flow.end("success",
+                 output_summary=f"回复 {len(reply)} 字"
+                                f" 首字 {engine.last_first_token_ms:.0f}ms")
         return ok({
             "session_id": sid,
             "message": msg,
@@ -538,6 +688,13 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
             "passive_completion": passive,
             "first_token_ms": round(engine.last_first_token_ms, 1),
         })
+    except ApiError as exc:
+        flow.end("error", error_code=str(exc.code),
+                 error_detail=str(getattr(exc, "message", exc))[:300])
+        raise
+    except Exception as exc:  # noqa: BLE001
+        flow.end("error", error_detail=str(exc)[:300])
+        raise
     finally:
         # 流式路径下锁由 SSE 生成器持有至流结束；其余路径在此释放
         if not lock_handed_off:
@@ -564,31 +721,64 @@ async def _stream_response(engine, lock, sid: str, message: str,
                            messages: list,
                            images: list, refs: list,
                            temperature: float, max_new_tokens: int,
-                           max_ctx: int):
-    """构造 SSE 流式响应；生成结束后落库并释放功能锁。"""
+                           max_ctx: int, thinking: bool = False,
+                           flow=None):
+    """构造 SSE 流式响应；生成结束后落库并释放功能锁。
+
+    深度思考模式（2026-08-22）：思考段以 {"reasoning": str} 事件推送
+    （与 {"token": str} 正文事件分离，前端按通道渲染）。
+    执行流程追踪（2026-08-23）：flow 由 dialog_send 移交，token 流
+    节点心跳续命，流结束（成功/错误/客户端断开）统一收尾。
+    """
+    from ..services.flow_trace import NULL_FLOW
+    flow = flow or NULL_FLOW
 
     async def event_gen():
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         collected: list[str] = []
+        reasoning_parts: list[str] = []
         error_holder: list[str] = []
 
         def _produce():
-            try:
-                for token in engine.chat_stream(
-                        messages, images=images or None,
-                        temperature=temperature,
-                        max_new_tokens=max_new_tokens,
-                        stop_check=lambda: sid in _stop_flags):
-                    collected.append(token)
+            # 推理节点：executor 线程内执行，token 片段作追踪心跳
+            with flow.node(
+                    "流式生成",
+                    input_summary=f"max_tokens={max_new_tokens}"
+                                  + (" · 深度思考" if thinking else ""),
+                    friendly="AI 正在流式生成回复") as gen_node:
+                produced = 0
+                try:
+                    for event in engine.chat_stream_ex(
+                            messages, images=images or None,
+                            temperature=temperature,
+                            max_new_tokens=max_new_tokens,
+                            enable_thinking=thinking,
+                            stop_check=lambda: sid in _stop_flags):
+                        kind = event["type"]
+                        text = event["text"]
+                        if not text:
+                            continue
+                        produced += 1
+                        if produced % 16 == 0:  # 心跳节流：16 片段一次
+                            gen_node.progress(f"已生成 {produced} 片段")
+                        if kind == "reasoning":
+                            reasoning_parts.append(text)
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, ("reasoning", text))
+                        else:
+                            collected.append(text)
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, ("token", text))
+                    gen_node.output(f"{produced} 片段 "
+                                    f"首字 {engine.last_first_token_ms:.0f}ms")
+                except Exception as exc:  # noqa: BLE001 - 汇聚为错误事件
+                    log.exception("对话流式推理失败")
+                    error_holder.append(str(exc))
                     loop.call_soon_threadsafe(
-                        queue.put_nowait, ("token", token))
-            except Exception as exc:  # noqa: BLE001 - 汇聚为错误事件
-                log.exception("对话流式推理失败")
-                error_holder.append(str(exc))
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
+                        queue.put_nowait, ("error", str(exc)))
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
         producer = loop.run_in_executor(None, _produce)
         try:
@@ -599,13 +789,16 @@ async def _stream_response(engine, lock, sid: str, message: str,
                 kind, payload = await queue.get()
                 if kind == "token":
                     yield _sse({"token": payload})
+                elif kind == "reasoning":
+                    yield _sse({"reasoning": payload})
                 elif kind == "error":
                     yield _sse({"error": payload, "code": 30004})
                 elif kind == "done":
                     break
             await producer
             # 被动补全（R2-B01）：首轮回复含不确定性标记时，快速搜索
-            # 重推理一次，改进回复作为追加 token 继续推送（[DONE] 之前）
+            # 重推理一次，改进回复作为追加 token 继续推送（[DONE] 之前）；
+            # 检测只作用于 content 段（思考文本天然含不确定性措辞）
             if collected and not error_holder:
                 reply0 = "".join(collected)
                 new_reply, passive = await _maybe_passive_completion(
@@ -621,15 +814,37 @@ async def _stream_response(engine, lock, sid: str, message: str,
         finally:
             _stop_flags.discard(sid)
             reply = "".join(collected)
-            if reply:
-                _save_message(sid, "assistant", reply,
-                              model_used=engine.model_name)
+            reasoning_full = "".join(reasoning_parts)
+            # 节点：消息落库
+            with flow.node("消息落库", friendly="保存对话记录") as n:
+                if reply or reasoning_full:
+                    # M-4 兜底：异常路径残留标签剥离，防污染后续轮上下文
+                    _save_message(sid, "assistant", strip_think_tags(reply),
+                                  model_used=engine.model_name,
+                                  reasoning=reasoning_full)
+                    n.output(f"回复 {len(reply)} 字"
+                             + (f"，思考 {len(reasoning_full)} 字"
+                                if reasoning_full else ""))
             await lock.release("dialog")
+            # 流程收尾：错误事件优先；有产出（含用户停止后部分产出）算成功
+            if error_holder:
+                flow.end("error", error_code="STREAM_FAILED",
+                         error_detail=error_holder[0][:300])
+            else:
+                flow.end("success",
+                         output_summary=f"回复 {len(reply)} 字"
+                                        + (f"，思考 {len(reasoning_full)} 字"
+                                           if reasoning_full else ""))
         if not error_holder:
-            yield _sse({"meta": {
+            meta = {
                 "model": engine.model_name,
                 "first_token_ms": round(engine.last_first_token_ms, 1),
-            }})
+            }
+            if thinking:
+                meta["thinking_used"] = True
+                meta["first_content_ms"] = round(
+                    engine.last_first_content_ms, 1)
+            yield _sse({"meta": meta})
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_gen(), media_type="text/event-stream",
@@ -647,7 +862,7 @@ def dialog_history(session_id: str = Query(..., description="会话ID"),
         try:
             rows = db.query(
                 "SELECT id, session_id, role, content, attachments,"
-                " model_used, rating, favorite, timestamp"
+                " model_used, rating, favorite, reasoning, timestamp"
                 " FROM dialog_messages WHERE session_id=? "
                 "ORDER BY timestamp DESC LIMIT ?",
                 (session_id, limit),
@@ -683,7 +898,7 @@ def chat_history(session_id: str = Query("", description="会话ID（可选）")
                                  (session_id,))
                 rows = db.query(
                     "SELECT id, session_id, role, content, attachments,"
-                    " model_used, rating, favorite, timestamp"
+                    " model_used, rating, favorite, reasoning, timestamp"
                     " FROM dialog_messages WHERE session_id=? "
                     "ORDER BY timestamp DESC LIMIT ? OFFSET ?",
                     (session_id, page_size, offset))
@@ -691,7 +906,7 @@ def chat_history(session_id: str = Query("", description="会话ID（可选）")
                 total = db.count("dialog_messages")
                 rows = db.query(
                     "SELECT id, session_id, role, content, attachments,"
-                    " model_used, rating, favorite, timestamp"
+                    " model_used, rating, favorite, reasoning, timestamp"
                     " FROM dialog_messages "
                     "ORDER BY timestamp DESC LIMIT ? OFFSET ?",
                     (page_size, offset))
@@ -805,10 +1020,106 @@ def dialog_delete_session(session_id: str):
     return ok({"deleted": session_id})
 
 
+@router.post("/chat/sessions/batch-delete")
+def chat_batch_delete_sessions(body: SessionBatchDelete):
+    """批量删除会话及消息（2026-08-20：单批 ≤100，前端超量分批）。
+
+    逐 ID 复用单删清理（messages + sessions 级联，内存兜底同步），
+    不存在的 ID 汇入 missing_ids 不报错（幂等，前端按结果过滤本地态）。
+    """
+    deleted: list[str] = []
+    missing: list[str] = []
+    db = get_db_safe()
+    for sid in body.session_ids:
+        try:
+            if db is not None:
+                row = db.query_one(
+                    "SELECT id FROM dialog_sessions WHERE id=?", (sid,))
+                if row is None:
+                    if sid not in _mock_sessions:
+                        missing.append(sid)
+                        continue
+                else:
+                    db.delete("dialog_messages", "session_id=?", (sid,))
+                    db.delete("dialog_sessions", "id=?", (sid,))
+                    deleted.append(sid)
+                    continue
+            else:
+                if sid not in _mock_sessions:
+                    missing.append(sid)
+                    continue
+            _mock_sessions.pop(sid, None)
+            _mock_messages.pop(sid, None)
+            deleted.append(sid)
+        except ApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 单条失败不阻断整批
+            log.warning("会话批量删除单条失败 %s: %s", sid, exc)
+            missing.append(sid)
+    return ok({"deleted": len(deleted), "deleted_ids": deleted,
+               "missing_ids": missing})
+
+
 @router.get("/dialog/status")
 def dialog_status():
     """对话引擎状态（模型可用性 / 显存 / 首 token 统计）。"""
     return ok(get_dialog_engine().get_status())
+
+
+@router.post("/dialog/prewarm")
+async def dialog_prewarm(request: Request):
+    """对话页预热（2026-08-22 性能优化）：后台线程加载默认模型。
+
+    前端 DialogPage 挂载时调用——用户进入对话页到发出第一条消息之间
+    的打字时间（通常 >10s）足以覆盖 4B transformers 加载（~10s），
+    首条消息不再等待冷加载。fire-and-forget，立即返回不阻塞。
+
+    model_id 透传 + inflight 共享（2026-08-23 幽灵热切换修复）：
+    此前与 /models/warmup 双入口并发且目标不一致——本入口按引擎
+    默认（显存紧时选 GGUF Qwen2-0.5B），warmup 按用户选择（4b/
+    8b-awq），后到者把先加载的模型热切换掉（实测 4b 载好被 0.5B
+    换载再换回，台账抖动 + 双倍加载耗时）。现与 /models/warmup
+    共享 _warmup_inflight 去重、同样以用户选择为目标。
+    """
+    import threading
+
+    try:  # body 可选（旧调用方不传）；Request.json 为异步方法须 await
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    want_model = str((body or {}).get("model_id") or "").strip() or None
+
+    engine = get_dialog_engine()
+    status = engine.get_status()
+    if (status.get("state") == "ready"
+            and (want_model is None or status.get("model") == want_model)):
+        return ok({"state": "ready", "prewarmed": False})
+
+    # 与 /models/warmup 共享 inflight（同目标去重；inflight 中预热
+    # 仍在跑时短路，避免双线程排队引擎锁引发目标错乱）
+    from .models import _warmup_inflight
+    if "dialog" in _warmup_inflight:
+        return ok({"state": "loading", "prewarmed": False})
+    _warmup_inflight.add("dialog")
+
+    def _bg_prewarm() -> None:
+        try:
+            engine.ensure_loaded(want_model)
+        except Exception as exc:  # noqa: BLE001 - 预热失败不抛出
+            log.warning("对话模型后台预热失败: %s", exc)
+        finally:
+            _warmup_inflight.discard("dialog")
+
+    threading.Thread(target=_bg_prewarm, daemon=True,
+                     name="dialog-prewarm").start()
+    try:  # 大白话事件：预热开始
+        from ..services.event_log import log_event
+        log_event("dialog", "model_prewarm",
+                  "进入对话页，正在后台预热对话模型（发消息前会自动准备好）",
+                  level="info")
+    except Exception:  # noqa: BLE001
+        pass
+    return ok({"state": "loading", "prewarmed": True})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -835,7 +1146,7 @@ def _session_messages(sid: str) -> list[dict]:
         try:
             rows = db.query(
                 "SELECT id, session_id, role, content, attachments,"
-                " model_used, rating, favorite, timestamp"
+                " model_used, rating, favorite, reasoning, timestamp"
                 " FROM dialog_messages WHERE session_id=? "
                 "ORDER BY timestamp ASC", (sid,))
             return [_row_to_message(r) for r in rows]
@@ -1013,7 +1324,7 @@ def _update_message_flag(sid: str, mid: str, field: str, value):
         try:
             row = db.query_one(
                 "SELECT id, session_id, role, content, attachments,"
-                " model_used, rating, favorite, timestamp"
+                " model_used, rating, favorite, reasoning, timestamp"
                 " FROM dialog_messages WHERE id=? AND session_id=?",
                 (mid, sid))
             if row is None:
@@ -1044,7 +1355,7 @@ def chat_list_favorites(page: int = Query(1, ge=1),
         try:
             rows = db.query(
                 "SELECT id, session_id, role, content, attachments,"
-                " model_used, rating, favorite, timestamp"
+                " model_used, rating, favorite, reasoning, timestamp"
                 " FROM dialog_messages WHERE favorite=1 "
                 "ORDER BY timestamp DESC")
             items = [_row_to_message(r) for r in rows]
@@ -1116,6 +1427,27 @@ async def _ws_send_error(websocket: WebSocket, code: int, message: str) -> None:
     })
 
 
+# WS 模型参数旧标签 → 完整 model_id 映射（前端规格档位兼容；
+# 2026-08-20 模型选择接线：完整 model_id 直传不经此表）
+_WS_MODEL_LABEL_MAP = {
+    "8b": "qwen3-vl-8b", "4b": "qwen3-vl-4b",
+    "2b": "qwen2-vl-2b", "qwen3-vl-2b": "qwen3-vl-2b",
+}
+
+
+def _resolve_ws_model(raw) -> str | None:
+    """把前端 model 参数（旧档位标签或完整 model_id）归一为完整 id。
+
+    None / 未知名 → None（引擎自动路由，行为与旧版一致）。
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    key = raw.strip().lower()
+    if key in _WS_MODEL_LABEL_MAP:
+        return _WS_MODEL_LABEL_MAP[key]
+    return raw.strip() or None
+
+
 async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None:
     """处理一条用户消息：校验 → 引擎就绪 → RAG → 流式推理 → 落库。"""
     content = str(data.get("content") or "").strip()
@@ -1140,9 +1472,34 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         return
 
     try:
+        # 模型选择接线（2026-08-20）：前端 model 参数（旧档位标签或完整
+        # model_id）归一后交给 ensure_loaded——已加载且请求不同模型时
+        # 引擎自动热切换；物理显存装不下由引擎闸门拒绝并回错误
+        model_req = _resolve_ws_model(data.get("model"))
+        # 深度思考模式（2026-08-22 思考过程展示）：前端 thinking 参数
+        # 开启时 system prompt 追加四步框架引导，模型自输出 <think> 块
+        thinking = bool(data.get("thinking"))
+        sys_prompt = (DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
+                      if thinking else DEFAULT_SYSTEM_PROMPT)
+        # 思考通道有独立 token 预算需求（思考 500-2000 token 常态）
+        max_new_tokens = 2048 if thinking else 1024
+        # 冷启动窗口状态推送（2026-08-22 思考过长事故）：模型未就绪时
+        # 先告知前端加载阶段——vLLM 冷启动 ~157s 全程零消息，用户只
+        # 见"思考中"无任何反馈（含被模块切换杀掉后二次冷启动场景）
+        try:
+            if engine.get_status().get("state") != "ready":
+                await websocket.send_json({
+                    "type": "status",
+                    "data": {
+                        "phase": "model_loading",
+                        "message": "对话模型冷启动中（首次加载约 2-3 分钟），"
+                                   "请稍候，期间请勿切换页面",
+                    },
+                })
+        except Exception:  # noqa: BLE001 - 状态推送失败不阻断对话
+            pass
         # 审计 R1-04：同 dialog_send，ensure_loaded 阻塞调用经 run_blocking 卸载
-        if not engine.is_ready and not await run_blocking(
-                engine.ensure_loaded, None):
+        if not await run_blocking(engine.ensure_loaded, model_req):
             status = engine.get_status()
             code = 30004 if status["state"] == "error" else 30003
             await _ws_send_error(
@@ -1155,7 +1512,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         history = _load_history(sid)
         messages = engine.build_context(
             content, history=history, knowledge_text=knowledge_text,
-            system_prompt=DEFAULT_SYSTEM_PROMPT, images=images or None,
+            system_prompt=sys_prompt, images=images or None,
             max_tokens=8192,
         )
 
@@ -1163,20 +1520,33 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         _save_message(sid, "user", content,
                       attachments=data.get("images"))
 
-        # 流式推理：同步生成器放线程执行，token 经队列回事件循环转发
+        # 流式推理：同步生成器放线程执行，token 经队列回事件循环转发。
+        # 深度思考模式走 chat_stream_ex 双通道（reasoning/content 分离）
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         collected: list[str] = []
+        reasoning_parts: list[str] = []
         error_holder: list[str] = []
 
         def _produce():
             try:
-                for token in engine.chat_stream(
+                for event in engine.chat_stream_ex(
                         messages, images=images or None,
+                        max_new_tokens=max_new_tokens,
+                        enable_thinking=thinking,
                         stop_check=lambda: sid in _stop_flags):
-                    collected.append(token)
-                    loop.call_soon_threadsafe(
-                        queue.put_nowait, ("token", token))
+                    kind = event["type"]
+                    text = event["text"]
+                    if not text:
+                        continue
+                    if kind == "reasoning":
+                        reasoning_parts.append(text)
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, ("reasoning", text))
+                    else:
+                        collected.append(text)
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, ("token", text))
             except Exception as exc:  # noqa: BLE001
                 log.exception("WS 对话流式推理失败")
                 error_holder.append(str(exc))
@@ -1192,6 +1562,9 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                 if kind == "token":
                     await websocket.send_json(
                         {"type": "token", "data": {"token": payload}})
+                elif kind == "reasoning":
+                    await websocket.send_json(
+                        {"type": "reasoning", "data": {"text": payload}})
                 elif kind == "error":
                     await _ws_send_error(websocket, 30004, payload)
                 elif kind == "done":
@@ -1201,8 +1574,10 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             _stop_flags.discard(sid)
 
         reply = "".join(collected)
+        reasoning_full = "".join(reasoning_parts)
         # 被动补全（R2-B01）：首轮回复含不确定性标记时，快速搜索重推理
-        # 一次，改进回复作为追加 token 推送后再落库（meta 如实标注）
+        # 一次，改进回复作为追加 token 推送后再落库（meta 如实标注）。
+        # 检测只作用于 content 段（思考文本天然含"不确定/可能"会误触发）
         passive = None
         if reply and not error_holder:
             new_reply, passive = await _maybe_passive_completion(
@@ -1214,14 +1589,22 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                     {"type": "token",
                      "data": {"token": "\n\n" + new_reply}})
                 reply = new_reply
+        # M-4 兜底：解析器异常路径残留标签剥离，防污染后续轮上下文
+        reply = strip_think_tags(reply) if reply else reply
         saved = (_save_message(sid, "assistant", reply,
-                              model_used=engine.model_name) if reply else None)
+                              model_used=engine.model_name,
+                              reasoning=reasoning_full)
+                 if (reply or reasoning_full) else None)
         if not error_holder:
             meta: dict = {
                 "engine": engine.model_name,
                 "message_id": saved["id"] if saved else "",
                 "first_token_ms": round(engine.last_first_token_ms, 1),
             }
+            if thinking:
+                meta["thinking_used"] = True
+                meta["first_content_ms"] = round(
+                    engine.last_first_content_ms, 1)
             if passive:
                 meta["passive_completion"] = passive
             await websocket.send_json({"type": "meta", "data": meta})

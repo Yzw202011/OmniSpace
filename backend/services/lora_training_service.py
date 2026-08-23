@@ -87,6 +87,16 @@ def _try_import(name: str) -> Any:
         return None
 
 
+def _log_event(module: str, event: str, friendly: str, *,
+               level: str = "info", detail: str = "") -> None:
+    """大白话事件日志（2026-08-21 日志可视化；失败静默不影响训练）。"""
+    try:
+        from .event_log import log_event
+        log_event(module, event, friendly, level=level, detail=detail)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ── 模块级注入点：WebSocket 广播器 ──────────────────────────────
 # 由上层（main/websocket 服务）注入 callable(dict)，把训练事件推给前端。
 ws_broadcaster: Callable[[dict], None] | None = None
@@ -241,6 +251,14 @@ class TrainingFailed(RuntimeError):
     """训练失败（基座缺失/依赖缺失/显存不足/训练异常）——任务标记 failed，不崩溃。"""
 
 
+class TrainingCancelled(RuntimeError):
+    """用户强制取消训练（铁律：用户操作拥有最高权限）——任务标记 cancelled。
+
+    与 TrainingFailed 严格区分：取消不是失败，不落 error 状态、不注册
+    半成品 adapter 版本。
+    """
+
+
 class LoRATrainingService:
     """LoRA 增量微调服务单例。
 
@@ -258,11 +276,38 @@ class LoRATrainingService:
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._training_task_id: str | None = None
+        self._cancel_flags: set[str] = set()   # 强制取消的任务 ID（运行时中断）
         self._dataset: dict | None = None   # prepare_training_data 缓存
         self._last_train_data: dict | None = None  # 最近训练实际使用的数据集（供评估取验证集）
         self._mem_tasks: dict[str, dict] = {}  # DB 不可用时的任务镜像
         self._loop: asyncio.AbstractEventLoop | None = None
         self._lock_via_fallback = False
+
+    # ═══════════════════════════════════════════════════════════
+    #  强制取消（铁律：用户操作拥有最高权限，点击取消必须真实中断）
+    # ═══════════════════════════════════════════════════════════
+
+    def request_cancel(self, task_id: str) -> None:
+        """请求强制取消：置位运行时中断标志。
+
+        由 API 层 /learn/tasks/{id}/cancel 在落库 cancelled 后调用。
+        训练线程经 TrainerCallback.on_step_end 检测标志并置
+        control.should_training_stop=True（HF 官方中断通道），
+        在下一个 step 边界干净退出训练循环。
+        """
+        with self._state_lock:
+            self._cancel_flags.add(task_id)
+        logger.info("训练取消请求已置位（将在下一步边界中断）: %s", task_id)
+
+    def _is_cancelled(self, task_id: str) -> bool:
+        """检查任务是否被请求取消。"""
+        with self._state_lock:
+            return task_id in self._cancel_flags
+
+    def _clear_cancel(self, task_id: str) -> None:
+        """清除取消标志（任务收敛后调用，防泄漏）。"""
+        with self._state_lock:
+            self._cancel_flags.discard(task_id)
 
     @classmethod
     def instance(cls) -> LoRATrainingService:
@@ -604,6 +649,9 @@ class LoRATrainingService:
                     "SELECT status FROM train_tasks WHERE id=?", (task_id,))
                 if row is not None and row.get("status") == "cancelled":
                     logger.info("训练任务已取消，跳过执行: %s", task_id)
+                    _broadcast("training_cancelled", {"task_id": task_id,
+                                                      "reason": "queued"})
+                    self._clear_cancel(task_id)
                     return
             except Exception:  # noqa: BLE001 - 查询失败不阻断训练
                 pass
@@ -612,6 +660,11 @@ class LoRATrainingService:
         self._update_task(task_id, status="training")
         _broadcast("training_started", {"task_id": task_id,
                                         "base_model": cfg["base_model"]})
+        _log_event(
+            "training", "training_started",
+            f"知识训练开始了（任务 {task_id}）：AI 正在学习你的资料，"
+            f"基于模型「{cfg['base_model']}」",
+            level="info", detail=f"task={task_id}")
 
         if not self._acquire_training_lock(task_id):
             self._update_task(task_id, status="error")
@@ -622,13 +675,25 @@ class LoRATrainingService:
             return
 
         try:
-            result = self.train(cfg, progress_cb=self._make_progress_cb(task_id))
+            result = self.train(cfg, progress_cb=self._make_progress_cb(task_id),
+                                task_id=task_id)
             version = result["version"]
             self._update_task(task_id, status="evaluating", progress=0.95)
             _broadcast("training_evaluating",
                        {"task_id": task_id, "version": version})
             report = self.evaluate(version)
             passed = bool(report.get("passed"))
+            # 评估完成后的取消检查：评估期间用户取消同样生效（铁律：
+            # 用户操作拥有最高权限），已评估版本不注册、不切 current
+            if self._is_cancelled(task_id):
+                self._update_task(task_id, status="cancelled")
+                _broadcast("training_cancelled", {"task_id": task_id,
+                                                  "reason": "evaluating",
+                                                  "version": version})
+                _log_event("training", "training_cancelled",
+                           f"训练任务在评估阶段被取消（任务 {task_id}）",
+                           level="warning", detail=f"task={task_id}")
+                return
             if passed:
                 self._set_current(version)
                 # R2-B04 自主进化闭环：新版本生效后通知对话引擎热更新
@@ -646,17 +711,44 @@ class LoRATrainingService:
                 "passed": passed,
                 "status": "registered" if passed else "pending_review",
             })
+            _log_event(
+                "training", "training_completed",
+                f"知识训练完成了（版本 {version}），AI 学会了新资料"
+                + ("，新版本已生效" if passed
+                   else "。质量分还不够，这个版本先存档备用，没有启用"),
+                level="success" if passed else "warning",
+                detail=(f"task={task_id}, version={version}, "
+                        f"score={report.get('quality_score')}"))
+        except TrainingCancelled as exc:
+            # 用户强制取消：真实中断（step 边界退出训练循环，未保存半成品）
+            logger.info("训练任务被用户强制取消: %s: %s", task_id, exc)
+            self._update_task(task_id, status="cancelled")
+            _broadcast("training_cancelled", {"task_id": task_id,
+                                              "reason": "training"})
+            _log_event("training", "training_cancelled",
+                       f"训练任务被你手动取消了（任务 {task_id}），"
+                       "显存已释放，没有保存半成品",
+                       level="warning", detail=f"task={task_id}, {exc}")
         except TrainingFailed as exc:
             logger.error("训练失败: %s: %s", task_id, exc)
             self._update_task(task_id, status="error")
             _broadcast("training_failed", {"task_id": task_id, "error": str(exc)})
+            _log_event("training", "training_failed",
+                       f"训练失败了：{exc}。可以重试一次；"
+                       "如果反复失败，请检查模型文件是否完整",
+                       level="error", detail=f"task={task_id}")
         except Exception as exc:  # noqa: BLE001 - 未预期异常同失败处理
             logger.exception("训练未预期异常: %s", task_id)
             self._update_task(task_id, status="error")
             _broadcast("training_failed",
                        {"task_id": task_id, "error": f"未预期异常: {exc}"})
+            _log_event("training", "training_failed",
+                       f"训练遇到意外错误：{exc}。可以重试一次",
+                       level="error",
+                       detail=f"task={task_id}, type={type(exc).__name__}")
         finally:
             self._release_training_lock()
+            self._clear_cancel(task_id)
             with self._state_lock:
                 self._training_task_id = None
 
@@ -734,7 +826,8 @@ class LoRATrainingService:
     # ═══════════════════════════════════════════════════════════
 
     def train(self, config: dict | None = None,
-              progress_cb: Callable[[dict], None] | None = None) -> dict:
+              progress_cb: Callable[[dict], None] | None = None,
+              task_id: str = "") -> dict:
         """QLoRA 增量训练。
 
         管线：BitsAndBytesConfig 4bit 基座 → prepare_model_for_kbit_training →
@@ -742,12 +835,16 @@ class LoRATrainingService:
         → Trainer（lr 2e-5, epochs 3, batch 1, max_seq 512, 每 epoch 检查点,
         loss 实时回调）→ 保存新 adapter 版本目录。
 
+        Args:
+            task_id: 任务 ID（非空时启用强制取消中断）。
+
         Returns:
             {"version": "v3", "version_dir": str, "data_count": int,
              "base_model": str, "train_loss": float}
 
         Raises:
             TrainingFailed: 基座不存在/依赖缺失/数据不足/显存不足/训练异常。
+            TrainingCancelled: 用户强制取消。
         """
         cfg = {**DEFAULT_TRAIN_CONFIG, **get_train_defaults(),
                **(config or {})}
@@ -803,8 +900,8 @@ class LoRATrainingService:
 
         try:
             return self._train_impl(cfg, data, torch, transformers, peft,
-                                    progress_cb, free_gb)
-        except TrainingFailed:
+                                    progress_cb, free_gb, task_id)
+        except (TrainingFailed, TrainingCancelled):
             raise
         except Exception as exc:  # noqa: BLE001 - 统一为 TrainingFailed
             raise TrainingFailed(f"训练过程异常: {exc}") from exc
@@ -881,8 +978,13 @@ class LoRATrainingService:
     def _train_impl(self, cfg: dict, data: dict, torch: Any,
                     transformers: Any, peft: Any,
                     progress_cb: Callable[[dict], None] | None,
-                    free_gb: float = 0.0) -> dict:
-        """QLoRA 训练实现（train() 的内部拆分，便于独立测试）。"""
+                    free_gb: float = 0.0,
+                    task_id: str = "") -> dict:
+        """QLoRA 训练实现（train() 的内部拆分，便于独立测试）。
+
+        task_id 非空时挂载强制取消回调（每个 step 边界检测中断标志，
+        用户取消在下一步边界干净退出训练循环）。
+        """
         base_dir = str(cfg["base_model"])
         max_seq = int(cfg["max_seq_length"])
         # TASK-053：注意力实现探测 + 显存自适应批量 + DataLoader 参数
@@ -987,6 +1089,8 @@ class LoRATrainingService:
         args = transformers.TrainingArguments(**args_kwargs)
 
         callbacks = [self._loss_callback(progress_cb)]
+        if task_id:
+            callbacks.append(self._cancel_callback(task_id))
         if cfg.get("empty_cache_per_epoch", True):
             callbacks.append(self._cache_cleanup_callback(torch))
         throttle_ms = int(cfg.get("step_throttle_ms", 0) or 0)
@@ -999,6 +1103,17 @@ class LoRATrainingService:
             callbacks=callbacks,
         )
         train_result = trainer.train()
+
+        # 强制取消检查：should_training_stop 触发的"正常"返回若源于取消，
+        # 不保存半成品 adapter、不注册版本——取消即彻底废弃本次产物
+        if task_id and self._is_cancelled(task_id):
+            del trainer, model, base_model
+            gc.collect()
+            try:
+                torch.cuda.empty_cache()
+            except Exception:  # noqa: BLE001
+                pass
+            raise TrainingCancelled(f"任务已被用户取消: {task_id}")
 
         # 保存新版本（adapter_model.bin + adapter_config.json）
         version_dir, version = self._next_version_dir()
@@ -1160,6 +1275,23 @@ class LoRATrainingService:
         class _Cb(TrainerCallback):
             def on_step_end(self, args, state, control, **kw):
                 time.sleep(throttle_ms / 1000.0)
+        return _Cb()
+
+    def _cancel_callback(self, task_id: str) -> Any:
+        """强制取消回调：每个 optimizer step 边界检测取消标志。
+
+        置 control.should_training_stop=True 是 HF Trainer 官方中断通道，
+        训练循环在当前 step 完成后干净退出（不撕裂 CUDA 上下文）。
+        """
+        from transformers import TrainerCallback  # type: ignore
+
+        svc = self
+
+        class _Cb(TrainerCallback):
+            def on_step_end(self, args, state, control, **kw):
+                if svc._is_cancelled(task_id):
+                    control.should_training_stop = True
+                    logger.info("训练循环收到取消信号，将于本步后停止: %s", task_id)
         return _Cb()
 
     # ═══════════════════════════════════════════════════════════

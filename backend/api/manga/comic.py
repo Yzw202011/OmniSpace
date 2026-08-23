@@ -16,6 +16,7 @@ from ...config import (
 )
 from ...data.database import get_db_safe, parse_json
 from ...data.models import (
+    ProjectBatchDelete,
     ProjectCreate,
     ProjectUpdate,
     SceneObjectUpdate,
@@ -24,7 +25,6 @@ from ...middleware.error_handler import ApiError, ok
 from ...services.inference.video_engine import VIDEO_OUT_DIR
 from .common import (
     _ASSET_COLS,
-    _COMIC_ASSET_DIR,
     _KEYFRAME_DIR,
     _KF_COLS,
     _VIDEO_TASK_COLS,
@@ -43,6 +43,9 @@ from .storyboard import (
 from .voice import (
     _DSL_MAX_BYTES,
     _TEMPLATE_COMIC_DRAMA,
+)
+from .comic_asset import (
+    assets_to_global,
 )
 
 router = APIRouter()
@@ -92,13 +95,14 @@ def _safe_unlink(path: Path, base: Path) -> None:
 def _cleanup_project_disk(project_id: str, row_ids: list[str],
                           video_files: list[str],
                           video_task_ids: list[str]) -> None:
-    """清理项目磁盘产物（资产目录/关键帧目录/视频文件）。
+    """清理项目磁盘产物（关键帧目录/视频文件）。
 
+    资产目录不在此清理——删除项目时资产整体转全局域保留
+    （assets_to_global 负责迁移与空目录收敛，用户裁定：不删除生成资产）。
     零信任：所有路径 resolve 后必须落在归属根目录内，否则拒绝删除；
     文件删除失败仅告警，不阻塞 DB 级联删除主流程。
     """
     try:
-        _safe_rmtree(_COMIC_ASSET_DIR / project_id, _COMIC_ASSET_DIR)
         for rid in row_ids:
             _safe_rmtree(_KEYFRAME_DIR / rid, _KEYFRAME_DIR)
         # 视频产物真实输出根为双目录（审计修复：级联删除漏清）：
@@ -190,16 +194,12 @@ def comic_project_update(project_id: str, req: ProjectUpdate):
     return ok({"project_id": project_id, "name": req.name})
 
 
-@router.delete("/comic/project/{project_id}")
-def comic_project_delete(project_id: str):
-    """删除项目（COMIC-004）：级联删除分镜表/分镜行/视频任务/资产/关键帧/
-    场景对象，并清理项目磁盘产物（资产目录/关键帧目录/视频文件）。"""
-    db = get_db_safe()
-    if db is None:
-        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除项目")
+def _delete_project_cascade(db, project_id: str) -> bool:
+    """级联删除单个项目：分镜表/分镜行/视频任务/资产/关键帧/场景对象
+    + 磁盘产物清理。项目不存在返回 False（供单删报错、批删跳过复用）。"""
     row = db.query_one("SELECT id FROM projects WHERE id=?", (project_id,))
     if row is None:
-        raise ApiError(40005, "项目不存在", detail={"project_id": project_id})
+        return False
     sb = db.query_one("SELECT id FROM storyboards WHERE project_id=?",
                       (project_id,))
     row_ids: list[str] = []
@@ -225,7 +225,9 @@ def comic_project_delete(project_id: str):
                   (sb["id"],))
         db.delete("storyboard_rows", "storyboard_id=?", (sb["id"],))
         db.delete("storyboards", "id=?", (sb["id"],))
-    db.delete("comic_assets", "project_id=?", (project_id,))
+    # 用户裁定：删除项目不删除生成资产——项目资产整体转全局域
+    # （scope='global' + 磁盘迁移 comic_assets/global/），跨项目保留可复用
+    assets_to_global(db, project_id)
     db.delete("keyframes", "project_id=?", (project_id,))
     db.delete("scene_objects", "project_id=?", (project_id,))
     db.delete("projects", "id=?", (project_id,))
@@ -234,7 +236,39 @@ def comic_project_delete(project_id: str):
         _video_tasks.pop(tid, None)
     # 磁盘产物清理（失败仅告警，不阻塞 DB 删除主流程）
     _cleanup_project_disk(project_id, row_ids, video_files, video_task_ids)
+    return True
+
+
+@router.delete("/comic/project/{project_id}")
+def comic_project_delete(project_id: str):
+    """删除项目（COMIC-004）：级联删除分镜表/分镜行/视频任务/资产/关键帧/
+    场景对象，并清理项目磁盘产物（资产目录/关键帧目录/视频文件）。"""
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除项目")
+    if not _delete_project_cascade(db, project_id):
+        raise ApiError(40005, "项目不存在", detail={"project_id": project_id})
     return ok({"project_id": project_id, "deleted": True})
+
+
+@router.post("/comic/project/batch-delete")
+def comic_project_batch_delete(req: ProjectBatchDelete):
+    """批量删除项目（COMIC-004 扩展）：逐个复用级联删除，不存在的跳过。
+    返回 {deleted, deleted_ids, missing_ids}；至少删掉 1 个即视为成功。"""
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除项目")
+    deleted_ids: list[str] = []
+    missing_ids: list[str] = []
+    for pid in req.project_ids:
+        if _delete_project_cascade(db, pid):
+            deleted_ids.append(pid)
+        else:
+            missing_ids.append(pid)
+    if not deleted_ids:
+        raise ApiError(40005, "项目不存在", detail={"project_ids": missing_ids})
+    return ok({"deleted": len(deleted_ids), "deleted_ids": deleted_ids,
+               "missing_ids": missing_ids})
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -116,7 +116,7 @@ SEMANTIC_CODES: dict[str, str] = {
     "DIALOG_NOT_READY": "对话服务未就绪，请等待模型加载完成",
     # ── 绘画/视频/漫剧/音色（按模块归系统扩展段）──────────────────
     "PAINT_GENERATION_FAILED": "生成失败，请检查提示词是否为空",
-    "PAINT_SIZE_OUT_OF_RANGE": "图片尺寸超出范围（512~2048）",
+    "PAINT_SIZE_OUT_OF_RANGE": "图片尺寸超出范围（512~2688）",
     "CONTROLNET_CONDITION_INVALID": "ControlNet条件图格式错误",
     "LORA_LOAD_FAILED": "LoRA文件加载失败",
     "VIDEO_GENERATION_FAILED": "视频生成失败，请检查输入参数",

@@ -1,8 +1,8 @@
 /* ==========================================================================
- * OmniSpace AI v2.3.1 —— Hash 路由配置（8 个一级路由，规格 §6.1.2）
+ * OmniSpace AI v2.3.1 —— Hash 路由配置（9 个一级路由，规格 §6.1.2）
  * --------------------------------------------------------------------------
- * 路由（规格 §6.1.2 左侧导航栏，无"首页"）：
- *   chat / paint / storyboard / learning / models / style / settings / help
+ * 路由（规格 §6.1.2 左侧导航栏，无"首页"；2026-08-21 新增 logs）：
+ *   chat / paint / storyboard / learning / models / style / settings / logs / help
  * 根路径 `/` 与非法路径 `*` 均重定向到 /chat（Navigate replace，不留历史栈）。
  * 使用 react-router-dom 7 的 createHashRouter（Hash 路由，离线/静态可用，COM-001）。
  * 根路由挂载 AppShell（左侧导航 + 主内容 + 右侧面板 + 底部状态栏 + Toast）。
@@ -15,6 +15,7 @@
  *   - models     → components/model/ModelManager.tsx
  *   - style      → components/style/StylePage.tsx
  *   - settings   → components/Settings.tsx
+ *   - logs       → components/logs/LogsPage.tsx（2026-08-21 日志可视化面板）
  *   - help       → components/help/HelpPage.tsx
  * ========================================================================== */
 
@@ -32,6 +33,7 @@ import {
   Package,
   Video,
   Settings,
+  ScrollText,
   CircleQuestionMark,
   type LucideIcon,
 } from 'lucide-react';
@@ -47,7 +49,7 @@ export function lazyPage(loader: () => Promise<{ default: React.ComponentType }>
   );
 }
 
-/** 路由表（8 个一级路由，根布局 AppShell；/ 与 * 重定向 /chat） */
+/** 路由表（9 个一级路由，根布局 AppShell；/ 与 * 重定向 /chat） */
 export const routes: RouteObject[] = [
   {
     path: '/',
@@ -61,6 +63,7 @@ export const routes: RouteObject[] = [
       { path: 'models', element: lazyPage(() => import('@/components/model/ModelManager')) },
       { path: 'style', element: lazyPage(() => import('@/components/style/StylePage')) },
       { path: 'settings', element: lazyPage(() => import('@/components/Settings')) },
+      { path: 'logs', element: lazyPage(() => import('@/components/logs/LogsPage')) },
       { path: 'help', element: lazyPage(() => import('@/components/help/HelpPage')) },
       // 非法路由重定向到 AI 对话（规格 §6.1.2 无首页，默认落地对话页）
       { path: '*', element: <Navigate to="/chat" replace /> },
@@ -72,7 +75,7 @@ export const routes: RouteObject[] = [
 export const router = createHashRouter(routes);
 
 /**
- * 导航项契约（规格 §6.1.2：8 项；图标为 Lucide 组件，规格 §6.3.4 功能图标统一线条风格）。
+ * 导航项契约（规格 §6.1.2 基础 8 项 + 系统日志；图标为 Lucide 组件，规格 §6.3.4 功能图标统一线条风格）。
  * 顺序即侧栏渲染顺序；设置/帮助固定在列表末尾。
  */
 export interface NavItemMeta {
@@ -94,6 +97,7 @@ export const NAV_ITEMS: NavItemMeta[] = [
   { route: 'models', path: '/models', icon: Package, label: '模型管理' },
   { route: 'style', path: '/style', icon: Video, label: '视频风格' },
   { route: 'settings', path: '/settings', icon: Settings, label: '设置' },
+  { route: 'logs', path: '/logs', icon: ScrollText, label: '系统日志' },
   { route: 'help', path: '/help', icon: CircleQuestionMark, label: '帮助' },
 ];
 

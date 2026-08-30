@@ -5,7 +5,8 @@ OmniSpace AI Launcher 守护进程
 - 端口冲突三级递进处理
 - 模型完整性校验 + 断点续传下载
 - 启动/监控后端主进程 + 心跳检测 + 崩溃自动重启
-- 动态写入前端config.js端口配置
+- 就绪后打开系统浏览器访问后端同源前端（backend.main 静态托管 frontend/dist，
+  无独立前端端口；实际端口经 --port 传入 uvicorn，默认 8765）
 - 系统托盘图标 + 气泡通知
 - 首次安装引导（动画/轮播/偏好问卷）
 - Launcher与主程序WebSocket双向通信
@@ -26,6 +27,16 @@ from pathlib import Path
 
 import psutil
 import yaml
+
+# stdout/stderr 强制 UTF-8（2026-08-26 实测：Start-Process 重定向或
+# 非 UTF-8 管道场景下 Python 回退 GBK，print「✓」等字符直接
+# UnicodeEncodeError 令 launcher 在环境检查阶段崩溃退出）
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - 极端环境下保底不阻断启动
+            pass
 
 # 添加项目路径
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -48,7 +59,7 @@ def _load_disk_start_min_gb(default: float = 20.0) -> float:
 
 
 @dataclass
-class LauncherConfig: 
+class LauncherConfig:
     """Launcher配置"""
     backend_port: int = 5800
     frontend_port: int = 0  # 0=自动选择

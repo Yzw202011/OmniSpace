@@ -1,4 +1,34 @@
 ================================================================================
+[时效声明 + 审计裁定 | 2026-08-28 全文 4092 行逐行审计]
+本文件性质 = 规划书（2026-08-07 成文 + 2026-08-12 v3.0 补丁），非现状文档。
+审计裁定摘要（证据可复现，真源层级见 docs/INDEX.md）：
+
+【已证实真实落地】RAG 管线（ChromaDB+BGE-large-zh 1024 维，启动实测 device=cuda）、
+FTS5、RRF k=60 混合检索（injection_service.py RRF_K=60）、SimHash 64 位自实现去重
+（knowledge_service.py，阈值 0.9 与 §7.3.3 一致）、知识图谱 API（/knowledge/graph）、
+响应信封 {success,data,error,meta}、F-001~F-015 禁令大体执行、Sakura 主题
+（tokens.css --color-primary:#FF6B9D 落地）、浏览器进程池、漫剧 LTX/Wan2.2/
+AnimateLCM 模型族（wan22-ti2v-5b I2V 实测 83.4s 真出片）、Three.js r170、
+字段级 AES-256-GCM 加密。
+
+【已被代码推翻/从未执行】Python 3.12（实为 3.10.11）；PyTorch 2.8（实为 2.11+cu128）；
+~392GB 模型库（实测 193GB/42 登记/29 下载）；ADR-02 Tauri 最终确定（被仓库 ADR-002
+2026-08-20 裁剪推翻）；CEF 120+（实为 Playwright Chromium）；Celery+Redis（进程内
+PriorityQueue 模拟）；SQLAlchemy 2.0 ORM（装而未 import，全裸 sqlite3）；LangChain/
+XGBoost/PPO（调度为规则+滞回，预测器为启发式）；JWT 认证（无认证体系）；FLUX.1-dev/
+Kolors/SDXL-Turbo/CogVideoX/Wan2.1-14B/Qwen3-VL-2B（未下载或不存在）；React 19.2 及
+R3F/drei/dnd-kit/Vercel AI SDK/shadcn-ui/ECharts/react-virtual/react-i18next/React
+Compiler（均未使用）；§8.5 指标"当前值"（TTFT 240ms/启动 4.2s 等）无实测来源（实测
+TTFT 461ms/冷启动 T+10s）；附录C 数据库 schema（users/assets/knowledge_entries 等表
+不存在，真实 31 张用户表见 docs/design/database-er.md）；附录B 端点清单大量不符
+（/model 单数、/comic/* 等）；474 条测试（实测 backend/tests 115 passed / 5 skipped）；
+AMD ROCm/纯 CPU 档（代码 CUDA-only）；mypy --strict（未安装）。
+
+结论：本文件的【仍有效需求】已抽取至 docs/requirements-baseline.md（RTM 附录 A）；
+其余章节按历史快照对待。
+================================================================================
+
+================================================================================
 OmniSpace AI v2.3.1 极致细粒度全量技术文档
 Ultra Fine-Grained Complete Technical Document
 ================================================================================

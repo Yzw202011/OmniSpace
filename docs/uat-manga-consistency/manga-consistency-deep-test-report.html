@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniSpace 漫剧创作模块 · 一致性深度测试报告（第3-4轮）</title>
+<style>
+:root {
+  --bg: #0d1117; --card: #161b22; --card2: #1c2129; --border: #2d333b;
+  --text: #e6edf3; --muted: #8b949e; --dim: #6e7681;
+  --pink: #ff6b9d; --mint: #4ecdc4; --gold: #ffd93d; --red: #ff6b6b; --green: #6bcb77; --blue: #58a6ff;
+  --shadow: 0 4px 24px rgba(0,0,0,.45);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.75; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 40px 32px 80px; }
+
+/* 头部 */
+.hero { position: relative; padding: 44px 40px; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%);
+  border: 1px solid #30364d; box-shadow: var(--shadow); }
+.hero::before { content: ""; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 90% at 85% 10%, rgba(255,107,157,.14), transparent),
+              radial-gradient(ellipse 50% 80% at 10% 95%, rgba(78,205,196,.10), transparent); }
+.hero h1 { position: relative; font-size: 30px; letter-spacing: .5px; }
+.hero h1 .accent { color: var(--pink); }
+.hero .sub { position: relative; color: var(--muted); margin-top: 10px; font-size: 14.5px; }
+.meta { position: relative; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.meta span { font-size: 12.5px; padding: 5px 14px; border-radius: 999px;
+  background: rgba(255,255,255,.06); border: 1px solid var(--border); color: var(--muted); }
+.meta span b { color: var(--text); font-weight: 600; }
+
+/* 结论横幅 */
+.verdict { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 26px 0 8px; }
+.vcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; text-align: center; }
+.vcard .num { font-size: 30px; font-weight: 800; }
+.vcard .lbl { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.n-green { color: var(--green); } .n-red { color: var(--red); } .n-gold { color: var(--gold); } .n-mint { color: var(--mint); }
+
+/* 章节 */
+section { margin-top: 42px; }
+h2 { font-size: 21px; padding-left: 14px; border-left: 4px solid var(--pink); margin-bottom: 6px; }
+h2 .idx { color: var(--dim); font-size: 13px; font-weight: 400; margin-left: 10px; }
+.desc { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; padding-left: 18px; }
+h3 { font-size: 16px; color: var(--mint); margin: 26px 0 10px; }
+
+/* 卡片 */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px 26px; margin-top: 14px; box-shadow: var(--shadow); }
+
+/* 表格 */
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13.5px; }
+th { background: var(--card2); color: var(--muted); font-weight: 600; text-align: left; padding: 10px 12px; border: 1px solid var(--border); font-size: 12.5px; white-space: nowrap; }
+td { padding: 9px 12px; border: 1px solid var(--border); vertical-align: top; }
+tr:hover td { background: rgba(255,255,255,.025); }
+.pill { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.p0 { background: rgba(255,107,107,.15); color: var(--red); border: 1px solid rgba(255,107,107,.4); }
+.p1 { background: rgba(255,217,61,.13); color: var(--gold); border: 1px solid rgba(255,217,61,.4); }
+.p2 { background: rgba(88,166,255,.13); color: var(--blue); border: 1px solid rgba(88,166,255,.4); }
+.ok { background: rgba(107,203,119,.13); color: var(--green); border: 1px solid rgba(107,203,119,.4); }
+.mono { font-family: Consolas, "Courier New", monospace; font-size: 12px; color: var(--mint); }
+
+/* 证据图 */
+.evi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; margin-top: 16px; }
+.evi { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.evi img { width: 100%; display: block; aspect-ratio: 16/10; object-fit: cover; object-position: top; }
+.evi .cap { padding: 10px 14px; font-size: 12.5px; color: var(--muted); }
+.evi .cap b { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+video { width: 100%; border-radius: 8px; display: block; background: #000; }
+
+/* 代码块 */
+pre { background: #0a0e14; border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px;
+  font-family: Consolas, monospace; font-size: 12.5px; color: #c9d1d9; overflow-x: auto; margin-top: 12px; line-height: 1.6; }
+pre .c { color: var(--dim); } pre .k { color: var(--pink); } pre .s { color: var(--gold); } pre .g { color: var(--green); }
+
+/* 流程时间线 */
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+.flow .step { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px; font-size: 12.5px; }
+.flow .step b { color: var(--mint); }
+.flow .arr { color: var(--dim); font-size: 15px; }
+
+/* 评分条 */
+.bar-wrap { margin-top: 8px; }
+.bar-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.bar-row .bl { width: 130px; font-size: 12.5px; color: var(--muted); text-align: right; flex-shrink: 0; }
+.bar { flex: 1; height: 14px; background: var(--card2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
+.bar i { display: block; height: 100%; border-radius: 999px; }
+.bar-row .bv { width: 44px; font-size: 12.5px; font-weight: 700; flex-shrink: 0; }
+
+.callout { border-left: 4px solid var(--mint); background: rgba(78,205,196,.07); border-radius: 0 10px 10px 0; padding: 14px 18px; margin-top: 14px; font-size: 13.5px; }
+.callout.warn { border-left-color: var(--gold); background: rgba(255,217,61,.06); }
+.callout.bad { border-left-color: var(--red); background: rgba(255,107,107,.06); }
+.callout b { color: var(--text); }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } .verdict { grid-template-columns: repeat(2,1fr); } }
+
+.tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 6px; margin-right: 6px; font-weight: 600; }
+.t-fix { background: rgba(107,203,119,.15); color: var(--green); }
+.t-open { background: rgba(255,107,107,.13); color: var(--red); }
+.t-risk { background: rgba(255,217,61,.12); color: var(--gold); }
+.footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--dim); font-size: 12px; text-align: center; }
+details { margin-top: 12px; background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; }
+summary { cursor: pointer; font-size: 13.5px; color: var(--mint); font-weight: 600; }
+details .inner { padding: 12px 4px 4px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ═══════════════ 头部 ═══════════════ -->
+<div class="hero">
+  <h1>漫剧创作模块 · 一致性深度测试报告 <span class="accent">（第 3–4 轮）</span></h1>
+  <div class="sub">OmniSpace AI v2.3.1 · 剧本 → 资产 → 描述词 → 关键帧 → H3 视频 全链路一致性验证 + 错误排除</div>
+  <div class="meta">
+    <span>测试项目 <b>雨夜便利店·一致性测试</b></span>
+    <span>测试日期 <b>2026-08-30 ~ 08-31</b></span>
+    <span>测试角色 <b>F1 资深短剧制作人 / F2 一致性质检官</b></span>
+    <span>硬件 <b>RTX 5070 Ti 16GB</b></span>
+    <span>引擎 <b>FLUX.2-klein-9b / Qwen3-VL-4b / MiniMax H3 (ComfyUI)</b></span>
+  </div>
+  <div class="verdict">
+    <div class="vcard"><div class="num n-green">4</div><div class="lbl">P0 缺陷修复并验证</div></div>
+    <div class="vcard"><div class="num n-red">6</div><div class="lbl">P1 待修问题</div></div>
+    <div class="vcard"><div class="num n-gold">4</div><div class="lbl">P2 待优化（另 1 项已联动修复）</div></div>
+    <div class="vcard"><div class="num n-mint">1</div><div class="lbl">H3 成片产出（5.17s·带音轨）</div></div>
+  </div>
+</div>
+
+<!-- ═══════════════ 01 测试设计 ═══════════════ -->
+<section>
+  <h2>01 · 测试设计与执行路径<span class="idx">仿真人操作 · 可见浏览器 · 54 张过程截图</span></h2>
+  <div class="desc">延续多角色仿真人测试法：本轮聚焦「生成出来的视频能否保持人物 / 场景 / 道具一致性」，全程在真实前端界面以 Playwright 有头浏览器操作，每一步均截图留证。</div>
+  <div class="card">
+    <div class="flow">
+      <div class="step"><b>F1a</b> 剧本导入 · AI 切分 5 镜</div><span class="arr">→</span>
+      <div class="step"><b>F1b</b> 实体推理 · 6 资产生图 · 绑定</div><span class="arr">→</span>
+      <div class="step"><b>F1b</b> A/B/C 描述词生成</div><span class="arr">→</span>
+      <div class="step"><b>F1c</b> 1×2 网格关键帧 ×2 版</div><span class="arr">→</span>
+      <div class="step"><b>F1d</b> H3 链式视频生成</div><span class="arr">→</span>
+      <div class="step"><b>F1d3/d4</b> 拒绝路径复测 · toast 验证</div><span class="arr">→</span>
+      <div class="step"><b>F2</b> 跨镜一致性四维核查</div>
+    </div>
+    <table>
+      <tr><th>角色</th><th>人格设定</th><th>操作特征</th><th>核心关注</th></tr>
+      <tr><td><b>F1 资深制作人</b></td><td>熟悉竞品工作台，追求量产效率</td><td>按工序箭头条逐工序推进，跳过帮助，直接批量操作</td><td>链路能否走通、耗时、失败后能否重试</td></tr>
+      <tr><td><b>F2 一致性质检官</b></td><td>发行方质检视角，逐帧较真</td><td>资产→关键帧→视频三方逐镜比对，读库核对门禁数据</td><td>人物 / 场景 / 道具 / 画风四维一致性</td></tr>
+    </table>
+    <div class="callout"><b>测试物料：</b>剧本《雨夜便利店》（苏晚×老周，深夜暴雨，蓝格纹雨伞+关东煮便当）——刻意包含<b>双人对话、贯穿道具（雨伞）、室内外场景切换</b>三类一致性挑战。</div>
+  </div>
+</section>
+
+<!-- ═══════════════ 02 P0 错误排除 ═══════════════ -->
+<section>
+  <h2>02 · 本轮错误排除：4 个 P0 缺陷的根因与修复<span class="idx">全部修复并经真实浏览器复测验证</span></h2>
+  <div class="desc">F1d 视频生成测试首先暴露出「H3 采样成功、任务却失败」的链路断点。逐层下钻（后端日志 → ComfyUI 日志 → custom node 源码 → 二进制探测）定位出四个独立缺陷，已全部修复；其中缺陷 #4 是缺陷 #1 修复自身的回归，在最终复测中被抓出并闭环。</div>
+
+  <div class="card">
+    <h3>缺陷 #1 · H3 视频对无关键帧行未诚实拒绝 <span class="tag t-fix">已修复</span></h3>
+    <table>
+      <tr><th style="width:120px">项</th><th>内容</th></tr>
+      <tr><td>现象</td><td>镜 3（无关键帧）点击「生成该镜视频」：前端仅闪过文案，<b>后端仍创建任务并跑满 90 秒 H3 采样</b>，最后在拼接段失败，任务卡死 <span class="mono">generating</span>。</td></tr>
+      <tr><td>根因</td><td>① <span class="mono">video.py</span> 的 H3 默认分支<b>缺少关键帧存在性校验</b>（项目规则「H3 仅支持网格关键帧行」未落地）；② 首版修复把校验放在<b>任务落库之后</b>——拒绝生效但库里留下永不更新的幽灵 <span class="mono">generating</span> 任务（复测抓到实锤：任务 e9546f5f 落库 28s 后仍 0%）。</td></tr>
+      <tr><td>修复</td><td>校验<b>前置到任务落库之前</b>（锁获取后立即校验，raise 经 finally 正常释放 video_gen 锁），返回 <span class="mono">40005「该分镜行尚无分镜图（关键帧），无法生成视频」</span>。</td></tr>
+      <tr><td>验证</td><td class="n-green">复测：API 0.0s 内拒绝（日志 <span class="mono">ApiError: SYSTEM_RESOURCE_NOT_FOUND</span>），<b>无新任务落库</b> ✓</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>缺陷 #2 · H3 失败后任务状态卡死 generating <span class="tag t-fix">已修复</span></h3>
+    <table>
+      <tr><th style="width:120px">项</th><th>内容</th></tr>
+      <tr><td>现象</td><td>两条失败任务的 <span class="mono">video_tasks.status</span> 永远停在 <span class="mono">generating</span>（17.5% / 18.6%），前端进度条「假活」10 分钟以上。</td></tr>
+      <tr><td>根因</td><td><span class="mono">_h3_chain_worker_gen</span> 的 except 分支只回写了 <span class="mono">storyboard_rows.generation_status</span>，<b>漏掉 video_tasks 状态回写</b>。</td></tr>
+      <tr><td>修复</td><td>except 分支补 <span class="mono">video_tasks → status='error', progress=1.0, generation_time_ms</span> 回写。</td></tr>
+      <tr><td>验证</td><td class="n-green">复测：任务 45e6973c 失败后 141s 即转为 <span class="mono">error/100%</span>，前端按钮变「失败重试」态 ✓（历史 3 条卡死任务已一并清理为 error）</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>缺陷 #3 · ComfyUI 拼接段选中宿主 Electron 阉割版 ffmpeg <span class="tag t-fix">已修复</span></h3>
+    <table>
+      <tr><th style="width:120px">项</th><th>内容</th></tr>
+      <tr><td>现象</td><td>H3 扩散采样成功、clip 段 mp4 与音频已落盘，但最终拼接报 <span class="mono">ffmpeg failed (0xABAFB008): Error splitting the argument list: Option not found</span>，两条任务全部阵亡。</td></tr>
+      <tr><td>根因链</td><td>
+        ① custom node 用 <span class="mono">shutil.which("ffmpeg")</span> 找拼接器 →<br>
+        ② 系统 PATH 首位是宿主应用 <span class="mono">d:\TreaWork\TRAE SOLO CN\...\bin\ffmpeg.exe</span>——<b>Electron 阉割版</b>（实测 <span class="mono">--disable-everything</span> 仅留 libx264，连 <span class="mono">lavfi</span> 都没有，<span class="mono">-version</span> 探测却能通过）→<br>
+        ③ 探测缓存 <span class="mono">_FFMPEG_PROBE_CACHE</span> 判定「可用」，实际执行 concat/ffmetadata/<span class="mono">movflags use_metadata_tags</span> 时报 Option not found。<br>
+        ④ 首版只修了 <span class="mono">comfy_paint_engine.py</span>，但<b>拉起 ComfyUI 的是 h3_engine.py 的第二套 spawn</b>（不传 env），复测仍然失败——两处 spawn 都要前置。
+      </td></tr>
+      <tr><td>修复</td><td><span class="mono">comfy_paint_engine.py</span> 与 <span class="mono">h3_engine.py</span> 两处 <span class="mono">_spawn()</span> 统一将 <span class="mono">runtime/ffmpeg/bin</span>（完整版 8.1.2）前置到子进程 PATH。</td></tr>
+      <tr><td>验证</td><td class="n-green">复测：镜 1 全链路 <b>123 秒产出成片</b>（h264 864×480 + <b>aac 音轨</b>，1.74MB）✓</td></tr>
+    </table>
+    <div class="callout warn"><b>同根因风险提示：</b>任何「探测能过、执行才炸」的阉割 ffmpeg 都会绕过 custom node 的可用性探测。项目内所有 <span class="mono">shutil.which("ffmpeg")</span> 类查找（含后端自身）建议统一走显式路径常量（<span class="mono">runtime/ffmpeg/bin</span>），不要依赖系统 PATH。</div>
+  </div>
+
+  <div class="card">
+    <h3>缺陷 #4 · 拒绝路径 flow 未初始化引发 500，前端 toast 静默 <span class="tag t-fix">已修复</span></h3>
+    <table>
+      <tr><th style="width:120px">项</th><th>内容</th></tr>
+      <tr><td>现象</td><td>缺陷 #1 修复后复测：拒绝<b>确实生效</b>（无新任务落库），但前端 toast 为 null——后端日志爆 <span class="mono">UnboundLocalError: local variable 'flow' referenced before assignment (video.py:1051)</span>，结构化错误响应被打成未捕获 500。</td></tr>
+      <tr><td>根因</td><td>缺陷 #1 的校验 raise 位于 <span class="mono">flow = start_flow(...)</span> <b>之前</b>，而函数级 except 分支无条件调用 <span class="mono">flow.end(...)</span>——入口拒绝路径上 flow 尚未建立。属于「修复引入的回归」，首版验证只核对了任务未落库，漏验了错误响应体本身。</td></tr>
+      <tr><td>修复</td><td>try 前置 <span class="mono">flow = None</span>，except 分支加 <span class="mono">if flow is not None</span> 判空守卫；其余 9 处 flow 引用核查均在初始化之后或经 NULL_FLOW 兜底，安全。</td></tr>
+      <tr><td>验证</td><td class="n-green">API 复测：HTTP 200 + <span class="mono">success:false / SYSTEM_RESOURCE_NOT_FOUND /「该分镜行尚无分镜图（关键帧），无法生成视频，请先生成分镜图」</span>；浏览器复测（截图 96）：toast 元素完整展示该文案，1.2s/2.5s 双时点均在 ✓</td></tr>
+    </table>
+    <div class="evi-grid">
+      <div class="evi"><img src="evidence/ui-shot3-reject.png" alt="修复前静默"><div class="cap"><b>修复前（截图 92）</b>点击「生成该镜视频」后 4s 静默——500 打穿结构化错误，toast 为 null</div></div>
+      <div class="evi"><img src="evidence/toast-fixed.png" alt="修复后 toast"><div class="cap"><b>修复后（截图 96）</b>toast 完整展示「该分镜行尚无分镜图（关键帧），无法生成视频，请先生成分镜图」</div></div>
+    </div>
+    <div class="callout warn"><b>教训：</b>负向测试必须同时断言「副作用未发生」<b>与「错误响应结构正确」</b>——只看任务未创建会漏掉 500 类回归。此缺陷同时解释并联动修复了下文 P2「镜3 被拒后前端无可见 toast」。</div>
+  </div>
+
+  <div class="card">
+    <h3>修复代码索引（ruff 全绿 + 全量单测 146 passed）</h3>
+    <pre><span class="c"># backend/api/manga/video.py —— 关键帧前置校验（锁获取后、任务落库前）</span>
+if (req.storyboard_row_id and req.model_override != "local" and not req.audio_path):
+    kf = _db.query_one(<span class="s">"SELECT id FROM keyframes WHERE row_id=? AND is_current=1"</span>, ...)
+    <span class="k">if not kf:</span>
+        <span class="k">raise</span> ApiError(<span class="s">40005</span>, <span class="s">"该分镜行尚无分镜图（关键帧），无法生成视频，请先生成分镜图"</span>, ...)
+
+<span class="c"># backend/api/manga/video.py —— 失败状态回写</span>
+d.update(<span class="s">"video_tasks"</span>, {<span class="s">"status"</span>: <span class="s">"error"</span>, <span class="s">"progress"</span>: 1.0,
+                    <span class="s">"generation_time_ms"</span>: int((time.time()-t0)*1000)}, <span class="s">"id=?"</span>, (task_id,))
+
+<span class="c"># backend/api/manga/video.py —— 缺陷#4：flow 判空守卫（入口拒绝时 flow 未建立）</span>
+lock = <span class="k">await</span> acquire_or_raise(<span class="s">"video_gen"</span>, ...)
+started = <b>False</b>; flow = <b>None</b>          <span class="c"># 前置初始化</span>
+<span class="k">try:</span> ... flow = start_flow(...) ...
+<span class="k">except</span> Exception <span class="k">as</span> exc:
+    <span class="k">if</span> flow <span class="k">is not</span> <b>None</b>:        <span class="c"># 判空守卫，拒绝路径不再 500</span>
+        flow.end(<span class="s">"error"</span>, error_code=<span class="s">"SUBMIT_FAILED"</span>, ...)
+
+<span class="c"># backend/services/inference/{comfy_paint_engine,h3_engine}.py —— 两处 spawn 同款</span>
+ff_bin = ROOT_DIR / <span class="s">"runtime"</span> / <span class="s">"ffmpeg"</span> / <span class="s">"bin"</span>
+<span class="k">if</span> ff_bin.is_dir():
+    env[<span class="s">"PATH"</span>] = str(ff_bin) + os.pathsep + env.get(<span class="s">"PATH"</span>, <span class="s">""</span>)
+<span class="g"># → ComfyUI 子进程内 shutil.which("ffmpeg") 命中完整版 8.1.2</span></pre>
+    <div>顺手清理存量 lint：h3_chain 批量端点 2 处 F841（未使用变量 <span class="mono">lock/started</span>，worker 内部已自管锁释放）。数据侧清理 3 条卡死/幽灵任务为 error 态。</div>
+  </div>
+</section>
+
+<!-- ═══════════════ 03 一致性四维评测 ═══════════════ -->
+<section>
+  <h2>03 · 一致性专项评测：资产 → 关键帧 → 视频三方对照<span class="idx">F2 质检官逐帧核查</span></h2>
+  <div class="desc">用户核心诉求：生成出来的视频能否保持人物、场景、道具一致性。F2 将「角色资产立绘（真源）→ 1×2 网格关键帧 → H3 视频帧」做三方逐镜比对，并叠加画风维度（第 4 维）。</div>
+
+  <div class="card">
+    <h3>3.1 人物一致性 —— <span class="n-green">■ 良好（服装发型全链路保持）</span></h3>
+    <div class="evi-grid">
+      <div class="evi"><img src="evidence/asset-suwan.png" alt="苏晚资产"><div class="cap"><b>真源 · 苏晚资产立绘（4视图）</b>女性 · 栗棕低马尾+银发圈 · 浅灰卫衣+白T+深蓝牛仔裤+白鞋 · 2D 写实漫画风</div></div>
+      <div class="evi"><img src="evidence/kf-shot1-v2.png" alt="镜1关键帧"><div class="cap"><b>镜 1 关键帧 v2（1×2 网格）</b>同服装同发型 ✓ · 蓝格纹伞 ✓ · 但画风已是 3D 皮克斯</div></div>
+      <div class="evi"><img src="evidence/vid-shot1-f3.jpg" alt="镜1视频帧"><div class="cap"><b>镜 1 视频中帧</b>深棕低马尾+灰卫衣+深蓝牛仔裤+白鞋 <b>全套保持 ✓</b> · 双手握蓝格纹伞 ✓</div></div>
+      <div class="evi"><img src="evidence/vid-shot3-f4.jpg" alt="镜3视频帧"><div class="cap"><b>镜 3 视频中后帧 · 双人同框</b>老周（灰白发+深色外套+浅蓝衬衫）与苏晚（马尾+灰卫衣）同框互动 ✓</div></div>
+    </div>
+    <table>
+      <tr><th>链路</th><th>苏晚（主角）</th><th>老周（配角）</th><th>判定</th></tr>
+      <tr><td>资产 → 关键帧</td><td>服装/发型/发色 100% 保持；PuLID 身份硬锁下 face_sim 0.66–0.69</td><td>灰白发+工装夹克+浅蓝衬衫保持；<b>但凭空多出细框眼镜</b>（资产无）</td><td><span class="pill ok">基本通过</span></td></tr>
+      <tr><td>关键帧 → 视频</td><td>服装/发型贯穿 5.17s 成片；首帧有一次性漂移（见 P2-12）</td><td>镜 3 视频与资产高度一致（灰发/深外套/浅蓝衬衫/递便当动作）</td><td><span class="pill ok">通过</span></td></tr>
+      <tr><td>跨镜（镜1 ↔ 镜3 视频）</td><td>同为马尾+灰卫衣 ✓</td><td>镜 3 单独出场，无跨镜比对样本</td><td><span class="pill ok">通过</span></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>3.2 场景一致性 —— <span class="n-green">■ 良好</span></h3>
+    <div class="evi-grid">
+      <div class="evi"><img src="evidence/vid-shot1-f5.jpg" alt="镜1尾帧"><div class="cap"><b>镜 1 视频尾帧</b>便利店门口：玻璃门+货架暖光+「24営業中」标识+雨后湿地面 ✓ 收起的伞倚门边（与关键帧右镜呼应）</div></div>
+      <div class="evi"><img src="evidence/vid-shot3-f1.jpg" alt="镜3首帧"><div class="cap"><b>镜 3 视频首帧</b>便利店内：热食陈列柜+饮料货架+收银台 ✓ 与场景资产「便利店门口」语义一致</div></div>
+    </div>
+    <table>
+      <tr><th>维度</th><th>证据</th><th>判定</th></tr>
+      <tr><td>镜 1（街道→店门）</td><td>雨夜积水街道 + 霓虹招牌 + 便利店玻璃门暖光，全片贯穿；门内货架可见</td><td><span class="pill ok">通过</span></td></tr>
+      <tr><td>镜 1 → 镜 3（外→内）</td><td>同一便利店的内外空间衔接自然（玻璃门内外视角连续）</td><td><span class="pill ok">通过</span></td></tr>
+      <tr><td>镜 2（例外）</td><td><b>关键帧画成「门外晴/雨对比」</b>——与剧本「店内柜台后抬头」错位（根因在描述词，见 §04）</td><td><span class="pill p1">错位</span></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>3.3 道具一致性 —— <span class="n-gold">■ 部分通过（跨镜形态漂移）</span></h3>
+    <div class="evi-grid">
+      <div class="evi"><img src="evidence/asset-umbrella.png" alt="雨伞资产"><div class="cap"><b>真源 · 蓝色格纹雨伞资产</b>3D 皮克斯风道具设定图</div></div>
+      <div class="evi"><img src="evidence/vid-shot1-f1.jpg" alt="镜1首帧"><div class="cap"><b>镜 1 首帧 · 疑点帧</b>撑深蓝格纹伞 ✓ 但<b>左手凭空多一把收起的黑伞</b>（疑似资产立绘里苏晚的黑折叠伞被同时注入参考）</div></div>
+    </div>
+    <table>
+      <tr><th>道具</th><th>镜 1</th><th>镜 3</th><th>判定</th></tr>
+      <tr><td>蓝色格纹雨伞</td><td>撑开→收起全程在场，格纹/颜色/长柄均 ✓</td><td><b>变成深色折叠伞</b>（本镜未绑定伞资产，描述词只写「雨伞悬臂弯」）</td><td><span class="pill p1">跨镜漂移</span></td></tr>
+      <tr><td>便当（关东煮）</td><td>—</td><td>以「散装热食柜台」呈现，中后帧出现<b>深棕色便当盒</b>（老周双手递出）✓</td><td><span class="pill ok">语义达成</span></td></tr>
+      <tr><td>幻觉道具</td><td>首帧多出一把黑伞</td><td>无</td><td><span class="pill p2">P2</span></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>3.4 画风一致性 —— <span class="n-red">■✗ 未通过（全链路三段式漂移）</span></h3>
+    <table>
+      <tr><th>环节</th><th>实际画风</th><th>与项目 art_style「3D 卡通·皮克斯质感」</th></tr>
+      <tr><td>角色/道具/场景资产</td><td><b>2D 写实日韩漫画风</b>（klein-4b 生成）</td><td class="n-red">✗ 偏离</td></tr>
+      <tr><td>1×2 网格关键帧</td><td><b>3D 皮克斯/黏土渲染风</b>（klein-9b）</td><td class="n-green">✓ 达标</td></tr>
+      <tr><td>H3 视频</td><td><b>2D 日式动画风</b>（新海诚系赛璐璐）</td><td class="n-red">✗ 偏离</td></tr>
+    </table>
+    <div class="bar-wrap">
+      <div class="bar-row"><span class="bl">VLM 画风评分（镜1）</span><div class="bar"><i style="width:60%;background:linear-gradient(90deg,#ffd93d,#ff6b6b)"></i></div><span class="bv n-gold">45~60</span></div>
+      <div class="bar-row"><span class="bl">阈值</span><div class="bar"><i style="width:75%;background:#2d333b"></i></div><span class="bv">75</span></div>
+    </div>
+    <div class="callout bad"><b>这是当前一致性体系最大的结构性短板：</b>三个环节三种画风，且 VLM 画风门禁（阈值 75）持续报警（45/60）却未能拦截。根因是资产引擎（klein-4b）、关键帧引擎（klein-9b）、视频引擎（H3）三者的美学先验各不相同，仅靠提示词 A 段「3D卡通、皮克斯质感」约束力不足。<b>建议：统一资产生成引擎与关键帧引擎为同一 FLUX.2-klein 版本 + 资产风格 LoRA 锚定；或在 H3 工作流注入风格参考图（style reference）。</b></div>
+  </div>
+
+  <div class="card">
+    <h3>3.5 最终成片（修复后产出）</h3>
+    <video controls preload="metadata" src="evidence/final-shot1.mp4"></video>
+    <div class="cap" style="color:var(--muted);font-size:12.5px;margin-top:8px">镜 1 成片 · h264 864×480 · 5.17s · <b>AAC 环境音轨</b>（雨声/脚步/门轴，符合 A 段「无字幕无BGM只有音效」）· H3 链式引擎 123s 生成 · 与修复前失败任务采样结果逐字节一致（--deterministic 确定性生效）</div>
+  </div>
+</section>
+
+<!-- ═══════════════ 04 门禁数据 ═══════════════ -->
+<section>
+  <h2>04 · 一致性门禁数据全景<span class="idx">三重门禁 + VLM 画风通道实测</span></h2>
+  <div class="card">
+    <table>
+      <tr><th>镜头</th><th>版本</th><th>结构分</th><th>face_sim</th><th>scene_sim</th><th>style</th><th>判定</th><th>质检官复核</th></tr>
+      <tr><td>镜1 · shot1</td><td>v1 / v2</td><td class="n-green">95 / 95</td><td class="n-green">0.693 / 0.659</td><td class="n-green">0.816 / 0.818</td><td class="n-gold">45 / 45</td><td class="n-green">通过</td><td>✓ PuLID 身份锁有效</td></tr>
+      <tr><td><b>镜1 · shot2</b></td><td>v1 / v2</td><td class="n-red">0 / 0</td><td class="n-red">0.523 / 0.497</td><td class="n-red">0.434 / 0.399</td><td class="n-red">30 / 60</td><td class="n-red">两版均未过</td><td><b>重抽 2 次仍不达标却标 done 放行</b></td></tr>
+      <tr><td>镜2 · shot1</td><td>v1 → v2</td><td class="n-red">0 → <span class="n-green">100</span></td><td class="n-red">0.305 → 0.307</td><td class="n-red">0.114 → 0.616</td><td class="n-red">20 → 20</td><td>拒 → <span class="n-green">过</span></td><td>scene 维度达标翻转判定</td></tr>
+      <tr><td><b>镜2 · shot2</b></td><td>v1 → v2</td><td class="n-green">95 / 95</td><td class="n-red">0.427 / 0.424</td><td class="n-red">0.114 → 0.274</td><td class="n-red">20 → 30</td><td>过 / <span class="n-green">过</span></td><td><b>face_sim 0.42 远低于 0.75 仍判 passed</b></td></tr>
+    </table>
+    <div class="callout warn">
+      <b>门禁口径三处疑点（P1-4 / P1-9）：</b><br>
+      ① 镜1 shot2 两版（含重抽）face_sim 0.52/0.50、scene_sim 0.43/0.40、style 30/60 全部低于阈值，任务最终却是 <span class="mono">done + current=1</span>——重抽上限耗尽后<b>静默放行，用户不知情</b>；<br>
+      ② 镜2 有人脸（face_count=1）却以 scene_sim 达标翻转判定，face_sim 0.30/0.42 未被拦——与「有人脸镜头 face_sim≥0.75 硬门禁」的文档口径不符；<br>
+      ③ VLM 画风通道（阈值 75）四组数据 20~60 全部报警但零拦截——当前仅记录不生效。
+    </div>
+    <details><summary>门禁原始 JSON（keyframes.consistency 字段节选）</summary><div class="inner">
+      <pre>镜1 v2: {"shots":[95,0],"face_sims":[0.659,0.497],"scene_sims":[0.818,0.399],
+        "style_scores":[45,60],"threshold":75,"face_threshold":0.75,
+        "scene_threshold":0.6,"style_threshold":75,"retried":true,"picked":2}
+镜2 v2: {"shots":[100,95],"face_sims":[0.307,0.424],"scene_sims":[0.616,0.274],
+        "style_scores":[20,30],"min":95,"retried":true}</pre>
+    </div></details>
+  </div>
+</section>
+
+<!-- ═══════════════ 05 描述词审查 ═══════════════ -->
+<section>
+  <h2>05 · A/B/C 描述词质量审查<span class="idx">F2 逐镜审读</span></h2>
+  <div class="card">
+    <table>
+      <tr><th>镜</th><th>A 全局风格</th><th>B 世界观锚定</th><th>C 时间轴</th><th>审查结论</th></tr>
+      <tr><td>镜1</td><td class="n-green">✓ 3D皮克斯+雨夜氛围</td><td class="n-green">✓ 人物设定/道具/环境细节与资产一致</td><td class="n-green">✓ 网格 1×2 标记 + 双镜秒数 + 运镜音效</td><td><span class="pill ok">优秀</span></td></tr>
+      <tr><td><b>镜2</b></td><td class="n-green">✓</td><td class="n-red">✗ 场景写成「便利店门口」——剧本是<b>店内柜台后抬头</b></td><td class="n-red">✗ 第二镜「老周收伞」<b>主体错位</b>（收伞的是苏晚）+ 编造剧情</td><td><span class="pill p1">两处硬伤</span></td></tr>
+      <tr><td><b>镜3</b></td><td class="n-green">✓</td><td class="n-green">✓ 双人+道具设定完整</td><td class="n-red">✗ <b>缺「分镜网格」标记与秒数</b>——双镜内容（货架前+柜台前）被当单帧处理</td><td><span class="pill p1">格式缺失</span></td></tr>
+    </table>
+    <div class="callout bad"><b>描述词缺陷会原样传导到下游：</b>镜 2 的场景错位直接导致关键帧画成「门外晴/雨对比」（左帧晴天光照与「深夜暴雨」彻底矛盾）；镜 3 的网格标记缺失使其无法走多镜视频模式。LLM 生词的<b>结构稳定性（网格标记必出）与主体归属准确性</b>是两个高价值修复点——建议在 ai-describe 端点加结构校验（双动作原文 → 强制网格标记）+ 主体-动作一致性复核。</div>
+  </div>
+</section>
+
+<!-- ═══════════════ 06 问题清单 ═══════════════ -->
+<section>
+  <h2>06 · 问题总清单<span class="idx">P0×4 已修复 · P1×6 待修 · P2×4 待优化（另 1 项联动修复）</span></h2>
+  <div class="card">
+    <table>
+      <tr><th style="width:56px">级别</th><th style="width:44px">#</th><th>问题</th><th>证据</th><th style="width:80px">状态</th></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>1</td><td>H3 视频对无关键帧行不拒绝，静默建任务跑满采样后失败</td><td>任务 d37a05e6 落库即 generating</td><td class="n-green">已修复✓</td></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>2</td><td>H3 失败后 video_tasks 状态卡死 generating，前端假活</td><td>两任务 17.5%/18.6% 永停</td><td class="n-green">已修复✓</td></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>3</td><td>ComfyUI 拼接选中宿主 Electron 阉割 ffmpeg，H3 全军覆没</td><td>Option not found ×2</td><td class="n-green">已修复✓</td></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>4</td><td>拒绝路径 flow 未初始化 → UnboundLocalError 500，结构化错误被打穿（缺陷#1 修复的回归）</td><td>video.py:1051 · toast null</td><td class="n-green">已修复✓</td></tr>
+      <tr><td><span class="pill p1">P1</span></td><td>5</td><td>网格第二镜门禁重抽 2 次均不过仍标 done 放行，用户不知情</td><td>镜1 shot2 face 0.52→0.50</td><td class="n-red">待修</td></tr>
+      <tr><td><span class="pill p1">P1</span></td><td>6</td><td>画风三段式漂移：资产2D写实→关键帧3D皮克斯→视频2D日动；style 门禁 20~60 全程报警零拦截</td><td>§3.4 对照</td><td class="n-red">待修</td></tr>
+      <tr><td><span class="pill p1">P1</span></td><td>7</td><td>镜2 描述词场景错位（门外 vs 店内柜台）+ 动作主体错位（老周收伞），传导至关键帧成「晴/雨对比」</td><td>§05</td><td class="n-red">待修</td></tr>
+      <tr><td><span class="pill p1">P1</span></td><td>8</td><td>镜3 描述词缺网格标记/秒数，双镜内容退化单帧模式（LLM 结构不稳定）</td><td>§05</td><td class="n-red">待修</td></tr>
+      <tr><td><span class="pill p1">P1</span></td><td>9</td><td>跨镜道具漂移：蓝格纹长柄伞（镜1）→深色折叠伞（镜3）；镜1 首帧凭空多一把黑伞</td><td>§3.3</td><td class="n-red">待修</td></tr>
+      <tr><td><span class="pill p1">P1</span></td><td>10</td><td>镜2 有人脸却以 scene_sim 翻转判定（face_sim 0.30/0.42 判 passed），与 0.75 硬门禁口径不符</td><td>§04</td><td class="n-red">待修</td></tr>
+      <tr><td><span class="pill p2">P2</span></td><td>11</td><td>镜3 被拒后前端无可见 toast（4s 观察窗口内静默）——根因即 P0-4 的 500</td><td>截图 92/96</td><td class="n-green">已联动修复✓</td></tr>
+      <tr><td><span class="pill p2">P2</span></td><td>12</td><td>顶部残留旧「上次生成失败」提示条，不随重试清除</td><td>截图 92</td><td class="n-gold">待优化</td></tr>
+      <tr><td><span class="pill p2">P2</span></td><td>13</td><td>镜1 视频首帧一次性漂移（形象偏男性化+披肩发→后帧恢复马尾）</td><td>vid-shot1-f1</td><td class="n-gold">观察项</td></tr>
+      <tr><td><span class="pill p2">P2</span></td><td>14</td><td>便当资产以「散装热食」形态呈现（语义转化而非资产形态复刻）</td><td>vid-shot3-f1</td><td class="n-gold">观察项</td></tr>
+      <tr><td><span class="pill p2">P2</span></td><td>15</td><td>镜2 关键帧老周凭空戴细框眼镜（资产无此元素）；左帧晴天与深夜暴雨矛盾</td><td>kf-shot2-v2</td><td class="n-gold">待优化</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 07 性能 ═══════════════ -->
+<section>
+  <h2>07 · 性能实测<span class="idx">RTX 5070 Ti 16GB · 480p 档</span></h2>
+  <div class="card">
+    <table>
+      <tr><th>环节</th><th>耗时</th><th>备注</th></tr>
+      <tr><td>剧本 AI 切分（5 镜）</td><td>~30s</td><td>qwen3-vl-4b（vLLM）</td></tr>
+      <tr><td>单资产生图（4视图/道具/场景）</td><td>15~40s/个</td><td>FLUX.2-klein，6 资产共 ~3min</td></tr>
+      <tr><td>单镜 A/B/C 描述词</td><td>8~15s</td><td>含 refine 评分链</td></tr>
+      <tr><td>1×2 网格关键帧（含一致性评分+重抽）</td><td>3.5~6min/版</td><td>comfy+PuLID 路径；一致性复评占 ~2min</td></tr>
+      <tr><td><b>H3 链式视频（5.17s · 带音轨）</b></td><td class="n-green"><b>123s</b></td><td>ComfyUI 冷启动(40s)+采样(60s)+拼接；修复前同链路 100% 失败于拼接段</td></tr>
+      <tr><td>ComfyUI 冷启动</td><td>~40s</td><td>8189 端口，H3 与绘画共用实例</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 08 建议 ═══════════════ -->
+<section>
+  <h2>08 · 改进建议（按优先级）</h2>
+  <div class="card">
+    <table>
+      <tr><th style="width:60px">优先</th><th>建议</th><th>预期收益</th></tr>
+      <tr><td class="n-red">高</td><td><b>画风统一工程：</b>资产引擎与关键帧引擎统一为 klein-9b（或资产加风格 LoRA），H3 工作流注入风格参考图</td><td>根治三段式漂移，style 门禁可真正生效</td></tr>
+      <tr><td class="n-red">高</td><td><b>门禁放行透明化：</b>重抽耗尽仍不过时，任务状态标注 <span class="mono">done_with_warnings</span> 并在关键帧详情展示「第2镜未达标」</td><td>用户知情权，避免带病素材进视频</td></tr>
+      <tr><td class="n-red">高</td><td><b>描述词结构校验：</b>原文含双动作/双人 → 强制要求网格标记；主体-动作一致性复核（谁收伞）</td><td>镜2/镜3 类错位从源头消除</td></tr>
+      <tr><td class="n-gold">中</td><td><b>道具跨镜绑定继承：</b>同一道具在相邻镜自动继承绑定与形态描述（伞从镜1 到镜3 不换形）</td><td>跨镜道具一致性</td></tr>
+      <tr><td class="n-gold">中</td><td><b>门禁维度口径对齐：</b>face_count≥1 时 face_sim 为硬性维度；实现与文档（§04 口径）对齐</td><td>判定可解释、可信任</td></tr>
+      <tr><td class="n-gold">中</td><td><b>ffmpeg 显式路径：</b>全项目 ffmpeg 调用统一走 runtime/ffmpeg 常量，弃 PATH 查找</td><td>根除阉割版 ffmpeg 类环境依赖</td></tr>
+      <tr><td class="n-gold">低</td><td>拒绝 toast 已随 P0-4 修复落地（40005→SYSTEM_RESOURCE_NOT_FOUND 语义码 + 完整文案）；剩余「旧失败提示条自动清理」待办</td><td>新手可感知反馈（已完成 50%）</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 09 附录 ═══════════════ -->
+<section>
+  <h2>09 · 附录：证据索引</h2>
+  <div class="card">
+    <table>
+      <tr><th>证据</th><th>路径</th></tr>
+      <tr><td>过程截图（54 张，F1a~F1d4 全程）</td><td class="mono">e:\OmniSpace\temp_uat_manga\screenshots\F1_fullchain\</td></tr>
+      <tr><td>toast 修复证据（截图 95/96）</td><td class="mono">e:\OmniSpace\temp_uat_manga\screenshots\F1_fullchain\9{5,6}-shot3-toast*.png</td></tr>
+      <tr><td>成片（镜1 · 修复后）</td><td class="mono">e:\OmniSpace\data\videos\267f7f2983d14802\92df361dca144c619911b7473fcee384.mp4</td></tr>
+      <tr><td>失败任务段视频（修复前采样产物）</td><td class="mono">tools\ComfyUI_windows_portable\...\output\h3_chains\h3chain_{a7d19c83,d37a05e6}\segments\</td></tr>
+      <tr><td>关键帧（镜1/镜2 各 v1/v2）</td><td class="mono">e:\OmniSpace\data\keyframes\{267f7f29…,4cff9bf3…}\</td></tr>
+      <tr><td>测试脚本</td><td class="mono">e:\OmniSpace\temp_uat\manga_F1{a2,b1,b3,c2,c3,d,d2,d3,d4}*.js · verify_flow_fix.py</td></tr>
+      <tr><td>修复文件</td><td class="mono">backend\api\manga\video.py · backend\services\inference\{comfy_paint_engine,h3_engine}.py</td></tr>
+      <tr><td>回归验证</td><td class="mono">ruff check 全绿 · backend/tests/unit 146 passed</td></tr>
+    </table>
+  </div>
+</section>
+
+<div class="footer">
+  OmniSpace AI v2.3.1 · 漫剧创作模块一致性深度测试（第 3–4 轮）· 2026-08-31 生成 ·
+  P0×4 已修复验证（含 1 项回归缺陷）· 测试执行：F1 资深制作人 + F2 一致性质检官（仿真人双角色）
+</div>
+</div>
+</body>
+</html>

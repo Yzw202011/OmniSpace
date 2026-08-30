@@ -2,16 +2,18 @@
 
 > 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 机器提取自 FastAPI 应用实例（create_app() 路由表全量枚举，非手工誊抄）
 >
+> **2026-08-28 时效校准**：本表为 08-20 快照。同口径静态扫描当日共 **328 个 HTTP 路由装饰器（含别名）** + 4 WebSocket（WS 数不变）；新增端点以代码为准，本表未逐条补录。
+>
 > 配套文档：[架构总览](architecture-overview.md) ｜ [数据库 ER 说明](database-er.md)
 
-共 **270 个 HTTP 端点** + **4 个 WebSocket 端点**，按业务域分 16 组。表中每行含处理函数名——需要细节时按函数名在 `backend/api/` 下直接定位。
+共 **270 个 HTTP 端点**（08-20 快照口径；2026-08-28 实测 328 含别名）+ **4 个 WebSocket 端点**，按业务域分 16 组。表中每行含处理函数名——需要细节时按函数名在 `backend/api/` 下直接定位。
 
 ## 通用约定
 
 - **前缀**：所有业务端点挂载于 `/api/v1` 之下（ADR-03）。旧 `/v1` 前缀已废弃，返回 404。
 - **信封**：响应恒为 HTTP 200 + 统一信封 `{"success", "data", "error", "meta"}`（ADR-01）。失败时 `error` 为 `{code, message, detail, suggestion?}`，`code` 是语义串（`MODEL_*`/`KNOWLEDGE_*`/`SYSTEM_*`/`FEATURE_*` 等约 100 个，历史数字码自动映射）。
 - **别名约定**：漫剧域端点存在 23 个顶层旧别名（如 `/api/v1/storyboard/list` ≡ `/api/v1/manga/storyboard/list`），系 v2.1 契约兼容保留。本表只列权威 `/manga/*` 路径；前端代码统一使用权威路径。`/api/v1/director/text-to-3d` 例外——它只注册在顶层，无 `/manga` 前缀对。
-- **限流**：默认 100 req/min/端点（滑动窗口，路径参数归一化为 `{}` 后按端点计桶）；`/health` 与 `/favicon.ico` 豁免；`GET /api/v1/manga/media/*` 独立 600/min 桶（缩略图高频回读）。超限 429 + `SYSTEM_RATE_LIMITED` + Retry-After 头。
+- **限流**：默认 300 req/min/端点（2026-08-28 校准，config.yaml `rate_limit: 300`；由 100 提额——100 会把多标签页合法轮询打出 429。滑动窗口，路径参数归一化为 `{}` 后按端点计桶）；`/health` 与 `/favicon.ico` 豁免；`GET /api/v1/manga/media/*` 独立 600/min 桶（缩略图高频回读）。超限 429 + `SYSTEM_RATE_LIMITED` + Retry-After 头。
 - **绑定**：127.0.0.1:5800，Host 头白名单校验（防 DNS 重绑定），CORS 仅放行 localhost 任意端口。
 - **上传**：上传端点经 `middleware/upload_guard.py` 双层闸门——扩展名白名单 + 文件头魔数嗅验，PE/ELF/Mach-O 可执行体绝对黑名单（P0-03）。
 - **功能互斥**：dialog / paint / video_gen / training 四类重量级功能经 `middleware/feature_lock.py` 进程内锁全互斥，冲突返回 `FEATURE_MUTEX_LOCKED`；GPU ≥90°C 拒绝新任务。

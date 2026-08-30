@@ -1,0 +1,5 @@
+H3-seg-prompt-design是专门为V7的Theodore导播台设计的skill。 
+
+start-h3-prompts-from-scratch 是为V1到V5的上段尾帧 参考生视频所用的skill。
+
+如果您使用V6版本，那么建议使用H3-seg-prompt-design这个skill，并且在它制作分镜提示词时明确告诉它，“不用帮我改为ref引用格式，保留原先的picture video audio指代关系”。

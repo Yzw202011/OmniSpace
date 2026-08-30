@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开源无限画布 × ComfyUI 前十榜单 · OmniSpace 选型</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg2: #0f1526; --card: #131b30; --card2: #182242;
+    --line: #243050; --txt: #dde6f5; --muted: #8b99b8; --dim: #5a6a8c;
+    --cyan: #4dd8ff; --cyan2: #2ba8d8; --gold: #ffd166; --green: #6ee7a0;
+    --red: #ff7b7b; --purple: #b48bff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: "Segoe UI", "Microsoft YaHei", -apple-system, sans-serif;
+    line-height: 1.65; font-size: 15px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 28px 60px; }
+  header h1 { font-size: 30px; font-weight: 800; letter-spacing: .5px; }
+  header h1 .grad {
+    background: linear-gradient(90deg, var(--cyan), var(--purple));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); margin: 10px 0 18px; max-width: 900px; }
+  .sub b { color: var(--txt); }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+  .chip {
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 14px; font-size: 13px; color: var(--muted);
+  }
+  .chip b { color: var(--cyan); }
+  section { margin-top: 44px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+  .sec-num {
+    font-size: 13px; font-weight: 700; color: var(--cyan);
+    border: 1px solid var(--cyan2); border-radius: 8px; padding: 2px 10px;
+    background: rgba(77,216,255,.07);
+  }
+  h2 { font-size: 21px; }
+  .sec-lead { color: var(--muted); font-size: 14px; margin-bottom: 20px; max-width: 950px; }
+  .sec-lead a { color: var(--cyan); text-decoration: none; }
+  .sec-lead a:hover { text-decoration: underline; }
+
+  /* 评分说明表 */
+  .dims { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .dim {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .dim .w { font-size: 20px; font-weight: 800; color: var(--cyan); }
+  .dim .n { font-weight: 700; font-size: 14px; }
+  .dim .d { color: var(--muted); font-size: 12.5px; }
+
+  /* 榜单卡片 */
+  .rank-card {
+    background: linear-gradient(135deg, var(--card), var(--bg2));
+    border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px 24px; margin-bottom: 18px; position: relative; overflow: hidden;
+  }
+  .rank-card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, var(--cyan), var(--purple));
+  }
+  .rank-card.r1::before { background: linear-gradient(180deg, var(--gold), #ff9e4d); }
+  .rc-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .rank-badge {
+    font-size: 26px; font-weight: 900; width: 46px; height: 46px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
+    color: var(--cyan);
+  }
+  .r1 .rank-badge { color: #1a1205; background: linear-gradient(135deg, var(--gold), #ff9e4d); border: none; }
+  .rc-name { font-size: 18px; font-weight: 800; }
+  .rc-name a { color: var(--txt); text-decoration: none; }
+  .rc-name a:hover { color: var(--cyan); }
+  .rc-name .tag { font-size: 12px; font-weight: 600; color: var(--purple); margin-left: 6px; }
+  .score-big {
+    margin-left: auto; text-align: right; flex: none;
+  }
+  .score-big .n { font-size: 30px; font-weight: 900; color: var(--cyan); line-height: 1; }
+  .r1 .score-big .n { color: var(--gold); }
+  .score-big .l { font-size: 11.5px; color: var(--muted); }
+  .rc-stats { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 12px 0 10px; font-size: 13px; color: var(--muted); }
+  .rc-stats b { color: var(--txt); font-weight: 700; }
+  .lic-ok { color: var(--green); font-weight: 700; }
+  .lic-warn { color: var(--red); font-weight: 700; }
+  .lic-mid { color: var(--gold); font-weight: 700; }
+
+  .bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 14px 0 6px; }
+  .bar { }
+  .bar .bl { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-bottom: 3px; }
+  .bar .bl b { color: var(--txt); }
+  .bar .tr { height: 7px; border-radius: 4px; background: var(--card2); overflow: hidden; }
+  .bar .fl { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--cyan2), var(--cyan)); }
+  .r1 .bar .fl { background: linear-gradient(90deg, #d8a63a, var(--gold)); }
+
+  .rc-desc { font-size: 14px; margin-top: 12px; }
+  .rc-fit {
+    margin-top: 10px; background: rgba(77,216,255,.05); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; font-size: 13.5px;
+  }
+  .rc-fit b { color: var(--cyan); }
+  .rc-risk { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .rc-risk b { color: var(--red); }
+  code {
+    background: var(--card2); border-radius: 5px; padding: 1px 7px;
+    font-family: Consolas, monospace; font-size: 12.5px; color: var(--cyan);
+  }
+
+  /* 梯队表 */
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl th {
+    text-align: left; padding: 10px 12px; background: var(--card2); color: var(--muted);
+    font-weight: 700; border-bottom: 1px solid var(--line);
+  }
+  .tbl td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl tr:hover td { background: rgba(77,216,255,.03); }
+  .tbl a { color: var(--cyan); text-decoration: none; }
+  .tbl a:hover { text-decoration: underline; }
+  .tier { font-weight: 800; }
+  .t-a { color: var(--gold); } .t-b { color: var(--cyan); } .t-c { color: var(--purple); } .t-d { color: var(--muted); }
+
+  .note {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 20px; margin-top: 20px; font-size: 13.5px; color: var(--muted);
+  }
+  .note .nt { font-weight: 800; color: var(--txt); display: block; margin-bottom: 8px; font-size: 14.5px; }
+  footer {
+    margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    color: var(--dim); font-size: 12.5px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>开源无限画布 × ComfyUI<br><span class="grad">TOP 10 评分榜单</span></h1>
+  <p class="sub">面向 <b>OmniSpace 落地价值</b>（非知名度）评分：12 个候选仓库逐一在线核验，star / fork / 许可证 / 最近推送时间全部取自 GitHub API 实测（2026-08-30）。每个条目回答两个问题：<b>它是什么形态的无限画布</b>、<b>咱们哪条链路能吃到它</b>。</p>
+  <div class="meta-row">
+    <span class="chip">核验仓库 <b>12 个</b>（API 实测）</span>
+    <span class="chip">入选 <b>10 个</b> + 荣誉提名 4 个</span>
+    <span class="chip">最高综合分 <b>8.9 / 10</b></span>
+    <span class="chip">核验时间 <b>2026-08-30</b></span>
+  </div>
+</header>
+
+<!-- ═══════ 评分维度 ═══════ -->
+<section id="dims">
+  <div class="sec-head"><span class="sec-num">◈</span><h2>评分维度与权重</h2></div>
+  <p class="sec-lead">权重按 OmniSpace 的实际处境设定：漫剧链路（分镜网格 / 导演台 / H3 视频）与 ComfyUI 8189 后端的适配占大头，通用知名度不计分。</p>
+  <div class="dims">
+    <div class="dim"><div class="w">20%</div><div class="n">功能完整度</div><div class="d">画布编辑、节点编排、生图/视频/编辑能力覆盖面</div></div>
+    <div class="dim"><div class="w">20%</div><div class="n">ComfyUI 集成</div><div class="d">原生协议对接 vs 仅 OpenAI 兼容 API vs 自家引擎</div></div>
+    <div class="dim"><div class="w">20%</div><div class="n">漫剧链路适配</div><div class="d">分镜/批量系列生成/导演台/机位控制/网格切图等命中点</div></div>
+    <div class="dim"><div class="w">15%</div><div class="n">技术栈匹配</div><div class="d">React 19 + Zustand + Tailwind + Python/SQLite 前后端同构度</div></div>
+    <div class="dim"><div class="w">15%</div><div class="n">活跃度</div><div class="d">最近推送、commit 体量、issue 响应（API 实测）</div></div>
+    <div class="dim"><div class="w">10%</div><div class="n">许可证友好</div><div class="d">MIT/Apache 可自由摘码；GPL 有传染性；非标需授权</div></div>
+  </div>
+</section>
+
+<!-- ═══════ TOP 10 ═══════ -->
+<section id="top10">
+  <div class="sec-head"><span class="sec-num">TOP</span><h2>前十榜单</h2></div>
+  <p class="sec-lead">按综合分排序。注意：这不是 star 榜——3887★ 的开山作排在末位、7★ 的一日项目冲进前四，因为本榜单只回答「对 OmniSpace 有多少落地价值」。</p>
+
+  <!-- ══ 1 ══ -->
+  <div class="rank-card r1">
+    <div class="rc-top">
+      <div class="rank-badge">1</div>
+      <div class="rc-name"><a href="https://github.com/tigerowo/infinite-canvas">tigerowo/infinite-canvas</a><span class="tag">形态最同构 · MIT 全开</span></div>
+      <div class="score-big"><div class="n">8.9</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>617</b> / fork <b>148</b></span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>最近推送 <b>2026-08-27</b>（创建仅 2 个月）</span>
+      <span>栈 <b>Next.js + React + TS + Tailwind + AntD + Zustand + TanStack Query / Go + Gin + SQLite + R2</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>9.0</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>7.5</b></div><div class="tr"><div class="fl" style="width:75%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>8.5</b></div><div class="tr"><div class="fl" style="width:85%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">开源 AI 创作工作台：无限画布（多画布项目/小地图/撤销重做/导入导出）+ <b>独立 3D 导演台</b>（布置角色、全景环境、机位，机位画面截图后自动变画布连线图片节点）+ 摄像机控制（相机/镜头/焦距/光圈参数<b>自动写入生成提示词</b>）+ 生图工作台（多任务并发/历史合并）+ 创作工作流（模板/变量表单/单图与<b>多图系列</b>）+ 画布助手 Agent + 提示词库（抓取多个 GitHub 开源项目整理数百案例）。视频侧支持 Seedance 2.0，生态与 MiniMax H3 同源。</div>
+    <div class="rc-fit"><b>命中链路</b> 「摄像机参数写入提示词」与 C 段运镜信息块同题；「多图系列工作流」就是分镜批量生成的产品形态；「导演台机位→画布节点」的交互闭环与 H3 导播台（拆格→逐镜）思路同构；前端 Zustand + TanStack Query 组织方式可直接对照学习。<b>MIT 许可，代码可自由摘。</b></div>
+    <div class="rc-risk"><b>风险</b> 生成走 OpenAI 兼容 API（Images/Responses），非 ComfyUI 原生协议——接入咱们需写一层 ComfyUI 适配；项目 2 个月大、作者声明「不保证历史数据兼容」。</div>
+  </div>
+
+  <!-- ══ 2 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">2</div>
+      <div class="rc-name"><a href="https://github.com/hero8152/Infinite-Canvas">hero8152/Infinite-Canvas</a><span class="tag">国内最热 · 批量漫剧实测</span></div>
+      <div class="score-big"><div class="n">8.3</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>2,966</b> / fork <b>565</b></span>
+      <span>许可 <b class="lic-warn">非标（NOASSERTION）</b></span>
+      <span>最近推送 <b>2026-08-28</b>（3 天前）</span>
+      <span>栈 <b>Python 后端 + 自带 Web 前端 · Windows/Mac 一键启动</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>9.0</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6.0</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>9.0</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>4.0</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+    </div>
+    <div class="rc-desc">双模式设计：<b>节点式画布</b>（类 ComfyUI，拖拽连接图片/提示词/LLM/循环/API 节点）+ <b>普通无限画布</b>。核心卖点：<b>自定义 ComfyUI 工作流封装成画布节点</b>（自选输入与参数，画布上直接调用）、循环节点并发跑 N 次（批量卖点图/批量分镜）、ModelScope + OpenAI 协议多后端、视频生成、画笔编辑、中英切换。社区已有「批量漫剧生成」实测方案（CSDN 专题），Windows 整包双击即用。</div>
+    <div class="rc-fit"><b>命中链路</b> 「workflow_api.json 封装为画布节点」正是咱们 31 份工作流资产的产品化形态；循环节点 + 提示词计数（"运行第 X 张"）与逐镜派生 seed 的批量语义一致；其批量漫剧工作流可直接拿来对照咱们的分镜批量生成链找差距。<b>产品设计与工作流编排思路最值得抄。</b></div>
+    <div class="rc-risk"><b>风险</b> 许可证非标（GitHub 判 NOASSERTION）——<b>可自用、可学习，商用/摘码需先向作者确认授权</b>；前端非 React，不能直接搬组件。</div>
+  </div>
+
+  <!-- ══ 3 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">3</div>
+      <div class="rc-name"><a href="https://github.com/Acly/krita-ai-diffusion">Acly/krita-ai-diffusion</a><span class="tag">最成熟 · ComfyUI 原生后端</span></div>
+      <div class="score-big"><div class="n">7.7</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>10,523</b> / fork <b>622</b></span>
+      <span>许可 <b class="lic-mid">GPL-3.0</b></span>
+      <span>最近推送 <b>2026-08-28</b> · 1,778 commits</span>
+      <span>栈 <b>Krita 插件（Python + Qt）· 桌面端</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>6.5</b></div><div class="tr"><div class="fl" style="width:65%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>4.5</b></div><div class="tr"><div class="fl" style="width:45%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>4.0</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+    </div>
+    <div class="rc-desc">「Photoshop 生成式填充/扩图」的开源平替天花板：在 Krita 无限画布上选区一键生成、扩画布外绘（outpaint）、ControlNet 全家（线稿/姿态/深度/分割）、IP-Adapter、<b>区域分层提示</b>（每个图层区域独立描述词）、任务队列、历史记录。后端<b>原生就是 ComfyUI</b>——装完插件指向 8189 端口即用。</div>
+    <div class="rc-fit"><b>命中链路</b> <b>对咱们是「立即能用的精修工具」</b>：关键帧出图后局部修复（脸崩/手崩/行李箱颜色）现在缺一个画布级修图入口——Krita + 本插件直连咱们已常驻的 ComfyUI 8189，区域分层提示词与咱们「资产绑定=外貌锚」的思路互通；其 ComfyUI 后端调度代码（队列/取消/进度）是三年打磨的参考实现。</div>
+    <div class="rc-risk"><b>风险</b> GPL-3.0 传染——<b>只能当独立工具用或读源码学设计，代码不能摘进 OmniSpace</b>；桌面端，不产生 Web 前端资产。</div>
+  </div>
+
+  <!-- ══ 4 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">4</div>
+      <div class="rc-name"><a href="https://github.com/lalantony/comfyui-ai-studio">lalantony/comfyui-ai-studio</a><span class="tag">同栈骨架范本 · 工程质量惊艳</span></div>
+      <div class="score-big"><div class="n">7.6</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>7</b> / fork <b>1</b></span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>推送 <b>2026-05-03</b>（一日冲刺项目，2 commits）</span>
+      <span>栈 <b>Next.js + React 19 + Zustand + Tailwind v4 + React Flow + SSE</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>7.5</b></div><div class="tr"><div class="fl" style="width:75%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>6.0</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>3.0</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">与 OmniSpace <b>完全同栈</b>（React 19 + Zustand + Tailwind 4 + React Flow 画布）的 ComfyUI 编排工作台：<code>workflow_api.json</code> 注册为端点并<b>自动自省输入输出</b>（CLIPTextEncode→文本、LoadImage→图片、SaveImage→产物）、DAG 拓扑执行器、SSE 事件总线带 <code>_seq</code> 去重、WebSocket 心跳 + 断线单次重连（prompt-id 对账，200s 视频任务掉线也能完整收尾）、SSRF 白名单、298 个 Vitest 测试。</div>
+    <div class="rc-fit"><b>命中链路</b> 这不是拿来用的产品，是<b>拿来抄的骨架</b>：如果漫剧工作台要加画布模式，这份代码的目录结构、Zustand store 划分、ComfyUI WS 重连对账逻辑、workflow 自省器可以整段搬——MIT 许可随便摘。其「WS 断线 → getHistory 轮询兜底」正是 H3 长任务轮询经验的通用化。</div>
+    <div class="rc-risk"><b>风险</b> 一日项目、社区为零、无后续维护预期——只作参考实现，不要依赖其演进。</div>
+  </div>
+
+  <!-- ══ 5 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">5</div>
+      <div class="rc-name"><a href="https://github.com/invoke-ai/InvokeAI">invoke-ai/InvokeAI</a><span class="tag">画布交互标杆 · 自家引擎</span></div>
+      <div class="score-big"><div class="n">6.9</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>28,042</b> / fork <b>2,957</b></span>
+      <span>许可 <b class="lic-ok">Apache-2.0</b></span>
+      <span>最近推送 <b>2026-08-29</b>（昨天）</span>
+      <span>栈 <b>Python 后端 + React 前端 · 自家推理引擎</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>3.0</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>5.0</b></div><div class="tr"><div class="fl" style="width:50%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6.5</b></div><div class="tr"><div class="fl" style="width:65%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>9.0</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+    </div>
+    <div class="rc-desc">无限画布赛道的行业定义者（Unified Canvas → 全画布工作区）：图层、区域提示、inpaint/outpaint、画笔工具链完整度无出其右，4 年持续演进，商业公司背书。但它的推理后端是<b>自家引擎而非 ComfyUI</b>。</div>
+    <div class="rc-fit"><b>命中链路</b> 咱们已有 ComfyUI 后端，装它等于双引擎——价值只剩<b>画布交互设计参考</b>：图层模型、区域提示 UI、笔刷手感、画布坐标系与缩放细节，抄交互不抄引擎。Apache-2.0 宽松，前端 React 代码可合规摘取。</div>
+    <div class="rc-risk"><b>风险</b> 引擎重复建设（咱们模型裁剪后只剩 FLUX.2-klein/qwen-image 两绘画模型，再养一套引擎不值）；体量 37 万 KB 级，二开成本高。</div>
+  </div>
+
+  <!-- ══ 6 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">6</div>
+      <div class="rc-name"><a href="https://github.com/mirainya/infinite-canvas">mirainya/infinite-canvas</a><span class="tag">九宫格切图节点 · 插件热加载</span></div>
+      <div class="score-big"><div class="n">6.7</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>0</b>（2026-04 新项目）</span>
+      <span>许可 <b class="lic-warn">未标注</b></span>
+      <span>最近推送 <b>2026-07-29</b></span>
+      <span>栈 <b>React Flow + TypeScript 前端 / FastAPI + PostgreSQL 后端</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>7.0</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>7.0</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>8.0</b></div><div class="tr"><div class="fl" style="width:80%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>8.5</b></div><div class="tr"><div class="fl" style="width:85%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>4.5</b></div><div class="tr"><div class="fl" style="width:45%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>3.0</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+    </div>
+    <div class="rc-desc">可视化节点画布（React Flow + FastAPI），亮点是节点设计直接对味：AI 节点含生图、改图、合成、<b>九宫格切图</b>；插件系统热加载 + SSE 实时通知前端；画布历史版本、分组区域、导入导出；还有「商品套图：分步生成提示词 → 人工检查 → 批量生图」的流水线模式。</div>
+    <div class="rc-fit"><b>命中链路</b> <b>「九宫格切图」节点 = 咱们分镜网格协议的拆格侧原语</b>（一图多镜 → 逐格拆分）；「分步生成 → 人工检查 → 批量」与关键帧「四重门禁 → 换 seed 重抽」的人工卡点模式同构；插件热加载架构对漫剧节点扩展有直接参考价值。</div>
+    <div class="rc-risk"><b>风险</b> 无 LICENSE 文件——法律上默认保留所有权利，<b>读代码学设计可以，摘码前必须先联系作者</b>；单人项目 7 commits，成熟度低。</div>
+  </div>
+
+  <!-- ══ 7 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">7</div>
+      <div class="rc-name"><a href="https://github.com/JasonS09/comfy_sd_krita_plugin">JasonS09/comfy_sd_krita_plugin</a><span class="tag">Krita×ComfyUI 直连 · MIT</span></div>
+      <div class="score-big"><div class="n">5.7</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>156</b> / fork <b>8</b></span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>推送 <b>2024-01-22</b>（已停更）</span>
+      <span>栈 <b>Krita 插件（Python + Qt）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>6.0</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>8.5</b></div><div class="tr"><div class="fl" style="width:85%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>4.5</b></div><div class="tr"><div class="fl" style="width:45%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>4.0</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>2.0</b></div><div class="tr"><div class="fl" style="width:20%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">Krita 画布内直接调 ComfyUI 的轻量插件：txt2img/img2img/inpaint（自动生成透明蒙版）/模型放大/多 ControlNet + 预处理器预览。比 krita-ai-diffusion 简陋，但胜在 <b>MIT 干净</b>、代码量小好读。</div>
+    <div class="rc-fit"><b>命中链路</b> 「选区→自动蒙版→ComfyUI inpaint」的最小实现，几百行就能读完——如果想要一个轻量的关键帧局部重绘脚本化方案，这是最干净的参考起点。</div>
+    <div class="rc-risk"><b>风险</b> 停更两年半；功能被 krita-ai-diffusion 全面覆盖（但那个 GPL 不能摘码，这个能）。</div>
+  </div>
+
+  <!-- ══ 8 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">8</div>
+      <div class="rc-name"><a href="https://github.com/kreonxv/ComfyUI-Infinity-Canvas">kreonxv/ComfyUI-Infinity-Canvas</a><span class="tag">ComfyUI 站内画布扩展</span></div>
+      <div class="score-big"><div class="n">5.6</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>2</b> / fork <b>2</b></span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>推送 <b>2026-02-03</b>（3 commits 概念验证）</span>
+      <span>栈 <b>JavaScript（ComfyUI web/ 前端扩展）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>5.0</b></div><div class="tr"><div class="fl" style="width:50%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>9.0</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>3.5</b></div><div class="tr"><div class="fl" style="width:35%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>5.0</b></div><div class="tr"><div class="fl" style="width:50%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>2.0</b></div><div class="tr"><div class="fl" style="width:20%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">唯一走「<b>在 ComfyUI 界面里长出无限画布</b>」路线的扩展（web/ 目录注入前端，Inspired by InvokeAI Canvas / Painthua.com）：无限画布上拖拽放图、框选 inpaint、外扩 outpaint。3 个 commit 的一日概念验证，但路线本身有价值。</div>
+    <div class="rc-fit"><b>命中链路</b> 咱们已内嵌 ComfyUI 8189 常驻——这个思路等于<b>零新增服务给 ComfyUI 加画布</b>；对「只想让画布出现在 ComfyUI 里、不打算进 OmniSpace 前端」的最小需求，这是最短路径；MIT 可改造。</div>
+    <div class="rc-risk"><b>风险</b> 概念验证级：2★、无文档、扩展机制随 ComfyUI 前端重构随时可能碎（咱们 0.34 版本要实测）。</div>
+  </div>
+
+  <!-- ══ 9 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">9</div>
+      <div class="rc-name"><a href="https://github.com/betzaydarobie-source/Canvas-AI">Canvas-AI</a><span class="tag">桌面全能创作 · 一日项目</span></div>
+      <div class="score-big"><div class="n">4.4</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>2</b></span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>推送 <b>2026-05-10</b>（创建当日）</span>
+      <span>栈 <b>HTML 单页 + 桌面工具形态</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>5.5</b></div><div class="tr"><div class="fl" style="width:55%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>4.0</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>3.0</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>4.0</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>2.0</b></div><div class="tr"><div class="fl" style="width:20%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">「无限画布 + Discord 风格 Midjourney 聊天 + ComfyUI 风节点工作流 + LLM 节点」的多模态桌面工具，任务断点恢复、工作流 JSON 导入导出。</div>
+    <div class="rc-fit"><b>命中链路</b> 「聊天式生图任务 + 画布并存」的交互假设值得观察（与咱们对话模块 × 绘画模块并存的形态同题）；v1.0.4 已有 LLM 节点概念。</div>
+    <div class="rc-risk"><b>风险</b> 一日项目 2★，质量未经社区检验，只作交互参考。</div>
+  </div>
+
+  <!-- ══ 10 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">10</div>
+      <div class="rc-name"><a href="https://github.com/lkwq007/stablediffusion-infinity">lkwq007/stablediffusion-infinity</a><span class="tag">开山之作 · 已成历史</span></div>
+      <div class="score-big"><div class="n">4.1</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>3,887</b> / fork <b>294</b></span>
+      <span>许可 <b class="lic-ok">Apache-2.0</b></span>
+      <span>推送 <b>2023-05-16</b>（停更 3 年+）</span>
+      <span>栈 <b>PyScript + Gradio（Jupyter 分支）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>功能</span><b>5.5</b></div><div class="tr"><div class="fl" style="width:55%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>2.0</b></div><div class="tr"><div class="fl" style="width:20%"></div></div></div>
+      <div class="bar"><div class="bl"><span>漫剧适配</span><b>4.5</b></div><div class="tr"><div class="fl" style="width:45%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>3.0</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>2.0</b></div><div class="tr"><div class="fl" style="width:20%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>9.0</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+    </div>
+    <div class="rc-desc">「无限画布 outpainting」的开山鼻祖（2022-09）：画布向外扩展、框选重绘，底层思想——<b>大画布分块 + 边缘上下文喂给模型逐块生成</b>——是后来所有无限画布产品的算法底座。后续演化为 PyScript + Gradio Web 版。</div>
+    <div class="rc-fit"><b>命中链路</b> 若将来做「漫剧长条漫画连绘」（跨分镜首尾接续的横向长图），其分块推理调度 + 边缘上下文窗口算法是唯一现成参考；Apache-2.0 可自由改造。</div>
+    <div class="rc-risk"><b>风险</b> 停更三年、栈老旧、非 ComfyUI——按落地价值只能垫底，纯算法考古位。</div>
+  </div>
+</section>
+
+<!-- ═══════ 梯队总结 ═══════ -->
+<section id="tiers">
+  <div class="sec-head"><span class="sec-num">◈</span><h2>四个梯队 · 怎么用</h2></div>
+  <table class="tbl">
+    <tr><th style="width:110px">梯队</th><th style="width:260px">项目</th><th>对 OmniSpace 的用法</th></tr>
+    <tr><td class="tier t-a">A · 立即用</td><td><a href="https://github.com/Acly/krita-ai-diffusion">krita-ai-diffusion</a></td><td>装 Krita + 插件直连 ComfyUI 8189，作为关键帧<b>画布级精修工具</b>（局部重绘/扩图画布/区域提示）。GPL 只约束分发，内部使用无碍。</td></tr>
+    <tr><td class="tier t-b">B · 摘代码</td><td><a href="https://github.com/tigerowo/infinite-canvas">tigerowo</a> + <a href="https://github.com/lalantony/comfyui-ai-studio">comfyui-ai-studio</a></td><td>两个都是 MIT：前者摘<b>导演台/摄像机参数/系列工作流</b>的产品设计与 Zustand 组织；后者整段搬<b>React Flow 画布骨架 + ComfyUI WS 重连对账 + workflow 自省器</b>。</td></tr>
+    <tr><td class="tier t-c">C · 学设计</td><td><a href="https://github.com/hero8152/Infinite-Canvas">hero8152</a> + <a href="https://github.com/invoke-ai/InvokeAI">InvokeAI</a> + <a href="https://github.com/mirainya/infinite-canvas">mirainya</a></td><td>hero8152 学「工作流封装成画布节点 + 循环批量」的产品形态（注意许可非标）；InvokeAI 学画布交互细节（Apache 可摘前端）；mirainya 学九宫格切图节点与插件热加载（无许可，只看不摘）。</td></tr>
+    <tr><td class="tier t-d">D · 考古位</td><td>其余（JasonS09 / kreonxv / Canvas-AI / sd-infinity）</td><td>JasonS09 = 最小 inpaint 参考（MIT）；kreonxv = ComfyUI 站内画布思路；sd-infinity = 分块推理算法考古。均不投入主力时间。</td></tr>
+  </table>
+
+  <div class="note"><span class="nt">给 OmniSpace 的三步建议（按当前架构零冲突排序）</span>
+  ① <b>本周可做</b>：装 Krita + krita-ai-diffusion 指向 8189——精修痛点立即缓解，不动任何代码。<br>
+  ② <b>短名单</b>：漫剧工作台若加「画布模式」，以 <b>comfyui-ai-studio 为骨架</b>（同栈 MIT）+ <b>tigerowo 的导演台/系列工作流交互</b>为蓝本，React Flow 起步——与现有 React 19 + Zustand 前端完全同构。<br>
+  ③ <b>远期</b>：hero8152 的「workflow_api.json → 画布节点」模式是把咱们 31 份工作流资产产品化的终局形态；实施前先向作者确认许可（或只用其交互模式自己实现）。</div>
+</section>
+
+<!-- ═══════ 荣誉提名 ═══════ -->
+<section id="appendix">
+  <div class="sec-head"><span class="sec-num">◈</span><h2>荣誉提名（未入榜）</h2></div>
+  <table class="tbl">
+    <tr><th style="width:280px">项目</th><th>未入榜原因</th></tr>
+    <tr><td><a href="https://github.com/lensyh/Infinite-Canvas">lensyh/Infinite-Canvas</a>（hero8152 活跃 fork，149 commits）</td><td>曾独立修 bug + 画笔编辑 + Mac 修复，但 2026-05 后停更、仅 1★——主线已吸收同等能力，价值并入 #2 条目备注。</td></tr>
+    <tr><td>ComfyUI 本体（litegraph.js 无限节点画布）</td><td>咱们已常驻 8189 在用，不构成新选项；但其画布坐标系/缩放/节点交互是所有后来者的母体。</td></tr>
+    <tr><td>tldraw / React Flow（@xyflow）SDK</td><td>不是「ComfyUI 项目」而是自建路线的底座——真要自研画布，React Flow 已是事实标准（#1/#4/#6 三个上榜项目都用它）。</td></tr>
+    <tr><td>Kiko-Creator、Craft AI 等 ComfyUI 网页前端</td><td>有 ComfyUI 集成但非无限画布形态（表单/画廊式交互），超出本题范围。</td></tr>
+  </table>
+</section>
+
+<footer>
+  <span>OmniSpace · 开源无限画布 × ComfyUI TOP 10 · 12 仓库 API 实测核验</span>
+  <span>数据基线：2026-08-30 · star/fork/license/pushed_at 均取自 GitHub REST API</span>
+</footer>
+
+</div>
+</body>
+</html>

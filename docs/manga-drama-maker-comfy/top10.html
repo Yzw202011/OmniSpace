@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开源漫剧制作器 × ComfyUI 前十榜单 · OmniSpace 选型</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --bg2: #0f1526; --card: #131b30; --card2: #182242;
+    --line: #243050; --txt: #dde6f5; --muted: #8b99b8; --dim: #5a6a8c;
+    --cyan: #4dd8ff; --cyan2: #2ba8d8; --gold: #ffd166; --green: #6ee7a0;
+    --red: #ff7b7b; --purple: #b48bff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: "Segoe UI", "Microsoft YaHei", -apple-system, sans-serif;
+    line-height: 1.65; font-size: 15px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 28px 60px; }
+  header h1 { font-size: 30px; font-weight: 800; letter-spacing: .5px; }
+  header h1 .grad {
+    background: linear-gradient(90deg, var(--cyan), var(--purple));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); margin: 10px 0 18px; max-width: 920px; }
+  .sub b { color: var(--txt); }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+  .chip {
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 14px; font-size: 13px; color: var(--muted);
+  }
+  .chip b { color: var(--cyan); }
+  section { margin-top: 44px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+  .sec-num {
+    font-size: 13px; font-weight: 700; color: var(--cyan);
+    border: 1px solid var(--cyan2); border-radius: 8px; padding: 2px 10px;
+    background: rgba(77,216,255,.07);
+  }
+  h2 { font-size: 21px; }
+  .sec-lead { color: var(--muted); font-size: 14px; margin-bottom: 20px; max-width: 950px; }
+  .sec-lead a { color: var(--cyan); text-decoration: none; }
+  .sec-lead a:hover { text-decoration: underline; }
+
+  .dims { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .dim {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .dim .w { font-size: 20px; font-weight: 800; color: var(--cyan); }
+  .dim .n { font-weight: 700; font-size: 14px; }
+  .dim .d { color: var(--muted); font-size: 12.5px; }
+
+  .rank-card {
+    background: linear-gradient(135deg, var(--card), var(--bg2));
+    border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px 24px; margin-bottom: 18px; position: relative; overflow: hidden;
+  }
+  .rank-card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, var(--cyan), var(--purple));
+  }
+  .rank-card.r1::before { background: linear-gradient(180deg, var(--gold), #ff9e4d); }
+  .rc-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .rank-badge {
+    font-size: 26px; font-weight: 900; width: 46px; height: 46px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 12px; background: var(--card2); border: 1px solid var(--line);
+    color: var(--cyan);
+  }
+  .r1 .rank-badge { color: #1a1205; background: linear-gradient(135deg, var(--gold), #ff9e4d); border: none; }
+  .rc-name { font-size: 18px; font-weight: 800; }
+  .rc-name a { color: var(--txt); text-decoration: none; }
+  .rc-name a:hover { color: var(--cyan); }
+  .rc-name .tag { font-size: 12px; font-weight: 600; color: var(--purple); margin-left: 6px; }
+  .score-big { margin-left: auto; text-align: right; flex: none; }
+  .score-big .n { font-size: 30px; font-weight: 900; color: var(--cyan); line-height: 1; }
+  .r1 .score-big .n { color: var(--gold); }
+  .score-big .l { font-size: 11.5px; color: var(--muted); }
+  .rc-stats { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 12px 0 10px; font-size: 13px; color: var(--muted); }
+  .rc-stats b { color: var(--txt); font-weight: 700; }
+  .lic-ok { color: var(--green); font-weight: 700; }
+  .lic-warn { color: var(--red); font-weight: 700; }
+  .lic-mid { color: var(--gold); font-weight: 700; }
+
+  .bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 14px 0 6px; }
+  .bar .bl { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-bottom: 3px; }
+  .bar .bl b { color: var(--txt); }
+  .bar .tr { height: 7px; border-radius: 4px; background: var(--card2); overflow: hidden; }
+  .bar .fl { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--cyan2), var(--cyan)); }
+  .r1 .bar .fl { background: linear-gradient(90deg, #d8a63a, var(--gold)); }
+
+  .rc-desc { font-size: 14px; margin-top: 12px; }
+  .rc-fit {
+    margin-top: 10px; background: rgba(77,216,255,.05); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; font-size: 13.5px;
+  }
+  .rc-fit b { color: var(--cyan); }
+  .rc-risk { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .rc-risk b { color: var(--red); }
+  code {
+    background: var(--card2); border-radius: 5px; padding: 1px 7px;
+    font-family: Consolas, monospace; font-size: 12.5px; color: var(--cyan);
+  }
+
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl th {
+    text-align: left; padding: 10px 12px; background: var(--card2); color: var(--muted);
+    font-weight: 700; border-bottom: 1px solid var(--line);
+  }
+  .tbl td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl tr:hover td { background: rgba(77,216,255,.03); }
+  .tbl a { color: var(--cyan); text-decoration: none; }
+  .tbl a:hover { text-decoration: underline; }
+  .tier { font-weight: 800; }
+  .t-a { color: var(--gold); } .t-b { color: var(--cyan); } .t-c { color: var(--purple); } .t-d { color: var(--muted); }
+
+  .note {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 20px; margin-top: 20px; font-size: 13.5px; color: var(--muted);
+  }
+  .note .nt { font-weight: 800; color: var(--txt); display: block; margin-bottom: 8px; font-size: 14.5px; }
+  footer {
+    margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    color: var(--dim); font-size: 12.5px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>开源漫剧制作器 × ComfyUI<br><span class="grad">TOP 10 评分榜单</span></h1>
+  <p class="sub">面向 <b>OmniSpace 落地价值</b>（非知名度）评分：24 个候选仓库逐一经 GitHub API 实测核验（star / fork / 许可证 / 最近推送，2026-08-30）。每个条目回答两个问题：<b>它的漫剧链路覆盖到哪一段</b>、<b>咱们哪条链路能吃到它</b>。候选池横跨三类形态：ComfyUI 站内节点、独立漫剧工作台、一致性研究管线。</p>
+  <div class="meta-row">
+    <span class="chip">核验仓库 <b>24 个</b>（API 实测）</span>
+    <span class="chip">入选 <b>10 个</b> + 荣誉提名 12 个</span>
+    <span class="chip">最高综合分 <b>9.0 / 10</b></span>
+    <span class="chip">核验时间 <b>2026-08-30</b></span>
+  </div>
+</header>
+
+<!-- ═══════ 评分维度 ═══════ -->
+<section id="dims">
+  <div class="sec-head"><span class="sec-num">◈</span><h2>评分维度与权重</h2></div>
+  <p class="sec-lead">权重按 OmniSpace 漫剧链路（剧本 → A/B/C 描述词 → 关键帧门禁 → 网格协议 → H3 视频 → 成片）的实况设定：链路覆盖与 ComfyUI 直连能力占一半——咱们 8189 已常驻，能白嫖本地算力的项目天然加分。</p>
+  <div class="dims">
+    <div class="dim"><div class="w">25%</div><div class="n">链路完整度</div><div class="d">剧本→分镜→关键帧→一致性→视频/配音→成片的覆盖面</div></div>
+    <div class="dim"><div class="w">25%</div><div class="n">ComfyUI 集成</div><div class="d">原生节点 > 本地生图后端 > 云 API（能否直连咱们 8189）</div></div>
+    <div class="dim"><div class="w">20%</div><div class="n">漫剧命中点</div><div class="d">角色一致性/分镜网格/资产绑定/竖屏成片/门禁重抽等机制契合</div></div>
+    <div class="dim"><div class="w">10%</div><div class="n">技术栈匹配</div><div class="d">React / Python / SQLite 前后端同构度</div></div>
+    <div class="dim"><div class="w">10%</div><div class="n">活跃度</div><div class="d">最近推送、测试体量、工程化程度（API 实测）</div></div>
+    <div class="dim"><div class="w">10%</div><div class="n">许可证友好</div><div class="d">MIT/Apache 可摘码；AGPL 强传染；无许可默认保留权利</div></div>
+  </div>
+</section>
+
+<!-- ═══════ TOP 10 ═══════ -->
+<section id="top10">
+  <div class="sec-head"><span class="sec-num">TOP</span><h2>前十榜单</h2></div>
+  <p class="sec-lead">按综合分排序。注意：这不是 star 榜——4,272★ 的专业工作台排在第七，18★ 的 ComfyUI 站内 SPA 冲到第二，因为本榜单只回答「对 OmniSpace 的漫剧链路有多少落地价值」：AGPL 传染和云 API 依赖都是硬扣分项。</p>
+
+  <!-- ══ 1 ══ -->
+  <div class="rank-card r1">
+    <div class="rc-top">
+      <div class="rank-badge">1</div>
+      <div class="rc-name"><a href="https://github.com/ChrisChen667788/wind-comic">ChrisChen667788/wind-comic</a><span class="tag">多 Agent 漫剧全链 · MIT · 今日仍在推送</span></div>
+      <div class="score-big"><div class="n">9.0</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>542</b>（2026-04 创建，4 个月冲到 v12.387）</span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>最近推送 <b>2026-08-30（核验当日）</b></span>
+      <span>栈 <b>Next.js 16 + React + TS + SQLite⇄PostgreSQL 双驱动 · Node 20+ · 5059 测试全绿</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>7</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>8</b></div><div class="tr"><div class="fl" style="width:80%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">「一句话进，整片短剧出」的多 Agent 创作工作室：Writer（McKee 结构写对白）→ Director（规划）→ Style Bible（锁定画风）→ Character Designer（为每个角色提取 <b>8 维 DNA 签名</b>）→ Storyboard（<b>Vision-Audit 视觉审计，低于 70 分自动重抽</b>）→ Video（<b>多引擎竞速</b>：Seedance/Kling/Veo/Vidu/Hailuo，先出好片者胜）→ TTS（按角色路由配音+试音）→ Lipsync（音素轨道+对齐评分+漂移自动校正，BYO wav2lip/SadTalker/MuseTalk 或内置 2D 引擎零配置）→ Editor（情绪节点 j-cut/l-cut、分幕 BGM、CJK 字幕烧录）。另有：长篇小说<b>自动分集</b>、导演控片台、Yjs CRDT <b>实时协作时间线</b>、模板市场、逐镜头成本归因+预算守卫、ffprobe 成片健康报告、四维发布门禁（画面/一致性/口型/对齐）。</div>
+    <div class="rc-fit"><b>命中链路</b> 这几乎是 OmniSpace 漫剧链路的产品级镜像：<b>Vision-Audit &lt;70 分自动重抽 = 咱们关键帧四重门禁+换 seed 重抽的同题实现</b>；角色 8 维 DNA 签名 = 外貌锚（face_sim）；Cameo Locker = 资产绑定；「失败镜头变成带标注的 animatic、绝不用静图冒充视频」= 咱们 degraded:true 诚实降级铁律；引擎天气条/成本守卫 = 功能锁与资源守卫的对应物。<b>生图后端矩阵里明确支持 local ComfyUI</b>（IMAGE_MODEL 可切 flux-kontext-pro / Midjourney / fal / <b>本地 ComfyUI</b> / MiniMax image），接咱们 8189 是官方路径；文本 LLM 12+ 供应商（含本地 Ollama）三行 .env 即换，qwen3-vl 对接无障碍。MIT 许可随便摘。</div>
+    <div class="rc-risk"><b>风险</b> 视频引擎全走云端 API（Kling/Veo/Seedance），本地视频侧接不上——咱们 H3 走 ComfyUI，正好互补：抄它的 Agent 编排/门禁/时间线，视频层换咱们自己的管线；4 个月迭代到 v12.387，接口变动快，摘码要钉版本。</div>
+  </div>
+
+  <!-- ══ 2 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">2</div>
+      <div class="rc-name"><a href="https://github.com/ketle-man/comfyui-comic-creator">ketle-man/comfyui-comic-creator</a><span class="tag">ComfyUI 站内漫画制作 SPA · 日/英/中三语</span></div>
+      <div class="score-big"><div class="n">8.6</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>18</b> / fork <b>2</b></span>
+      <span>许可 <b class="lic-ok">MIT</b></span>
+      <span>最近推送 <b>2026-08-26</b></span>
+      <span>栈 <b>ComfyUI 前端扩展（JS SPA）+ Workflow Studio / PixiJS / Three.js</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>8.5</b></div><div class="tr"><div class="fl" style="width:85%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>8</b></div><div class="tr"><div class="fl" style="width:80%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>8</b></div><div class="tr"><div class="fl" style="width:80%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+    </div>
+    <div class="rc-desc">直接<b>运行在 ComfyUI 里</b>的漫画页制作单页应用，一个节点完成漫画制作全部工序：<b>分镜模板</b>（SVG 导入——Inkscape/Illustrator/Affinity 输出皆可，或向导画线分格；「设计模板」模式做无框排版）→ 布局编辑（拖放图像、子格、<b>气泡全套</b>：椭圆/圆角/思考/爆炸/云形 + Comic Life 式延长气泡 + 无尾选项 + <b>内包竖排文字</b> + 自定义 SVG 气泡）→ 矢量绘图/笔刷/<b>3D 姿态</b>（VRM/GLB，FOV/视线跟随/摇曳物理）/3D 文字（Three.js 挤出、MToon 材质）→ Image 标签页是完整<b>图层式画布编辑器</b>（Select/文字/绘制/形状/填充/蒙版-SAM3/模糊/滤镜/抠图/放大）→ <b>Generate 联动</b>（整页/单格/选中图三对象 I2I/T2I，batch 模式按「全体+每格」提示词合成整页批量生成）→ 半调网点/集中线/和柄背景等<b>漫画特效</b> → JPEG/PNG/WebP/<b>PDF/EPUB</b> 离线导出（dpi 换算、元数据嵌入、zip 全量备份）。</div>
+    <div class="rc-fit"><b>命中链路</b> 咱们 8189 装上即用、零新增服务：<b>「batch 整页：全体提示词 + 每格独立提示词合成批量生成后逐格替换」正是咱们分镜网格协议（一图多镜拼图）的交互级实现</b>；SVG 分镜模板 = 网格 N×N 的自由形态版；竖排对白气泡/网点 = 咱们漫剧当前缺失的条漫排版能力；Image 页的 I2I 局部修复 = 关键帧精修的站内入口；脚本管理与字体管理对白中文化直接可用。MIT 可改造。</div>
+    <div class="rc-risk"><b>风险</b> ★18 小众项目、单人维护；SPA 依赖 ComfyUI 前端扩展机制与 Workflow Studio 等联动节点，ComfyUI 大版本重构时需实测（咱们 0.34 版本要先跑通）；无剧本→分镜自动化，定位是排版制作器而非全链工具。</div>
+  </div>
+
+  <!-- ══ 3 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">3</div>
+      <div class="rc-name"><a href="https://github.com/smthemex/ComfyUI_StoryDiffusion">smthemex/ComfyUI_StoryDiffusion</a><span class="tag">ComfyUI 角色一致性方法全家桶</span></div>
+      <div class="score-big"><div class="n">8.1</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>515</b> / fork <b>—</b></span>
+      <span>许可 <b class="lic-ok">Apache-2.0</b></span>
+      <span>最近推送 <b>2025-10-11</b></span>
+      <span>栈 <b>ComfyUI 自定义节点（Python + diffusers）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>7</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>7</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+    </div>
+    <div class="rc-desc">ComfyUI 生态里<b>角色/主体一致性方法收录最全</b>的节点合集，一个包聚合 17+ 种 ID 迁移路线：StoryDiffusion（一致自注意力）、MS-Diffusion（<b>双角色同框</b>）、StoryMaker、Consistory、PuLID（含 PuLID-FLUX）、Kolors、PhotoMaker v1/v2、IP-Adapter、InfiniteYou、UNO、RealCustom、InstantCharacter、DreamO、Bagel、OmniConsistency，以及 <b>Qwen-Image &amp; Edit</b>（Q8/Q6 GGUF + lightx2v 加速 LoRA，编辑模式自动裁切防像素偏移）。任意 SDXL 底模可用，图生图/双角色/多角色模式齐全。</div>
+    <div class="rc-fit"><b>命中链路</b> 角色一致性是漫剧命门，而这个包是现成的<b>一致性方法对照实验室</b>：<b>已原生支持 Qwen-Image —— 咱们绘画主力 qwen-image-2512 直接在列</b>；PuLID 是咱们关键帧 auto 选路已在用的引擎，此包提供 diffusers 侧的平替与补充；「双角色同框」（MS-Diffusion）对咱们多角色绑定镜头的 face_sim 提分有直接试验价值。8189 装包即用，Apache-2.0 可改造。</div>
+    <div class="rc-risk"><b>风险</b> 部分路线需要 insightface 及各自适配器权重，显存开销叠加（12GB 档要按档位挑选方法，不能全装）；节点定位是「一致性环节」，不含剧本/排版/视频链路；最后推送在 2025-10，Qwen-Image 支持较新但需实测咱们 ComfyUI 0.34 兼容性。</div>
+  </div>
+
+  <!-- ══ 4 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">4</div>
+      <div class="rc-name"><a href="https://github.com/szf2020/ai-comic-workbench">szf2020/ai-comic-workbench</a><span class="tag">小说→竖屏漫剧本地全管线</span></div>
+      <div class="score-big"><div class="n">7.6</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>2</b></span>
+      <span>许可 <b class="lic-warn">无 LICENSE</b></span>
+      <span>最近推送 <b>2026-05-07</b></span>
+      <span>栈 <b>纯 Python 单文件 HTTP 服务（零框架）+ 本地 ComfyUI + EdgeTTS + FFmpeg</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>8</b></div><div class="tr"><div class="fl" style="width:80%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>4</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+    </div>
+    <div class="rc-desc">与 OmniSpace 链路<b>结构上最同构</b>的本地漫剧工具：粘贴小说段落 → <b>LLM 智能剪辑</b>（自动跳过平淡叙述，只保留冲突/反转/高情绪片段）→ 英文分镜 prompt → <b>本地 ComfyUI 批量出图</b>（anything-v5 底模 + 双 LoRA 线稿平涂 + <b>IP-Adapter 锁角色外貌</b> + <b>ControlNet Canny 锁构图</b>）→ EdgeTTS 中文配音 → FFmpeg 字幕叠加 + 分镜拼接 → <b>9:16 竖屏 MP4</b>。Web 界面三个 Tab：基础文生图 / 单角色定妆照+场景出图 / 多角色绑定+小说→全自动 MP4；CLI 与 WebUI 双入口；LLM 走 DeepSeek API（国内直连），纯 Python 单文件零框架依赖。</div>
+    <div class="rc-fit"><b>命中链路</b> 「LLM 只留冲突/反转/高情绪」= 短剧叙事筛选器，与咱们 C 段剧情氛围块互补；「IP-Adapter 锁外貌 + ControlNet 锁构图」= 咱们资产绑定+scene_sim 思路的工作流级实现；「角色定妆照→多角色绑定」与咱们 comic_assets 表的语义一字不差；9:16 竖屏成片正是漫剧最终交付形态。单文件 HTTP 服务，读源码成本极低，适合作为咱们漫剧链路的<b>竞品最小实现对照</b>。</div>
+    <div class="rc-risk"><b>风险</b> 无 LICENSE——法律上默认保留所有权利，<b>只可学习对照，摘码前必须联系作者</b>；★2 单人项目 5 月后未再推送；底模 anything-v5 偏二次元，与咱们 FLUX.2-klein/qwen-image 的写实网漫风不同，需换底模实测。</div>
+  </div>
+
+  <!-- ══ 5 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">5</div>
+      <div class="rc-name"><a href="https://github.com/INuBq8/ComfyUI-PanelComposer">INuBq8/ComfyUI-PanelComposer</a><span class="tag">分镜格编排原语 · 区域 conditioning</span></div>
+      <div class="score-big"><div class="n">7.5</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>14</b></span>
+      <span>许可 <b class="lic-warn">无 LICENSE</b></span>
+      <span>推送 <b>2026-08-03</b>（单日发布）</span>
+      <span>栈 <b>ComfyUI 自定义节点（Python）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>6.5</b></div><div class="tr"><div class="fl" style="width:65%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>7</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>4</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>5</b></div><div class="tr"><div class="fl" style="width:50%"></div></div></div>
+    </div>
+    <div class="rc-desc">专做「多格漫画页编排」的 ComfyUI 节点对：<b>Panel Layout Provider</b>——45+ 布局预设或手绘自定分格，输出 <code>layout_json</code> + <b>逐格建议尺寸</b>（可按兆像素/64 倍数对齐，适配模型整除要求）+ <b>区域色图 area_image/area_colors</b>（可直接喂区域 conditioning，每格独立提示词）；节点上实时预览整页。<b>Panel Compositor</b>——把生成好的各格图按 layout 拼回整页，支持 cover/contain/stretch/<b>fit_to_shape</b>（斜格/异形格图像随边弯曲）四种填充、lanczos 等重采样、格间距与颜色。阅读顺序左起/右起（日漫右开本）可切，页面比例/朝向/画布旋转齐全。</div>
+    <div class="rc-fit"><b>命中链路</b> <b>这就是咱们「分镜网格协议」排版侧的原语级实现</b>：layout_json + 逐格尺寸 = 拆格侧所需的格几何元数据；<b>area_image/area_colors 区域 conditioning = B 段世界观按格分区下发的现成通道</b>；multiple=64 尺寸对齐与咱们关键帧的分辨率约束同题；LTR/RTL 阅读顺序对条漫/日漫双向排版都有用。拼图侧（一图多镜）咱们已有，缺的正是这种「先定格、逐格喂、拼回页」的反向排版能力。</div>
+    <div class="rc-risk"><b>风险</b> 单日发布的概念验证（创建与最后推送同一天），成熟度低、无 LICENSE（摘码需联系作者）；45+ 预设以欧美页漫为主，竖屏条漫模板需自绘。</div>
+  </div>
+
+  <!-- ══ 6 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">6</div>
+      <div class="rc-name"><a href="https://github.com/McMuff86/ComicMaster">McMuff86/ComicMaster</a><span class="tag">ComfyUI 批量分格 + 11 种气泡 + CBZ 导出</span></div>
+      <div class="score-big"><div class="n">7.2</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>1</b> / fork <b>2</b></span>
+      <span>许可 <b class="lic-warn">无 LICENSE</b></span>
+      <span>推送 <b>2026-02-08</b>（一次性上传）</span>
+      <span>栈 <b>Python 3.10+ 管线脚本 · 依赖 ComfyUI --listen</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>8.5</b></div><div class="tr"><div class="fl" style="width:85%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>7.5</b></div><div class="tr"><div class="fl" style="width:75%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+    </div>
+    <div class="rc-desc">短文本提示→完整漫画的<b>五段式管线</b>：Story plan（故事规划）→ <b>Stage 0.5 角色参考生成</b>（IPAdapter <b>多角度参考表</b>）→ Stage 1 分格批量生成（ComfyUI，批量优化减少模型切换）→ <b>11 种气泡</b>（对白/思考/喊叫/低语/旁白/说明/爆炸/电击/连体/尖叫/拟声词）→ 页面布局（7 模板 + <b>按叙事权重自动布局</b>）→ 导出 PNG/PDF/<b>CBZ</b>（漫画阅读器标准格式）。另有 6 套调色预设（noir/vintage/vibrant/pastel/cyberpunk/manga_bw）、PIL 质量度量与构图分析、4x-UltraSharp 放大（ComfyUI）或 Lanczos 兜底、多底模支持（DreamShaperXL/JuggernautXL/Illustrious XL/NoobAI-XL/Flux）；<code>--skip-generate</code> 可只重排气泡与布局。</div>
+    <div class="rc-fit"><b>命中链路</b> 管线结构与咱们一一对应：角色多角度参考表 = 角色立绘资产；分格批量生成+减少模型切换 = 咱们批量关键帧的调度策略；「按叙事权重自动布局」对咱们 C 段镜头节奏→版面密度是个新颖思路；CBZ/PDF 导出是咱们漫剧包缺的成书出口；--skip-generate 的「内容与排版分离」正是咱们描述词与渲染分离的同构。</div>
+    <div class="rc-risk"><b>风险</b> 无 LICENSE（只学不摘）；★1 一次性上传无维护预期；底模推荐偏 Illustrious/NoobAI 二次元系，网漫写实风需换咱们 FLUX.2-klein 实测；要求 ComfyUI <code>--listen 0.0.0.0</code>，与咱们回环绑定闸门冲突，需改 127.0.0.1。</div>
+  </div>
+
+  <!-- ══ 7 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">7</div>
+      <div class="rc-name"><a href="https://github.com/ArcReel/ArcReel">ArcReel/ArcReel</a><span class="tag">最专业的自托管漫剧工作台 · AGPL</span></div>
+      <div class="score-big"><div class="n">6.8</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>4,272</b> / fork <b>854</b></span>
+      <span>许可 <b class="lic-warn">AGPL-3.0</b></span>
+      <span>最近推送 <b>2026-08-30（核验当日）</b></span>
+      <span>栈 <b>Python + Docker（ghcr.io）+ CI + codecov · 中英双语</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>9.5</b></div><div class="tr"><div class="fl" style="width:95%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>8.5</b></div><div class="tr"><div class="fl" style="width:85%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>7</b></div><div class="tr"><div class="fl" style="width:70%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>10</b></div><div class="tr"><div class="fl" style="width:100%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+    </div>
+    <div class="rc-desc">候选池中工程化程度最高的<b>自托管 AI 视频生产工作台</b>：小说、成品剧本或商品素材 → 角色/场景/道具设计 → 剧本 → 分镜图 → 视频片段 → 最终成片，全链组织成一条<b>可审核、可中断恢复</b>的生产流水线。跨分镜复用资产参考图保一致；关键阶段人工确认；单个素材可重做、历史版本可回滚；费用追踪与成本可视化。引擎层为 AI Agent 驱动的云端模型矩阵（Nano Banana 2、Veo 3.1、Grok、Seedance、OpenAI）。Docker 一键部署，CI/测试覆盖率齐备。</div>
+    <div class="rc-fit"><b>命中链路</b> 与 OmniSpace 漫剧链路<b>语义级同构</b>：资产先行（角色/场景/道具）→ 分镜 → 视频与咱们的 comic_assets → storyboard_rows → keyframes → video 完全平行；「可审核、中断恢复、单素材重做、版本回滚」是咱们任务队列+种子策略+门禁重抽的产品化表达，其<b>生产状态机设计（审核卡点/断点续跑）是最值得研读的部分</b>。</div>
+    <div class="rc-risk"><b>风险</b> <b>AGPL-3.0 强传染</b>——不仅分发，网络服务化也触发整体开源义务，<b>代码绝不能摘进 OmniSpace</b>，只可部署自用或读源码学架构；生成全依赖云端付费 API（无本地推理路径），与咱们 8189 本地算力路线相悖，按价值只能屈居中游。</div>
+  </div>
+
+  <!-- ══ 8 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">8</div>
+      <div class="rc-name"><a href="https://github.com/blob8/ComfyUI_sloppy-comic">blob8/ComfyUI_sloppy-comic</a><span class="tag">ComfyUI 内 LLM→漫画最简实现</span></div>
+      <div class="score-big"><div class="n">6.0</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>17</b> / fork <b>4</b></span>
+      <span>许可 <b class="lic-warn">无 LICENSE</b></span>
+      <span>推送 <b>2025-09-09</b></span>
+      <span>栈 <b>ComfyUI 自定义节点（Python）· SDXL + 可选 IPAdapter</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>5.5</b></div><div class="tr"><div class="fl" style="width:55%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+    </div>
+    <div class="rc-desc">两个节点走完「故事→漫画」：<code>LLM_API_Request</code> 调 LLM 生成<b>结构化故事文本（正文与图像提示词交替嵌入）</b>，<code>GenerateComic</code> 解析故事、逐格 SDXL 生图、渲染成整页漫画条。可选 IPAdapter 风格参考（挂参考图锁画风），风格条件段可整体删除保持模块化。</div>
+    <div class="rc-fit"><b>命中链路</b> 「LLM 输出结构化故事 + 内嵌每格图像提示词」就是咱们 A/B/C 描述词的最小同构——正文与每格提示词交替的格式与「C 段时间轴逐镜画面」同题；IPAdapter 风格锚与咱们 VLM 画风判定通道（风格锚=首张立绘）互为印证。代码量小，适合作为 ComfyUI 侧 LLM 编排的入门参考。</div>
+    <div class="rc-risk"><b>风险</b> 无 LICENSE；2025-09 停更；「sloppy」（马虎）之名自嘲一致性一般——无门禁无重抽，出什么样算什么样。</div>
+  </div>
+
+  <!-- ══ 9 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">9</div>
+      <div class="rc-name"><a href="https://github.com/HVision-NKU/StoryDiffusion">HVision-NKU/StoryDiffusion</a><span class="tag">一致性概念开山作 · 已成历史</span></div>
+      <div class="score-big"><div class="n">5.6</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>6,454</b>（候选池 star 之王）</span>
+      <span>许可 <b class="lic-ok">Apache-2.0</b></span>
+      <span>推送 <b>2024-09-26</b>（停更近两年）</span>
+      <span>栈 <b>PyTorch 研究管线（Gradio Demo）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>5.5</b></div><div class="tr"><div class="fl" style="width:55%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>4</b></div><div class="tr"><div class="fl" style="width:40%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>7.5</b></div><div class="tr"><div class="fl" style="width:75%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>2</b></div><div class="tr"><div class="fl" style="width:20%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+    </div>
+    <div class="rc-desc">「Consistent Self-Attention for Long-Range Image and Video Generation」论文官方实现：<b>一致自注意力</b>让同一角色在长序列图像中长相保持一致，官方自带 <b>Comic Generation Demo</b>（输入角色描述序列→输出同角色多格漫画），衍生项目无数（第 3 名的 ComfyUI 包装即源于此）。</div>
+    <div class="rc-fit"><b>命中链路</b> 咱们 face_sim 门禁（DINOv2 人脸嵌入余弦 ≥0.75）解决「检测一致性」，StoryDiffusion 解决「生成时保持一致性」——两者是一枚硬币的两面；读懂一致自注意力机制对咱们理解「为什么换 seed 能重抽到位、什么时候该换参考图」有直接帮助。Apache-2.0 可自由改造。</div>
+    <div class="rc-risk"><b>风险</b> 停更近两年、SDXL 时代产物、非 ComfyUI 原生（要跑 Gradio/笔记本）；实用价值已被第 3 名包装节点取代，此条纯概念坐标位。</div>
+  </div>
+
+  <!-- ══ 10 ══ -->
+  <div class="rank-card">
+    <div class="rc-top">
+      <div class="rank-badge">10</div>
+      <div class="rc-name"><a href="https://github.com/jbilcke-hf/ai-comic-factory">jbilcke-hf/ai-comic-factory</a><span class="tag">生态标杆 · 单页漫画形态</span></div>
+      <div class="score-big"><div class="n">5.5</div><div class="l">综合分</div></div>
+    </div>
+    <div class="rc-stats">
+      <span>★ <b>1,345</b> / fork <b>310</b></span>
+      <span>许可 <b class="lic-ok">Apache-2.0</b></span>
+      <span>推送 <b>2025-10-30</b></span>
+      <span>栈 <b>Next.js + React + TS · LLM + SDXL（HF Inference API）</b></span>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="bl"><span>链路</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>ComfyUI</span><b>3</b></div><div class="tr"><div class="fl" style="width:30%"></div></div></div>
+      <div class="bar"><div class="bl"><span>命中</span><b>4.5</b></div><div class="tr"><div class="fl" style="width:45%"></div></div></div>
+      <div class="bar"><div class="bl"><span>栈匹配</span><b>8</b></div><div class="tr"><div class="fl" style="width:80%"></div></div></div>
+      <div class="bar"><div class="bl"><span>活跃</span><b>6</b></div><div class="tr"><div class="fl" style="width:60%"></div></div></div>
+      <div class="bar"><div class="bl"><span>许可</span><b>9</b></div><div class="tr"><div class="fl" style="width:90%"></div></div></div>
+    </div>
+    <div class="rc-desc">AI 漫画赛道最知名的开源应用（HF Space 明星项目）：提示词 → LLM（Llama-2/zephyr-7b）拆分格描述 → SDXL 逐格渲染 → 整页合成 → 局部重绘，多风格预设（美漫/日漫/法式 BD/复古等）。Next.js 客户端-服务器架构，Docker 部署文档完善，是「LLM+SD 漫画」部署范式的教科书。</div>
+    <div class="rc-fit"><b>命中链路</b> 前端 Next.js/React/TS 与咱们同栈，其「分格描述→逐格渲染→整页合成→局部重绘」的状态流转与组件划分可作画布式漫画前端的参考；Apache-2.0 前端代码可合规摘取。</div>
+    <div class="rc-risk"><b>风险</b> 单页漫画形态（无连续剧/无资产库/无视频），对漫剧链路命中浅；推理走 HF Inference API/Replicate 云端（SDXL 端点可自配但非 ComfyUI 协议）；2025-10 后节奏放缓。</div>
+  </div>
+</section>
+
+<!-- ═══════ 梯队总结 ═══════ -->
+<section id="tiers">
+  <div class="sec-head"><span class="sec-num">◈</span><h2>四个梯队 · 怎么用</h2></div>
+  <table class="tbl">
+    <tr><th style="width:110px">梯队</th><th style="width:280px">项目</th><th>对 OmniSpace 的用法</th></tr>
+    <tr><td class="tier t-a">A · 立即用</td><td><a href="https://github.com/ketle-man/comfyui-comic-creator">comfyui-comic-creator</a> + <a href="https://github.com/smthemex/ComfyUI_StoryDiffusion">ComfyUI_StoryDiffusion</a></td><td>两者都是 ComfyUI 站内件，clone 进 8189 的 custom_nodes 即用：<b>前者补齐咱们缺失的条漫排版层</b>（分镜模板/竖排气泡/网点/PDF·EPUB 导出），<b>后者给关键帧一致性做方法对照实验</b>（Qwen-Image 在列、PuLID 平替、双角色同框）。MIT/Apache 双宽松。</td></tr>
+    <tr><td class="tier t-b">B · 摘设计</td><td><a href="https://github.com/ChrisChen667888/wind-comic">wind-comic</a>（MIT）</td><td>不整装部署也值得通读：<b>Vision-Audit &lt;70 重抽、角色 8 维 DNA、Cameo Locker、四维发布门禁、成片健康报告、诚实降级链</b>——每一样都与咱们门禁/资产/守卫体系同题，其状态机与 API 设计可整段参考；生图后端矩阵留有 local ComfyUI 槽位，与咱们架构天然咬合。</td></tr>
+    <tr><td class="tier t-c">C · 学架构</td><td><a href="https://github.com/ArcReel/ArcReel">ArcReel</a> + <a href="https://github.com/szf2020/ai-comic-workbench">ai-comic-workbench</a> + <a href="https://github.com/McMuff86/ComicMaster">ComicMaster</a></td><td>ArcReel 的<b>可审核/可中断恢复流水线与生产状态机</b>是漫剧工程化的最佳范本（AGPL：只读不摘）；ai-comic-workbench 是咱们链路的<b>最小竞品实现</b>（小说→竖屏 MP4 一条龙，读它找差距）；ComicMaster 的叙事权重自动布局与 CBZ 成书出口可借鉴（无许可：只学不摘）。</td></tr>
+    <tr><td class="tier t-d">D · 考古位</td><td>其余（PanelComposer / sloppy-comic / StoryDiffusion / ai-comic-factory）</td><td>PanelComposer = 网格协议排版侧原语（区域 conditioning 通道值得单独抄思路）；sloppy-comic = LLM→分格最简实现；StoryDiffusion = 一致性概念源头；ai-comic-factory = 部署范式教科书。均不投入主力时间。</td></tr>
+  </table>
+
+  <div class="note"><span class="nt">给 OmniSpace 的三步建议（按投入产出排序）</span>
+  ① <b>本周可做</b>：把 <b>comfyui-comic-creator</b> 与 <b>ComfyUI_StoryDiffusion</b> 装进 8189 实测——前者直接给漫剧模块补上「条漫排版成书」出口（关键帧出图→SVG 模板分格→竖排对白→PDF/EPUB），后者在咱们 12GB/16GB 档上跑 Qwen-Image + PuLID + 双角色同框三条一致性路线，与 face_sim 门禁做对照实验。<br>
+  ② <b>短期</b>：通读 wind-comic 的门禁与降级源码，把 <b>Vision-Audit 重抽循环、四维发布门禁、成片健康报告</b>三个机制的产品形态整理成咱们漫剧链路的增强提案（视频层保留 H3 管线不动）。<br>
+  ③ <b>远期</b>：咱们分镜网格协议已有拼图侧（一图多镜），若补「先定格、逐格生成、拼回页」的排版侧，<b>PanelComposer 的 layout_json + 区域 conditioning</b> 是最贴合的协议设计起点（实施前先补 LICENSE 或自行实现同构协议）。</div>
+</section>
+
+<!-- ═══════ 荣誉提名 ═══════ -->
+<section id="appendix">
+  <div class="sec-head"><span class="sec-num">◈</span><h2>荣誉提名（未入榜，12 个）</h2></div>
+  <table class="tbl">
+    <tr><th style="width:300px">项目</th><th>未入榜原因 / 价值</th></tr>
+    <tr><td><a href="https://github.com/dingai2046/CineGen-AI">dingai2046/CineGen-AI</a></td><td>「Script-to-Asset-to-Keyframe」工业化漫剧工场，理念与咱们完全同构；但深度绑定 Gemini 2.5 Flash + Veo 云 API、无许可证、★0——只读其 Phase 工作流设计。</td></tr>
+    <tr><td><a href="https://github.com/fadao820169-rgb/BigBanana-AI-Director">BigBanana-AI-Director</a></td><td>AI 漫剧工场：首帧/尾帧 + <b>九宫格分镜预览挑构图</b>（与咱们网格协议同构）；闭源 API 依赖 + 无许可 + ★0，交互思路可借鉴。</td></tr>
+    <tr><td><a href="https://github.com/phaethix/inkstone">phaethix/inkstone</a></td><td>小说→系列漫画（MIT，2026-08 仍活跃）：L1 提示词硬描述 + L2 参考图 img2img 双层一致性，免费 API 无 GPU；对咱们「描述词资产双锚」有印证价值，但走云 API 且链路单一。</td></tr>
+    <tr><td><a href="https://github.com/CylonSpace/lumenx">CylonSpace/lumenx</a></td><td>LumenX Studio（MIT）：LLM 剧本分析提取角色/场景/道具 + 拖拽式分镜编辑器 + 万相生图；分镜编辑器交互值得看，引擎绑定通义万相云 API。</td></tr>
+    <tr><td><a href="https://github.com/lisaks/comfyui-panelforge">lisaks/comfyui-panelforge（Pixstri）</a></td><td>Frame/Row/Page 三级排版节点，思路被 PanelComposer 全面覆盖且已停更（2025-04）。</td></tr>
+    <tr><td><a href="https://github.com/GeeeXYZ/ComfyUI-Comicverse">GeeeXYZ/ComfyUI-Comicverse</a></td><td>中文漫画量产节点（素材库管理 + 横竖版/经典四格模板）；开发中状态、功能与 #2/#5 重叠。</td></tr>
+    <tr><td><a href="https://github.com/Tsubasa109/comfyui_manga_panel">Tsubasa109/comfyui_manga_panel</a></td><td>Apache-2.0 漫画面板节点，本地运行无外部请求；功能单一（2026-07 新项目）。</td></tr>
+    <tr><td><a href="https://github.com/RsOpen/AIComicBuilder">RsOpen/AIComicBuilder</a></td><td>剧本生成→角色解析→分镜三段式（Apache-2.0）；★0 早期项目，与 ArcReel 定位重叠。</td></tr>
+    <tr><td><a href="https://github.com/gonzalu/ComfyUI_YFG_Comical">gonzalu/ComfyUI_YFG_Comical</a></td><td>★29 仍在更新（2026-08）的 ComfyUI 漫画节点；GPL-3.0 传染，只用不摘。</td></tr>
+    <tr><td><a href="https://github.com/williamjxj/LianHuanAI">williamjxj/LianHuanAI</a></td><td>传统连环画生成（DeepSeek/Kimi/MiniMax API + 2026-08 活跃）；连环画形态与漫剧差异大。</td></tr>
+    <tr><td><a href="https://github.com/tackcrypto1031/tk_comfyui_comic_tool">tackcrypto1031/tk_comfyui_comic_tool</a></td><td>双层 JSON 脚本 schema（Layer1 格式 + Layer2 语义）驱动的 ComfyUI 漫画工具——<b>脚本 schema 分层设计与咱们 A/B/C 分段思想同构</b>，但项目仅一天体量。</td></tr>
+    <tr><td><a href="https://github.com/gilsag/comfyui-TextOverlayAndBubbles">gilsag/comfyui-TextOverlayAndBubbles</a></td><td>气泡/文字叠加节点（Apache-2.0，逐行对齐/描边/字体）；单点工具，能力已被 #2 覆盖。</td></tr>
+  </table>
+</section>
+
+<footer>
+  <span>OmniSpace · 开源漫剧制作器 × ComfyUI TOP 10 · 24 仓库 API 实测核验</span>
+  <span>数据基线：2026-08-30 · star/fork/license/pushed_at 均取自 GitHub REST API</span>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开源 Agent Skills 选型目录 · 50 个可落地技能 — OmniSpace</title>
+<style>
+:root{
+  --bg:#0a0e14; --bg2:#10161f; --bg3:#151d29; --ink:#dbe4f0; --muted:#8494a7;
+  --rule:#1f2c3d; --accent:#4da3ff; --accent2:#c084fc; --ok:#6BCB77; --warn:#FFD93D;
+  --err:#FF6B6B; --pink:#FF6B9D; --teal:#4ECDC4;
+  --mono:'JetBrains Mono',Consolas,'Courier New',monospace;
+  --sans:'Inter','Segoe UI','Microsoft YaHei',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.75;
+  background-image:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(77,163,255,.08),transparent);}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+
+/* ── Hero ── */
+.hero{padding:64px 0 40px;border-bottom:1px solid var(--rule)}
+.hero .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.25em;color:var(--accent);text-transform:uppercase;margin-bottom:14px}
+.hero h1{font-size:clamp(26px,4vw,40px);font-weight:800;line-height:1.25;letter-spacing:-.01em}
+.hero h1 .grad{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{margin-top:14px;color:var(--muted);font-size:15px;max-width:820px}
+.hero .meta-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid var(--rule);border-radius:999px;
+  font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--bg2)}
+.chip b{color:var(--ink);font-weight:600}
+
+/* ── TOC ── */
+.toc{position:sticky;top:0;z-index:50;background:rgba(10,14,20,.92);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--rule);padding:10px 0}
+.toc-inner{display:flex;gap:6px;flex-wrap:wrap;max-width:1180px;margin:0 auto;padding:0 28px}
+.toc a{font-family:var(--mono);font-size:12px;padding:5px 11px;border-radius:6px;color:var(--muted);border:1px solid transparent}
+.toc a:hover{color:var(--ink);border-color:var(--rule);background:var(--bg2);text-decoration:none}
+.toc a.hot{color:var(--accent)}
+
+/* ── Sections ── */
+section{padding:44px 0 10px}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+.sec-num{font-family:var(--mono);font-size:13px;color:var(--accent);border:1px solid var(--rule);padding:2px 9px;border-radius:6px;background:var(--bg2)}
+h2{font-size:24px;font-weight:750;letter-spacing:-.01em}
+.sec-lead{color:var(--muted);font-size:14px;margin-bottom:20px;max-width:900px}
+h3{font-size:17px;font-weight:700;margin:28px 0 12px;color:var(--ink)}
+h3 .tag{font-family:var(--mono);font-size:11px;font-weight:500;vertical-align:2px;margin-left:8px}
+
+/* ── Cards grid ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.card{background:var(--bg2);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 14px;position:relative;
+  transition:border-color .2s,transform .2s}
+.card:hover{border-color:#2a3d55;transform:translateY(-2px)}
+.card.p0{border-left:3px solid var(--accent)}
+.card.p1{border-left:3px solid var(--teal)}
+.card.p2{border-left:3px solid var(--rule)}
+.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.skill-name{font-family:var(--mono);font-size:14.5px;font-weight:700;color:var(--ink)}
+.skill-name a{color:var(--ink)}
+.skill-name a:hover{color:var(--accent)}
+.pri{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:5px;white-space:nowrap}
+.pri.p0{background:rgba(77,163,255,.15);color:var(--accent)}
+.pri.p1{background:rgba(78,205,196,.13);color:var(--teal)}
+.pri.p2{background:rgba(132,148,167,.13);color:var(--muted)}
+.card .desc{font-size:13.5px;color:var(--ink);opacity:.92;margin-bottom:8px}
+.card .fit{font-size:12.8px;color:var(--muted);border-top:1px dashed var(--rule);padding-top:8px;margin-top:2px}
+.card .fit b{color:var(--warn);font-weight:600;font-family:var(--mono);font-size:11px;letter-spacing:.05em}
+.card .src{font-family:var(--mono);font-size:11px;color:var(--muted);opacity:.75;margin-top:6px}
+.card .src a{color:var(--muted)}
+code.inline{font-family:var(--mono);font-size:12px;background:var(--bg3);border:1px solid var(--rule);
+  border-radius:4px;padding:1px 6px;color:var(--teal)}
+
+/* ── Tables ── */
+.tbl{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0;background:var(--bg2);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.tbl th{background:var(--bg3);text-align:left;padding:9px 13px;font-family:var(--mono);font-size:11.5px;
+  letter-spacing:.06em;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--rule)}
+.tbl td{padding:9px 13px;border-bottom:1px solid var(--rule);vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:rgba(77,163,255,.04)}
+
+/* ── Callouts ── */
+.note{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--bg2);
+  border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13.5px;color:var(--ink)}
+.note.warn{border-left-color:var(--warn)}
+.note.danger{border-left-color:var(--err)}
+.note b{color:var(--warn)}
+.note .nt{font-family:var(--mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:6px}
+.note.warn .nt{color:var(--warn)}
+.note.danger .nt{color:var(--err)}
+
+/* ── Stat band ── */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:26px 0 6px}
+.stat{background:var(--bg2);border:1px solid var(--rule);border-radius:10px;padding:16px 18px}
+.stat .n{font-family:var(--mono);font-size:26px;font-weight:800;color:var(--accent)}
+.stat .l{font-size:12px;color:var(--muted);margin-top:2px}
+.stat:nth-child(2) .n{color:var(--accent2)}
+.stat:nth-child(3) .n{color:var(--teal)}
+.stat:nth-child(4) .n{color:var(--warn)}
+
+/* code block */
+pre.cmd{font-family:var(--mono);font-size:12.5px;background:#070b10;border:1px solid var(--rule);border-radius:8px;
+  padding:13px 16px;overflow-x:auto;color:#a8c7e8;margin:12px 0;line-height:1.7}
+pre.cmd .c{color:#5a6b7d}
+pre.cmd .p{color:var(--teal)}
+
+footer{margin-top:60px;border-top:1px solid var(--rule);padding:26px 0 40px;color:var(--muted);font-size:12.5px;
+  font-family:var(--mono);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.toc-inner{padding:0 14px}.wrap{padding:0 16px}}
+</style>
+</head>
+<body>
+
+<div class="hero"><div class="wrap">
+  <div class="kicker">OmniSpace · 开源技能选型报告 · 2026-08-30</div>
+  <h1>开源 Agent Skills 选型目录<br><span class="grad">50 个可落地技能 × 九大域 · 漫剧短剧领衔</span></h1>
+  <p class="sub">全部条目经逐一核验（仓库真实存在、技能清单取自官方 README / 目录树），并逐项映射到 OmniSpace 的实际模块与历史痛点——不是泛泛的"推荐列表"，而是每个技能回答"装了它，我们哪条链路受益"。本版重点：<b>漫剧短剧创作域 12 件成建制入选</b>（剧本→分镜→提示词→资产→审核全链路，其中 5 件 P0），来自 7 个新核验的垂直仓库。</p>
+  <div class="meta-row">
+    <span class="chip">来源仓库 <b>15 个</b></span>
+    <span class="chip">入选技能 <b>50 个</b></span>
+    <span class="chip">漫剧短剧技能 <b>12 个</b></span>
+    <span class="chip">P0 直击痛点 <b>18 个</b></span>
+    <span class="chip">核验时间 <b>2026-08-30</b></span>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="n">15</div><div class="l">来源仓库（官方 1 + 社区 14）</div></div>
+    <div class="stat"><div class="n">50</div><div class="l">入选技能（9 域全覆盖）</div></div>
+    <div class="stat"><div class="n">12</div><div class="l">漫剧短剧域（5 件 P0）</div></div>
+    <div class="stat"><div class="n">18</div><div class="l">P0 首装（直接命中当前痛点）</div></div>
+  </div>
+</div></div>
+
+<nav class="toc"><div class="toc-inner">
+  <a href="#install">安装方式</a>
+  <a href="#d-a" class="hot">A·漫剧短剧 ★</a>
+  <a href="#d-b">B·ComfyUI 生产</a>
+  <a href="#d-c">C·前端</a>
+  <a href="#d-d">D·后端</a>
+  <a href="#d-e">E·测试质量</a>
+  <a href="#d-f">F·流程Git</a>
+  <a href="#d-g">G·文档治理</a>
+  <a href="#d-h">H·提示词</a>
+  <a href="#d-i">I·安全</a>
+  <a href="#top10">★ 首装清单</a>
+  <a href="#appendix">附录·落选名单</a>
+</div></nav>
+
+<div class="wrap">
+
+<!-- ═══════════ 安装方式 ═══════════ -->
+<section id="install">
+  <div class="sec-head"><span class="sec-num">00</span><h2>在 TRAE 中安装这些技能</h2></div>
+  <p class="sec-lead">所有入选技能均为 Anthropic Agent Skills 标准格式（目录 + <code class="inline">SKILL.md</code> YAML frontmatter），与 TRAE 技能体系同构——项目内 <code class="inline">.trae/skills/html-report/</code> 就是这个布局。三种安装路径按推荐度排序：</p>
+
+  <h3>方式一 · 复制到项目 <code class="inline">.trae/skills/</code>（推荐）</h3>
+  <pre class="cmd"><span class="c"># 克隆仓库到临时目录，再把需要的技能目录复制进项目技能层</span>
+git clone --depth 1 https://github.com/obra/superpowers D:\tmp\superpowers
+Copy-Item -Recurse D:\tmp\superpowers\skills\systematic-debugging e:\OmniSpace\.trae\skills\
+git clone --depth 1 https://github.com/storyverse2025/storyverse-skills D:\tmp\sv
+Copy-Item -Recurse D:\tmp\sv\skills\keyframe-prompt, D:\tmp\sv\skills\shots-prompt-writing e:\OmniSpace\.trae\skills\</pre>
+  <div class="note"><span class="nt">为什么推荐</span>TRAE 已验证能发现项目级 <code class="inline">.trae/skills/&lt;name&gt;/SKILL.md</code>（html-report 即此布局）。整仓库直接塞进去会引入大量无关 SKILL.md 干扰触发匹配，<b>按需复制单个技能目录</b>最干净，且技能随项目走、团队成员克隆即得。</div>
+
+  <h3>方式二 · 通用 skills CLI</h3>
+  <pre class="cmd"><span class="c"># 35+ agent 通用的安装器（Claude Code/Cursor/Codex/... 的技能目录约定）</span>
+npx skills add iliaal/ai-skills -s react-frontend
+npx skills add mitch-avis/agent-skills -s sql-database</pre>
+  <div class="note warn"><span class="nt">注意</span>该 CLI 面向 Claude Code 等宿主的技能目录（<code class="inline">~/.claude/skills/</code> 等），TRAE 不在其预设宿主列表。装完后仍需把目录复制/链接到 <code class="inline">.trae/skills/</code>。适合当"技能下载器"用。</div>
+
+  <h3>方式三 · 装进项目自有 skills/ 目录做纯知识库</h3>
+  <pre class="cmd"><span class="c"># 我们已有先例：skills/h3_convert 是给后端管线用的转换层技能</span>
+git clone --depth 1 https://github.com/MCKRUZ/ComfyUI-Expert e:\OmniSpace\skills\comfyui-expert</pre>
+  <div class="note"><span class="nt">适用场景</span>不追求 TRAE 自动触发，只想要一份<b>可被 AI 按需读取的领域知识包</b>（如 ComfyUI-Expert 的 15 个技能文档）时，放项目 skills/ 目录、在对话中点名引用即可，零宿主绑定。</div>
+
+  <div class="note danger"><span class="nt">安全红线（先读再装）</span>技能包内可含可执行脚本（Python/Shell），加载即代表你信任作者。装前必做三件事：① 通读 <code class="inline">SKILL.md</code> 正文；② 检查 scripts/ 目录有无外发请求（curl/上传/token）；③ 只从本报告列出的仓库安装——这些仓库均经过社区大规模使用或来自可信组织（Anthropic / Trail of Bits / obra）。</div>
+</section>
+
+<!-- ═══════════ 域 A · 漫剧短剧 ═══════════ -->
+<section id="d-a">
+  <div class="sec-head"><span class="sec-num">A</span><h2>漫剧短剧创作域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 12 个技能 · 剧本→分镜→提示词→资产→审核</span></h2></div>
+  <p class="sec-lead">本版核心新增。7 个垂直仓库逐一核验：<a href="https://github.com/storyverse2025/storyverse-skills">storyverse2025/storyverse-skills</a>（专为竖屏 9:16 微短剧管线设计，直击提示词漂移）、<a href="https://github.com/Algovate/StoryForge">Algovate/StoryForge</a>（分镜师/导演/动画师三技能包，目标媒介就是短剧）、<a href="https://github.com/GongLingRui/screen-creative-skills">GongLingRui/screen-creative-skills</a>（31 件影视创作全家桶）、<a href="https://github.com/Coconah/AI-Short-Drama-Agent-Skill">Coconah/AI-Short-Drama-Agent-Skill</a>（5 步法编剧）、<a href="https://github.com/mmlong818/claude-skills">mmlong818/claude-skills</a>（女频微短剧）、<a href="https://github.com/0xsline/short-drama">0xsline/short-drama</a>（全流程含合规出海）、<a href="https://github.com/chardigio/photo-novella-skill">chardigio/photo-novella-skill</a>（照片小说/漫画书）。按我们 A/B/C 描述词协议的生产链路排序。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/storyverse2025/storyverse-skills/tree/main/skills/keyframe-prompt">keyframe-prompt</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">把 Spatial Bible（空间圣经）落成可复用的 Keyframe/scene-ref 基准帧提示词：锁定家具、光源、角色站位与机位坐标系；附填空模板、完整案例与 Beat 内精简 SPATIAL ANCHOR 写法。</div>
+      <div class="fit"><b>命中痛点</b> scene 资产首图正是 scene_sim 门禁的基准（DINOv2 ≥0.60）；「已有 Keyframe 漂移 → 重出 scene-ref」与我们「场景漂移 → 换 seed 重抽」同题同解。C 段首帧保持段引入 SPATIAL ANCHOR 写法可直接防跨镜漂移（H3 latentRelay 的提示词侧互补）。</div>
+      <div class="src">storyverse2025/storyverse-skills · 竖屏微短剧管线</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/storyverse2025/storyverse-skills/tree/main/skills/shots-prompt-writing">shots-prompt-writing</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">单 Beat → 15 秒内视频生成提示词：八区块结构、角色外貌锚定、机位推导（正反打/视线轴线）、走位调度、情绪物理化、V.O./O.S. 音频处理、NEGATIVE 锁定，外加生成结果排障手册。</div>
+      <div class="fit"><b>命中痛点</b> H3 单段 5-15s 硬约束 × C 段 2-4s/镜贪心合并正是「Beat→shots」问题域；外貌锚定 = 我们的 <code class="inline">&lt;Subject N&gt;</code> 全项目稳定编号，NEGATIVE 锁 = A 段负向 token，排障手册（背对/视线错/背景错）可直接对照 h3_convert 转换层排障。</div>
+      <div class="src">storyverse2025/storyverse-skills · 竖屏微短剧管线</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/Algovate/StoryForge/tree/main/.claude/skills/film-storyboard-skill">film-storyboard-skill</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">分镜师技能包：剧本 → 节拍拆解（识别叙事拐点）→ 九宫格 Beat Board 静态分镜提示词 → 四宫格 Sequence Board 序列提示词；支持多集批量与断点续传。</div>
+      <div class="fit"><b>命中痛点</b> 「分镜网格 N×N」拼图协议与九宫格拍板（3×3）完全同构；节拍拆解可补 C 段生成前的剧情结构层（当前 ai-describe 一次性成稿，缺 Beat 粒度）。项目配置里 target_medium 默认就是「短剧」。</div>
+      <div class="src">Algovate/StoryForge · MIT · .claude/skills/ 三件套之一</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/Coconah/AI-Short-Drama-Agent-Skill/blob/main/SKILL.md">screenplay_writer 爆款短剧编剧</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">5 步法工作流：Step0 脑洞重构 → Step1 电影级 3000 字大纲（四幕结构）→ Step2 分集规划（精准情绪走势+结尾钩子）→ Step3 完整分镜拍摄脚本初稿（动作指示/微表情/视听运镜）→ Step4 剧本医生暴改（杀废话与 OOC）。</div>
+      <div class="fit"><b>命中痛点</b> 漫剧文字链路（manga-dialog 槽）当前一次成稿无精修环节；Step3 的分镜拍摄脚本形态与 storyboard_rows 直接对齐，Step4 精修法可改造成 ai-describe 的二遍精修模板。</div>
+      <div class="src">Coconah/AI-Short-Drama-Agent-Skill · MIT</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/GongLingRui/screen-creative-skills/tree/master/category/creation">drama-creator 竖屏短剧创作大师</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">竖屏短剧剧本创作：全剧本自动生成、对话精准把控、爽点密集设置；支持宏观建构与精准优化两种模式，覆盖 1-3 分钟/集 × 80-100 集形态。</div>
+      <div class="fit"><b>命中痛点</b> 「赘婿逆袭」类题材的爽点/卡点节奏是网漫短剧的留存核心；与 screenplay_writer 互补（一个管商业爽感节奏、一个管电影级结构），共构成漫剧剧本双引擎。</div>
+      <div class="src">GongLingRui/screen-creative-skills · 31 件影视全家桶之一</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/Algovate/StoryForge/tree/main/.claude/skills/animator-skill">animator-skill 动态提示词</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">动画师技能包：静态分镜 → AI 视频动态提示词（运动描述、镜头运动、节奏控制），与分镜师产出无缝衔接，每阶段过导演审核。</div>
+      <div class="fit"><b>命中痛点</b> 分镜描述词「同源双驱动」（一稿同驱动生图+视频）正是 A/B/C 协议的核心设计；其 motion prompt 写法可充实 C 段的运镜/音效信息块（当前 C 段运镜描述粒度偏粗）。</div>
+      <div class="src">Algovate/StoryForge · MIT · .claude/skills/ 三件套之一</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/Algovate/StoryForge/tree/main/.claude/skills/storyboard-review-skill">storyboard-review-skill 导演审核</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">导演技能包：每阶段产物过导演 Agent 审核，不通过自动打回修改重审，输出质量评分（quality_score）与改进建议，支持人工干预插话。</div>
+      <div class="fit"><b>命中痛点</b> VLM 四重门禁（结构分/face_sim/scene_sim/style_sim）是图像侧守卫；描述词侧目前只有资产绑定校验，缺一个「导演审」维度防 OOC 与剧情漂移——审核-打回-重审闭环正是门禁体系的剧本侧对应物。</div>
+      <div class="src">Algovate/StoryForge · MIT · .claude/skills/ 三件套之一</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/GongLingRui/screen-creative-skills/tree/master/category/creation">drama-planner 竖屏短剧策划师</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">竖屏短剧策划：情绪价值分析、三幕式结构规划、目标受众定位、商业化卡点设计。</div>
+      <div class="fit"><b>命中痛点</b> 多集漫剧项目的集间情绪曲线（钩子-反转-高潮排布）目前全靠用户手排；策划层模板可为「灵感→分集大纲」入口生成初始结构，再交 drama-creator 填肉。</div>
+      <div class="src">GongLingRui/screen-creative-skills</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/mmlong818/claude-skills/tree/skills/micro-drama-writer">micro-drama-writer 女频微短剧编剧</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">女频情感向微短剧专业编剧：都市甜宠/古装虐恋/穿越重生/复仇逆袭四大题材；60 集长线规划、打脸场景设计、男主台词打磨；中英双语文档 + references 按需加载。</div>
+      <div class="fit"><b>命中痛点</b> 题材垂直度最高的编剧件（「设计第 30 集打脸场景」这种任务粒度）；打脸/高潮场景的生成策略可拆借为漫剧单集爆点的提示词模板。</div>
+      <div class="src">mmlong818/claude-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/0xsline/short-drama">short-drama 短剧全流程</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">短剧剧本生产全流程技能包：选题立项 → 分集撰写 → 质量自检 → 合规审核 → 海外出海；SKILL.md + references/ 参考库结构，触发命令已英文化。</div>
+      <div class="fit"><b>命中痛点</b> 唯一覆盖「合规审核」与「出海」两个环节的件（多地区内容红线是上线前刚需，漫剧出海时的台词/画面合规预检）；其质量自检清单可与 storyboard 门禁互鉴。</div>
+      <div class="src">0xsline/short-drama</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/GongLingRui/screen-creative-skills/tree/master/category/evaluation">drama-evaluator 短剧评估专家</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">评估故事改编为竖屏短剧的潜力：短剧适配度分析、爽点密度评估、改编难度预判，输出专业评审报告。</div>
+      <div class="fit"><b>命中痛点</b> 「网文/灵感 → 漫剧」立项入口缺一道评估闸；与同库 novel-evaluator/ip-evaluator（附录备查）可组成 IP 筛选链，评估通过再进 drama-planner。</div>
+      <div class="src">GongLingRui/screen-creative-skills</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/chardigio/photo-novella-skill/tree/main/skills/photo-novella">photo-novella 照片小说/漫画书</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">视觉故事创作教练：角色设计（多姿势参考表保一致性）→ 世界观定场镜头 → 逐场景叙事规划 → 场景变体生成挑选迭代 → 平行 agent 批量生产；Claude Code 插件形态（MIT）。</div>
+      <div class="fit"><b>命中痛点</b> 「多姿势参考表」正是 comic_assets 角色立绘的应然形态（当前单图作 face_ref 锚，PuLID 只吃正脸）；「定场镜头」= scene 资产首图的规范化生成流程；其方法论可平移到我们的资产生成链（换用自有生图引擎执行）。</div>
+      <div class="src">chardigio/photo-novella-skill · MIT</div></div>
+  </div>
+
+  <div class="note"><span class="nt">漫剧链路速装（storyverse 双件 + Coconah + StoryForge 三件套）</span>
+  <pre class="cmd" style="margin:8px 0 0">git clone --depth 1 https://github.com/storyverse2025/storyverse-skills D:\tmp\sv
+Copy-Item -Recurse D:\tmp\sv\skills\keyframe-prompt, D:\tmp\sv\skills\shots-prompt-writing e:\OmniSpace\.trae\skills\
+git clone --depth 1 https://github.com/Algovate/StoryForge D:\tmp\sf
+Copy-Item -Recurse D:\tmp\sf\.claude\skills\film-storyboard-skill, D:\tmp\sf\.claude\skills\animator-skill, D:\tmp\sf\.claude\skills\storyboard-review-skill e:\OmniSpace\.trae\skills\</pre>
+  <span style="color:var(--muted);font-size:12.5px">注：screenplay_writer 是仓库根单文件 SKILL.md，复制后需自建目录 <code class="inline">.trae/skills/screenplay_writer/SKILL.md</code>；photo-novella 的生成脚本绑定 Gemini API，装其方法论、生成动作仍走我们自有引擎。</span></div>
+</section>
+
+<!-- ═══════════ 域 B ═══════════ -->
+<section id="d-b">
+  <div class="sec-head"><span class="sec-num">B</span><h2>ComfyUI 生图 / 视频生产域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 9 个技能</span></h2></div>
+  <p class="sec-lead">来源：<a href="https://github.com/MCKRUZ/ComfyUI-Expert">MCKRUZ/ComfyUI-Expert</a>——目前唯一成体系的 ComfyUI 领域技能库，13+ 个技能模块覆盖"角色生成→视频生产→语音→发布"全管线。<b>注意：仓库 2026-06-17 已归档（只读）</b>，内容仍可用（最后一次模型版图更新在 2026-03），但不会再更新；建议整库克隆到 <code class="inline">skills/comfyui-expert/</code> 当领域知识库，按需引用而非逐个搬进 .trae/skills/。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-troubleshooter">comfyui-troubleshooter</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">ComfyUI 故障排查决策树：节点报错分类（缺依赖/缺模型/OOM/节点缺失）、日志解读、权重路径核对。</div>
+      <div class="fit"><b>命中痛点</b> SageAttention <code class="inline">ModuleNotFoundError</code>、<code class="inline">PathchSageAttentionKJ</code> 拼写错误节点、ComfyUI-Manager 缺 git、31 份工作流依赖审计——这类问题的系统化排查法，正是我们上周手工踩过的坑。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-api">comfyui-api</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">ComfyUI HTTP API 无头操作手册：/prompt 提交、/history 轮询、/object_info 探测、client_id 约定、input/output 目录协议。</div>
+      <div class="fit"><b>命中痛点</b> comfy_paint_engine.py 与 h3_engine.generate_director 就是这套 API 的两个消费者；API 形态工作流构造、ref_images 自动增长槽位命名、/free 卸载权重等约定的领域速查。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-prompt-engineer">comfyui-prompt-engineer</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">生图提示词工程：正向/负向词结构、权重语法、模型特定措辞（FLUX 系 vs SDXL 系差异）、风格锚定技巧。</div>
+      <div class="fit"><b>命中痛点</b> A 段固定质感 token 曾因"3D/PBR"残留被 gen_router 错路由（S8 闭环）；FLUX.2-klein 用 Qwen3 中文编码器，其提示词偏好与 SDXL 完全不同——这个技能是 A/B/C 描述词生成的领域弹药库。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-workflow-builder">comfyui-workflow-builder</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">API 格式工作流程序化构造：节点图设计、UI→API 转换规则、参数注入点选择、子图/循环节点（ImpactQueue 系）用法。</div>
+      <div class="fit"><b>命中痛点</b> generate_director 程序化构造 Theodore 三件套 + ReferenceToVideo 采样链、latentRelay 经 AddGuide 注入尾 22 帧——后续扩节点（如音频轨、上采样）时的构造范式参考。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-character-gen">comfyui-character-gen</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">角色设定图生成管线：立绘多视图、角色表（character sheet）、参考图驱动的一致性生成。</div>
+      <div class="fit"><b>命中痛点</b> comic_assets 角色资产（夏沐沐等）的立绘就是 face_ref 的锚；多视图角色表可一次性产出正面/侧面/表情差分，反哺 PuLID 面部参考与画风门禁的风格锚。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-lora-training">comfyui-lora-training</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">LoRA 训练全流程：数据集准备、参数配置（rank/alpha/步数）、过拟合判别、训练后质检。</div>
+      <div class="fit"><b>命中痛点</b> style 训练闭环仍有审计缺陷（假嵌入条件/无 OOM 闸门/验证集用错，P1-12/13/14）；Consistency LoRA 写实化漂移事故（LoRA 强度与风格匹配）正是这个技能的核心议题。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-video-pipeline">comfyui-video-pipeline</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">视频生成管线：I2V 首帧锚定、分段生成接续策略、显存分档、批量任务编排。</div>
+      <div class="fit"><b>命中痛点</b> 网格拆格→逐镜 I2V→latentRelay 接续→ffmpeg 裁时拼接，正是这条管线的完整实例；技能里的分段接续思路可与我们的尾段不回吞策略互证。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-video-production">comfyui-video-production</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">视频制作编排总纲：镜头规划、模型选择（各视频模型能力矩阵）、时长/分辨率权衡。</div>
+      <div class="fit"><b>命中痛点</b> 5 槽模型选型配置（manga-video 槽）与 HARDWARE_TIER_TABLE 分档路由的决策依据补充；H3 5-15s 段约束 × C 段 2-4s/镜的钳位取舍可参考其能力矩阵。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+
+    <div class="card p2"><div class="card-head"><div class="skill-name"><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/video-assembly">video-assembly</a></div><span class="pri p2">P2</span></div>
+      <div class="desc">ffmpeg 后期组装：分段拼接、转场、音轨合成、编码参数、字幕烧录。</div>
+      <div class="fit"><b>命中痛点</b> _generate_grid_video_h3 的剥 ctx 前缀/段内偏移裁时/concat 已自研；此技能价值在<b>未来加转场与配音轨</b>时（漫剧成片的下一步演进）。</div>
+      <div class="src">MCKRUZ/ComfyUI-Expert（已归档）</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 C ═══════════ -->
+<section id="d-c">
+  <div class="sec-head"><span class="sec-num">C</span><h2>前端域 · React 19 + Zustand + Tailwind 4 <span style="font-size:13px;color:var(--muted);font-weight:400">· 4 个技能</span></h2></div>
+  <p class="sec-lead">按 CLAUDE.md 技术栈表精确选型：React 19.0 + Zustand 5 + Vite 6 + Tailwind 4（CSS-first）+ 自研 Omni 组件体系（非 shadcn）。iliaal 系技能与我们的栈<b>逐项对齐</b>，官方 frontend-design 直接服务"一眼吸引用户"的视觉要求。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/react-frontend">react-frontend</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">React 19 决策树：把绝大多数"要不要用 effect"路由到非 effect 方案；状态工具按用途分离（Zustand 客户端态 / React Query 服务端态 / URL 态）；Vitest/RTL 测试约定。</div>
+      <div class="fit"><b>命中痛点</b> 我们 11 个 Zustand store + 6 切片 manga store 正是该技能的"client 态归 Zustand"范式；useEffect 必须返回 cleanup 的铁律与它的 effect 排查树同源。前端 11 store 常有跨切片同步诱惑，这技能给出"何时不该上 effect"的判据。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/tailwind-css">tailwind-css</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">Tailwind v4 CSS-first 配置模型（@theme / @utility / @custom-variant），含 v3→v4 破坏性变更表；禁动态类名拼接、gap 优先于 space-x、size-* 优先于 w/h 成对。</div>
+      <div class="fit"><b>命中痛点</b> 我们正用 Tailwind 4 + tokens.css 的 @theme 定义 sakura/mint 色阶；"禁止硬编码颜色，MUST var(--color-*)"铁律与该技能的 CSS-first 模型完全同向，且补齐了 v4 迁移陷阱清单。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/anthropics/skills/tree/main/skills/frontend-design">frontend-design（官方）</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">Anthropic 官方设计技能：拒绝"AI 平庸审美"（AI slop），要求大胆的设计决策、明确的设计哲学陈述；对 React + Tailwind 项目效果尤佳。</div>
+      <div class="fit"><b>命中痛点</b> 用户对 UI 的核心要求——"一眼吸引用户的未来科技风、高级视觉设计、粒子动态效果"（深空/晨辉双主题）——本质就是反 AI slop。设计哲学陈述先行的工作流可套用到每次页面美化任务。</div>
+      <div class="src">anthropics/skills · 官方参考实现</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/anthropics/skills/tree/main/skills/theme-factory">theme-factory</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">主题工厂：从单一主题源生成多套完整主题（色板、语义色、组件层派生），保持可访问性对比度。</div>
+      <div class="fit"><b>命中痛点</b> 双 UI 主题（深空/晨辉）+ 亮色主题共存的项目现状，痛点是"每加一个组件要手写 N 套主题变量"；theme-factory 的派生生成思路可固化成 tokens.css 的构建期工具。</div>
+      <div class="src">anthropics/skills · 官方参考实现</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 D ═══════════ -->
+<section id="d-d">
+  <div class="sec-head"><span class="sec-num">D</span><h2>后端域 · Python 3.10 / FastAPI / SQLite <span style="font-size:13px;color:var(--muted);font-weight:400">· 6 个技能</span></h2></div>
+  <p class="sec-lead">来源主体：<a href="https://github.com/mitch-avis/agent-skills">mitch-avis/agent-skills</a>（Python 四件套 + 数据库，62 commits 活跃维护）与 iliaal/python-services。与 CLAUDE.md 后端铁律（type hints 全覆盖、ruff、SQLite 串行写、模型卸载三件套）逐条对得上。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/mitch-avis/agent-skills/blob/main/sql-database/SKILL.md">sql-database</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">多方言（PostgreSQL/MySQL/SQLite）schema 设计、索引策略、迁移模式、查询模式、EXPLAIN 解读、ORM 集成。</div>
+      <div class="fit"><b>命中痛点</b> SQLite WAL + 31 张用户表 + user_version=7 迁移组机制 + FTS5——迁移组"历史组禁改只许追加"的约束下，索引与查询优化（storyboard_rows/keyframes 高频查询）是下一阶段刚需。</div>
+      <div class="src">mitch-avis/agent-skills · MIT</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/mitch-avis/agent-skills/blob/main/python-async/SKILL.md">python-async</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">asyncio 全模式：事件循环、协程、Task、gather、Semaphore、通道、异步上下文管理器。</div>
+      <div class="fit"><b>命中痛点</b> "asyncio 循环中禁止同步阻塞"是后端第一铁律（offload.py run_blocking 唯一入口）；视频任务的 ETA 轮询、vLLM 让渡/唤醒、WS Hub 广播全是 asyncio 协作场景，Semaphore 分档可参考显存准入闸门。</div>
+      <div class="src">mitch-avis/agent-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/python-services">python-services</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">Python 服务规范：现代工具链（uv/ruff/类型检查）、asyncio.TaskGroup 结构化并发、幂等后台任务、contextvars 关联 ID 结构化日志。</div>
+      <div class="fit"><b>命中痛点</b> 进程内 PriorityQueue 任务队列（四级优先）就是"幂等后台任务"领域；request_id 贯穿日志（API 响应 meta 已有 request_id）可用 contextvars 补齐服务端贯穿链。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/mitch-avis/agent-skills/blob/main/python-resilience/SKILL.md">python-resilience</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">容错模式全集：指数退避重试、超时、上下文管理器、资源清理、可观测性埋点。</div>
+      <div class="fit"><b>命中痛点</b> "大模型卸载三件套"（del + empty_cache + gc）是资源清理特例；vLLM 取消类失败不回退直载（ensure_loaded 必须消费返回值）是重试语义特例；重抽循环（低分换 seed 重抽 1 次）是受控重试。</div>
+      <div class="src">mitch-avis/agent-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/trailofbits/skills/blob/main/plugins/modern-python">modern-python（ToB）</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">Trail of Bits 出品的现代 Python 工具链实践：uv、ruff、pytest 的工业级配置与用法。</div>
+      <div class="fit"><b>命中痛点</b> 与上一条互补：安全公司视角的工程化标准（ruff 规则集选择、pytest 组织），154 包钉版的 requirements-lock.txt 时代，uv 的锁文件管理值得评估。</div>
+      <div class="src">trailofbits/skills · 活跃（4 小时前仍有提交）</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/mitch-avis/agent-skills/blob/main/python-testing/SKILL.md">python-testing</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">pytest 全模式：fixtures、mocking、参数化、异步测试、覆盖率、属性测试。</div>
+      <div class="fit"><b>命中痛点</b> 136 项后端单测 + GPU 集成测试（OMNISPACE_VLLM_STRESS/E2E 显式开启）的体系扩容；skip 策略与参数化标定（face_sim 阈值 v44/v45/v46 三轮标定就该是参数化用例）。</div>
+      <div class="src">mitch-avis/agent-skills · MIT</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 E ═══════════ -->
+<section id="d-e">
+  <div class="sec-head"><span class="sec-num">E</span><h2>测试与质量域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 5 个技能</span></h2></div>
+  <p class="sec-lead">来源：<a href="https://github.com/obra/superpowers">obra/superpowers</a>（Jesse Vincent 的"完整开发方法论"，16+ 技能，跨 16 个 coding agent 可装）为骨架，iliaal 的测试纪律件补强。这一域直接对应我们两条最贵的历史教训：<b>ETA 常量两杀真任务</b>与<b>质量总督自我误伤</b>。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">systematic-debugging</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">四阶段根因分析流程：复现 → 证据收集 → 假设验证 → 修复确认；附 root-cause-tracing、defense-in-depth、condition-based-waiting 配套技术。</div>
+      <div class="fit"><b>命中痛点</b> 项目史上三大疑难全是根因分析范例：质量总督降步（36→14 步）、vLLM spawn 孤儿 worker 占 14.7GB、auto 选路被旧文档误导。技能的"证据先于假设"纪律正是每次排障该走的流程。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">condition-based-waiting</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">异步等待的正确姿势：以条件满足为准（而非固定睡眠/固定超时），防 flaky、防误杀。</div>
+      <div class="fit"><b>命中痛点</b> <b>最贵的一课</b>：_poll_director_history 曾用固定常量超时，两杀真任务（H3 生成 912s/1242s 波动 36%），后改为帧数线性 ETA + 900s 抖动余量 + 队列活性检测。该技能就是这套补丁的方法论源头，值得装进每个写轮询的人（和 AI）脑子里。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">verification-before-completion</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">宣称"完成"前的验证关卡：识别 → 运行 → 亲读输出 → 核验 → 才可声称；禁止复用上一次的结果。</div>
+      <div class="fit"><b>命中痛点</b> "降级必须诚实"铁律（degraded:true + degrade_reason，禁止伪造结果）的同族纪律；也防"文档说已完成、代码没有"的状态漂移（RTM F-02~F-04 教训）。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">test-driven-development</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">严格 RED-GREEN-REFACTOR 循环：先写失败测试、亲见其红、最小实现、亲见其绿、提交；内附"想跳过测试的 13 种合理化借口"对照表与测试反模式。</div>
+      <div class="fit"><b>命中痛点</b> h3_convert 转换层（24 测试先行）与 h3_engine 无单测覆盖形成对照——P1 接线时若有 TDD 纪律，generate_director 的轮询/让渡/裁时分支就该有测试锁定（如 P1-06 对 offload 的锁定方式）。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/writing-tests">writing-tests</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">测试写作纪律：DAMP 优先于 DRY、用例来自用户旅程而非实现细节、真实对象优先（mock 只在系统边界）、bug 修复必须红绿循环。</div>
+      <div class="fit"><b>命中痛点</b> 我们测试里 mock 边界模糊的隐患（如 vLLM 门禁测试、ComfyUI HTTP mock）正好需要"mock 只在系统边界"的判据；用户旅程视角（按钮→出图→守卫评分）比函数视角更接近 E2E 缺口。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 F ═══════════ -->
+<section id="d-f">
+  <div class="sec-head"><span class="sec-num">F</span><h2>流程编排与 Git 域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 5 个技能</span></h2></div>
+  <p class="sec-lead">superpowers 的核心主张："agent 在动手写码前先退一步问清要什么"。对我们这种多模块重耦合项目（一次改动牵动 keyframe/video/前端 store 三层），设计先行 + 分支隔离 + 子代理分派的价值远超小项目。</p>
+  <div class="grid">
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">brainstorming</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">苏格拉底式设计打磨：一次只问一个问题、先读代码库、给出 2-3 个命名方案及取舍、设计文档存档到 docs/brainstorms/。</div>
+      <div class="fit"><b>命中痛点</b> 团队协作模式（产品/设计/前端/后端/测试各司其职，决策基于讨论）正缺一个结构化讨论产出物；ADR-002/ADR-003 的裁决记录就是这个形态，技能把"何时立 ADR"的触发器制度化。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">subagent-driven-development</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">每任务派发全新子代理执行，双阶段审查（先规格符合性、再代码质量），复杂任务可数小时自治推进。</div>
+      <div class="fit"><b>命中痛点</b> 我们的多轮深度了解模式（mtime 排序→grep 取证→逐条核验）本质是手工子代理编排；该技能提供"每子代理独立上下文防污染"的纪律，特别适合大文件（keyframe.py 134KB）的分段审查。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">dispatching-parallel-agents</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">并行子代理分派规范：任务边界划分、结果汇流、冲突检测。</div>
+      <div class="fit"><b>命中痛点</b> 三域并行调研（后端取证 + 前端核验 + DB 直查）是我们高效的姿势，但并行 grep 同一文件会互相踩；规范化的分派边界（按目录/按模块切）值得固化。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/obra/superpowers">using-git-worktrees</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">git worktree 并行开发：新特性隔离工作区、跑通项目自检、验证测试基线干净后再动手。</div>
+      <div class="fit"><b>命中痛点</b> 项目 git 环境曾因 PATH 问题断提交（文档校准无法落库）；worktree 流程天然要求"干净基线"，倒逼 git 环境修复——修复后并行做 UI 美化分支与后端管线分支不再互卡。</div>
+      <div class="src">obra/superpowers · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/mitch-avis/agent-skills/blob/main/committing-code/SKILL.md">committing-code</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">高质量 git 提交：Conventional Commits、选择性暂存、逻辑拆分、提交前安全检查。</div>
+      <div class="fit"><b>命中痛点</b> 项目提交规范（feat/fix/docs/style/refactor/test/chore + scope）与该技能同构；"选择性暂存"纪律防止 134KB 大文件里三处不相关改动混进一个提交。</div>
+      <div class="src">mitch-avis/agent-skills · MIT</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 G ═══════════ -->
+<section id="d-g">
+  <div class="sec-head"><span class="sec-num">G</span><h2>文档与知识治理域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 3 个技能</span></h2></div>
+  <p class="sec-lead">这是我们项目<b>最痛的域</b>：2026-08-29 深度校验实测发现文档/记忆与代码五处漂移（auto 选路、art_styles 数量、RTM F-02~F-04、E-05、pytest 计数），教训写进了项目记忆——"文档与记忆都会被代码推翻"。以下技能全是针对这个问题的解药。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/trailofbits/skills/blob/main/plugins/spec-to-code-compliance">spec-to-code-compliance</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">对照规格文档逐条核验代码实现：覆盖合约、C/C++、服务、固件等多形态；产出合规矩阵。</div>
+      <div class="fit"><b>命中痛点</b> <b>RTM（需求追踪矩阵）漂移的直接解药</b>。RTM v1.4→v1.5 校准是手工做的五处修正；此技能可周期性跑"RTM 状态列 ↔ 代码实测"合规扫描，把 08-29 那次深度校验固化成可重复流程。</div>
+      <div class="src">trailofbits/skills · 活跃</div></div>
+
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/md-docs">md-docs</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">以 AGENTS.md/CLAUDE.md 为正典上下文文件：写文档前必须对代码库逐条事实核验，专治文档过时、缺失、失真。</div>
+      <div class="fit"><b>命中痛点</b> CLAUDE.md 自称"行为宪法"且声明"已于 2026-08-28 实测校准"——但按我们的教训，<b>任何此类声明都会过期</b>。该技能的"每条事实断言对代码核验"纪律正是 CLAUDE.md 每次更新该走的关卡（会话启动检查清单的 15 个 YES 同理）。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/compound-docs">compound-docs</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">问题解决后自动触发知识沉淀：校验 frontmatter、查重、三次以上相似问题识别为模式；构建可检索的机构知识库。</div>
+      <div class="fit"><b>命中痛点</b> 三级记忆库（user_profile / project_memory / 每日 topics.md）就是手工版 compound-docs；"SageAttention 垫片将来会被插件更新还原"这类潜伏知识，正需要"相似问题第 3 次出现→升级为规律"的机制。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 H ═══════════ -->
+<section id="d-h">
+  <div class="sec-head"><span class="sec-num">H</span><h2>提示词与元技能域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 3 个技能</span></h2></div>
+  <p class="sec-lead">OmniSpace 的核心竞争力之一是提示词工程（A/B/C 三段协议、_STYLE_PROMPT 四维评审、gen_router 风格路由词典）。这一域的技能直接给提示词体系补方法论。</p>
+  <div class="grid">
+    <div class="card p0"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/refine-prompt">refine-prompt</a></div><span class="pri p0">P0</span></div>
+      <div class="desc">六要素清单评估与重写提示词：任务/约束/格式/上下文/示例/边界情况；规格化语言重写，长度比约束 0.75x-1.5x，不虚构缺失信息。</div>
+      <div class="fit"><b>命中痛点</b> A/B/C 描述词的六要素对照：A 段=风格约束、B 段=上下文（世界观+资产）、C 段=任务+格式（时间轴）；该技能的清单法可用于自检"本镜描述词缺了哪要素"（如黑色行李箱 vs 白色行李箱的资产冲突，本质是 B 段约束与资产 prompt 矛盾）。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/iliaal/ai-skills/blob/master/skills/meta-prompting">meta-prompting</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">推理增强斜杠族：/verify 挑战验证、/adversarial 反方论证、/edge 边界枚举、/confidence 逐断言置信度。</div>
+      <div class="fit"><b>命中痛点</b> VLM 评分模板（结构分 + 画风四维）设计时缺"对抗性自检"；阈值定标（face_sim 0.75、scene_sim 0.60、style 75）每次调整前跑一轮 /adversarial（"什么画面会骗过这个阈值？"）能少走标定弯路。</div>
+      <div class="src">iliaal/ai-skills · MIT</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/anthropics/skills/tree/main/skills/skill-creator">skill-creator（官方）</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">官方技能创建器：Q&A 引导式构建技能、目录/脚本组织、评测驱动迭代。</div>
+      <div class="fit"><b>命中痛点</b> TRAE 已内置 skill-creator，此官方版价值在<b>交叉验证</b>：h3_convert 这类自研技能的迭代（21→24 测试的演进）可对照官方"评测驱动"方法论补齐 evals。</div>
+      <div class="src">anthropics/skills · 官方参考实现</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ 域 I ═══════════ -->
+<section id="d-i">
+  <div class="sec-head"><span class="sec-num">I</span><h2>安全域 <span style="font-size:13px;color:var(--muted);font-weight:400">· 3 个技能</span></h2></div>
+  <p class="sec-lead">来源：<a href="https://github.com/trailofbits/skills">trailofbits/skills</a>——顶级安全审计公司 Trail of Bits 的官方技能库（174 commits，本报告核验时 4 小时前仍在提交）。只选了与本地桌面 AI 应用相关的三件，其余（智能合约、C/Rust 审计、YARA）与本项目无关已滤除。</p>
+  <div class="grid">
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/trailofbits/skills/blob/main/plugins/supply-chain-risk-auditor">supply-chain-risk-auditor</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">npm/PyPI/Go 依赖审计：版本匹配 advisory、上游弃管检测、发布者集中度、install 脚本风险。</div>
+      <div class="fit"><b>命中痛点</b> 后端 154 包钉版（requirements-lock.txt）+ 前端 pnpm 依赖树——AI 推理栈的包（torch/diffusers/transformers 链）是供应链重灾区；SageAttention 垫片这类"自己写的包"也该入审计视野。</div>
+      <div class="src">trailofbits/skills · 活跃</div></div>
+
+    <div class="card p1"><div class="card-head"><div class="skill-name"><a href="https://github.com/trailofbits/skills/blob/main/plugins/static-analysis">static-analysis</a></div><span class="pri p1">P1</span></div>
+      <div class="desc">静态分析工具箱：CodeQL、Semgrep、SARIF 解析，自定义规则落地。</div>
+      <div class="fit"><b>命中痛点</b> 我们静态检查仅 ruff（无 mypy）；CLAUDE.md 明令 F-005 禁 SQL 字符串拼接——与其靠人盯，一条 Semgrep 规则（sqlite3 execute 的 f-string 拼接检测）就能机检；上传闸门的扩展名白名单/魔数校验同理可加规则。</div>
+      <div class="src">trailofbits/skills · 活跃</div></div>
+
+    <div class="card p2"><div class="card-head"><div class="skill-name"><a href="https://github.com/trailofbits/skills/blob/main/plugins/sharp-edges">sharp-edges</a></div><span class="pri p2">P2</span></div>
+      <div class="desc">识别易错 API、危险配置、脚枪式设计（footgun）并标注。</div>
+      <div class="fit"><b>命中痛点</b> 项目自带脚枪清单（F-001~F-015 跨语言禁止事项）就是手工版 sharp-edges；用它扫一遍 inference 层（vLLM 子进程管理、ComfyUI HTTP 桥、CUDA 显存操作）能补盲区。</div>
+      <div class="src">trailofbits/skills · 活跃</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ Top 10 ═══════════ -->
+<section id="top10">
+  <div class="sec-head"><span class="sec-num">★</span><h2>首装清单 · 十件套</h2></div>
+  <p class="sec-lead">如果只装十个，按"直接命中当前活跃痛点"排序：漫剧短剧链路三件（#3-5）+ 工程纪律七件。#6/#7 装完即可复跑一遍 08-29 的深度校验流程并固化。</p>
+  <table class="tbl">
+    <tr><th style="width:36px">#</th><th style="width:220px">技能</th><th style="width:90px">来源</th><th>首装理由（当前痛点锚点）</th></tr>
+    <tr><td>1</td><td><a href="https://github.com/trailofbits/skills/blob/main/plugins/spec-to-code-compliance">spec-to-code-compliance</a></td><td>trailofbits</td><td>RTM 五处漂移的手工校准 → 固化为可重复合规扫描</td></tr>
+    <tr><td>2</td><td><a href="https://github.com/obra/superpowers">condition-based-waiting</a></td><td>superpowers</td><td>ETA 固定常量两杀真任务（912s/1242s）→ 所有轮询代码的纪律层</td></tr>
+    <tr><td>3</td><td><a href="https://github.com/storyverse2025/storyverse-skills/tree/main/skills/keyframe-prompt">keyframe-prompt</a></td><td>storyverse</td><td>漫剧：场景基准帧防漂移（scene_sim 门禁 + C 段首帧锚的方法论源头）</td></tr>
+    <tr><td>4</td><td><a href="https://github.com/storyverse2025/storyverse-skills/tree/main/skills/shots-prompt-writing">shots-prompt-writing</a></td><td>storyverse</td><td>漫剧：Beat→15s 镜头提示词八区块 + NEGATIVE 锁（C 段/H3 逐镜生词的领域标准）</td></tr>
+    <tr><td>5</td><td><a href="https://github.com/Algovate/StoryForge/tree/main/.claude/skills/film-storyboard-skill">film-storyboard-skill</a></td><td>StoryForge</td><td>漫剧：九宫格拍板分镜（与分镜网格 N×N 协议同构，补 Beat 粒度剧情结构层）</td></tr>
+    <tr><td>6</td><td><a href="https://github.com/iliaal/ai-skills/blob/master/skills/md-docs">md-docs</a></td><td>iliaal</td><td>CLAUDE.md/INDEX.md 声明过期问题 → 文档事实逐条核验关卡</td></tr>
+    <tr><td>7</td><td><a href="https://github.com/obra/superpowers">systematic-debugging</a></td><td>superpowers</td><td>质量总督误伤/孤儿 worker 级疑难的标准化根因流程</td></tr>
+    <tr><td>8</td><td><a href="https://github.com/iliaal/ai-skills/blob/master/skills/refine-prompt">refine-prompt</a></td><td>iliaal</td><td>A/B/C 描述词六要素自检（资产-描述冲突类问题的上游）</td></tr>
+    <tr><td>9</td><td><a href="https://github.com/MCKRUZ/ComfyUI-Expert/tree/master/skills/comfyui-troubleshooter">comfyui-troubleshooter</a></td><td>ComfyUI-Expert</td><td>SageAttention 类节点故障的排查树（31 份工作流生态的运维底座）</td></tr>
+    <tr><td>10</td><td><a href="https://github.com/iliaal/ai-skills/blob/master/skills/react-frontend">react-frontend</a></td><td>iliaal</td><td>React 19 + Zustand 11 store 的 effect/状态决策树</td></tr>
+  </table>
+
+  <div class="note"><span class="nt">一条命令装齐首装十件（漫剧三件 + superpowers 整库 + iliaal 挑选 + trailofbits）</span>
+  <pre class="cmd" style="margin:8px 0 0">git clone --depth 1 https://github.com/storyverse2025/storyverse-skills D:\tmp\sv
+Copy-Item -Recurse D:\tmp\sv\skills\keyframe-prompt, D:\tmp\sv\skills\shots-prompt-writing e:\OmniSpace\.trae\skills\
+git clone --depth 1 https://github.com/Algovate/StoryForge D:\tmp\sf
+Copy-Item -Recurse D:\tmp\sf\.claude\skills\film-storyboard-skill e:\OmniSpace\.trae\skills\
+git clone --depth 1 https://github.com/obra/superpowers D:\tmp\sp
+Copy-Item -Recurse D:\tmp\sp\skills\systematic-debugging, D:\tmp\sp\skills\test-driven-development, D:\tmp\sp\skills\verification-before-completion e:\OmniSpace\.trae\skills\
+git clone --depth 1 https://github.com/iliaal/ai-skills D:\tmp\ia
+Copy-Item -Recurse D:\tmp\ia\skills\react-frontend, D:\tmp\ia\skills\md-docs, D:\tmp\ia\skills\refine-prompt, D:\tmp\ia\skills\tailwind-css e:\OmniSpace\.trae\skills\
+git clone --depth 1 https://github.com/trailofbits/skills D:\tmp\tob
+Copy-Item -Recurse D:\tmp\tob\plugins\spec-to-code-compliance e:\OmniSpace\.trae\skills\</pre>
+  <span style="color:var(--muted);font-size:12.5px">注：superpowers 的细粒度技术（condition-based-waiting / root-cause-tracing / defense-in-depth）内嵌于主技能目录的 references/ 中，随主技能一起进来；trailofbits 的 plugins/ 目录下每个技能自带完整 SKILL.md，直接复制即可。</span></div>
+</section>
+
+<!-- ═══════════ 附录 ═══════════ -->
+<section id="appendix">
+  <div class="sec-head"><span class="sec-num">附录</span><h2>落选名单 · 已核验但不入选（备查）</h2></div>
+  <p class="sec-lead">这些技能同样真实存在、质量不差，但因与当前技术栈/阶段不匹配而落选（含本轮为漫剧域腾位的 12 件）。留档备查，情况变化时可启用。</p>
+  <table class="tbl">
+    <tr><th style="width:240px">技能</th><th style="width:170px">来源</th><th>落选原因</th></tr>
+    <tr><td>rust / rust-async / rust-testing / rust-review</td><td>mitch-avis · iliaal · trailofbits</td><td>ADR-002 已裁剪 Tauri/Rust 壳层，项目零 Rust 代码</td></tr>
+    <tr><td>kubernetes / helm / docker / cicd / terraform</td><td>mitch-avis · iliaal</td><td>本地桌面应用（launcher + 系统浏览器），无容器化与 K8s 部署</td></tr>
+    <tr><td>postgresql / nodejs-backend / php-laravel / pinescript</td><td>iliaal</td><td>技术栈不符（我们是 SQLite + Python FastAPI）</td></tr>
+    <tr><td>docx / pptx / xlsx / pdf（官方四件套）</td><td>anthropics</td><td>TRAE 已内置同名技能，重复安装无增益</td></tr>
+    <tr><td>brand-guidelines / academy-guide / slack-gif-creator / internal-comms</td><td>anthropics</td><td>Anthropic 品牌与 Slack 场景，与本项目无关</td></tr>
+    <tr><td>ios-simulator-skill / Expo Skills / shadcn-ui skill</td><td>社区单品</td><td>无 iOS/Expo 目标；组件库是自研 Omni 体系非 shadcn</td></tr>
+    <tr><td>loki-mode / get-shit-done / let-fate-decide</td><td>社区单品</td><td>创业多代理编排/塔牌娱乐，超出项目需要</td></tr>
+    <tr><td>comfyui-voice-pipeline / video-publisher / project-manager / comfyui-research</td><td>ComfyUI-Expert</td><td>配音/发布/PM 尚无对应模块；research 可在选型期临时借阅</td></tr>
+    <tr><td>comic-guide-skill（漫画图解生成器）/ storyboard-manager</td><td>bcefghj / auldsyabua</td><td>前者生成依赖宿主图像 API（Cursor/OpenAI Key）且偏教育漫画；后者仓库定位混杂（教学工作流）——photo-novella 已覆盖漫画创作场景且更完整</td></tr>
+    <tr><td>GongLingRui 全家桶其余 28 件（character-profile 人物小传 / novel-evaluator / ip-evaluator / series-analyzer 拉片 / plot-keypoints 等）</td><td>GongLingRui/screen-creative-skills</td><td>31 件中只取竖屏短剧核心 3 件；IP 筛选链（novel/ip-evaluator）与人物小传在接入网文源、扩充资产设定文档时回捞</td></tr>
+    <tr><td>本轮让位的 12 件：comfyui-prompt-interview / comfyui-inventory / web-artifacts-builder / web-asset-generator / frontend-slides / python / shell-scripting / property-based-testing / webapp-testing / writing-plans / doc-coauthoring / mermaid</td><td>多源</td><td>为漫剧短剧域 12 件腾位（总数守恒 50）；均为此前版本收录件——与保留件功能重叠（python×3 取 2、测试件取 3）或场景靠后（favicon/E2E/共创），需要时按本表回捞</td></tr>
+    <tr><td>claude-d3js-skill（197★）/ claude-scientific-skills / Skill_Seekers</td><td>社区单品</td><td>数据可视化已有 ECharts 方案；科学计算与文档转技能暂无场景</td></tr>
+    <tr><td>superpowers 侧枝：executing-plans / requesting & receiving-code-review / finishing-a-development-branch / root-cause-tracing / defense-in-depth / writing-skills / using-superpowers</td><td>obra</td><td>已随整库克隆获得，作为首装技能的 references 内嵌或后续按需提升</td></tr>
+    <tr><td>iliaal 侧枝：planning / debugging / code-review / document-review / writing / reflect / file-todos / orchestrating-swarms / agent-native-architecture / simplifying-code / frontend-design / git-worktree / meta-prompting 外围</td><td>iliaal</td><td>与入选技能功能重叠，择优保留一个实现避免触发歧义</td></tr>
+    <tr><td>trailofbits 侧枝：c-review / rust-review / 智能合约系 / yara / dwarf / constant-time / zeroize / mutation-testing / variant-analysis 等 30+ 件</td><td>trailofbits</td><td>语言与场景不符；合约/密码学/固件审计超出本项目面</td></tr>
+  </table>
+
+  <div class="note warn"><span class="nt">动态维护提示</span>本目录基于 2026-08-30 的仓库快照。三个集合源值得定期回访：<b>anthropics/skills</b>（官方，月度更新，最近 claude-api 技能上周刚更新）、<b>trailofbits/skills</b>（高频更新）、<b>iliaal/ai-skills</b>（whetstone 插件上游）。ComfyUI-Expert 已归档，若发现社区出现活跃的 ComfyUI 技能库替代品，应整体迁移。</div>
+</section>
+
+<footer>
+  <span>OmniSpace · 开源技能选型目录 · 50 技能 / 9 域 · 漫剧短剧域 12 件领衔</span>
+  <span>核验基线：2026-08-30 · 15 源仓库逐一在线核验</span>
+</footer>
+
+</div>
+</body>
+</html>

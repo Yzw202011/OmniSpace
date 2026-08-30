@@ -1,10 +1,11 @@
 # OmniSpace AI 数据库 ER 说明
 
 > 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：backend/data/database.py 及各服务层自建表 DDL 全量提取
+> **2026-08-28 校准**：实测 `data/omnispace.db` 共 **31 张用户表**（37 个对象含 FTS5 影子表与 sqlite_sequence），本文档成文时为 30 张、漏记 `art_styles`（database.py `_SCHEMA` 建表，供漫剧漫画风格包使用）；`PRAGMA user_version` 实测为 **7**（原文 3），迁移组 4~7 详见 `database.py` `_MIGRATION_GROUPS`。
 >
 > 配套文档：[架构总览](architecture-overview.md) ｜ [API 端点总表](api-endpoints.md)
 
-单一 SQLite 库 `data/omnispace.db`（WAL 模式，busy_timeout 5000ms，`PRAGMA foreign_keys=ON`）。规格 §3.2 称"13 张业务表"，实际 DDL 共 **30 张表**：17 张集中在 `database.py` 的 `_SCHEMA`（建库时统一创建），另外 13 张由各服务层在首次使用时 `CREATE TABLE IF NOT EXISTS` 幂等自建。向量数据不在 SQLite——`data/vector_db.py` 走 ChromaDB 独立持久化（data/chroma/）。
+单一 SQLite 库 `data/omnispace.db`（WAL 模式，busy_timeout 5000ms，`PRAGMA foreign_keys=ON`）。规格 §3.2 称"13 张业务表"，实际 DDL 共 **31 张用户表**（2026-08-28 实测校准，原文 30 漏记 art_styles）：18 张集中在 `database.py` 的 `_SCHEMA`（建库时统一创建，含 art_styles），另外 13 张由各服务层在首次使用时 `CREATE TABLE IF NOT EXISTS` 幂等自建。向量数据不在 SQLite——`data/vector_db.py` 走 ChromaDB 独立持久化（data/chroma/）。
 
 ## 1. 全景关系图
 
@@ -110,7 +111,7 @@
 
 ### storyboard_rows — 分镜行（业务最宽的表）
 
-上限 50 行（STORYBOARD_MAX_ROWS），拆自规格 §3.2 StoryboardRow：
+上限 200 行（STORYBOARD_MAX_ROWS，2026-08-23 由 50 放宽，配套 10000 字剧本），拆自规格 §3.2 StoryboardRow：
 
 | 列 | 类型 | 说明 |
 |----|------|------|
@@ -145,6 +146,11 @@
 | name / file_path / prompt | TEXT | 四视图资产 file_path 指向拼合图 |
 | meta | TEXT | JSON（尺寸/种子/子视图/history 留痕） |
 | created_at | REAL | |
+
+### art_styles — 漫画风格包（database.py `_SCHEMA`，2026-08-28 校准补记）
+
+此前本文档漏记。四列：id TEXT PK / name TEXT / prompt TEXT / created_at REAL。
+供漫剧漫画项目（api/manga/comic.py）查询与新增风格预设。
 
 ### keyframes — 关键帧（多版本）
 
@@ -255,7 +261,7 @@ task_id PK / prompt / negative / params_json / file_path / seed（-1 表密码�
 
 ## 6. 迁移与加密机制
 
-**迁移**（P0-03 版本化机制）：`PRAGMA user_version` 携带版本号，当前 SCHEMA_VERSION=3。`_MIGRATION_GROUPS` 按版本分组声明增量列（组1：17 列，含 pinned/rating/favorite/sort_index/priority 等；组2：projects.work_mode——2026-08-14 事故后纳入；组3：无新增列，纯数据迁移）。`_migrate_columns()` 用 `PRAGMA table_info` 判存后 `ALTER TABLE ADD COLUMN`；`_DATA_MIGRATIONS` 声明版本→数据迁移函数映射（v3：`_migrate_encrypt_legacy_fields` 存量明文加密，迁移后 VACUUM 重建库文件清空闲页明文残留）。两条铁律：库版本高于代码版本直接 RuntimeError 拒绝启动（防旧程序写坏新库）；历史组禁止修改，只许追加新组。
+**迁移**（P0-03 版本化机制）：`PRAGMA user_version` 携带版本号，当前 **SCHEMA_VERSION=7**（backend/data/database.py `SCHEMA_VERSION = 7`，2026-08-28 实测；本文档成文时为 3，组 4~7 为后续追加迁移，明细以 `_MIGRATION_GROUPS` 为准）。`_MIGRATION_GROUPS` 按版本分组声明增量列（组1：17 列，含 pinned/rating/favorite/sort_index/priority 等；组2：projects.work_mode——2026-08-14 事故后纳入；组3：无新增列，纯数据迁移）。`_migrate_columns()` 用 `PRAGMA table_info` 判存后 `ALTER TABLE ADD COLUMN`；`_DATA_MIGRATIONS` 声明版本→数据迁移函数映射（v3：`_migrate_encrypt_legacy_fields` 存量明文加密，迁移后 VACUUM 重建库文件清空闲页明文残留）。两条铁律：库版本高于代码版本直接 RuntimeError 拒绝启动（防旧程序写坏新库）；历史组禁止修改，只许追加新组。
 
 **加密**（data/crypto.py，字段级）：AES-256-GCM，密钥 32 字节随机，经 Windows DPAPI（CurrentUser）保护存 `data/keys/dbkey.bin`，非 Windows/DPAPI 不可用回退机器指纹 HKDK。密文格式 `enc:v1:` + base64(nonce12‖ct‖tag16)，无前缀明文原样透传（兼容存量）。加密范围：dialog_messages.content 与 behavior_logs 的 content/context/before/after；知识库正文不加密（FTS5/向量检索依赖明文）。注意这是字段级加密——整库仍是普通 SQLite 文件（P2-05 覆盖范围即此口径）。
 

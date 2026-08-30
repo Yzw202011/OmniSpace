@@ -1,6 +1,7 @@
 # OmniSpace AI 架构总览
 
 > 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：backend/main.py、config.yaml、launcher/launcher.py 及各模块源码
+> **2026-08-28 校准**：路由模块 13→14（logs）、HTTP 端点 270→328（含别名）、限流 100→300/min、引擎与 api 行数按当前源码刷新、前端 React 19.0 + 9 路由、launcher 端口口径补充。
 >
 > 配套文档：[API 端点总表](api-endpoints.md) ｜ [数据库 ER 说明](database-er.md)
 
@@ -13,13 +14,13 @@ OmniSpace AI 是一台跑在单机 Windows 工作站上的全模态创作工作�
 │ launcher/launcher.py（独立进程）                                  │
 │  · 环境自检（Python/磁盘/CUDA/依赖） → 端口冲突三级递进            │
 │  · subprocess 启动 uvicorn → 5s 心跳守护 → 崩溃自动重启(≤5次)     │
-│  · 就绪后 webbrowser.open(http://127.0.0.1:5800)                 │
+│  · 就绪后 webbrowser.open(http://127.0.0.1:{实际端口})            │
 └──────────────────────────┬──────────────────────────────────────┘
-                           │ backend.main:app (cwd=项目根, 127.0.0.1:5800)
+                           │ backend.main:app (cwd=项目根, 127.0.0.1:{端口})
 ┌──────────────────────────▼──────────────────────────────────────┐
 │ FastAPI 后端进程（唯一服务进程）                                   │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ HTTP API   /api/v1/*（13 路由模块，270 端点）               │  │
+│  │ HTTP API   /api/v1/*（14 路由模块，328 路由装饰器含别名）    │  │
 │  │ WebSocket  /ws + /api/v1/hardware/realtime + learn 进度     │  │
 │  │ 静态托管   frontend/dist（Hash Router，GET / 即 SPA 入口）   │  │
 │  └───────────────────────────────────────────────────────────┘  │
@@ -33,7 +34,7 @@ OmniSpace AI 是一台跑在单机 Windows 工作站上的全模态创作工作�
 服务边界有三条硬约束写在 config 导入期：
 
 - **回环绑定**：`assert_loopback_host()` 在任何 socket 绑定之前校验 host 必须是 127.0.0.1/localhost，否则 RuntimeError 拒绝启动（豁免需 `OMNISPACE_ALLOW_LAN=1`，P0-05）。
-- **端口**：127.0.0.1:5800，冲突时启动器扫描 5800-5835 递进。
+- **端口（双口径，2026-08-28 实测确认）**：直接 uvicorn（读 config.yaml）= **5800**；launcher 默认 `--port 8765`（`launcher.py` argparse 默认值，覆盖 dataclass 缺省 5800），端口占用时先清理 OmniSpace/python 残留进程，再扫描 **5800–5835** 递进。
 - **API 前缀**：`/api/v1`（ADR-03，旧 `/v1` 已废弃返回 404）。
 
 ## 2. 后端分层
@@ -42,9 +43,9 @@ OmniSpace AI 是一台跑在单机 Windows 工作站上的全模态创作工作�
 
 ```
 api/            路由层 —— 参数校验(Pydantic) / 信封构造 / 降级决策
-                dialog(1085) draw(843) manga/(包,9模块) learn(350)
-                learning(756) knowledge(647) models(926) style(398)
-                browser(115) vision_tools(148) voice(120) hardware(310) system(1276)
+                dialog(1526) draw(1317) manga/(包,9模块) learn(407)
+                learning(798) knowledge(739) models(1656) style(473)
+                browser(141) vision_tools(173) voice(127) hardware(355) system(1485) logs(182)
 middleware/     横切层 —— 错误信封 / 功能互斥锁 / 限流 / CORS / 上传闸门
                 / 请求上下文(contextvars) / 日志脱敏
 services/       业务层 —— 领域服务（知识/学习/风格/行为/浏览器…）
@@ -54,24 +55,26 @@ engines/        资源层 —— gpu_backend(后端选择) vram_manager(显存�
 data/           存储层 —— database(SQLite/WAL) file_store cache(进程内)
                 vector_db(bge-large-zh) fts_store(FTS5) graph_store crypto(AES-GCM)
 ```
+（行数为 2026-08-28 源码实测；`wc` 口径，随开发持续增长。）
 
 依赖方向上，api 只 import services 与 data，不直接触碰 engines；services/inference 的各引擎经 `model_manager` 申请显存。`services/offload.py` 是唯一的同步推理入口（`run_blocking` = asyncio.to_thread 语义收敛，`sync_core` 装饰器把同步核心包成自调度协程）——API 层不允许出现 `asyncio.to_thread` 直调（P1-06 有测试锁定）。
 
 ### 2.1 漫剧包（api/manga/）
 
-TASK-P2-01 把 4521 行的单文件拆成 9 模块的包，`__init__.py` 聚合 router 后由 main.py 经 importlib 挂载，对外零变化：
+TASK-P2-01 把 4521 行的单文件拆成 9 模块的包，`__init__.py` 聚合 router 后由 main.py 经 importlib 挂载，对外零变化。
+（行数为 2026-08-28 实测；路由数为**权威端点口径**（不含别名），同日装饰器静态扫描共 107 个（含别名），两口径并存：）
 
 | 模块 | 行数 | 路由数 | 职责 |
 |------|-----:|-------:|------|
-| common.py | 472 | 0 | 共享层：内存态兜底存储、行/项目辅助、引擎单例、出图规格铁律 |
-| storyboard.py | 688 | 23 | 分镜表 CRUD / 导入导出 / AI 分镜与描述 / 情绪检测 |
-| comic_asset.py | 718 | 19 | 资产库 / 绑定采纳 / 参考图 / 历史与描述 |
-| video.py | 679 | 15 | 视频生成与任务 / 媒体回读 / 叙事生成 / 可用模型清单 |
-| director.py | 333 | 17 | 全景图 / 4合1截图 / 机位与角色 / 文本转3D |
-| comic.py | 372 | 8 | 漫画项目 CRUD / 剧本 DSL 导入 / 场景物件 / 导出包 |
-| voice.py | 263 | 6 | 音色列表 / 绑定 / 情感 / 试听 / 上传克隆 |
-| keyframe.py | 250 | 7 | 关键帧生成 / 批量 / 版本回滚 / 故事生图 |
-| comic_gen.py | 917 | 0 | 生成管线层（one-pass 单图四视图/批量/整图与单视图重生成），由 comic_asset 路由调用 |
+| common.py | 1123 | 0 | 共享层：内存态兜底存储、行/项目辅助、引擎单例、出图规格铁律 |
+| storyboard.py | 1360 | 23 | 分镜表 CRUD / 导入导出 / AI 分镜与描述 / 情绪检测 |
+| comic_asset.py | 2028 | 19 | 资产库 / 绑定采纳 / 参考图 / 历史与描述 |
+| video.py | 1166 | 15 | 视频生成与任务 / 媒体回读 / 叙事生成 / 可用模型清单 |
+| director.py | 353 | 17 | 全景图 / 4合1截图 / 机位与角色 / 文本转3D |
+| comic.py | 478 | 8 | 漫画项目 CRUD / 剧本 DSL 导入 / 场景物件 / 导出包 |
+| voice.py | 280 | 6 | 音色列表 / 绑定 / 情感 / 试听 / 上传克隆 |
+| keyframe.py | 1777 | 7 | 关键帧生成 / 批量 / 版本回滚 / 故事生图 / DINOv2 一致性门禁 |
+| comic_gen.py | 1312 | 0 | 生成管线层（one-pass 单图四视图/批量/整图与单视图重生成），由 comic_asset 路由调用 |
 
 ## 3. 请求生命周期
 
@@ -80,10 +83,10 @@ TASK-P2-01 把 4521 行的单文件拆成 9 模块的包，`__init__.py` 聚合 
 ```
 请求 → TrustedHost（Host 头白名单 127.0.0.1/localhost/[::1]，防 DNS 重绑定）
      → RequestContext（生成 request_id/duration_ms，变更类请求上报学习调度器）
-     → RateLimit（100 req/min/端点滑动窗口；/health 豁免；manga/media 独立 600/min 桶）
+     → RateLimit（300 req/min/端点滑动窗口（2026-08-28 校准，config.yaml rate_limit: 300；由 100 提额以避免多标签页合法轮询被 429）；/health 豁免；manga/media 独立 600/min 桶）
      → CORS（仅 localhost 任意端口，拒绝时 403 信封）
      → 异常处理器（ApiError/校验/HTTP/兜底 四个，全部收敛为 200 信封）
-     → 路由（13 模块，270 端点）
+     → 路由（14 模块，328 路由装饰器含别名）
 ```
 
 响应统一走信封（ADR-01，HTTP 恒 200）：
@@ -106,11 +109,13 @@ TASK-P2-01 把 4521 行的单文件拆成 9 模块的包，`__init__.py` 聚合 
 
 | 引擎 | 模型 | 加载策略 |
 |------|------|---------|
-| dialog_engine (1109行) | Qwen3-VL 系列（vl/text/gguf 三后端动态发现） | bf16 + device_map，预检显存不足先腾挪绘画引擎；预填充上限 3072 token（16GB 安全线） |
-| paint_engine (814行) | SDXL base 1.0 + Real-ESRGAN | cpu_offload + VAE slicing/tiling；每 step 轮询质量总督可中断 |
-| video_engine (1274行) | LTX-2(int8)/Wan2.1/CogVideoX/AnimateLCM 多级探测链 | 显存不足最终降级 PIL Ken Burns + FFmpeg 真实 MP4（降级原因如实下发） |
-| voice_engine (790行) | TTS 链 cosyvoice→chattts→bark→SAPI5→静音占位 | 自动装载失败只试一次，逐级诚实降级；Whisper ASR |
+| dialog_engine (1251行) | Qwen3-VL 系列（vl/text/gguf 三后端动态发现；AWQ/GPTQ 自动路由 vLLM 子进程） | bf16 + device_map，预检显存不足先腾挪绘画引擎；预填充上限 3072 token（16GB 安全线） |
+| paint_engine (1439行) | SDXL base 1.0 / FLUX.2 Klein 4B·9B / qwen-image-2512 多级候选 + Real-ESRGAN | cpu_offload + VAE slicing/tiling；每 step 轮询质量总督可中断 |
+| video_engine (2712行) | Wan2.2-TI2V-5B / LTX-Video-0.9.5 / Wan2.1 / CogVideoX / AnimateLCM+SD1.5 多级探测链 | 显存不足最终降级 PIL Ken Burns + FFmpeg 真实 MP4（降级原因如实下发） |
+| voice_engine (807行) | TTS 链 cosyvoice→chattts→bark→SAPI5→静音占位 | 自动装载失败只试一次，逐级诚实降级；Whisper ASR |
 | depth/detect/segment/triposr | MiDaS-small ONNX / YOLOv8n / SAM ViT-H / TripoSR | 随包小模型，按需加载（文档E 附录B 接线 F-01~F-04） |
+
+（行数为 2026-08-28 源码实测。）
 
 显存协调集中在 `services/model_manager/`：
 
@@ -153,7 +158,7 @@ T+10s  就绪（launcher 侧轮询 GET /health 校验 data.db=="ok"，60s 超时
 
 ## 7. 前端结构
 
-React 18 + TypeScript + Vite，`createHashRouter`（react-router-dom 7，COM-001：file:// 与静态托管均可离线可用）。八个一级路由：`/chat`、`/paint`、`/storyboard`、`/learning`、`/models`、`/style`、`/settings`、`/help`，全部 lazy 懒加载。
+React 19.0 + TypeScript + Vite，`createHashRouter`（react-router-dom 7，COM-001：file:// 与静态托管均可离线可用）。九个一级路由：`/chat`、`/paint`、`/storyboard`、`/learning`、`/models`、`/style`、`/settings`、`/logs`（2026-08-21 新增）、`/help`，全部 lazy 懒加载。
 
 ```
 frontend/src/

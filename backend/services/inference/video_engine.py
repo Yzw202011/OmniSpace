@@ -24,7 +24,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...config import DATA_DIR, MODELS_DIR
 from ...data.models import (
@@ -34,6 +34,10 @@ from ...data.models import (
 )
 from ...middleware.error_handler import ApiError
 from ..scheduler.video_router import VideoRouter
+from .base_engine import BaseEngine
+
+if TYPE_CHECKING:  # 仅注解用（_generate_h3 首帧参考图签名），运行时各函数内局部导入
+    from PIL import Image
 
 logger = logging.getLogger("omnispace.inference.video")
 
@@ -406,9 +410,8 @@ def _evict_idle_models_for_video() -> float:
     """
     freed_gb = 0.0
     try:
-        from ..model_manager import (get_model_manager,
-                                      _FEATURE_KEEP_CATEGORIES)
         from ...middleware.feature_lock import get_feature_lock
+        from ..model_manager import _FEATURE_KEEP_CATEGORIES, get_model_manager
         keep_cats = {"embedding", "voice", "auxiliary"}
         try:
             active = get_feature_lock().active_feature
@@ -946,10 +949,14 @@ def generate_fallback_video(
         shutil.rmtree(frame_dir, ignore_errors=True)
 
 
-class VideoEngine:
+class VideoEngine(BaseEngine):
     """视频推理引擎——LTX-2 / Wan2.1 / CogVideoX / AnimateLCM(F-07)。"""
 
+    name = "video"
+    serves_categories = ("video", "video_gen")
+
     def __init__(self) -> None:
+        super().__init__()
         self._pipeline: Any = None
         self._model: VideoModel | None = VideoModel.COGVIDEOX_2B_CPU
         self._model_name: str = ""
@@ -1593,6 +1600,14 @@ class VideoEngine:
         """
         if self.is_ready:
             return "pipeline"
+        # H3 管线（ComfyUI 子进程，2026-08-25）：权重就绪即报真实
+        # 管线（generate() 内分派，不占本进程 diffusers 装载链）
+        try:
+            from .h3_engine import h3_available
+            if h3_available():
+                return "pipeline"
+        except Exception:  # noqa: BLE001 - 探测失败走 diffusers 判定
+            pass
         if light:
             # 轻探测（2026-08-22 乒乓装载修复）：models/ 存在可装载模型
             # 即报 pipeline，实际装载交由 generate() 内部完成——时序为
@@ -1624,6 +1639,73 @@ class VideoEngine:
     def validate_video_duration(self, request: VideoGenerateRequest, model: VideoModel) -> None:
         """校验视频时长（规格 §10.1）。"""
         self._router.validate_video_duration(request, model)
+
+    # ── MiniMax H3（ComfyUI 子进程管线，2026-08-25） ──────────────
+
+    # 分辨率档映射：H3 画幅 768 短边（1344x768 顶格）；720p 请求映射
+    # 0.4MP 档（864x480，官方模板 ResolutionSelector 同款）；480p 落
+    # 0.2MP 档（608x352）；其余（1080p/2k/4k）→ 顶格档
+    _H3_RES_MAP: dict[str, tuple[int, int]] = {
+        "720p": (864, 480), "480p": (608, 352),
+    }
+
+    def _h3_routed_default(self) -> bool:
+        """按当前显存路由，H3 是否为默认选中模型（且管线就绪）。"""
+        try:
+            from .h3_engine import h3_available
+            if not h3_available():
+                return False
+            return self._router.select_model(_cuda_free_gb()) \
+                == VideoModel.MINIMAX_H3
+        except Exception:  # noqa: BLE001 - 预判失败按非 H3 处理
+            return False
+
+    def _will_use_h3(self, request: VideoGenerateRequest) -> bool:
+        """本请求是否将走 H3 管线（override 显式 / 自动路由默认）。
+
+        prompt 预处理前预判：H3 编码器 Qwen3-VL-32B 中文原生，
+        VL 增强/翻译全免（也避免后端加载 qwen3-vl-4b 挤兑
+        ComfyUI 子进程显存预算）。
+        """
+        if request.model_override:
+            return request.model_override in (
+                VideoModel.MINIMAX_H3.value, VideoModel.MINIMAX_H3.name)
+        if self._loaded:
+            return False  # diffusers 管线已装载，维持现役
+        return self._h3_routed_default()
+
+    def _generate_h3(self, request: VideoGenerateRequest,
+                     effective_prompt: str,
+                     reference_img: Image.Image | None,
+                     gen_id: str, start_time: float,
+                     relay: _ProgressRelay) -> VideoGenResult:
+        """H3 生成：委托 H3Engine（ComfyUI 子进程 + HTTP API）。"""
+        from .h3_engine import align_h3_frames, get_h3_engine, h3_available
+        if not h3_available():
+            raise ApiError(
+                code=60003,
+                message="MiniMax H3 管线未就绪（ComfyUI 或权重缺失）",
+                suggestion="请确认 tools/ComfyUI_windows_portable 与 "
+                           "models/video_gen/h3 权重完整",
+            )
+        width, height = self._H3_RES_MAP.get(request.resolution,
+                                             (1344, 768))
+        seconds = min(max(request.duration_seconds, 5.0), 15.0)
+        out_path = VIDEO_OUT_DIR / f"h3_{gen_id}.mp4"
+        get_h3_engine().generate(
+            prompt=effective_prompt, width=width, height=height,
+            seconds=seconds, out_path=out_path,
+            first_frame=reference_img, progress_cb=relay)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return VideoGenResult(
+            id=gen_id,
+            file_path=str(out_path),
+            model_used=VideoModel.MINIMAX_H3.value,
+            duration_seconds=round(align_h3_frames(seconds) / 24.0, 2),
+            resolution=f"{width}x{height}",
+            generation_time_ms=elapsed_ms,
+            has_audio_sync=True,  # H3 原生音画联合生成（32kHz 立体声）
+        )
 
     def _ltx_swap_capable(self) -> bool:
         """当前管线是否为 LTX 家族（可同权重组件重组为 I2V，免卸载换载）。"""
@@ -1895,6 +1977,12 @@ class VideoEngine:
         gen_id = str(uuid.uuid4())
         relay = _ProgressRelay(progress_cb)
 
+        # H3 请求预判（2026-08-25）：H3 编码器为 Qwen3-VL-32B（中文
+        # 原生），跳过 VL 增强/翻译链——避免后端加载 qwen3-vl-4b
+        # 抢占 ComfyUI 子进程显存预算（16GB 卡 5.5GB 挤兑，
+        # DynamicVRAM 换载雪崩）
+        will_h3 = self._will_use_h3(request)
+
         # 视频 prompt 预处理（2026-08-22 语义贴合修复，三级链）：
         # ① Qwen3-VL 增强：I2V 图片主体 + 文字要求融合扩写（最优）
         # ② 翻译链：中文→英文直译（VL 不可用时兜底；英文编码器家族
@@ -1909,29 +1997,34 @@ class VideoEngine:
         reference_img = _decode_screenshot(request.screenshot_4in1)
         if reference_img is not None:
             reference_img = self._detect_and_crop_multiview(reference_img)
-        try:
-            from .prompt_translator import contains_cjk
+        if will_h3:
+            # H3 中文直入：Qwen3-VL-32B 编码器原生理解中文，
+            # 增强翻译全免（reference_img 仍作 I2V 首帧）
+            logger.info("H3 请求：prompt 中文直入（跳过 VL 增强/翻译）")
+        else:
+            try:
+                from .prompt_translator import contains_cjk
 
-            enhanced = self._enhance_video_prompt(
-                request, effective_prompt, image=reference_img)
-            if enhanced:
-                effective_prompt = enhanced
-            elif contains_cjk(effective_prompt) \
-                    and not self._i2v_native_zh(request):
-                from .prompt_translator import translate_prompt_zh2en
-                # 视频专用模板（动作优先），不用绘画默认模板——
-                # 否则"跳舞"等动作词被排序规则丢弃
-                translated = translate_prompt_zh2en(
-                    effective_prompt, max_tokens=160,
-                    system_prompt=_VIDEO_TRANSLATE_SYSTEM)
-                if translated and not contains_cjk(translated):
-                    logger.info("视频 prompt 已译英: %r -> %r",
-                                effective_prompt[:60], translated[:80])
-                    effective_prompt = translated
-                else:
-                    logger.warning("视频 prompt 翻译未产出英文，按原文生成")
-        except Exception as exc:  # noqa: BLE001 - 预处理故障不阻断生成
-            logger.warning("视频 prompt 预处理跳过: %s", exc)
+                enhanced = self._enhance_video_prompt(
+                    request, effective_prompt, image=reference_img)
+                if enhanced:
+                    effective_prompt = enhanced
+                elif contains_cjk(effective_prompt) \
+                        and not self._i2v_native_zh(request):
+                    from .prompt_translator import translate_prompt_zh2en
+                    # 视频专用模板（动作优先），不用绘画默认模板——
+                    # 否则"跳舞"等动作词被排序规则丢弃
+                    translated = translate_prompt_zh2en(
+                        effective_prompt, max_tokens=160,
+                        system_prompt=_VIDEO_TRANSLATE_SYSTEM)
+                    if translated and not contains_cjk(translated):
+                        logger.info("视频 prompt 已译英: %r -> %r",
+                                    effective_prompt[:60], translated[:80])
+                        effective_prompt = translated
+                    else:
+                        logger.warning("视频 prompt 翻译未产出英文，按原文生成")
+            except Exception as exc:  # noqa: BLE001 - 预处理故障不阻断生成
+                logger.warning("视频 prompt 预处理跳过: %s", exc)
 
         # 确定模型
         if request.model_override:
@@ -1941,9 +2034,21 @@ class VideoEngine:
             model = (self._model
                      if self._loaded and self._model is not None
                      else VideoModel.COGVIDEOX_2B_CPU)
+            # 自动模式且 H3 为路由默认（16GB 档）时选 H3——
+            # 与 _will_use_h3 预判口径一致（已装载 diffusers 管线除外）
+            if not self._loaded and model != VideoModel.MINIMAX_H3 \
+                    and self._h3_routed_default():
+                model = VideoModel.MINIMAX_H3
 
         # 校验时长
         self.validate_video_duration(request, model)
+
+        # H3 分派（2026-08-25）：ComfyUI 子进程管线，绕过 diffusers
+        # 装载/换载链（权重在子进程内由 DynamicVRAM 分时管理）
+        if model == VideoModel.MINIMAX_H3:
+            return self._generate_h3(request, effective_prompt,
+                                     reference_img, gen_id, start_time,
+                                     relay)
 
         # 降级模式（先尝试自动装载导入 models/ 的视频模型）
         # 2026-08-22 换载逻辑：请求形态（带图 I2V / 纯文 T2V）与当前已
@@ -2581,8 +2686,13 @@ class VideoEngine:
 
     def get_status(self) -> dict:
         """返回引擎状态。"""
+        from .base_engine import derive_state
         return {
             "engine": "video",
+            # ADR-003 P3：统一状态（fallback=诚实降级 mock 模式，不算 ready）
+            "state": derive_state(
+                loaded=self._loaded and not self._fallback_mode,
+                unavailable=self._fallback_mode),
             "model": self._model.value if self._model is not None else "",
             "model_path": self._model_name,
             "loaded": self._loaded,

@@ -74,6 +74,20 @@ class VideoRouter:
                 "max_audio_sync_seconds": LTX2_MAX_AUDIO_SYNC,
                 "vram_required_gb": 24,
             },
+            VideoModel.MINIMAX_H3: {
+                # MiniMax H3 33B（ComfyUI 子进程管线，2026-08-25）：
+                # 画幅 768 短边（1344x768 顶格，"720p" 档映射 864x480）；
+                # 24fps 17k+5 帧网格，训练范围 5~15s；NVFP4 DiT +
+                # int4 convrot 编码器，DynamicVRAM 分时换载峰值 ~12GB。
+                # 原生音画联合生成（32kHz 立体声），无需外部音频同步。
+                "max_resolution": "1080p",
+                "max_fps": 24,
+                "max_duration_seconds": 15,
+                "precision": "nvfp4",
+                "supports_audio_sync": True,
+                "max_audio_sync_seconds": 15,
+                "vram_required_gb": 16,
+            },
             VideoModel.WAN21_14B_FP8: {
                 "max_resolution": "1080p",
                 "max_fps": 24,

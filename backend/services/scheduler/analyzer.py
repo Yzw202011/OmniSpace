@@ -30,6 +30,10 @@ class BottleneckAnalyzer:
     def __init__(self) -> None:
         # GPU 利用率越临界线的持续起点（time.monotonic 时间戳，0=未越线）
         self._gpu_util_high_since: float = 0.0
+        # S4 滞回：低于临界线的持续起点（0=当前在阈值之上）。短暂回
+        # 落未连续满 gpu_util_reset_grace_s 不清零 high_since，避免
+        # 步间/镜间空隙的单采样抖动把已累积持续窗口打回零。
+        self._gpu_util_low_since: float = 0.0
         # 最近一次 analyze 的持续越线判定结果：
         #   last_gpu_util_critical（bool，供 scheduler tick 同步质量总督旗标）
         #   last_gpu_util_level（0/1/2，0=正常 1=轻度降参 2=深度降档，
@@ -93,7 +97,20 @@ class BottleneckAnalyzer:
             THRESHOLDS.get("gpu_util_mild_sustained_s", 5))
         gpu_util_deep_s = float(
             THRESHOLDS.get("gpu_util_deep_sustained_s", 15))
-        if gpu_util >= gpu_util_crit:
+        gpu_util_grace_s = float(
+            THRESHOLDS.get("gpu_util_reset_grace_s", 4))
+        # S5 进程级归因（2026-08-28 V77 根修）：持续越线判定改用外部
+        # 归因利用率（整卡 − 本进程树）——自身生成跑满 GPU 是正常工
+        # 况而非争抢，V77 批量关键帧 36 步满血采样被总督自伤降至
+        # 14 步即源于此；仅外部进程（游戏/浏览器/孤儿 worker）争抢
+        # 算力才降参。NVML 进程级采样不可用时回退整卡口径。协同模式
+        # 分类（warning/idle 等）仍用整卡 gpu_util——无论谁占用，
+        # GPU 忙就是忙。
+        gpu_ext_util = gpu.get("external_util_percent")
+        gpu_util_gov = (float(gpu_ext_util) / 100.0
+                        if gpu_ext_util is not None else gpu_util)
+        if gpu_util_gov >= gpu_util_crit:
+            self._gpu_util_low_since = 0.0
             if self._gpu_util_high_since == 0.0:
                 self._gpu_util_high_since = time.monotonic()
             elapsed = time.monotonic() - self._gpu_util_high_since
@@ -101,9 +118,25 @@ class BottleneckAnalyzer:
             gpu_util_critical = elapsed >= gpu_util_mild_s
             level = 2 if elapsed >= gpu_util_deep_s else (1 if gpu_util_critical else 0)
         else:
-            self._gpu_util_high_since = 0.0
-            gpu_util_critical = False
-            level = 0
+            # S4 滞回：短暂回落未连续满 grace 秒不清零窗口（步间/镜间
+            # 空隙的单采样抖动不应把已累积 5s/15s 打回零）；回落持续
+            # 满 grace 才判定高负载窗口真正结束。宽限内窗口视为未中
+            # 断，沿用已累积时长继续判定。
+            if self._gpu_util_high_since != 0.0:
+                if self._gpu_util_low_since == 0.0:
+                    self._gpu_util_low_since = time.monotonic()
+                elif (time.monotonic() - self._gpu_util_low_since
+                        >= gpu_util_grace_s):
+                    self._gpu_util_high_since = 0.0
+                    self._gpu_util_low_since = 0.0
+            if self._gpu_util_high_since != 0.0:
+                elapsed = time.monotonic() - self._gpu_util_high_since
+                gpu_util_critical = elapsed >= gpu_util_mild_s
+                level = 2 if elapsed >= gpu_util_deep_s else (
+                    1 if gpu_util_critical else 0)
+            else:
+                gpu_util_critical = False
+                level = 0
         # F-10 / P2：暴露持续越线判定，供 scheduler tick 同步质量总督
         # 分级降参旗标（level 0/1/2）
         self.last_gpu_util_critical = gpu_util_critical

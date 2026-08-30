@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match, Mount
@@ -134,7 +133,15 @@ async def lifespan(app: FastAPI):
         _draw_api.set_ws_broadcaster(hub.broadcast)
         _lora_svc.set_ws_broadcaster(hub.broadcast)
         _agent_svc.set_ws_broadcaster(hub.broadcast)
-        log.info("T+6s WebSocket 消息中枢已启动（/ws），广播器已注入 paint/learn/agent")
+        # 漫剧生图进度广播（2026-08-27 按钮实时进度条）：关键帧/资产
+        # 生成循环与采样步级回调 → task_progress 推前端按钮进度条
+        from .api.manga import common as _manga_common
+        _manga_common.set_ws_broadcaster(hub.broadcast)
+        # 统一模型切换引擎（P0 2026-08-25）：广播器 + 事件循环
+        # （功能锁跨线程释放经 run_coroutine_threadsafe 需要 loop）
+        from .services.switch_engine import get_switch_engine
+        get_switch_engine().bind(hub.broadcast, asyncio.get_running_loop())
+        log.info("T+6s WebSocket 消息中枢已启动（/ws），广播器已注入 paint/learn/agent/switch")
     except Exception as exc:
         log.warning("WebSocket 消息中枢启动失败（降级运行）: %s", exc)
 
@@ -159,6 +166,16 @@ async def lifespan(app: FastAPI):
         flow_trace.start_cleanup_task()
     except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
         log.warning("流程追踪初始化异常（降级运行）")
+    # ── 视频任务遗留恢复（审计 P1 修复，2026-08-29）：后台 worker
+    # 随进程消失，遗留 generating 行永远无人收尾，/status 会无限
+    # 回传旧进度——启动即改写为 error（与 flow_trace 孤儿恢复同时机）
+    try:
+        n = get_db().update("video_tasks", {"status": "error"},
+                            "status=?", ("generating",))
+        if n:
+            log.warning("视频任务遗留恢复: %d 条 generating → error", n)
+    except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
+        log.warning("视频任务遗留恢复失败（忽略）")
     yield
 
     # 关闭

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import threading
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from pathlib import Path
@@ -68,9 +67,25 @@ def preferred_load_dtype(torch) -> tuple:
     from ....engines import gpu_backend
 
     prec = _precision_pref()
+    # 2026-08-24 修复：resolve_precision 无参调用时内部 select_backend({})
+    # 只看传入 gpu_info（空 dict → vram=0 → 恒判 CPU 档），CUDA 卡上
+    # bf16 也被错误回落 fp32——4B 权重 fp32≈16GB 恰好塞满 GPU 且吞吐
+    # 减半（实测首 token 131s 根因）。此处主动用 torch 探测构造 gpu_info。
+    gpu_info: dict = {}
+    if torch is not None:
+        try:
+            if torch.cuda.is_available():
+                props = torch.cuda.get_device_properties(0)
+                gpu_info = {
+                    "vendor": "nvidia",
+                    "vram_total_mb": int(props.total_memory // (1024 * 1024)),
+                    "compute_capability": f"{props.major}.{props.minor}",
+                }
+        except Exception:  # noqa: BLE001 - 探测失败维持空 dict（CPU 档）
+            gpu_info = {}
     # 兼容矩阵裁决：请求精度不可用（如 CPU 请求 bf16）时回落到该档位
     # 真实可用的精度，并记录 warned 供前端提示降级链路
-    spec = gpu_backend.resolve_precision(prec)
+    spec = gpu_backend.resolve_precision(prec, gpu_info=gpu_info)
     resolved = spec["resolved"]
     quant = spec["quant"]
 

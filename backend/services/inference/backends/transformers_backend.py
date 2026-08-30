@@ -199,8 +199,7 @@ class TransformersBackend(DialogBackend):
             (模型（可能为 PeftModel 包装）, 已挂载版本号（"" 表示基座）)
         """
         try:
-            from ...lora_training_service import (
-                LORA_DIR, get_lora_training_service)
+            from ...lora_training_service import LORA_DIR, get_lora_training_service
             svc = get_lora_training_service()
             version = svc.get_current()
             if not version:

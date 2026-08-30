@@ -108,7 +108,9 @@ def test_tier_name_match_rtx5070ti():
     assert tier["tier"] == "rtx5070ti"
     assert tier["matched_by"] == "name"
     assert tier["min_vram_gb"] == 14
-    assert tier["models"]["dialog"] == "qwen3-vl-8b"
+    # ADR-003 P1 幽灵型号清零：16GB 卡装不下 bf16 8b（16.3GB 实测，
+    # _VRAM_OVERRIDES 注明的 OOM 事故根因），dialog 显示改 AWQ 量化变体
+    assert tier["models"]["dialog"] == "qwen3-vl-8b-awq"
 
 
 def test_tier_name_match_rtx4090():

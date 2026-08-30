@@ -29,10 +29,12 @@ from .common import (
     IMG_TARGET_H,
     IMG_TARGET_W,
     _find_character_asset_stub,
+    _flux_asset_params,
     _gen_size_for_target,
     _now,
     _remove_background,
     _upscale_to,
+    broadcast_gen_progress,
 )
 
 router = APIRouter()
@@ -48,6 +50,9 @@ log = logging.getLogger("omnispace.api.manga.comic_gen")
 # 兜底并诚实标注 degraded。
 
 _TURNAROUND_VIEWS = ("front", "side", "back", "closeup")
+# 视图中文标签（进度条 label 显示用）
+_VIEW_ZH_LABELS = {"front": "正面", "side": "侧面",
+                   "back": "背面", "closeup": "特写"}
 _TURNAROUND_W, _TURNAROUND_H = IMG_TARGET_W, IMG_TARGET_H  # 2560×1440
 _TURNAROUND_GEN_W, _TURNAROUND_GEN_H = _gen_size_for_target(
     _TURNAROUND_W, _TURNAROUND_H)  # 1280×720 生成 + 2x 上采样
@@ -128,8 +133,7 @@ def _sam_whiten(image, bg):
     ok_zone = np.zeros((h, w), dtype=bool)  # 分割成功格的列范围
     got_any = False
     try:
-        from backend.services.inference.segment_engine import (
-            get_segment_engine)
+        from backend.services.inference.segment_engine import get_segment_engine
         seg = get_segment_engine()
         if not seg.load_model():
             log.warning("SAM 加载失败，背景漂白回退启发式: %s",
@@ -268,11 +272,22 @@ def _verify_view_layout(image):
         msgs = [{"role": "user", "content": [
             {"type": "image"},
             {"type": "text", "text": (
-                "这张图从左到右有4格，每格应是一个人物的全身或"
-                "半身视图。请逐格判定：视角类型为 正面、侧面、"
-                "背面、特写 之一；若该格是剪影、空白轮廓、残缺"
-                "人物或没有人物，则判为 异常。只输出4个判定词，"
-                "用逗号分隔。")},
+                "这张图从左到右有4格，每格应是一个人物的视图。"
+                "请逐格严格判定视角类型，裁决规则：\n"
+                "1. 正面：身体完全正对镜头，两只眼睛都可见，"
+                "双肩左右对称；\n"
+                "2. 侧面：身体斜向一侧约45度、只能看到一只眼睛"
+                "或明显侧脸轮廓的，也算侧面（禁止判为正面）；"
+                "正侧身90度更是侧面；\n"
+                "3. 背面：完全背对镜头，看不到任何面部五官；"
+                "若能看到侧脸或一只眼睛，判 异常（斜背身不合格）；\n"
+                "4. 特写：胸部以上近景、面部大而清晰；若构图"
+                "到达腰部以下或全身可见，判 异常；\n"
+                "5. 该格是剪影、空白轮廓、残缺人物或没有人物，"
+                "判 异常。\n"
+                "四格视角必须互不相同：若两格都是侧面或视角"
+                "重复，相应格判 异常。\n"
+                "只输出4个判定词，用逗号分隔。")},
         ]}]
         reply = eng.chat(msgs, images=[thumb], temperature=0.1,
                          max_new_tokens=24).strip()
@@ -370,14 +385,27 @@ def _repair_view_cell(engine, image, idx: int, prompt_zh_clean: str,
     （校验时占位）→ ensure FLUX.2。返回修复后整图（失败返回原图）。
     """
     import random
+
     from PIL import Image, ImageDraw
 
     view = _TURNAROUND_VIEWS[idx]
     label = _ONEPASS_VIEW_LABELS[view]
-    closeup = "，面部大而清晰" if view == "closeup" else "，人物从头到脚完整"
+    # 逐格正度约束（2026-08-24 用户实测：整图修复后仍有斜背身/
+    # 3/4 侧身混入——修复格同样需要量化锚点）
+    precision = {
+        "front": "身体完全正对镜头呈0度，双肩左右对称，"
+                 "两只眼睛、完整面部清晰可见，从头到脚完整",
+        "side": "身体正侧对镜头呈90度，双肩重叠成一条线，"
+                "只见单侧脸部轮廓与单只眼睛，从头到脚完整",
+        "back": "身体完全背对镜头呈180度，双肩左右对称，"
+                "看不到任何面部五官，只见后脑勺与背影，"
+                "从头到脚完整",
+        "closeup": "胸部以上近景构图，头部占画面高度约三分之"
+                   "一，面部大而清晰",
+    }[view]
     prompt = (
         f"角色设定图。角色：{prompt_zh_clean}。"
-        f"画面：同一角色的{label}视图，单人{closeup}。"
+        f"画面：同一角色的{label}视图，单人。构图要求：{precision}。"
         "背景：纯白色，均匀干净。"
         "美术风格：韩国网漫风，干净线稿，清晰上色，"
         "表情表现力强，色彩干净明快。"
@@ -426,12 +454,16 @@ def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
     return (
         f"角色设定图。角色：{prompt_zh_clean}。"
         "画面：同一角色的四视图设定图，从左到右依次为——"
-        "第1格正面全身（面对镜头，可见完整面部）、"
-        "第2格左侧面全身（侧对镜头，只见侧脸轮廓）、"
-        "第3格背面全身（背对镜头，完全看不到面部，只见头发覆盖"
-        "的后脑勺与衣服背面的背影）、"
-        "第4格上半身特写（胸部以上近景，面部大而清晰）。"
-        "恰好四格，互不重复，横向等宽排成一行；"
+        "第1格正面全身：身体完全正对镜头呈0度，双肩左右对称，"
+        "两只眼睛、完整面部清晰可见；"
+        "第2格左侧面全身：身体正侧对镜头呈90度，双肩重叠成"
+        "一条线，只见单侧脸部轮廓与单只眼睛，看不到另一侧肩；"
+        "第3格背面全身：身体完全背对镜头呈180度，双肩左右对称，"
+        "完全看不到任何面部五官，只见头发覆盖的后脑勺与衣服"
+        "背面的背影；"
+        "第4格上半身特写：胸部以上近景构图，头部占本格高度"
+        "约三分之一，面部大而清晰。"
+        "恰好四格，四格视角互不相同，横向等宽排成一行；"
         "前三格为竖构图全身像，人物从头到脚完整。"
         "背景：纯白色，均匀干净。"
         "美术风格：韩国网漫风，干净线稿，清晰上色，"
@@ -512,7 +544,8 @@ def _load_onepass_reference(out_dir: Path):
 
 def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
                                  prompt: str, seed: int,
-                                 transparent: bool = False) -> dict:
+                                 transparent: bool = False,
+                                 ctx_id: str = "") -> dict:
     """one-pass 单图四视图核心（竞品技术路线对齐，2026-08-20 重构）。
 
     1. 中文长文直入：六段式模板（版式/约束/风格/人设/姿态），FLUX.2
@@ -524,9 +557,11 @@ def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
        供分镜引用与单视图局部重生
 
     竞品语义：全图一体成败（无逐视图局部修补）；资产目录 reference.png
-    存在时作参考条件图（同 seed + 参考图，可复现）。
+    存在时作参考条件图（同 seed + 参考图，可复现）。ctx_id 非空时
+    采样步级广播 WS 实时进度（重 roll 换 seed 时归零重来）。
     """
     import random
+
     from PIL import Image
 
     if seed is None or seed < 0:
@@ -554,14 +589,26 @@ def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
     passed = False
     for attempt in range(1, _ONEPASS_MAX_ATTEMPTS + 1):
         if attempt > 1:
-            params["seed"] = seed = random.randint(0, 2 ** 31 - 1)
+            params["seed"] = seed = random.randint(0, 2**31 - 1)
             # VL 校验让位时卸载过 FLUX.2：重生前重载
             engine.ensure_loaded("flux2-klein-4b")
+        # 采样步级进度：一轮 92% 上限（尾 8% 留给验证/裁切/落盘），
+        # attempt>1 归零重来（用户只见「重新生成」标签，无感换 seed）
+        attempt_lbl = "" if attempt == 1 else f"（重试 {attempt}）"
+
+        def _map_step(p: int, _lbl: str = attempt_lbl) -> None:
+            broadcast_gen_progress(
+                "asset", ctx_id, percent=int(max(0, min(100, p)) * 0.92),
+                label=f"生成四视图{_lbl}")
+
+        broadcast_gen_progress("asset", ctx_id, percent=2,
+                               label=f"生成四视图{attempt_lbl}")
+        step_cb = _map_step if ctx_id else None
         if ref_used:
             # 参考条件生成（FLUX.2 reference conditioning，画幅显式指定）
-            result = engine.img2img(params, ref_image)
+            result = engine.img2img(params, ref_image, progress_cb=step_cb)
         else:
-            result = engine.generate(params)
+            result = engine.generate(params, progress_cb=step_cb)
         image = result["images"][0].convert("RGB")
         if image.size != (_ONEPASS_W, _ONEPASS_H):
             image = image.resize((_ONEPASS_W, _ONEPASS_H), Image.LANCZOS)
@@ -630,6 +677,7 @@ def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
     image.save(master_path, "PNG")
     canvas_path = out_dir / "canvas.png"
     _draw_onepass_labels(image, name).save(canvas_path, "PNG")
+    broadcast_gen_progress("asset", ctx_id, percent=95, label="裁切落盘")
 
     return {
         "pipeline": "onepass",
@@ -651,20 +699,22 @@ def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
 
 def _run_turnaround_pipeline(engine, out_dir: Path, *, name: str,
                              prompt: str, seed: int,
-                             transparent: bool = False) -> dict:
+                             transparent: bool = False,
+                             ctx_id: str = "") -> dict:
     """四视图生成统一编排：one-pass 主路径（FLUX.2 Klein 中文直入，
     竞品同款 1 次推理单图四视图）→ 不可用/推理失败时回退 legacy
     SDXL 逐视图四张独立图（中译英 + 2x 上采样，诚实降级）。
 
     返回统一 gen dict：{pipeline, views, canvas, consistency, seed,
-    model, ref_used, view_errors, prompt_zh | prompt_en}。
+    model, ref_used, view_errors, prompt_zh | prompt_en}。ctx_id 非空
+    时全程广播 WS 实时进度（task_progress → 前端按钮进度条）。
     """
     gen = None
     if engine.ensure_loaded("flux2-klein-4b"):
         try:
             gen = _generate_turnaround_onepass(
                 engine, out_dir, name=name, prompt=prompt, seed=seed,
-                transparent=transparent)
+                transparent=transparent, ctx_id=ctx_id)
             log.info("one-pass 四视图完成: %s seed=%d model=%s",
                      name, gen["seed"], gen["model"])
         except Exception as exc:  # noqa: BLE001 - FLUX.2 失败回退逐视图
@@ -683,7 +733,7 @@ def _run_turnaround_pipeline(engine, out_dir: Path, *, name: str,
         raise ApiError("PAINT_ENGINE_NOT_READY",
                        status.get("last_error") or "绘画模型未就绪")
     gen = _generate_four_views(engine, prompt_en, seed, out_dir,
-                               transparent=transparent)
+                               transparent=transparent, ctx_id=ctx_id)
     gen["pipeline"] = "views4"
     gen["prompt_en"] = prompt_en
     return gen
@@ -826,13 +876,15 @@ def _load_reference_image(out_dir: Path, gen_w: int, gen_h: int):
 
 def _generate_single_view(engine, prompt_en: str, view: str, seed: int,
                           out_dir: Path, ref_image=None,
-                          transparent: bool = False) -> dict:
+                          transparent: bool = False,
+                          on_step=None) -> dict:
     """生成单个角色视图：1280×720 生成 → LANCZOS 2x 上采样 2560×1440
     → 落盘 portrait_views/{view}.png。
 
     prompt = 译后描述词 + 视图后缀 + _STYLE_PHOTO + _STYLE_WHITE_BG；
     ref_image 非空时走 img2img（strength=0.55），失败回退 txt2img
     （记 ref_fallback，不抛错）。out_dir/portrait_views 须已存在。
+    on_step(percent) 采样步级回调 → WS 实时进度条。
     """
     prompt = (prompt_en + _TURNAROUND_VIEW_SUFFIX[view]
               + _STYLE_PHOTO + _STYLE_WHITE_BG)
@@ -840,19 +892,20 @@ def _generate_single_view(engine, prompt_en: str, view: str, seed: int,
               "steps": 24, "cfg": 7.0,
               "width": _TURNAROUND_GEN_W, "height": _TURNAROUND_GEN_H,
               "seed": seed}
+    step_cb = (lambda p, _s: on_step(p)) if on_step else None
     ref_used = ref_fallback = False
     if ref_image is not None:
         params["strength"] = 0.55
         try:
-            result = engine.img2img(params, ref_image)
+            result = engine.img2img(params, ref_image, progress_cb=step_cb)
             ref_used = True
         except Exception as exc:  # noqa: BLE001 - img2img 失败回退 txt2img
             log.warning("视图 %s img2img 失败，回退 txt2img: %s", view, exc)
             ref_fallback = True
             params.pop("strength", None)
-            result = engine.generate(params)
+            result = engine.generate(params, progress_cb=step_cb)
     else:
-        result = engine.generate(params)
+        result = engine.generate(params, progress_cb=step_cb)
     image = _upscale_to(result["images"][0], _TURNAROUND_W, _TURNAROUND_H)
     # 交付格式保底：漂白至纯白底（transparent 抠图前先漂白，白底更净）
     image = _whiten_background(image)
@@ -916,14 +969,15 @@ def _rebuild_turnaround_canvas(out_dir: Path,
 
 
 def _generate_four_views(engine, prompt_en: str, seed: int,
-                         out_dir: Path, transparent: bool = False) -> dict:
+                         out_dir: Path, transparent: bool = False,
+                         ctx_id: str = "") -> dict:
     """四视图逐张独立生成（竞品对齐：四张独立 16:9 图，每张可单独重生）。
 
     四张同 seed 保一致性（seed<0 时先解析为固定随机种子）；资产目录
     reference.png 存在时走 img2img（strength=0.55），失败回退 txt2img。
     单视图失败不阻塞其他视图（per-view 错误记入 errors）；全部失败才
     抛 ApiError。canvas.png 为 1×4 横排拼图（2560×1440，对齐参考图
-    版式）。out_dir 须已存在。
+    版式）。out_dir 须已存在。ctx_id 非空时逐视图广播 WS 实时进度。
     """
     if seed < 0:
         # 解析为固定种子：四视图共用同一种子保证角色一致性
@@ -938,10 +992,25 @@ def _generate_four_views(engine, prompt_en: str, seed: int,
     errors: dict[str, str] = {}
     ref_used = ref_fallback = False
     last_model = ""
-    for view in _TURNAROUND_VIEWS:
+    n_total = len(_TURNAROUND_VIEWS)
+    for vi, view in enumerate(_TURNAROUND_VIEWS):
+        zh = _VIEW_ZH_LABELS.get(view, view)
+        broadcast_gen_progress("asset", ctx_id, current=vi + 1,
+                               total=n_total,
+                               percent=int(vi * 100 / n_total),
+                               label=f"生成{zh}视图")
+
+        def _map_step(p: int, _vi: int = vi, _zh: str = zh) -> None:
+            broadcast_gen_progress(
+                "asset", ctx_id, current=_vi + 1, total=n_total,
+                percent=int((_vi + max(0, min(100, p)) / 100.0)
+                            * 100 / n_total),
+                label=f"生成{_zh}视图")
+
         try:
             r = _generate_single_view(engine, prompt_en, view, seed,
-                                      out_dir, ref_image, transparent)
+                                      out_dir, ref_image, transparent,
+                                      on_step=_map_step if ctx_id else None)
         except Exception as exc:  # noqa: BLE001 - 单视图失败不阻塞其他视图
             log.exception("四视图 %s 生成失败: %s", view, exc)
             errors[view] = str(exc)[:200]
@@ -1040,9 +1109,16 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
     asset_id = uuid.uuid4().hex
     out_dir = _COMIC_ASSET_DIR / req.project_id / "characters" / req.name
     out_dir.mkdir(parents=True, exist_ok=True)
-    gen = _run_turnaround_pipeline(engine, out_dir, name=req.name,
-                                   prompt=req.prompt, seed=req.seed,
-                                   transparent=req.transparent)
+    broadcast_gen_progress("asset", asset_id, percent=0, label="准备生成")
+    try:
+        gen = _run_turnaround_pipeline(engine, out_dir, name=req.name,
+                                       prompt=req.prompt, seed=req.seed,
+                                       transparent=req.transparent,
+                                       ctx_id=asset_id)
+    except Exception:
+        broadcast_gen_progress("asset", asset_id, percent=0,
+                               status="error", label="生成失败")
+        raise
     views = gen["views"]
     # portrait.png 约定为正面视图（COMIC-037 资产目录结构）
     _sync_portrait_from_views(out_dir)
@@ -1117,43 +1193,95 @@ def _regenerate_asset_sync(asset: dict) -> dict:
         rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     if is_turnaround:
         # 与首次生成同构：one-pass 整图重 roll（新 seed）→ legacy 回退
-        gen = _run_turnaround_pipeline(
-            engine, out_path.parent, name=asset.get("name") or "asset",
-            prompt=asset["prompt"], seed=-1,
-            transparent=bool(meta.get("transparent")))
+        _ctx = asset.get("asset_id") or ""
+        broadcast_gen_progress("asset", _ctx, percent=0,
+                               label="准备重生成")
+        try:
+            gen = _run_turnaround_pipeline(
+                engine, out_path.parent, name=asset.get("name") or "asset",
+                prompt=asset["prompt"], seed=-1,
+                transparent=bool(meta.get("transparent")),
+                ctx_id=_ctx)
+        except Exception:
+            broadcast_gen_progress("asset", _ctx, percent=0,
+                                   status="error", label="生成失败")
+            raise
+        broadcast_gen_progress("asset", _ctx, percent=97,
+                               label="裁切落盘")
         _sync_portrait_from_views(out_path.parent)
         _apply_turnaround_meta(meta, gen)
+        # 主图同步到 file_path（2026-08-27 bug 修复）：turnaround 分支
+        # 此前只更新 portrait_views/master/canvas，file_path 指向的旧图
+        # （adopt 拷贝的竞品原图）永不覆盖 → 关键帧 _load_row_reference
+        # 永远拿到旧图、VLM 验的也是旧图。master 为干净整图（无 PIL
+        # 标注文字，参考条件不引入噪声 token），交付标注图另存 canvas
+        master_path = out_path.parent / "master.png"
+        if master_path.is_file():
+            from PIL import Image as _PILImage
+            _PILImage.open(master_path).convert("RGB").save(out_path, "PNG")
         width, height = meta["width"], meta["height"]
         seed_out, model_out = gen["seed"], gen["model"]
         prompt_out: str | None = None
     else:
-        # 中文描述词先译英（SDXL CLIP 不理解中文）；翻译先于 paint 加载，
-        # 避免对话/绘画双模型显存换载抖动。
-        prompt_en = translate_prompt_zh2en(asset["prompt"])
-        if not engine.is_ready and not engine.ensure_loaded(None):
-            status = engine.get_status()
-            raise ApiError("PAINT_ENGINE_NOT_READY",
-                           status.get("last_error") or "绘画模型未就绪")
-        # 参考图风格对齐：角色/道具纯白底，场景写实影调不加白底
-        style = _STYLE_PHOTO + (_STYLE_WHITE_BG
-                                if kind in ("character", "prop") else "")
-        prompt = conf["tpl"].format(prompt=prompt_en) + style
         width = max(256, min(IMG_TARGET_W,
                              int(meta.get("width") or IMG_TARGET_W)))
         height = max(256, min(IMG_TARGET_H,
                               int(meta.get("height") or IMG_TARGET_H)))
-        gen_w, gen_h = _gen_size_for_target(width, height)
-        params = {"prompt": prompt, "negative": _STYLE_NEGATIVE,
-                  "steps": 24, "cfg": 7.0,
-                  "width": gen_w, "height": gen_h, "seed": -1}
-        result = engine.generate(params)
-        image = _upscale_to(result["images"][0], width, height)
+        # ① FLUX.2 中文直入（主路径，2026-08-24 与 _generate_asset_sync
+        #    对齐——此前 regenerate 漏改，SDXL 半分辨率放大=模糊根因）
+        # prompt_out 必须先初始化：FLUX 子路径不产出英文译文（21:27
+        # e2e 实测 UnboundLocalError——四视图分支的初始化与本分支
+        # 互斥执行，覆盖不到这里）
+        prompt_out: str | None = None
+        engine_used = "sdxl"
+        _ctx = asset.get("asset_id") or ""
+
+        def _map_step(p: int) -> None:
+            broadcast_gen_progress("asset", _ctx, percent=p, label="正在生成")
+
+        broadcast_gen_progress("asset", _ctx, percent=2, label="正在生成")
+        try:
+            if engine.ensure_loaded("flux2-klein-4b"):
+                params = _flux_asset_params(asset["prompt"], kind,
+                                            width, height)
+                result = engine.generate(params, progress_cb=_map_step
+                                         if _ctx else None)
+                image = result["images"][0]
+                if image.size != (width, height):
+                    from PIL import Image as _PILImage
+                    image = image.resize((width, height), _PILImage.LANCZOS)
+                engine_used = "flux2"
+            else:
+                # ② SDXL 回退：中文描述词先译英（CLIP 不理解中文）；
+                # 翻译先于 paint 加载，避免双模型显存换载抖动
+                prompt_en = translate_prompt_zh2en(asset["prompt"])
+                if not engine.is_ready and not engine.ensure_loaded(None):
+                    status = engine.get_status()
+                    raise ApiError("PAINT_ENGINE_NOT_READY",
+                                   status.get("last_error") or "绘画模型未就绪")
+                # 参考图风格对齐：角色/道具纯白底，场景写实影调不加白底
+                style = _STYLE_PHOTO + (_STYLE_WHITE_BG
+                                        if kind in ("character", "prop") else "")
+                prompt = conf["tpl"].format(prompt=prompt_en) + style
+                gen_w, gen_h = _gen_size_for_target(width, height)
+                params = {"prompt": prompt, "negative": _STYLE_NEGATIVE,
+                          "steps": 24, "cfg": 7.0,
+                          "width": gen_w, "height": gen_h, "seed": -1}
+                result = engine.generate(params, progress_cb=_map_step
+                                         if _ctx else None)
+                image = _upscale_to(result["images"][0], width, height)
+                prompt_out = prompt_en
+        except Exception:
+            broadcast_gen_progress("asset", _ctx, percent=0,
+                                   status="error", label="生成失败")
+            raise
         if kind == "prop" and meta.get("transparent"):
             image = _remove_background(image)
         image.save(out_path, "PNG")
+        broadcast_gen_progress("asset", _ctx, percent=97, label="落盘登记")
         seed_out = result.get("seed", -1)
         model_out = result.get("model", "")
-        prompt_out = prompt_en
+        meta["engine"] = engine_used
     meta.update({"width": width, "height": height,
                  "seed": seed_out,
                  "model": model_out,
@@ -1166,6 +1294,8 @@ def _regenerate_asset_sync(asset: dict) -> dict:
         db.update("comic_assets", {"file_path": rel_path, "meta": meta},
                   "id=?", (asset["asset_id"],))
     asset = {**asset, "file_path": rel_path, "meta": meta}
+    broadcast_gen_progress("asset", _ctx, percent=100, status="done",
+                           label="生成完成")
     return asset
 
 
@@ -1253,6 +1383,7 @@ def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
     底图缺失（历史资产）时报错引导整图重生成，不静默换形态。
     """
     import random
+
     from PIL import Image, ImageDraw
 
     engine = get_paint_engine()

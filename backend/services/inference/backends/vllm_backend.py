@@ -42,7 +42,21 @@ class VLLMBackend(DialogBackend):
 
         try:
             logger.info("启动 vLLM 对话服务: %s <- %s", model_id, model_dir)
-            if not svc.start(model_dir=str(model_dir)):
+            # KV cache 预算自适应（2026-08-25 W4A16 14B 实测）：权重
+            # ≥8GB 时 util 0.85 装载后 KV 仅剩 ~1.0GB，8K 上下文需
+            # 1.5GB 启动失败（vLLM 报 estimated maximum model length
+            # is 5632）→ 该档位降 4K 上下文 + util 提至 0.87（16GB 卡
+            # 装载后 KV 可用 ~1.5GB，4K 需 0.75GB，余量充足）。
+            # 小权重（如 4B AWQ ~4GB）保持 8192/0.85 不变。
+            weight_gb = self._weights_size_gb(model_dir)
+            big = weight_gb >= 8.0
+            max_len = 4096 if big else 8192
+            util = 0.87 if big else 0.85
+            logger.info("vLLM 启动参数: weights=%.1fGB → max_len=%d util=%.2f",
+                        weight_gb, max_len, util)
+            if not svc.start(model_dir=str(model_dir),
+                             gpu_memory_utilization=util,
+                             max_model_len=max_len):
                 self._last_error = svc._last_error or "vLLM 服务启动失败"
                 logger.warning("vLLM 启动失败: %s", self._last_error)
                 return False
@@ -50,7 +64,11 @@ class VLLMBackend(DialogBackend):
             self.model_dir = model_dir
             self._ready = True
             self._last_error = ""
-            logger.info("vLLM 对话服务就绪: %s（独立子进程推理）", model_id)
+            # 多模态能力按模型实测架构判定（类级 True 是为 Qwen3-VL：
+            # DeepSeek-R1 等 CausalLM 纯文本模型发图会 vLLM 400）
+            self.supports_images = self._model_supports_images(model_dir)
+            logger.info("vLLM 对话服务就绪: %s（独立子进程推理，视觉=%s）",
+                        model_id, self.supports_images)
             return True
         except Exception as exc:  # noqa: BLE001
             self._last_error = f"vLLM 服务启动异常: {exc}"
@@ -71,7 +89,31 @@ class VLLMBackend(DialogBackend):
         self._ready = False
         self.model_id = ""
         self.model_dir = None
+        self.supports_images = True  # 恢复类级默认（下次 load 重新判定）
         return had
+
+    @staticmethod
+    def _model_supports_images(model_dir: Path) -> bool:
+        """config.json 的 model_type 是否为视觉架构（qwen*_vl 系）。"""
+        try:
+            import json
+            with open(Path(model_dir) / "config.json",
+                      encoding="utf-8") as f:
+                raw = json.load(f)
+            return str(raw.get("model_type") or "").endswith("_vl")
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
+    def _weights_size_gb(model_dir: Path) -> float:
+        """权重文件（.safetensors/.bin）总大小 GB——KV 预算分档依据。"""
+        try:
+            total = sum(
+                p.stat().st_size for p in Path(model_dir).iterdir()
+                if p.suffix in (".safetensors", ".bin"))
+            return total / (1024 ** 3)
+        except Exception:  # noqa: BLE001
+            return 0.0
 
     def chat_stream(
         self,

@@ -4,10 +4,23 @@
 """
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# 资产名称/项目 ID 路径安全（审计 P1-1 修复，2026-08-29）：这些值
+# 会被拼进 DATA_DIR 下的落盘目录（comic_assets/{project_id}/…/{name}）。
+# 拒绝路径分隔符/盘符/Windows 保留字符/控制符与「..」；中文、空格、
+# 中英文数字与常用标点放行（存量资产名均为中文，不受影响）。
+_UNSAFE_NAME_PAT = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def _check_safe_name(v: str) -> str:
+    if _UNSAFE_NAME_PAT.search(v or "") or ".." in (v or ""):
+        raise ValueError("名称含路径非法字符（/ \\ : * ? \" < > | ..）")
+    return v
 
 # ═══════════════════════════════════════════════════════════════════
 #  枚举
@@ -38,6 +51,10 @@ class SynergyMode(str, Enum):
 
 class VideoModel(str, Enum):
     LTX2 = "ltx-2"
+    # MiniMax H3 33B（NVFP4 DiT + Qwen3-VL-32B int4 convrot 编码器，
+    # ComfyUI 子进程管线，2026-08-25 接入）：DynamicVRAM 分时换载，
+    # 采样期峰值 ~12GB，16GB 卡可跑；原生音画（32kHz 立体声）
+    MINIMAX_H3 = "minimax-h3"
     WAN21_14B_FP8 = "wan2.1-14b-fp8"
     WAN21_14B_INT4 = "wan2.1-14b-int4"
     WAN21_1_3B = "wan2.1-1.3b"
@@ -82,54 +99,38 @@ class ActiveFeature(str, Enum):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  路由表（规格 §3.2，硬编码不可更改）
+#  路由表（规格 §3.2）
+#  2026-08-29 模型裁剪（用户裁定）：
+#    - 对话只保留 Qwen3-VL 4B/8B 家族（8B 含 AWQ int4 量化形态）；
+#      omni / 2B / CPU 兜底条目移除。DeepSeek-R1-14B 保留注册表与
+#      引擎候选（漫剧·文字槽专用，经 manga-dialog 槽显式点名）。
+#    - 绘画只保留 FLUX2-Klein-9B + Qwen-Image-2512（AI 绘画模块）；
+#      flux2-klein-4b 保留引擎候选（漫剧角色生图 comic_gen 专用底座，
+#      不入绘画路由表）；sdxl 系保留引擎候选（LoRA 训练底座）。
+#    - 视频只保留 MiniMax H3（12GB 档 5s 段 ~10.6GB 实测可跑）。
 # ═══════════════════════════════════════════════════════════════════
 
 VIDEO_ROUTING_TABLE = [
-    {"min_vram_gb": 24, "model": VideoModel.LTX2},
-    {"min_vram_gb": 16, "model": VideoModel.WAN21_14B_FP8},
-    # TI2V-5B：split 常驻需求 = DiT 10.2 + VAE 0.5 + 激活余量 2.5
-    # ≈ 13.3GB（T5 编码窗口临时上卡，不占常态），16GB 卡可跑
-    {"min_vram_gb": 13, "model": VideoModel.WAN22_TI2V_5B},
-    {"min_vram_gb": 12, "model": VideoModel.WAN21_14B_INT4},
-    {"min_vram_gb": 8,  "model": VideoModel.WAN21_1_3B},
-    # LTX-Video 0.9.5 (2B)：T5 int8 量化加载后约 9GB，16GB 卡可真实生成
-    {"min_vram_gb": 8,  "model": VideoModel.LTX_VIDEO_095},
-    {"min_vram_gb": 6,  "model": VideoModel.COGVIDEOX_2B},
-    # 随包附带的 AnimateLCM（2GB 运动模块），作为已下载兜底选项
-    {"min_vram_gb": 2,  "model": VideoModel.ANIMATELCM},
-    {"min_vram_gb": 0,  "model": VideoModel.COGVIDEOX_2B_CPU},
+    # H3 NVFP4：33B 顶格质量 + 原生音画。门槛 12 = 实测采样峰值
+    # ~10.6GB（125 帧 5s 段）+ 余量；16GB 卡首选，12GB 档跑短段
+    {"min_vram_gb": 12, "model": VideoModel.MINIMAX_H3},
 ]
 
 DIALOG_ROUTING_TABLE = [
-    # 视觉语音全模态（omni）：文/图/视/音输入，文+语音输出；
-    # bf16 权重 Thinker3B+Talker0.5B 约 15GB（16GB 档），
-    # AWQ int4 约 6GB（12GB 档，入门基线 3060 可用）
-    {"min_vram_gb": 16, "model": "qwen2.5-omni-7b"},
-    {"min_vram_gb": 12, "model": "qwen2.5-omni-7b-int4"},
-    {"min_vram_gb": 12, "model": "qwen3-vl-8b"},
+    {"min_vram_gb": 16, "model": "qwen3-vl-8b"},
+    {"min_vram_gb": 12, "model": "qwen3-vl-8b-awq"},
     {"min_vram_gb": 8, "model": "qwen3-vl-4b"},
-    {"min_vram_gb": 4, "model": "qwen3-vl-2b"},
-    {"min_vram_gb": 0, "model": "qwen3-vl-2b-int4-cpu"},
 ]
 
 PAINT_ROUTING_TABLE = [
-    {"min_vram_gb": 24, "model": "flux.1-dev-fp8"},
-    {"min_vram_gb": 16, "model": "flux.1-schnell-fp8"},
+    # FLUX.2 Klein 9B（quanto float8 / GGUF Q6_K，质量优于 4B，
+    # 16GB 卡自动首选，2026-08-25 接入）
+    {"min_vram_gb": 10, "model": "flux2-klein-9b"},
     # Qwen-Image-2512（20B MMDiT + Qwen2.5-VL 编码器，中文原生理解/
     # 中英文字渲染开源第一）：GGUF 流式推理（量化权重常驻 CPU，
     # GPU 峰值 ~1GB + 编码器逐层 + VAE，实测 2.15s/步）——
     # 12GB 档位"高精度模式"底座，RAM 需 28GB+（2026-08-22 接入）
     {"min_vram_gb": 6, "model": "qwen-image-2512"},
-    # 四视图 one-pass 中文直入底座（FLUX.2 Klein，cpu_offload 实测
-    # 权重 transformer 7.4GB + Qwen3 text_encoder 7.7GB，12GB 闸门）
-    {"min_vram_gb": 12, "model": "flux2-klein-4b"},
-    {"min_vram_gb": 12, "model": "kolors-2.1"},
-    # 实际出货的基座模型（models/paint/sdxl-base-1.0，bf16 实测约 7GB）；
-    # 缺此条时 model_manager 显存预估回退到 磁盘大小×1.2≈31GB，永远分配失败
-    {"min_vram_gb": 8,  "model": "sdxl-base-1.0"},
-    {"min_vram_gb": 8, "model": "sdxl-lcm"},
-    {"min_vram_gb": 0, "model": "sdxl-cpu"},
 ]
 
 
@@ -145,48 +146,48 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx5090", "label": "RTX 5090 32GB",
         "name_patterns": ["rtx 5090", "5090"],
         "min_vram_gb": 30,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-dev-fp8",
-                   "video": "ltx-2"},
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 5,
     },
     {
         "tier": "rtx5080", "label": "RTX 5080 16GB",
         "name_patterns": ["rtx 5080", "5080"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-4b",
-                   "video": "wan2.1-14b-fp8"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 4,
     },
     {
         "tier": "rtx5070ti", "label": "RTX 5070 Ti 16GB",
         "name_patterns": ["rtx 5070 ti", "5070 ti", "5070ti"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-4b",
-                   "video": "wan2.1-14b-fp8"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 4,
     },
     {
         "tier": "rtx5070", "label": "RTX 5070 12GB",
         "name_patterns": ["rtx 5070", "5070"],
         "min_vram_gb": 10,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
-                   "video": "wan2.1-1.3b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 3,
     },
     {
         "tier": "rtx5060ti", "label": "RTX 5060 Ti 16GB",
         "name_patterns": ["rtx 5060 ti", "5060 ti", "5060ti"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
-                   "video": "wan2.1-1.3b"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 3,
     },
     {
         "tier": "rtx5060", "label": "RTX 5060 8GB",
         "name_patterns": ["rtx 5060", "5060"],
         "min_vram_gb": 6,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
-                   "video": "cogvideox-2b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "qwen-image-2512",
+                   "video": ""},
         "learn_tabs": 2,
     },
     # ── RTX 40 系列 (Ada Lovelace, CC 8.9) ──
@@ -194,80 +195,80 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx4090", "label": "RTX 4090 24GB",
         "name_patterns": ["rtx 4090", "4090"],
         "min_vram_gb": 20,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-dev-fp8",
-                   "video": "ltx-2"},
+        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 5,
     },
     {
         "tier": "rtx4080s", "label": "RTX 4080 Super 16GB",
         "name_patterns": ["rtx 4080 super", "4080 super", "4080s"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
-                   "video": "wan2.1-14b-fp8"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 4,
     },
     {
         "tier": "rtx4080", "label": "RTX 4080 16GB",
         "name_patterns": ["rtx 4080", "4080"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux.1-schnell-fp8",
-                   "video": "wan2.1-14b-fp8"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 4,
     },
     {
         "tier": "rtx4070tis", "label": "RTX 4070 Ti Super 16GB",
         "name_patterns": ["rtx 4070 ti super", "4070 ti super", "4070tis"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "kolors-2.1",
-                   "video": "wan2.1-1.3b"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 4,
     },
     {
         "tier": "rtx4070ti", "label": "RTX 4070 Ti 12GB",
         "name_patterns": ["rtx 4070 ti", "4070 ti", "4070ti"],
         "min_vram_gb": 0,  # 仅按型号名命中（12GB 档由 3060 兜底）
-        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
-                   "video": "wan2.1-1.3b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 3,
     },
     {
         "tier": "rtx4070s", "label": "RTX 4070 Super 12GB",
         "name_patterns": ["rtx 4070 super", "4070 super", "4070s"],
         "min_vram_gb": 10,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
-                   "video": "wan2.1-1.3b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 3,
     },
     {
         "tier": "rtx4070", "label": "RTX 4070 12GB",
         "name_patterns": ["rtx 4070", "4070"],
         "min_vram_gb": 10,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "kolors-2.1",
-                   "video": "wan2.1-1.3b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 3,
     },
     {
         "tier": "rtx4060ti16g", "label": "RTX 4060 Ti 16GB",
         "name_patterns": ["rtx 4060 ti 16", "4060 ti 16"],
         "min_vram_gb": 14,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
-                   "video": "cogvideox-2b"},
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 2,
     },
     {
         "tier": "rtx4060ti", "label": "RTX 4060 Ti 8GB",
         "name_patterns": ["rtx 4060 ti", "4060 ti", "4060ti"],
         "min_vram_gb": 6,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
-                   "video": "cogvideox-2b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "qwen-image-2512",
+                   "video": ""},
         "learn_tabs": 2,
     },
     {
         "tier": "rtx4060", "label": "RTX 4060 8GB",
         "name_patterns": ["rtx 4060", "4060"],
         "min_vram_gb": 6,
-        "models": {"dialog": "qwen3-vl-4b", "paint": "sdxl-base-1.0",
-                   "video": "cogvideox-2b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "qwen-image-2512",
+                   "video": ""},
         "learn_tabs": 2,
     },
     # ── 入门档 ──
@@ -275,26 +276,25 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx3060", "label": "RTX 3060 12GB",
         "name_patterns": ["rtx 3060", "3060"],
         "min_vram_gb": 10,
-        "models": {"dialog": "qwen3-vl-2b", "paint": "sdxl-base-1.0",
-                   "video": "cogvideox-2b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "flux2-klein-9b",
+                   "video": "minimax-h3"},
         "learn_tabs": 2,
     },
     {
         "tier": "rx6600", "label": "AMD RX 6600",
         "name_patterns": ["rx 6600", "rx6600", "radeon rx 6600"],
         "min_vram_gb": 6,
-        "models": {"dialog": "qwen3-vl-2b", "paint": "sdxl-base-1.0",
-                   "video": "cogvideox-2b"},
+        "models": {"dialog": "qwen3-vl-4b", "paint": "qwen-image-2512",
+                   "video": ""},
         "learn_tabs": 1,
     },
     {
         "tier": "cpu", "label": "纯 CPU",
         "name_patterns": [],
         "min_vram_gb": 0,
-        # 文档B 列名为 Qwen3-VL-2B / SDXL（慢）；int4-cpu / sdxl-cpu
-        # 是其在纯 CPU 上真实可运行的量化/降级变体，视频不可用。
-        "models": {"dialog": "qwen3-vl-2b-int4-cpu", "paint": "sdxl-cpu",
-                   "video": ""},
+        # 2026-08-29 模型裁剪：CPU 降级变体（int4-cpu / sdxl-cpu）随
+        # 路由表裁剪移除——纯 CPU 档对话/绘画/视频均不可用（诚实置空）。
+        "models": {"dialog": "", "paint": "", "video": ""},
         "learn_tabs": 1,
     },
 ]
@@ -616,6 +616,13 @@ class ProjectCreate(BaseModel):
     template: str | None = None          # comic_drama=漫剧模板（预置 5 分镜）
     project_id: str | None = None        # 指定 id（缺省自动生成）
     work_mode: WorkMode = Field(default=WorkMode.REGULAR)  # 作品类型
+    art_style: str = Field(default="", max_length=40)      # 预置画风 key（空=未选择）
+
+    @field_validator("project_id")
+    @classmethod
+    def _safe_pid(cls, v: str | None) -> str | None:
+        # 指定 id 会成为 comic_assets 落盘目录名——同样过路径安全校验
+        return _check_safe_name(v) if v else v
 
 
 class ProjectUpdate(BaseModel):
@@ -625,6 +632,12 @@ class ProjectUpdate(BaseModel):
 class ProjectBatchDelete(BaseModel):
     """批量删除项目请求体（COMIC-004 扩展：一次最多 500 个）。"""
     project_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class ArtStyleCreate(BaseModel):
+    """自定义作品风格创建（2026-08-24：新建作品选画风，预置之外可自定义）。"""
+    name: str = Field(min_length=1, max_length=30)
+    prompt: str = Field(default="", max_length=500)   # 生图提示词关键词
 
 
 class SessionBatchDelete(BaseModel):
@@ -670,6 +683,11 @@ class AssetGenerateRequest(BaseModel):
     width: int = Field(default=2560, ge=256, le=2560)
     height: int = Field(default=1440, ge=256, le=2560)
     transparent: bool = False               # 道具：透明背景 PNG
+
+    @field_validator("name", "project_id")
+    @classmethod
+    def _safe_name(cls, v: str) -> str:
+        return _check_safe_name(v)
 
 
 class AssetBatchGenerateRequest(BaseModel):
@@ -729,6 +747,32 @@ class KeyframeGenerateRequest(BaseModel):
     # 出图统一规格（2026-08-14 铁律）：分镜图 2560×1440（16:9）
     width: int = Field(default=2560, ge=256, le=2560)
     height: int = Field(default=1440, ge=256, le=2560)
+    # V37 seed 固定兜底（2026-08-27）：显式指定基础种子复用已验证
+    # 结果；None = 沿用该行最近版本的已存 seed（无则随机）。逐镜派生
+    # base_seed+shot_index，跨镜既有共享分量又有镜间差异
+    seed: int | None = Field(default=None, ge=0)
+    # 显式强制重抽（忽略已存 seed 与 VLM 重试沿用）——v36 抽卡失败
+    # 场景用户主动点「重新生成」时前端置 True
+    force_new_seed: bool = False
+    # P2-B 逐镜重抽（2026-08-28 暴露到端点）：仅重生成指定镜号
+    #（1-based），其余镜复用当前版本已落盘首帧与 seed——整版重抽
+    # 会给已达标镜引入新方差（V48 教训）；None=整版生成（原行为）
+    only_shots: list[int] | None = None
+    # 竞品文本优先模式（2026-08-29 竞品对齐实验）：True 时跳过 C 段
+    # 道具颜色词/角色外貌词剥除（_strip_prop_colors/_strip_char_appearance）
+    # ——竞品样张实测为「描述词文本赢过资产图」（高马尾/白衬衫/白色
+    # 行李箱均按 C 段原文渲染，尽管资产图为披肩发/黑色行李箱）。默认
+    # False 保持项目学说（资产图为准，v12/v22 事故裁定）；手部泛红
+    # 剥除（v64 渲染缺陷修复）不受此开关影响，恒生效。
+    text_priority: bool = False
+    # 推理后端选路（2026-08-27 双链路对比）：diffusers=本地
+    # paint_engine；comfy=ComfyUI 子进程工作流（与 H3 共用 8189
+    # 实例，与 diffusers 显存互斥——选 comfy 时先卸载本地管线，
+    # 反之亦然）；auto=None（P2-C 2026-08-28 默认）=PuLID 就绪且
+    # 有角色资产绑定时自动 comfy+PuLID 身份注入（质量优先，
+    # ~110s/镜），否则回落 diffusers；显式 diffusers 可指定快链路
+    engine: str | None = Field(
+        default=None, pattern="^(diffusers|comfy|auto)$")
 
 
 class KeyframeBatchRequest(BaseModel):

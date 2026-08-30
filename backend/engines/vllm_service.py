@@ -35,8 +35,9 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 log = logging.getLogger("omnispace.vllm")
 
@@ -55,6 +56,10 @@ VLLM_HOST = "127.0.0.1"
 VLLM_PORT = 8101
 HEALTH_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/health"
 CHAT_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/v1/chat/completions"
+# 生成期显存协商 dev 路由（VLLM_SERVER_DEV_MODE=1 时挂载）
+SLEEP_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/sleep"
+WAKE_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/wake_up"
+SLEEP_STATUS_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/is_sleeping"
 
 # 启动健康轮询：模型加载 + CUDA 图编译可能耗时，预算放宽
 # P3 §3.2 收敛：超时 300s → 240s（低于 WARMUP_TIMEOUT 的预算值，
@@ -86,6 +91,9 @@ class VLLMService:
         self._served_name: str = ""
         self._last_error: str = ""
         self._log_fh: io.TextIOWrapper | None = None
+        # Windows fallback 停止旗标（2026-08-27）：sleep_for_paint 404
+        # 停子进程让渡显存后置位，wake_from_paint 后台重启并复位
+        self._stopped_for_paint: bool = False
         # 取消标志（2026-08-22 锁竞争修复）：stop() 无权排队等待
         # start() 持有的锁（健康轮询+预热全程持锁，最长 ~300s），
         # 先无锁立此标志，start() 轮询循环自查自杀
@@ -127,6 +135,10 @@ class VLLMService:
             "running": self.is_running(),
             "healthy": self.is_healthy(),
             "booting": self.is_booting(),
+            # ADR-003 P3：睡眠/让渡态纳入可观测面（sleeping 探测 best-effort，
+            # 服务不可达为 None；stopped_for_paint 为 Windows fallback 让渡旗标）
+            "stopped_for_paint": self._stopped_for_paint,
+            "sleeping": self._is_sleeping() if self.is_healthy() else None,
             "pid": self._proc.pid if self._proc else None,
             "model_dir": self._model_dir,
             "served_name": self._served_name,
@@ -136,7 +148,158 @@ class VLLMService:
             "last_error": self._last_error,
         }
 
+    @property
+    def served_name(self) -> str:
+        """当前服务的模型名（= 模型目录名；未运行/已终止为空串）。"""
+        return self._served_name
+
+    @property
+    def stopped_for_paint(self) -> bool:
+        """是否处于「停进程让渡显存」睡眠态（Windows fallback，wake 后自愈）。"""
+        return self._stopped_for_paint
+
+    def _transition(self, to_state: str, reason: str) -> None:
+        """确定性状态迁移日志（ADR-003 P3 验收②）。
+
+        统一 grep 前缀「vLLM 状态:」——启动/取消/睡眠/唤醒/终止全链
+        可从 backend.log 单一关键词回放，消除「启动中→取消」不可观测态。
+        to_state 取值 = base_engine.EngineState 的 value 子集。
+        """
+        log.info("vLLM 状态: -> %s (%s)", to_state, reason)
+
     # ── 生命周期 ──────────────────────────────────────────────
+
+    def _is_sleeping(self) -> bool | None:
+        """查询睡眠态；None = 查询失败（服务不可达）。"""
+        try:
+            import requests
+            r = requests.get(SLEEP_STATUS_URL, timeout=5.0)
+            if r.status_code == 200:
+                return bool(r.json().get("is_sleeping"))
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def sleep_for_paint(self, settle_timeout_s: float = 90.0) -> bool:
+        """生成期显存协商：vLLM 权重卸到 CPU RAM（sleep level 1）。
+
+        互斥矩阵（OmniChat ↔ OmniDraw）的运行时落地：关键帧/绘画
+        生成入口在持 paint 锁后调用，把 vLLM 占用的 ~7GB 显存让给
+        FLUX 采样；生成结束调 wake_from_paint 恢复。
+
+        Windows fallback（2026-08-27）：vLLM 0.26.0 的 sleep mode
+        在 Windows 不可用（--enable-sleep-mode 启动校验读
+        /proc/self/maps 崩溃），/sleep 路由 404 → 停子进程让渡
+        全部显存（权重+KV），wake 时后台重启（冷启动 ~157s，
+        生成期 5min 场景可接受）。
+
+        协商是 best-effort：未运行/未就绪/已在睡眠均返回 True；
+        失败只记日志不抛异常——显存不足由 paint 引擎降级链兜底，
+        不让协商故障阻断生成链路。sleep 命令发出后轮询 is_sleeping
+        等卸载真正完成（权重 GPU→CPU 拷贝需数秒）。
+        """
+        if not self.is_healthy():
+            if self.is_running() or self.is_booting():
+                # booting 盲区修补（2026-08-28 V77 事故）：进程已
+                # Popen 但 health 未通（权重装载中，最长 240s）——
+                # 继续装载与在途生成争抢 GPU 算力/显存/RAM（V77 实
+                # 测并发 240s 触发质量总督深度降步），停掉让渡；
+                # 生成结束后 wake_from_paint 后台重启恢复对话能力
+                log.info("vLLM 启动中（未就绪），停止让渡显存（booting 分支）")
+                self._stopped_for_paint = True
+                self.stop()
+            return True
+        if self._is_sleeping() is True:
+            return True  # 幂等：已在睡眠
+        try:
+            import requests
+            resp = requests.post(f"{SLEEP_URL}?level=1", timeout=30.0)
+        except Exception as e:  # noqa: BLE001
+            log.warning("vLLM sleep 请求失败（不阻断生成）: %s", e)
+            return False
+        if resp.status_code == 404:
+            # Windows fallback：无 sleep mode 路由 → 停子进程
+            # （taskkill /T 进程树，显存秒级回收）
+            self._stopped_for_paint = True
+            if self.stop():
+                self._transition("sleeping", "windows fallback stopped_for_paint")
+                log.info("vLLM 已停止让渡显存（Windows fallback，"
+                         "生成结束后后台重启）")
+                return True
+            log.warning("vLLM 停止失败（不阻断生成，交由降级链兜底）")
+            return False
+        if resp.status_code != 200:
+            log.warning("vLLM sleep 响应 %s（不阻断生成）",
+                        resp.status_code)
+            return False
+        deadline = time.time() + settle_timeout_s
+        while time.time() < deadline:
+            st = self._is_sleeping()
+            if st is True:
+                self._transition("sleeping", "sleep level1 settled (weights -> RAM)")
+                log.info("vLLM 已睡眠（权重卸至 RAM，显存已让渡）")
+                return True
+            if st is None:
+                return False  # 服务在卸载中途失联，交由上层兜底
+            time.sleep(1.0)
+        log.warning("vLLM sleep 结算超时 %.0fs（不阻断生成）",
+                    settle_timeout_s)
+        return False
+
+    def _restart_after_paint_bg(self) -> None:
+        """Windows fallback 收尾：后台重启 vLLM（同模型目录）。
+
+        独立线程执行——冷启动健康轮询 ~157s 不能阻塞生成 API 的
+        finally 收尾；期间 chat 请求由 vllm dialog 端点的失败自愈
+        /下次 start() 幂等拉起兜底。
+        """
+        try:
+            ok = self.start(model_dir=self._model_dir or None)
+            log.info("vLLM 生成后重启%s", "成功" if ok else "失败")
+        except Exception as e:  # noqa: BLE001
+            log.warning("vLLM 生成后重启异常（看门狗自愈兜底）: %s", e)
+
+    def wake_from_paint(self, settle_timeout_s: float = 120.0) -> bool:
+        """生成期显存协商收尾：唤醒 vLLM（权重 RAM→GPU）。
+
+        best-effort 同 sleep_for_paint；唤醒需重建 KV cache，预算
+        放宽到 120s。sleep 中途引擎崩溃等极端场景返回 False，由
+        vLLM 看门狗/下次 start() 自愈。Windows fallback 停掉的
+        实例在此后台重启。
+        """
+        if self._stopped_for_paint:
+            self._stopped_for_paint = False
+            self._transition("booting", "wake: background restart after paint")
+            threading.Thread(
+                target=self._restart_after_paint_bg,
+                name="vllm-restart-after-paint", daemon=True,
+            ).start()
+            return True
+        if not self.is_healthy():
+            return True  # 未运行无谓唤醒
+        if self._is_sleeping() is False:
+            return True  # 幂等：已醒
+        try:
+            import requests
+            resp = requests.post(WAKE_URL, timeout=60.0)
+            if resp.status_code != 200:
+                log.warning("vLLM wake_up 响应 %s", resp.status_code)
+                return False
+        except Exception as e:  # noqa: BLE001
+            log.warning("vLLM wake_up 请求失败: %s", e)
+            return False
+        deadline = time.time() + settle_timeout_s
+        while time.time() < deadline:
+            st = self._is_sleeping()
+            if st is False:
+                self._transition("ready", "wake_up settled (weights -> GPU)")
+                log.info("vLLM 已唤醒（权重回 GPU，对话能力恢复）")
+                return True
+            if st is None:
+                return False
+            time.sleep(1.0)
+        log.warning("vLLM wake_up 结算超时 %.0fs", settle_timeout_s)
+        return False
 
     def start(
         self,
@@ -160,6 +323,43 @@ class VLLMService:
         Returns:
             True 服务就绪；False 失败（原因见 last_error，进程已回收）
         """
+        # 功能锁门禁（2026-08-28 V77 事故根修）：paint/video_gen/
+        # training 持锁期间禁止启动 vLLM——冷启动全程（最长 240s）
+        # 与在途生成争抢 GPU 算力/显存/RAM，触发质量总督深度降步
+        #（36→14 步，V77 shot3 棕发/shot4 3D 化画质崩坏）。一致性
+        # 守卫在锁释放后才点火（keyframe 端点 finally 先释锁再
+        # create_task），对话请求自身持 dialog 锁，均不受影响。
+        try:
+            from ..middleware.feature_lock import get_feature_lock
+            _active = get_feature_lock().active_feature
+        except Exception:  # noqa: BLE001 - 锁探测失败不阻断启动
+            _active = None
+        if _active in ("paint", "video_gen", "training"):
+            self._last_error = f"功能锁占用中（{_active}），vLLM 延迟启动"
+            log.info("vLLM 启动暂缓：%s 功能锁持有中，生成结束后再启动",
+                     _active)
+            return False
+        # 显存准入闸门（2026-08-29 E2E 压测修复）：两次后端进程静默
+        # 死亡（无 Python traceback，原生层崩溃特征）均发生于显存
+        # ≥97% 时启动 vLLM——0.85 util 对整卡硬预分配，空闲不足即推
+        # 过 100% 触发原生崩溃。设备级空闲 < 预分配量 → 诚实拒绝
+        #（dialog_engine 有 transformers 4B 诚实降级链兜底）。
+        try:
+            import torch as _torch
+            if _torch.cuda.is_available():
+                _free_b, _total_b = _torch.cuda.mem_get_info(0)
+                _need_b = int(_total_b * gpu_memory_utilization * 0.98)
+                if _free_b < _need_b:
+                    self._last_error = (
+                        f"设备空闲显存 {_free_b / 2 ** 30:.1f}GB 不足以"
+                        f"安全启动 vLLM（需预分配 {_need_b / 2 ** 30:.1f}GB，"
+                        f"util={gpu_memory_utilization}）；请等待在途生成"
+                        "结束或卸载驻留模型后重试")
+                    log.warning("vLLM 启动被显存准入闸门拒绝: %s",
+                                self._last_error)
+                    return False
+        except Exception:  # noqa: BLE001 - 探测失败保持旧行为
+            pass
         with self._lock:
             self._last_error = ""
             self._cancel_requested = False  # 新一轮启动，清除历史取消
@@ -222,9 +422,22 @@ class VLLMService:
                 "--max-model-len", str(max_model_len),
                 "--gpu-memory-utilization", str(gpu_memory_utilization),
                 "--enable-prefix-caching",
+                # sleep mode 已回退（2026-08-27）：vLLM 0.26.0 Windows
+                # 兼容 bug——--enable-sleep-mode 启动校验走 cumem
+                # allocator 探测（find_loaded_library 读 /proc/self/maps，
+                # Linux 专属路径）→ FileNotFoundError 子进程直接崩溃。
+                # 9B 关键帧改 GGUF Q4_K_M（5.5GB GPU 常驻）后激活空间
+                # 充足，1280×720 原生采样不再依赖 vLLM 让渡；协商端点
+                # 保留为 best-effort（路由 404 → warning 不阻断）。
                 "--no-enable-log-requests",
                 "--seed", "42",
             ]
+            # DeepSeek R1 系（2026-08-25 接入 W4A16）：reasoning parser
+            # 把 <think>...</think> 推理段分离到 delta.reasoning_content
+            # ——chat_stream 只读 delta.content，思考过程天然剥离不进
+            # 前端正文（parser 与模型架构无关，仅文本层解析 <think> 标签）
+            if "deepseek-r1" in mdir.name.lower():
+                cmd += ["--reasoning-parser", "deepseek_r1"]
             env = os.environ.copy()
             # Windows 控制台默认 GBK，vLLM banner 含 unicode 块字符会
             # UnicodeEncodeError 丢日志（日志文件亦按此编码写）
@@ -249,6 +462,7 @@ class VLLMService:
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
                 VLLM_LOG, "a", encoding="utf-8", buffering=1)
 
+            self._transition("booting", f"cold start {mdir.name}")
             log.info("启动 vLLM 子进程: %s", " ".join(cmd))
             try:
                 self._proc = subprocess.Popen(
@@ -262,6 +476,7 @@ class VLLMService:
             except Exception as exc:  # noqa: BLE001
                 self._last_error = f"vLLM 子进程启动失败: {exc}"
                 log.exception(self._last_error)
+                self._transition("error", "popen_failed")
                 self._close_log()
                 return False
 
@@ -277,6 +492,7 @@ class VLLMService:
                 # 释放锁（T2 实测旧实现排队 157s 击穿 3s 预算）
                 if self._cancel_requested:
                     self._last_error = "vLLM 启动被取消（模块切换资源释放）"
+                    self._transition("stopping", "cancel_requested (模块切换)")
                     log.info(self._last_error)
                     try:  # 大白话事件：启动被取消
                         from ..services.event_log import log_event
@@ -288,6 +504,7 @@ class VLLMService:
                     except Exception:  # noqa: BLE001
                         pass
                     self._kill_locked()
+                    self._transition("unloaded", "start cancelled")
                     return False
                 if self._proc.poll() is not None:
                     code = self._proc.returncode
@@ -295,6 +512,7 @@ class VLLMService:
                         f"vLLM 子进程异常退出(code={code})，"
                         f"详见 {VLLM_LOG}")
                     log.error(self._last_error)
+                    self._transition("error", f"proc_exit code={code}")
                     self._proc = None
                     self._close_log()
                     return False
@@ -303,6 +521,7 @@ class VLLMService:
                     resp = requests.get(HEALTH_URL, timeout=2.0)
                     if resp.status_code == 200:
                         _ready_s = time.time() - self._started_at
+                        self._transition("ready", f"boot took {_ready_s:.0f}s")
                         log.info(
                             "vLLM 服务就绪: %s (%.0fs, pid=%d, 模型 %s)",
                             CHAT_URL.rsplit("/", 1)[0],
@@ -333,8 +552,11 @@ class VLLMService:
                         if self._cancel_requested:
                             self._last_error = (
                                 "vLLM 启动被取消（模块切换资源释放）")
+                            self._transition(
+                                "stopping", "cancel_requested (预热窗口)")
                             log.info("预热完成时发现取消请求，终止子进程")
                             self._kill_locked()
+                            self._transition("unloaded", "warmup cancelled")
                             return False
                         return True
                 except Exception:  # noqa: BLE001 - 未就绪继续轮询
@@ -346,6 +568,7 @@ class VLLMService:
                 f"vLLM 启动超时({startup_timeout_s:.0f}s)，已终止子进程，"
                 f"详见 {VLLM_LOG}")
             log.warning(self._last_error)
+            self._transition("stopping", f"startup_timeout {startup_timeout_s:.0f}s")
             try:  # 大白话事件：启动失败（子进程退出/超时共用）
                 from ..services.event_log import log_event
                 log_event(
@@ -357,6 +580,7 @@ class VLLMService:
             except Exception:  # noqa: BLE001
                 pass
             self._kill_locked()
+            self._transition("unloaded", "startup timeout")
             return False
 
     def start_async(
@@ -442,6 +666,7 @@ class VLLMService:
             self._proc = None
             self._close_log()
             return True
+        self._transition("stopping", f"kill process tree pid={proc.pid}")
         log.info("停止 vLLM 子进程树 pid=%d", proc.pid)
         # Windows: vLLM APIServer 会 spawn EngineCore 等孙进程，
         # terminate() 仅杀主进程，孙进程成孤儿继续持有整卡显存
@@ -472,12 +697,13 @@ class VLLMService:
         _stopped_name = self._served_name
         self._served_name = ""
         self._close_log()
+        self._transition("unloaded", f"process tree terminated (was {_stopped_name or 'unknown'})")
         log.info("vLLM 子进程已退出，显存已随进程回收")
         try:  # 大白话事件：vLLM 引擎停止
             from ..services.event_log import log_event
             log_event(
                 "vllm", "service_stopped",
-                f"AI 推理引擎已停止"
+                "AI 推理引擎已停止"
                 + (f"（原运行模型「{_stopped_name}」）" if _stopped_name else "")
                 + "，显存已全部回收",
                 level="info")
@@ -488,19 +714,31 @@ class VLLMService:
     def _reap_orphans(self) -> None:
         """清扫上次会话遗留的 py313 vLLM 孤儿进程（尽力而为，不抛错）。
 
-        仅匹配可执行路径 == runtime/py313/python.exe 的进程——该运行时
-        专属本服务，不会误伤主进程（py310）或系统 Python。
+        判据 = exe == runtime/py313/python.exe **且命令行含
+        vllm.entrypoints**（2026-08-27 误杀事故修复：原版只按 exe
+        路径匹配，把同运行时的任意 py313 进程——沙箱验证脚本、
+        用户自启工具——一律 taskkill /T 误杀；两次 int4 压测「无
+        traceback 静默死亡」均为此因）。仍须排除当前进程及其全部
+        祖先（2026-08-26 自杀事故，后端/launcher 同样运行在 py313
+        运行时，launcher 父进程被当孤儿 taskkill /T 整树（含后端
+        自己），表现为预载阶段日志戛然、全进程消失）。
         """
         try:
             import psutil
         except ImportError:  # py310 无 psutil 时跳过（依赖交付清单含 psutil）
             return
         target = str(PY313_EXE).lower()
-        me = os.getpid()
-        for p in psutil.process_iter(["pid", "exe"]):
+        try:
+            me_proc = psutil.Process(os.getpid())
+            protected = {me_proc.pid} | {pp.pid for pp in me_proc.parents()}
+        except Exception:  # noqa: BLE001 - 保底仅排除自身
+            protected = {os.getpid()}
+        for p in psutil.process_iter(["pid", "exe", "cmdline"]):
             try:
                 exe = (p.info["exe"] or "").lower()
-                if exe == target and p.info["pid"] != me:
+                cmdline = " ".join(p.info["cmdline"] or []).lower()
+                if (exe == target and "vllm.entrypoints" in cmdline
+                        and p.info["pid"] not in protected):
                     log.warning("清扫 vLLM 孤儿进程 pid=%d", p.info["pid"])
                     subprocess.run(
                         ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
@@ -630,6 +868,12 @@ class VLLMService:
             payload.pop("temperature")
 
         got_chunk = False  # 是否收到过任何 SSE 数据（区分首字超时/中途断开）
+        # R1 系 reasoning parser：思考进 delta.reasoning_content、正文进
+        # delta.content。max_tokens 不足时思考耗尽预算、正文零产出——
+        # 收集思考段，流结束时若正文为空则回退产出（内部功能调用
+        # 如 AI 画面描述/实体提取依赖完整输出；正常对话正文非空不受影响）
+        reasoning_parts: list[str] = []
+        got_content = False
         try:
             with requests.post(
                 CHAT_URL, json=payload,
@@ -658,7 +902,20 @@ class VLLMService:
                     delta = choices[0].get("delta") or {}
                     text = delta.get("content")
                     if text:
+                        got_content = True
                         yield text
+                    else:
+                        rc = delta.get("reasoning_content")
+                        if rc:
+                            reasoning_parts.append(rc)
+            # 正文零产出回退：思考耗尽 max_tokens 的场景（R1 短预算
+            # 内部调用），产出思考段保证调用方拿到模型实际输出
+            if not got_content and reasoning_parts:
+                fallback = "".join(reasoning_parts).strip()
+                if fallback:
+                    log.info("vLLM 正文为空，回退产出思考段（%d 字）",
+                             len(fallback))
+                    yield fallback
         except requests.exceptions.ReadTimeout as exc:
             raise self._timeout_error(exc, got_chunk) from exc
         except requests.exceptions.ConnectionError as exc:

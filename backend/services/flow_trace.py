@@ -60,9 +60,8 @@ import threading
 import time
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Iterator
+from datetime import datetime
+from typing import Any
 
 from ..config import LOGS_DIR
 
@@ -83,11 +82,11 @@ _cleanup_started = False
 _cleanup_lock = threading.Lock()
 
 # 活跃流程注册表（进程内）：orphan 判定 + 崩溃恢复的内存真源
-_active_flows: dict[str, "Flow"] = {}
+_active_flows: dict[str, Flow] = {}
 _registry_lock = threading.Lock()
 
 # contextvars：asyncio 任务链自动继承（FastAPI 请求 → 协程）
-_current_flow: ContextVar["Flow | None"] = ContextVar("flow_trace", default=None)
+_current_flow: ContextVar[Flow | None] = ContextVar("flow_trace", default=None)
 
 
 # ── 资源快照（CPU/内存/GPU，全 try 包裹，缺库降级空值） ────────────
@@ -235,7 +234,7 @@ class _NodeCtx:
     __slots__ = ("flow", "name", "seq", "status", "started_at",
                  "_input", "_output", "_friendly", "_detail", "_module")
 
-    def __init__(self, flow: "Flow", name: str, seq: int,
+    def __init__(self, flow: Flow, name: str, seq: int,
                  input_summary: str = "", friendly: str = "",
                  module: str = "", detail: str = ""):
         self.flow = flow
@@ -299,7 +298,7 @@ class _NodeCtx:
             duration_ms=duration_ms,
             trace_id=self.flow.flow_id)
 
-    def __enter__(self) -> "_NodeCtx":
+    def __enter__(self) -> _NodeCtx:
         _exec(
             "INSERT INTO flow_nodes (flow_id, seq, node, module, status,"
             " started_at, input_summary, friendly) VALUES (?,?,?,?,?,?,?,?)",
@@ -402,7 +401,7 @@ class Flow:
             duration_ms=duration_ms,
             trace_id=self.flow_id)
 
-    def attach(self) -> "Flow":
+    def attach(self) -> Flow:
         """在当前线程/协程上下文绑定此流程（contextvars 传播）。"""
         _current_flow.set(self)
         return self
@@ -441,7 +440,7 @@ def flow_node(name: str, *, input_summary: str = "", friendly: str = "",
 class _NullNode:
     """无流程上下文时的哑节点（全操作 no-op）。"""
 
-    def __enter__(self) -> "_NullNode":
+    def __enter__(self) -> _NullNode:
         return self
 
     def __exit__(self, *args) -> bool:
@@ -469,14 +468,14 @@ class NullFlow:
 
     def node(self, name: str, *, input_summary: str = "",
              friendly: str = "", module: str = "",
-             detail: str = "", start_at: float | None = None) -> "_NullNode":
+             detail: str = "", start_at: float | None = None) -> _NullNode:
         return _NullNode()
 
     def end(self, status: str = "success", *, output_summary: str = "",
             error_code: str = "", error_detail: str = "") -> None:
         pass
 
-    def attach(self) -> "NullFlow":
+    def attach(self) -> NullFlow:
         return self
 
 

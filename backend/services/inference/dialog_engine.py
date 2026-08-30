@@ -31,6 +31,7 @@ from typing import Any, ClassVar
 
 from ...config import DIALOG_MAX_PREFILL_TOKENS, MODELS_DIR
 from .backends import DialogBackend, TransformersBackend, create_backend
+from .base_engine import BaseEngine
 
 logger = logging.getLogger("omnispace.inference.dialog")
 
@@ -51,7 +52,14 @@ def _try_import(name: str) -> Any:
 DIALOG_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     ("qwen3-vl-4b", "qwen3-vl-4b", 9.0),
     ("qwen3-vl-8b-awq", "qwen3-vl-8b-awq", 7.5),
-    ("qwen2-vl-2b", "qwen2-vl-2b", 5.0),
+    # DeepSeek-R1-Distill-Qwen-14B W4A16（2026-08-25 接入）：
+    # neuralmagic GPTQ int4 compressed-tensors（9.25GB 权重，
+    # transformers 无 compressed_tensors 包加载不了 → 自动路由
+    # vLLM 子进程推理）；R1 推理模型，<think> 段由 vllm_service
+    # 的 --reasoning-parser deepseek_r1 剥离。纯文本（无视觉），
+    # 仅显式点名加载，不作自动缺省。2026-08-29 模型裁剪后为
+    # 漫剧·文字槽（manga-dialog）专用底座。
+    ("deepseek-r1-14b-w4a16", "deepseek-r1-14b-w4a16", 11.5),
 ]
 
 # R2-B10：高档位硬件（min_vram≥12GB 档，RTX 4090/5090）追加 8B 首选候选
@@ -72,6 +80,7 @@ _NON_DIALOG_MODEL_TYPES = {
     "sense_voice", "hubert", "wav2vec2", "clap", "encodec", "bert",
     "roberta", "xlm-roberta", "sentence-transformers", "clip", "siglip",
     "vit", "deit", "detr", "sam", "dpt", "depth_anything",
+    "qwen3_tts", "qwen2_tts", "cosyvoice",
 }
 # 目录/文件最小权重体积（<100MB 视为非完整模型，如 adapter/配置残留）
 _MIN_WEIGHT_BYTES = 100 * 1024 * 1024
@@ -119,7 +128,11 @@ def _detect_backend(model_dir: Path) -> str:
     model_type, archs = _read_config_model_type(model_dir)
     if model_type in _NON_DIALOG_MODEL_TYPES:
         return ""
-    if any("whisper" in a or "bark" in a for a in archs):
+    # TTS 架构（Qwen3TTSForConditionalGeneration 等）虽以
+    # ForConditionalGeneration 注册，但 transformers 对话链路不支持，
+    # 必须在架构层一并排除（2026-08-25 实测：自动选择回退误载
+    # qwen3-tts → KeyError: 'qwen3_tts'）
+    if any("whisper" in a or "bark" in a or "tts" in a for a in archs):
         return ""
     if _is_awq_model(model_dir):
         return "vllm"
@@ -525,7 +538,7 @@ def _estimated_load_gb(path: Path, backend: str) -> float:
     return est
 
 
-class DialogEngine:
+class DialogEngine(BaseEngine):
     """对话推理引擎（编排层）——后端可插拔（transformers/gguf/vllm）。
 
     状态机: unavailable -> unloaded -> ready / error
@@ -538,7 +551,11 @@ class DialogEngine:
     并发）；引擎层只做生命周期串行（_lock）与统一指标计时。
     """
 
+    name = "dialog"
+    serves_categories = ("dialog", "language", "omni")
+
     def __init__(self) -> None:
+        super().__init__()
         # 当前后端实例（None 表示未加载）
         self._backend: DialogBackend | None = None
         # 当前后端类型字符串（vl/text/gguf/vllm，get_status 兼容口径）
@@ -1024,17 +1041,32 @@ class DialogEngine:
                 pass
 
         # model_manager 协调契约（容错 import）
+        # mgr_result 三态（2026-08-28 V77 事故根修）：True=mgr 已加载
+        # 成功；False=mgr 明确拒绝/被取消（显存分配拒绝、模块切换释放
+        # 等）——此前返回值被丢弃，fallback 直载把「取消」当「失败」
+        # 立刻重试，vLLM 与关键帧生成并发 240s 抢卡触发深度降步；
+        # None=mgr 不可用（旧契约兜底）才走自身加载流程
+        mgr_result: bool | None = None
         try:
             from ..model_manager import get_model_manager  # type: ignore
             mgr = get_model_manager()
             ensure = getattr(mgr, "ensure_loaded", None)
             if callable(ensure):
                 try:
-                    ensure("dialog", model_id or self._default_model_id())
+                    mgr_result = bool(
+                        ensure("dialog", model_id or self._default_model_id()))
                 except Exception as exc:
                     logger.debug("model_manager.ensure_loaded 调用失败: %s", exc)
         except Exception:
             pass
+
+        if mgr_result is True:
+            return True  # mgr 协调加载成功（台账已记账，无需补登记）
+        if mgr_result is False:
+            logger.info(
+                "model_manager 未加载 dialog 模型（%s），尊重裁决不直载",
+                getattr(mgr, "last_error", "") or "已取消/拒绝")
+            return False
 
         ok = self.load_model(model_id)
         if ok:
@@ -1324,12 +1356,47 @@ class DialogEngine:
     def model_name(self) -> str:
         return self._model_id or "none"
 
+    def _unified_state(self) -> str:
+        """统一状态（ADR-003 P3）：vLLM 子进程态并入引擎状态机。
+
+        进程内后端直接映射既有 _state 字符串（值域与 EngineState 对齐）；
+        vLLM 后端以子进程事实为准——**无论引擎是否已持有 backend**都查
+        询服务（启动预热先拉子进程、后建 backend，engine 态缺失不应
+        遮蔽 booting 窗口）：booting（含健康未通窗口与预热期）/
+        sleeping（Windows fallback 让渡）/ready（健康就绪且引擎已持有
+        backend），并检测「引擎态 ready 但子进程已消失」的失联（如实
+        报 unloaded）。
+        """
+        backend = self._backend
+        if backend is not None and getattr(backend, "name", "") != "vllm":
+            return self._state
+        try:
+            from ...engines.vllm_service import get_vllm_service
+            svc = get_vllm_service()
+        except Exception:  # noqa: BLE001 - 服务解析失败按引擎自身状态
+            return self._state
+        if svc.is_booting():
+            return "booting"
+        if svc.is_running():
+            # 健康未通 = 权重装载窗口；健康已通但引擎未持有 backend =
+            # load_model 收尾窗口——两者都如实报 booting
+            if svc.is_healthy() and backend is not None:
+                return "ready"
+            return "booting"
+        if getattr(svc, "stopped_for_paint", False):
+            return "sleeping"
+        if backend is not None and self._state == "ready":
+            # 引擎态 ready 但子进程已消失（被模块切换终止等）——如实降级
+            logger.info("对话引擎态 ready 但 vLLM 子进程已消失，状态降级 unloaded")
+            return "unloaded"
+        return self._state
+
     def get_status(self) -> dict:
         """引擎状态快照。"""
         backend = self._backend
         return {
             "engine": "dialog",
-            "state": self._state,               # unavailable/unloaded/ready/error
+            "state": self._unified_state(),     # EngineState 值域（P3 含 booting/sleeping）
             "loaded": self._state == "ready",
             "model": self._model_id,
             "model_dir": str(self._model_dir) if self._model_dir else "",

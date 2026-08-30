@@ -20,6 +20,7 @@ from __future__ import annotations
 import gc
 import importlib
 import logging
+import re as _re
 import threading
 import time
 from pathlib import Path
@@ -107,6 +108,14 @@ _MODEL_PATH_HINTS: dict[str, str] = {
     "sdxl-base-1.0": "paint/sdxl-base-1.0",
     # 四视图 one-pass 中文直入底座（paint/ 下 diffusers 布局）
     "flux2-klein-4b": "paint/flux2-klein-4b",
+    # FLUX.2 Klein 9B（quanto float8 量化布局，2026-08-25 接入）
+    "flux2-klein-9b": "paint/flux2-klein-9b",
+    # DeepSeek-R1-Distill-14B W4A16（vLLM 子进程，2026-08-25 接入）
+    "deepseek-r1-14b-w4a16": "deepseek-r1-14b-w4a16",
+    # MiniMax H3 33B（ComfyUI 子进程管线，2026-08-25）：
+    # video_gen/h3 为 ComfyUI 单文件权重布局（非 diffusers），
+    # 扫描无法命中，显式登记供模型管理页发现
+    "minimax-h3": "video_gen/h3",
     "bge-large-zh":  "embed/bge-large-zh",
 }
 
@@ -120,7 +129,6 @@ _COMPONENT_DIR_NAMES: set[str] = {
 }
 
 # LoRA/说话人版本目录（lora/v1、lora/v2、gpt-sovits/sv 之外的 vN 命名）
-import re as _re
 _LORA_VERSION_RE = _re.compile(r"^v\d{1,2}$")
 
 # 显存估算人工覆盖（引擎候选表/路由表之后、磁盘大小回退之前）：
@@ -128,11 +136,21 @@ _LORA_VERSION_RE = _re.compile(r"^v\d{1,2}$")
 _VRAM_OVERRIDES: dict[str, float] = {
     "sd15": 4.0,             # SD1.5 fp16 实加载约 3.5~4GB（AnimateLCM 基座）
     "ltx-video-0.9.5": 12.0, # fp16 权重约 12GB（磁盘 23.6GB 为 fp32 全量）
+    # H3 NVFP4：DynamicVRAM 分时换载采样峰值 ~12GB（磁盘 42.7GB 为
+    # NVFP4+int4 全家桶——DiT 11.7 + 编码器 13.9 + VAE 5.4 分时驻留）
+    "minimax-h3": 13.0,
     "qwen3-vl-8b": 16.3,     # bf16 真实权重（2026-08-20 崩溃修复：候选表 12GB
                              # 严重低估，16GB 卡加载必然 OOM 杀进程）
     # 视觉语音全模态（omni）：Thinker3B + Talker0.5B bf16 约 15GB；
     # AWQ int4 约 6GB（磁盘约 6.5GB，×1.2 高估幅度小，不覆盖）
     "qwen2.5-omni-7b": 15.0,
+    # FLUX.2 Klein 9B（2026-08-25 接入）：磁盘 32.3GB 为 bf16 全量
+    # （transformer 16.9 + 编码器 15.3），实际 quanto float8 量化后
+    # transformer 9.7GB 常驻 GPU，磁盘扫描 ×1.2≈38.8GB 严重高估
+    "flux2-klein-9b": 10.5,
+    # DeepSeek-R1-Distill-14B W4A16（2026-08-25 接入）：vLLM 子进程
+    # 加载权重 ~9.3GB + KV cache + 激活，GPU 需求约 11.5GB
+    "deepseek-r1-14b-w4a16": 11.5,
 }
 
 # 模型目录的“已下载”判定特征文件
@@ -424,16 +442,27 @@ class ModelManager:
         except Exception as exc:  # noqa: BLE001
             log.warning("模型目录扫描异常: %s", exc)
 
-        # 祖先包含剪枝：路径位于另一模型目录内 → 是组件而非独立模型
+        # 祖先包含剪枝：路径位于另一模型目录内 → 是组件而非独立模型。
+        # 相同路径不视为嵌套——hints 显式 id（minimax-h3）与通用扫描的
+        # 目录名 id（h3）同路径互剪会让两者双双消失（2026-08-25 实测），
+        # 且同路径去重时 hints 权威 id 优先于目录名 id
         pruned: dict[str, dict] = {}
         paths = sorted(found.items(), key=lambda kv: len(kv[1]["path"]))
         for mid, hit in paths:
             nested = any(
                 other is not hit
+                and other["path"] != hit["path"]
                 and Path(hit["path"]).is_relative_to(Path(other["path"]))
                 for other in found.values()
             )
-            if not nested:
+            if nested:
+                continue
+            dup = next((k for k, v in pruned.items()
+                        if v["path"] == hit["path"]), None)
+            if dup is None:
+                pruned[mid] = hit
+            elif mid in _MODEL_PATH_HINTS and dup not in _MODEL_PATH_HINTS:
+                del pruned[dup]
                 pruned[mid] = hit
 
         self._disk_scan_cache = pruned
@@ -656,42 +685,19 @@ class ModelManager:
     # ═══════════════════════════════════════════════════════════════
 
     def _get_engine(self, category: str) -> Any:
-        """按类别获取推理引擎单例（懒加载 + 容错）。"""
+        """按类别获取推理引擎单例（ADR-003 P2：注册表驱动，懒加载 + 容错）。
+
+        品类 → 引擎映射收敛至 inference.base_engine.ENGINE_MODULES：
+        新增品类调用 register_engine_module() 即接入本管理器，无需改动
+        此处。未注册品类（auxiliary/embedding/3d 等）→ None（调用方按
+        CPU 侧自管语义记账）。缓存与容错语义与迁移前逐条对齐。
+        """
         cat = (category or "").strip().lower()
         if cat in self._engines:
             return self._engines[cat]
 
-        engine = None
-        if cat in ("dialog", "language", "omni"):
-            # omni（视觉语音全模态）同样由对话引擎承载（语音/视频对话）
-            mod = _try_import("backend.services.inference.dialog_engine")
-            if mod is not None:
-                try:
-                    getter = getattr(mod, "get_dialog_engine", None)
-                    engine = getter() if callable(getter) else mod.DialogEngine()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("对话引擎实例化失败: %s", exc)
-        elif cat in ("vision", "paint", "image"):
-            # paint_engine 可能损坏/缺失 —— 容错导入
-            mod = _try_import("backend.services.inference.paint_engine")
-            if mod is not None:
-                try:
-                    getter = getattr(mod, "get_paint_engine", None)
-                    engine = getter() if callable(getter) else mod.PaintEngine()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("绘画引擎实例化失败: %s", exc)
-        elif cat in ("video", "video_gen"):
-            mod = _try_import("backend.services.inference.video_engine")
-            if mod is not None:
-                try:
-                    # 优先模块级单例 getter（与 manga 视频工作线程同一
-                    # 实例），否则卸载/记账会作用于另一空实例而真实管线
-                    # 引用残留（对齐 dialog/paint 引擎接线方式）
-                    getter = getattr(mod, "get_video_engine", None)
-                    engine = getter() if callable(getter) else mod.VideoEngine()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("视频引擎实例化失败: %s", exc)
-        # auxiliary/voice/embedding 等无 GPU 引擎类别 → None（由调用方本地加载）
+        from ..inference.base_engine import resolve_engine
+        engine = resolve_engine(cat)
 
         self._engines[cat] = engine
         return engine
@@ -840,6 +846,17 @@ class ModelManager:
             log.debug("memory_manager 注销跳过: %s", exc)
         log.info("模型台账清理（引擎已自行释放）: %s", model_id)
         return True
+
+    def rollback_allocation(self, required_gb: float) -> None:
+        """回滚 allocate_memory 的预留量（对称扣减，clamp 0）。
+
+        供引擎直载路径使用（2026-08-25 ModelSwitchEngine P2 video
+        接入）：allocate 成功但 video_engine.load_model 失败时，
+        预留量已加而台账未登记——不经此回滚会永久泄漏记账显存。
+        """
+        with self._vram_lock:
+            self._reserved_vram_gb = max(
+                0.0, self._reserved_vram_gb - float(required_gb))
 
     def unload_model(self, model_id: str) -> bool:
         """从 GPU 卸载模型并释放记账显存。"""
@@ -1064,12 +1081,23 @@ class ModelManager:
                     svc = get_vllm_service()
                     if svc.is_running():
                         t_vllm = time.monotonic()
+                        # 先捕获服务名：终止后 _served_name 即被清空
+                        _served = svc.served_name
                         vllm_stopped = svc.stop(timeout_s=2.0)
                         if vllm_stopped:
                             freed_models.append("qwen3-vl-8b-awq(vllm)")
                             log.info("vLLM 子进程按需终止(→%s)供显存: %dms",
                                      target,
                                      round((time.monotonic() - t_vllm) * 1000))
+                            # ADR-003 P3 验收①（面板一致性）：子进程已死
+                            # 而台账/引擎态还挂着 → 模型面板 stale。经
+                            # 正常 unload_model 链路同步（幂等：条目不
+                            # 存在或进程已死时均为安全 no-op）
+                            if _served:
+                                try:
+                                    self.unload_model(_served)
+                                except Exception as exc:  # noqa: BLE001
+                                    log.debug("vLLM 台账同步跳过: %s", exc)
                 except Exception as exc:  # noqa: BLE001 - vLLM 释放失败不阻断
                     log.warning("vLLM 子进程释放异常: %s", exc)
             else:

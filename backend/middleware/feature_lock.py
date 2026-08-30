@@ -50,6 +50,13 @@ class FeatureLockManager:
         self._holder: str | None = None
         self._acquired_at: float = 0.0
         self._holder_task_id: str | None = None
+        # 同功能重入计数（审计 P1-1 修复，2026-08-29）：此前同功能
+        # 第二次 acquire 成功后，先完成者的 release 会把锁整个清空，
+        # 另一任务仍在运行时跨功能互斥即告失效（视频双任务并发生成
+        # 实证路径）。release 递减，归零才真正放锁。
+        # 兼容注：lora_training_service 的同步降级路径直写 `_holder`
+        #（不经本计数）——release 时 max(0, …) 钳制，终态与旧行为一致。
+        self._hold_count = 0
         self._lock = asyncio.Lock()
         # 最近一次用户功能活动时间（acquire/release 均刷新），
         # 供调度器空闲显存回收判定；进程启动即开始计空闲。
@@ -96,22 +103,36 @@ class FeatureLockManager:
         async with self._lock:
             if self._holder is not None and self._holder != feature:
                 return False
-            self._holder = feature
-            self._acquired_at = time.time()
+            if self._holder == feature:
+                self._hold_count += 1
+            else:
+                self._holder = feature
+                self._hold_count = 1
+                self._acquired_at = time.time()
             self._holder_task_id = task_id
             self._last_activity_at = self._acquired_at
-            log.info("功能锁获取: %s (task=%s)", feature, task_id)
+            log.info("功能锁获取: %s (task=%s, 重入=%d)",
+                     feature, task_id, self._hold_count)
             return True
 
     async def release(self, feature: str) -> None:
-        """释放功能锁（仅当当前持有者与 feature 一致时）。"""
+        """释放功能锁（仅当当前持有者与 feature 一致时）。
+
+        计数式释放（审计 P1-1）：同功能多次 acquire 须等额 release，
+        计数归零才放锁——先完成的请求不再提前瓦解互斥。
+        """
         async with self._lock:
             if self._holder == feature:
                 held = time.time() - self._acquired_at
-                log.info("功能锁释放: %s (持有 %.1fs)", feature, held)
-                self._holder = None
-                self._holder_task_id = None
-                self._last_activity_at = time.time()
+                self._hold_count = max(0, self._hold_count - 1)
+                if self._hold_count == 0:
+                    log.info("功能锁释放: %s (持有 %.1fs)", feature, held)
+                    self._holder = None
+                    self._holder_task_id = None
+                    self._last_activity_at = time.time()
+                else:
+                    log.info("功能锁递减: %s (剩余重入=%d)",
+                             feature, self._hold_count)
 
     def status(self) -> dict:
         """返回当前互斥状态快照。"""

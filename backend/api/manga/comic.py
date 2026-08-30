@@ -16,6 +16,7 @@ from ...config import (
 )
 from ...data.database import get_db_safe, parse_json
 from ...data.models import (
+    ArtStyleCreate,
     ProjectBatchDelete,
     ProjectCreate,
     ProjectUpdate,
@@ -23,6 +24,9 @@ from ...data.models import (
 )
 from ...middleware.error_handler import ApiError, ok
 from ...services.inference.video_engine import VIDEO_OUT_DIR
+from .comic_asset import (
+    assets_to_global,
+)
 from .common import (
     _ASSET_COLS,
     _KEYFRAME_DIR,
@@ -44,9 +48,6 @@ from .voice import (
     _DSL_MAX_BYTES,
     _TEMPLATE_COMIC_DRAMA,
 )
-from .comic_asset import (
-    assets_to_global,
-)
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.comic")
@@ -56,6 +57,7 @@ log = logging.getLogger("omnispace.api.manga.comic")
 def _project_row_to_dict(r: dict) -> dict:
     return {"project_id": r["id"], "name": r.get("name", ""),
             "work_mode": r.get("work_mode", "regular"),
+            "art_style": r.get("art_style", ""),
             "created_at": r.get("created_at", 0),
             "updated_at": r.get("updated_at", 0)}
 
@@ -146,6 +148,7 @@ def comic_project_create(req: ProjectCreate):
     now = _now()
     db.insert("projects", {"id": pid, "name": req.name, "path": "",
                            "work_mode": req.work_mode.value,
+                           "art_style": (req.art_style or "").strip(),
                            "created_at": now, "updated_at": now})
     rows: list[dict] = []
     if (req.template or "").strip() == "comic_drama":
@@ -159,6 +162,7 @@ def comic_project_create(req: ProjectCreate):
         db.update("storyboards", {"updated_at": _now()}, "id=?", (sb["id"],))
     return ok({"project_id": pid, "name": req.name,
                "template": req.template or "", "rows": rows,
+               "art_style": (req.art_style or "").strip(),
                "created_at": now})
 
 
@@ -169,10 +173,67 @@ def comic_project_list():
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法列出项目")
     rows = db.query(
-        "SELECT id, name, work_mode, created_at, updated_at FROM projects"
-        " ORDER BY updated_at DESC, created_at DESC")
+        "SELECT id, name, work_mode, art_style, created_at, updated_at"
+        " FROM projects ORDER BY updated_at DESC, created_at DESC")
     items = [_project_row_to_dict(r) for r in rows]
     return ok({"items": items, "total": len(items)})
+
+
+# ══ 自定义作品风格 CRUD（2026-08-24：预置之外可自定义画风）══════════
+
+@router.get("/comic/art-style/list")
+def art_style_list():
+    """自定义风格列表（预置风格由前端 ART_STYLES 常量提供，不落库）。
+
+    返回 key=custom:{id}（创建项目时直接写入 projects.art_style）。
+    """
+    db = get_db_safe()
+    items: list[dict] = []
+    if db is not None:
+        try:
+            rows = db.query(
+                "SELECT id, name, prompt, created_at FROM art_styles"
+                " ORDER BY created_at DESC")
+            items = [{"style_id": r["id"], "key": f"custom:{r['id']}",
+                      "name": r.get("name", ""),
+                      "prompt": r.get("prompt", ""),
+                      "created_at": r.get("created_at", 0)} for r in rows]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("自定义风格列表读取失败: %s", exc)
+    return ok({"items": items, "total": len(items)})
+
+
+@router.post("/comic/art-style/create")
+def art_style_create(req: ArtStyleCreate):
+    """新增自定义风格（重名拒绝；名称≤30字，提示词≤500字）。"""
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法保存风格")
+    name = req.name.strip()
+    if not name:
+        raise ApiError(40008, "风格名称不能为空")
+    dup = db.query_one("SELECT id FROM art_styles WHERE name=?", (name,))
+    if dup is not None:
+        raise ApiError("COMIC_ART_STYLE_NAME_DUPLICATED", detail={"name": name})
+    sid = uuid.uuid4().hex[:7]
+    prompt = req.prompt.strip()
+    db.insert("art_styles", {"id": sid, "name": name, "prompt": prompt,
+                             "created_at": _now()})
+    return ok({"style_id": sid, "key": f"custom:{sid}", "name": name,
+               "prompt": prompt})
+
+
+@router.delete("/comic/art-style/{style_id}")
+def art_style_delete(style_id: str):
+    """删除自定义风格（引用该风格的项目不做级联清理，展示层兜底）。"""
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用")
+    row = db.query_one("SELECT id FROM art_styles WHERE id=?", (style_id,))
+    if row is None:
+        raise ApiError("COMIC_ART_STYLE_NOT_FOUND", detail={"style_id": style_id})
+    db.delete("art_styles", "id=?", (style_id,))
+    return ok({"deleted": style_id})
 
 
 @router.put("/comic/project/{project_id}")

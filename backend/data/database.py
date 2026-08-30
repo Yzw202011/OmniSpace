@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS projects (
     name        TEXT NOT NULL DEFAULT '未命名项目',
     path        TEXT DEFAULT '',
     work_mode   TEXT NOT NULL DEFAULT 'regular',  -- regular(5步) | narrative(6步解说)
+    art_style   TEXT DEFAULT '',                   -- 预置画风 key（anime/guofeng/real3d/manga/cyberpunk/cartoon）
     created_at  REAL NOT NULL DEFAULT 0,
     updated_at  REAL NOT NULL DEFAULT 0
 );
@@ -148,6 +149,15 @@ CREATE TABLE IF NOT EXISTS comic_assets (
 );
 CREATE INDEX IF NOT EXISTS idx_comic_assets_project ON comic_assets(project_id);
 
+-- 自定义作品风格（2026-08-24：新建作品选画风，预置之外可自定义；
+-- 项目 projects.art_style 存 "custom:{id}" 引用本表，预置风格存预置 key）
+CREATE TABLE IF NOT EXISTS art_styles (
+    id          TEXT PRIMARY KEY,     -- 短 id（hex 7 位），前端引用为 custom:{id}
+    name        TEXT NOT NULL,
+    prompt      TEXT DEFAULT '',      -- 生图提示词关键词（风格基调）
+    created_at  REAL NOT NULL DEFAULT 0
+);
+
 -- 关键帧（分镜行 → 生成图，多版本，批 1.6）
 CREATE TABLE IF NOT EXISTS keyframes (
     id          TEXT PRIMARY KEY,
@@ -159,7 +169,9 @@ CREATE TABLE IF NOT EXISTS keyframes (
     status      TEXT NOT NULL DEFAULT 'done',   -- generating/done/error
     error       TEXT DEFAULT '',
     is_current  INTEGER NOT NULL DEFAULT 1,
-    created_at  REAL NOT NULL DEFAULT 0
+    created_at  REAL NOT NULL DEFAULT 0,
+    shot_seeds  TEXT DEFAULT '[]',              -- V37：逐镜实际种子 JSON
+    consistency TEXT DEFAULT ''                 -- V37：VLM 一致性评分 JSON
 );
 CREATE INDEX IF NOT EXISTS idx_keyframes_row ON keyframes(row_id);
 
@@ -382,7 +394,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 7
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -429,6 +441,20 @@ class Database:
             # 思考过程独立落库（与 content 同等加密；新库 _SCHEMA 已含，
             # 幂等跳过）。不入 FTS 索引（M-3：搜索不命中思考噪音）。
             ("dialog_messages", "reasoning", "TEXT DEFAULT ''"),
+        )),
+        (6, (
+            # 漫剧作品风格（2026-08-24 竞品对齐：新建作品选画风）：
+            # 预置风格英文 key（anime/guofeng/real3d/manga/cyberpunk/
+            # cartoon），空串=未选择（新库 _SCHEMA 已含，幂等跳过）
+            ("projects", "art_style", "TEXT DEFAULT ''"),
+        )),
+        (7, (
+            # V37 seed 固定兜底（2026-08-27 v36 身份漂移事故）：
+            # 关键帧逐镜实际种子落库，重生成沿用已验证 seed 复现；
+            # consistency 落 VLM 一致性评分结果（方案B 评分重试标注，
+            # 新库 _SCHEMA 已含，幂等跳过）
+            ("keyframes", "shot_seeds", "TEXT DEFAULT '[]'"),
+            ("keyframes", "consistency", "TEXT DEFAULT ''"),
         )),
     )
 

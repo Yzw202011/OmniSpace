@@ -39,9 +39,10 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from ..config import LOGS_DIR
 
@@ -201,6 +202,7 @@ _EVENT_CATEGORY_RULES: list[tuple[str, str]] = [
     ("model_prewarm", "模型加载"),
     ("model_load", "模型加载"),
     ("model_switch", "模型切换"),
+    ("gen_route", "模型切换"),
     ("model_unload", "模型卸载"),
     ("service_", "推理服务"),
     ("start_", "推理服务"),
@@ -210,6 +212,7 @@ _EVENT_CATEGORY_RULES: list[tuple[str, str]] = [
     ("logs_clean", "日志清理"),
     ("training", "模型训练"),
     ("learn_", "知识学习"),
+    ("keyframe_consistency", "漫剧分镜"),
 ]
 
 # 事件名规则未命中时的模块级兜底

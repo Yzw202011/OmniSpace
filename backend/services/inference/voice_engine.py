@@ -26,6 +26,7 @@ from typing import Any
 
 from ...config import DATA_DIR, MODELS_DIR, VOICE_PRESET_EMOTIONS
 from ...middleware.error_handler import ApiError
+from .base_engine import BaseEngine
 
 logger = logging.getLogger("omnispace.inference.voice")
 
@@ -275,15 +276,24 @@ def _probe_sovits() -> dict:
     return _sovits_probe_cache
 
 
-class VoiceEngine:
+class VoiceEngine(BaseEngine):
     """语音推理引擎——CosyVoice3 / ChatTTS / Bark（GPT-SoVITS 探测门控）。
 
     自动装载链（_ensure_tts_loaded）：cosyvoice → chattts → bark（transformers
     原生，导入 models/ 即可用）→ SAPI5/静音回退。
     ASR：Whisper（transformers 原生，导入 models/whisper* 即可真实转写）。
+
+    协议注记（ADR-003 P2）：本引擎 load_model 契约为路径/后端驱动
+    （model_path + engine_type），与 BaseEngine 的 model_id 语义不同——
+    管理器侧只消费 is_ready/get_status/unload_model 面，load_model 由
+    voice 服务自行编排（当前无 ensure_loaded("voice",...) 调用方）。
     """
 
+    name = "voice"
+    serves_categories = ("voice",)
+
     def __init__(self) -> None:
+        super().__init__()
         self._model: Any = None
         self._model_name: str = ""
         self._loaded = False
@@ -858,6 +868,7 @@ class VoiceEngine:
         code_missing=true 且 reason 说明门控原因；sovits 永不会成为
         tts_backend（门控路径不合成），实际回退后端见 tts_backend。
         """
+        from .base_engine import derive_state
         if self._loaded and not self._fallback_mode:
             tts_backend = self._engine_type
         elif _probe_sapi5():
@@ -866,6 +877,9 @@ class VoiceEngine:
             tts_backend = "silent"
         return {
             "engine": "voice",
+            # ADR-003 P3：统一状态（SAPI5/静音回退不算 AI ready）
+            "state": derive_state(
+                loaded=self._loaded and not self._fallback_mode),
             "engine_type": self._engine_type,
             "model": self._model_name,
             "loaded": self._loaded,
@@ -881,3 +895,45 @@ class VoiceEngine:
             "discovered_models": discover_voice_models(),
             "supported_emotions": VOICE_PRESET_EMOTIONS,
         }
+
+    def unload_model(self) -> bool:
+        """卸载 TTS/ASR 模型引用（BaseEngine 协议薄适配）。
+
+        只释放 Python 引用与复位标记，CUDA 缓存回收由调用方
+        （ModelManager.unload_model 通用尾段）统一执行。
+
+        Returns:
+            是否确有已加载内容被释放（空载返回 False，非错误）。
+        """
+        had_any = self._model is not None or self._asr_pipe is not None
+        self._model = None
+        self._model_name = ""
+        self._loaded = False
+        self._engine_type = ""
+        # 复位自动装载标记：卸载后允许下次合成重试真实管线
+        self._tts_autoload_attempted = False
+        with self._asr_lock:
+            self._asr_pipe = None
+            self._asr_model_id = ""
+        if had_any:
+            logger.info("语音引擎模型引用已释放")
+        return had_any
+
+
+
+# =============================================================
+#  单例（ADR-003 P2：voice 品类注册表解析入口，与管理器共享实例）
+# =============================================================
+
+_engine_instance: VoiceEngine | None = None
+_engine_lock = threading.Lock()
+
+
+def get_voice_engine() -> VoiceEngine:
+    """获取语音引擎全局单例（线程安全双重检查）。"""
+    global _engine_instance
+    if _engine_instance is None:
+        with _engine_lock:
+            if _engine_instance is None:
+                _engine_instance = VoiceEngine()
+    return _engine_instance

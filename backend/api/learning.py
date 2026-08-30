@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -432,7 +433,8 @@ def _persist_session_row(session) -> None:
             "coverage=excluded.coverage, "
             "stop_reason=excluded.stop_reason, updated_at=excluded.updated_at",
             (session.session_id, session.topic_id, session.goal,
-             session.budget.to_dict(), session.status,
+             json.dumps(session.budget.to_dict(), ensure_ascii=False),
+             session.status,
              session.pages_visited, session.knowledge_extracted,
              session.coverage, session.stop_reason, session.started_at,
              session.created_at, now))

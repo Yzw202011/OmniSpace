@@ -143,6 +143,11 @@ class EncoderService:
         return self._ffmpeg or ""
 
     @property
+    def ffprobe_path(self) -> str:
+        """ffprobe 路径（空串=不可用）。供流探测（音频轨判定等）。"""
+        return self._ffprobe or ""
+
+    @property
     def hardware_class(self) -> str:
         return self._hw_class
 

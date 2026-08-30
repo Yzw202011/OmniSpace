@@ -19,7 +19,6 @@ def _corrupt_dynamo_registry(strip_username: bool = False) -> None:
     strip_username=True 时同时剥掉用户身份环境变量，完整复现 launcher
     白名单环境下的原始故障（getpass.getuser() → import pwd → Windows 炸）。
     """
-    import torch._dynamo  # 确保健康导入过一次
     for name in [n for n in sys.modules
                  if n == "torch._dynamo" or n.startswith("torch._dynamo.")]:
         del sys.modules[name]
@@ -70,9 +69,9 @@ def test_heal_recovers_without_username_env():
 
 def test_heal_is_idempotent_on_healthy_state():
     """健康状态下调用自愈应无副作用（幂等）。"""
+    import torch._dynamo  # noqa: F401
+
     from backend.services.inference.backends.transformers_backend import (
         _heal_torch_dynamo,
     )
-    import torch._dynamo  # noqa: F401
     assert _heal_torch_dynamo() is True
-    import torch._dynamo  # noqa: F401  重导入后仍可用

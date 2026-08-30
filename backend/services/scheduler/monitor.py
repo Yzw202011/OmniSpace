@@ -13,6 +13,7 @@ GPU 2s / CPU 5s / 磁盘 10s 内直接返回缓存值，降低 psutil/NVML 开�
 from __future__ import annotations
 
 import importlib
+import os
 import time
 from collections.abc import Callable
 from typing import Any
@@ -89,6 +90,11 @@ class HardwareMonitor:
             "vram_total_mb": 0,
             "util_percent": 0.0,
             "temp_celsius": 0.0,
+            # S5 进程级归因（2026-08-28 V77 根修）：本进程树 SM 利用率
+            # 与外部归因利用率；NVML 采样不可用时为 None，analyzer
+            # 回退整卡口径（向后兼容）。
+            "own_util_percent": None,
+            "external_util_percent": None,
         }
 
         # 优先使用 pynvml
@@ -101,6 +107,15 @@ class HardwareMonitor:
 
                 util = _pynvml.nvmlDeviceGetUtilizationRates(handle)
                 result["util_percent"] = float(util.gpu)
+
+                # S5 进程级归因：自身生成跑满 GPU（own≈95%）属正常工
+                # 况，不应被质量总督判为"高负载"自伤降步；仅外部进程
+                # 争抢算力才驱动降参（analyzer 消费 external 字段）。
+                own = self._sum_own_process_util(handle)
+                if own is not None:
+                    result["own_util_percent"] = round(own, 1)
+                    result["external_util_percent"] = round(
+                        max(0.0, result["util_percent"] - own), 1)
 
                 try:
                     temp = _pynvml.nvmlDeviceGetTemperature(
@@ -128,6 +143,32 @@ class HardwareMonitor:
                 pass
 
         return result
+
+    @staticmethod
+    def _sum_own_process_util(handle: Any) -> float | None:
+        """汇总本进程树（后端 + vLLM worker 等子进程）的 SM 利用率。
+
+        nvmlDeviceGetProcessUtilization(handle, 0) 返回驱动侧最近采样
+        窗内各进程 SM 利用率百分比（本机 RTX 5070 Ti / driver 610.88
+        实测可用，探针 cssc/_nvml_proc_util_probe.py）。窗口均值与整
+        卡瞬时值口径不同，之和可能略超整卡值，调用方以 max(0,...) 钳
+        制。API 异常时返回 None，调用方回退整卡口径。
+        """
+        try:
+            samples = _pynvml.nvmlDeviceGetProcessUtilization(handle, 0)
+        except Exception:
+            return None
+        try:
+            pids = {os.getpid()}
+            pids.update(
+                c.pid for c in psutil.Process().children(recursive=True))
+        except Exception:
+            pids = {os.getpid()}
+        total = 0.0
+        for s in samples:
+            if s.pid in pids:
+                total += float(s.smUtil)
+        return min(total, 100.0)
 
     # ── CPU 采集 ────────────────────────────────────────────────
 

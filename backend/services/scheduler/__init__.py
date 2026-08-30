@@ -65,9 +65,14 @@ class SchedulerEngine:
         self._disk_busy: bool = False
         self._disk_busy_percent: float = 0.0
 
-        # 两级空闲显存回收防抖标记（P2：表层 60s / 深层 300s 各执行一次）
-        self._shallow_reclaimed: bool = False
-        self._idle_reclaimed: bool = False
+        # 两级空闲显存回收节流（P2：表层 60s / 深层 300s）。
+        # 周期时间戳而非一次性标志（2026-08-23 修复）：一次性 bool 在
+        # 首次触发时（往往启动后 5 分钟，台账空、池干净）被永久置位，
+        # 之后池膨胀锚定（reserved>allocated 数 GB）也永不重跑，显存
+        # 释放失效。改为距上次回收满阈值秒数即可重入，持续空闲时每个
+        # 周期巡检一次（deflate 内部 min_reserved_gb 门槛，干净时零成本）。
+        self._last_shallow_reclaim_at: float = 0.0
+        self._last_deep_reclaim_at: float = 0.0
 
     # ── 生命周期 ──────────────────────────────────────────────────
 
@@ -222,27 +227,34 @@ class SchedulerEngine:
 
           - 表层 60s：释放 embed/aux/voice 小模型（体量小、快速可重载，
             空闲即归还，避免常驻空占显存）；
-          - 深层 300s：卸载非常驻大模型（dialog/paint/video 等重模型）。
+          - 深层 300s：卸载非常驻大模型（dialog/paint/video 等重模型）
+            + 无条件池压缩 deflate_cuda_pool（bge 活跃块钉死缓存池时，
+            物理显存才真正归还系统）。
 
-        活动期间（功能锁持有 / 空闲时长不足）重置两级回收标记并返回；
-        每级每段空闲期最多执行一次真实卸载，避免逐 tick 重复扫描日志。
+        活动期间（功能锁持有 / 空闲时长不足）重置回收基准并返回；
+        两级均为周期可重入（距上次回收满阈值即再执行）——持续空闲时
+        每周期巡检，池膨胀锚定后下个周期必被压缩，杜绝一次性标志
+        在启动首跑（无事可做）即耗尽、后续真正需要时失效的问题。
         """
         from ...middleware.feature_lock import get_feature_lock
         lock = get_feature_lock()
         if lock.active_feature is not None:
-            self._shallow_reclaimed = False
-            self._idle_reclaimed = False
+            # 功能活跃：回收基准归零，活动结束后重新计闲置周期
+            self._last_shallow_reclaim_at = 0.0
+            self._last_deep_reclaim_at = 0.0
             return
         idle_s = lock.idle_seconds
+        now = time.time()
         # 跨模块共享小模型类别（embedding 检索 / voice 语音 / auxiliary
         # 辅助），与 model_manager._SHARED_KEEP_CATEGORIES 口径一致
         shared_small = {"embedding", "voice", "auxiliary"}
         from ..model_manager import get_model_manager
         mgr = get_model_manager()
 
-        # ── 表层（60s）：释放 embed/aux/voice 小模型 ──
-        if idle_s >= SHALLOW_RECLAIM_SECONDS and not self._shallow_reclaimed:
-            self._shallow_reclaimed = True
+        # ── 表层（60s 周期）：释放 embed/aux/voice 小模型 ──
+        if (idle_s >= SHALLOW_RECLAIM_SECONDS
+                and now - self._last_shallow_reclaim_at >= SHALLOW_RECLAIM_SECONDS):
+            self._last_shallow_reclaim_at = now
             small = [e for e in mgr.get_loaded_models()
                      if (e.get("category") or "").strip().lower() in shared_small]
             if small:
@@ -255,9 +267,10 @@ class SchedulerEngine:
                         log.warning("表层释放失败 (%s): %s",
                                     entry.get("model_id"), exc)
 
-        # ── 深层（300s）：卸载非常驻大模型 ──
-        if idle_s >= IDLE_RECLAIM_SECONDS and not self._idle_reclaimed:
-            self._idle_reclaimed = True
+        # ── 深层（300s 周期）：卸载非常驻大模型 ──
+        if (idle_s >= IDLE_RECLAIM_SECONDS
+                and now - self._last_deep_reclaim_at >= IDLE_RECLAIM_SECONDS):
+            self._last_deep_reclaim_at = now
             # 表层已回收小模型，深层聚焦剩余重模型（排除共享小模型）
             heavy = [e for e in mgr.get_loaded_models()
                      if (e.get("category") or "").strip().lower() not in shared_small]

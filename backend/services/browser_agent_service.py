@@ -543,7 +543,7 @@ def record_traffic(num_bytes: int) -> int:
         ensure_learning_tables()
         key = _traffic_key_today()
         row = db.query_one("SELECT value FROM learning_settings WHERE key=?",
-                           (key))
+                           (key,))
         from ..data.database import parse_json
         current = int(parse_json(row["value"], 0) if row else 0)
         current += num_bytes

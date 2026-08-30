@@ -1,0 +1,573 @@
+{
+ "1": {
+  "inputs": {
+   "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+   "weight_dtype": "default"
+  },
+  "class_type": "UNETLoader",
+  "_meta": {
+   "title": "Load Diffusion Model — H3 MODEL — REQUIRED"
+  }
+ },
+ "2": {
+  "inputs": {
+   "clip_name": "qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+   "type": "minimax",
+   "device": "default"
+  },
+  "class_type": "CLIPLoader",
+  "_meta": {
+   "title": "Load CLIP — H3 TEXT ENCODER"
+  }
+ },
+ "3": {
+  "inputs": {
+   "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+  },
+  "class_type": "VAELoader",
+  "_meta": {
+   "title": "Load VAE — H3 Video VAE"
+  }
+ },
+ "4": {
+  "inputs": {
+   "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+  },
+  "class_type": "VAELoader",
+  "_meta": {
+   "title": "Load VAE — H3 Audio VAE"
+  }
+ },
+ "5": {
+  "inputs": {
+   "shift_video": 12.0,
+   "shift_audio": 3.0,
+   "model": [
+    "1961",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3SigmaShift",
+  "_meta": {
+   "title": "ModelSamplingMiniMaxH3"
+  }
+ },
+ "110": {
+  "inputs": {
+   "prompt": [
+    "1702",
+    4
+   ],
+   "width": [
+    "1702",
+    8
+   ],
+   "height": [
+    "1702",
+    9
+   ],
+   "length": [
+    "1702",
+    6
+   ],
+   "ref_image_size": "match",
+   "clip": [
+    "2",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ],
+   "audio_vae": [
+    "4",
+    0
+   ],
+   "ref_images.ref_image_0": [
+    "1945",
+    0
+   ],
+   "ref_images.ref_image_1": [
+    "1946",
+    0
+   ],
+   "ref_images.ref_image_3": [
+    "1951",
+    0
+   ],
+   "ref_images.ref_image_4": [
+    "1952",
+    0
+   ],
+   "ref_images.ref_image_5": [
+    "1953",
+    0
+   ],
+   "ref_images.ref_image_6": [
+    "1954",
+    0
+   ],
+   "ref_images.ref_image_7": [
+    "1955",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ReferenceToVideo",
+  "_meta": {
+   "title": "全能参考引擎（文字+7图 → 音画,每镜）"
+  }
+ },
+ "120": {
+  "inputs": {
+   "noise_seed": [
+    "1702",
+    5
+   ]
+  },
+  "class_type": "RandomNoise",
+  "_meta": {
+   "title": "③ 噪声种子(=当前镜)"
+  }
+ },
+ "121": {
+  "inputs": {
+   "model": [
+    "5",
+    0
+   ],
+   "conditioning": [
+    "1703",
+    0
+   ]
+  },
+  "class_type": "BasicGuider",
+  "_meta": {
+   "title": "Basic Guider — Loop guider"
+  }
+ },
+ "122": {
+  "inputs": {
+   "sampler_name": "res_multistep"
+  },
+  "class_type": "KSamplerSelect",
+  "_meta": {
+   "title": "KSamplerSelect — Sampler algorithm"
+  }
+ },
+ "123": {
+  "inputs": {
+   "scheduler": "simple",
+   "steps": [
+    "1702",
+    7
+   ],
+   "denoise": 1.0,
+   "model": [
+    "5",
+    0
+   ]
+  },
+  "class_type": "BasicScheduler",
+  "_meta": {
+   "title": "③ 步数表(=6)"
+  }
+ },
+ "124": {
+  "inputs": {
+   "noise": [
+    "120",
+    0
+   ],
+   "guider": [
+    "121",
+    0
+   ],
+   "sampler": [
+    "1962",
+    0
+   ],
+   "sigmas": [
+    "123",
+    0
+   ],
+   "latent_image": [
+    "1703",
+    3
+   ]
+  },
+  "class_type": "SamplerCustomAdvanced",
+  "_meta": {
+   "title": "SamplerCustomAdvanced — H3 sampler — SINGLE LOOP BODY"
+  }
+ },
+ "130": {
+  "inputs": {
+   "samples": [
+    "124",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ]
+  },
+  "class_type": "VAEDecode",
+  "_meta": {
+   "title": "VAE Decode — Decode current clip frames"
+  }
+ },
+ "131": {
+  "inputs": {
+   "samples": [
+    "124",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ]
+  },
+  "class_type": "VAEDecodeAudio",
+  "_meta": {
+   "title": "VAE Decode Audio — Decode current clip audio"
+  }
+ },
+ "132": {
+  "inputs": {
+   "trim_frames": [
+    "1703",
+    1
+   ],
+   "fps": 24.0,
+   "match_tail": true,
+   "retain_overlap_frames": 0,
+   "images": [
+    "130",
+    0
+   ],
+   "audio": [
+    "131",
+    0
+   ],
+   "state": [
+    "1702",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3LoopTrim",
+  "_meta": {
+   "title": "③ 裁头+音画校准"
+  }
+ },
+ "1700": {
+  "inputs": {
+   "plan_json": "{\n \"defaults\": {\n  \"duration_seconds\": 10,\n  \"steps\": 6\n },\n \"shots\": [\n  {\n   \"id\": \"manga_shot_01\",\n   \"prompt\": [\n    \"subject_definitions:\\n<Picture 1> 是主角夏沐沐的唯一形象参考:黑长直发、白衬衫,清透 3D 动画电影质感,五官与服饰严格以此为准。\\n<Picture 2> 是第二角色刀客的形象参考:束发、深色劲装、背负长刀,面容冷峻,与夏沐沐同片世界。\\n<Picture 3> 是场景一参考:望云亭苑,中式亭廊与石桌石凳,花木环绕。\\n<Picture 4> 是场景二参考:别墅区街角大门,砖砌门柱与铁艺围栏,柏油路面。\\n<Picture 5> 是道具一参考:黑色行李箱,拉杆与滚轮细节。\\n<Picture 6> 是道具二参考:黑色笔记本,皮质封面。\\n<Picture 7> 是道具三参考:盛开的三角梅,花枝低垂。\\n<Subject 1> 夏沐沐与 <Subject 2> 刀客是同片世界的两个角色,外观严格遵循各自参考图。\\nsummary:\\n[reference generation] 镜1:夏沐沐拖着黑色行李箱站在别墅区街角大门旁低头读信,三角梅花瓣随风飘落;刀客自街道尽头缓步走来,在远处驻足;镜头从中景缓慢推近夏沐沐。\\nretention_analysis:\\n<Subject 1> 夏沐沐: fully_preserved - 遵循 <Picture 1>。\\n<Subject 2> 刀客: fully_preserved - 遵循 <Picture 2>。\\n<Picture 4> 场景: fully_preserved。\\n<Picture 5> 行李箱 / <Picture 6> 笔记本 / <Picture 7> 三角梅: fully_preserved。\\ndetailed_description:\\n清晨侧逆光,街角安静;夏沐沐倚门读信,发丝被风掀起;刀客的身影由远及近渐清晰;三角梅花瓣落在行李箱与肩头;镜头运动平稳,浅景深。\\noverall_soundscape:\\n鸟鸣、风声、行李箱滚轮声由远及近,脚步轻缓。\\nnon_diegetic_music:\\n无配乐,无字幕。\"\n   ],\n   \"length\": 243,\n   \"seed\": \"4201\"\n  },\n  {\n   \"id\": \"manga_shot_02\",\n   \"prompt\": [\n    \"subject_definitions:\\n<Picture 1> 是主角夏沐沐的唯一形象参考:黑长直发、白衬衫,清透 3D 动画电影质感,五官与服饰严格以此为准。\\n<Picture 2> 是第二角色刀客的形象参考:束发、深色劲装、背负长刀,面容冷峻,与夏沐沐同片世界。\\n<Picture 3> 是场景一参考:望云亭苑,中式亭廊与石桌石凳,花木环绕。\\n<Picture 4> 是场景二参考:别墅区街角大门,砖砌门柱与铁艺围栏,柏油路面。\\n<Picture 5> 是道具一参考:黑色行李箱,拉杆与滚轮细节。\\n<Picture 6> 是道具二参考:黑色笔记本,皮质封面。\\n<Picture 7> 是道具三参考:盛开的三角梅,花枝低垂。\\n<Subject 1> 夏沐沐与 <Subject 2> 刀客延续镜1外观,严格一致。\\nsummary:\\n[reference generation] 镜2:望云亭苑中,夏沐沐与刀客隔石桌相对而立,黑色笔记本摊在石桌上,三角梅自亭檐垂落;两人对视,镜头缓慢环绕半圈。\\nretention_analysis:\\n<Subject 1> 夏沐沐: fully_preserved。\\n<Subject 2> 刀客: fully_preserved。\\n<Picture 3> 望云亭苑: fully_preserved。\\n<Picture 6> 笔记本 / <Picture 7> 三角梅: fully_preserved。\\ndetailed_description:\\n午后光线穿过亭檐,在石桌面投下花影;夏沐沐把黑色笔记本推到桌子中央,刀客伸手按住;镜头绕两人缓慢环绕半圈,最后停在两人对视的剪影。\\noverall_soundscape:\\n亭外蝉鸣渐弱,风铃轻响,石桌上的纸页被风掀起。\\nnon_diegetic_music:\\n无配乐,无字幕。\"\n   ],\n   \"length\": 243,\n   \"seed\": \"4202\"\n  }\n ]\n}",
+   "run_name": "manga_v10",
+   "generation_fingerprint": "h3-ref2va-int8convrot+turbo-v4-600+s6",
+   "width": 864,
+   "height": 480,
+   "context_length": 22,
+   "encode_mode": "video",
+   "anchor_mode": "head",
+   "crop": "disabled",
+   "audio_mode": "generated_audio",
+   "audio_context_length": 22,
+   "default_duration_seconds": 10.0,
+   "default_steps": 6,
+   "base_seed": 4201,
+   "segment_crf": 19,
+   "video_blend_frames": 5,
+   "continuation_mode": "guide",
+   "chain_policy": [
+    "1950",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ChainPlan",
+  "_meta": {
+   "title": "① 分镜计划（两镜×10.1s,480p;15s 改 length=362）"
+  }
+ },
+ "1701": {
+  "inputs": {
+   "start_clip": 1,
+   "scene_range": "",
+   "verify_resume_history": true,
+   "plan": [
+    "1949",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ChainLoopStart",
+  "_meta": {
+   "title": "③ 链循环起点"
+  }
+ },
+ "1702": {
+  "inputs": {
+   "align_audio_reference": false,
+   "state": [
+    "1701",
+    1
+   ]
+  },
+  "class_type": "MiniMaxH3ChainCurrent",
+  "_meta": {
+   "title": "③ 当前镜（下发提示词/宽高/帧数/种子/步数）"
+  }
+ },
+ "1703": {
+  "inputs": {
+   "state": [
+    "1702",
+    0
+   ],
+   "conditioning": [
+    "110",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ],
+   "latent": [
+    "110",
+    1
+   ]
+  },
+  "class_type": "MiniMaxH3ChainContext",
+  "_meta": {
+   "title": "③ 自动上下文（首镜旁路,续镜 22 帧）"
+  }
+ },
+ "1704": {
+  "inputs": {
+   "state": [
+    "1702",
+    0
+   ],
+   "images": [
+    "132",
+    0
+   ],
+   "sampled_latent": [
+    "124",
+    0
+   ],
+   "audio": [
+    "132",
+    1
+   ],
+   "images_with_overlap": [
+    "132",
+    2
+   ]
+  },
+  "class_type": "MiniMaxH3ChainSegmentSave",
+  "_meta": {
+   "title": "③ 分段落盘"
+  }
+ },
+ "1705": {
+  "inputs": {
+   "between_scene_cleanup": "off",
+   "flow": [
+    "1701",
+    0
+   ],
+   "state": [
+    "1702",
+    0
+   ],
+   "images": [
+    "132",
+    0
+   ],
+   "sampled_latent": [
+    "124",
+    0
+   ],
+   "segment": [
+    "1944",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ChainLoopEnd",
+  "_meta": {
+   "title": "③ 循环推进"
+  }
+ },
+ "1706": {
+  "inputs": {
+   "audio_source": "plan",
+   "filename": "manga_v10_allref_%date:yyyy-MM-dd%",
+   "audio_bitrate": 256,
+   "copy_to_output": false,
+   "output_subfolder": "",
+   "blend_schedule": "plan",
+   "boundary_tone_match": "off",
+   "color_stabilization": "off",
+   "manifest": [
+    "1705",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ChainAssemble",
+  "_meta": {
+   "title": "④ 拼装成片（单条 MP4 带音轨）"
+  }
+ },
+ "1930": {
+  "inputs": {
+   "plan": [
+    "1700",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ChainScenePromptEditor",
+  "_meta": {
+   "title": "① 场景提示词编辑器"
+  }
+ },
+ "1944": {
+  "inputs": {
+   "enabled": false,
+   "play_notification_sound": false,
+   "auto_continue_timeout_minutes": 0.0,
+   "unload_models_while_waiting": false,
+   "assemble_partial_on_stop": true,
+   "partial_audio_source": "checkpointed",
+   "candidate_count": 1,
+   "review_each_candidate": false,
+   "state": [
+    "1702",
+    0
+   ],
+   "segment": [
+    "1704",
+    0
+   ],
+   "audio": [
+    "132",
+    1
+   ]
+  },
+  "class_type": "MiniMaxH3ChainReview",
+  "_meta": {
+   "title": "④ 审查门（默认关）"
+  }
+ },
+ "1945": {
+  "inputs": {
+   "image": "ref_p1.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "Load Image — PICTURE 1 — MARKET GARDEN EXTERIOR"
+  }
+ },
+ "1946": {
+  "inputs": {
+   "image": "ref_p2.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "Load Image — PICTURE 2 — TIMBER / STONE INTERIOR"
+  }
+ },
+ "1949": {
+  "inputs": {
+   "start_clip": 1,
+   "scene_range": "",
+   "verify_resume_history": true,
+   "plan": [
+    "1930",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3ChainPreflight",
+  "_meta": {
+   "title": "③ 预检"
+  }
+ },
+ "1950": {
+  "inputs": {
+   "incoming_transition": "guide",
+   "final_audio": "generated",
+   "source_reference": "off",
+   "generated_continuity": "on",
+   "lock_source_audio": false
+  },
+  "class_type": "MiniMaxH3ChainPolicy",
+  "_meta": {
+   "title": "MiniMax H3 Chain Policy — 0.5 CHAIN POLICY"
+  }
+ },
+ "1951": {
+  "inputs": {
+   "image": "ref_p3.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "② P3·场景望云亭苑"
+  }
+ },
+ "1952": {
+  "inputs": {
+   "image": "ref_p4.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "② P4·场景别墅区街角大门"
+  }
+ },
+ "1953": {
+  "inputs": {
+   "image": "ref_p5.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "② P5·道具黑色行李箱"
+  }
+ },
+ "1954": {
+  "inputs": {
+   "image": "ref_p6.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "② P6·道具黑色笔记本"
+  }
+ },
+ "1955": {
+  "inputs": {
+   "image": "ref_p7.png"
+  },
+  "class_type": "LoadImage",
+  "_meta": {
+   "title": "② P7·道具三角梅"
+  }
+ },
+ "1961": {
+  "inputs": {
+   "lora_name": "minimax_h3_turbo_v4_step600_ema.safetensors",
+   "strength": 1.0,
+   "low_vram": false,
+   "model": [
+    "1",
+    0
+   ]
+  },
+  "class_type": "MiniMaxH3TurboLoRA",
+  "_meta": {
+   "title": "③ 加速补丁（Turbo LoRA v4-600）"
+  }
+ },
+ "1962": {
+  "inputs": {},
+  "class_type": "MiniMaxH3TurboSampler",
+  "_meta": {
+   "title": "③ 4-6 步快采（Turbo 配方）"
+  }
+ }
+}

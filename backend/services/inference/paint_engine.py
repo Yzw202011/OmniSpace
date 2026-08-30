@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config import MODELS_DIR
+from .base_engine import BaseEngine
 
 logger = logging.getLogger("omnispace.inference.paint")
 
@@ -65,8 +66,22 @@ def _try_import(name: str) -> Any:
 PAINT_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     ("sdxl-base-1.0", "paint/sdxl-base-1.0", 7.0),
     ("flux2-klein-4b", "paint/flux2-klein-4b", 12.0),
+    # FLUX.2 Klein 9B（2026-08-25 接入，2026-08-27 GGUF 攻关）：
+    # transformer bf16 16.9GB 超 16GB 卡 → unsloth GGUF 档位质量
+    # 优先（Q6_K 7.6GB > Q5_K_M > Q4_K_M；Q4 实测损伤参考条件遵循
+    # → 角色跨镜漂移）；生成期 vLLM 停止让渡（Windows fallback）
+    # 后基线 ~3.9GB + Q6_K 7.6GB + vae 0.3GB ≈ 11.8GB，激活空间
+    # ~4GB 1280×720 原生直出不换页；text_encoder Qwen3-8B
+    # 15.26GB 常驻 RAM leaf_level 逐层上 GPU（qwen-image 同款
+    # 布局）。闸门 8.5 = Q6_K 7.6 + vae 0.2 + 编码器单层 ~0.3 +
+    # 激活余量
+    ("flux2-klein-9b", "paint/flux2-klein-9b", 8.5),
     ("qwen-image-2512", "paint/qwen-image-2512", 6.0),
 ]
+
+# LoRA 适配器目录（R1 人物一致性：dx8152 consistency 实测起点，
+# R2 角色 LoRA 训练产物同目录登记）
+LORA_DIR = MODELS_DIR / "paint" / "loras"
 
 # sampler 名称 -> (diffusers 调度器类名, 额外 kwargs)
 SAMPLER_MAP: dict[str, tuple[str, dict]] = {
@@ -124,7 +139,14 @@ def _cuda_free_gb() -> float:
 
 
 def _release_cuda_memory() -> None:
-    """彻底释放 CUDA 显存：多轮 gc（拆引用环）+ 清空缓存 + 同步 + IPC 回收。"""
+    """彻底释放 CUDA 显存：多轮 gc（拆引用环）+ 清空缓存 + 同步 + IPC 回收。
+
+    尾部附 Windows 工作集收缩（2026-08-26 RAM 滞留事故修复）：cpu_
+    offload 管线经 generate 后权重从 mmap 视图私有化为堆副本（klein-
+    4B ~16GB），del+gc 释放后页仍滞留工作集；EmptyWorkingSet 换出
+    （伪句柄必须 c_void_p(-1) 64 位传递，restype 默认 c_int 会截断）。
+    调用点均为大块内存释放后的冷路径，无推理热路径抖动。
+    """
     for _ in range(3):
         gc.collect()
     torch = _try_import("torch")
@@ -139,6 +161,12 @@ def _release_cuda_memory() -> None:
             except Exception:
                 pass
     except Exception:
+        pass
+    try:
+        import ctypes
+        psapi = ctypes.windll.psapi      # type: ignore[attr-defined]
+        psapi.EmptyWorkingSet(ctypes.c_void_p(-1))
+    except Exception:  # noqa: BLE001 - 非 Windows/权限不足时跳过
         pass
 
 
@@ -292,13 +320,17 @@ def _broadcast_quality_reduced(requested_steps: int, actual_steps: int) -> None:
         logger.debug("降参事件广播失败（忽略）: %s", exc)
 
 
-class PaintEngine:
+class PaintEngine(BaseEngine):
     """绘画推理引擎——本地 SDXL base 1.0（diffusers 后端）。
 
     状态机: unavailable -> unloaded -> ready / error（同 DialogEngine）。
     """
 
+    name = "paint"
+    serves_categories = ("paint", "vision", "image")
+
     def __init__(self) -> None:
+        super().__init__()
         self._pipe: Any = None            # txt2img 管线
         self._pipe_i2i: Any = None        # img2img 管线（from_pipe 共享组件）
         self._model_id: str = ""
@@ -309,11 +341,20 @@ class PaintEngine:
         self._lock = threading.Lock()
         # 推理串行锁：单 GPU 单管线实例，并发生成会叠加显存导致颠簸，
         # 功能锁同功能可重入（规格 §6.1），故在引擎层串行化推理。
-        self._infer_lock = threading.Lock()
+        # RLock（2026-08-29 审计 P0-1）：img2img/inpaint 与 generate
+        # 共用此锁；inpaint 内部再调 self.img2img，可重入锁避免套娃死锁
+        self._infer_lock = threading.RLock()
 
         # 推理统计
         self.last_seed: int = -1
         self.last_elapsed_ms: float = 0.0
+
+        # LoRA 适配器状态（2026-08-27 R1 人物一致性攻关）：
+        # PEFT 注入式挂载（非融合——GGUF 量化权重不支持 fuse_lora
+        # 合并）；仅 FLUX.2 底座；随底座切换/卸载失效
+        self._lora_name: str = ""
+        self._lora_scale: float = 0.0
+        self._lora_path: str = ""
 
         self._refresh_availability()
 
@@ -438,6 +479,7 @@ class PaintEngine:
                 self._model_id = ""
                 self._model_dir = None
                 self._state = "unloaded"
+                self._reset_lora_state()
                 _release_cuda_memory()
 
             torch = _try_import("torch")
@@ -488,6 +530,9 @@ class PaintEngine:
                 # qwen-image GGUF 专属布局旗标（见分支内注释）：
                 # True 时跳过下方通用 cpu offload（会破坏 GPU 常驻布局）
                 qwen_gguf_layout = False
+                # FLUX.2 9B 量化布局旗标：transformer/编码器/vae 已按
+                # 量化布局放置完毕，同样跳过通用 offload
+                flux9_layout = False
 
                 if mid.startswith("flux2"):
                     # FLUX.2 Klein 分支：Qwen3 文本编码器（中文直入），
@@ -497,9 +542,123 @@ class PaintEngine:
                     if flux_cls is None:
                         raise RuntimeError(
                             "diffusers 缺少 Flux2KleinPipeline（需 0.36+）")
-                    pipe = flux_cls.from_pretrained(
-                        str(path), torch_dtype=torch.bfloat16,
-                        use_safetensors=True)
+                    if mid == "flux2-klein-9b":
+                        # 9B：transformer bf16 16.9GB 超 16GB 卡总量。
+                        # 量化档位演进（2026-08-27 原生分辨率攻关定稿）：
+                        #   float8（权重 9.7GB GPU 常驻）→ 基线 3.9GB +
+                        #   9.7GB 后激活空间仅 ~2.1GB，1024×576 即触发
+                        #   WDDM 换页（实测 34s/step）；quanto int4 路线
+                        #   全灭——动态量化 CPU per-group 需 20-60 分钟，
+                        #   save_pretrained 的 tinygemm identity-mm 反解
+                        #   包在 CPU 上 33 分钟+不完（QTensor packed 数据
+                        #   不随 .to("cuda") 迁移，无 GPU 快路径）。
+                        #   → unsloth GGUF Q4_K_M（~5.5GB GPU 常驻）：
+                        #   基线 3.9 + 5.5 + vae 0.3 ≈ 9.7GB，激活空间
+                        #   ~6GB，1280×720 原生直出无换页（GGUFLinear
+                        #   前向逐层 GPU 反量化，diffusers 0.39 官方
+                        #   支持 Flux2 from_single_file GGUF）。text_
+                        #   encoder Qwen3-8B 15.26GB 常驻 RAM leaf_
+                        #   level 逐层上 GPU（qwen-image 同款布局，
+                        #   low_cpu_mem_usage 防 pin_memory 吃光 commit
+                        #   budget）；vae 常驻 GPU。布局自管——下方通用
+                        #   offload 必须跳过（sequential/model offload
+                        #   会移动已放置组件）。
+                        trans_cls = getattr(
+                            diffusers, "Flux2Transformer2DModel", None)
+                        if trans_cls is None:
+                            raise RuntimeError(
+                                "diffusers 缺少 Flux2Transformer2DModel"
+                                "（9B GGUF/量化加载需要 0.36+）")
+                        # GGUF 优先：预量化产物（transformer-gguf/*.gguf，
+                        # unsloth FLUX.2-klein-9B-GGUF）秒级加载；
+                        # quanto 动态 int4 仅作 GGUF 缺失时的回退（慢
+                        # 路径，20 分钟级）
+                        ggufs = sorted(
+                            (path / "transformer-gguf").glob("*.gguf"))
+                        if ggufs:
+                            # 档位质量优先（2026-08-27 v17 事故）：
+                            # Q4_K_M 量化损伤 FLUX.2 参考条件机制的
+                            # 条件遵循 → 角色跨镜漂移（四格不同人）；
+                            # Q6_K 近 bf16 损失，7.6GB 常驻 + 生成期
+                            # vLLM 停止让渡（Windows fallback）显存足
+                            _gguf_prefs = ("q6_k", "q5_k_m", "q4_k_m")
+
+                            def _gguf_rank(f: Path) -> tuple[int, str]:
+                                low = f.name.lower()
+                                for i, p in enumerate(_gguf_prefs):
+                                    if p in low:
+                                        return (i, low)
+                                return (len(_gguf_prefs), low)
+
+                            ggufs.sort(key=_gguf_rank)
+                            quant_cfg_cls = getattr(
+                                diffusers, "GGUFQuantizationConfig", None)
+                            if quant_cfg_cls is None:
+                                raise RuntimeError(
+                                    "diffusers 缺少 GGUFQuantizationConfig"
+                                    "（需 0.32+）")
+                            # config 指向本地 transformer/ 目录（GGUF
+                            # 无 config，架构元数据从原版目录取，避免
+                            # 联网拉取）
+                            transformer = trans_cls.from_single_file(
+                                str(ggufs[0]),
+                                config=str(path / "transformer"),
+                                quantization_config=quant_cfg_cls(
+                                    compute_dtype=torch.bfloat16),
+                                torch_dtype=torch.bfloat16)
+                            logger.info(
+                                "klein-9B GGUF 档位: %s (%.1fGB)",
+                                ggufs[0].name,
+                                ggufs[0].stat().st_size / 2**30)
+                        else:
+                            quanto_cfg_cls = getattr(
+                                diffusers, "QuantoConfig", None)
+                            if quanto_cfg_cls is None:
+                                raise RuntimeError(
+                                    "diffusers 缺少 QuantoConfig")
+                            trans_int4_dir = path / "transformer-int4"
+                            if (trans_int4_dir / "config.json").is_file():
+                                transformer = trans_cls.from_pretrained(
+                                    str(trans_int4_dir),
+                                    torch_dtype=torch.bfloat16)
+                            else:
+                                transformer = trans_cls.from_pretrained(
+                                    str(path / "transformer"),
+                                    quantization_config=quanto_cfg_cls(
+                                        weights_dtype="int4"),
+                                    torch_dtype=torch.bfloat16)
+                        # transformer 先上 GPU 再组装管线：加载 text_
+                        # encoder shards（bf16 15.26GB mmap）期间 RAM
+                        # 峰值减一个 transformer 的量（int4 ~4.6GB）
+                        transformer.to("cuda")
+                        pipe = flux_cls.from_pretrained(
+                            str(path), transformer=transformer,
+                            torch_dtype=torch.bfloat16,
+                            use_safetensors=True)
+                        hooks_mod = _try_import("diffusers.hooks")
+                        apply_offload = getattr(
+                            hooks_mod, "apply_group_offloading", None)
+                        if apply_offload is None:
+                            raise RuntimeError(
+                                "diffusers 缺少 apply_group_offloading"
+                                "（需 0.34+）")
+                        apply_offload(
+                            pipe.text_encoder,
+                            onload_device=torch.device("cuda"),
+                            offload_device=torch.device("cpu"),
+                            offload_type="leaf_level",
+                            use_stream=True,
+                            # WDDM 踩坑（同 qwen-image）：默认逐层
+                            # pin_memory，15.26GB 编码器会吃光 GPU
+                            # commit budget；pageable 常驻唯一可行
+                            low_cpu_mem_usage=True,
+                        )
+                        pipe.vae.to("cuda")
+                        flux9_layout = True
+                    else:
+                        pipe = flux_cls.from_pretrained(
+                            str(path), torch_dtype=torch.bfloat16,
+                            use_safetensors=True)
                 elif mid.startswith("qwen-image"):
                     # Qwen-Image-2512 分支：20B MMDiT + Qwen2.5-VL 7B
                     # 文本编码器（原生中文理解/中英文字渲染）。transformer
@@ -616,8 +775,10 @@ class PaintEngine:
                 # - 常规模式：model_cpu_offload（accelerate 可用时）
                 # - 兜底：整管线上 GPU + vae slicing
                 # qwen-image GGUF 专属布局已完成放置（transformer/vae 常驻
-                # GPU + 编码器 group offloading），跳过通用 offload
-                offload_done = qwen_gguf_layout
+                # GPU + 编码器 group offloading），跳过通用 offload；
+                # FLUX.2 9B 量化布局同理（transformer float8 常驻 GPU +
+                # 编码器 leaf_level offload + vae 常驻）
+                offload_done = qwen_gguf_layout or flux9_layout
                 if not offload_done:
                     try:
                         if _try_import("accelerate") is not None:
@@ -633,6 +794,37 @@ class PaintEngine:
                         pipe = pipe.to("cuda")
                     except Exception:
                         pass
+                # meta 空壳防御（2026-08-25 漫剧四视图连环失败实测）：
+                # offload 与 to("cuda") 双失败时管线可能停留在 meta 空壳
+                # （from_pretrained 权重未真正落位，0.9s "加载成功"假象），
+                # 生成时才爆 "Tensor.item() cannot be called on meta
+                # tensors"。此处校验关键组件参数非 meta，命中则如实报
+                # 加载失败，避免静默成功导致连环回退烧显存。
+                try:
+                    for comp_name in ("transformer", "unet", "text_encoder",
+                                      "vae"):
+                        comp = getattr(pipe, comp_name, None)
+                        if comp is None:
+                            continue
+                        p = next(comp.parameters(), None)
+                        if p is not None and p.is_meta:
+                            raise RuntimeError(
+                                f"管线组件 {comp_name} 处于 meta 空壳状态"
+                                "（权重未真正加载，疑似进程 CUDA 状态异常"
+                                "或显存不足），拒绝以空壳管线注册")
+                except Exception as exc:
+                    self._last_error = f"绘画模型加载失败: {exc}"
+                    self._state = "error"
+                    self._pipe = None
+                    self._pipe_i2i = None
+                    logger.error("meta 空壳校验拦截: %s", exc)
+                    gc.collect()
+                    try:
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                    return False
                 for meth in ("enable_vae_slicing", "enable_vae_tiling"):
                     try:
                         getattr(pipe, meth)()
@@ -678,6 +870,7 @@ class PaintEngine:
             self._pipe_i2i = None
             self._model_id = ""
             self._model_dir = None
+            self._reset_lora_state()
             if had:
                 self._state = "unloaded"
             _release_cuda_memory()
@@ -731,6 +924,89 @@ class PaintEngine:
             self._pipe_i2i = i2i_cls.from_pipe(self._pipe)
         return self._pipe_i2i
 
+    # ── LoRA 适配器（2026-08-27 R1 人物一致性攻关）─────────────────
+    # PEFT 注入式挂载（非融合——GGUF 量化权重不支持 fuse_lora 合并），
+    # 仅 FLUX.2 Klein 底座；LoRA 随底座切换/卸载失效（_reset_lora_state）。
+    # 实测起点：dx8152/Flux2-Klein-9B-Consistency（apache-2.0）；
+    # R2 角色 LoRA 训练产物复用同一挂载通道。
+
+    def _reset_lora_state(self) -> None:
+        """清空 LoRA 状态（底座切换/卸载时调用——适配器随管线销毁）。"""
+        self._lora_name = ""
+        self._lora_scale = 0.0
+        self._lora_path = ""
+
+    def attach_lora(self, lora_path: str | Path, scale: float = 1.0,
+                    adapter_name: str = "consistency") -> bool:
+        """挂载 LoRA 适配器（PEFT 注入，不融合权重）。
+
+        Args:
+            lora_path: .safetensors 路径（相对路径按 LORA_DIR 解析）
+            scale: 适配强度 0.0~2.0（consistency 类建议 0.7~1.0）
+            adapter_name: 适配器槽位名（重挂先卸旧）
+
+        Returns:
+            True 成功；失败置 _last_error 返回 False 不抛异常——
+            由调用方决定 LoRA 是必须项还是可选增强。
+        """
+        if self._state != "ready" or self._pipe is None:
+            self._last_error = "绘画模型未就绪，无法挂载 LoRA"
+            return False
+        if not self._model_id.startswith("flux2"):
+            self._last_error = (f"当前底座 {self._model_id} 不支持 LoRA"
+                                "（仅 FLUX.2 Klein 家族）")
+            return False
+        p = Path(lora_path)
+        if not p.is_absolute():
+            p = LORA_DIR / p
+        if not p.is_file():
+            self._last_error = f"LoRA 文件不存在: {p}"
+            return False
+        scale = max(0.0, min(float(scale), 2.0))
+        with self._infer_lock:  # 与推理互斥：注入期间不得采样
+            try:
+                if self._lora_name:
+                    self._pipe.unload_lora_weights()
+                    self._reset_lora_state()
+                self._pipe.load_lora_weights(
+                    str(p), adapter_name=adapter_name)
+                self._pipe.set_adapters([adapter_name], [scale])
+            except Exception as exc:  # noqa: BLE001
+                self._last_error = f"LoRA 挂载失败: {exc}"
+                logger.warning("LoRA 挂载失败 %s: %s", p.name, exc)
+                try:  # 失败不留半挂载状态
+                    self._pipe.unload_lora_weights()
+                except Exception:  # noqa: BLE001
+                    pass
+                return False
+            self._lora_name = adapter_name
+            self._lora_scale = scale
+            self._lora_path = str(p)
+        logger.info("LoRA 已挂载: %s scale=%.2f <- %s",
+                    adapter_name, scale, p.name)
+        return True
+
+    def detach_lora(self) -> bool:
+        """卸载当前 LoRA（无挂载时幂等 True）。"""
+        if self._pipe is None or not self._lora_name:
+            self._reset_lora_state()
+            return True
+        with self._infer_lock:
+            try:
+                self._pipe.unload_lora_weights()
+            except Exception as exc:  # noqa: BLE001
+                self._last_error = f"LoRA 卸载失败: {exc}"
+                return False
+            name = self._lora_name
+            self._reset_lora_state()
+        logger.info("LoRA 已卸载: %s", name)
+        return True
+
+    def lora_status(self) -> dict:
+        """当前 LoRA 挂载状态（get_status 附带）。"""
+        return {"adapter": self._lora_name, "scale": self._lora_scale,
+                "path": self._lora_path}
+
     # ── 进度回调 ──────────────────────────────────────────────────
 
     @staticmethod
@@ -765,21 +1041,27 @@ class PaintEngine:
     # ── 质量总督（F-10）入口降步 ─────────────────────────────────
 
     @staticmethod
-    def _apply_governor_steps(steps: int, watch: dict) -> int:
-        """F-10 降参（启动时）：命中旗标则 steps ×= steps_factor（≥12 步）。
+    def _apply_governor_steps(steps: int, watch: dict,
+                              min_steps: int = 12) -> int:
+        """F-10 降参（启动时）：命中旗标则 steps ×= steps_factor（≥min_steps）。
 
         设计依据：SDXL 利用率 >95% 持续 10s 的旗标在"自身就是高负载
         生成"时必然误触发；且 euler_a 祖先采样器每步注入新噪声，中途
         腰斩必产全屏噪点。故降参改为任务启动时减少步数——采样器跑
         完整调度（sigma→0），图像收敛，仅细节量略减（诚实降级，
         元数据标注 quality_reduced/requested_steps/actual_steps）。
+
+        min_steps（2026-08-28 V77 事故根修）：调用方质量下限。全局
+        12 步下限对 klein-9b 形同虚设（36×0.40=14 直接击穿该模型
+        质量地板，批量关键帧 shot2 起必然崩坏）；漫剧关键帧传 28
+        （v20 质量档裁定的最低可接受步数），普通绘画缺省 12 不变。
         """
         try:
             from ..quality_governor import get_quality_governor
             gov = get_quality_governor()
             if not gov.should_reduce():
                 return steps
-            reduced = max(12, int(round(steps * gov.steps_factor)))
+            reduced = max(min_steps, int(round(steps * gov.steps_factor)))
             if reduced >= steps:
                 return steps
             watch["reduced"] = True
@@ -834,10 +1116,12 @@ class PaintEngine:
                 self._sampler = apply_sampler(self._pipe, sampler)
 
             generator = torch.Generator(device="cuda").manual_seed(seed)
-            # F-10 降参（启动时）：命中旗标降步数，采样跑完整调度
+            # F-10 降参（启动时）：命中旗标降步数，采样跑完整调度；
+            # min_steps 为调用方质量下限（漫剧关键帧 28，缺省 12）
             watch: dict = {"reduced": False, "last_step": 0,
                            "requested_steps": steps}
-            steps = self._apply_governor_steps(steps, watch)
+            steps = self._apply_governor_steps(
+                steps, watch, int(params.get("min_steps") or 12))
             cb = self._make_step_callback(progress_cb, steps, watch)
 
             if is_flux:
@@ -931,13 +1215,23 @@ class PaintEngine:
 
     def img2img(self, params: dict, init_image: Any,
                 progress_cb: Callable[[int, int], None] | None = None) -> dict:
-        """图生图。
+        """图生图（审计 P0-1 修复，2026-08-29）：与 generate 共用推理
+        串行锁——此前本方法不取 `_infer_lock`，并发图生图会在共享
+        管线组件上互踩（accelerate hook / scheduler.step 均非线程
+        安全）。RLock 允许 inpaint 内部经 self.img2img 嵌套进入。
 
         Args:
             params: 同 generate，另支持 strength/denoising_strength（默认 0.75）
             init_image: PIL 图片
             progress_cb: 进度回调
         """
+        with self._infer_lock:
+            return self._img2img_impl(params, init_image, progress_cb)
+
+    def _img2img_impl(self, params: dict, init_image: Any,
+                      progress_cb: Callable[[int, int], None] | None = None
+                      ) -> dict:
+        """img2img 主体（调用方须已持 `_infer_lock`）。"""
         if self._state != "ready" or self._pipe is None:
             raise RuntimeError(self._last_error or "绘画模型未就绪")
 
@@ -961,25 +1255,41 @@ class PaintEngine:
         if is_flux:
             # FLUX.2 Klein：image 为参考条件图（≤1MP 缩放后作条件
             # token 拼入序列，非传统强度 img2img——latent 仍从纯噪声
-            # 起步，strength 不参与；输出尺寸跟随参考图）
+            # 起步，strength 不参与；输出尺寸跟随参考图）。
+            # P1 多参考（2026-08-28）：管线原生接受图列表（逐图条件
+            # token 注入，官方上限 8）；列表序 = 重要性序
+            ref_imgs = (init_image if isinstance(init_image, list)
+                        else [init_image])
+            if len(ref_imgs) > 8:
+                logger.warning("FLUX 多参考图超 8 张上限，按序截断: %d",
+                               len(ref_imgs))
+                ref_imgs = ref_imgs[:8]
             pipe = self._pipe
         elif is_qwen:
             pipe = self._get_img2img_pipe()
+            if isinstance(init_image, list):
+                logger.warning("qwen-image img2img 无多参考语义，取首图")
+                init_image = init_image[0]
         else:
             pipe = self._get_img2img_pipe()
             apply_sampler(pipe, sampler)
+            if isinstance(init_image, list):
+                logger.warning("%s img2img 无多参考语义，取首图", model_id)
+                init_image = init_image[0]
 
         generator = torch.Generator(device="cuda").manual_seed(seed)
-        # F-10 降参（启动时）：命中旗标降步数，采样跑完整调度
+        # F-10 降参（启动时）：命中旗标降步数，采样跑完整调度；
+        # min_steps 为调用方质量下限（漫剧关键帧 28，缺省 12）
         watch: dict = {"reduced": False, "last_step": 0,
                        "requested_steps": steps}
-        steps = self._apply_governor_steps(steps, watch)
+        steps = self._apply_governor_steps(
+            steps, watch, int(params.get("min_steps") or 12))
         cb = self._make_step_callback(progress_cb, steps, watch)
 
         if is_flux:
             call_kwargs: dict[str, Any] = dict(
                 prompt=prompt,
-                image=init_image.convert("RGB"),
+                image=[im.convert("RGB") for im in ref_imgs],
                 num_inference_steps=steps,
                 guidance_scale=cfg,
                 generator=generator,
@@ -1295,6 +1605,7 @@ class PaintEngine:
             "last_error": self._last_error,
             "vram_free_gb": round(_cuda_free_gb(), 2),
             "last_seed": self.last_seed,
+            "lora": self.lora_status(),
         }
 
 

@@ -6,9 +6,13 @@
 - POST   /models/import         导入模型（ModelImportRequest）
 - POST   /models/{model_id}/verify  SHA256 校验
 - DELETE /models/{model_id}     从注册表移除模型
-- PUT    /models/select         手动选择模型（ModelSelectRequest）
-- POST   /models/load           加载模型到 GPU（ensure_loaded 接线）
+- PUT    /models/select         手动选择模型（ModelSelectRequest；P1 附带 prefetch 预热点火）
+- POST   /models/load           加载模型到 GPU（ensure_loaded 接线；dialog/vision 类别内部改道切换引擎）
 - POST   /models/unload         从 GPU 卸载模型
+- POST   /models/switch         提交模型切换任务（ModelSwitchEngine P0）
+- GET    /models/switch/list    最近切换任务列表
+- GET    /models/switch/{id}    切换任务状态（plan/进度/回滚）
+- POST   /models/switch/{id}/cancel  取消切换任务（P1：force=true 强制终止）
 - GET    /models/status         GPU/已加载/互斥/预测器 全景状态
 - GET    /models/predict        ML 预测下一功能（>0.7 给预加载建议）
 - POST   /models/usage          记录功能切换事件（供 ML 预测学习）
@@ -42,7 +46,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from ..config import API_PREFIX, DATA_DIR, MODELS_DIR, ROOT_DIR
+from ..config import API_PREFIX, DATA_DIR, ROOT_DIR
 from ..data.database import get_db_safe, parse_json
 from ..data.models import (
     DIALOG_ROUTING_TABLE,
@@ -83,6 +87,23 @@ _EXTRA_KNOWN_MODELS = {
     "qwen2.5-omni-7b-int4": {"category": ModelCategory.OMNI.value,
                              "purpose": "视觉语音对话（int4 量化，12GB 档）",
                              "min_vram_gb": 6.0},
+    # MiniMax H3 33B（ComfyUI 子进程管线，2026-08-25 接入）：
+    # ComfyUI 单文件权重布局（非 diffusers），注册表侧 DB 已播种不再
+    # 重插，靠本条目 + 磁盘扫描 hints 供模型管理页/漫剧 G2 弹窗发现
+    "minimax-h3": {"category": ModelCategory.VIDEO.value,
+                   "purpose": "H3 音画联合视频生成（ComfyUI NVFP4 管线）",
+                   "min_vram_gb": 13.0},
+    # FLUX.2 Klein 9B（2026-08-25 接入）：quanto float8 量化布局，
+    # 16GB 卡顶格质量绘画底座（4B 的质量升级档）
+    "flux2-klein-9b": {"category": ModelCategory.VISION.value,
+                       "purpose": "绘画（float8 量化，9B 高质量底座）",
+                       "min_vram_gb": 10.5},
+    # DeepSeek-R1-Distill-Qwen-14B（2026-08-25 接入）：W4A16 GPTQ
+    # compressed-tensors → vLLM 子进程推理，R1 推理模型（<think> 段
+    # 由 reasoning parser 剥离），纯文本
+    "deepseek-r1-14b-w4a16": {"category": ModelCategory.DIALOG.value,
+                              "purpose": "深度推理对话（R1，vLLM W4A16）",
+                              "min_vram_gb": 11.5},
 }
 
 
@@ -401,6 +422,254 @@ def _models_config() -> dict:
     return cfg
 
 
+# ═══════════════════════════════════════════════════════════════════
+#  功能模块级模型选型配置（2026-08-27）：模块白名单 + 默认模型
+# ------------------------------------------------------------------------
+#  模型管理层面的分模块精细管控：
+#  - allowed（白名单）：该模块可选用的大模型范围；空 = 不限制（全量
+#    开放，兼容存量行为）。业务侧清单 API（/dialog/models、
+#    /draw/models、/manga/models/available）按此过滤，模型选择 UI
+#    只能看到白名单内模型；
+#  - default（默认模型）：该模块「系统默认」时实际调用的模型；空 =
+#    维持系统原有自动选择行为。对话 WS / 绘画生成链路在未显式指定
+#    模型时优先采用，漫剧三槽经清单响应下发供前端展示与传参。
+#  持久化 system_settings[models.module_config]（JSON，SQLite kv，
+#  不新增表——符合 8 表约束）。
+# ═══════════════════════════════════════════════════════════════════
+
+_MODULE_MODEL_SLOTS: dict[str, dict] = {
+    "dialog": {"label": "AI 对话", "category": "dialog",
+               "desc": "文字 + 图片理解、深度思考问答",
+               "hint": "清单 /dialog/models；生成链路：对话 WS + prewarm"},
+    "paint": {"label": "AI 绘画", "category": "vision",
+              "desc": "文生图 / 图生图",
+              "hint": "清单 /draw/models；生成链路：绘画 generate"},
+    "manga-dialog": {"label": "漫剧 · 文字", "category": "dialog",
+                     "desc": "剧本 / 分镜文案生成",
+                     "hint": "清单 /manga/models/available?task_type=dialog"},
+    "manga-paint": {"label": "漫剧 · 图片", "category": "vision",
+                    "desc": "角色 / 分镜生图",
+                    "hint": "清单 /manga/models/available?task_type=paint"},
+    "manga-video": {"label": "漫剧 · 视频", "category": "video",
+                    "desc": "图生视频",
+                    "hint": "清单 /manga/models/available?task_type=video"},
+}
+
+_MODULE_MODEL_CONFIG_KEY = "models.module_config"
+
+
+def _module_model_config() -> dict[str, dict]:
+    """读模块级选型配置：slot → {allowed: list[str], default: str}。
+
+    损坏/缺失的槽配置回退空态（allowed 空=不限制，default 空=系统
+    原行为）；未知槽丢弃（防 kv 手改残留注入前端）。
+    """
+    persisted = _kv_get(_MODULE_MODEL_CONFIG_KEY)
+    out: dict[str, dict] = {}
+    for slot in _MODULE_MODEL_SLOTS:
+        entry = (persisted or {}).get(slot) if isinstance(persisted, dict) \
+            else None
+        allowed: list[str] = []
+        if isinstance(entry, dict) and isinstance(entry.get("allowed"), list):
+            allowed = [str(a) for a in entry["allowed"] if a]
+        default = str(entry.get("default") or "") \
+            if isinstance(entry, dict) else ""
+        # 防御：默认不在白名单内视为未配置默认（自相矛盾的 kv 残留）
+        if default and default not in allowed:
+            default = ""
+        out[slot] = {"allowed": allowed, "default": default}
+    return out
+
+
+def get_module_model_scope(slot: str) -> tuple[set[str] | None, str]:
+    """模块白名单与默认模型（供业务清单/生成链路消费）。
+
+    Returns:
+        (allowed_set, default)：allowed_set None = 未配置白名单
+        （不限制）；default '' = 未配置默认。
+    """
+    entry = (_module_model_config().get(slot) or {})
+    allowed = entry.get("allowed") or []
+    return (set(allowed) if allowed else None), (entry.get("default") or "")
+
+
+def module_default_model(slot: str) -> str:
+    """模块默认模型 id（'' = 未配置，维持系统自动选择）。"""
+    return get_module_model_scope(slot)[1]
+
+
+def module_model_allowed(slot: str, model_id: str) -> bool:
+    """模型是否在模块白名单内（未配置白名单 = 全量放行）。"""
+    allowed, _ = get_module_model_scope(slot)
+    return allowed is None or model_id in allowed
+
+
+def _slot_candidate_ids(slot: str) -> set[str]:
+    """槽候选模型全集（注册表合并视图 ∪ 领域补充，含未下载模型）。
+
+    与各业务清单同源（/dialog/models 的候选表+动态发现、
+    PAINT_ROUTING_TABLE 全表、_merged_models 分类视图），保证配置
+    界面勾选范围与业务可选范围一致。允许配置未下载模型（管控声明
+    先行，模型下载/导入后生效——下载即受控）。
+    """
+    meta = _MODULE_MODEL_SLOTS.get(slot) or {}
+    cat = meta.get("category")
+    ids: set[str] = set()
+    for m in _merged_models():
+        if m.get("category") == cat:
+            ids.add(m.get("id", ""))
+    if slot == "dialog":
+        # 与 dialog_list_models 同源：候选表 + 高档位 + 动态发现
+        try:
+            from ..services.inference.dialog_engine import (
+                _HIGH_TIER_DIALOG_CANDIDATE,
+                DIALOG_MODEL_CANDIDATES,
+                discover_dialog_models,
+            )
+            ids.add(_HIGH_TIER_DIALOG_CANDIDATE[0])
+            ids.update(c[0] for c in DIALOG_MODEL_CANDIDATES)
+            ids.update(discover_dialog_models())
+        except Exception as exc:  # noqa: BLE001
+            log.debug("对话候选补充失败（不阻断配置）: %s", exc)
+    if slot == "paint":
+        # PAINT_ROUTING_TABLE 全表（含未下载路由候选）。
+        # 2026-08-29 模型裁剪：sdxl-base-1.0 退出绘画槽候选
+        # （保留引擎候选供 LoRA 训练底座使用）。
+        ids.update(m.get("model") for m in PAINT_ROUTING_TABLE
+                   if m.get("model"))
+    ids.discard("")
+    return ids
+
+
+def _slot_candidates_meta(slot: str) -> list[dict]:
+    """槽候选清单（带展示元数据，供配置界面渲染）。
+
+    排序：已下载在前；未下载候选保留可勾选（标注未安装）。
+    """
+    meta_by_id: dict[str, dict] = {m.get("id", ""): m
+                                   for m in _merged_models()}
+    out: dict[str, dict] = {}
+    for mid in _slot_candidate_ids(slot):
+        m = meta_by_id.get(mid)
+        out[mid] = {
+            "id": mid,
+            "name": (m or {}).get("name") or mid,
+            "category": (m or {}).get("category")
+            or (_MODULE_MODEL_SLOTS.get(slot) or {}).get("category", ""),
+            "downloaded": bool((m or {}).get("downloaded")),
+            "loaded": bool((m or {}).get("loaded")),
+            "min_vram_gb": float((m or {}).get("min_vram_gb", 0) or 0),
+            "purpose": (m or {}).get("purpose", ""),
+        }
+    return sorted(out.values(),
+                  key=lambda x: (not x["downloaded"], x["id"]))
+
+
+def _module_config_payload() -> dict:
+    """GET/PUT 共用的响应载荷：槽定义 + 配置 + 候选 + 未知项标注。"""
+    cfg = _module_model_config()
+    slots = []
+    for slot, meta in _MODULE_MODEL_SLOTS.items():
+        entry = cfg.get(slot) or {"allowed": [], "default": ""}
+        candidates = _slot_candidates_meta(slot)
+        cand_ids = {c["id"] for c in candidates}
+        slots.append({
+            "slot": slot,
+            "label": meta["label"],
+            "desc": meta["desc"],
+            "hint": meta["hint"],
+            "allowed": entry["allowed"],
+            "default": entry["default"],
+            "restricted": bool(entry["allowed"]),
+            "candidates": candidates,
+            # 白名单中不在候选集的 id（可能已删除的模型）：保留配置
+            # 但前端标注「未知」，提醒管理员清理
+            "unknown_allowed": [a for a in entry["allowed"]
+                                if a not in cand_ids],
+        })
+    return {"slots": slots, "config": cfg,
+            "slot_keys": list(_MODULE_MODEL_SLOTS)}
+
+
+class ModuleModelConfigRequest(BaseModel):
+    """模块级选型配置写入体：slot → {allowed, default}。"""
+    configs: dict[str, dict]
+
+
+@router.get("/models/module-config")
+def models_module_config_get():
+    """功能模块级模型选型配置读取（模型管理页配置面板数据源）。"""
+    return ok(_module_config_payload())
+
+
+@router.put("/models/module-config")
+def models_module_config_put(req: ModuleModelConfigRequest):
+    """保存模块级选型配置（白名单 + 默认模型，即时持久化）。
+
+    校验（诚实语义）：
+    - slot 必须是已定义槽位；
+    - allowed 内未知模型 id 保留（声明式管控，标注 unknown）；
+    - default 非空时必须在 allowed 且真实存在于候选集（保证默认
+      可生效——默认指向不存在模型是配置错误，如实拒绝）。
+    清单 API 即时生效（下次拉取即过滤）；对话/绘画生成链路的默认
+    模型即时生效（每次请求实时读配置）。
+    """
+    if not isinstance(req.configs, dict) or not req.configs:
+        raise ApiError(40004, "configs 不能为空（slot → 配置映射）")
+    unknown_slots = [s for s in req.configs if s not in _MODULE_MODEL_SLOTS]
+    if unknown_slots:
+        raise ApiError(40004, "未知功能模块槽位",
+                       detail={"unknown_slots": unknown_slots,
+                               "valid": list(_MODULE_MODEL_SLOTS)})
+
+    merged = _module_model_config()
+    warnings: list[str] = []
+    for slot, raw in req.configs.items():
+        if not isinstance(raw, dict):
+            raise ApiError(40004, f"槽 {slot} 配置必须是对象",
+                           detail={"slot": slot})
+        allowed_raw = raw.get("allowed")
+        if allowed_raw is None:
+            allowed_raw = []
+        if not isinstance(allowed_raw, list) \
+                or not all(isinstance(a, str) for a in allowed_raw):
+            raise ApiError(40004, f"槽 {slot} 的 allowed 必须是字符串数组",
+                           detail={"slot": slot})
+        # 去重保序
+        allowed = list(dict.fromkeys(a for a in allowed_raw if a))
+        default = str(raw.get("default") or "")
+        cand_ids = _slot_candidate_ids(slot)
+        if default:
+            if default not in allowed:
+                raise ApiError(
+                    40004, f"槽 {slot} 的默认模型必须在可选范围内",
+                    detail={"slot": slot, "default": default})
+            if default not in cand_ids:
+                raise ApiError(
+                    40004,
+                    f"槽 {slot} 的默认模型 {default} 不存在（未注册/"
+                    "未下载），无法设为默认",
+                    detail={"slot": slot, "default": default})
+        if slot == "dialog" and any(
+                k in a.lower() for a in allowed for k in
+                ("tts", "voice", "speech", "asr", "audio")):
+            warnings.append(
+                "AI 对话白名单含语音类模型（对话清单不会展示它们）")
+        unknown = [a for a in allowed if a not in cand_ids]
+        if unknown:
+            warnings.append(
+                f"槽 {slot} 白名单含未安装/未知模型: {', '.join(unknown)}"
+                "（保留配置，下载后生效）")
+        merged[slot] = {"allowed": allowed, "default": default}
+
+    _kv_set(_MODULE_MODEL_CONFIG_KEY, merged)
+    log.info("模块级模型选型配置已保存: %s",
+             {s: {"n": len(v["allowed"]), "d": v["default"]}
+              for s, v in merged.items()})
+    return ok({**_module_config_payload(), "warnings": warnings},
+              message="模块模型配置已保存")
+
+
 def _vram_fragmentation() -> dict:
     """显存碎片率（MODEL-033）：1 - 已分配/已预留（缓存分配器级）。
 
@@ -434,14 +703,13 @@ def _vram_fragmentation() -> dict:
 
 
 def _manifest_entry(model_id: str) -> dict:
-    """读 models_manifest.json 中指定模型的条目（无则空 dict）。"""
-    try:
-        data = json.loads(
-            (MODELS_DIR / "models_manifest.json").read_text("utf-8"))
-        entry = (data.get("models") or {}).get(model_id)
-        return entry if isinstance(entry, dict) else {}
-    except Exception:  # noqa: BLE001
-        return {}
+    """读 models_manifest.json 中指定模型的条目（无则空 dict）。
+
+    ADR-003 P1：读取收敛至 data.model_registry（mtime 缓存单一读者），
+    返回契约与旧直读实现一致。
+    """
+    from ..data.model_registry import entry as _registry_entry
+    return _registry_entry(model_id)
 
 
 def _model_dependencies(model: dict) -> list[dict]:
@@ -568,9 +836,8 @@ def models_update_check():
     """
     local_ver = ""
     try:
-        data = json.loads(
-            (MODELS_DIR / "models_manifest.json").read_text("utf-8"))
-        local_ver = str(data.get("version") or "")
+        from ..data.model_registry import load_manifest
+        local_ver = str(load_manifest().get("version") or "")
     except Exception:  # noqa: BLE001
         pass
 
@@ -720,6 +987,50 @@ async def models_load(req: ModelLoadRequest):
             raise ApiError(20014, f"功能互斥，当前无法加载：{reason}",
                            detail={"feature": feature,
                                    "active_feature": lock_mgr.active_feature})
+
+    # 统一切换引擎改道（P0 2026-08-25）：进度可见 + 失败尽力回滚，
+    # 同步语义兼容（阻塞至终态）。锁移交给任务线程（submit 成功后
+    # 由任务终态释放，handler 不再重复 release）；submit 抛异常时
+    # 锁未移交，此处兜底释放——除非 acquire 是对既有切换任务锁的
+    # 重入（was_switch_held，让位协议），此时锁仍归原任务不得清。
+    from ..services.switch_engine import (
+        ModelSwitchEngine,
+        SwitchBusyError,
+        get_switch_engine,
+    )
+    if category in ModelSwitchEngine.VALID_CATEGORIES:
+        st_pre = lock_mgr.status()
+        was_switch_held = (
+            feature and st_pre.get("active_feature") == feature
+            and str(st_pre.get("task_id") or "").startswith("switch:"))
+        try:
+            result = await run_blocking(
+                get_switch_engine().submit_and_wait,
+                category, req.model_id, 900.0,
+                feature=feature if acquired else None)
+        except SwitchBusyError as e:
+            if acquired and not was_switch_held:
+                await lock_mgr.release(feature)
+            raise ApiError(20010, str(e),
+                           detail={"active_task_id": e.active_task_id,
+                                   "model_id": req.model_id}) from e
+        except ValueError as e:
+            if acquired and not was_switch_held:
+                await lock_mgr.release(feature)
+            raise ApiError(20011, str(e), detail={"model_id": req.model_id}) from e
+        status = result.get("status", "")
+        if status == "done":
+            return ok({"model_id": req.model_id, "category": category,
+                       "loaded": True, "loaded_models": mgr.get_loaded_models(),
+                       "switch_task": result},
+                      message="模型已加载")
+        reason = result.get("error") or result.get("message") or "加载失败"
+        code = 20013 if "显存不足" in reason else (
+            20011 if "未下载" in reason else 20010)
+        raise ApiError(code, f"模型加载失败：{reason}",
+                       detail={"model_id": req.model_id, "category": category,
+                               "switch_task": result})
+
     try:
         # ensure_loaded 是数秒级阻塞调用，经 run_blocking 卸载避免卡住事件循环
         loaded = await run_blocking(
@@ -749,6 +1060,153 @@ def models_unload(req: ModelUnloadRequest):
     return ok({"model_id": req.model_id, "loaded": False,
                "loaded_models": mgr.get_loaded_models()},
               message="模型已卸载")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  统一模型切换引擎（ModelSwitchEngine，P0 2026-08-25）
+# ═══════════════════════════════════════════════════════════════════
+
+class ModelSwitchRequest(BaseModel):
+    """提交模型切换（异步任务，返回 task_id 供进度轮询/WS 订阅）。"""
+    model_id: str
+    # 缺省取模型注册表类别（dialog/vision/video）
+    category: str | None = None
+    # 加载失败时尽力回滚至切换前模型（vLLM 回滚=全量重载，耗时同首次加载）
+    rollback: bool = True
+
+
+async def _acquire_switch_lock(feature: str, model_id: str) -> None:
+    """切换任务的功能锁获取（严格持锁检查版）。
+
+    与 /models/load 的可重入语义不同：切换窗口长（vLLM 实测 177s），
+    若对"该功能正被真实任务持有（如对话流式）"的锁重入成功，任务
+    线程结束时 release 会把活跃任务持有的锁误清——因此提交切换前
+    必须确认该功能当前空闲（用户裁定：切换需等活跃任务结束）。
+
+    P1 让位放宽：持锁者 task_id 以 "switch:" 开头（即另一个切换/
+    预热任务）时放行——引擎 submit() 内部会取消低优 prefetch 任务
+    并接管锁（lock_handover）；用户级任务仍互斥（SwitchBusyError）。
+
+    必须 async/await（lock_mgr.acquire 是协程——同步裸调用返回
+    coroutine 对象恒 truthy，锁实际未获取，2026-08-25 e2e 日志
+    实测踩坑：/models/switch 提交全程无锁保护）。
+    """
+    mgr = get_model_manager()
+    lock_mgr = get_feature_lock()
+    blocked, reason = mgr.is_feature_blocked(feature)
+    if blocked:
+        raise ApiError(20014, f"功能互斥，当前无法切换：{reason}",
+                       detail={"feature": feature,
+                               "blocked_features": mgr.get_blocked_features()})
+    st = lock_mgr.status()
+    if st.get("active_feature") == feature and st.get("task_id"):
+        holder_tid = str(st.get("task_id") or "")
+        if not holder_tid.startswith("switch:"):
+            raise ApiError(
+                20014, f"{feature} 功能任务进行中，无法切换模型（请等待完成）",
+                detail={"feature": feature, "holder_task_id": st.get("task_id"),
+                        "held_seconds": st.get("held_seconds", 0)})
+    if not await lock_mgr.acquire(feature, task_id=f"switch:{model_id}"):
+        reason = lock_mgr.get_block_reason(feature) or "功能互斥"
+        raise ApiError(20014, f"功能互斥，当前无法切换：{reason}",
+                       detail={"feature": feature,
+                               "active_feature": lock_mgr.active_feature})
+
+
+@router.post("/models/switch")
+async def models_switch(req: ModelSwitchRequest):
+    """提交模型切换任务（异步：plan→unload→load→verify，WS 进度推送）。
+
+    返回任务快照（含 plan 显存账/驱逐清单/预估耗时）；进度经
+    WS task_progress（module=model_switch）推送，终态 task_complete/
+    task_error。锁移交：API 层 acquire → 任务线程终态释放。
+    """
+    from ..services.switch_engine import ModelSwitchEngine, SwitchBusyError, get_switch_engine
+
+    model = _find_model(req.model_id)
+    if model is None:
+        raise ApiError(20011, f"模型未下载: {req.model_id}",
+                       detail={"model_id": req.model_id})
+    category = (req.category or model.get("category", "")).strip().lower()
+    if category not in ModelSwitchEngine.VALID_CATEGORIES:
+        raise ApiError(
+            20010, f"该类别暂不支持切换: {category}（支持 dialog/vision/video）",
+            detail={"model_id": req.model_id, "category": category})
+
+    feature = _category_to_feature(category)
+    acquired = False
+    # 让位重入标记（P1）：acquire 前锁已被同 feature 的切换任务持有
+    # （switch: 前缀）时，本次 acquire 是重入——submit 失败的兜底
+    # release 会误清原持有任务的锁（2026-08-25 e2e B3 实测：loading
+    # 中提交 user switch 被互斥拒绝后，prefetch 任务的锁被清空，
+    # 全程失去 scheduler 保护）。此时锁仍归原任务，不得释放。
+    was_switch_held = False
+    if feature:
+        st = get_feature_lock().status()
+        was_switch_held = (
+            st.get("active_feature") == feature
+            and str(st.get("task_id") or "").startswith("switch:"))
+        await _acquire_switch_lock(feature, req.model_id)
+        acquired = True
+    engine = get_switch_engine()
+    try:
+        info = engine.submit(category, req.model_id, rollback=req.rollback,
+                             feature=feature if acquired else None)
+    except SwitchBusyError as e:
+        if acquired and not was_switch_held:
+            await get_feature_lock().release(feature)
+        raise ApiError(20010, str(e),
+                       detail={"active_task_id": e.active_task_id,
+                               "category": category}) from e
+    except ValueError as e:
+        if acquired and not was_switch_held:
+            await get_feature_lock().release(feature)
+        raise ApiError(20011, str(e), detail={"model_id": req.model_id}) from e
+    return ok(info, message="切换任务已提交")
+
+
+@router.get("/models/switch/list")
+def models_switch_list(limit: int = Query(20, ge=1, le=100)):
+    """最近切换任务列表（新在前，供任务面板/排查）。
+
+    路径必须两段（/switch/list）：单段 /models/switch 会被先注册的
+    GET /models/{model_id} 吞掉（model_id="switch"）；且本路由必须
+    声明在 /switch/{task_id} 之前（"list" 不落入 task_id 参数）。
+    """
+    from ..services.switch_engine import get_switch_engine
+    return ok({"items": get_switch_engine().list_tasks(limit)})
+
+
+@router.get("/models/switch/{task_id}")
+def models_switch_status(task_id: str):
+    """查询单个切换任务状态（含 plan/进度/错误/回滚状态）。"""
+    from ..services.switch_engine import get_switch_engine
+    info = get_switch_engine().get(task_id)
+    if info is None:
+        raise ApiError(20010, f"切换任务不存在: {task_id}",
+                       detail={"task_id": task_id})
+    return ok(info)
+
+
+@router.post("/models/switch/{task_id}/cancel")
+async def models_switch_cancel(task_id: str, force: bool = Query(False)):
+    """请求取消切换任务。
+
+    P1 语义：
+    - loading 前：立即取消（默认）
+    - loading/verifying + force=true（用户最高权威）：
+      * vLLM 模型：强杀子进程（自杀协议）真终止，任务转 cancelled
+      * transformers/diffusers：标记善后——加载调用不可安全中断，
+        返回后立即卸载目标模型（消息如实告知）
+    """
+    from ..services.switch_engine import get_switch_engine
+    engine = get_switch_engine()
+    # cancel 内 vLLM stop 涉及 taskkill（数秒级同步阻塞）→ run_blocking
+    cancelled, msg = await run_blocking(engine.cancel, task_id, force=force)
+    info = engine.get(task_id)
+    if not cancelled:
+        raise ApiError(20010, msg, detail=info or {"task_id": task_id})
+    return ok(info, message=msg)
 
 
 class ModuleReleaseRequest(BaseModel):
@@ -1032,8 +1490,15 @@ def models_purge_files(model_id: str):
 
 
 @router.put("/models/select")
-def models_select(req: ModelSelectRequest):
-    """手动选择模型（规格 §4.5）。feature -> model_id 绑定。"""
+async def models_select(req: ModelSelectRequest):
+    """手动选择模型（规格 §4.5）。feature -> model_id 绑定。
+
+    P1 prefetch 预热：feature ∈ {dialog, paint, video} 且功能锁空闲
+    时，后台低优提交切换任务预热目标模型（保存配置即预载，下次
+    使用免等）；忙碌（真实任务/另一切换进行中）时静默跳过——预热
+    是尽力优化，绝不能阻塞或打断用户当前工作。P2 起 video 预热
+    对 minimax-h3 为 ComfyUI 子进程冷启动（~20s，免下个任务等待）。
+    """
     valid_features = ("dialog", "paint", "video", "voice")
     if req.feature not in valid_features:
         raise ApiError(40004, "feature 必须是 dialog/paint/video/voice",
@@ -1042,8 +1507,88 @@ def models_select(req: ModelSelectRequest):
         raise ApiError(30001, "模型文件未找到，请导入模型",
                        detail={"model_id": req.model_id})
     _selections[req.feature] = req.model_id
+
+    # prefetch 预热点火（fire-and-forget，不影响选择响应）
+    prefetch = "skipped"
+    if req.feature in ("dialog", "paint", "video"):
+        prefetch = await _try_prefetch(req.feature, req.model_id)
     return ok({"feature": req.feature, "model_id": req.model_id,
-               "selections": dict(_selections)})
+               "selections": dict(_selections),
+               "prefetch": prefetch},
+              message="模型选择已保存"
+                      + ("，后台预热已点火" if prefetch == "started" else ""))
+
+
+async def _try_prefetch(feature: str, model_id: str) -> str:
+    """保存模型配置后的后台预热（P1；P2 扩展 video）。
+
+    语义（尽力而为，任何不满足条件都静默跳过）：
+    - 引擎已持有目标模型 → 无需预热（幂等；video 经 holds_model
+      特化——diffusers 装载目录名 / H3 台账登记态）
+    - 功能锁被真实任务/其他功能持有 → 跳过（不打扰用户）
+    - 功能锁空闲 → acquire（task_id=switch: 前缀）→ 引擎 submit
+      priority=prefetch；提交失败兜底释放锁
+    - 活跃切换任务是 prefetch → submit 让位协议自然处理（新配置
+      覆盖旧预热）；活跃任务是用户级切换 → SwitchBusyError 跳过
+
+    Returns:
+        "started" 已点火 / "skipped" 跳过（附原因语义见日志）
+    """
+    from ..services.switch_engine import get_switch_engine
+    # feature 名 → 切换类目（mgr/注册表词汇；vision=绘画引擎）
+    category = {"dialog": "dialog", "paint": "vision",
+                "video": "video"}.get(feature)
+    if category is None:
+        return "skipped"
+    # 锁词汇对齐（2026-08-25 e2e E1 实测）：feature_lock 四锁是
+    # dialog/paint/video_gen/training——video 功能的锁名是 video_gen，
+    # 裸用 feature 名 acquire 会 40010 且任务线程 release 失配
+    # （与 models_switch._category_to_feature 同口径）
+    lock_feature = {"dialog": "dialog", "paint": "paint",
+                    "video": "video_gen"}[feature]
+    engine = get_switch_engine()
+    lock_mgr = get_feature_lock()
+
+    # 引擎已持有目标 → 幂等跳过
+    if engine.holds_model(category, model_id):
+        return "skipped"
+
+    # 本功能有活跃切换任务：user 级一律跳过（不能干扰显式操作）；
+    # prefetch 仅在可让位阶段（planning/unloading）放行——loading 中
+    # 不可让位，重入提交必 SwitchBusyError，兜底 release 会误清其锁
+    active_info = engine.get_active_task(category)
+    if active_info is not None:
+        if active_info.get("priority") != "prefetch":
+            return "skipped"
+        if str(active_info.get("status", "")) in ("loading", "verifying"):
+            return "skipped"
+
+    # 锁忙判定：被其他功能持有 / 本功能被真实任务（非 switch: 前缀）持有
+    st = lock_mgr.status()
+    active = st.get("active_feature")
+    if active and active != lock_feature:
+        return "skipped"
+    if active == lock_feature:
+        holder_tid = str(st.get("task_id") or "")
+        if holder_tid and not holder_tid.startswith("switch:"):
+            return "skipped"  # 真实生成任务进行中，不打扰
+
+    if not await lock_mgr.acquire(lock_feature,
+                                  task_id=f"switch:{model_id}"):
+        return "skipped"
+    try:
+        engine.submit(category, model_id, priority="prefetch",
+                      feature=lock_feature)
+        log.info("prefetch 预热已点火: %s → %s (%s)", feature, model_id,
+                 category)
+        return "started"
+    except Exception as exc:  # noqa: BLE001 - 预热失败不影响选择
+        log.info("prefetch 预热未点火（%s）: %s", type(exc).__name__, exc)
+        try:
+            await lock_mgr.release(lock_feature)
+        except Exception:  # noqa: BLE001
+            pass
+        return "skipped"
 
 
 # ═══════════════════════════════════════════════════════════════════

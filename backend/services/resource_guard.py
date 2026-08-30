@@ -207,8 +207,8 @@ class ResourceGuard:
         排除：功能锁活动功能类别 + 共享小模型（embedding/voice/auxiliary）
         + 常驻对话模型。
         """
-        from .model_manager import get_model_manager, _FEATURE_KEEP_CATEGORIES
         from ..middleware.feature_lock import get_feature_lock
+        from .model_manager import _FEATURE_KEEP_CATEGORIES, get_model_manager
 
         keep_cats: set[str] = set(_SHARED_KEEP)
         try:
@@ -240,23 +240,28 @@ class ResourceGuard:
         # 台账外兜底：paint 引擎管线（2026-08-23 RAM 滞留事故根因——
         # qwen-image GGUF 12.31GB 经 paint_engine 直连 diffusers 加载，
         # 不入 model_manager 台账，任务完成后 resource_guard 看不到它，
-        # 权重永久滞留 RAM，系统空闲仅剩 0.6GB）。paint 锁持有中
-        # keep_cats 含 "paint" 自然保护；锁释放后即可被降载回收。
-        try:
-            from .inference.paint_engine import get_paint_engine
-            st = get_paint_engine().get_status()
-            if st.get("state") == "ready" and st.get("model"):
-                candidates.append({
-                    "model_id": str(st["model"]),
-                    "category": "paint",
-                    "vram_gb": 0.0,
-                    "ram_gb": (12.31 if str(st["model"]).startswith(
-                        "qwen-image") else 0.0),
-                    "priority": 9,
-                    "_engine": "paint",
-                })
-        except Exception:  # noqa: BLE001 - 引擎不可用时无兜底条目
-            pass
+        # 权重永久滞留 RAM，系统空闲仅剩 0.6GB）。
+        # 2026-08-26 e2e 事故修复：兜底条目此前无条件 append，绕过
+        # keep_cats 功能锁保护——paint 锁持有中（方案 A 逐镜循环）
+        # FLUX 仍被当「空闲模型」卸载，第 4 镜 PAINT_GENERATION_
+        # FAILED。兜底条目必须与 ledger 条目同一过滤语义：活动
+        # 功能类别不卸（不拆运行中任务的管线），锁释放后才可回收。
+        if "paint" not in keep_cats:
+            try:
+                from .inference.paint_engine import get_paint_engine
+                st = get_paint_engine().get_status()
+                if st.get("state") == "ready" and st.get("model"):
+                    candidates.append({
+                        "model_id": str(st["model"]),
+                        "category": "paint",
+                        "vram_gb": 0.0,
+                        "ram_gb": (12.31 if str(st["model"]).startswith(
+                            "qwen-image") else 0.0),
+                        "priority": 9,
+                        "_engine": "paint",
+                    })
+            except Exception:  # noqa: BLE001 - 引擎不可用时无兜底条目
+                pass
         # 低优先级数值小者先卸；同优先级大模型先卸（一次释放更多）
         candidates.sort(key=lambda e: (
             e.get("priority", 0), -float(e.get("vram_gb", 0.0))))
@@ -292,12 +297,21 @@ class ResourceGuard:
 
     @staticmethod
     def _shrink_working_set() -> None:
-        """Windows：收缩本进程工作集（把不活跃页换出，立即降 RAM 峰值）。"""
+        """Windows：收缩本进程工作集（把不活跃页换出，立即降 RAM 峰值）。
+
+        句柄铁律（2026-08-26 RAM 滞留事故修复）：GetCurrentProcess()
+        返回伪句柄 -1，但 ctypes.windll 默认 restype=c_int 会把它截断为
+        32 位 0xFFFFFFFF → EmptyWorkingSet 静默失败（返回 False 无人检
+        查），守卫降载后已 free 的权重页滞留工作集、系统 RAM 不回落
+        （实测 klein-4B 卸载后 uss 停 16.6GB；正确传 c_void_p(-1) 后
+        uss 立即归零）。必须直接构造 64 位伪句柄。
+        """
         try:
             import ctypes
-            k32 = ctypes.windll.kernel32     # type: ignore[attr-defined]
             psapi = ctypes.windll.psapi      # type: ignore[attr-defined]
-            psapi.EmptyWorkingSet(k32.GetCurrentProcess())
+            ok = bool(psapi.EmptyWorkingSet(ctypes.c_void_p(-1)))
+            if not ok:
+                log.debug("EmptyWorkingSet 调用失败（权限不足或非 Windows）")
         except Exception:  # noqa: BLE001 - 非 Windows/权限不足时跳过
             pass
 

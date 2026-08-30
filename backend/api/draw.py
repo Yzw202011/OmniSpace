@@ -116,6 +116,17 @@ _task_images: dict[str, tuple] = {}  # task_id -> (init_image, mask) 副作用�
 _TaskCancelled = PaintCancelledError
 
 
+def _default_paint_model() -> str:
+    """AI 绘画默认底座（2026-08-29 模型裁剪）：paint 槽 module_config
+    默认模型；未配置回落 flux2-klein-9b（sdxl 缺省随裁剪移除）。
+    """
+    try:
+        from .models import module_default_model
+        return module_default_model("paint") or "flux2-klein-9b"
+    except Exception:  # noqa: BLE001 - 配置读取失败不阻断任务创建
+        return "flux2-klein-9b"
+
+
 def _task_create(task_type: str, params: dict) -> dict:
     now = time.time()
     try:
@@ -134,7 +145,7 @@ def _task_create(task_type: str, params: dict) -> dict:
         "image_b64": "",
         "seed": -1,
         "sampler": params.get("sampler") or DEFAULT_SAMPLER,
-        "model": params.get("model") or "sdxl-base-1.0",
+        "model": params.get("model") or _default_paint_model(),
         "elapsed_ms": 0,
         "degraded": False,
         "backend": "",
@@ -301,6 +312,39 @@ def _run_generate_task(task_id: str, params: dict,
 
         prompt = params["prompt"]
         model_hint = params.get("model")
+        # ── 模块级选型配置生效（模型管理 → 功能模块模型配置）───────
+        # ① 显式点名模型不在白名单 → 如实失败（精细化管控落地）
+        # ② 未指定模型且配置了默认 → 采用模块默认（优先于智能路由
+        #    ——与「显式点名尊重用户意图」同语义，管理员配置即意图）
+        try:
+            from ..api.models import get_module_model_scope
+            _allowed, _default = get_module_model_scope("paint")
+            if model_hint and _allowed is not None \
+                    and model_hint not in _allowed:
+                raise RuntimeError(
+                    f"MODEL_NOT_ALLOWED: 模型 {model_hint} 不在 AI 绘画"
+                    "模块的可用范围内，请在模型管理中调整配置")
+            if not model_hint and _default:
+                model_hint = _default
+        except RuntimeError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断生成
+            log.warning("绘画模块选型配置读取失败（跳过）: %s", exc)
+
+        # ── 自动切换底座（生图路由引擎）：风格画像→底座×风格包组合 ──
+        # auto 模式（未显式点名且无模块默认）时由路由引擎决策；
+        # 白名单拒绝/模块默认优先级均高于路由（前置块已落地），
+        # 此处仅在 model_hint 仍为空时介入，不触碰后续语言感知逻辑
+        if not model_hint:
+            try:
+                from ..services.inference.gen_router import resolve_route
+                current = (engine.get_status().get("model") or "") \
+                    if engine.is_ready else ""
+                route = resolve_route("paint", prompt, prefer_keep=current)
+                if route.model_id:
+                    model_hint = route.model_id
+            except Exception as exc:  # noqa: BLE001 - 路由失败不阻断生成
+                log.warning("生图路由决策失败（跳过）: %s", exc)
         translated_fallback = False  # 走了翻译兜底（模型加载后需收缩 RAM）
 
         # ── 语言感知路由（2026-08-23 图文不符修复）─────────────────
@@ -343,23 +387,25 @@ def _run_generate_task(task_id: str, params: dict,
                 if dual and not current and ram_ok:
                     model_hint = dual
                 elif (not current
-                      and "flux2-klein-4b" in engine.available_models()):
+                      and "flux2-klein-9b" in engine.available_models()):
                     # RAM 不足 qwen 时的次优解（2026-08-23 图文不符
                     # v2 排查定论）：SDXL 翻译兜底链路的 CLIP 是
                     # bag-of-words 弱语义，叠加 WDDM 桌面显存状态
                     # 噪声（GUI 应用占显存 → fp16 kernel 数值路径
                     # 变化 → 去噪轨迹混沌发散），同 prompt 同 seed
                     # 在干净态出写实脚特写、翻译态出黑白线条胸像
-                    # ——出图对中文语义不可信。flux2-klein-4b 的
-                    # Qwen3-4B 编码器原生中文，显存够时中文直入
+                    # ——出图对中文语义不可信。flux2-klein-9b 的
+                    # Qwen3-8B 编码器原生中文，显存够时中文直入
                     # （零翻译损耗）；显存闸门由 ensure_loaded 内部
                     # check_vram 把守，失败走翻译兜底。
+                    # 2026-08-29 模型裁剪：中文直入 hint 由 klein-4b
+                    # 改为 klein-9b（绘画模块唯一 klein 底座）。
                     try:
-                        flux_ok, _free = engine.check_vram(12.0)
+                        flux_ok, _free = engine.check_vram(8.5)
                     except Exception:  # noqa: BLE001 - 查询失败保守放行
                         flux_ok = True
                     if flux_ok:
-                        model_hint = "flux2-klein-4b"
+                        model_hint = "flux2-klein-9b"
                 if not model_hint:
                     # 翻译须在模型加载前（调方约定：翻译用对话引擎，
                     # 翻译完 paint 加载按需腾显存卸载对话引擎）
@@ -1221,10 +1267,21 @@ def draw_models():
             "status": status,
             "local_model": local_id,
         })
+    # 模块级选型配置（模型管理 → 功能模块模型配置）：
+    # 白名单过滤 + 默认模型下发。allowed 为空 = 不限制（兼容存量）。
+    default_model = ""
+    try:
+        from ..api.models import get_module_model_scope
+        allowed, default_model = get_module_model_scope("paint")
+        if allowed is not None:
+            items = [m for m in items if m["id"] in allowed]
+    except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
+        log.warning("绘画模块白名单过滤跳过: %s", exc)
     return ok({
         "items": items,
         "total": len(items),
         "engine": engine.get_status(),
+        "default_model": default_model or "",
     })
 
 

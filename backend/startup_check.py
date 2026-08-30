@@ -474,23 +474,56 @@ def _check_models_dir() -> CheckResult:
 
 
 def _check_models_manifest() -> CheckResult:
-    """25. 模型清单文件。"""
+    """25. 模型清单文件（ADR-003 P1：升级为 manifest↔磁盘一致性校验）。
+
+    校验三类失真：required 模型磁盘缺失、幽灵条目（登记但磁盘无权重）、
+    未登记模型目录（孤儿）。任何一类失真均为 warning（不阻断启动，
+    与本检查项既有语义一致），明细进 detail 供前端面板展示。
+    """
     manifest = MODELS_DIR / "models_manifest.json"
-    if manifest.exists():
-        try:
-            import json
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-            count = len(data) if isinstance(data, (list, dict)) else 0
-            return CheckResult(25, "模型清单", True,
-                               f"已加载 {count} 条模型记录", "info",
-                               {"path": str(manifest), "count": count})
-        except Exception as exc:
-            return CheckResult(25, "模型清单", False,
-                               f"清单解析失败: {exc}", "warning",
-                               {"path": str(manifest)})
-    return CheckResult(25, "模型清单", False,
-                       "模型清单不存在（首次运行）", "warning",
-                       {"path": str(manifest), "exists": False})
+    if not manifest.exists():
+        return CheckResult(25, "模型清单", False,
+                           "模型清单不存在（首次运行）", "warning",
+                           {"path": str(manifest), "exists": False})
+    try:
+        import json
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        count = len(data.get("models", {})) if isinstance(data, dict) else 0
+    except Exception as exc:
+        return CheckResult(25, "模型清单", False,
+                           f"清单解析失败: {exc}", "warning",
+                           {"path": str(manifest)})
+    if count == 0:
+        return CheckResult(25, "模型清单", False,
+                           "清单无模型条目（结构非法）", "warning",
+                           {"path": str(manifest), "count": 0})
+    try:
+        from .data.model_registry import validate_against_disk
+        report = validate_against_disk()
+    except Exception as exc:  # noqa: BLE001 - 校验器异常不阻断启动
+        log.warning("模型清单一致性校验异常: %s", exc)
+        return CheckResult(25, "模型清单", True,
+                           f"已加载 {count} 条模型记录（一致性校验异常: {exc}）",
+                           "warning",
+                           {"path": str(manifest), "count": count})
+    detail = {"path": str(manifest), "count": count, **report}
+    problems: list[str] = []
+    if report["required_missing"]:
+        problems.append("必需模型磁盘缺失: "
+                        + ", ".join(report["required_missing"]))
+    if report["ghost_entries"]:
+        problems.append("幽灵条目(登记但磁盘无权重): "
+                        + ", ".join(report["ghost_entries"]))
+    if report["orphan_dirs"]:
+        problems.append("未登记模型目录: "
+                        + ", ".join(report["orphan_dirs"]))
+    if problems:
+        return CheckResult(25, "模型清单", False,
+                           f"已加载 {count} 条模型记录；" + "；".join(problems),
+                           "warning", detail)
+    return CheckResult(25, "模型清单", True,
+                       f"已加载 {count} 条模型记录，磁盘一致",
+                       "info", detail)
 
 
 def _check_logs_dir() -> CheckResult:

@@ -659,6 +659,20 @@ class LearningScheduler:
             settings = get_learning_settings()
             if not settings.get("enabled", True):
                 return
+            # 流量配额预检（2026-08-29 E2E 热循环修复）：会话内的
+            # traffic_limit 只掐进行中的会话——配额耗尽后 auto 触发器
+            # 每 30s「启动→秒掐→再触发」死循环（实测 20min，每轮创建/
+            # 销毁一个 Chromium 上下文）。预检配额满 → 当日静默。
+            try:
+                from .browser_agent_service import get_traffic_today
+                limit_mb = float(settings.get(
+                    "daily_traffic_limit_mb", 50) or 50)
+                if get_traffic_today() >= limit_mb * 1048576:
+                    log.debug("触发器 %s：每日流量配额已用尽，自动学习静默",
+                              trigger)
+                    return
+            except Exception:  # noqa: BLE001 - 预检失败不阻断正常触发
+                pass
             agent = get_browser_agent_service()
             if agent.active_session() is not None:
                 return

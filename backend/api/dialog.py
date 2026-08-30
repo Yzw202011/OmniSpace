@@ -474,7 +474,6 @@ def dialog_list_models():
     items: list[dict] = []
     try:
         from ..services.inference.dialog_engine import (
-            DIALOG_MODEL_CANDIDATES,
             _cuda_total_gb,
             _effective_candidates,
             _estimated_load_gb,
@@ -488,8 +487,10 @@ def dialog_list_models():
         entries: list[tuple[str, str]] = [
             (mid, rel) for mid, rel, _v in _effective_candidates()]
         from ..services.inference.dialog_engine import (
-            DIALOG_MODEL_CANDIDATES as _BASE_CANDS,
             _HIGH_TIER_DIALOG_CANDIDATE as _HI_CAND,
+        )
+        from ..services.inference.dialog_engine import (
+            DIALOG_MODEL_CANDIDATES as _BASE_CANDS,
         )
         extra = [(_HI_CAND[0], _HI_CAND[1])] + [c[:2] for c in _BASE_CANDS]
         for mid, rel in extra:
@@ -517,7 +518,18 @@ def dialog_list_models():
                 "loaded": engine.is_ready and engine.model_name == mid,
             })
         items.sort(key=lambda x: (not x["fits_local"],))
-        return ok({"models": items, "total_vram_gb": round(total_vram, 1)})
+        # 模块级选型配置（模型管理 → 功能模块模型配置）：
+        # 白名单过滤 + 默认模型下发。allowed 为空 = 不限制（兼容存量）。
+        try:
+            from ..api.models import get_module_model_scope
+            allowed, default_model = get_module_model_scope("dialog")
+            if allowed is not None:
+                items = [m for m in items if m["model_id"] in allowed]
+        except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
+            log.warning("模块白名单过滤跳过: %s", exc)
+            default_model = ""
+        return ok({"models": items, "total_vram_gb": round(total_vram, 1),
+                   "default_model": default_model or ""})
     except Exception as exc:  # noqa: BLE001 - 清单失败不阻断对话主流程
         log.warning("对话模型清单构建失败: %s", exc)
         return ok({"models": [], "total_vram_gb": 0})
@@ -1088,6 +1100,14 @@ async def dialog_prewarm(request: Request):
     except Exception:  # noqa: BLE001
         body = {}
     want_model = str((body or {}).get("model_id") or "").strip() or None
+    # 模块级选型配置生效（模型管理 → 功能模块模型配置）：
+    # 未显式指定时预热模块默认模型（默认配置的模型提前驻留）
+    if want_model is None:
+        try:
+            from .models import module_default_model
+            want_model = module_default_model("dialog") or None
+        except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断
+            log.warning("对话模块默认模型读取失败（跳过）: %s", exc)
 
     engine = get_dialog_engine()
     status = engine.get_status()
@@ -1476,6 +1496,23 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         # model_id）归一后交给 ensure_loaded——已加载且请求不同模型时
         # 引擎自动热切换；物理显存装不下由引擎闸门拒绝并回错误
         model_req = _resolve_ws_model(data.get("model"))
+        # 模块级选型配置生效（模型管理 → 功能模块模型配置）：
+        # ① 显式点名模型不在白名单 → 如实拒绝（精细化管控落地）
+        # ② 未指定模型（None = 系统默认）且配置了模块默认 → 采用默认
+        try:
+            from .models import get_module_model_scope as _dlg_scope
+            _allowed, _default = _dlg_scope("dialog")
+            if model_req and _allowed is not None \
+                    and model_req not in _allowed:
+                await _ws_send_error(
+                    websocket, 40004,
+                    f"模型 {model_req} 不在 AI 对话模块的可用范围内，"
+                    "请在模型管理中调整配置")
+                return
+            if model_req is None and _default:
+                model_req = _default
+        except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断对话
+            log.warning("对话模块选型配置读取失败（跳过）: %s", exc)
         # 深度思考模式（2026-08-22 思考过程展示）：前端 thinking 参数
         # 开启时 system prompt 追加四步框架引导，模型自输出 <think> 块
         thinking = bool(data.get("thinking"))

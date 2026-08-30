@@ -42,6 +42,10 @@ scheduler:
     # 10s 单档过长，超高频生成空转体验差。
     gpu_util_mild_sustained_s: 5
     gpu_util_deep_sustained_s: 15
+    # S4 滞回（2026-08-28）：持续越线窗口允许短暂回落——低于临界线
+    # 未连续满 4s（=2 个 GPU 采样周期，TTL 2s）不清零已累积时长，
+    # 避免步间/镜间空隙的单采样抖动把 5s/15s 窗口打回零致 level 抖动。
+    gpu_util_reset_grace_s: 4
     gpu_temp_warning: 85
     gpu_temp_critical: 90
     cpu_util_warning: 0.80
@@ -63,7 +67,7 @@ database:
   # 诚实标注：无 encryption 项——SQLCipher 未启用（死代码已移除），
   # 明文 SQLite，仅本地 127.0.0.1 运行（规格 §14 约束1/2）。
   wal_mode: true
-  busy_timeout_ms: 5000
+  busy_timeout_ms: 10000
   # 写同步模式（性能优化）：WAL 下 NORMAL 为标准推荐——数据库不会损坏，
   # 仅在断电时可能丢失最近一笔已提交事务（应用崩溃仍安全）。如需严格
   # 逐笔同步落盘可改 FULL（写延迟上升）。本地创作数据丢失容忍度较高。
@@ -110,7 +114,9 @@ paint:
   max_batch_size: 4
 
 manga:
-  max_storyboard_rows: 50
+  # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，
+  # 10000 字≈170 镜，50 行上限直接阻断导入
+  max_storyboard_rows: 200
   panorama_resolutions: [1024, 2048, 4096, 8192]
   camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
   pose_presets_count: 15

@@ -274,7 +274,7 @@ def test_concurrent_switch_with_traffic():
                 vst = svc.status()
                 assert "served_name" in vst and "running" in vst
                 status_stats["ok"] += 1
-            except Exception as e:  # noqa: BLE001 - 纯读不允许任何失败
+            except Exception:  # noqa: BLE001 - 纯读不允许任何失败
                 status_stats["fail"] += 1
             stop.wait(0.2)
 

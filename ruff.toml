@@ -9,7 +9,9 @@
 
 target-version = "py310"
 line-length = 100
-extend-exclude = ["pydeps", "runtime", "models", "frontend", "omnipspace-demo"]
+extend-exclude = ["pydeps", "runtime", "models", "frontend", "omnipspace-demo",
+                  "tools/ComfyUI_windows_portable", "tools/ComfyUI_windows_portable_old",
+                  "cssc", "skills/_extracted"]
 
 [lint]
 select = [
@@ -27,6 +29,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "backend/tests/*" = ["B011"]  # 测试允许 assert False 语义
+"tools/build_manga_*_workflow.py" = ["E741", "E702", "F841", "B007"]  # 一次性工作流生成脚本：链接元组惯用 l、脚手架变量无害
 
 [format]
 quote-style = "double"

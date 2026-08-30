@@ -50,3 +50,27 @@ modelxiazai/
 *.mp4
 *.wav
 !docs/**/*.png
+
+# ===== 第三方 ComfyUI 便携版（含模型，体积 200GB+，严禁入库） =====
+tools/ComfyUI_windows_portable/
+tools/ComfyUI_windows_portable_old/
+tools/dlfw/
+
+# ===== 数据库文件（运行时生成，严禁入库） =====
+*.db
+*.sqlite3
+
+# ===== 一次性脚本 / 取证 / UAT 临时产物 =====
+cssc/
+temp_uat/
+temp_uat_fine/
+temp_uat_manga/
+skills/_extracted/
+
+# ===== 调试残留（不入库） =====
+_mcfg.py
+_sandbox_*.py
+_v25_resp.json
+backend/_planA*
+backend/_repro.py
+%SystemDrive%/

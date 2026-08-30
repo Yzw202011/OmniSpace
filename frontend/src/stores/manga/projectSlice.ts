@@ -6,7 +6,7 @@ import { reportBgError } from '@/utils/errors';
 import { stopVideoPoll, videoPollers } from './videoPoller';
 import type { MangaState, ProjectSlice } from './types';
 
-export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> = (set) => ({
+export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> = (set, get) => ({
   projects: [],
   projectsLoaded: false,
   projectsLoading: false,
@@ -23,8 +23,8 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
     }
   },
 
-  createProject: async (name, template, workMode) => {
-    const res = await mangaApi.createProject(name, template, workMode);
+  createProject: async (name, template, workMode, artStyle) => {
+    const res = await mangaApi.createProject(name, template, workMode, artStyle);
     // 重新拉取列表（创建端点返回不含完整时间戳字段，以服务端为准）
     const projects = await mangaApi.listProjects();
     set({ projects, projectsLoaded: true });
@@ -148,6 +148,8 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
         reportBgError('projectSlice.listAssets', err);
         set({ assetsLoaded: true });
       });
+    // 历史视频任务并行拉取（视频列显示已生成视频缩略框）
+    void get().loadVideoHistory(project.project_id);
   },
 
   closeProject: () => {

@@ -10,12 +10,12 @@
  *   - 画幅 → 分辨率：宽高均须被 32 整除：
  *       横屏 16:9 → 1024×576；竖屏 9:16 → 576×1024
  *
- * 现状与降级说明（如实标注）：
- *   useMangaStore.generateVideo(row) 当前签名仅接收分镜行，payload 由 store
- *   内部构造（storyboard_row_id / description / screenshot_4in1），尚不支持
- *   自定义模型/分辨率/帧数透传。本弹窗的模型/画幅/时长选择经 ModelConfigModal
- *   同源 localStorage 持久化为默认配置，待生成管线开放参数后直接生效；
- *   弹窗底部固定展示「当前视频引擎将按自身约束对齐分辨率与帧数」。
+ * 现状说明（P1 2026-08-29 更新）：
+ *   模型选择现可透传——useMangaStore.generateVideo(row, { modelOverride })
+ *   支持 model_override 透传（含内置 "h3_director" = MiniMax H3 导演台，
+ *   走 ComfyUI 导播台逐镜生成链路）；画幅/时长仍为本地默认配置预览，
+ *   实际分辨率与帧数由视频引擎自身约束决定。
+ *   弹窗底部固定展示引擎说明（H3 导演台为 24fps / 5-30s 生成段 / 裁时回时间轴）。
  *
  * 行筛选：由调用方（MangaWorkspace 工序⑤）统计缺视频的分镜行传入 rowIds，
  *   本组件内部不再自行筛选，仅做 id → 行映射。
@@ -33,6 +33,9 @@ import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig
 
 /** 时长（秒）→ 帧数：按 16fps 且帧数 ≡ 1 (mod 8) */
 const DURATION_TO_FRAMES: Record<number, number> = { 4: 65, 8: 129, 11: 177, 15: 241 };
+
+/** H3 导演台引擎点名值（后端 video.py _H3_DIRECTOR_ENGINE 同源） */
+const H3_DIRECTOR_ENGINE = 'h3_director';
 
 /** 画幅 → 分辨率：宽高均须被 32 整除 */
 const ASPECT_TO_RESOLUTION: Record<'16:9' | '9:16', { width: number; height: number }> = {
@@ -93,7 +96,11 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
   const frames = DURATION_TO_FRAMES[duration] ?? duration * 16 + 1;
   const resolution = ASPECT_TO_RESOLUTION[aspect];
   // 已保存的视频模型当前不在列表 → 追加占位项，如实显示已保存值
-  const savedMissing = videoModel !== '' && !models.some((m) => m.id === videoModel);
+  //（H3 导演台为内置引擎点名值，不属于本地模型清单）
+  const savedMissing =
+    videoModel !== '' &&
+    videoModel !== H3_DIRECTOR_ENGINE &&
+    !models.some((m) => m.id === videoModel);
 
   /** 确认生成：逐行调 store.generateVideo（自带功能锁/任务注册/轮询/失败 toast） */
   const handleConfirm = () => {
@@ -104,7 +111,9 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
       for (const row of targetRows) {
         // 白名单静默（三分法第 4 条）：失败已由 store 内部 toast 透出，
         // 此 catch 仅把 rejection 收敛成 false 供计数，不得二次呈现
-        const ok = await generateVideo(row).catch(() => false);
+        const ok = await generateVideo(row, {
+          modelOverride: videoModel || undefined,
+        }).catch(() => false);
         if (ok) submitted += 1;
       }
       setSubmitting(false);
@@ -175,8 +184,11 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
               onChange={(e) => setVideoModel(e.target.value)}
             >
               <option value="">系统默认（自动选择）</option>
+              <option value={H3_DIRECTOR_ENGINE}>
+                MiniMax H3（导演台·逐镜网格）
+              </option>
               {models.map((m) => (
-                <option key={m.id} value={m.id} disabled={m.status !== 'ready'}>
+                <option key={m.id} value={m.id} disabled={m.status !== 'ready' && m.status !== 'downloaded'}>
                   {`${m.name}（${MODEL_AVAILABLE_STATUS_LABELS[m.status]}）`}
                 </option>
               ))}
@@ -227,10 +239,17 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
           对应参数：{resolution.width}×{resolution.height} · {frames} 帧（16fps）
         </p>
 
-        {/* ⑥ 降级说明：现有 generateVideo 链路不支持自定义分辨率/帧数透传 */}
-        <p className="manga-form-tip" style={{ margin: 0 }}>
-          当前视频引擎将按自身约束对齐分辨率与帧数
-        </p>
+        {/* ⑥ 引擎说明：H3 导演台走独立管线（24fps / 5-30s 生成段 / 裁时回时间轴） */}
+        {videoModel === H3_DIRECTOR_ENGINE ? (
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            H3 导演台：按 A/B/C 描述词逐镜生成（24fps，生成段 5-30s，毕后裁时回
+            分镜时间轴），要求行关键帧为网格图且已绑定资产，音画联合生成
+          </p>
+        ) : (
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            当前视频引擎将按自身约束对齐分辨率与帧数
+          </p>
+        )}
       </div>
     </Modal>
   );

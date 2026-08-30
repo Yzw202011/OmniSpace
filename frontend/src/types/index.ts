@@ -483,6 +483,93 @@ export interface ComicProject {
   updated_at: number;
   /** 作品类型：regular=普通漫剧(5步) | narrative=解说漫剧(6步) */
   work_mode: 'regular' | 'narrative';
+  /** 作品画风 key（预置 11 种见 ART_STYLES；custom:{id}=自定义风格；空=未选择；
+   * 已下线预设（healing/manga/vintage/live/cartoon）的历史项目仍可正常回显） */
+  art_style?: string;
+}
+
+/** 预置作品画风（新建弹窗选择，key 落库 art_style）
+ * 2026-08-29 市场调研裁定（漫剧风格网络调研）：剔除市场无受众/形态不符/
+ * 与既有重叠的 5 种（healing/manga/vintage/live/cartoon，后端映射保留兼容），
+ * 新增爆款主力（韩漫半写实/厚涂CG玄幻），强化国风两向标签（国风2D/3D国风）。
+ * prompt=生图提示词基调（后续 AI 生图注入），hot=热门主推角标 */
+export interface ArtStyleDef {
+  key: string;
+  label: string;
+  desc: string;
+  prompt: string;
+  thumb: string;
+  hot?: boolean;
+}
+
+const _styleImg = (p: string) =>
+  `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(p)}&image_size=square`;
+
+export const ART_STYLES: ArtStyleDef[] = [
+  {
+    key: 'pixar', label: '3D卡通', desc: '皮克斯·茶啊二中质感', hot: true,
+    prompt: '3D cartoon style, Pixar style, clay material rendering, soft cinematic lighting, round cute face, clean and bright, high quality',
+    thumb: _styleImg('3D cartoon style, Pixar animation, round cute characters, soft cinematic lighting, clay material rendering, clean and bright'),
+  },
+  {
+    key: 'anime', label: '日系动漫', desc: '清新通用 · 量产稳定', hot: true,
+    prompt: 'japanese anime style, vibrant colors, clean lineart, detailed character art, smooth lines',
+    thumb: _styleImg('japanese anime style illustration, vibrant colors, detailed character art, clean lineart'),
+  },
+  {
+    key: 'chibi', label: 'Q版卡通', desc: '2-3头身 · 萌系极速', hot: true,
+    prompt: 'chibi style, 2-3 head-body ratio, cute exaggerated features, high saturation colors, adorable',
+    thumb: _styleImg('cute chibi cartoon characters, big head small body, high saturation pastel colors, adorable'),
+  },
+  {
+    key: 'guofeng', label: '国风2D', desc: '工笔重彩 · 东方美学', hot: true,
+    prompt: 'chinese guofeng 2D anime style, gongbi meticulous line art, elegant oriental aesthetics, ink-wash tinted colors, graceful traditional costume design, semi-3D soft shading',
+    thumb: _styleImg('chinese guofeng 2D anime illustration, gongbi fine lineart, elegant oriental aesthetic, soft ink and pastel colors, flowing hanfu'),
+  },
+  {
+    key: 'xuanhuan', label: '3D国风', desc: '玄幻仙侠 · 华丽特效', hot: true,
+    prompt: 'chinese fantasy 3D animation render, xianxia aesthetic, gorgeous ancient costumes, glowing magic effects, grand celestial architecture, epic cinematic lighting',
+    thumb: _styleImg('chinese fantasy xianxia 3D world, floating mountains, ancient palace, glowing magic effects, epic cinematic'),
+  },
+  {
+    key: 'manhwa', label: '韩漫半写实', desc: '半写实 · 分层上色 · 爆款主力', hot: true,
+    prompt: 'korean manhwa webtoon style, semi-realistic proportions, layered soft shading with subtle gradients, clean polished faces, trendy cinematic color grading',
+    thumb: _styleImg('korean manhwa webtoon style illustration, semi-realistic handsome characters, layered soft shading, trendy color grading'),
+  },
+  {
+    key: 'thickpaint', label: '厚涂玄幻', desc: '厚涂CG · 史诗质感',
+    prompt: 'digital thick paint CG illustration, impasto brush strokes, rich material textures, dramatic volumetric lighting, epic fantasy atmosphere, layered depth',
+    thumb: _styleImg('digital thick paint fantasy illustration, dramatic volumetric lighting, rich material textures, epic atmosphere'),
+  },
+  {
+    key: 'inkwash', label: '水墨国风', desc: '水墨写意 · 意境留白',
+    prompt: 'chinese ink wash painting, shui-mo style, brush strokes, misty atmosphere, negative space',
+    thumb: _styleImg('chinese ink wash painting, misty mountains, brush strokes, minimalist zen, black and white with subtle color'),
+  },
+  {
+    key: 'cyberpunk', label: '赛博朋克', desc: '科幻3D · 霓虹未来',
+    prompt: 'cyberpunk style, neon lights, futuristic sci-fi city, moody atmosphere, high tech low life',
+    thumb: _styleImg('cyberpunk city night, neon lights, futuristic sci-fi atmosphere, rain reflections, moody'),
+  },
+  {
+    key: 'real3d', label: '3D写实', desc: '电影级CG · 质感细腻',
+    prompt: '3D render, realistic CGI, cinematic lighting, detailed textures, movie quality',
+    thumb: _styleImg('3D render, realistic CGI character, cinematic lighting, detailed skin textures, movie quality'),
+  },
+  {
+    key: 'battle', label: '热血战斗', desc: '高对比度 · 燃系张力',
+    prompt: 'shonen battle anime style, high contrast, dynamic action poses, dramatic lighting, intense energy effects',
+    thumb: _styleImg('shonen battle anime, dynamic action scene, high contrast dramatic lighting, energy effects'),
+  },
+];
+
+/** 自定义作品风格（GET /comic/art-style/list item；key=custom:{id} 落库 projects.art_style） */
+export interface CustomArtStyle {
+  style_id: string;
+  key: string;
+  name: string;
+  prompt: string;
+  created_at: number;
 }
 
 /** 模型配置（工序弹窗 G2 复用） */
@@ -498,7 +585,7 @@ export interface ModelConfig {
 export interface AvailableModel {
   id: string;
   name: string;
-  status: 'ready' | 'loading' | 'not_installed' | 'offload';
+  status: 'ready' | 'loading' | 'not_installed' | 'downloaded' | 'offload';
   vram_gb: number;
   speed_label: string;
   notes?: string;
@@ -534,6 +621,10 @@ export interface KeyframeItem {
   status: string;
   error: string;
   is_current: boolean;
+  /** V37：逐镜实际种子 JSON（如 "[12345,12346]"），重生成沿用复现 */
+  shot_seeds?: string;
+  /** V37：VLM 一致性评分 JSON（shots/min/retried/picked 等） */
+  consistency?: string;
   created_at: number;
 }
 
@@ -541,68 +632,14 @@ export interface KeyframeItem {
 export interface Storyboard {
   id: string;
   name: string;
-  /** 分镜行（≤50 行 STORYBOARD_MAX_ROWS） */
+  /** 分镜行（≤200 行 STORYBOARD_MAX_ROWS，2026-08-23 50 → 200） */
   rows: StoryboardRow[];
-  /** 角色 */
-  characters?: DirectorCharacter[];
   /** 场景资产 */
   scenes?: unknown[];
   /** 道具资产 */
   props?: unknown[];
   created_at: string | number;
   updated_at: string | number;
-}
-
-/** 导演台状态 */
-export interface DirectorStageState {
-  project_id: string;
-  /** 摄像机列表（默认 5 预设机位） */
-  cameras: DirectorCamera[];
-  /** 全景配置 */
-  panorama?: PanoramaConfig;
-  /** 当前选中机位 */
-  active_camera?: string;
-  /** 场景自定义模型路径 */
-  custom_model_path?: string;
-}
-
-/** 导演台角色 */
-export interface DirectorCharacter {
-  id: string;
-  name: string;
-  /** 3D 模型路径（glb/gltf） */
-  model_path?: string;
-  /** 位置 [x, y, z] */
-  position?: [number, number, number];
-  /** 旋转 [x, y, z] */
-  rotation?: [number, number, number];
-  /** 缩放 */
-  scale?: number;
-  /** 绑定音色 ID */
-  voice_id?: string;
-}
-
-/** 摄像机（§9.3 多摄像机系统，5 预设模板） */
-export interface DirectorCamera {
-  name: string;
-  /** 摄像机位置 [x, y, z] */
-  position: [number, number, number];
-  /** 目标点 [x, y, z] */
-  target: [number, number, number];
-  /** 视场角 */
-  fov: number;
-}
-
-/** 全景配置 */
-export interface PanoramaConfig {
-  /** 是否启用全景 */
-  enabled: boolean;
-  /** 全景图 URL */
-  url?: string;
-  /** 视场角 */
-  fov?: number;
-  /** 中心朝向 */
-  heading?: number;
 }
 
 /* ------------------------------ 视频生成相关 ------------------------------ */

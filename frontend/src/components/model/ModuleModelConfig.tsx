@@ -1,7 +1,8 @@
 /* ==========================================================================
- * ModuleModelConfig.tsx —— 功能模块模型配置（2026-08-23）
+ * ModuleModelConfig.tsx —— 功能模块模型配置（2026-08-23；2026-08-27 增管控）
  * --------------------------------------------------------------------------
- * 模型管理页顶部 section：集中展示 / 设置三大功能模块各自使用的大模型。
+ * 模型管理页顶部 section：集中展示 / 设置三大功能模块各自使用的大模型，
+ * 并提供模型管理层面的「模块级选型配置」（可选范围白名单 + 默认模型）。
  *
  * 各模块"真源"（设置必须写入功能真实消费的链路，不做摆设）：
  *   AI 对话  → useDialogStore.modelId（localStorage 持久化）：
@@ -17,6 +18,14 @@
  *              + 视频生成（默认 Wan2.2-TI2V-5B 统一权重）；
  *              候选清单来自 GET /manga/models/available?task_type=…，
  *              留空 = 系统默认（后端自动选择）。
+ *
+ * 模块级选型配置（2026-08-27，服务端真源）：
+ *   GET/PUT /models/module-config（system_settings kv 持久化）：
+ *   - allowed 白名单：业务侧清单 API（/dialog/models、/draw/models、
+ *     /manga/models/available）按此过滤——模型选择 UI 只见范围内模型，
+ *     生成链路点名范围外模型被如实拒绝；空 = 全量开放（兼容存量）。
+ *   - default 默认模型：模块「系统默认」时实际调用的模型；对话 WS/
+ *     prewarm 与绘画生成链路在未显式指定时优先采用。
  * ========================================================================== */
 
 import { useEffect, useState } from 'react';
@@ -26,7 +35,9 @@ import {
   Image as ImageIcon,
   Loader2,
   MessageSquare,
+  RotateCcw,
   Settings2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/useDialogStore';
 import { usePaintStore } from '@/stores/usePaintStore';
@@ -38,6 +49,12 @@ import {
   type DialogModelInfo,
 } from '@/services/dialogApi';
 import { listAvailableModels } from '@/services/mangaApi';
+import {
+  getModuleModelConfig,
+  saveModuleModelConfig,
+  type ModuleModelSlotInfo,
+  type ModuleSlotConfig,
+} from '@/services/modelApi';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import {
   loadModelConfig,
@@ -103,8 +120,246 @@ function moduleRowStyle(): React.CSSProperties {
     alignItems: 'center',
     gap: 'var(--space-3)',
     padding: 'var(--space-3) 0',
+  };
+}
+
+/** 行 wrapper（行 + 可选的展开配置面板；分隔线在 wrapper 上） */
+function moduleRowWrapStyle(): React.CSSProperties {
+  return {
     borderBottom: '1px solid var(--color-divider)',
   };
+}
+
+/** 范围配置入口按钮（icon-only，32px 与 select 同高） */
+const SCOPE_BTN_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 36,
+  height: 36,
+  borderRadius: 'var(--radius-sm)',
+  border: '1px solid var(--color-input-border)',
+  background: 'var(--color-input-bg)',
+  color: 'var(--color-text-secondary)',
+  cursor: 'pointer',
+  flexShrink: 0,
+};
+
+/* ------------------------ 模块级选型配置面板 ------------------------ */
+
+/** 面板内部：候选勾选项（checkbox + 名称 + 状态标签） */
+function ScopeCandidateItem({
+  id,
+  name,
+  downloaded,
+  checked,
+  unknown,
+  onToggle,
+}: {
+  id: string;
+  name: string;
+  downloaded: boolean;
+  checked: boolean;
+  unknown?: boolean;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
+        padding: '6px 8px',
+        borderRadius: 'var(--radius-sm)',
+        border: `1px solid ${checked ? 'var(--color-primary)' : 'var(--color-divider)'}`,
+        background: checked ? 'var(--color-primary-bg, rgba(59, 130, 246, 0.10))' : 'transparent',
+        cursor: 'pointer',
+        fontSize: 'var(--font-size-xs)',
+        color: 'var(--color-text-primary)',
+        userSelect: 'none',
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => onToggle(id)}
+        aria-label={`勾选 ${name}`}
+        style={{ accentColor: 'var(--color-primary)', margin: 0 }}
+      />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name}
+      </span>
+      {unknown ? (
+        <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>未知</span>
+      ) : downloaded ? (
+        <span style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}>已下载</span>
+      ) : (
+        <span style={{ color: 'var(--color-text-tertiary)', opacity: 0.6, flexShrink: 0 }}>未安装</span>
+      )}
+    </label>
+  );
+}
+
+/** 模块级选型配置面板：候选白名单勾选 + 默认模型选择 + 保存 */
+const ModuleScopePanel: React.FC<{
+  slotInfo: ModuleModelSlotInfo;
+  draft: ModuleSlotConfig;
+  saving: boolean;
+  onDraftChange: (draft: ModuleSlotConfig) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}> = ({ slotInfo, draft, saving, onDraftChange, onSave, onCancel }) => {
+  const toggle = (id: string) => {
+    const set = new Set(draft.allowed);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    const allowed = slotInfo.candidates.map((c) => c.id).filter((cid) => set.has(cid));
+    // 未知项（已保存但不在候选集）保留在尾部
+    const unknowns = slotInfo.unknown_allowed.filter((u) => set.has(u));
+    const next: ModuleSlotConfig = {
+      allowed: [...allowed, ...unknowns],
+      default: draft.default && set.has(draft.default) ? draft.default : '',
+    };
+    onDraftChange(next);
+  };
+
+  const allIds = [...slotInfo.candidates.map((c) => c.id), ...slotInfo.unknown_allowed];
+  const allChecked = allIds.length > 0 && allIds.every((id) => draft.allowed.includes(id));
+
+  return (
+    <div
+      style={{
+        margin: 'var(--space-2) 0 var(--space-3)',
+        marginLeft: 44,
+        padding: 'var(--space-3)',
+        borderRadius: 'var(--radius-md)',
+        border: '1px solid var(--color-divider)',
+        background: 'var(--color-input-bg)',
+      }}
+      aria-label={`${slotInfo.label} 可选范围配置`}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', flex: 1 }}>
+          勾选该模块可选用的模型（不勾 = 全量开放）；已限制时业务页下拉只显示范围内模型
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            onDraftChange(
+              allChecked
+                ? { allowed: [], default: '' }
+                : { allowed: allIds, default: draft.default },
+            )
+          }
+          style={{
+            ...SCOPE_BTN_STYLE,
+            width: 'auto',
+            padding: '0 10px',
+            fontSize: 'var(--font-size-xs)',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          {allChecked ? '清空（全量开放）' : '全选'}
+        </button>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+          gap: 'var(--space-2)',
+          maxHeight: 216,
+          overflowY: 'auto',
+          padding: '2px',
+        }}
+      >
+        {slotInfo.candidates.map((c) => (
+          <ScopeCandidateItem
+            key={c.id}
+            id={c.id}
+            name={c.name}
+            downloaded={c.downloaded}
+            checked={draft.allowed.includes(c.id)}
+            onToggle={toggle}
+          />
+        ))}
+        {slotInfo.unknown_allowed.map((u) => (
+          <ScopeCandidateItem
+            key={u}
+            id={u}
+            name={u}
+            downloaded={false}
+            unknown
+            checked={draft.allowed.includes(u)}
+            onToggle={toggle}
+          />
+        ))}
+        {slotInfo.candidates.length === 0 && slotInfo.unknown_allowed.length === 0 && (
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
+            暂无候选模型（该类别模型均未注册/未下载）
+          </span>
+        )}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          marginTop: 'var(--space-3)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+          默认模型（该模块「系统默认」时实际调用）
+        </span>
+        <select
+          aria-label={`${slotInfo.label}默认模型`}
+          value={draft.default}
+          onChange={(e) => onDraftChange({ ...draft, default: e.target.value })}
+          style={{ ...SELECT_STYLE, flex: 1, maxWidth: 320 }}
+        >
+          <option value="">系统默认（后端自动选择）</option>
+          {draft.allowed.map((id) => (
+            <option key={id} value={id}>
+              {slotInfo.candidates.find((c) => c.id === id)?.name || id}
+            </option>
+          ))}
+        </select>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', marginLeft: 'auto' }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            style={{ ...SCOPE_BTN_STYLE, width: 'auto', padding: '0 12px', fontSize: 'var(--font-size-xs)' }}
+          >
+            <RotateCcw size={12} aria-hidden="true" /> 取消
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || draft.default === slotInfo.default && arraysEqual(draft.allowed, slotInfo.allowed)}
+            style={{
+              ...SCOPE_BTN_STYLE,
+              width: 'auto',
+              padding: '0 12px',
+              fontSize: 'var(--font-size-xs)',
+              border: '1px solid var(--color-primary)',
+              background: 'var(--color-primary)',
+              color: '#fff',
+              opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
+            保存配置
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/** 浅比较两个字符串数组（保序） */
+function arraysEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 export const ModuleModelConfig: React.FC = () => {
@@ -238,6 +493,105 @@ export const ModuleModelConfig: React.FC = () => {
     showToast(`漫剧${label}模型已切换为「${name}」`, 'success');
   };
 
+  /* ---------- 模块级选型配置（可选范围白名单 + 默认模型） ---------- */
+  const [scopeSlots, setScopeSlots] = useState<ModuleModelSlotInfo[]>([]);
+  const [scopeDrafts, setScopeDrafts] = useState<Record<string, ModuleSlotConfig>>({});
+  const [expandedSlot, setExpandedSlot] = useState<string | null>(null);
+  const [savingSlot, setSavingSlot] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await getModuleModelConfig();
+        if (!cancelled) setScopeSlots(res.slots || []);
+      } catch {
+        // 后端未就绪：范围按钮不渲染（行内现状不受影响）
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const slotBy = (slot: string) => scopeSlots.find((s) => s.slot === slot);
+
+  const openScope = (slot: string) => {
+    const info = slotBy(slot);
+    if (!info) return;
+    setScopeDrafts((prev) => ({
+      ...prev,
+      [slot]: { allowed: [...info.allowed], default: info.default },
+    }));
+    setExpandedSlot((prev) => (prev === slot ? null : slot));
+  };
+
+  const saveScope = async (slot: string) => {
+    const draft = scopeDrafts[slot];
+    if (!draft) return;
+    setSavingSlot(slot);
+    try {
+      const res = await saveModuleModelConfig({ [slot]: draft });
+      const info = (res.slots || []).find((s) => s.slot === slot);
+      if (info) {
+        setScopeSlots((prev) => prev.map((s) => (s.slot === slot ? info : s)));
+      }
+      if (res.warnings && res.warnings.length > 0) {
+        showToast(`已保存（提示：${res.warnings[0]}）`, 'info');
+      } else {
+        showToast(`${slotBy(slot)?.label || '模块'}选型配置已保存`, 'success');
+      }
+      setExpandedSlot(null);
+    } catch (err) {
+      showToast(
+        `保存失败：${err instanceof Error ? err.message : String(err)}`,
+        'error',
+      );
+    } finally {
+      setSavingSlot(null);
+    }
+  };
+
+  /** 范围入口按钮（slot 未就绪时返回 null）——行内 flex 容器使用 */
+  const renderScopeBtn = (slot: string, compact = false): React.ReactNode => {
+    const info = slotBy(slot);
+    if (!info) return null;
+    return (
+      <button
+        type="button"
+        aria-label={`配置${info.label}可选范围`}
+        title={`可选范围${info.restricted ? `（已限制 ${info.allowed.length} 个）` : '（全量开放）'}与默认模型`}
+        onClick={() => openScope(slot)}
+        style={{
+          ...SCOPE_BTN_STYLE,
+          ...(compact ? { width: 28, height: 28 } : null),
+          ...(info.restricted
+            ? { color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }
+            : null),
+        }}
+      >
+        <SlidersHorizontal size={compact ? 13 : 15} aria-hidden="true" />
+      </button>
+    );
+  };
+
+  /** 展开的配置面板（未展开/草稿缺失时返回 null）——行外 wrapper 使用 */
+  const renderScopePanel = (slot: string): React.ReactNode => {
+    const info = slotBy(slot);
+    const draft = scopeDrafts[slot];
+    if (!info || expandedSlot !== slot || !draft) return null;
+    return (
+      <ModuleScopePanel
+        slotInfo={info}
+        draft={draft}
+        saving={savingSlot === slot}
+        onDraftChange={(d) => setScopeDrafts((prev) => ({ ...prev, [slot]: d }))}
+        onSave={() => void saveScope(slot)}
+        onCancel={() => setExpandedSlot(null)}
+      />
+    );
+  };
+
   /* ------------------------------ 渲染 ------------------------------ */
 
   return (
@@ -246,11 +600,14 @@ export const ModuleModelConfig: React.FC = () => {
         <span className="mm-reco-title">
           <Settings2 size={15} aria-hidden="true" /> 功能模块模型配置
         </span>
-        <span className="mm-reco-gpu">各模块使用的大模型在此集中查看与切换</span>
+        <span className="mm-reco-gpu">
+          各模块使用的大模型在此集中查看与切换；「范围」按钮配置各模块可选模型与默认模型
+        </span>
       </div>
 
       {/* ---------- AI 对话 ---------- */}
-      <div style={moduleRowStyle()}>
+      <div style={moduleRowWrapStyle()}>
+        <div style={moduleRowStyle()}>
         <span
           style={{
             display: 'inline-flex',
@@ -311,11 +668,15 @@ export const ModuleModelConfig: React.FC = () => {
               </option>
             ))}
           </select>
+          {renderScopeBtn('dialog')}
         </div>
+        </div>
+        {renderScopePanel('dialog')}
       </div>
 
       {/* ---------- AI 绘画 ---------- */}
-      <div style={moduleRowStyle()}>
+      <div style={moduleRowWrapStyle()}>
+        <div style={moduleRowStyle()}>
         <span
           style={{
             display: 'inline-flex',
@@ -359,6 +720,9 @@ export const ModuleModelConfig: React.FC = () => {
             </option>
           ))}
         </select>
+        {renderScopeBtn('paint')}
+        </div>
+        {renderScopePanel('paint')}
       </div>
 
       {/* ---------- 漫剧创作（文字/图片/视频 三模型流水线） ---------- */}
@@ -401,15 +765,16 @@ export const ModuleModelConfig: React.FC = () => {
           }}
         >
           {([
-            { field: 'dialogModel', task: 'dialog', label: '文字部分', hint: '剧本 / 分镜文案生成' },
-            { field: 'paintModel', task: 'paint', label: '图片部分', hint: '角色 / 分镜生图' },
-            { field: 'videoModel', task: 'video', label: '视频生成', hint: '图生视频 · 系统默认 Wan2.2 TI2V 5B' },
-          ] as const).map(({ field, task, label, hint }) => {
+            { field: 'dialogModel', task: 'dialog', slot: 'manga-dialog', label: '文字部分', hint: '剧本 / 分镜文案生成' },
+            { field: 'paintModel', task: 'paint', slot: 'manga-paint', label: '图片部分', hint: '角色 / 分镜生图' },
+            { field: 'videoModel', task: 'video', slot: 'manga-video', label: '视频生成', hint: '图生视频 · 系统默认 Wan2.2 TI2V 5B' },
+          ] as const).map(({ field, task, slot, label, hint }) => {
             const models = mangaOptions[task];
             const value = mangaCfg[field];
             const savedMissing = value !== '' && !models.some((m) => m.id === value);
             return (
-              <div key={field} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <div key={field}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
                 <span
                   style={{
                     width: 132,
@@ -438,13 +803,16 @@ export const ModuleModelConfig: React.FC = () => {
                 >
                   <option value="">系统默认（自动选择）</option>
                   {models.map((m) => (
-                    <option key={m.id} value={m.id} disabled={m.status !== 'ready'}>
+                    <option key={m.id} value={m.id} disabled={m.status !== 'ready' && m.status !== 'downloaded'}>
                       {m.name}
                       {m.status !== 'ready' ? `（${MODEL_AVAILABLE_STATUS_LABELS[m.status] || m.status}）` : ''}
                     </option>
                   ))}
                   {savedMissing && <option value={value}>{value}（已保存，当前不在清单）</option>}
                 </select>
+                {renderScopeBtn(slot, true)}
+                </div>
+                {renderScopePanel(slot)}
               </div>
             );
           })}

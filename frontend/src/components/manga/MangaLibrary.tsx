@@ -10,11 +10,12 @@
  * ========================================================================== */
 
 import { useEffect, useState } from 'react';
-import { Check, ChevronRight, Clapperboard, Film, FolderPlus, ListChecks, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { Check, ChevronRight, Clapperboard, Film, FolderPlus, ListChecks, Palette, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
-import type { ComicProject } from '@/types';
-import { getErrorMessage } from '@/utils/errors';
+import * as mangaApi from '@/services/mangaApi';
+import { ART_STYLES, type ComicProject, type CustomArtStyle } from '@/types';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { Modal } from '../common/Modal';
 
 function formatTs(ts?: number) {
@@ -38,6 +39,13 @@ export default function MangaLibrary() {
   const [newName, setNewName] = useState('');
   const [useTemplate, setUseTemplate] = useState(false);
   const [workMode, setWorkMode] = useState<'regular' | 'narrative'>('regular');
+  const [artStyle, setArtStyle] = useState(ART_STYLES[0].key);
+  // 自定义风格（后端 art_styles 表，弹窗打开时拉取）
+  const [customStyles, setCustomStyles] = useState<CustomArtStyle[]>([]);
+  const [styleFormOpen, setStyleFormOpen] = useState(false);
+  const [styleName, setStyleName] = useState('');
+  const [stylePrompt, setStylePrompt] = useState('');
+  const [savingStyle, setSavingStyle] = useState(false);
   const [creating, setCreating] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
@@ -68,6 +76,45 @@ export default function MangaLibrary() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 弹窗打开时拉取自定义风格列表（后台非阻塞：失败上报但不打扰用户，仅隐藏自定义区）
+  useEffect(() => {
+    if (!createOpen) return;
+    mangaApi.listArtStyles()
+      .then(setCustomStyles)
+      .catch((err: unknown) => reportBgError('manga.listArtStyles', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createOpen]);
+
+  const handleAddStyle = () => {
+    const name = styleName.trim();
+    if (!name) {
+      showToast('请输入风格名称', 'warning');
+      return;
+    }
+    setSavingStyle(true);
+    mangaApi.createArtStyle(name, stylePrompt.trim())
+      .then((s) => {
+        setCustomStyles((prev) => [s, ...prev]);
+        setArtStyle(s.key);
+        setStyleFormOpen(false);
+        setStyleName('');
+        setStylePrompt('');
+        showToast('自定义风格已添加', 'success');
+      })
+      .catch((err: unknown) => showToast(getErrorMessage(err, '风格添加失败'), 'error'))
+      .finally(() => setSavingStyle(false));
+  };
+
+  const handleDeleteStyle = (s: CustomArtStyle) => {
+    mangaApi.deleteArtStyle(s.style_id)
+      .then(() => {
+        setCustomStyles((prev) => prev.filter((x) => x.style_id !== s.style_id));
+        if (artStyle === s.key) setArtStyle(ART_STYLES[0].key);
+        showToast('自定义风格已删除', 'success');
+      })
+      .catch((err: unknown) => showToast(getErrorMessage(err, '风格删除失败'), 'error'));
+  };
+
   const handleOpen = (p: ComicProject) => {
     if (openingId) return;
     setOpeningId(p.project_id);
@@ -84,13 +131,17 @@ export default function MangaLibrary() {
       return;
     }
     setCreating(true);
-    createProject(name, useTemplate ? 'comic_drama' : undefined, workMode)
+    createProject(name, useTemplate ? 'comic_drama' : undefined, workMode, artStyle)
       .then(() => {
         showToast('项目已创建', 'success');
         setCreateOpen(false);
         setNewName('');
         setUseTemplate(false);
         setWorkMode('regular');
+        setArtStyle(ART_STYLES[0].key);
+        setStyleFormOpen(false);
+        setStyleName('');
+        setStylePrompt('');
       })
       .catch((err: unknown) => showToast(getErrorMessage(err, '项目创建失败'), 'error'))
       .finally(() => setCreating(false));
@@ -407,6 +458,89 @@ export default function MangaLibrary() {
                   <span className="mode-desc">6 步流程 · 旁白解说式</span>
                 </button>
               </div>
+            </div>
+            <div>
+              <div className="text-secondary mb-2" style={{ fontSize: 'var(--font-size-xs)' }}>作品风格</div>
+              <div className="manga-style-grid">
+                {ART_STYLES.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    className={`manga-style-card${artStyle === s.key ? ' active' : ''}`}
+                    onClick={() => setArtStyle(s.key)}
+                    title={s.desc}
+                  >
+                    <span className="style-thumb">
+                      <img src={s.thumb} alt={s.label} loading="lazy" />
+                      {s.hot && <span className="style-hot">热门</span>}
+                      {artStyle === s.key && (
+                        <span className="style-check"><Check size={12} /></span>
+                      )}
+                    </span>
+                    <span className="style-name">{s.label}</span>
+                  </button>
+                ))}
+                {customStyles.map((cs) => (
+                  <button
+                    key={cs.key}
+                    type="button"
+                    className={`manga-style-card custom${artStyle === cs.key ? ' active' : ''}`}
+                    onClick={() => setArtStyle(cs.key)}
+                    title={cs.prompt || cs.name}
+                  >
+                    <span className="style-thumb">
+                      <Palette size={22} style={{ color: 'var(--color-primary)' }} />
+                      {artStyle === cs.key && (
+                        <span className="style-check"><Check size={12} /></span>
+                      )}
+                      <span
+                        className="style-del"
+                        role="button"
+                        aria-label="删除自定义风格"
+                        onClick={(e) => { e.stopPropagation(); handleDeleteStyle(cs); }}
+                      >
+                        <X size={10} />
+                      </span>
+                    </span>
+                    <span className="style-name">{cs.name}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="manga-style-add"
+                  onClick={() => setStyleFormOpen((v) => !v)}
+                >
+                  <Plus size={18} />
+                  <span>自定义</span>
+                </button>
+              </div>
+              {styleFormOpen && (
+                <div className="manga-style-form">
+                  <input
+                    className="input"
+                    value={styleName}
+                    maxLength={30}
+                    placeholder="风格名称（如：赛博水墨）"
+                    onChange={(e) => setStyleName(e.target.value)}
+                  />
+                  <textarea
+                    className="input"
+                    value={stylePrompt}
+                    maxLength={500}
+                    rows={2}
+                    placeholder="生图提示词基调（可选，如：cyberpunk style, ink wash blending, neon ink splashes）"
+                    onChange={(e) => setStylePrompt(e.target.value)}
+                  />
+                  <div className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
+                    <button type="button" className="btn btn-ghost" disabled={savingStyle} onClick={() => setStyleFormOpen(false)}>
+                      取消
+                    </button>
+                    <button type="button" className="btn btn-primary" disabled={savingStyle || !styleName.trim()} onClick={handleAddStyle}>
+                      {savingStyle ? '保存中…' : '保存风格'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <label className="flex items-center gap-2" style={{ fontSize: 'var(--font-size-sm)', cursor: 'pointer' }}>
               <input type="checkbox" checked={useTemplate} onChange={(e) => setUseTemplate(e.target.checked)} />

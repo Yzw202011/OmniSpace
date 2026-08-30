@@ -3,11 +3,12 @@
  * --------------------------------------------------------------------------
  * 触发时机：打开项目且分镜表为空（0 行）时，代替工作台整页展示。
  * 布局：返回 + 大标题/副标题 + 单卡片（字数统计 + 大文本域 + 操作行）
- * 三种真实导入路径：
+ * 三种真实导入路径（必须完成其一才能进入分镜编辑，2026-08-23 用户裁定
+ * 移除「跳过」：空分镜表手动逐行编辑体验差，剧本导入是流程第一环）：
  *   1. AI 自动分镜：预览 → 确认 两步流程（POST auto-split，确定性按行切分）
  *   2. 直接导入：POST /manga/storyboard/import（按行追加）
  *   3. DSL 文件上传：POST /comic/script/import-dsl（.txt/.dsl ≤10MB）
- * 完成后 onDone() 进入工作台；「跳过」直接进入空分镜表手动编辑。
+ * 完成后 rows>0 自动进入工作台；左上角返回 = 关闭项目回作品库。
  * ========================================================================== */
 
 import { useCallback, useRef, useState } from 'react';
@@ -16,17 +17,22 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import * as mangaApi from '@/services/mangaApi';
 import { getErrorMessage as errMsg, reportBgError } from '@/utils/errors';
+import type { StoryboardRow } from '@/types';
+import { SplitProgressBar } from './SplitProgressBar';
 
 /** DSL 语法示例（与后端 import-dsl 的 shot: 分镜标记口径一致） */
 const DSL_EXAMPLE = `shot: 清晨的教室，樱花瓣沿窗飘落，空镜
 shot: 主角推门而入，逆光剪影，脚步停顿
 shot: 特写：课桌上的信封，手指微颤拿起`;
 
-/** 分镜表行数硬上限（后端 STORYBOARD_MAX_ROWS） */
-const MAX_ROWS = 50;
+/** 分镜表行数硬上限（后端 STORYBOARD_MAX_ROWS，2026-08-23 50 → 200 配套 10000 字剧本） */
+const MAX_ROWS = 200;
+
+/** 剧本字数建议上限（超限警告，2026-08-23 用户裁定 3000 → 10000） */
+const SCRIPT_WARN_CHARS = 10000;
 
 interface ScriptImportProps {
-  /** 完成导入（或跳过）进入工作台 */
+  /** 完成导入进入工作台 */
   onDone: () => void;
 }
 
@@ -35,13 +41,22 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
   const currentProject = useMangaStore((s) => s.currentProject);
   const rows = useMangaStore((s) => s.rows);
   const importScript = useMangaStore((s) => s.importScript);
-  const autoSplit = useMangaStore((s) => s.autoSplit);
+  const autoSplitPreview = useMangaStore((s) => s.autoSplitPreview);
+  const autoSplitCommit = useMangaStore((s) => s.autoSplitCommit);
   const fetchRows = useMangaStore((s) => s.fetchRows);
   const splitting = useMangaStore((s) => s.splitting);
 
   const [script, setScript] = useState('');
   const [importing, setImporting] = useState(false);
-  const [splitPreview, setSplitPreview] = useState<string[] | null>(null);
+  /** AI 镜头级分镜预览结果（dry_run，2026-08-23 真分镜改造） */
+  const [splitPreview, setSplitPreview] = useState<{
+    splitId: string;
+    rows: StoryboardRow[];
+    engine: string;
+    truncated: boolean;
+  } | null>(null);
+  /** 切分发起时刻（SplitProgressBar 渐近进度基准） */
+  const [splitStartedAt, setSplitStartedAt] = useState(0);
   /** DSL 上传 */
   const [uploading, setUploading] = useState(false);
   const [strict, setStrict] = useState(false);
@@ -65,40 +80,40 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
      
   }, [script, importScript, onDone, showToast]);
 
-  // AI 自动分镜第一步：本地按行预览（与后端确定性按行切分口径一致）
+  // AI 镜头级分镜第一步：dry-run 预览（后端真实推理，场景转换/正反打/
+  // 关键动作各成独立镜头，输出景别+时长+画面描述+台词；长剧本自动分块）
   const handleSplitPreview = useCallback(() => {
     const text = script.trim();
     if (!text) {
       showToast('请先粘贴剧本文本', 'warning');
       return;
     }
-    const segments = text.split('\n').map((s) => s.trim()).filter(Boolean);
-    if (segments.length === 0) {
-      showToast('剧本文本无有效行', 'warning');
-      return;
-    }
-    if (rows.length + segments.length > MAX_ROWS) {
-      showToast(
-        `分镜表上限 ${MAX_ROWS} 行：当前 ${rows.length} 行，预览 ${segments.length} 行将超出`,
-        'warning',
-      );
-      return;
-    }
-    setSplitPreview(segments);
-  }, [script, rows.length, showToast]);
+    setSplitStartedAt(Date.now());
+    autoSplitPreview(text)
+      .then((res) => {
+        if (res.engine === 'fallback') {
+          showToast('AI 模型不可用，已降级为按行切分', 'warning');
+        } else if (res.engine === 'ai-partial') {
+          showToast('部分片段切分降级为按行（模型繁忙），可重新切分', 'warning');
+        }
+        if (res.truncated) {
+          showToast(`分镜上限 ${MAX_ROWS} 行，已截断保留前 ${res.count} 镜`, 'warning');
+        }
+        setSplitPreview(res);
+      })
+      .catch((err) => showToast(errMsg(err, 'AI 分镜预览失败'), 'error'));
+  }, [script, autoSplitPreview, showToast]);
 
-  // AI 自动分镜第二步：确认提交
+  // AI 自动分镜第二步：确认提交（复用预览 split_id，免二次推理）
   const handleAutoSplit = useCallback(() => {
-    const text = script.trim();
-    if (!text) return;
-    autoSplit(text)
+    if (!splitPreview) return;
+    autoSplitCommit(splitPreview.splitId)
       .then((added) => {
-        showToast(`AI 自动分镜完成，新增 ${added} 行`, 'success');
+        showToast(`AI 分镜完成，新增 ${added} 镜`, 'success');
         onDone();
       })
-      .catch((err) => showToast(errMsg(err, 'AI 自动分镜失败'), 'error'));
-     
-  }, [script, autoSplit, onDone, showToast]);
+      .catch((err) => showToast(errMsg(err, 'AI 分镜确认失败'), 'error'));
+  }, [splitPreview, autoSplitCommit, onDone, showToast]);
 
   // DSL 文件上传导入
   const handleUpload = useCallback(
@@ -122,11 +137,13 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
     [currentProject, strict, fetchRows, onDone, showToast],
   );
 
+  const closeProject = useMangaStore((s) => s.closeProject);
+
   return (
     <div className="manga-picker">
-      {/* 页头（demo：返回图标 + 大标题 + 副标题） */}
+      {/* 页头（返回 = 关闭项目回作品库；不导入不进编辑器） */}
       <div className="flex items-center gap-3 mb-6">
-        <button type="button" className="btn-icon" onClick={onDone} aria-label="返回工作台" title="返回工作台">
+        <button type="button" className="btn-icon" onClick={closeProject} aria-label="返回作品库" title="返回作品库">
           <ChevronLeft size={18} />
         </button>
         <div>
@@ -134,12 +151,9 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
             剧本录入 · {currentProject?.name ?? ''}
           </h1>
           <p className="text-[var(--color-text-secondary)]" style={{ margin: '4px 0 0', fontSize: 'var(--font-size-sm)' }}>
-            粘贴剧本，AI 将自动切分为分镜表（上限 {MAX_ROWS} 镜）；也可直接跳过手动编辑
+            粘贴或上传剧本完成导入后进入下一环节（上限 {MAX_ROWS} 镜）；剧本是分镜创作的第一步，不可跳过
           </p>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={onDone}>
-          跳过，直接编辑分镜表
-        </button>
       </div>
 
       {/* 主卡片 */}
@@ -148,7 +162,7 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
           <span className="text-[var(--color-text-secondary)]" style={{ fontSize: 'var(--font-size-sm)' }}>
             {script.length} 字
           </span>
-          <span className="badge info">每行一个分镜</span>
+          <span className="badge info">AI 镜头级切分 · 支持万字剧本</span>
         </div>
 
         {splitPreview === null ? (
@@ -163,9 +177,9 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
               aria-label="剧本文本"
               disabled={importing || splitting}
             />
-            {script.length > 3000 && (
+            {script.length > SCRIPT_WARN_CHARS && (
               <span className="badge warning mt-2">
-                剧本 {script.length} 字，超过 3000 字建议拆分为多集以保证分镜质量
+                剧本 {script.length} 字，超过 {SCRIPT_WARN_CHARS} 字建议拆分为多集以保证分镜质量
               </span>
             )}
             <div className="flex mt-4 gap-2" style={{ justifyContent: 'flex-end' }}>
@@ -184,27 +198,47 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
                 disabled={importing || splitting || !script.trim()}
               >
                 <Wand2 size={15} />
-                AI 切分分镜
+                {splitting ? 'AI 切分中…（约 1~5 分钟，按剧本长度）' : 'AI 切分分镜'}
               </button>
             </div>
+            <SplitProgressBar active={splitting} startedAt={splitStartedAt} />
           </>
         ) : (
           <>
             <div className="text-[var(--color-text-tertiary)] mb-2" style={{ fontSize: 'var(--font-size-xs)' }}>
-              将新增 {splitPreview.length} 行分镜（镜号 {rows.length + 1} ~{' '}
-              {rows.length + splitPreview.length}），确认后写入：
+              AI 镜头级切分完成：将新增 {splitPreview.rows.length} 镜（镜号{' '}
+              {rows.length + 1} ~ {rows.length + splitPreview.rows.length}），确认后写入
+              {splitPreview.engine === 'fallback' && '（当前为按行降级结果）'}：
             </div>
             <ul
               className="rounded-lg border border-[var(--color-border-light)] divide-y divide-[var(--color-divider)]"
               style={{ maxHeight: 320, overflow: 'auto', margin: 0, padding: 0, listStyle: 'none' }}
             >
-              {splitPreview.map((seg, i) => (
-                <li key={i} className="flex gap-2" style={{ padding: 'var(--space-2) var(--space-3)' }}>
+              {splitPreview.rows.map((row, i) => (
+                <li
+                  key={row.id}
+                  className="flex gap-2 items-baseline"
+                  style={{ padding: 'var(--space-2) var(--space-3)' }}
+                >
                   <span className="text-[var(--color-primary)]" style={{ fontWeight: 600, flexShrink: 0 }}>
                     #{rows.length + i + 1}
                   </span>
-                  <span className="ellipsis" title={seg} style={{ fontSize: 'var(--font-size-sm)' }}>
-                    {seg}
+                  {row.camera_type && (
+                    <span className="badge info" style={{ flexShrink: 0 }}>{row.camera_type}</span>
+                  )}
+                  {(row.duration ?? 0) > 0 && (
+                    <span
+                      className="text-[var(--color-text-tertiary)]"
+                      style={{ flexShrink: 0, fontSize: 'var(--font-size-xs)' }}
+                    >
+                      {row.duration}s
+                    </span>
+                  )}
+                  <span className="ellipsis" title={row.description} style={{ fontSize: 'var(--font-size-sm)', flex: 1, minWidth: 0 }}>
+                    {row.description}
+                    {row.original_dialogue && (
+                      <span className="text-[var(--color-text-secondary)]"> · {row.original_dialogue}</span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -229,7 +263,7 @@ export function ScriptImport({ onDone }: ScriptImportProps) {
                 ) : (
                   <Wand2 size={15} />
                 )}
-                {splitting ? '分镜中…' : `确认导入 ${splitPreview.length} 行`}
+                {splitting ? '写入中…' : `确认导入 ${splitPreview.rows.length} 镜`}
               </button>
             </div>
           </>

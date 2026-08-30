@@ -47,6 +47,7 @@ import {
 } from '@/services/mangaApi';
 import { getErrorMessage } from '@/utils/errors';
 import AssetLightbox from './AssetLightbox';
+import { useGenProgress } from './useGenProgress';
 
 /** 资产类型中文名 */
 const KIND_LABELS: Record<string, string> = {
@@ -91,6 +92,8 @@ export default function AssetDetailPanel() {
   /** 隐藏文件输入（本地图片 / AI 参考图） */
   const fileRef = useRef<HTMLInputElement | null>(null);
   const refFileRef = useRef<HTMLInputElement | null>(null);
+  // WS 实时进度（后端视图/采样步级广播 → 按钮内进度条）
+  const genProgress = useGenProgress('asset', selectedAssetId ?? undefined, busy === 'regenerate');
 
   /* ------------------------------ 音色绑定（角色资产） ------------------- */
   const voices = useMangaStore((s) => s.voices);
@@ -244,7 +247,12 @@ export default function AssetDetailPanel() {
     setBusy('upload');
     replaceAssetImage(asset.asset_id, file)
       .then(() => {
-        showToast(`「${asset.name}」图片已替换`, 'success');
+        showToast(
+          isCharacter
+            ? `「${asset.name}」图片已替换，描述词将按新图自动重写`
+            : `「${asset.name}」图片已替换`,
+          'success',
+        );
         return fetchAssets();
       })
       .catch((err: unknown) => showToast(getErrorMessage(err, '图片替换失败'), 'error'))
@@ -280,6 +288,16 @@ export default function AssetDetailPanel() {
   /** AI 生图（角色走四视图管线；场景/道具走现有 regenerate；degraded 如实展示） */
   const handleRegenerate = () => {
     if (busy) return;
+    // P0 数据修复卡控：图片已替换但描述词尚未按新图重写完成 →
+    // 禁止生图（旧词与新图脱节必出漂移——V41 事故教训）；
+    // 用户可等待自动重写完成、点「生成描述词」或手动编辑描述词解除
+    if (isCharacter && asset.meta?.prompt_stale) {
+      showToast(
+        '描述词尚未按新图重写，生图会与人物不符：请稍候自动重写完成，或点「生成描述词」/手动编辑描述词',
+        'warning',
+      );
+      return;
+    }
     if (!promptDraft.trim()) {
       showToast('请先填写描述词，再点击 AI 生图', 'warning');
       return;
@@ -439,7 +457,7 @@ export default function AssetDetailPanel() {
           type="button"
           className="btn btn-secondary btn-sm flex-1"
           disabled={busy !== ''}
-          title="对话引擎按资产名称扩写描述词"
+          title={isCharacter && mainUrl ? '视觉模型按当前资产图重写描述词（与图片内容严格一致）' : '对话引擎按资产名称扩写描述词'}
           onClick={handleDescribe}
         >
           <Sparkles size={13} />
@@ -520,9 +538,20 @@ export default function AssetDetailPanel() {
         />
       </div>
 
-      {/* 7. 描述词（失焦保存） */}
+      {/* 7. 描述词（失焦保存；prompt_stale = 图已换词待重写，VLM 重写中/待触发） */}
       <div className="card manga-insp-card">
-        <div className="manga-insp-title">描述词</div>
+        <div className="manga-insp-title">
+          描述词
+          {isCharacter && !!asset.meta?.prompt_stale && (
+            <span
+              className="badge warning"
+              style={{ marginLeft: 'var(--space-2)' }}
+              title="图片已替换，描述词将按新图自动重写；也可点「生成描述词」立即重写或手动编辑解除"
+            >
+              待按新图重写
+            </span>
+          )}
+        </div>
         <textarea
           className="input"
           rows={5}
@@ -535,7 +564,7 @@ export default function AssetDetailPanel() {
         />
       </div>
 
-      {/* 8. 底部主按钮：AI 生图（角色 = 四视图管线） */}
+      {/* 8. 底部主按钮：AI 生图（角色 = 四视图管线；生成中显示 WS 实时进度条） */}
       <button
         type="button"
         className="btn btn-primary manga-asset-gen-btn"
@@ -549,8 +578,21 @@ export default function AssetDetailPanel() {
       >
         {busy === 'regenerate' ? (
           <>
-            <span className="spinner manga-mini-spin" />
-            {isCharacter ? '生成四视图中，约1分钟…' : '生成中…'}
+            {genProgress ? (
+              <span
+                className="manga-gen-btn-fill"
+                style={{ width: `${genProgress.percent}%` }}
+                aria-hidden="true"
+              />
+            ) : null}
+            <span className="manga-gen-btn-content">
+              <span className="spinner manga-mini-spin" />
+              {genProgress
+                ? `${genProgress.label || (isCharacter ? '生成四视图' : '生成中')} ${genProgress.percent}%`
+                : isCharacter
+                  ? '生成四视图中，约1分钟…'
+                  : '生成中…'}
+            </span>
           </>
         ) : (
           <>

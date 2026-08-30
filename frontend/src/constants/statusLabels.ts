@@ -79,11 +79,14 @@ export const MODEL_RUNTIME_STATUS_LABELS: Record<string, string> = {
   error: '错误',
 };
 
-/** 可用模型状态 → 中文标签（AvailableModel.status；offload=前端显存闸门派生） */
+/** 可用模型状态 → 中文标签（AvailableModel.status）：
+ *  ready=已加载立即可用；downloaded=已下载可按需加载（选中后生成时后端
+ *  ensure_loaded 自动装载/换载）；offload=需求超总显存物理装不下 */
 export const MODEL_AVAILABLE_STATUS_LABELS: Record<AvailableModel['status'], string> = {
   ready: '可用',
   loading: '加载中',
   not_installed: '未安装',
+  downloaded: '已下载',
   offload: '需卸载',
 };
 

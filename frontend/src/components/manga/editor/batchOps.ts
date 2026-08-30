@@ -88,7 +88,9 @@ export function readPromptPrefix(): string | undefined {
   return undefined;
 }
 
-/** 批量 AI 生成描述词（串行；锁定行/无台词行跳过；onProgress 逐行回报） */
+/** 批量 AI 生成描述词（串行；锁定行/无台词行/未绑定资产行跳过；onProgress 逐行回报）
+ *  2026-08-25 用户裁定：未绑定资产的行不允许生成分镜描述词（外貌一致性锚点缺失，
+ *  4B 会自由发明角色外貌导致跨镜人设矛盾）——与后端 ai-describe 硬门槛双保险。 */
 export async function batchDescribe(
   rows: StoryboardRow[],
   projectId: string,
@@ -100,7 +102,8 @@ export async function batchDescribe(
   const promptPrefix = readPromptPrefix();
   let processed = 0;
   for (const row of rows) {
-    if (row.is_locked || !row.original_dialogue.trim()) {
+    const hasAssets = (row.asset_ids?.length ?? 0) > 0 || !!row.asset_id;
+    if (row.is_locked || !row.original_dialogue.trim() || !hasAssets) {
       res.skipped += 1;
     } else {
       try {
@@ -273,7 +276,10 @@ export async function batchVideoNarrative(
   const res: BatchResult = { done: 0, skipped: 0, failed: 0 };
   await ensurePersisted();
   const promptPrefix = readPromptPrefix();
-  const runnable = rows.filter((r) => !r.is_locked && r.description.trim());
+  // A/B/C 生成不再要求已有描述词：台词（原文）或描述词任一非空即可
+  const runnable = rows.filter(
+    (r) => !r.is_locked && (r.description.trim() || r.original_dialogue.trim()),
+  );
   const skipCount = rows.length - runnable.length;
   res.skipped = skipCount;
   if (runnable.length === 0) {
@@ -291,7 +297,8 @@ export async function batchVideoNarrative(
     res.done = result.done;
     res.skipped += result.skipped;
     res.failed = result.failed;
-    // 更新本地行数据（后端已把视频描述词追加写库到 description，回写 store 收敛）
+    // 更新本地行数据（后端已把 A/B/C 结构化描述词覆写入库到 description，
+    // 回写 store 收敛；视频生成请求直读该字段，无需额外传参）
     if (result.rows) {
       for (const updated of result.rows) {
         useMangaStore.getState().updateRow(updated.id, {

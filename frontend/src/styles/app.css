@@ -913,6 +913,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-taskbar {
   padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-border-light);
   background: var(--color-bg); display: flex; flex-direction: column; gap: var(--space-1);
+  flex-shrink: 0; /* 视窗不足时不可压缩（否则 min-height:0 的主区被挤没） */
 }
 .manga-taskbar-row { display: flex; align-items: center; gap: var(--space-3); font-size: var(--font-size-xs); }
 .manga-taskbar-link { color: var(--color-accent); text-decoration: none; }
@@ -921,9 +922,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-taskbar-action:hover { color: var(--color-text-primary); }
 .manga-taskbar-action.warn { color: var(--color-warning); }
 .manga-taskbar-action.warn:hover { color: var(--color-warning); text-decoration: underline; }
-
-/* 3D 导演台全屏覆盖层（工作台内打开，z 层级低于 toast） */
-.manga-director-overlay { position: fixed; inset: 0; z-index: var(--z-modal); background: var(--color-bg); }
 
 /* ============================== 18. 漫剧编辑器（竞品式三栏 + 樱粉霓虹） ============================== */
 
@@ -1037,7 +1035,41 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   width: 340px; flex-shrink: 0; overflow-y: auto; padding: var(--space-4);
   border-left: 1px solid var(--color-border-light); background: var(--color-card);
   display: flex; flex-direction: column; gap: var(--space-3);
+  overscroll-behavior: contain;
 }
+/* 滚动容器内子项保持固有高度（flex 默认 shrink 会先压缩卡片而非
+   撑出滚动高度 → 内容截断且永不出现滚动条，2026-08-24 修复） */
+.manga-ed-inspector > * { flex-shrink: 0; }
+
+/* 编辑器滚动条可见性（2026-08-24 用户裁定：内容超出必须可见可拖。
+   全局 thumb 透明度 18% 在深色卡片上几乎不可见 → 工作台区域加宽
+   加亮；特异性 (0,3,0) 压过 [data-family='tech'] 的主题覆盖） */
+.manga-wb .manga-ed-center::-webkit-scrollbar,
+.manga-wb .manga-ed-inspector::-webkit-scrollbar,
+.manga-wb .manga-dock-body::-webkit-scrollbar,
+.manga-wb .manga-wb-drawer-body::-webkit-scrollbar,
+.manga-wb .manga-wb-table::-webkit-scrollbar { width: 10px; height: 10px; }
+.manga-wb .manga-ed-center::-webkit-scrollbar-thumb,
+.manga-wb .manga-ed-inspector::-webkit-scrollbar-thumb,
+.manga-wb .manga-dock-body::-webkit-scrollbar-thumb,
+.manga-wb .manga-wb-drawer-body::-webkit-scrollbar-thumb,
+.manga-wb .manga-wb-table::-webkit-scrollbar-thumb {
+  background: var(--color-primary-200);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent; background-clip: padding-box;
+}
+.manga-wb .manga-ed-center::-webkit-scrollbar-thumb:hover,
+.manga-wb .manga-ed-inspector::-webkit-scrollbar-thumb:hover,
+.manga-wb .manga-dock-body::-webkit-scrollbar-thumb:hover,
+.manga-wb .manga-wb-drawer-body::-webkit-scrollbar-thumb:hover,
+.manga-wb .manga-wb-table::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-300); background-clip: padding-box;
+}
+.manga-wb .manga-ed-center::-webkit-scrollbar-track,
+.manga-wb .manga-ed-inspector::-webkit-scrollbar-track,
+.manga-wb .manga-dock-body::-webkit-scrollbar-track,
+.manga-wb .manga-wb-drawer-body::-webkit-scrollbar-track,
+.manga-wb .manga-wb-table::-webkit-scrollbar-track { background: transparent; }
 .manga-ed-inspector-head { display: flex; align-items: center; justify-content: space-between; }
 .manga-ed-inspector-title { margin: 0; font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); }
 
@@ -1257,6 +1289,36 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: var(--font-weight-semibold); color: var(--color-primary-300);
 }
+/* 已生成视频：缩略视频框（悬停预览，角标下载）2026-08-25 */
+.manga-video-thumb {
+  position: relative; width: 88px; height: 52px;
+  border: 1px solid var(--color-border-light); border-radius: var(--radius-sm);
+  background: var(--color-input-bg); overflow: hidden; cursor: pointer;
+  transition: border-color var(--duration-hover) var(--ease-out);
+}
+.manga-video-thumb video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.manga-video-thumb:hover { border-color: var(--color-primary-200); }
+.manga-video-dl {
+  position: absolute; right: 2px; bottom: 2px;
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.72); color: var(--color-text-primary);
+  transition: background var(--duration-hover) var(--ease-out);
+}
+.manga-video-dl:hover { background: rgba(59, 130, 246, 0.9); }
+/* 视频框重新生成角标（左下角，与下载角标对称） */
+.manga-video-redo {
+  position: absolute; left: 2px; bottom: 2px;
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: none;
+  border-radius: var(--radius-sm); cursor: pointer;
+  background: rgba(15, 23, 42, 0.72); color: var(--color-text-primary);
+  transition: background var(--duration-hover) var(--ease-out);
+}
+.manga-video-redo:hover:not(:disabled) { background: rgba(59, 130, 246, 0.9); }
+.manga-video-redo:disabled { cursor: not-allowed; opacity: 0.55; }
 
 /* 追加分镜行按钮 */
 .manga-row-create {
@@ -1326,9 +1388,10 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-asset-card:hover:not(:disabled) { border-color: var(--color-primary-200); box-shadow: 0 4px 14px rgba(255, 107, 157, 0.18); }
 .manga-asset-card:disabled { opacity: 0.45; cursor: not-allowed; }
 .manga-asset-card img, .manga-asset-ph {
-  /* contain 完整呈现全身像（portrait 640×1440 竖长图 cover 会裁掉
-     下半身，2026-08-20 用户裁定资产卡必须显示全身图） */
-  width: 100%; aspect-ratio: 4 / 5; object-fit: contain; background: var(--color-input-bg); display: block;
+  /* 2026-08-25 用户裁定：资产卡缩略图统一为正方形（1/1）cover 裁切；
+     角色 portrait 640×1440 竖长图用 top 定位优先保留头部/上半身识别区 */
+  width: 100%; aspect-ratio: 1 / 1; object-fit: cover; object-position: top center;
+  background: var(--color-input-bg); display: block;
 }
 .manga-asset-ph { display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--color-text-tertiary); }
 .manga-asset-name { padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-primary); }
@@ -1360,21 +1423,39 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 
 /* 资产单元格：缩略图卡横排堆叠 + 虚线「+」空位 */
 .manga-asset-cell { display: flex; flex-wrap: wrap; gap: var(--space-1); width: 100%; }
+/* 缩略图卡外包裹（承载右上角 X 解绑按钮，2026-08-25 用户裁定） */
+.manga-mini-card-wrap { position: relative; display: flex; min-width: 0; }
+.manga-mini-card-wrap .manga-mini-card { flex: 1; min-width: 0; }
+/* 右上角圆形红底白 X 解绑按钮：默认隐藏，hover 缩略图卡才出现（2026-08-25 用户裁定） */
+.manga-mini-card-unbind {
+  position: absolute; top: -4px; right: -4px; z-index: 2;
+  width: 13px; height: 13px; padding: 0; border: none;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  background: var(--color-error); color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+.manga-mini-card-wrap:hover .manga-mini-card-unbind { opacity: 1; pointer-events: auto; }
+.manga-mini-card-unbind:hover { background: var(--color-error-strong, #d92d20); transform: scale(1.2); }
+.manga-mini-card-unbind:active { transform: scale(0.9); }
 .manga-mini-card {
   display: flex; flex-direction: column; align-items: center; width: 44px; flex-shrink: 0;
   cursor: pointer; padding: 0; overflow: hidden;
   border: 1px solid var(--color-border-light); border-radius: var(--radius-sm);
-  background: var(--color-bg); color: inherit;
+  background: transparent; color: inherit;
   transition: border-color var(--duration-hover) var(--ease-out), box-shadow var(--duration-hover) var(--ease-out);
 }
 .manga-mini-card:hover { border-color: var(--color-primary-200); box-shadow: 0 2px 8px rgba(255, 107, 157, 0.2); }
 .manga-mini-card img, .manga-mini-card-ph {
-  width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--color-input-bg); display: block;
+  width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
 }
 .manga-mini-card-ph { display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--color-text-tertiary); }
 .manga-mini-card-name {
   width: 100%; padding: 0 2px; font-size: 9px; line-height: 14px;
-  color: var(--color-text-secondary); text-align: center;
+  color: var(--color-text-primary); text-align: center; background: transparent;
 }
 .manga-mini-add {
   display: flex; align-items: center; justify-content: center;
@@ -1446,19 +1527,21 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 /* 资产详情面板（右栏槽位成员） */
 .manga-asset-detail { gap: var(--space-3); }
 .manga-asset-preview { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 2026-08-24 用户裁定：资产图框与角色四视图框（.manga-view-sheet）
+   精确对齐——同通栏宽/同边框/同圆角/同背景，消除 160px 窄框错位 */
 .manga-asset-preview-btn {
-  display: block; width: 160px; margin: 0 auto; padding: 0; cursor: zoom-in; overflow: hidden;
+  display: block; width: 100%; padding: 0; cursor: zoom-in; overflow: hidden;
   border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-input-bg);
   transition: border-color var(--duration-hover) var(--ease-out);
 }
 .manga-asset-preview-btn:hover { border-color: var(--color-primary-200); }
-/* 保持原图宽高比完整显示（contain 不裁剪）：竖版角色图/横版场景图都不切头脚 */
+/* 保持原图宽高比完整显示（contain 不裁剪），与 .manga-view-sheet img 同规格 */
 .manga-asset-preview-btn img {
-  width: 100%; height: auto; max-height: 280px; object-fit: contain; display: block;
+  width: 100%; height: auto; object-fit: contain; display: block;
 }
 .manga-asset-preview-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2);
-  width: 160px; margin: 0 auto; aspect-ratio: 3 / 4; border: 1px dashed var(--color-border-light); border-radius: var(--radius-md);
+  width: 100%; aspect-ratio: 16 / 9; border: 1px dashed var(--color-border-light); border-radius: var(--radius-md);
   background: var(--color-input-bg); color: var(--color-text-tertiary);
   font-size: var(--font-size-xs); text-align: center; padding: var(--space-3);
 }
@@ -1468,6 +1551,22 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   font-size: var(--font-size-xs); color: var(--color-text-tertiary);
 }
 .manga-asset-gen-btn { width: 100%; justify-content: center; }
+
+/* ---------- 生图按钮实时进度条（2026-08-27 WS task_progress 驱动） ---------- */
+/* 按钮内绝对定位填充层（width% 跟随后端逐镜/采样步级广播平滑推进），
+   文案/ spinner 置于其上层；填充色用辅助色半透明混合，双主题均与
+   主色底形成可见对比 */
+.manga-asset-gen-btn { position: relative; overflow: hidden; }
+.manga-gen-btn-fill {
+  position: absolute; top: 0; left: 0; bottom: 0; z-index: 0;
+  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  transition: width 280ms ease;
+  pointer-events: none;
+}
+.manga-gen-btn-content {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: var(--space-2);
+}
 
 /* ---------- 资产详情·竞品对齐增量（2026-08-14 参考图/历史记录/角色切换；2026-08-20 四视图改单图整图） ---------- */
 
@@ -1523,6 +1622,15 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   font-size: 9px; line-height: 12px; color: var(--color-text-tertiary);
   text-align: center; white-space: nowrap;
 }
+
+/* 分镜详情预览区版本角标（当前帧非 is_current 时提示版本号） */
+.manga-insp-preview-tag {
+  position: absolute; top: 6px; right: 6px; z-index: 1;
+  padding: 2px 6px; border-radius: var(--radius-full);
+  background: rgba(15, 22, 41, 0.7); color: #fff;
+  font-size: 10px; line-height: 1.2; pointer-events: none;
+}
+.manga-asset-preview-btn { position: relative; }
 
 /* 角色切换器（详情面板内全宽下拉） */
 .manga-char-switch { width: 100%; }
@@ -1599,6 +1707,84 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   font-size: var(--font-size-xs); color: var(--color-text-tertiary);
 }
 
+/* 作品风格选择网格（MangaLibrary 创建弹窗，竞品式画风卡片；预置+自定义+"自定义"添加卡） */
+.manga-style-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.manga-style-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 0; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light); background: var(--color-card);
+  cursor: pointer; overflow: hidden; color: inherit;
+  transition: all var(--duration-hover) var(--ease-out);
+}
+.manga-style-card:hover { border-color: var(--color-primary-200); transform: translateY(-1px); }
+.manga-style-card.active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 12px rgba(255, 107, 157, 0.18);
+}
+.manga-style-card .style-thumb {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 100%; aspect-ratio: 1;
+  background: var(--color-surface-secondary); overflow: hidden;
+}
+.manga-style-card .style-thumb img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.manga-style-card.custom .style-thumb {
+  background: linear-gradient(135deg,
+    var(--color-primary-50, rgba(255, 107, 157, 0.08)),
+    var(--color-surface-secondary));
+}
+.manga-style-card .style-check {
+  position: absolute; top: 6px; right: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--color-primary); color: #fff;
+}
+.manga-style-card .style-hot {
+  position: absolute; top: 6px; left: 6px;
+  padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; line-height: 1.4; color: #fff;
+  background: linear-gradient(135deg, #ff6b9d, #ff9e6d);
+}
+.manga-style-card .style-del {
+  position: absolute; top: 6px; right: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45); color: #fff; cursor: pointer;
+  opacity: 0; transition: opacity var(--duration-hover) var(--ease-out);
+}
+.manga-style-card.custom:hover .style-del { opacity: 1; }
+.manga-style-card .style-del:hover { background: var(--color-error, #ef4444); }
+.manga-style-card .style-name {
+  padding: 5px 6px; font-size: var(--font-size-xs); font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary); text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* "自定义"添加卡（虚线占位） */
+.manga-style-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; aspect-ratio: 1 / 1.18; border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border-light);
+  background: transparent; color: var(--color-text-tertiary);
+  cursor: pointer; font-size: var(--font-size-xs);
+  transition: all var(--duration-hover) var(--ease-out);
+}
+.manga-style-add:hover {
+  border-color: var(--color-primary); color: var(--color-primary);
+  background: var(--color-primary-50, rgba(255, 107, 157, 0.06));
+}
+/* 自定义风格内联表单 */
+.manga-style-form {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 10px; padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+  background: var(--color-surface-secondary);
+}
+.manga-style-form .input { width: 100%; }
+
 /* 批量确认弹窗：范围选择 */
 .manga-batch-scope .manga-select {
   width: 100%; padding: 8px 12px;
@@ -1643,6 +1829,9 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-model-card .model-status.ready {
   background: var(--color-success-bg); color: var(--color-success);
+}
+.manga-model-card .model-status.downloaded {
+  background: var(--color-info-bg); color: var(--color-info);
 }
 .manga-model-card .model-status.not_installed {
   background: rgba(234, 179, 8, 0.12); color: var(--color-warning, #eab308);
@@ -1728,6 +1917,49 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   color: var(--color-accent); text-decoration: none; font-size: var(--font-size-xs);
 }
 .manga-records-link:hover { text-decoration: underline; }
+
+/* 图片生成记录表（七列：缩略图/类型/名称/引擎/seed/时间/操作） */
+.manga-records-img .manga-records-tr {
+  grid-template-columns: 64px 88px minmax(96px, 1fr) minmax(110px, 1.2fr) 92px minmax(108px, 0.9fr) 60px;
+}
+.manga-records-thumb {
+  width: 56px; height: 40px; padding: 0; border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm); overflow: hidden; background: var(--color-input-bg);
+  cursor: zoom-in; flex-shrink: 0;
+}
+.manga-records-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.manga-records-thumb:hover { border-color: var(--color-primary); }
+
+/* 媒体页签胶囊滑块控件（生成记录弹窗：视频/图片；data-active 驱动
+   指示块位移——两按钮等宽均分，transform 100% 恰好落在第二槽位） */
+.manga-media-seg {
+  position: relative; display: inline-flex; gap: 0;
+  padding: 3px; border-radius: var(--radius-full);
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-input-border);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.manga-media-seg::before {
+  content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px;
+  width: calc(50% - 4px); border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  box-shadow: 0 2px 10px var(--color-primary-glow, rgba(255, 107, 157, 0.35));
+  transition: transform var(--duration-hover) var(--ease-out);
+}
+.manga-media-seg[data-active="image"]::before { transform: translateX(100%); }
+.manga-media-seg-item {
+  position: relative; z-index: 1; flex: 1;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: none; cursor: pointer; padding: 5px 18px;
+  border-radius: var(--radius-full); background: transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-base); font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium); line-height: 18px;
+  transition: color var(--duration-hover) var(--ease-out);
+}
+.manga-media-seg-item:hover:not(.active) { color: var(--color-text-primary); }
+.manga-media-seg-item.active { color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+.manga-media-seg-item.active svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25)); }
 
 /* 表单辅助提示文案（提示词弹窗/批量确认共用） */
 .manga-form-tip { font-size: var(--font-size-xs); color: var(--color-text-tertiary); line-height: var(--line-height-relaxed); }
@@ -1831,3 +2063,70 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   font-size: var(--font-size-lg); font-weight: var(--font-weight-bold);
   color: var(--color-primary);
 }
+
+/* 角色推理进度弹窗（InferProgressModal，2026-08-24：进度条 + 预计时间） */
+.infer-progress-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3);
+}
+.infer-stage-label {
+  font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.infer-percent {
+  font-size: var(--font-size-2xl); font-weight: var(--font-weight-bold);
+  color: var(--color-primary-300); font-variant-numeric: tabular-nums;
+  line-height: 1; flex-shrink: 0;
+}
+.infer-percent.error { color: var(--color-error); }
+.infer-prog-bar.manga-video-prog {
+  width: 100%; height: 22px; border-radius: var(--radius-sm);
+}
+.infer-prog-bar .manga-video-prog-text { font-size: var(--font-size-xs); }
+.infer-meta {
+  display: flex; align-items: center; gap: var(--space-4);
+  font-size: var(--font-size-xs); color: var(--color-text-tertiary);
+}
+.infer-stage-list {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  margin-top: var(--space-2); padding: var(--space-3);
+  border: 1px solid var(--color-border-light); border-radius: var(--radius-lg);
+  background: var(--color-surface-secondary);
+}
+.infer-stage-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 20px; font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+.infer-stage-item .stage-ico {
+  width: 18px; height: 18px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.infer-stage-item .stage-detail { flex-shrink: 1; min-width: 0; }
+.infer-stage-item.done { color: var(--color-text-secondary); }
+.infer-stage-item.active {
+  color: var(--color-text-primary); font-weight: var(--font-weight-semibold);
+}
+.infer-result {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: var(--space-2); margin-top: var(--space-2);
+}
+
+
+/* ══ 2026-08-30 分镜行折叠 + 描述词竖向滚动 + 预览弹层 ══ */
+/* 未选中行:长文本限高折叠(原文/描述词/角色/场景/道具同规则) */
+.manga-sb-row .manga-cell-text { max-height: 64px; overflow-y: auto; scrollbar-width: thin; }
+.manga-sb-row .manga-cell-text::-webkit-scrollbar { width: 6px; }
+.manga-sb-row .manga-cell-text::-webkit-scrollbar-thumb { background: var(--color-border-strong, #3a4a5a); border-radius: 3px; }
+.manga-sb-row .manga-cell-text::-webkit-scrollbar-track { background: transparent; }
+/* 选中行:展开完整内容;描述词列限高 300px 带竖向滚动条 */
+.manga-sb-row.selected .manga-cell-text { max-height: 260px; }
+.manga-sb-td.c-desc .manga-cell-text { max-height: 64px; }
+.manga-sb-row.selected .manga-sb-td.c-desc .manga-cell-text { max-height: 300px; }
+/* 视频预览大窗 */
+.manga-media-preview { position: fixed; inset: 0; z-index: 400; display: flex; align-items: center; justify-content: center; background: rgba(2, 6, 23, 0.78); }
+.manga-media-preview-body { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-secondary, #0f1e38); max-width: min(940px, 92vw); }
+.manga-media-preview-body video { width: 100%; max-height: 66vh; border-radius: var(--radius-sm); background: #000; }
+.manga-media-preview-ops { display: flex; gap: 10px; justify-content: flex-end; }
+.manga-media-preview-ops a, .manga-media-preview-ops button { padding: 5px 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-light); color: var(--color-text-primary); background: transparent; cursor: pointer; font-size: var(--font-size-xs); }
+.manga-media-preview-ops a:hover, .manga-media-preview-ops button:hover { border-color: var(--color-primary-200); }

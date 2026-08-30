@@ -1,21 +1,13 @@
 /* ==========================================================================
  * OmniSpace AI v2.3.1 —— 漫剧创作 API（对齐后端 backend/api/manga/ 包真实端点）
  * --------------------------------------------------------------------------
- * 一、分镜表（/manga/storyboard/*，50 行上限 STORYBOARD_MAX_ROWS）
+ * 一、分镜表（/manga/storyboard/*，200 行上限 STORYBOARD_MAX_ROWS）
  *    - GET    /manga/storyboard/{projectId}            获取分镜表
  *    - PUT    /manga/storyboard/{projectId}            全量保存（增/删/重排）
  *    - PUT    /manga/storyboard/{projectId}/rows/{rowId} 更新单行
  *    - POST   /manga/storyboard/{projectId}/auto-split AI 自动分镜 {script}
  *    - POST   /manga/storyboard/import                 导入剧本 {project_id, script}
  *    - GET    /manga/storyboard/{projectId}/export     导出 ?format=csv|json
- *
- * 二、导演台（/manga/director/*，统一挂接后端默认 stage）
- *    - POST   /manga/director/panorama                 生成全景图 {scene_id, resolution}
- *    - POST   /manga/director/screenshot-4in1          4合1截图 {scene_id, camera_ids[4]}
- *    - POST   /manga/director/character/position       更新角色位置
- *    - POST   /manga/director/camera/add               添加机位
- *    - PUT    /manga/director/camera/{cameraId}        更新机位
- *    - POST   /manga/director/character/lock|unlock    锁定/解锁占位
  *
  * 三、视频生成（/manga/video/*，生成期间持有 video_gen 功能锁）
  *    - POST   /manga/video/generate                    发起生成 → {task_id, status}
@@ -37,13 +29,10 @@ import {
   StoryboardRowsRespSchema,
   StoryboardRowRespSchema,
   AutoSplitRespSchema,
+  AutoSplitPreviewRespSchema,
+  SplitProgressRespSchema,
   ImportScriptRespSchema,
   ExportStoryboardRespSchema,
-  PanoramaRespSchema,
-  Screenshot4in1RespSchema,
-  CameraRespSchema,
-  CharacterPositionRespSchema,
-  CharacterLockRespSchema,
   VideoGenerateRespSchema,
   VideoStatusRespSchema,
   VideoResultRespSchema,
@@ -53,8 +42,6 @@ import {
   VoicePreviewRespSchema,
   parseWith,
   type ExportStoryboardResp,
-  type PanoramaResp,
-  type Screenshot4in1Resp,
   type VideoResultResp,
   type VideoStatusResp,
   type VoiceListResp,
@@ -65,6 +52,7 @@ import type {
   ComicProject,
   ComicAsset,
   ComicAssetKind,
+  CustomArtStyle,
   KeyframeItem,
 } from '@/types';
 
@@ -120,6 +108,74 @@ export async function autoSplitStoryboard(
   return { added: res.added, total: res.total };
 }
 
+/** AI 自动分镜预览（dry_run=true，镜头级切分不落库，2026-08-23 真分镜改造） */
+export async function autoSplitPreview(
+  projectId: string,
+  script: string,
+): Promise<{
+  splitId: string;
+  rows: StoryboardRow[];
+  count: number;
+  engine: string;
+  truncated: boolean;
+}> {
+  const res = parseWith(
+    AutoSplitPreviewRespSchema,
+    await post<unknown>(`/manga/storyboard/${projectId}/auto-split`, {
+      script,
+      dry_run: true,
+    }),
+    'AI 分镜预览',
+  );
+  return {
+    splitId: res.split_id,
+    rows: res.rows,
+    count: res.count,
+    engine: res.engine,
+    truncated: res.truncated,
+  };
+}
+
+/** AI 自动分镜确认落库（POST auto-split/commit {split_id}，复用预览结果免二次推理） */
+export async function autoSplitCommit(
+  projectId: string,
+  splitId: string,
+): Promise<{ added: StoryboardRow[]; total: number }> {
+  const res = parseWith(
+    AutoSplitRespSchema,
+    await post<unknown>(
+      `/manga/storyboard/${projectId}/auto-split/commit`,
+      { split_id: splitId },
+    ),
+    'AI 分镜确认',
+  );
+  return { added: res.added, total: res.total };
+}
+
+/** AI 切分实时进度（GET auto-split/progress，SplitProgressBar 3s 轮询） */
+export async function getSplitProgress(
+  projectId: string,
+): Promise<{
+  active: boolean;
+  blocksDone: number;
+  blocksTotal: number;
+  mode: string;
+  etaMinutes: number;
+}> {
+  const res = parseWith(
+    SplitProgressRespSchema,
+    await get<unknown>(`/manga/storyboard/${projectId}/auto-split/progress`),
+    'AI 分镜进度',
+  );
+  return {
+    active: res.active,
+    blocksDone: res.blocks_done,
+    blocksTotal: res.blocks_total,
+    mode: res.mode ?? '',
+    etaMinutes: res.eta_minutes ?? 0,
+  };
+}
+
 /** 导入剧本（POST /manga/storyboard/import，剧本文本按行拆分为分镜行） */
 export async function importScript(
   projectId: string,
@@ -142,98 +198,6 @@ export async function exportStoryboard(
     ExportStoryboardRespSchema,
     await get<unknown>(`/manga/storyboard/${projectId}/export`, { format }),
     '分镜表导出',
-  );
-}
-
-/* ============================== 二、导演台 ============================== */
-
-/** 生成全景图（POST /manga/director/panorama；resolution ∈ 1024/2048/4096/8192） */
-export async function generatePanorama(
-  sceneId: string,
-  resolution: number,
-): Promise<PanoramaResp> {
-  return parseWith(
-    PanoramaRespSchema,
-    await post<unknown>('/manga/director/panorama', {
-      scene_id: sceneId,
-      resolution,
-    }),
-    '全景图生成',
-  );
-}
-
-/** 4合1截图（POST /manga/director/screenshot-4in1；必须恰好 4 个机位，否则 SCREENSHOT_CAMERA_MISMATCH） */
-export async function screenshot4in1(
-  sceneId: string,
-  cameraIds: string[],
-): Promise<Screenshot4in1Resp> {
-  return parseWith(
-    Screenshot4in1RespSchema,
-    await post<unknown>('/manga/director/screenshot-4in1', {
-      scene_id: sceneId,
-      camera_ids: cameraIds,
-    }),
-    '4合1截图',
-  );
-}
-
-/** 更新角色位置（POST /manga/director/character/position） */
-export async function setCharacterPosition(body: {
-  character_id: string;
-  position: { x: number; y: number; z: number };
-  rotation?: { x: number; y: number; z: number };
-  scale?: number;
-}): Promise<void> {
-  parseWith(
-    CharacterPositionRespSchema,
-    await post<unknown>('/manga/director/character/position', body),
-    '角色位置更新',
-  );
-}
-
-/** 添加机位（POST /manga/director/camera/add）→ 返回后端持久化的机位 id */
-export async function addCamera(body: {
-  name: string;
-  position: { x: number; y: number; z: number };
-  rotation: { x: number; y: number; z: number };
-  fov: number;
-}): Promise<string> {
-  const res = parseWith(
-    CameraRespSchema,
-    await post<unknown>('/manga/director/camera/add', body),
-    '机位添加',
-  );
-  return res.camera.id;
-}
-
-/** 更新机位（PUT /manga/director/camera/{cameraId}，仅更新非空字段） */
-export async function updateCamera(
-  cameraId: string,
-  patch: {
-    name?: string;
-    position?: { x: number; y: number; z: number };
-    rotation?: { x: number; y: number; z: number };
-    fov?: number;
-  },
-): Promise<void> {
-  parseWith(
-    CameraRespSchema,
-    await put<unknown>(`/manga/director/camera/${cameraId}`, patch),
-    '机位更新',
-  );
-}
-
-/** 锁定/解锁角色占位（POST /manga/director/character/lock|unlock） */
-export async function setCharacterLock(
-  characterId: string,
-  locked: boolean,
-): Promise<void> {
-  parseWith(
-    CharacterLockRespSchema,
-    await post<unknown>(`/manga/director/character/${locked ? 'lock' : 'unlock'}`, {
-      character_id: characterId,
-    }),
-    '角色锁定',
   );
 }
 
@@ -378,19 +342,46 @@ export async function previewVoice(
  * 响应形状经 backend/api/manga/ 包端点逐一核对（信封内 data 直取）。
  * ============================================================================================== */
 
-/** 新建项目（POST /comic/project/create；template=comic_drama 预置 5 行漫剧分镜；workMode=narrative 解说漫剧） */
+/** 新建项目（POST /comic/project/create；template=comic_drama 预置 5 行漫剧分镜；workMode=narrative 解说漫剧；artStyle=预置画风 key） */
 export async function createProject(
   name: string,
   template?: string,
   workMode?: string,
+  artStyle?: string,
 ): Promise<{ project_id: string; name: string; rows: StoryboardRow[] }> {
-  return post('/comic/project/create', { name, template: template || undefined, work_mode: workMode || 'regular' });
+  return post('/comic/project/create', {
+    name,
+    template: template || undefined,
+    work_mode: workMode || 'regular',
+    art_style: artStyle || '',
+  });
 }
 
 /** 项目列表（GET /comic/project/list，按更新时间倒序） */
 export async function listProjects(): Promise<ComicProject[]> {
   const res = await get<{ items: ComicProject[]; total: number }>('/comic/project/list');
   return res.items ?? [];
+}
+
+/* -------- 自定义作品风格（/comic/art-style/*） -------- */
+
+/** 自定义风格列表（GET /comic/art-style/list） */
+export async function listArtStyles(): Promise<CustomArtStyle[]> {
+  const res = await get<{ items: CustomArtStyle[]; total: number }>('/comic/art-style/list');
+  return res.items ?? [];
+}
+
+/** 新增自定义风格（POST /comic/art-style/create；重名 → COMIC_ART_STYLE_NAME_DUPLICATED） */
+export async function createArtStyle(
+  name: string,
+  prompt: string,
+): Promise<CustomArtStyle> {
+  return post('/comic/art-style/create', { name, prompt });
+}
+
+/** 删除自定义风格（DELETE /comic/art-style/{id}） */
+export async function deleteArtStyle(styleId: string): Promise<void> {
+  await del(`/comic/art-style/${styleId}`);
 }
 
 /** 重命名项目（PUT /comic/project/{id}；重名 → COMIC_PROJECT_NAME_DUPLICATED） */
@@ -614,6 +605,28 @@ export async function inferEntities(projectId: string): Promise<{
   return post('/comic/asset/infer-entities', { project_id: projectId });
 }
 
+/** 角色推理进度（GET /comic/asset/infer-progress；后端各推理阶段实时上报） */
+export interface InferProgress {
+  running: boolean;
+  /** 无该项目的进度记录（从未推理过） */
+  idle?: boolean;
+  /** 阶段 key：aggregate/extract_names/era/char_settings/scene_settings/prop_settings/save */
+  stage: string;
+  stage_label: string;
+  percent: number;
+  detail: string;
+  elapsed_seconds?: number;
+  /** 预计剩余秒数（percent≥10 线性外推，早期用静态估算；null=估算中） */
+  eta_seconds?: number | null;
+  success?: boolean;
+  message?: string;
+}
+
+/** 角色推理进度轮询（前端弹窗 1s 拉取；idle=无记录） */
+export async function getInferProgress(projectId: string): Promise<InferProgress> {
+  return get<InferProgress>('/comic/asset/infer-progress', { project_id: projectId });
+}
+
 /** 资产描述词 AI 扩写（POST /comic/asset/{assetId}/describe；对话引擎未就绪 → DIALOG_NOT_READY） */
 export async function describeAsset(assetId: string): Promise<ComicAsset> {
   const res = await post<{ asset: ComicAsset }>(`/comic/asset/${assetId}/describe`);
@@ -672,6 +685,63 @@ export interface AssetHistoryItem {
 export async function fetchAssetHistory(assetId: string): Promise<AssetHistoryItem[]> {
   const res = await get<{ items: AssetHistoryItem[] }>(`/comic/asset/${assetId}/history`);
   return res.items ?? [];
+}
+
+/** 图片生成记录项（GET /comic/image/tasks data.items 元素；两类联合） */
+export interface ImageTaskRecord {
+  record_id: string;
+  /** asset=资产图 / keyframe=分镜关键帧 */
+  category: 'asset' | 'keyframe';
+  created_at: number;
+  file_path: string;
+  /** /manga/media 可回读 url（直接作 img src） */
+  url: string;
+  /* ── asset 专有 ── */
+  asset_id?: string;
+  /** 资产名 */
+  name?: string;
+  /** character/scene/prop */
+  kind?: string;
+  /** generate=首次生成 / regenerate=重新生成 / view=单视图 */
+  action?: string;
+  /** 视图名（正面/侧面/背面/特写，仅 view 动作） */
+  view?: string;
+  /** flux2/sdxl（资产当前 meta） */
+  engine?: string;
+  model?: string;
+  seed?: number | null;
+  width?: number | null;
+  height?: number | null;
+  /* ── keyframe 专有 ── */
+  row_id?: string;
+  shot_number?: number;
+  version?: number;
+  is_current?: boolean;
+  /** 生成提示词片段（前 80 字） */
+  prompt?: string;
+  status?: string;
+}
+
+/** 图片生成记录参数 */
+export interface ImageTaskQuery {
+  /** all/asset/keyframe */
+  category?: 'all' | 'asset' | 'keyframe';
+  limit?: number;
+  offset?: number;
+}
+
+/** 项目图片生成记录（GET /comic/image/tasks，created_at 倒序） */
+export async function listImageTasks(
+  projectId: string,
+  query: ImageTaskQuery = {},
+): Promise<{ items: ImageTaskRecord[]; total: number }> {
+  const res = await get<{ items: ImageTaskRecord[]; total: number }>('/comic/image/tasks', {
+    project_id: projectId,
+    category: query.category ?? 'all',
+    limit: query.limit ?? 100,
+    offset: query.offset ?? 0,
+  });
+  return { items: res.items ?? [], total: res.total ?? 0 };
 }
 
 /** 资产库资产复制引入当前项目（POST /comic/asset/adopt；幂等，重复引入返回 already_adopted=true 的既有副本） */
@@ -734,13 +804,15 @@ export async function batchGenerateKeyframes(
   });
 }
 
-/** 重新生成关键帧（POST /manga/keyframe/regenerate：产出 v{n+1}，旧版保留可回退） */
+/** 重新生成关键帧（POST /manga/keyframe/regenerate：产出 v{n+1}，旧版保留可回退。
+ *  V37：用户主动点「重新生成」= 对当前结果不满意要重抽，置 force_new_seed
+ *  忽略已存 seed；不传则由后端沿用已验证 seed 复现） */
 export async function regenerateKeyframe(body: {
   row_id: string;
   project_id?: string;
   prompt?: string;
 }): Promise<KeyframeItem> {
-  return post('/manga/keyframe/regenerate', body);
+  return post('/manga/keyframe/regenerate', { ...body, force_new_seed: true });
 }
 
 /** 关键帧版本回退（POST /manga/keyframe/rollback：指定版本置为当前） */
@@ -770,11 +842,6 @@ export async function exportBundle(projectId: string): Promise<{
   contents: { storyboard_rows: number; assets: number; videos: number; keyframes: number };
 }> {
   return post('/comic/export/bundle', { project_id: projectId });
-}
-
-/** 导演台状态导出（POST /director/export → JSON 包，前端下载存档） */
-export async function exportDirectorStage(stageId?: string): Promise<Record<string, unknown>> {
-  return post('/director/export', stageId ? { stage_id: stageId } : {});
 }
 
 /** 取消视频任务（POST /video/{taskId}/cancel） */
@@ -825,7 +892,7 @@ export async function generateStoryKeyframe(
   });
 }
 
-/** 视频生词（POST /manga/video/narrative；rows 为后端追加视频描述词后的更新行，对齐 story/narrative 契约） */
+/** 视频生词（POST /manga/video/narrative；A/B/C 结构化视频描述词：绑定资产外貌锚定 + 原文台词融合，rows 为覆写 description 后的更新行） */
 export async function generateVideoNarrative(
   projectId: string,
   rowIds: string[],
@@ -883,20 +950,15 @@ export default {
   saveStoryboardRows,
   updateStoryboardRow,
   autoSplitStoryboard,
+  autoSplitPreview,
+  autoSplitCommit,
+  getSplitProgress,
   importScript,
   exportStoryboard,
   reorderStoryboard,
   aiDescribe,
   previewStoryboardImage,
   detectEmotion,
-  // 导演台
-  generatePanorama,
-  screenshot4in1,
-  setCharacterPosition,
-  addCamera,
-  updateCamera,
-  setCharacterLock,
-  exportDirectorStage,
   // 视频
   generateVideo,
   getVideoStatus,
@@ -930,10 +992,12 @@ export default {
   uploadAssetReference,
   deleteAssetReference,
   fetchAssetHistory,
+  listImageTasks,
   adoptAsset,
   listLibraryCharacters,
   toGlobalAsset,
   inferEntities,
+  getInferProgress,
   describeAsset,
   exportAssetPack,
   // 关键帧

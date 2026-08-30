@@ -89,8 +89,23 @@ export default function DialogPage() {
     }
     // 性能优化（2026-08-22）：进入对话页即后台预热模型，用户打字期间
     // 完成加载，首条消息不再等冷启动（幂等，后端引擎锁串行化）；
-    // modelId 与 /models/warmup 同目标（2026-08-23 幽灵热切换修复）
-    prewarmModel(modelId || undefined);
+    // modelId 与 /models/warmup 同目标（2026-08-23 幽灵热切换修复）。
+    // S6 预热延迟（2026-08-28 V77 事故根修）：与 App.tsx 路由预热
+    // 双入口共享后端 inflight 去重、先到者点火——本入口若保持立即
+    // 点火会击穿 App 侧 3s 延迟（/chat 默认路由路过点火争抢生成
+    // 算力）。同步延迟 3s（离开页面清理）+ 重量级功能持锁跳过。
+    let cancelled = false;
+    const heavy = useAppStore.getState().activeFeature;
+    const timer =
+      heavy === 'paint' || heavy === 'video_gen' || heavy === 'training'
+        ? null
+        : window.setTimeout(() => {
+            if (!cancelled) prewarmModel(modelId || undefined);
+          }, 3000);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, [sessionsLoaded, fetchSessions, modelId]);
 
   // 映射数据

@@ -94,6 +94,32 @@ export const AutoSplitRespSchema = z
   })
   .passthrough();
 
+/** POST /manga/storyboard/{id}/auto-split dry_run=true 预览响应（2026-08-23 镜头级真分镜） */
+export const AutoSplitPreviewRespSchema = z
+  .object({
+    project_id: z.string(),
+    split_id: z.string(),
+    rows: z.array(StoryboardRowSchema),
+    count: z.number(),
+    /** ai=全块推理成功 | ai-partial=部分块降级按行 | fallback=全程按行 */
+    engine: z.string(),
+    truncated: z.boolean(),
+  })
+  .passthrough();
+
+/** GET /manga/storyboard/{id}/auto-split/progress 响应（切分进度轮询） */
+export const SplitProgressRespSchema = z
+  .object({
+    active: z.boolean(),
+    blocks_done: z.number(),
+    blocks_total: z.number(),
+    /** gpu=GPU 加速 | cpu=显存不足回落 CPU 慢速路径（预警） */
+    mode: z.string().optional(),
+    /** 预估总耗时（分钟，按档位） */
+    eta_minutes: z.number().optional(),
+  })
+  .passthrough();
+
 /** POST /manga/storyboard/import 响应 */
 export const ImportScriptRespSchema = z
   .object({
@@ -114,65 +140,6 @@ export const ExportStoryboardRespSchema = z
   })
   .passthrough();
 export type ExportStoryboardResp = z.infer<typeof ExportStoryboardRespSchema>;
-
-/* ============================== 漫剧：导演台 ============================== */
-
-/** POST /manga/director/panorama 响应 */
-export const PanoramaRespSchema = z
-  .object({
-    scene_id: z.string(),
-    resolution: z.number(),
-    panorama: z.string(),
-    generated_at: z.number(),
-  })
-  .passthrough();
-export type PanoramaResp = z.infer<typeof PanoramaRespSchema>;
-
-/** POST /manga/director/screenshot-4in1 响应 */
-export const Screenshot4in1RespSchema = z
-  .object({
-    scene_id: z.string(),
-    camera_ids: z.array(z.string()),
-    screenshot: z.string(),
-    layout: z.string(),
-    generated_at: z.number(),
-  })
-  .passthrough();
-export type Screenshot4in1Resp = z.infer<typeof Screenshot4in1RespSchema>;
-
-/** 机位（对齐后端 _row_to_camera 输出） */
-export const DirectorCameraSchema = z
-  .object({
-    id: z.string(),
-    name: z.string().default(''),
-    position: z.record(z.string(), z.number()).default({}),
-    rotation: z.record(z.string(), z.number()).default({}),
-    fov: z.number().default(60),
-  })
-  .passthrough();
-
-/** POST /manga/director/camera/add 与 PUT /manga/director/camera/{id} 响应 */
-export const CameraRespSchema = z
-  .object({
-    camera: DirectorCameraSchema,
-  })
-  .passthrough();
-
-/** POST /manga/director/character/position 响应 */
-export const CharacterPositionRespSchema = z
-  .object({
-    character_id: z.string(),
-    character: z.record(z.string(), z.unknown()),
-  })
-  .passthrough();
-
-/** POST /manga/director/character/lock|unlock 响应 */
-export const CharacterLockRespSchema = z
-  .object({
-    character_id: z.string(),
-    locked: z.boolean(),
-  })
-  .passthrough();
 
 /* ============================== 漫剧：视频生成 ============================== */
 

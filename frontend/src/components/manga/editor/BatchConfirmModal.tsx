@@ -11,7 +11,7 @@
  *   - 执行时透传 model_override / resolution 到后端
  * ========================================================================== */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImagePlus, Settings2, Wand2, Clock, Loader2, Clapperboard, FileText } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -28,7 +28,7 @@ import {
 import type { BatchResult } from './batchOps';
 import { listAvailableModels } from '@/services/mangaApi';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
-import type { AvailableModel, ModelConfig } from '@/types';
+import type { AvailableModel, ModelConfig, StoryboardRow } from '@/types';
 
 /** 执行阶段 */
 type Phase = 'confirm' | 'running' | 'done';
@@ -79,29 +79,35 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
   const isDescribe = kind === 'describe' || kind === 'story_narrative' || kind === 'video_narrative';
   const isKeyframe = kind === 'keyframe' || kind === 'story_keyframe';
 
-  /** 缺失目标行（原有逻辑） */
+  /** 分镜生词资产门槛（2026-08-25 用户裁定）：未绑定资产的行不允许生成分镜描述词 */
+  const hasAssets = useCallback(
+    (r: StoryboardRow) => (r.asset_ids?.length ?? 0) > 0 || !!r.asset_id,
+    [],
+  );
+
+  /** 缺失目标行（原有逻辑；describe 额外要求已绑定资产） */
   const missingTargets = useMemo(() => {
-    if (kind === 'describe') return rows.filter((r) => !r.description.trim());
+    if (kind === 'describe') return rows.filter((r) => !r.description.trim() && hasAssets(r));
     if (kind === 'keyframe') return rows.filter((r) => !(keyframesMap[r.id] ?? []).some((k) => k.is_current));
     if (kind === 'story_narrative') return rows.filter((r) => !r.description.trim());
     if (kind === 'story_keyframe') return rows.filter((r) => !(keyframesMap[r.id] ?? []).some((k) => k.is_current));
     if (kind === 'video_narrative') return rows.filter((r) => r.description.trim());
     return rows;
-  }, [kind, rows, keyframesMap]);
+  }, [kind, rows, keyframesMap, hasAssets]);
 
   /** 根据 scope 过滤目标行 */
   const targets = useMemo(() => {
     if (scope === 'all') {
-      // 全部生成 = 所有有输入的行
+      // 全部生成 = 所有有输入的行（describe 额外要求已绑定资产）
       return rows.filter((r) => {
         if (r.is_locked) return false;
-        if (isDescribe) return r.original_dialogue.trim().length > 0;
+        if (isDescribe) return r.original_dialogue.trim().length > 0 && (kind !== 'describe' || hasAssets(r));
         if (isKeyframe) return r.description.trim().length > 0;
         return true;
       });
     }
     return missingTargets;
-  }, [scope, rows, missingTargets, isDescribe, isKeyframe]);
+  }, [scope, rows, missingTargets, isDescribe, isKeyframe, kind, hasAssets]);
 
   /** 锁定行数（批量自动跳过） */
   const lockedCount = useMemo(() => targets.filter((r) => r.is_locked).length, [targets]);
@@ -112,6 +118,14 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
         (r) => !r.is_locked && !(isDescribe ? r.original_dialogue : r.description).trim(),
       ).length,
     [targets, isDescribe],
+  );
+  /** 未绑定资产行数（describe 专属：已从目标行剔除，不参与 runnable 计算） */
+  const noAssetCount = useMemo(
+    () =>
+      kind === 'describe'
+        ? rows.filter((r) => !r.is_locked && r.original_dialogue.trim() && !hasAssets(r)).length
+        : 0,
+    [kind, rows, hasAssets],
   );
   const runnableCount = targets.length - lockedCount - noInputCount;
 
@@ -251,6 +265,14 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
               <span className="manga-batch-stat-num">{noInputCount}</span>
               <span className="manga-batch-stat-label">{isDescribe ? '无台词跳过' : '无描述跳过'}</span>
             </div>
+            {kind === 'describe' && noAssetCount > 0 && (
+              <div className="manga-batch-stat">
+                <span className="manga-batch-stat-num" style={{ color: 'var(--color-warning)' }}>
+                  {noAssetCount}
+                </span>
+                <span className="manga-batch-stat-label">未绑定资产跳过</span>
+              </div>
+            )}
             <div className="manga-batch-stat">
               <span className="manga-batch-stat-num" style={{ color: 'var(--color-primary-300)' }}>
                 {runnableCount}
@@ -259,7 +281,12 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
             </div>
           </div>
 
-          {targets.length === 0 && (
+          {targets.length === 0 && noAssetCount > 0 && (
+            <p className="manga-form-tip" style={{ margin: 0, color: 'var(--color-warning)' }}>
+              {noAssetCount} 行未绑定资产——请先在分镜表资产列绑定角色/场景/道具，再生成描述词
+            </p>
+          )}
+          {targets.length === 0 && noAssetCount === 0 && (
             <p className="manga-form-tip" style={{ margin: 0, color: 'var(--color-success)' }}>
               当前工序全部完成，无需处理
             </p>
@@ -284,9 +311,9 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
                   <button
                     key={m.id}
                     type="button"
-                    className={`manga-model-card${modelId === m.id ? ' active' : ''}${m.status !== 'ready' ? ' disabled' : ''}`}
-                    onClick={() => m.status === 'ready' && setModelId(m.id)}
-                    disabled={m.status !== 'ready'}
+                    className={`manga-model-card${modelId === m.id ? ' active' : ''}${m.status !== 'ready' && m.status !== 'downloaded' ? ' disabled' : ''}`}
+                    onClick={() => (m.status === 'ready' || m.status === 'downloaded') && setModelId(m.id)}
+                    disabled={m.status !== 'ready' && m.status !== 'downloaded'}
                     title={m.notes || m.name}
                   >
                     <span className="model-name">{m.name}</span>

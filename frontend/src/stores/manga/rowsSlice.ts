@@ -51,6 +51,28 @@ export const createRowsSlice: StateCreator<MangaState, [], [], RowsSlice> = (set
     }
   },
 
+  /** AI 镜头级分镜预览（dry_run 不落库，2026-08-23 真分镜改造） */
+  autoSplitPreview: async (script) => {
+    set({ splitting: true });
+    try {
+      return await mangaApi.autoSplitPreview(currentPid(get), script);
+    } finally {
+      set({ splitting: false });
+    }
+  },
+
+  /** AI 分镜确认落库（复用预览 split_id，免二次推理） */
+  autoSplitCommit: async (splitId) => {
+    set({ splitting: true });
+    try {
+      const res = await mangaApi.autoSplitCommit(currentPid(get), splitId);
+      set((state) => ({ rows: [...state.rows, ...res.added] }));
+      return res.added.length;
+    } finally {
+      set({ splitting: false });
+    }
+  },
+
   importScript: async (script) => {
     const res = await mangaApi.importScript(currentPid(get), script);
     set((state) => ({ rows: [...state.rows, ...res.rows] }));

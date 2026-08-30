@@ -46,6 +46,43 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
     }));
   };
 
+  /** 当前关键帧图 → base64（I2V/分镜网格协议载体，2026-08-25 竞品对齐）。
+   *
+   * 后端按此图做 I2V 首帧；网格关键帧（一图多镜）由后端拆格分段生成。
+   * 大图压到 ≤2048 宽（2×2 网格每格仍 ≥1024）+ JPEG 0.92 控载荷；
+   * 取图失败返回 ''（退纯文生视频，不阻断生成）。 */
+  const fetchCurrentKeyframeB64 = async (rowId: string): Promise<string> => {
+    try {
+      const items = await mangaApi.listKeyframes(rowId);
+      const current = items.find((k) => k.is_current) ?? items[0];
+      if (!current?.file_path) return '';
+      const res = await fetch(
+        mangaApi.getMediaUrl(
+          current.file_path,
+          `${current.version}-${current.created_at}`,
+        ),
+      );
+      if (!res.ok) return '';
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, 2048 / bmp.width);
+      const w = Math.round(bmp.width * scale);
+      const h = Math.round(bmp.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      return (canvas.toDataURL('image/jpeg', 0.92).split(',')[1] ?? '').trim();
+    } catch (err) {
+      // 关键帧图缺失/解码失败不阻断视频生成（诚实降级为纯文生视频）
+      reportBgError('videoSlice.fetchCurrentKeyframeB64', err);
+      return '';
+    }
+  };
+
   /** 启动任务状态轮询（可见 2s / 隐藏降频 10s，终态自动停止并收敛） */
   const startVideoPoll = (taskId: string, rowId: string): void => {
     let consecutiveFailCount = 0;
@@ -119,7 +156,7 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
     videoTasks: [],
     videoGenerating: false,
 
-    generateVideo: async (row) => {
+    generateVideo: async (row, opts) => {
       // 功能互斥前置检查（规格 §6.1：与绘画/训练等互斥）
       const appStore = useAppStore.getState();
       if (!appStore.setActiveFeature('video_gen')) {
@@ -128,10 +165,15 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
       const description =
         row.description || row.original_dialogue || `分镜 ${row.shot_number}`;
       try {
+        // 当前关键帧图随请求进后端：I2V 首帧 / 分镜网格拆格的载体
+        //（此前恒为空串，I2V 通道从未接通——2026-08-25 修复）
+        const screenshotB64 = await fetchCurrentKeyframeB64(row.id);
         const res = await mangaApi.generateVideo({
           storyboard_row_id: row.id,
           description,
-          screenshot_4in1: '',
+          screenshot_4in1: screenshotB64,
+          // 引擎点名透传（P1 2026-08-29）：如 "h3_director" = MiniMax H3 导演台
+          model_override: opts?.modelOverride || undefined,
         });
         const degraded =
           typeof (res as { degraded?: unknown }).degraded === 'boolean'
@@ -173,6 +215,52 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
         appStore.releaseActiveFeature();
         set({ videoGenerating: false });
         return false;
+      }
+    },
+
+    /** 拉取项目历史视频任务（openProject 调用）：行级取最新一条，
+     * 仅合入 store 尚不存在的终态任务（done 显示视频框 / error 显示
+     * 失败重试）；在途轮询任务不受影响。 */
+    loadVideoHistory: async (projectId) => {
+      try {
+        const res = await mangaApi.listVideoTasks(projectId);
+        // 列表按 created_at 倒序：每行首条即最新
+        const latestByRow = new Map<string, mangaApi.VideoTaskRecord>();
+        for (const t of res.items) {
+          if (t.row_id && !latestByRow.has(t.row_id)) {
+            latestByRow.set(t.row_id, t);
+          }
+        }
+        const existing = new Set(get().videoTasks.map((t) => t.task_id));
+        const historyTasks: MangaVideoTask[] = [];
+        latestByRow.forEach((t) => {
+          if (existing.has(t.task_id)) return;
+          // pending/generating 历史残留无轮询器接管，不进列表
+          //（避免永久卡在"生成中"假进度）
+          if (t.status !== 'done' && t.status !== 'error') return;
+          historyTasks.push({
+            task_id: t.task_id,
+            row_id: t.row_id,
+            created_at: t.created_at,
+            shot_number: t.shot_number,
+            description: '',
+            status: t.status as MangaVideoTask['status'],
+            progress: t.status === 'done' ? 1 : t.progress,
+            error: t.status === 'error' ? '上次生成失败，点击重试' : undefined,
+            download_url:
+              t.status === 'done'
+                ? mangaApi.getVideoDownloadUrl(t.task_id)
+                : undefined,
+          });
+        });
+        if (historyTasks.length > 0) {
+          set((state) => ({
+            videoTasks: [...historyTasks, ...state.videoTasks],
+          }));
+        }
+      } catch (err) {
+        // 历史加载失败不阻塞工作区（CONSOLE 级留痕）
+        reportBgError('videoSlice.loadVideoHistory', err);
       }
     },
 

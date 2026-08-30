@@ -24,6 +24,7 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   text2img: '文生图',
   img2img: '图生图',
   video_gen: '视频生成',
+  manga: '漫剧生成',
 };
 
 /** 规整后的任务事件 */

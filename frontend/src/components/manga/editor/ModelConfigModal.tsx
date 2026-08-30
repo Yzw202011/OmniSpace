@@ -56,7 +56,7 @@ function ModelSelect({ label, value, models, loading, onChange }: ModelSelectPro
         >
           <option value="">系统默认（自动选择）</option>
           {models.map((m) => (
-            <option key={m.id} value={m.id} disabled={m.status !== 'ready'}>
+            <option key={m.id} value={m.id} disabled={m.status !== 'ready' && m.status !== 'downloaded'}>
               {`${m.name}（${MODEL_AVAILABLE_STATUS_LABELS[m.status]}）`}
             </option>
           ))}

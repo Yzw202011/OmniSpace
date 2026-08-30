@@ -93,7 +93,7 @@ describe('模型状态标签', () => {
   });
 
   it('可用模型标签键集合 = AvailableModel.status 字面量集合', () => {
-    const expected: AvailableModel['status'][] = ['ready', 'loading', 'not_installed', 'offload'];
+    const expected: AvailableModel['status'][] = ['ready', 'loading', 'not_installed', 'downloaded', 'offload'];
     expect(Object.keys(MODEL_AVAILABLE_STATUS_LABELS).sort()).toEqual([...expected].sort());
     for (const v of Object.values(MODEL_AVAILABLE_STATUS_LABELS)) expect(v.length).toBeGreaterThan(0);
   });

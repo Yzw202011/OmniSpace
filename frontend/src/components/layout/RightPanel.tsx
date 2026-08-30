@@ -468,7 +468,6 @@ function StoryboardPanel() {
 
   // 场景列表：从分镜行去重（真实数据）
   const scenes = Array.from(new Set(rows.map((r) => r.scene).filter(Boolean)));
-  const directorDone = rows.filter((r) => r.director_stage_done).length;
   const aiRows = rows.filter((r) => r.is_ai_generated).length;
   // 角色列表：后端无角色端点，由分镜行 characters 去重派生（诚实门控）；
   // 配音状态 = 任一含该角色的分镜行已填写 voice_id
@@ -485,7 +484,6 @@ function StoryboardPanel() {
           <>
             <Row label="项目" value={currentProject.name} title={currentProject.name} />
             <Row label="分镜总数" value={rows.length} />
-            <Row label="导演台完成" value={`${directorDone}/${rows.length}`} />
             <Row label="AI 生成行" value={aiRows} />
             <Row
               label="视频任务"
@@ -525,7 +523,6 @@ function StoryboardPanel() {
             <Row label="情感标签" value={selectedRow.voice_emotion || '—'} />
             {/* COMIC-069：语速/音量滑块（key 按行切换重置草稿） */}
             <VoiceTuning key={selectedRow.id} row={selectedRow} />
-            <Row label="导演台" value={selectedRow.director_stage_done ? '已完成' : '未完成'} />
             <Row label="来源" value={selectedRow.is_ai_generated ? 'AI 生成' : '手动添加'} />
           </>
         ) : (

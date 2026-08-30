@@ -28,6 +28,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { router, NAV_ITEMS } from './router';
+import { trackBehavior } from './services/learningApi';
 import Tooltip from './components/common/Tooltip';
 import TechParticles from './components/common/TechParticles';
 import WarmupModal from './components/common/WarmupModal';
@@ -252,6 +253,7 @@ export function AppShell() {
     const isFirst = lastHeavyFeatureRef.current === null;
     const switched = !isFirst && feature !== lastHeavyFeatureRef.current;
     lastHeavyFeatureRef.current = feature;
+    let cancelled = false;
     void (async () => {
       // 模块切换（非首次）：其他模块 3s 内释放，优先供应目标模块
       if (switched) {
@@ -263,7 +265,18 @@ export function AppShell() {
       // 用户选 8b-awq 时发消息才热切换即二次冷启动，预热直接以用户
       // 选择为目标。先等释放完成再点火避免装载竞争显存；预热不持
       // 功能锁，用户切走时 release_for_module 可正常终止。
+      // S6 预热延迟（2026-08-28 V77 事故根修）：/chat 是默认路由，
+      // 启动/路过即点火 vLLM 与用户随后的生成任务争抢 GPU 算力
+      //（质量总督深度降步 36→14）。延迟 3s 点火——路过默认落地页
+      //（路由切走，cleanup 置 cancelled）不点火；重量级功能持锁
+      // 期间跳过（后端 vllm_service P0 门禁双保险）。
       if (feature === 'dialog') {
+        const heavy = useAppStore.getState().activeFeature;
+        if (heavy === 'paint' || heavy === 'video_gen' || heavy === 'training') {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (cancelled) return;
         try {
           const targetModel = useDialogStore.getState().modelId;
           const r = await warmupFeature('dialog', targetModel);
@@ -277,6 +290,7 @@ export function AppShell() {
         }
       }
     })();
+    return () => { cancelled = true; };
   }, [location.pathname]);
 
   // 进入漫剧项目（currentProject: null → 项目）：漫剧工作台即将进行重型生成，
@@ -328,6 +342,17 @@ export function AppShell() {
                     `nav-item${isActive ? ' active' : ''}${blockedMsg ? ' blocked' : ''}`
                   }
                   aria-disabled={blockedMsg ? true : undefined}
+                  onClick={() => {
+                    // 行为学习埋点（fire-and-forget）：导航为纯路由跳转
+                    // 不经过 setActiveFeature，在此直接埋模块切换事件
+                    if (feature) {
+                      trackBehavior('module_switch', {
+                        content: feature,
+                        context: location.pathname,
+                        feature,
+                      });
+                    }
+                  }}
                 >
                   <span className="nav-icon">
                     <Icon size={18} aria-hidden="true" />

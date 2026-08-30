@@ -265,6 +265,58 @@ export function warmupFeature(feature: string, modelId?: string) {
   });
 }
 
+/* ------------------------------ 模块级模型选型配置 ------------------------------ */
+
+/** 模块槽候选模型（配置界面勾选项） */
+export interface ModuleModelCandidate {
+  id: string;
+  name: string;
+  category: string;
+  downloaded: boolean;
+  loaded: boolean;
+  min_vram_gb: number;
+  purpose: string;
+}
+
+/** 单个模块槽的配置态（服务端真源 + 本地编辑态共用结构） */
+export interface ModuleSlotConfig {
+  allowed: string[];
+  default: string;
+}
+
+/** GET/PUT /models/module-config 响应中的槽信息 */
+export interface ModuleModelSlotInfo {
+  slot: string;
+  label: string;
+  desc: string;
+  hint: string;
+  allowed: string[];
+  default: string;
+  restricted: boolean;
+  candidates: ModuleModelCandidate[];
+  unknown_allowed: string[];
+}
+
+/** 模块级选型配置响应 */
+export interface ModuleModelConfigResponse {
+  slots: ModuleModelSlotInfo[];
+  config: Record<string, ModuleSlotConfig>;
+  slot_keys: string[];
+}
+
+/** 读取功能模块级模型选型配置（模型管理页配置面板数据源） */
+export async function getModuleModelConfig(): Promise<ModuleModelConfigResponse> {
+  return get<ModuleModelConfigResponse>('/models/module-config');
+}
+
+/** 保存模块级选型配置（configs: slot → {allowed, default}） */
+export function saveModuleModelConfig(configs: Record<string, ModuleSlotConfig>) {
+  return put<ModuleModelConfigResponse & { warnings?: string[] }>(
+    '/models/module-config',
+    { configs },
+  );
+}
+
 export default {
   listModels,
   getModelDetail,
@@ -278,4 +330,6 @@ export default {
   getVllmStatus,
   stopVllm,
   releaseForModule,
+  getModuleModelConfig,
+  saveModuleModelConfig,
 };

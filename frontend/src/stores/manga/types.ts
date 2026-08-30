@@ -49,6 +49,8 @@ export interface MangaVideoTask {
   task_id: string;
   /** 关联分镜行 ID */
   row_id: string;
+  /** 创建时间（epoch 秒；前端"取行最新任务"用） */
+  created_at?: number;
   /** 镜号（列表展示） */
   shot_number: number;
   /** 画面描述（列表展示） */
@@ -81,8 +83,8 @@ export interface ProjectSlice {
 
   /** 拉取项目列表 */
   fetchProjects: () => Promise<void>;
-  /** 新建项目（template=comic_drama 预置 5 行分镜），返回 project_id */
-  createProject: (name: string, template?: string, workMode?: string) => Promise<string>;
+  /** 新建项目（template=comic_drama 预置 5 行分镜；artStyle=预置画风 key），返回 project_id */
+  createProject: (name: string, template?: string, workMode?: string, artStyle?: string) => Promise<string>;
   /** 重命名项目 */
   renameProject: (projectId: string, name: string) => Promise<void>;
   /** 删除项目（级联；删除当前项目时回项目库） */
@@ -119,6 +121,16 @@ export interface RowsSlice {
   updateRow: (rowId: string, patch: Partial<StoryboardRow>) => Promise<void>;
   /** AI 自动分镜（POST auto-split，按剧本文本拆行追加） */
   autoSplit: (script: string) => Promise<number>;
+  /** AI 镜头级分镜预览（dry_run 不落库，返回切分结果 + split_id） */
+  autoSplitPreview: (script: string) => Promise<{
+    splitId: string;
+    rows: StoryboardRow[];
+    count: number;
+    engine: string;
+    truncated: boolean;
+  }>;
+  /** AI 分镜确认落库（复用预览 split_id，免二次推理） */
+  autoSplitCommit: (splitId: string) => Promise<number>;
   /** 导入剧本（POST import，按行拆分追加） */
   importScript: (script: string) => Promise<number>;
   /** 拖拽重排（POST reorder 持久化 sort_index，成功后以服务端行序为准） */
@@ -192,8 +204,14 @@ export interface VideoSlice {
   /** 是否有视频生成中 */
   videoGenerating: boolean;
 
-  /** 发起视频生成（功能互斥 video_gen + 轮询进度） */
-  generateVideo: (row: StoryboardRow) => Promise<boolean>;
+  /** 发起视频生成（功能互斥 video_gen + 轮询进度；opts.modelOverride
+   *  为可选引擎点名，如 "h3_director" = MiniMax H3 导演台） */
+  generateVideo: (
+    row: StoryboardRow,
+    opts?: { modelOverride?: string },
+  ) => Promise<boolean>;
+  /** 拉取项目历史视频任务（openProject 调用，行级取最新终态） */
+  loadVideoHistory: (projectId: string) => Promise<void>;
   /** 取消在途视频任务（POST cancel + 停止轮询） */
   cancelVideo: (taskId: string) => Promise<void>;
   /** 手动刷新任务状态 */

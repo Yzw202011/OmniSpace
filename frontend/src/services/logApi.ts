@@ -34,6 +34,8 @@ export interface LogEvent {
   detail?: string;
   /** 耗时毫秒（可选） */
   duration_ms?: number;
+  /** 流程追踪 ID（可选；同一次跨模块功能执行的关联标识，后端 log_event 携带） */
+  trace_id?: string;
 }
 
 /** 事件查询结果 */

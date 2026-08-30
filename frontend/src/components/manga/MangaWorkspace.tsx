@@ -1,8 +1,8 @@
 /* ==========================================================================
- * OmniSpace AI v2.3.1 —— 漫剧编辑器（竞品式工作台，含独有 3D 导演台）
+ * OmniSpace AI v2.3.1 —— 漫剧编辑器（竞品式工作台）
  * --------------------------------------------------------------------------
  * 布局（参考竞品 yl.man-tui.com/cartoon 编辑器，视觉=深色渐变+樱粉霓虹）：
- *   顶栏：返回 + 作品名/保存状态 | 剧本导入 · 模型配置 · 视频记录 · 导出 · 3D 导演台 CTA
+ *   顶栏：返回 + 作品名/保存状态 | 剧本导入 · 模型配置 · 视频记录 · 导出
  *   工序箭头条（chevron，竞品对齐）：角色推理→角色生图→分镜生词→分镜生图→生成视频
  *     （解说漫剧 6 步：角色推理→角色生图→故事生词→故事生图→视频生词→生成视频）
  *     点击=真实动作（实体推理/聚焦资产/批量生词/批量生图/视频确认弹窗），状态由真实数据推导
@@ -12,14 +12,13 @@
  *   工序条工具：提示词设置（PromptModal）/ 视频生成记录（RecordsModal）；
  *     批量工序确认（BatchConfirmModal）含统计/提示词入口/实时进度；
  *     模型配置（ModelConfigModal）/ 生成视频确认（VideoConfirmModal）竞品居中弹层
- *   3D 导演台：全屏覆盖层（竞品没有的能力，顶栏主 CTA + 行内入口）
+ *   （3D 导演台已于 2026-08-29 按用户裁定整链路剔除）
  * 空项目（0 行）首入：整页剧本录入（ScriptImport），可跳过。
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
-  Clapperboard,
   Download,
   FileUp,
   History,
@@ -30,12 +29,10 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
-import { inferEntities } from '@/services/mangaApi';
 import { SAVE_STATUS_LABELS, VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
-import { getErrorMessage, reportActionError, reportBgError } from '@/utils/errors';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 import type { ShotSaveStatus, StoryboardRow } from '@/types';
 import { ScriptImport } from './ScriptImport';
-import { DirectorStage } from './DirectorStage';
 import { VoiceBinder } from './VoiceBinder';
 import { DrawerFrame } from './drawers/DrawerFrame';
 import { ImportDrawer } from './drawers/ImportDrawer';
@@ -46,6 +43,7 @@ import AssetDetailPanel from './editor/AssetDetailPanel';
 import InspectorPanel from './editor/InspectorPanel';
 import StoryboardTable from './editor/StoryboardTable';
 import BatchConfirmModal from './editor/BatchConfirmModal';
+import InferProgressModal from './editor/InferProgressModal';
 import PromptModal from './editor/PromptModal';
 import RecordsModal from './editor/RecordsModal';
 import ModelConfigModal from './editor/ModelConfigModal';
@@ -54,8 +52,8 @@ import VideoConfirmModal from './editor/VideoConfirmModal';
 /** 抽屉种类（"" 关闭，单开互斥，占用右栏槽位） */
 type DrawerKind = '' | 'import' | 'video' | 'export' | 'voice';
 
-/** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS） */
-const MAX_ROWS = 50;
+/** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS，2026-08-23 50 → 200） */
+const MAX_ROWS = 200;
 
 export default function MangaWorkspace() {
   const showToast = useAppStore((s) => s.showToast);
@@ -63,11 +61,11 @@ export default function MangaWorkspace() {
   const closeProject = useMangaStore((s) => s.closeProject);
   const rows = useMangaStore((s) => s.rows);
   const loading = useMangaStore((s) => s.loading);
-  const updateRow = useMangaStore((s) => s.updateRow);
   const generateVideo = useMangaStore((s) => s.generateVideo);
   const assets = useMangaStore((s) => s.assets);
   const assetsLoaded = useMangaStore((s) => s.assetsLoaded);
   const fetchAssets = useMangaStore((s) => s.fetchAssets);
+  const fetchRows = useMangaStore((s) => s.fetchRows);
   const videoTasks = useMangaStore((s) => s.videoTasks);
   const removeVideoTask = useMangaStore((s) => s.removeVideoTask);
   const cancelVideo = useMangaStore((s) => s.cancelVideo);
@@ -80,12 +78,8 @@ export default function MangaWorkspace() {
 
   /** 右栏抽屉（"" 关闭） */
   const [drawer, setDrawer] = useState<DrawerKind>('');
-  /** 空项目剧本录入页：跳过后不再展示 */
+  /** 空项目剧本录入页：导入完成的兜底标记（rows>0 本身即切换条件） */
   const [importSkipped, setImportSkipped] = useState(false);
-  /** 3D 导演台覆盖层（独立于抽屉，全屏） */
-  const [directorOpen, setDirectorOpen] = useState(false);
-  /** 导演台联动分镜行 */
-  const [directorShotId, setDirectorShotId] = useState<string | undefined>(undefined);
   /** 分镜表保存状态（顶栏状态点） */
   const [saveStatus, setSaveStatus] = useState<ShotSaveStatus>('idle');
   /** 行检查器打开的分镜行（null=右栏显示资产面板） */
@@ -102,6 +96,8 @@ export default function MangaWorkspace() {
   const [videoConfirmIds, setVideoConfirmIds] = useState<string[] | null>(null);
   /** 角色推理执行中（工序①防重入） */
   const [inferring, setInferring] = useState(false);
+  /** 角色推理进度弹窗（工序①点击后弹出：进度条 + 预计时间） */
+  const [inferOpen, setInferOpen] = useState(false);
 
   // 打开项目时预取资产（右栏资产面板 + 工序条状态判定）
   useEffect(() => {
@@ -124,23 +120,6 @@ export default function MangaWorkspace() {
     },
     [setSelectedAsset],
   );
-
-  // 打开导演台（可携带行 ID 联动镜头）
-  const openDirector = useCallback((rowId?: string) => {
-    setDirectorShotId(rowId);
-    setDirectorOpen(true);
-  }, []);
-
-  // 导演台关闭：按真实操作标记该分镜行「导演台已完成」（PUT 单行持久化）
-  const closeDirector = useCallback(() => {
-    setDirectorOpen(false);
-    if (directorShotId) {
-      updateRow(directorShotId, { director_stage_done: true }).catch((err) =>
-        reportActionError(err, '导演台进度保存'),
-      );
-      setDirectorShotId(undefined);
-    }
-  }, [directorShotId, updateRow]);
 
   // 打开行检查器（右栏槽位：清空资产详情/绑定目标，与抽屉互斥）
   const openInspector = useCallback(
@@ -172,8 +151,9 @@ export default function MangaWorkspace() {
     [cancelVideo, showToast],
   );
 
-  // 工序①角色推理：POST /comic/asset/infer-entities 从分镜行聚合角色/场景/道具资产桩
-  const handleInferEntities = useCallback(async () => {
+  // 工序①角色推理：校验后打开进度弹窗（弹窗内发起 POST infer-entities
+  // + 1s 轮询进度；完成后本组件刷新资产/分镜行并聚焦资产面板）
+  const handleInferEntities = useCallback(() => {
     if (!currentProject || inferring) return;
     // 无剧本原文（0 行）→ 引导先导入剧本并开导入抽屉
     if (rows.length === 0) {
@@ -185,15 +165,20 @@ export default function MangaWorkspace() {
     if (assets.length > 0 && !window.confirm('已有资产，将按剧本重新推断角色清单（已有资产保留），是否继续？')) {
       return;
     }
+    setInferOpen(true);
     setInferring(true);
-    try {
-      const res = await inferEntities(currentProject.id);
+  }, [currentProject, inferring, rows.length, assets.length, showToast]);
+
+  // 角色推理成功：刷新资产/分镜行（后端回填实体列）+ 聚焦资产面板
+  const handleInferComplete = useCallback(
+    async (res: { items: { kind: string }[] }) => {
+      setInferring(false);
       await fetchAssets().catch((err) => reportBgError('MangaWorkspace.fetchAssets', err));
+      await fetchRows().catch((err) => reportBgError('MangaWorkspace.fetchRows', err));
       // 后端响应 items 仅含本次新建的资产桩，按 kind 统计「新增 N 个角色/场景/道具」
-      // （注：mangaApi 声明的 created/reused 与后端实际形状不符，以 items 为可靠来源）
       const counts = { character: 0, scene: 0, prop: 0 };
       for (const it of res.items) {
-        if (it.kind === 'character' || it.kind === 'scene' || it.kind === 'prop') counts[it.kind] += 1;
+        if (it.kind === 'character' || it.kind === 'scene' || it.kind === 'prop') counts[it.kind as keyof typeof counts] += 1;
       }
       const total = counts.character + counts.scene + counts.prop;
       if (total === 0) {
@@ -204,16 +189,21 @@ export default function MangaWorkspace() {
           'success',
         );
       }
-      // 聚焦资产面板槽位，展示推理结果
       setDrawer('');
       setInspectRowId(null);
       setSelectedAsset(null);
-    } catch (err) {
-      showToast(getErrorMessage(err, '角色推理失败'), 'error');
-    } finally {
+    },
+    [fetchAssets, fetchRows, showToast, setSelectedAsset],
+  );
+
+  // 角色推理失败：复位防重入（错误详情由进度弹窗展示）
+  const handleInferError = useCallback(
+    (message: string) => {
       setInferring(false);
-    }
-  }, [currentProject, inferring, rows.length, assets.length, showToast, fetchAssets, setSelectedAsset]);
+      showToast(message, 'error');
+    },
+    [showToast],
+  );
 
   // 工序⑤生成视频：统计缺视频的分镜行，0 条 toast，否则打开 VideoConfirmModal
   const handleVideoStage = useCallback(() => {
@@ -355,7 +345,7 @@ export default function MangaWorkspace() {
           <button
             type="button"
             className="manga-pipe-tool"
-            title="项目视频生成记录（下载/重试）"
+            title="项目生成记录（视频/图片，下载与重试）"
             onClick={() => setRecordsOpen(true)}
           >
             <History size={13} />
@@ -396,10 +386,6 @@ export default function MangaWorkspace() {
             onClick={() => toggleDrawer('export')}
           >
             <Download size={16} />
-          </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => openDirector(undefined)} title="打开 3D 导演台（机位/灯光/运动）">
-            <Clapperboard size={14} />
-            3D 导演台
           </button>
         </div>
       </div>
@@ -470,7 +456,6 @@ export default function MangaWorkspace() {
           ) : (
             <StoryboardTable
               onSaveStatus={setSaveStatus}
-              onOpenDirector={openDirector}
               onGenerateVideo={handleGenerateVideo}
               onOpenInspector={openInspector}
             />
@@ -492,21 +477,19 @@ export default function MangaWorkspace() {
         {!drawer && !selectedAssetId && !inspectRowId && <AssetDock />}
       </div>
 
-      {/* ⑤ 3D 导演台：全屏覆盖层 */}
-      {directorOpen && (
-        <div className="manga-director-overlay">
-          <DirectorStage
-            projectId={currentProject.id}
-            shotId={directorShotId}
-            onClose={closeDirector}
-            onScreenshot={() => showToast('导演台截图已生成', 'success')}
-          />
-        </div>
-      )}
-
-      {/* ⑥ 批量工序确认（chevron 3/4，含提示词入口与实时进度） */}
+      {/* ⑤ 批量工序确认（chevron 3/4，含提示词入口与实时进度） */}
       {confirmBatch && (
         <BatchConfirmModal kind={confirmBatch} onClose={() => setConfirmBatch('')} />
+      )}
+
+      {/* ⑥.5 角色推理进度（工序①：真实进度条 + 预计时间；后台运行时推理继续） */}
+      {inferOpen && currentProject && (
+        <InferProgressModal
+          projectId={currentProject.id}
+          onComplete={handleInferComplete}
+          onError={handleInferError}
+          onClose={() => setInferOpen(false)}
+        />
       )}
 
       {/* ⑦ 提示词设置（工序条工具） */}

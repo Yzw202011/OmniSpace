@@ -5,7 +5,6 @@
  *   - 分镜表：GET /manga/storyboard/{pid}/export?format=json|csv
  *   - 资产包：POST /comic/asset/export-pack → zip 经 /manga/media 下载
  *   - 合并包：POST /comic/export/bundle → 分镜+资产+关键帧+视频 单 zip
- *   - 导演台状态：POST /director/export → JSON 存档
  * ========================================================================== */
 
 import { useCallback, useState } from 'react';
@@ -113,24 +112,6 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
      
   }, [currentProject, showToast]);
 
-  // 导演台状态导出
-  const handleExportDirector = useCallback(() => {
-    setBusy('director');
-    mangaApi
-      .exportDirectorStage()
-      .then((res) => {
-        downloadContent(
-          `director_stage_${currentProject?.name ?? 'default'}.json`,
-          JSON.stringify(res, null, 2),
-          'application/json;charset=utf-8',
-        );
-        showToast('导演台状态已导出', 'success');
-      })
-      .catch((err) => showToast(errMsg(err, '导演台状态导出失败'), 'error'))
-      .finally(() => setBusy(''));
-     
-  }, [currentProject, showToast]);
-
   return (
     <DrawerFrame title="导出" onClose={onClose}>
       <div className="flex flex-col gap-3">
@@ -186,20 +167,6 @@ export function ExportDrawer({ onClose }: ExportDrawerProps) {
           <button type="button" className="btn btn-primary btn-sm btn-block" disabled={!!busy} onClick={handleExportBundle}>
             <Download size={13} />
             {busy === 'bundle' ? '打包中…' : '导出合并包'}
-          </button>
-        </div>
-
-        {/* 导演台状态 */}
-        <div className="card" style={{ padding: 'var(--space-4)' }}>
-          <div className="flex items-center gap-2" style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>
-            <FileJson size={15} className="text-[var(--color-primary)]" />
-            导演台状态
-          </div>
-          <div style={{ margin: '4px 0 var(--space-3)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-            场景/机位/角色占位状态 JSON 存档
-          </div>
-          <button type="button" className="btn btn-secondary btn-sm btn-block" disabled={!!busy} onClick={handleExportDirector}>
-            {busy === 'director' ? '导出中…' : '导出导演台状态'}
           </button>
         </div>
       </div>

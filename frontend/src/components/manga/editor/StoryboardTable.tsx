@@ -8,7 +8,8 @@
  *    点缩略图 → 资产详情面板；点「+」 → 设置 bindingTarget，右侧资产面板进入绑定模式
  *  - 序号列：⟳ 重新生成描述词（单行 aiDescribe，锁定/忙碌禁用）；🔒 锁定切换
  *    （锁定后批量操作自动跳过此行，整行降透明度 + 左侧锁色条）
- *  - 分镜图：当前关键帧缩略图（点击开检查器管理版本），无则虚线「生成」
+ *  - 分镜图：当前关键帧缩略图（点击开分镜详情）；无图「生成」占位同开详情，
+ *    生成统一在详情面板操作（2026-08-25 用户裁定：行内不直接触发生图）
  *  - 视频：任务状态/进度/下载如实展示（真实轮询），无则虚线「生成」
  *  - 操作列：详情(检查器) / 导演台 / 上移 / 下移 / 删除
  *  - 勾选多行弹出批量条：批量生词 / 批量生图 / 批量删除（串行真实调用，锁定行跳过）
@@ -30,18 +31,30 @@ import {
   SlidersHorizontal,
   Trash2,
   Wand2,
+  X,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
-import { aiDescribe, assetMediaVersion, generateKeyframe, getMediaUrl } from '@/services/mangaApi';
+import { aiDescribe, assetMediaVersion, getMediaUrl } from '@/services/mangaApi';
+
+
+// 右键直接下载（视频/分镜图/资产图通用，2026-08-30）
+function downloadMedia(url: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 import type { ComicAsset, ComicAssetKind, KeyframeItem, ShotSaveStatus, StoryboardRow as StoryboardRowData } from '@/types';
 import type { MangaVideoTask } from '@/stores/useMangaStore';
 import { VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { batchDescribe, batchKeyframes, readPromptPrefix } from './batchOps';
 
-/** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS） */
-const MAX_ROWS = 50;
+/** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS，2026-08-23 50 → 200） */
+const MAX_ROWS = 200;
 /** 文本编辑防抖间隔 */
 const SAVE_DEBOUNCE = 1200;
 
@@ -158,9 +171,11 @@ interface AssetCellProps {
   onOpenAsset: (assetId: string) => void;
   /** 点「+」 → 进入绑定模式（bindingTarget + 选中行） */
   onStartBind: () => void;
+  /** 点右上角 X → 解绑该资产（toggle 语义：已绑定即解绑） */
+  onUnbindAsset: (assetId: string, rowId: string) => void;
 }
 
-function AssetCell({ row, kind, assets, onOpenAsset, onStartBind }: AssetCellProps) {
+function AssetCell({ row, kind, assets, onOpenAsset, onStartBind, onUnbindAsset }: AssetCellProps) {
   const ids = row.asset_ids ?? (row.asset_id ? [row.asset_id] : []);
   const bound = ids
     .map((id) => assets.find((a) => a.asset_id === id))
@@ -168,23 +183,46 @@ function AssetCell({ row, kind, assets, onOpenAsset, onStartBind }: AssetCellPro
   return (
     <div className="manga-asset-cell">
       {bound.map((a) => (
-        <button
-          key={a.asset_id}
-          type="button"
-          className="manga-mini-card"
-          title={`查看资产「${a.name}」详情`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenAsset(a.asset_id);
-          }}
-        >
-          {a.file_path ? (
-            <img src={getMediaUrl(a.file_path, assetMediaVersion(a))} alt={a.name} loading="lazy" />
-          ) : (
-            <span className="manga-mini-card-ph">无图</span>
-          )}
-          <span className="manga-mini-card-name ellipsis">{a.name}</span>
-        </button>
+        <div key={a.asset_id} className="manga-mini-card-wrap">
+          <button
+            type="button"
+            className="manga-mini-card"
+            title={`查看资产「${a.name}」详情`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenAsset(a.asset_id);
+            }}
+          >
+            {a.file_path ? (
+              <img
+              src={getMediaUrl(a.file_path, assetMediaVersion(a))}
+              alt={a.name}
+              loading="lazy"
+              title={`资产「${a.name}」——右键下载`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                downloadMedia(getMediaUrl(a.file_path, assetMediaVersion(a)), `${a.name}.png`);
+              }}
+            />
+            ) : (
+              <span className="manga-mini-card-ph">无图</span>
+            )}
+            <span className="manga-mini-card-name ellipsis">{a.name}</span>
+          </button>
+          <button
+            type="button"
+            className="manga-mini-card-unbind"
+            title={`解绑「${a.name}」（仅从本镜移除，不删除资产本身）`}
+            aria-label={`解绑「${a.name}」`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onUnbindAsset(a.asset_id, row.id);
+            }}
+          >
+            <X size={8} strokeWidth={3} />
+          </button>
+        </div>
       ))}
       <button
         type="button"
@@ -233,12 +271,12 @@ interface StoryboardRowProps {
   onToggleCheck: (rowId: string) => void;
   onDescribe: (row: StoryboardRowData) => void;
   onToggleLock: (row: StoryboardRowData) => void;
-  onKeyframe: (row: StoryboardRowData) => void;
   onUpdateField: (rowId: string, patch: Partial<StoryboardRowData>) => void;
   onOpenAsset: (assetId: string) => void;
   onStartBind: (rowId: string, kind: ComicAssetKind) => void;
+  /** 点缩略图右上角 X → 解绑资产（toggle 语义：已绑定即解绑） */
+  onUnbindAsset: (assetId: string, rowId: string) => void;
   onOpenInspector: (rowId: string) => void;
-  onOpenDirector: (rowId: string) => void;
   onMove: (rowId: string, dir: -1 | 1) => void;
   onRemove: (rowId: string) => void;
   onGenerateVideo: (row: StoryboardRowData) => void;
@@ -261,17 +299,17 @@ const StoryboardRow = memo(function StoryboardRow({
   onToggleCheck,
   onDescribe,
   onToggleLock,
-  onKeyframe,
   onUpdateField,
   onOpenAsset,
   onStartBind,
+  onUnbindAsset,
   onOpenInspector,
-  onOpenDirector,
   onMove,
   onRemove,
   onGenerateVideo,
 }: StoryboardRowProps) {
   const locked = row.is_locked === true;
+  const [videoPreview, setVideoPreview] = useState<string | null>(null);
   return (
     <div
       className={`manga-sb-tr manga-sb-row${isSelected ? ' selected' : ''}${locked ? ' locked' : ''}`}
@@ -295,9 +333,17 @@ const StoryboardRow = memo(function StoryboardRow({
           <button
             type="button"
             className="manga-row-tool"
-            title={locked ? '行已锁定，解锁后才能重新生成' : row.description ? '重新生成描述词' : 'AI 生成描述词'}
+            title={
+              locked
+                ? '行已锁定，解锁后才能重新生成'
+                : !(row.asset_ids?.length ?? 0) && !row.asset_id
+                  ? '未绑定资产：先在资产列绑定角色/场景/道具才能生成描述词'
+                  : row.description
+                    ? '重新生成描述词'
+                    : 'AI 生成描述词'
+            }
             aria-label={`镜 ${row.shot_number} 重新生成描述词`}
-            disabled={busyKey !== '' || locked}
+            disabled={busyKey !== '' || locked || (!(row.asset_ids?.length ?? 0) && !row.asset_id)}
             onClick={(e) => {
               e.stopPropagation();
               void onDescribe(row);
@@ -349,6 +395,7 @@ const StoryboardRow = memo(function StoryboardRow({
           assets={assets}
           onOpenAsset={onOpenAsset}
           onStartBind={() => onStartBind(row.id, 'character')}
+          onUnbindAsset={onUnbindAsset}
         />
       </div>
 
@@ -360,6 +407,7 @@ const StoryboardRow = memo(function StoryboardRow({
           assets={assets}
           onOpenAsset={onOpenAsset}
           onStartBind={() => onStartBind(row.id, 'scene')}
+          onUnbindAsset={onUnbindAsset}
         />
       </div>
 
@@ -371,6 +419,7 @@ const StoryboardRow = memo(function StoryboardRow({
           assets={assets}
           onOpenAsset={onOpenAsset}
           onStartBind={() => onStartBind(row.id, 'prop')}
+          onUnbindAsset={onUnbindAsset}
         />
       </div>
 
@@ -378,18 +427,27 @@ const StoryboardRow = memo(function StoryboardRow({
       <div className="manga-sb-td c-image" onClick={(e) => e.stopPropagation()}>
         {currentKeyframe?.file_path ? (
           <button type="button" className="manga-thumb manga-thumb-btn" title="查看/管理关键帧版本" onClick={() => onOpenInspector(row.id)}>
-            <img src={getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`)} alt={`镜 ${row.shot_number} 分镜图`} loading="lazy" />
+            <img
+              src={getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`)}
+              alt={`镜 ${row.shot_number} 分镜图`}
+              loading="lazy"
+              title="左键查看/管理版本，右键下载"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                downloadMedia(getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`), `镜${row.shot_number}_分镜图_v${currentKeyframe.version}.png`);
+              }}
+            />
             <span className="manga-thumb-name">v{currentKeyframe.version}</span>
           </button>
         ) : (
           <button
             type="button"
             className="manga-gen-btn"
-            disabled={busyKey !== ''}
-            title="按描述词生成分镜图（SDXL）"
-            onClick={() => void onKeyframe(row)}
+            title="打开分镜详情，编辑描述词后生成分镜图"
+            onClick={() => onOpenInspector(row.id)}
           >
-            {busyKey === `${row.id}:keyframe` ? <span className="spinner manga-mini-spin" /> : <ImagePlus size={15} />}
+            <ImagePlus size={15} />
             生成
           </button>
         )}
@@ -402,10 +460,48 @@ const StoryboardRow = memo(function StoryboardRow({
             <span className="manga-video-prog-bar" style={{ width: `${Math.round(videoTask.progress * 100)}%` }} />
             <span className="manga-video-prog-text">{Math.round(videoTask.progress * 100)}%</span>
           </div>
-        ) : videoTask && videoTask.status === 'done' ? (
-          <a className="manga-gen-btn done" href={videoTask.download_url} download title="下载 MP4">
-            <Download size={12} aria-hidden="true" /> 完成
-          </a>
+        ) : videoTask && videoTask.status === 'done' && videoTask.download_url ? (
+          // 已生成视频：缩略视频框（悬停预览，角标下载/重新生成）
+          <div
+              className="manga-video-thumb"
+              title={`镜 ${row.shot_number} 视频（悬停预览，点击大窗播放，右键下载）`}
+              onClick={(e) => { e.stopPropagation(); setVideoPreview(videoTask.download_url ?? null); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                downloadMedia(videoTask.download_url ?? "", `镜${row.shot_number}_${new Date().toISOString().slice(0, 10)}.mp4`);
+              }}
+            >
+            <video
+              src={videoTask.download_url}
+              muted
+              playsInline
+              preload="metadata"
+              onMouseEnter={(e) => { void e.currentTarget.play().catch(() => { /* 自动播放被拒时静默 */ }); }}
+              onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+            />
+            <a
+              className="manga-video-dl"
+              href={videoTask.download_url}
+              download
+              title="下载 MP4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download size={11} aria-hidden="true" />
+            </a>
+            <button
+              type="button"
+              className="manga-video-redo"
+              title="重新生成视频"
+              disabled={busyKey !== ''}
+              onClick={(e) => {
+                e.stopPropagation();
+                onGenerateVideo(row);
+              }}
+            >
+              <RefreshCw size={11} aria-hidden="true" />
+            </button>
+          </div>
         ) : videoTask && videoTask.status === 'error' ? (
           <button
             type="button"
@@ -415,8 +511,6 @@ const StoryboardRow = memo(function StoryboardRow({
           >
             失败重试
           </button>
-        ) : row.generation_status === 'done' ? (
-          <span className="badge success">已完成</span>
         ) : (
           <button
             type="button"
@@ -433,11 +527,8 @@ const StoryboardRow = memo(function StoryboardRow({
 
       {/* 操作 */}
       <div className="manga-sb-td c-ops" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="manga-row-tool" title="行详情（关键帧/音色/情绪）" aria-label={`镜 ${row.shot_number} 详情`} onClick={() => onOpenInspector(row.id)}>
+        <button type="button" className="manga-row-tool" title="分镜详情（预览/描述词/版本历史）" aria-label={`镜 ${row.shot_number} 详情`} onClick={() => onOpenInspector(row.id)}>
           <SlidersHorizontal size={14} />
-        </button>
-        <button type="button" className="manga-row-tool" title="3D 导演台" aria-label={`镜 ${row.shot_number} 导演台`} onClick={() => onOpenDirector(row.id)}>
-          <Clapperboard size={14} />
         </button>
         <button type="button" className="manga-row-tool" title="上移" aria-label="上移" disabled={isFirst || structSaving} onClick={() => onMove(row.id, -1)}>
           <ArrowUp size={14} />
@@ -449,6 +540,19 @@ const StoryboardRow = memo(function StoryboardRow({
           <Trash2 size={14} />
         </button>
       </div>
+
+      {/* 视频预览大窗（点击缩略框打开） */}
+      {videoPreview && (
+        <div className="manga-media-preview" onClick={() => setVideoPreview(null)}>
+          <div className="manga-media-preview-body" onClick={(e) => e.stopPropagation()}>
+            <video src={videoPreview} controls autoPlay />
+            <div className="manga-media-preview-ops">
+              <a href={videoPreview} download onClick={(e) => e.stopPropagation()}>下载 MP4</a>
+              <button type="button" onClick={() => setVideoPreview(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
@@ -458,15 +562,13 @@ const StoryboardRow = memo(function StoryboardRow({
 export interface StoryboardTableProps {
   /** 保存状态变化（顶栏状态点） */
   onSaveStatus?: (s: ShotSaveStatus) => void;
-  /** 打开导演台（携带行 ID 联动镜头） */
-  onOpenDirector: (rowId: string) => void;
   /** 生成视频 */
   onGenerateVideo: (row: StoryboardRowData) => void;
   /** 打开行检查器（详情/关键帧/音色） */
   onOpenInspector: (rowId: string) => void;
 }
 
-export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenerateVideo, onOpenInspector }: StoryboardTableProps) {
+export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector }: StoryboardTableProps) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const rows = useMangaStore((s) => s.rows);
@@ -477,11 +579,11 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
   const updateRow = useMangaStore((s) => s.updateRow);
   const keyframesMap = useMangaStore((s) => s.keyframes);
   const fetchKeyframes = useMangaStore((s) => s.fetchKeyframes);
-  const invalidateKeyframes = useMangaStore((s) => s.invalidateKeyframes);
   const assets = useMangaStore((s) => s.assets);
   const videoTasks = useMangaStore((s) => s.videoTasks);
   const setSelectedAsset = useMangaStore((s) => s.setSelectedAsset);
   const setBindingTarget = useMangaStore((s) => s.setBindingTarget);
+  const bindAssetToRow = useMangaStore((s) => s.bindAssetToRow);
 
   /** 结构操作（增/删/移）保存中 */
   const [structSaving, setStructSaving] = useState(false);
@@ -613,7 +715,8 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
     }
   }, []);
 
-  /** 行内 AI 重新生成描述词（序号列 ⟳ 按钮；custom 提示词配置经 prompt_prefix 透传） */
+  /** 行内 AI 重新生成描述词（序号列 ⟳ 按钮；custom 提示词配置经 prompt_prefix 透传）
+   *  2026-08-25 用户裁定：未绑定资产的行不允许生成分镜描述词（后端同门槛双保险） */
   const handleDescribe = useCallback(
     async (row: StoryboardRowData) => {
       if (!currentProject) return;
@@ -623,6 +726,10 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
       }
       if (!row.original_dialogue.trim()) {
         showToast('先填写原文台词，AI 生词需要台词作为输入', 'warning');
+        return;
+      }
+      if (!(row.asset_ids?.length ?? 0) && !row.asset_id) {
+        showToast('该行未绑定资产，先在资产列绑定角色/场景/道具才能生成描述词', 'warning');
         return;
       }
       setBusyKey(`${row.id}:describe`);
@@ -656,30 +763,6 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
     [showToast, updateRow],
   );
 
-  /** 行内生成关键帧（分镜图列） */
-  const handleKeyframe = useCallback(
-    async (row: StoryboardRowData) => {
-      if (!currentProject) return;
-      if (!row.description.trim()) {
-        showToast('先生成或填写分镜描述词', 'warning');
-        return;
-      }
-      setBusyKey(`${row.id}:keyframe`);
-      try {
-        await ensurePersisted();
-        await generateKeyframe({ row_id: row.id, project_id: currentProject.id });
-        invalidateKeyframes(row.id);
-        await fetchKeyframes(row.id);
-        showToast(`镜 ${row.shot_number} 分镜图已生成`, 'success');
-      } catch (err: unknown) {
-        showToast(getErrorMessage(err, '分镜图生成失败'), 'error');
-      } finally {
-        setBusyKey('');
-      }
-    },
-    [currentProject, showToast, ensurePersisted, invalidateKeyframes, fetchKeyframes],
-  );
-
   /** 勾选切换 */
   const toggleCheck = useCallback((rowId: string) => {
     setChecked((prev) => {
@@ -702,6 +785,24 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
       setBindingTarget({ rowId, kind });
     },
     [setSelectedRow, setBindingTarget],
+  );
+
+  /** 资产缩略图右上角 X：解绑（toggle 语义——已绑定即解绑；useCallback 稳定化供行组件） */
+  const handleUnbindAsset = useCallback(
+    (assetId: string, rowId: string) => {
+      const assetName = assets.find((a) => a.asset_id === assetId)?.name ?? '资产';
+      bindAssetToRow(assetId, rowId)
+        .then(() => {
+          const still = useMangaStore
+            .getState()
+            .rows.find((r) => r.id === rowId)
+            ?.asset_ids?.includes(assetId);
+          if (!still) showToast(`已解绑「${assetName}」`, 'success');
+          else showToast(`已绑定「${assetName}」`, 'info');
+        })
+        .catch((err: unknown) => showToast(getErrorMessage(err, '解绑失败'), 'error'));
+    },
+    [assets, bindAssetToRow, showToast],
   );
 
   /** 批量操作（批量条；锁定行由 batchOps 计入 skipped） */
@@ -741,10 +842,11 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
     }
   };
 
-  /** 行最新视频任务（同取最后一笔） */
+  /** 行最新视频任务（按创建时间取最新一笔，不依赖后端排序方向） */
   const latestTask = (rowId: string) => {
     const list = videoTasks.filter((t) => t.row_id === rowId);
-    return list.length ? list[list.length - 1] : undefined;
+    if (!list.length) return undefined;
+    return list.reduce((a, b) => ((Number(b.created_at ?? 0) > Number(a.created_at ?? 0)) ? b : a));
   };
 
   /** 原文列高亮名表：资产库角色名（行内与 row.characters 求并集；useMemo 稳定化，引用随 assets 变化才更新） */
@@ -818,12 +920,11 @@ export default function StoryboardTable({ onSaveStatus, onOpenDirector, onGenera
               onToggleCheck={toggleCheck}
               onDescribe={handleDescribe}
               onToggleLock={handleToggleLock}
-              onKeyframe={handleKeyframe}
               onUpdateField={updateField}
               onOpenAsset={setSelectedAsset}
               onStartBind={handleStartBind}
+              onUnbindAsset={handleUnbindAsset}
               onOpenInspector={onOpenInspector}
-              onOpenDirector={onOpenDirector}
               onMove={moveShot}
               onRemove={removeShot}
               onGenerateVideo={onGenerateVideo}

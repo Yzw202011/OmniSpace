@@ -20,19 +20,23 @@
 | `requirements-baseline.md` | **需求基线** | 从外部文档E/B抽取的仍有效需求（RTM 附录 A），需求-矩阵对应关系的仓库内真源 |
 | `requirements-traceability.md` | **需求追踪矩阵** | 44 条 F/M/A/E 需求状态唯一真源；「来源§」指向基线章节 |
 | `design/architecture-overview.md` | 架构现状 | 分层结构/中间件链/推理引擎/数据流 |
-| `design/api-endpoints.md` | API 现状 | 端点总表（2026-08-20 机器枚举快照：270 HTTP + 4 WS；2026-08-28 静态实测已增至 **328 HTTP 装饰器（含别名）**，4 WS 不变，增量以代码为准） |
-| `design/database-er.md` | 数据库现状 | **31 张用户表**（37 个对象含 FTS 影子表）ER + 迁移机制（user_version=7）+ 加密范围 |
+| `design/api-endpoints.md` | API 现状 | 端点总表（2026-08-20 机器枚举快照：270 HTTP + 4 WS；2026-09-02 静态复核为 **319 HTTP 装饰器（含别名）**——08-29 剔除导演台路由后回落、license 模块入列；4 WS 不变，增量以代码为准） |
+| `design/database-er.md` | 数据库现状 | **32 张用户表＝主库 30 + flow 独立库 2**（2026-09-02 sqlite 只读实测：主库 30 表/user_version=7 + flow 2 表；含 FTS 影子表共 37 对象）ER + 迁移机制 + 加密范围 |
 | `design/frontend-error-policy.md` | 前端错误策略 | 错误呈现三分法（TOAST/CONSOLE/SILENT 白名单），代码载体 @/utils/errors |
-| `deployment-manual.md` | 部署 | 硬件门槛/环境装配/模型资产配置表/RC 交付 |
-| `troubleshooting.md` | 故障排查 | OOM/端口冲突/DB 版本冲突/模型探测失败四大故障 |
-| `model-deployment-plan.md` | **模型搭配与部署** | 模型推荐主题唯一权威版（2026-08-20 收敛裁定）；接线进度以 RTM M 域为准 |
-| `omnispace-tech-doc/`（HTML） | **全量技术文档（协作者上手版）** | 2026-08-26 基于代码实测编写：架构 / 技术栈 / 前后端详解 / 漫剧管线 / 资源治理 / 数据与模型 / 部署 / 协作指南；面向新加入协作的开发者，含 CLAUDE.md 与代码现实差异对照 |
+| `deployment-manual.md` | 部署 | 硬件门槛/环境装配/模型资产配置表（2026-09-02 诚实化重写 §3）/RC 交付 |
+| `troubleshooting.md` | 故障排查 | OOM/端口冲突/DB 版本冲突/模型探测失败四大故障（DB 版本口径已校准 v7） |
+| ~~`model-deployment-plan.md`~~ → 移归档 | **归档（2026-09-02 诚实化裁定）**：5070Ti 档已修/Hunyuan 已否决/体积基数失真，被现实超越 | 现行真源：`models/models_manifest.json` v3 + `backend/data/models.py` + `deployment-manual.md` §3 |
+| `全量技术文档-2026-09-01.md` | **全量技术快照（现行全景版）** | 2026-09-01 全库实测快照：架构 / 前后端 / 推理底座 / 资源治理 / 漫剧链路 / 启动运行时 / 安全 / 日志 / 测试 / 发行 / 已知问题与铁律坑；新协作者上手优先看这份 |
+| `omnispace-tech-doc/`（HTML） | 全量技术文档（协作者上手版，08-26 时点） | 2026-08-26 基于代码实测编写：架构 / 技术栈 / 前后端详解 / 漫剧管线 / 资源治理 / 数据与模型 / 部署 / 协作指南，含 CLAUDE.md 与代码现实差异对照；**08-26 之后的演进以 `全量技术文档-2026-09-01.md` 为准** |
 | `audit-task-checklist.md` | 工程治理 | P0/P1/P2 任务清单与完成记录 |
 | `ADR-001.md` | 架构决策 | 从零实现架构决策（已接受） |
 | `ADR-002-tauri-shell-decision.md` | 架构决策 | Tauri 桌面壳裁剪裁决（2026-08-20）：浏览器+launcher 为正式交付形态，含重启条件 |
 | `ADR-003-model-foundation-layer.md` | 架构决策 | 模型服务通用底座裁决（2026-08-29 已接受，**P1-P3 全部落地**）：统一注册表/BaseEngine 协议+品类注册表/生命周期状态机，验收口径与实测记录在文 |
 | `manga-v8-comfy-workflow.md` | 漫剧 ComfyUI 工作流 | 漫剧分镜关键帧生视频 V8（2026-08-29 建档）：V6 单采骨架 + 关键帧/资产锚定输入组；JSON 在 ComfyUI user 工作流目录（不追踪），生成脚本 `tools/build_manga_v8_workflow.py` 为真源 |
 | `test-plan-manga.md` | **漫剧模块全维度测试计划** | 9 轮测试（R1 契约/R2 数据/R3 引擎/R4 前端/R5 集成/R6 异常恢复/R7 性能资源/R8 安全/R9 回归冒烟），含缺陷分级、档位表、排期；用例来源=历史实测证据 |
+| `封装发行计划.md` | **桌面应用封装（唯一现行版，全家桶模式）** | 用户裁定：无下载器/不分档/全家桶一个包（实测全镜像 272G、精编 150~180G，硬盘交付）；§0 可行性评估（介质/库存/许可证风险）+ 里程碑 S0~S7（壳 PoC→生命周期→关闭语义→全家桶装配线→灰度）；触发 ADR-002 §5 重启条件#1，动工先立 ADR-004；**就地更新，禁止再开多版本** |
+| `项目目录规范.md` | 目录规范 | 仓库目录结构约束（§2.3 comfy_link 真源、§5 调试脚本归宿等），dir_audit.py 的依据 |
+| `收尾计划-2026-09-02.md` | 现行收尾主线 | 磁盘清理观察期/重启窗口/决策队列/发行主线四阶段；与封装发行计划互为引用 |
 
 ## 二、记录文档（历史快照，只读）
 
@@ -44,6 +48,14 @@
 | `audit/`（14 个文件） | round0~round5 | 历轮审计与修复报告链，证据性存档；结论以 RTM + git 历史为准 |
 | `audit/round-2026-08-28-code-audit.md` | 2026-08-28 | **全库逐行代码审计**（后端 60k 行全覆盖 + 前端安全关键路径 + launcher）：1 P0 / 27 P1 / 137 P2，含分模块功能审计表、Top10 修复优先级；P0/P1 均带 文件:行号 证据，主审计者亲核条目已标注 |
 | `audit/round-2026-08-29-competitor-alignment.md` | 2026-08-29 | **竞品分镜图全维度对齐实验**：同源素材+描述词两轮真实生成（comfy+PuLID），DINOv2 逐维测量（场景锚 0.853 超竞品 0.610，四格全对位）；含节拍拆分/text_priority 开关等 8 项修复与学说分歧裁定记录 |
+| `audit/round-2026-09-02-doc-honestification.md` | 2026-09-02 | **文档诚实化审计（两轮全量）**：第一轮 15 条决策链声称（12 真/3 失实已改）；第二轮全文档扫描——deployment-manual 严重过时已重写 §3、model-deployment-plan 降级归档、RTM M 域加复核横幅、architecture/api-endpoints 数字校正、全量技术文档加后事记；定性：失实主模式是"过时"非"虚构"，重灾区是"已落地"类表述 |
+| `拍板清单-2026-09-02.md` | 2026-09-02 | 磁盘清理决策清单（A~E 组逐项带代码证据）+ 09-02 晚执行记录（隔离区 E:\_trash_staging\ 两批 ~153G，MANIFEST 可恢复） |
+| `体积优化计划-2026-08-31.md` | 2026-08-31 | 磁盘体积三级清理计划（第 1 级 60G 已执行） |
+| `目录清理清单-2026-09-01.md` / `隔离区整理记录-2026-09-01.md` | 2026-09-01 | 首批清理清单与隔离区建区记录 |
+| `日志机制完善方案-2026-09-01.md` | 2026-09-01 | 日志轮转 10M×5 / 事件 30 天自清机制方案 |
+| `ComfyUI存储统一改造记录-2026-09-02.md` | 2026-09-02 | ComfyUI 模型存储与 backend models/ 硬链统一改造记录 |
+| `功能模块盘点报告.md` / `分镜生成与一致性机制深度分析报告.md` | — | 模块盘点与一致性机制分析（研究性记录） |
+| `h3-chain-plan-contract-v1.md` | — | H3 链式六段式提示词契约 v1 |
 | `design/art-style-library.jsonl` | 2026-08-29 | **画风库数据资产（1200 条）**：19,189 候选中按类配额精选；261 基础画风 × 时代/地域/色彩等 32 维修饰；命名对齐豆包/GPT-4o 词表；durable 副本供重建。⚠️ 落库口径 2026-08-29 变更：1200 条全量入库后经用户裁定**修剪至 517 条**（仅保留 STYLE_PACKS 正则可路由命中的条目，无风格包支撑者剔除；全表备份 `data/art_styles_backup_20260829.json` 可整体回灌）——art_styles 表现值 517，`custom:{id}` key 建项目即用 |
 | `model-deployment-plan/`（HTML） | 2026-08-14 | 部署计划的 HTML 可视化版 |
 | `project-sdlc-audit/`（HTML） | — | SDLC 审计 HTML 版（P2 系列任务的立项依据） |
@@ -60,6 +72,7 @@
 | --- | --- | --- |
 | `archive/model-recommendation-based-on-doc.md` | 排名表口径被部署计划取代 | `model-deployment-plan.md` |
 | `archive/model-recommendation-final.md` | "final" 命名与实际不符，内容被部署计划吸收 | `model-deployment-plan.md` |
+| 封装发行 v1~v5 + 绿色免安装包共七份（原 `docs/` 根，未在本索引登记过） | 2026-09-02 用户裁定推翻重立：多版本并行违反"禁止同名多版并存"规则；有效决策已吸收进新计划 | `封装发行计划.md`；文件移至 `E:\_trash_staging\2026-09-02\docs_封装旧方案\`（MANIFEST 有恢复命令，随 A1 一并真空删） |
 
 ## 五、仓库外源文档（根目录 txt，不入库）
 
@@ -85,9 +98,10 @@
 | 查某张表结构 | `design/database-er.md` |
 | 写前端的 catch/错误提示 | `design/frontend-error-policy.md`（三分法）→ `@/utils/errors` 两个入口 |
 | 理解系统架构 | `design/architecture-overview.md` |
-| 配置模型资产 | `deployment-manual.md` §3 → `model-deployment-plan.md`（目标架构） |
+| 配置模型资产 | `deployment-manual.md` §3 → `models/models_manifest.json`（v3 真源）+ `GET /api/v1/models` 磁盘扫描 |
 | 排查故障 | `troubleshooting.md` |
 | 跑全量测试 | `../tools/run_tests.py`（唯一入口）→ 定位见 `../tests/README.md` |
+| 出封装发行包 / 查发行进度 | `封装发行计划.md` |
 | 查治理任务进度 | `audit-task-checklist.md` |
 | 查历史审计结论 | `audit/` 对应轮次 → 以 RTM 为最终口径 |
 

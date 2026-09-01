@@ -15,6 +15,8 @@
 >
 > **v1.1 刷新方法**：磁盘逐目录实测尺寸 + 引擎代码 grep 接线证据 + 运行
 > `discover_dialog_models()` 实测发现结果（非文档口径）。修正项：M-01/M-03/M-10/M-11/M-13/M-14/M-15 由 🟦/❌ 上调 ✅，F-10 上调 ✅，M-04 转豁免。
+>
+> **⚠️ 2026-09-02 复核（诚实化审计，全节适用）**：第三节 M 域多行「本地路径」已因 09-02 两批磁盘清理失效——qwen3-vl-8b（4KB 空壳）/ qwen3-32b / codestral-22b / qwen3-tts / cosyvoice2 / qwen3-asr / gpt-sovits / bge-m3 / hunyuan3d-2.1 / TripoSR **均已移入隔离区 `E:\_trash_staging\`，盘上不存在**。口径修正：M-01 高档路由现由 **qwen3-vl-8b-awq** 承接（DIALOG_ROUTING_TABLE 12GB 档实测）；M-02 绘画主力已易主 **flux2-klein-9b**（PAINT_ROUTING_TABLE 10GB 档），klein-4b one-pass 路线待拍板（拍板清单 A5）；sd15 实占已降 5.2G（四份冗余副本已清）。**模型现状真源 = `models/models_manifest.json` v3 + `GET /api/v1/models`**，本节 M 域降级为"选型决策史 + 接线史"（历史状态判定保留原时点含义，勿再据其找盘上路径）。
 
 ---
 

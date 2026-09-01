@@ -127,14 +127,14 @@ runtime\py310\python.exe launcher\launcher.py --port 5900
 后端启动即崩，日志/界面出现：
 
 ```
-RuntimeError: 数据库 schema 版本 v<N> 高于程序 v3，请升级程序后再打开（data\omnispace.db）
+RuntimeError: 数据库 schema 版本 v<N> 高于程序 v7，请升级程序后再打开（data\omnispace.db）
 ```
 
-（`backend/data/database.py` 版本守护；`N > 3`。）
+（`backend/data/database.py` 版本守护；`N > 7`。）
 
 ### 根因
 
-**用旧版程序打开了新版程序产生的数据库**（版本回退场景）：迁移机制用 `PRAGMA user_version` 携带版本号（当前 `SCHEMA_VERSION=3`，v3=敏感字段加密存量迁移），库版本高于代码版本说明库里已有代码不认识的新列/新表/数据格式，强行打开会造成静默数据损坏（如旧代码读 v3 库会把密文当明文返回），因此启动时直接 RuntimeError 拒绝——这是守护，不是 bug。
+**用旧版程序打开了新版程序产生的数据库**（版本回退场景）：迁移机制用 `PRAGMA user_version` 携带版本号（当前 `SCHEMA_VERSION=7`——2026-09-02 实测 database.py:397 与生产库均为 7；v3=敏感字段加密存量迁移，v4~v7 为后续迁移组），库版本高于代码版本说明库里已有代码不认识的新列/新表/数据格式，强行打开会造成静默数据损坏（如旧代码读加密库会把密文当明文返回），因此启动时直接 RuntimeError 拒绝——这是守护，不是 bug。
 
 常见触发：① RC 目录回退到旧版本但仍指向新 `data/`；② 手工把新库拷给旧程序；③ 多份代码副本共用同一个 `data/` 目录。
 
@@ -145,7 +145,7 @@ RuntimeError: 数据库 schema 版本 v<N> 高于程序 v3，请升级程序后�
 runtime\py310\python.exe -c "import sqlite3; print(sqlite3.connect(r'data\omnispace.db').execute('PRAGMA user_version').fetchone())"
 ```
 
-输出 `3` = 库与代码同级（v3），冲突另有原因；`>3` = 确认版本冲突。
+输出 `7` = 库与代码同级（v7），冲突另有原因；`>7` = 确认版本冲突。
 
 ### 处置步骤
 

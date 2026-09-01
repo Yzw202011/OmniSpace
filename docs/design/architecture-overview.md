@@ -2,6 +2,7 @@
 
 > 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：backend/main.py、config.yaml、launcher/launcher.py 及各模块源码
 > **2026-08-28 校准**：路由模块 13→14（logs）、HTTP 端点 270→328（含别名）、限流 100→300/min、引擎与 api 行数按当前源码刷新、前端 React 19.0 + 9 路由、launcher 端口口径补充。
+> **2026-09-02 复核**：路由模块 14→**15**（license 入列，见 §3 路由表）、路由装饰器 328→**319**（08-29 剔除 3D 导演台路由 + 统计口径差异，与《全量技术文档-2026-09-01》319 口径一致）；middleware/ 七件实况：cors/error_handler/feature_lock/logger/rate_limit/request_context/upload_guard。
 >
 > 配套文档：[API 端点总表](api-endpoints.md) ｜ [数据库 ER 说明](database-er.md)
 
@@ -20,7 +21,7 @@ OmniSpace AI 是一台跑在单机 Windows 工作站上的全模态创作工作�
 ┌──────────────────────────▼──────────────────────────────────────┐
 │ FastAPI 后端进程（唯一服务进程）                                   │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │ HTTP API   /api/v1/*（14 路由模块，328 路由装饰器含别名）    │  │
+│  │ HTTP API   /api/v1/*（15 路由模块，319 路由装饰器含别名）    │  │
 │  │ WebSocket  /ws + /api/v1/hardware/realtime + learn 进度     │  │
 │  │ 静态托管   frontend/dist（Hash Router，GET / 即 SPA 入口）   │  │
 │  └───────────────────────────────────────────────────────────┘  │
@@ -86,7 +87,7 @@ TASK-P2-01 把 4521 行的单文件拆成 9 模块的包，`__init__.py` 聚合 
      → RateLimit（300 req/min/端点滑动窗口（2026-08-28 校准，config.yaml rate_limit: 300；由 100 提额以避免多标签页合法轮询被 429）；/health 豁免；manga/media 独立 600/min 桶）
      → CORS（仅 localhost 任意端口，拒绝时 403 信封）
      → 异常处理器（ApiError/校验/HTTP/兜底 四个，全部收敛为 200 信封）
-     → 路由（14 模块，328 路由装饰器含别名）
+     → 路由（15 模块，319 路由装饰器含别名）
 ```
 
 响应统一走信封（ADR-01，HTTP 恒 200）：

@@ -1,5 +1,9 @@
 # OmniSpace AI — 大模型搭配与部署方案
 
+> ⚠️ **2026-09-02 诚实化裁定：本文已被现实超越，降级为历史决策记录，勿据此部署。**
+> 审计结论（`docs/audit/round-2026-09-02-doc-honestification.md`）：5070Ti 档位已修复入 `HARDWARE_TIER_TABLE`；HunyuanVideo 路线已否决裁剪（2026-08-15）；Klein-4B 与 8B（AWQ 形态）已落地；gpt-sovits / TripoSR / bge-m3 已移入隔离区（09-02）；体积基数失真（文内基数 46.6G vs models/ 实占 244G）；多处行号漂移。
+> **模型现状真源 = `models/models_manifest.json`（v3）+ `backend/data/models.py` 路由表 + `docs/deployment-manual.md` §3**。本文仅作 2026-08-14~20 选型决策过程追溯。
+
 > **[唯一权威版 2026-08-20 确立]** 本文档为模型推荐/部署主题的单一真源（TASK-P2-04 收敛裁定）；RTM 中「部署计划」字样均指本文档。历史版本已归档至 `docs/archive/`。模型接线状态以 `docs/requirements-traceability.md`（M-01~M-16）为准——本计划描述目标架构，RTM 记录当前进度。
 >
 > RTX 5070 Ti 16GB Blackwell 专版 · 激进 FP8 策略

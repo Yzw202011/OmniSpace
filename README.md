@@ -9,7 +9,7 @@
   <a href="#-核心特性">核心特性</a> •
   <a href="#-技术栈">技术栈</a> •
   <a href="#-快速开始">快速开始</a> •
-  <a href="#-如何贡献">如何贡献</a> •
+  <a href="#-内部开发流程">内部开发流程</a> •
   <a href="#-路线图">路线图</a>
 </p>
 
@@ -19,26 +19,26 @@
   <img src="https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/PyTorch-2.x-ee4c2c?logo=pytorch" alt="PyTorch">
   <img src="https://img.shields.io/badge/vLLM-latest-7c3aed" alt="vLLM">
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/license-Proprietary-red" alt="License">
 </p>
 
-> 💡 **对话 × 绘画 × 分镜 × 视频 × 语音 × 知识学习 × 3D 资产**
+> 💡 **对话 × 绘画 × 分镜 × 视频 × 语音 × 知识学习**
 > 全部推理在 **本地 GPU** 完成，数据 **永不离开你的机器**
 
 </div>
 
 ---
 
-## 🌟 为什么 OmniSpace 值得你 Star & 贡献
+## 🌟 为什么 OmniSpace 值得选择
 
 这不是又一个 AI 玩具 —— 这是一个**完整的、工程化的、可落地的本地 AI 创作平台**。
 
 | 亮点 | 说明 |
 |------|------|
-| 🎯 **真·全模态** | 文本 / 图像 / 视频 / 语音 / 3D / 知识图谱，一站式创作管线 |
+| 🎯 **真·全模态** | 文本 / 图像 / 视频 / 语音 / 知识图谱，一站式创作管线 |
 | 🏠 **100% 本地优先** | 所有模型推理跑在你自己的 GPU 上，没有 API 调用，没有数据上传 |
 | ⚡ **显存调度器** | 自研显存协调器，16GB 显存也能跑全流程（自动加载/卸载/路由） |
-| 🏗️ **工程质量高** | 328 HTTP 路由（含别名，2026-08-28 静态实测）+ 4 WebSocket，五层架构；pytest **115 通过** / vitest / 活后端 E2E 三层测试体系 |
+| 🏗️ **工程质量高** | 319 HTTP 路由（含别名，2026-09-02 静态实测复核）+ 4 WebSocket，五层架构；pytest **207 通过 / 5 跳过**（GPU 集成显式关闭，2026-09-02 实测）/ vitest / 活后端 E2E 三层测试体系 |
 | 🧩 **插件式推理引擎** | 支持 vLLM / Transformers / GGUF 多后端，可热切换 |
 | 📚 **丰富文档** | 架构图、API 文档、部署手册、故障排查，新人友好 |
 
@@ -79,11 +79,6 @@
 - 声音克隆（少量样本即可）
 - 多说话人管理
 
-### 🎮 3D 资产（3D）
-- 图生 3D（TripoSR）
-- 3D 模型预览与导出
-- 材质编辑
-
 ---
 
 ## 🛠 技术栈
@@ -93,10 +88,10 @@
 | **前端** | React 19.0 + TypeScript + Vite 6 + Tailwind CSS v4 + Zustand 5 + React Router 7（Hash 路由，Sakura 主题） |
 | **后端** | FastAPI 0.141 + Pydantic v2 + uvicorn（Python 3.10.11 嵌入式 runtime） |
 | **AI 推理** | PyTorch 2.11 (cu128) + Diffusers + Transformers；vLLM 为可选子进程后端（py313，AWQ/GPTQ/GGUF 模型自动路由） |
-| **数据库** | SQLite (WAL, 31 张用户表) + ChromaDB + FTS5 全文检索 |
+| **数据库** | SQLite (WAL, 32 张用户表=主库 30+flow 独立库 2) + ChromaDB + FTS5 全文检索 |
 | **存储加密** | AES-256-GCM 字段级加密（对话正文/行为日志）+ DPAPI 密钥保护 |
 | **交付形态** | launcher 守护进程 + 系统浏览器（Tauri 桌面壳已于 2026-08-20 经 [ADR-002](docs/ADR-002-tauri-shell-decision.md) 裁剪） |
-| **测试** | pytest（115 用例）+ vitest + 活后端 E2E 流程编排 |
+| **测试** | pytest（207 用例通过，2026-09-02 实测）+ vitest + 活后端 E2E 流程编排 |
 | **代码质量** | ruff + pre-commit hooks |
 
 ---
@@ -132,9 +127,8 @@ OmniSpace/
 ### 启动
 
 ```powershell
-# 克隆仓库
-git clone https://github.com/Yzw202011/OmniSpace.git
-cd OmniSpace
+# 进入项目目录（私有仓库，不对外分发）
+cd E:\OmniSpace
 
 # 启动（需先配置模型文件，详见部署手册）
 runtime\py310\python.exe launcher\launcher.py
@@ -159,11 +153,11 @@ pnpm dev
 
 ---
 
-## 🤝 如何贡献
+## 🤝 内部开发流程
 
-我们欢迎 **所有级别的贡献者**！无论你是刚入门还是资深开发者，都能找到适合的位置。
+私有仓库，仅团队内部协作开发。
 
-### 💡 贡献什么？
+### 💡 协作方向
 
 | 方向 | 适合人群 | 入门难度 |
 |------|---------|---------|
@@ -174,28 +168,22 @@ pnpm dev
 | 🧠 **模型集成** | AI 算法工程师 | ⭐⭐⭐⭐ |
 | ⚡ **性能优化** | 资深工程师 | ⭐⭐⭐⭐ |
 
-### 🚀 快速上手贡献
+### 🚀 快速上手
 
-1. **Fork 本仓库**（右上角点 Fork 按钮）
-2. **Clone 到本地**
-   ```bash
-   git clone https://github.com/你的用户名/OmniSpace.git
-   ```
-3. **创建分支**
+1. **创建分支**
    ```bash
    git checkout -b feature/你的功能名
    ```
-4. **提交更改**
+2. **提交更改**
    ```bash
    git commit -m "feat: 添加了什么功能"
    ```
-5. **推送并提 PR**
+3. **本地合并**（自测通过后合回 main）
    ```bash
-   git push origin feature/你的功能名
+   git checkout main && git merge feature/你的功能名
    ```
-   然后在 GitHub 上创建 Pull Request
 
-### 📋 Good First Issues
+### 📋 上手建议
 
 想找容易上手的任务？关注以下方向：
 - 前端 UI 细节优化（动画、交互、响应式）
@@ -221,7 +209,8 @@ pnpm dev
 - [x] 视频生成模块（Wan2.2 / LTX-Video / AnimateLCM 真实推理，Ken Burns 诚实降级）
 - [x] 知识学习与 RAG（ChromaDB + FTS5 + RRF 融合）
 - [x] 显存协调器与功能互斥锁
-- [x] 图生 3D 基础管线（TripoSR）
+
+> 注：图生 3D（TripoSR）后端管线与 3D 导演台曾实现，后者已于 2026-08-29 裁定整链路剔除；/art 视觉工具端点后端保留、暂无前端入口。
 
 ### 🔄 进行中
 - [ ] 语音克隆与 TTS 优化
@@ -235,7 +224,7 @@ pnpm dev
 - [ ] Linux / macOS 支持
 - [ ] 更多模型生态接入
 
-> 💡 **有想法？提 Issue 讨论！** 我们非常欢迎新的创意和建议。
+> 💡 **有想法？直接在团队内部讨论！** 我们非常欢迎新的创意和建议。
 
 ---
 
@@ -245,29 +234,18 @@ pnpm dev
 |------|------|--------|
 | [部署手册](docs/deployment-manual.md) | 硬件要求、环境装配、模型配置 | 第一次部署 |
 | [架构总览](docs/design/architecture-overview.md) | 分层结构、中间件链、数据流 | 理解系统设计 |
-| [API 端点总表](docs/design/api-endpoints.md) | 328 HTTP（含别名）+ 4 WS 端点文档 | 开发对接 |
+| [API 端点总表](docs/design/api-endpoints.md) | 319 HTTP（含别名，2026-09-02 复核）+ 4 WS 端点文档 | 开发对接 |
 | [数据库 ER](docs/design/database-er.md) | 31 张用户表结构 + 迁移说明 | 数据库相关 |
 | [故障排查](docs/troubleshooting.md) | OOM / 端口冲突 / 模型加载失败 | 出问题时 |
 | [需求追踪矩阵](docs/requirements-traceability.md) | 功能/模块/架构/工程四类需求追踪 | 查需求状态 |
 
 ---
 
-## 💬 社区与交流
-
-- **GitHub Issues**：Bug 报告、功能建议 → [提 Issue](https://github.com/Yzw202011/OmniSpace/issues)
-- **Discussions**：技术讨论、想法交流 → [去讨论](https://github.com/Yzw202011/OmniSpace/discussions)
-
----
-
-## ⭐ Star 历史
-
-如果这个项目对你有帮助，点个 Star 支持一下吧！你的支持是我们持续迭代的最大动力 💪
-
----
-
 ## 📄 License
 
-MIT License（仓库暂未附带 LICENSE 文件，待补充）
+版权所有 © 2026 OmniSpace。保留所有权利（All Rights Reserved）。
+
+本项目为私有闭源软件，未经授权不得复制、分发、反向工程或二次开发。正式商业授权协议（EULA）随发行版提供。
 
 ---
 
@@ -275,6 +253,6 @@ MIT License（仓库暂未附带 LICENSE 文件，待补充）
 
 **用 AI 释放创作力 · OmniSpace**
 
-Made with ❤️ by the OmniSpace Community
+Made with ❤️ by the OmniSpace Team
 
 </div>

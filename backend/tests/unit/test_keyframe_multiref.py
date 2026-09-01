@@ -18,6 +18,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[2]
 KEYFRAME_PY = BACKEND / "api" / "manga" / "keyframe.py"
+COMMON_PY = BACKEND / "api" / "manga" / "common.py"
 COMFY_PY = BACKEND / "services" / "inference" / "comfy_paint_engine.py"
 
 
@@ -105,17 +106,26 @@ def _chars():
             {"kind": "character", "name": "阿澈"}]
 
 
+def _char_protocol_ns() -> dict:
+    """_shot_char_protocol 沙箱：连同 _char_anchor_name 与
+    common.traits_line（含 _TRAIT_KEYS 常量）一起抽取——M-26 文字锚
+    依赖链。"""
+    ns = _extract(KEYFRAME_PY,
+                  {"_shot_char_protocol", "_char_anchor_name"}, set())
+    common_ns = _extract(COMMON_PY, {"traits_line"}, {"_TRAIT_KEYS"})
+    ns.update(common_ns)
+    return ns
+
+
 def test_char_protocol_named_subset():
-    ns = _extract(KEYFRAME_PY, {"_shot_char_protocol"}, set())
-    f = ns["_shot_char_protocol"]
+    f = _char_protocol_ns()["_shot_char_protocol"]
     prompt, chosen = f(_chars(), "小满独自站在灯塔下")
     assert len(chosen) == 1 and chosen[0]["name"] == "小满"
     assert prompt.startswith("小满，外貌、服装与角色设定图严格一致")
 
 
 def test_char_protocol_fallback_all_and_multi_wording():
-    ns = _extract(KEYFRAME_PY, {"_shot_char_protocol"}, set())
-    f = ns["_shot_char_protocol"]
+    f = _char_protocol_ns()["_shot_char_protocol"]
     prompt, chosen = f(_chars(), "她与他在灯塔下相遇（代词未点名）")
     assert len(chosen) == 2
     assert "画面中的角色共2位：小满、阿澈" in prompt
@@ -123,9 +133,28 @@ def test_char_protocol_fallback_all_and_multi_wording():
     assert "始终只有这一个角色" not in prompt
 
 
+def test_char_protocol_traits_anchor():
+    """M-26：meta.traits 注入文字锚（跨镜一致性结构保障）。
+
+    顶层 traits 键与 meta.traits 旧形态都识别；无 traits 措辞不变。
+    """
+    f = _char_protocol_ns()["_shot_char_protocol"]
+    a1 = {"kind": "character", "name": "小满",
+          "traits": {"gender": "女", "hair": "黑色双马尾"}}
+    a2 = {"kind": "character", "name": "阿澈",
+          "meta": {"traits": {"gender": "男", "age": "中年"}}}
+    prompt, chosen = f([a1, a2], "小满与阿澈同行")
+    assert len(chosen) == 2
+    assert "小满（女，黑色双马尾）" in prompt
+    assert "阿澈（男，中年）" in prompt
+    # 单角色 + 空 traits：与旧措辞完全一致（回归保护）
+    prompt2, _ = f([{"kind": "character", "name": "小满"}], "小满独行")
+    assert prompt2 == "小满，外貌、服装与角色设定图严格一致"
+
+
 def test_char_protocol_empty():
-    ns = _extract(KEYFRAME_PY, {"_shot_char_protocol"}, set())
-    assert ns["_shot_char_protocol"]([], "任意") == ("", [])
+    f = _char_protocol_ns()["_shot_char_protocol"]
+    assert f([], "任意") == ("", [])
 
 
 # ── comfy _build_workflow（多图 ReferenceLatent 链）────────────────

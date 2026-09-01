@@ -38,7 +38,7 @@ def test_manifest_v3_schema(manifest: dict) -> None:
     """schema 锁定：manifest_version=3，每条目必填字段齐全且合法。"""
     assert manifest.get("manifest_version") == 3
     models = manifest["models"]
-    assert len(models) >= 30, "注册表应覆盖全部磁盘模型族（实测 ~33）"
+    assert len(models) >= 20, "注册表覆盖磁盘模型族（09-02 清理 12 条死重后实测 20）"
     for mid, e in models.items():
         for field in REQUIRED_FIELDS:
             assert field in e, f"{mid} 缺必填字段 {field}"

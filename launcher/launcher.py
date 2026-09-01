@@ -67,6 +67,10 @@ class LauncherConfig:
     health_check_interval: float = 5.0
     max_restart_attempts: int = 5
     restart_cooldown: float = 30.0
+    # 启动宽限期：后端冷启动（路由导入+模型加载）25s~2min 不等，
+    # 宽限期内进程未健康不计入心跳三振——否则健康加载中的子进程
+    # 会在 ~15s 被连杀（2026-08-31 boot E2E 实测：96s 冷启动被杀 1 次）
+    startup_grace_s: float = 180.0
     # P2 统一口径：启动磁盘门槛读取 config.yaml `disk.start_min_gb`（单一起源，
     # 与 startup_check / installer 不再各自硬编码；读取失败回退 20GB）
     min_disk_space_gb: float = field(default_factory=_load_disk_start_min_gb)
@@ -117,30 +121,35 @@ class PortManager:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
 
-    def resolve_port_conflict(self, preferred_port: int) -> tuple[int, str]:
+    def resolve_port_conflict(self, preferred_port: int,
+                              allow_kill: bool = True) -> tuple[int, str]:
         """
         三级递进端口冲突处理
         返回: (最终端口, 处理说明)
+        allow_kill=False（OMNISPACE_ALLOW_MULTI=1 双实例联调）：跳过第一级
+        杀残留——"残留"特征（python+omnispace）无法区分上次崩溃的尸体和
+        隔壁活着的健康后端，双实例时误杀主实例（2026-09-01 异目录实测事故）
         """
         if not self.is_port_in_use(preferred_port):
             return preferred_port, '端口可用'
 
-        proc = self.get_process_using_port(preferred_port)
+        if allow_kill:
+            proc = self.get_process_using_port(preferred_port)
 
-        # 第一级：检测到OmniSpace/python残留 → 自动taskkill
-        if proc and self.is_omnispace_process(proc):
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-                time.sleep(1)
-                if not self.is_port_in_use(preferred_port):
-                    return preferred_port, f'已自动结束残留进程 (PID: {proc.pid})'
-                proc.kill()
-                time.sleep(1)
-                if not self.is_port_in_use(preferred_port):
-                    return preferred_port, f'已强制结束残留进程 (PID: {proc.pid})'
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
-                pass
+            # 第一级：检测到OmniSpace/python残留 → 自动taskkill
+            if proc and self.is_omnispace_process(proc):
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                    time.sleep(1)
+                    if not self.is_port_in_use(preferred_port):
+                        return preferred_port, f'已自动结束残留进程 (PID: {proc.pid})'
+                    proc.kill()
+                    time.sleep(1)
+                    if not self.is_port_in_use(preferred_port):
+                        return preferred_port, f'已强制结束残留进程 (PID: {proc.pid})'
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    pass
 
         # 第二级：外部占用 → 自动扫描端口区间
         for port in range(self.config.port_range[0], self.config.port_range[1] + 1):
@@ -169,6 +178,8 @@ class EnvironmentChecker:
             'disk_space': self._check_disk_space,
             'cuda': self._check_cuda,
             'dependencies': self._check_dependencies,
+            'hypervisor': self._check_hypervisor,
+            'path_ascii': self._check_path_ascii,
         }
 
         all_passed = True
@@ -223,6 +234,35 @@ class EnvironmentChecker:
             return False, 'PyTorch未安装'
         except Exception as e:
             return False, f'CUDA检查失败: {str(e)}'
+
+    def _check_hypervisor(self) -> tuple[bool, str]:
+        """Hyper-V/VBS 状态（P7 首启体检红绿灯；仅提示不阻断——本机
+        2026-08-29 蓝屏根因即 HYPERVISOR_ERROR+VBS，给用户一个黄灯）。"""
+        try:
+            r = subprocess.run(
+                ['powershell', '-NoProfile', '-Command',
+                 '(Get-CimInstance Win32_ComputerSystem).HypervisorPresent'],
+                capture_output=True, text=True, timeout=15)
+            if 'True' in (r.stdout or ''):
+                return True, 'Hyper-V 虚拟化运行中（若遇蓝屏/性能异常，可考虑关闭后对比）'
+            return True, '未检测到 Hyper-V（最优配置）'
+        except Exception as e:  # noqa: BLE001 - 检测失败不阻断
+            return True, f'Hyper-V 状态检测跳过（{e}）'
+
+    def _check_path_ascii(self) -> tuple[bool, str]:
+        """安装路径纯 ASCII 检查（2026-09-01 测试机三层洋葱终审：
+        vLLM 生态 tvm-ffi 用窄字符 LoadLibrary，路径含中文/特殊字符时
+        xgrammar_bindings.dll 必加载失败 → 对话引擎起不来。黄灯提示，
+        不阻断——除 AI 对话外的功能不受影响）。"""
+        try:
+            root = str(PROJECT_ROOT)
+            root.encode('ascii')
+            return True, '安装路径纯 ASCII（对话引擎可用）'
+        except UnicodeEncodeError:
+            bad = next(ch for ch in root if ord(ch) > 127)
+            return (False, f'安装路径含非 ASCII 字符「{bad}」：'
+                    'AI 对话（vLLM）将无法启动，绘画/漫剧不受影响；'
+                    '请把整个文件夹移到纯英文路径（盘符任意、文件夹名用英文）')
 
     def _check_dependencies(self) -> tuple[bool, str]:
         """检查Python依赖：关键依赖缺失阻断，AI 依赖缺失仅警告（功能自动降级）"""
@@ -348,8 +388,13 @@ class BackendProcess:
         self._log_threads: list = []  # L-M2: 后台日志消费线程
         self._running = False
         self._restart_count = 0
-        self._last_restart_time = 0
+        self._last_restart_time = 0.0
+        # 当前子进程的拉起时刻：启动宽限期判据（见 LauncherConfig.startup_grace_s）
+        self._proc_started_at = 0.0
         self.on_status_change: Callable | None = None
+        # Boot 启动主程序注入的行级输出回调：置非 None 后 stdout/stderr
+        # 强制走 PIPE 并逐行回调（2026-08-31，供 Splash 启动页实时日志流）
+        self.on_output: Callable[[str], None] | None = None
         # R2-N3：心跳代际计数 + 崩溃处理锁——重启时旧心跳线程自动退出，
         # 防止多次崩溃后心跳线程累积并发触发重复重启（线程泄漏级缺陷）
         self._hb_gen = 0
@@ -362,9 +407,13 @@ class BackendProcess:
     # 半途失败 → 注册表残留 → 二次导入必炸（2026-08-22 对话故障根因）
     _ENV_WHITELIST = (
         'PATH', 'SYSTEMROOT', 'PYTHONPATH', 'PYTHONUNBUFFERED',
+        'PYTHONIOENCODING', 'PYTHONUTF8',
         'CUDA_VISIBLE_DEVICES', 'HF_HOME', 'OMP_NUM_THREADS',
         'LANG', 'LC_ALL', 'TEMP', 'TMP',
-        'USERNAME', 'USERPROFILE', 'USER', 'LOGNAME',
+        'USERNAME', 'USERPROFILE', 'USER', 'LOGONSERVER', 'LOGNAME',
+        # vLLM 编译缓存开关（2026-09-01）：vllm_service 默认禁用缓存保
+        # 发行稳健；开发机需要缓存时全局置 VLLM_DISABLE_COMPILE_CACHE=0
+        'VLLM_DISABLE_COMPILE_CACHE',
     )
 
     def _build_child_env(self, port: int) -> dict:
@@ -378,6 +427,11 @@ class BackendProcess:
         for key, val in os.environ.items():
             if key.startswith('OMNISPACE_'):
                 env[key] = val
+        # 子进程 stdio 强制 UTF-8：中文 Windows 管道默认 GBK，backend 日志
+        # （含 requests/triton 等三方导入期警告）经 PIPE 回流/落盘会整体乱码
+        # （2026-08-31 boot E2E 实测，_drain_pipe 按 UTF-8 解码出 mojibake）
+        env.setdefault('PYTHONIOENCODING', 'utf-8')
+        env.setdefault('PYTHONUTF8', '1')
         env['OMNISPACE_PORT'] = str(port)
         env['OMNISPACE_LAUNCHER'] = '1'
         return env
@@ -388,8 +442,11 @@ class BackendProcess:
             with open(log_path, 'a', encoding='utf-8') as f:
                 for line in iter(pipe.readline, b''):
                     try:
-                        f.write(line.decode('utf-8', errors='replace'))
+                        text = line.decode('utf-8', errors='replace')
+                        f.write(text)
                         f.flush()
+                        if self.on_output is not None:
+                            self.on_output(text.rstrip('\r\n'))
                     except Exception:
                         break
         except Exception:
@@ -403,6 +460,7 @@ class BackendProcess:
     def start(self, port: int) -> bool:
         """启动后端进程"""
         self._actual_port = port  # 保存实际运行端口，心跳检测使用
+        self._proc_started_at = time.time()
         env = self._build_child_env(port)  # L-H1: 白名单环境变量
 
         try:
@@ -412,8 +470,8 @@ class BackendProcess:
             stdout_log = log_dir / 'backend_stdout.log'
             stderr_log = log_dir / 'backend_stderr.log'
 
-            use_pipe_stdout = not sys.stdout
-            use_pipe_stderr = not sys.stderr
+            use_pipe_stdout = (not sys.stdout) or self.on_output is not None
+            use_pipe_stderr = (not sys.stderr) or self.on_output is not None
 
             self.process = subprocess.Popen(
                 [sys.executable, '-m', 'uvicorn', 'backend.main:app',
@@ -510,6 +568,13 @@ class BackendProcess:
                 # 进程已退出
                 consecutive_failures += 1
                 self._handle_crash(port)
+                continue
+
+            # 启动宽限期：当前子进程尚年轻（含崩溃重启后的新进程）时，
+            # 未健康不计入三振——冷启动加载期不是崩溃
+            proc_age = time.time() - self._proc_started_at
+            if proc_age < self.config.startup_grace_s:
+                consecutive_failures = 0
                 continue
 
             if not self.is_healthy(port):
@@ -736,7 +801,36 @@ class Launcher:
         """关闭Launcher"""
         print('\n正在关闭OmniSpace AI...')
         self.backend.stop()
+        self._kill_comfyui_leftover()
         print('已关闭')
+
+    def _kill_comfyui_leftover(self):
+        """清理 ComfyUI 子进程残留（2026-08-31 治理，第三道防线）。
+
+        后端侧已有 Job Object 共生死 + atexit 双保险（backend/
+        services/inference/comfy_proc.py）；此处兜住外部手动实例或
+        极端场景（job 绑定失败）。按 ComfyUI 端口查杀，严格校验
+        cmdline 含 ComfyUI/main.py 且工作目录在本项目内——现有
+        is_omnispace_process 匹配不到 ComfyUI（无 omnispace/
+        backend.main 关键字），且后端被强杀时 atexit 不执行。
+        """
+        port = int(os.environ.get('OMNISPACE_COMFYUI_PORT', '8189'))
+        try:
+            proc = self.get_process_using_port(port)
+            if proc is None:
+                return
+            cmdline = ' '.join(proc.cmdline()).lower()
+            cwd = ''
+            try:
+                cwd = proc.cwd().lower()
+            except Exception:
+                pass
+            project_marker = str(PROJECT_ROOT).lower()
+            if 'comfyui/main.py' in cmdline and project_marker in cwd:
+                proc.kill()
+                print(f'已清理 ComfyUI 残留进程 (PID: {proc.pid})')
+        except Exception as e:
+            print(f'ComfyUI 残留清理跳过: {e}')
 
     def run(self):
         """运行Launcher主循环"""

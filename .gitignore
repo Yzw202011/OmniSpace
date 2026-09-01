@@ -74,3 +74,13 @@ _v25_resp.json
 backend/_planA*
 backend/_repro.py
 %SystemDrive%/
+license_console/vault/
+
+# 目录规范 §5：调试脚本统一归宿，不追踪
+scripts/scratch/
+
+# ===== 构建工具链第三方树（pip --target 安装，同 pydeps 待遇不入库） =====
+build_tools/
+
+# ===== 安全扫描工具本地数据（Mimosa 审计证据库） =====
+.mimosa/

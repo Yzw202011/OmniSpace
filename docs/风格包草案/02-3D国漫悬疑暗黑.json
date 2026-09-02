@@ -1,0 +1,7 @@
+{
+  "name": "3D国漫·悬疑暗黑",
+  "style_block": "3D Chinese donghua characters, murder mystery atmosphere, desaturated cold grey-blue palette, dramatic chiaroscuro lighting, single warm light accent, venetian blind shadows and backlit silhouettes, rain-soaked night streets, fog, old mansion crime scene, tense cinematic framing, film noir grading",
+  "negative_hint": "bright cheerful vibrant sunny colors, high saturation, fantasy glow, magic particles, cute chibi",
+  "post": "realistic",
+  "base_prefs": ["flux2-klein-9b", "flux2-klein-4b"]
+}

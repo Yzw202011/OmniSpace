@@ -45,6 +45,11 @@ export default function MangaLibrary() {
   const [styleFormOpen, setStyleFormOpen] = useState(false);
   const [styleName, setStyleName] = useState('');
   const [stylePrompt, setStylePrompt] = useState('');
+  // 风格包导入（2026-08-31 用户裁定：自定义风格必须携带风格包——
+  // 底座偏好/后处理档位/风格词块随生成真实生效，纯文本不再接受）
+  const [packFileName, setPackFileName] = useState('');
+  const [packJson, setPackJson] = useState('');
+  const [packError, setPackError] = useState('');
   const [savingStyle, setSavingStyle] = useState(false);
   const [creating, setCreating] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
@@ -85,21 +90,56 @@ export default function MangaLibrary() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createOpen]);
 
+  /** 风格包文件导入：读文本 + 客户端预校验（与后端 parse_custom_pack 同口径，
+   *  后端仍是最终裁决）。校验通过后回填包名省一次手填。 */
+  const handlePackFile = (file: File | undefined) => {
+    setPackError('');
+    setPackJson('');
+    setPackFileName('');
+    if (!file) return;
+    file.text().then((raw) => {
+      try {
+        const obj = JSON.parse(raw) as Record<string, unknown>;
+        const errs: string[] = [];
+        const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+        const sb = typeof obj.style_block === 'string' ? obj.style_block.trim() : '';
+        const post = typeof obj.post === 'string' ? obj.post.trim() : '';
+        if (!(name.length >= 1 && name.length <= 30)) errs.push('name（1~30 字）');
+        if (!(sb.length >= 1 && sb.length <= 400)) errs.push('style_block（英文风格词块 1~400 字符）');
+        if (post !== 'realistic' && post !== 'stylized') errs.push('post（realistic/stylized）');
+        if (errs.length) {
+          setPackError(`风格包缺少或非法字段：${errs.join('、')}`);
+          return;
+        }
+        setPackJson(raw);
+        setPackFileName(file.name);
+        if (!styleName.trim()) setStyleName(name);
+      } catch {
+        setPackError('不是合法的 JSON 文件');
+      }
+    }).catch(() => setPackError('文件读取失败'));
+  };
+
   const handleAddStyle = () => {
     const name = styleName.trim();
     if (!name) {
       showToast('请输入风格名称', 'warning');
       return;
     }
+    if (!packJson) {
+      showToast('请先导入风格包（.json）——自定义风格需携带底座/后处理定义', 'warning');
+      return;
+    }
     setSavingStyle(true);
-    mangaApi.createArtStyle(name, stylePrompt.trim())
+    mangaApi.createArtStyle(name, stylePrompt.trim(), packJson)
       .then((s) => {
         setCustomStyles((prev) => [s, ...prev]);
         setArtStyle(s.key);
         setStyleFormOpen(false);
         setStyleName('');
         setStylePrompt('');
-        showToast('自定义风格已添加', 'success');
+        setPackJson(''); setPackFileName(''); setPackError('');
+        showToast('自定义风格已添加（含风格包）', 'success');
       })
       .catch((err: unknown) => showToast(getErrorMessage(err, '风格添加失败'), 'error'))
       .finally(() => setSavingStyle(false));
@@ -241,7 +281,7 @@ export default function MangaLibrary() {
       <div className="manga-lib-header">
         <div>
           <h1>漫剧创作</h1>
-          <p>从剧本到成片：AI 分镜 · 素材生成 · 3D 导演台 · 视频合成</p>
+          <p>从剧本到成片：AI 分镜 · 素材生成 · 视频合成</p>
         </div>
         <div className="manga-lib-tools">
           <div className="manga-lib-search">
@@ -471,7 +511,12 @@ export default function MangaLibrary() {
                     title={s.desc}
                   >
                     <span className="style-thumb">
-                      <img src={s.thumb} alt={s.label} loading="lazy" />
+                      <img
+                        src={s.thumb}
+                        alt={s.label}
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
                       {s.hot && <span className="style-hot">热门</span>}
                       {artStyle === s.key && (
                         <span className="style-check"><Check size={12} /></span>
@@ -486,7 +531,7 @@ export default function MangaLibrary() {
                     type="button"
                     className={`manga-style-card custom${artStyle === cs.key ? ' active' : ''}`}
                     onClick={() => setArtStyle(cs.key)}
-                    title={cs.prompt || cs.name}
+                    title={`${cs.prompt || cs.name}${cs.pack ? ` · 风格包: ${cs.pack}` : ' · 未绑定风格包（嗅探路由）'}`}
                   >
                     <span className="style-thumb">
                       <Palette size={22} style={{ color: 'var(--color-primary)' }} />
@@ -531,11 +576,64 @@ export default function MangaLibrary() {
                     placeholder="生图提示词基调（可选，如：cyberpunk style, ink wash blending, neon ink splashes）"
                     onChange={(e) => setStylePrompt(e.target.value)}
                   />
+                  {/* 风格包导入（2026-08-31 必填）：决定底座偏好/后处理档位，
+                      未导入不可保存；附模板下载避免无从下手 */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label
+                      className="btn btn-ghost"
+                      style={{ cursor: 'pointer', margin: 0 }}
+                      aria-label="导入风格包 JSON 文件"
+                    >
+                      导入风格包（必填 .json）
+                      <input
+                        type="file"
+                        accept=".json,application/json"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handlePackFile(e.target.files?.[0])}
+                      />
+                    </label>
+                    {packFileName ? (
+                      <span className="text-secondary" style={{ fontSize: 'var(--font-size-xs)' }}>
+                        ✓ {packFileName}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ margin: 0, padding: '2px 8px', fontSize: 'var(--font-size-xs)' }}
+                        onClick={() => {
+                          const tpl = {
+                            name: '我的风格包',
+                            style_block: 'cyberpunk ink wash, neon light on rice paper, glowing brush strokes',
+                            quality_block: 'masterpiece, high detail',
+                            negative_hint: 'blurry, low quality',
+                            post: 'stylized',
+                            base_prefs: ['flux2-klein-9b', 'flux2-klein-4b'],
+                          };
+                          const blob = new Blob([JSON.stringify(tpl, null, 2)], { type: 'application/json' });
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = 'style-pack-template.json';
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }}
+                      >
+                        下载模板
+                      </button>
+                    )}
+                  </div>
+                  {packError && (
+                    <p className="text-error" style={{ margin: 0, fontSize: 'var(--font-size-xs)' }}>{packError}</p>
+                  )}
+                  <p className="text-tertiary" style={{ margin: 0, fontSize: 'var(--font-size-xs)' }}>
+                    风格包定义底座偏好（base_prefs）与后处理档位（post：写实 realistic / 风格化 stylized），
+                    随每次分镜生图真实生效
+                  </p>
                   <div className="flex gap-2" style={{ justifyContent: 'flex-end' }}>
                     <button type="button" className="btn btn-ghost" disabled={savingStyle} onClick={() => setStyleFormOpen(false)}>
                       取消
                     </button>
-                    <button type="button" className="btn btn-primary" disabled={savingStyle || !styleName.trim()} onClick={handleAddStyle}>
+                    <button type="button" className="btn btn-primary" disabled={savingStyle || !styleName.trim() || !packJson} onClick={handleAddStyle}>
                       {savingStyle ? '保存中…' : '保存风格'}
                     </button>
                   </div>

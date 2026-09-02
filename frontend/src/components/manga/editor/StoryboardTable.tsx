@@ -11,7 +11,7 @@
  *  - 分镜图：当前关键帧缩略图（点击开分镜详情）；无图「生成」占位同开详情，
  *    生成统一在详情面板操作（2026-08-25 用户裁定：行内不直接触发生图）
  *  - 视频：任务状态/进度/下载如实展示（真实轮询），无则虚线「生成」
- *  - 操作列：详情(检查器) / 导演台 / 上移 / 下移 / 删除
+ *  - 操作列：详情(检查器) / 上移 / 下移 / 删除
  *  - 勾选多行弹出批量条：批量生词 / 批量生图 / 批量删除（串行真实调用，锁定行跳过）
  * 保存契约沿用 PUT /manga/storyboard/{pid} 全量同步（增/删/移立即保存）。
  * ========================================================================== */
@@ -280,6 +280,8 @@ interface StoryboardRowProps {
   onMove: (rowId: string, dir: -1 | 1) => void;
   onRemove: (rowId: string) => void;
   onGenerateVideo: (row: StoryboardRowData) => void;
+  /** 取消视频生成（方案C：取消入口收进视频列进度块） */
+  onCancelVideo?: (taskId: string) => void;
 }
 
 // 纯提取原内联行 JSX：DOM 结构与 className 完全不变，仅变量改名（r→row、task→videoTask、curKf→currentKeyframe）
@@ -307,6 +309,7 @@ const StoryboardRow = memo(function StoryboardRow({
   onMove,
   onRemove,
   onGenerateVideo,
+  onCancelVideo,
 }: StoryboardRowProps) {
   const locked = row.is_locked === true;
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
@@ -438,6 +441,14 @@ const StoryboardRow = memo(function StoryboardRow({
                 downloadMedia(getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`), `镜${row.shot_number}_分镜图_v${currentKeyframe.version}.png`);
               }}
             />
+            {currentKeyframe.source_mode === 'fallback' && (
+              <span
+                className="manga-thumb-fallback"
+                title="兜底模式：该行未生成描述词，此图按剧本原文直接生成（未吃描述词细节与跨镜一致性锚）"
+              >
+                原文直出
+              </span>
+            )}
             <span className="manga-thumb-name">v{currentKeyframe.version}</span>
           </button>
         ) : (
@@ -456,9 +467,31 @@ const StoryboardRow = memo(function StoryboardRow({
       {/* 视频 */}
       <div className="manga-sb-td c-video" onClick={(e) => e.stopPropagation()}>
         {videoTask && (videoTask.status === 'generating' || videoTask.status === 'pending') ? (
-          <div className="manga-video-prog" title={`${VIDEO_STATUS_LABELS[videoTask.status]} ${Math.round(videoTask.progress * 100)}%`}>
+          <div
+            className="manga-video-prog"
+            title={
+              videoTask.status === 'pending'
+                ? `排队中${videoTask.queue_position && videoTask.queue_position > 1 ? `（前面还有 ${videoTask.queue_position - 1} 个任务）` : '（即将开跑）'}，悬停可取消`
+                : `${VIDEO_STATUS_LABELS[videoTask.status]} ${Math.round(videoTask.progress * 100)}%（悬停可取消）`
+            }
+          >
             <span className="manga-video-prog-bar" style={{ width: `${Math.round(videoTask.progress * 100)}%` }} />
-            <span className="manga-video-prog-text">{Math.round(videoTask.progress * 100)}%</span>
+            <span className="manga-video-prog-text">
+              {videoTask.status === 'pending'
+                ? `排队中${videoTask.queue_position && videoTask.queue_position > 1 ? `·前${videoTask.queue_position - 1}` : ''}`
+                : `${Math.round(videoTask.progress * 100)}%`}
+            </span>
+            {onCancelVideo && (
+              <button
+                type="button"
+                className="manga-video-cancel"
+                title="取消生成"
+                aria-label={`取消镜 ${row.shot_number} 视频生成`}
+                onClick={(e) => { e.stopPropagation(); onCancelVideo(videoTask.task_id); }}
+              >
+                <X size={10} aria-hidden="true" />
+              </button>
+            )}
           </div>
         ) : videoTask && videoTask.status === 'done' && videoTask.download_url ? (
           // 已生成视频：缩略视频框（悬停预览，角标下载/重新生成）
@@ -566,9 +599,11 @@ export interface StoryboardTableProps {
   onGenerateVideo: (row: StoryboardRowData) => void;
   /** 打开行检查器（详情/关键帧/音色） */
   onOpenInspector: (rowId: string) => void;
+  /** 取消视频生成（方案C：顶栏进度行移除后，取消入口收进视频列进度块） */
+  onCancelVideo?: (taskId: string) => void;
 }
 
-export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector }: StoryboardTableProps) {
+export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector, onCancelVideo }: StoryboardTableProps) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const rows = useMangaStore((s) => s.rows);
@@ -928,6 +963,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               onMove={moveShot}
               onRemove={removeShot}
               onGenerateVideo={onGenerateVideo}
+              onCancelVideo={onCancelVideo}
             />
           );
         })}

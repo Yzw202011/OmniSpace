@@ -113,6 +113,10 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
         // 此 catch 仅把 rejection 收敛成 false 供计数，不得二次呈现
         const ok = await generateVideo(row, {
           modelOverride: videoModel || undefined,
+          // 2026-08-31 接线：画幅/时长此前只回填表单不进请求，
+          // 后端恒用默认时长 → 「模型配置没生效」主诉根因
+          duration,
+          aspect,
         }).catch(() => false);
         if (ok) submitted += 1;
       }

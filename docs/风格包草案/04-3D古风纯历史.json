@@ -1,0 +1,7 @@
+{
+  "name": "3D古风·纯历史",
+  "style_block": "ancient Chinese historical 3D render, hanfu costume with realistic fabric texture, palace halls and wooden interiors, warm candlelight and soft daylight, muted elegant palette of ivory vermilion and ink black, movie poster composition, unreal engine 5 cinematic, photoreal materials, grounded realism",
+  "negative_hint": "glowing magic effects, fantasy particles, spiritual energy aura, neon, supernatural light, anime",
+  "post": "realistic",
+  "base_prefs": ["flux2-klein-9b", "flux2-klein-4b"]
+}

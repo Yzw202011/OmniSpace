@@ -31,6 +31,7 @@ from ...data.models import (
 from ...engines.vllm_service import get_vllm_service, pil_images_to_b64
 from ...middleware.error_handler import ApiError, ok
 from ...middleware.feature_lock import acquire_or_raise
+from ...services.image_queue import get_image_queue
 from ...services.inference.dialog_engine import get_dialog_engine
 from ...services.offload import run_blocking
 from .comic_gen import (
@@ -48,6 +49,7 @@ from .common import (
     _find_storyboard,
     _generate_asset_sync,
     _now,
+    manga_dialog_model_id,
 )
 
 router = APIRouter()
@@ -95,7 +97,11 @@ def _asset_row_to_dict(r: dict) -> dict:
 
 
 def _asset_kind_endpoint(kind: str):
-    """生成角色/场景/道具三个端点的公共实现工厂。"""
+    """生成角色/场景/道具三个端点的公共实现工厂。
+
+    2026-09-02 图像队列：submit_and_wait 在请求内排队（HTTP 契约不变），
+    与绘画页/关键帧同队顺序消费（此前无锁直跑，靠引擎内部锁盲等）。
+    """
     async def _handler(req: AssetGenerateRequest):
         db = get_db_safe()
         if db is not None:
@@ -106,8 +112,16 @@ def _asset_kind_endpoint(kind: str):
             f"资产生成：{(req.name or '')[:20]}",
             input_summary=f"{req.width}x{req.height} "
                           f"{(req.prompt or '')[:60]}")
+
+        def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+            return _generate_asset_sync(req, kind)
+
         try:
-            data = await run_blocking(_generate_asset_sync, req, kind)
+            data = await get_image_queue().submit_and_wait({
+                "task_id": f"asset:{kind[:4]}:{req.name[:8]}:"
+                           f"{time.time_ns():x}",
+                "kind": "comic_asset", "runner": _runner,
+                "loop": asyncio.get_running_loop()})
         except ApiError as exc:
             _end_asset_flow(flow, "error", error_code=str(exc.code),
                             error_detail=str(exc.message)[:300])
@@ -139,6 +153,9 @@ async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest):
     自动落盘 portrait_views/ + canvas.png（2×2 拼图）→ 入库。
 
     诚实降级：FLUX.1-dev 未随包，SDXL 兜底，响应带 degraded 标记。
+    2026-09-02 接入统一图像队列：此前无功能锁直跑——与队列任务
+    （comfy 关键帧等）跨引擎叠载、且队列排空收尾 unload 不持
+    _infer_lock 可砸中多视图循环（hazard 测试固化）。
     """
     db = get_db_safe()
     if db is not None:
@@ -147,8 +164,15 @@ async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest):
         "comic_turnaround",
         f"漫剧·角色四视图：{(req.name or '')[:20]}",
         input_summary=f"seed={req.seed} {(req.prompt or '')[:60]}")
+
+    def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+        return _generate_turnaround_sync(req)
+
     try:
-        data = await run_blocking(_generate_turnaround_sync, req)
+        data = await get_image_queue().submit_and_wait({
+            "task_id": f"turnaround:{req.name[:8]}:{time.time_ns():x}",
+            "kind": "comic_asset", "runner": _runner,
+            "loop": asyncio.get_running_loop()})
     except ApiError as exc:
         _end_asset_flow(flow, "error", error_code=str(exc.code),
                         error_detail=str(exc.message)[:300])
@@ -168,7 +192,10 @@ async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest):
 
 @router.post("/comic/asset/batch-generate")
 async def comic_asset_batch_generate(req: AssetBatchGenerateRequest):
-    """批量资产生成（COMIC-030）：逐项串行生成，聚合成功/失败明细。"""
+    """批量资产生成（COMIC-030）：逐项串行生成，聚合成功/失败明细。
+
+    2026-09-02 图像队列：整批=一个队列任务（循环语义不变）。
+    """
     kind = (req.kind or "character").strip()
     if kind not in _ASSET_KIND_CONF:
         raise ApiError(40008, "kind 必须是 character/scene/prop",
@@ -188,36 +215,44 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest):
         f"漫剧·批量{kind}资产生成（{len(req.items)} 项）",
         input_summary=", ".join(
             str(item.get("name") or "")[:12] for item in req.items[:8]))
-    results: list[dict] = []
-    failed: list[dict] = []
-    for item, raw_prompt in zip(req.items, raw_prompts, strict=True):
-        sub = AssetGenerateRequest(
-            project_id=req.project_id,
-            name=str(item.get("name") or "未命名资产")[:100],
-            # DB/UI 保留用户原文；FLUX 直入用原文，SDXL 回退时现译
-            prompt=raw_prompt,
-            width=int(item.get("width", IMG_TARGET_W)),
-            height=int(item.get("height", IMG_TARGET_H)),
-            transparent=bool(item.get("transparent", False)))
-        try:
-            data = await run_blocking(
-                _generate_asset_sync, sub, kind, None)
-            results.append(data)
-        except ApiError as exc:
-            failed.append({"name": sub.name, "code": exc.code,
-                           "message": exc.message})
-        except Exception as exc:  # noqa: BLE001
-            failed.append({"name": sub.name, "code": "PAINT_GENERATION_FAILED",
-                           "message": str(exc)[:300]})
+
+    def _batch_runner(task, check_cancel) -> dict:  # noqa: ARG001
+        results: list[dict] = []
+        failed: list[dict] = []
+        for item, raw_prompt in zip(req.items, raw_prompts, strict=True):
+            sub = AssetGenerateRequest(
+                project_id=req.project_id,
+                name=str(item.get("name") or "未命名资产")[:100],
+                # DB/UI 保留用户原文；FLUX 直入用原文，SDXL 回退时现译
+                prompt=raw_prompt,
+                width=int(item.get("width", IMG_TARGET_W)),
+                height=int(item.get("height", IMG_TARGET_H)),
+                transparent=bool(item.get("transparent", False)))
+            try:
+                data = _generate_asset_sync(sub, kind, None)
+                results.append(data)
+            except ApiError as exc:
+                failed.append({"name": sub.name, "code": exc.code,
+                               "message": exc.message})
+            except Exception as exc:  # noqa: BLE001
+                failed.append({"name": sub.name,
+                               "code": "PAINT_GENERATION_FAILED",
+                               "message": str(exc)[:300]})
+        return {"project_id": req.project_id, "kind": kind,
+                "succeeded": results, "failed": failed,
+                "total": len(req.items), "success_count": len(results)}
+
+    data = await get_image_queue().submit_and_wait({
+        "task_id": f"assetbatch:{req.project_id[:10]}:{time.time_ns():x}",
+        "kind": "comic_asset", "runner": _batch_runner,
+        "loop": asyncio.get_running_loop()})
     _end_asset_flow(
-        flow, "success" if not failed else "error",
-        error_code="BATCH_PARTIAL_FAILED" if failed else "",
+        flow, "success" if not data["failed"] else "error",
+        error_code="BATCH_PARTIAL_FAILED" if data["failed"] else "",
         error_detail="; ".join(
-            f"{f['name']}: {f['message'][:80]}" for f in failed[:5]),
-        output_summary=f"成功 {len(results)}/{len(req.items)}")
-    return ok({"project_id": req.project_id, "kind": kind,
-               "succeeded": results, "failed": failed,
-               "total": len(req.items), "success_count": len(results)})
+            f"{f['name']}: {f['message'][:80]}" for f in data["failed"][:5]),
+        output_summary=f"成功 {data['success_count']}/{len(req.items)}")
+    return ok(data)
 
 
 @router.get("/comic/asset/library")
@@ -601,17 +636,28 @@ async def comic_asset_regenerate(asset_id: str,
         f"漫剧·资产生成重生成：{(asset.get('name') or '')[:20]}",
         input_summary=f"kind={asset.get('kind')} "
                       f"{(asset.get('prompt') or '')[:60]}")
+
+    def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+        return _regenerate_asset_sync(asset)
+
     try:
-        data = await run_blocking(_regenerate_asset_sync, asset)
+        data = await get_image_queue().submit_and_wait({
+            "task_id": f"assetregen:{asset_id[:10]}:{time.time_ns():x}",
+            "kind": "comic_asset", "runner": _runner,
+            "loop": asyncio.get_running_loop()})
     except ApiError as exc:
         if exc.code == "PAINT_ENGINE_NOT_READY":
             _end_asset_flow(
                 flow, "warning", error_code=str(exc.code),
                 error_detail=f"引擎未就绪保留原图: {exc.message}")
+            # degrade_reason 必须带上 suggestion（去哪加载/怎么处理），
+            # 否则用户只看到"未就绪"却无出路（2026-08-31 漫剧生图诉求）
+            reason = ("绘画引擎未就绪，已保留原图（非真实重生成）："
+                      f"{exc.message}")
+            if getattr(exc, "suggestion", ""):
+                reason += f"。{exc.suggestion}"
             return ok({"asset": asset, "degraded": True,
-                       "degrade_reason": (
-                           "绘画引擎未就绪，已保留原图（非真实重生成）："
-                           f"{exc.message}")})
+                       "degrade_reason": reason})
         _end_asset_flow(flow, "error", error_code=str(exc.code),
                         error_detail=str(exc.message)[:300])
         raise
@@ -654,9 +700,18 @@ async def comic_asset_regenerate_view(asset_id: str,
         "comic_regenerate_view",
         f"漫剧·单视图重生：{(asset.get('name') or '')[:20]}·{req.view}",
         input_summary=f"view={req.view} {prompt_zh[:60]}")
+
+    def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+        return _regenerate_view_sync(asset, req.view, prompt_zh)
+
     try:
-        data = await run_blocking(
-            _regenerate_view_sync, asset, req.view, prompt_zh)
+        # 2026-09-02 接入统一图像队列（同 generate-turnaround：
+        # 此前无功能锁直跑，跨引擎叠载/排空卸载竞态见 hazard 测试）
+        data = await get_image_queue().submit_and_wait({
+            "task_id": f"regenview:{asset_id[:10]}:{req.view}:"
+                       f"{time.time_ns():x}",
+            "kind": "comic_asset", "runner": _runner,
+            "loop": asyncio.get_running_loop()})
     except ApiError as exc:
         _end_asset_flow(flow, "error", error_code=str(exc.code),
                         error_detail=str(exc.message)[:300])
@@ -712,6 +767,7 @@ async def comic_asset_reference_upload(asset_id: str,
         raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片文件超过 10MB 上限",
                        detail={"max_bytes": _ASSET_UPLOAD_MAX_BYTES,
                                "given": len(raw)})
+    _assert_image_magic(raw, file.filename)
     out_dir = _asset_dir_for(asset)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "reference.png"
@@ -922,6 +978,29 @@ def comic_image_task_list(project_id: str = Query("", description="项目ID"),
 
 # 资产图片上传约束（竞品对齐）：png/jpg/jpeg/webp ≤10MB
 _ASSET_UPLOAD_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _assert_image_magic(raw: bytes, filename: str | None) -> None:
+    """上传图片魔数校验（2026-09-02 B4 污染实弹修复）。
+
+    扩展名白名单可被伪装绕过（<script> HTML / MZ EXE 改名 .png 落盘
+    成可分发文件，经 /manga/media 回读）。PIL 解码必须成功且实际格式
+    在允许集内；调用点必须在落盘之前。此前 upload/replace 两端点
+    write_bytes 先写盘、解码失败被吞（「尺寸读取失败不阻断登记」），
+    伪装文件会照常入库。
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(raw)) as probe:
+            fmt = (probe.format or "").upper()
+            if fmt not in ("PNG", "JPEG", "WEBP"):
+                raise ValueError(f"实际内容格式 {fmt} 不在允许集内")
+            probe.verify()
+    except Exception as exc:  # noqa: BLE001 - 解码/格式失败即拒绝
+        raise ApiError(
+            40010, "文件内容不是有效图片（魔数校验失败），已拒绝上传",
+            detail={"filename": filename or "",
+                    "reason": str(exc)[:120]}) from exc
 _ASSET_UPLOAD_MAX_BYTES = 10 * 1024 * 1024  # 10MB
 
 
@@ -957,6 +1036,7 @@ async def comic_asset_image_replace(asset_id: str,
         raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片文件超过 10MB 上限",
                        detail={"max_bytes": _ASSET_UPLOAD_MAX_BYTES,
                                "given": len(raw)})
+    _assert_image_magic(raw, file.filename)
     kind = asset.get("kind", "character")
     # 资产专属子目录：固定按名称约定推导基础目录（勿用 _asset_dir_for
     # ——它优先取 file_path 父目录，首次替换后路径已含 /{asset_id}/，
@@ -1035,6 +1115,7 @@ async def comic_asset_upload(project_id: str = Form(...),
         raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片文件超过 10MB 上限",
                        detail={"max_bytes": _ASSET_UPLOAD_MAX_BYTES,
                                "given": len(raw)})
+    _assert_image_magic(raw, file.filename)
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法上传资产")
@@ -1418,7 +1499,7 @@ def _infer_scene_prop_settings_llm(db, project_id: str,
         prop_out: dict[str, str] = {}
 
         def _extract(kind: str, names: list[str],
-                     rules: str, out: dict[str, str]) -> None:
+                     rules: dict, out: dict[str, str]) -> None:  # 注解修正：实参为 dict（Cython 编译期揪出）
             if not names:
                 return
             if on_stage:
@@ -1811,12 +1892,61 @@ _ART_STYLE_ZH: dict[str, str] = {
     "cyberpunk": "赛博朋克、霓虹光影、机械结构、未来都市",
     "real3d": "3D写实、电影级CG、质感细腻、光影层次丰富",
     "battle": "热血战斗漫风、高对比度、动态张力、戏剧光影",
+    # ── 2026-08-31 新增 12 主流包（中文行含包族关键词，供预置卡
+    #    _project_style_pack 定族与 A 段画风锚复用）──
+    "comic_en": "美式漫画、硬朗墨线、网点排线、超英分镜、高饱和原色",
+    "manga_bw": "黑白漫画、网点纸阴影、锐利墨线、日漫分镜、高对比单色",
+    "ghibli": "吉卜力手绘动画、水彩背景、柔和自然光、温暖怀旧手绘质感",
+    "pixel": "像素风、16位复古游戏、锐利像素网格、有限色板、抖动上色",
+    "uscartoon": "美式卡通、扁平夸张造型、粗描边、明快玩乐配色",
+    "steampunk": "蒸汽朋克、维多利亚黄铜机械、齿轮发条、蒸汽管道、复古暖褐",
+    "flat": "扁平插画、几何简洁造型、矢量色块、无渐变现代设计感",
+    "claymation": "黏土定格动画、黏土手工质感、指痕纹理、柔和棚拍光",
+    "popart": "波普复古、复古印刷海报、网点波普、双色调撞色",
+    "storybook": "童话绘本、儿童插画、水粉蜡笔质感、暖粉彩、圆润可爱",
+    "gothic": "哥特暗黑奇幻、巴洛克阴影、深红炭黑色调、戏剧明暗",
+    "lowpoly": "低多边形3D、几何切面、平面着色多边形、风格化简约造型",
+    # ── 2026-09-02 新增 4 包预置卡（市场调研爆款赛道；中文行含
+    #    各包判据复合词，供 _project_style_pack 定族与 A 段画风锚）。
+    #    悬疑行由 mystery3d 复合词「悬疑」先中（mystery3d 在 donghua3d
+    #    之前），「3D国漫悬疑」不会被 donghua3d 的「国漫」抢走 ──
+    "xianxia_cg": (
+        "次世代二次元古风仙侠CG、卡通渲染干净面部阴影、边缘光、"
+        "PBR写实场景、游戏CG质感"
+    ),
+    "mystery3d": (
+        "3D国漫悬疑暗黑、谋杀推理、低饱和冷色调、单一暖光源、光影切割"
+    ),
+    "donghua3d": "3D国漫写实、真人感建模、UE5电影级渲染、朴实辨识脸型",
+    "guofeng_hist": "3D古风历史、纯历史质感、汉服写实、宫殿烛光、无仙法光效",
     # ── 已下线预设（前端列表不再展示，映射保留兼容历史项目）──
     "healing": "日系治愈风、柔和粉彩、温暖阳光、清新日常",
     "manga": "黑白漫画风、网点纸阴影、高对比墨线、日漫分镜",
     "vintage": "美式复古卡通风、粗犷线条、夸张变形、胶片颗粒",
     "live": "真人写实、照片级质感、自然皮肤纹理、浅景深",
     "cartoon": "可爱卡通风、明亮配色、圆润造型、全龄友好",
+}
+
+# 预置卡 key → 风格包 sid 静态映射（2026-09-02 词序坑治理第二步）。
+# 此前预置卡定族靠「拿 _ART_STYLE_ZH 中文行跑 STYLE_PACKS 正则」的
+# 间接方式——包该属于谁是显性事实，不该靠文本猜。本表 = 旧正则行为
+# 的实测快照（style_routing_golden.json zh_lines 口径），等价性由
+# test_style_pack_routing 双向钉死（静态值 ⇄ detect_style(中文行)）。
+# healing 旧正则无命中（→默认包），故不在表内（回落嗅探，行为同旧）。
+_PRESET_STYLE_PACK: dict[str, str] = {
+    "pixar": "claymation", "anime": "anime", "chibi": "anime",
+    "guofeng": "guofeng2d", "xuanhuan": "guofeng3d", "inkwash": "inkwash",
+    "manhwa": "manhwa", "thickpaint": "thickpaint", "cyberpunk": "cyberpunk",
+    "real3d": "cg3d", "battle": "battle", "comic_en": "comic_en",
+    "manga_bw": "manga_bw", "ghibli": "ghibli", "pixel": "pixel",
+    "uscartoon": "uscartoon", "steampunk": "steampunk", "flat": "flat",
+    "claymation": "claymation", "popart": "popart", "storybook": "storybook",
+    "gothic": "gothic", "lowpoly": "lowpoly",
+    "xianxia_cg": "xianxia_cg", "mystery3d": "mystery3d",
+    "donghua3d": "donghua3d", "guofeng_hist": "guofeng_hist",
+    # 已下线预设（历史项目仍带旧 key，绑定保持旧正则行为）
+    "manga": "manga_bw", "vintage": "anime", "live": "photoreal",
+    "cartoon": "anime",
 }
 
 
@@ -1848,6 +1978,50 @@ def _project_style_line(db, project_id: str) -> str:
     except Exception as exc:  # noqa: BLE001 - 查询失败回退不阻塞提取
         log.warning("项目风格查询失败（回退网漫风）: %s", exc)
         return fallback
+
+
+def _project_style_pack(db, project_id: str) -> tuple[str, dict | None]:
+    """项目作品风格 → 显式风格包（2026-08-31 卡片↔包绑定）。
+
+    返回 (pack_id, pack_def)：预置卡读 art_styles.pack（族回填写入）；
+    自定义卡读 pack（custom:xxx）+ pack_def（导入 JSON 解析）。无绑定
+    返回 ("", None)——路由回落正则嗅探，行为与既往一致。
+    """
+    if db is None or not project_id:
+        return "", None
+    try:
+        proj = db.query_one(
+            "SELECT art_style FROM projects WHERE id=?", (project_id,))
+        key = ((proj or {}).get("art_style") or "").strip()
+        if not key:
+            return "", None
+        style_id = key[7:] if key.startswith("custom:") else key
+        try:
+            row = db.query_one(
+                "SELECT pack, pack_def FROM art_styles WHERE id=?", (style_id,))
+        except Exception:  # noqa: BLE001 - 旧库无 pack 列（回填前）
+            row = None
+        if not row:
+            # 预置卡（semantic key 如 pixar/manhwa，不在 art_styles 表
+            # ——该表只存库卡 hex id + 自定义卡）：2026-09-02 起走
+            # _PRESET_STYLE_PACK 静态映射（等价性由金标准测试钉死），
+            # 不再用「中文行跑正则」的间接定族
+            sid = _PRESET_STYLE_PACK.get(key, "")
+            return (sid, None) if sid else ("", None)
+        pack_id = (row.get("pack") or "").strip()
+        pack_def = None
+        if pack_id.startswith("custom:") and row.get("pack_def"):
+            import json as _json
+            try:
+                parsed = _json.loads(row["pack_def"])
+                if isinstance(parsed, dict):
+                    pack_def = parsed
+            except Exception:  # noqa: BLE001 - 损坏 JSON 走嗅探兜底
+                pack_def = None
+        return pack_id, pack_def
+    except Exception as exc:  # noqa: BLE001
+        log.warning("项目风格包查询失败（回落嗅探）: %s", exc)
+        return "", None
 
 
 def _build_character_prompt_v2(name: str, setting_text: str,
@@ -2089,8 +2263,10 @@ async def comic_asset_describe(asset_id: str):
     """资产描述词 AI 扩写（竞品对齐）：对话引擎把 name+kind 扩写为绘图
     描述词并写回 prompt。
 
-    对话引擎未就绪 → DIALOG_NOT_READY 诚实错误（与 ai-describe 一致，
-    不伪造描述词）；推理期间持有 "dialog" 功能锁（规格 §6.1 互斥）。
+    对话引擎未就绪 → 自动加载漫剧·文字槽默认模型后继续（2026-09-02
+    未加载必须全自动铁律，对齐 ai-describe）；真加载失败才报
+    DIALOG_NOT_READY（不伪造描述词）；推理期间持有 "dialog" 功能锁
+    （规格 §6.1 互斥）。
     """
     db = get_db_safe()
     if db is None:
@@ -2126,12 +2302,18 @@ async def comic_asset_describe(asset_id: str):
     lock = await acquire_or_raise("dialog", task_id=asset_id)
     try:
         if not engine.is_ready:
-            status = engine.get_status()
-            raise ApiError(
-                "DIALOG_NOT_READY",
-                "对话模型未加载，无法扩写描述词，请先在对话模块加载模型",
-                detail={"engine_state": status["state"],
-                        "last_error": status["last_error"]})
+            # 未加载必须全自动（2026-09-02 用户铁律，对齐 storyboard
+            # ai-describe / video 描述词端点同款）：按需自动加载漫剧·
+            # 文字槽默认模型（manga-dialog 槽 module_config 管控），
+            # 真失败才报错且带出路指引——不再甩给用户手动去对话模块
+            if not await run_blocking(engine.ensure_loaded,
+                                      manga_dialog_model_id()):
+                status = engine.get_status()
+                raise ApiError(
+                    "DIALOG_NOT_READY",
+                    "对话模型未加载且自动加载失败，请先在对话模块加载模型",
+                    detail={"engine_state": status["state"],
+                            "last_error": status["last_error"]})
         # 角色：五段式格式（LLM 只生成角色设定段，代码拼装固定段，
         # 2026-08-20 用户裁定）；场景/道具保持原结构
         if asset.get("kind") == "character":

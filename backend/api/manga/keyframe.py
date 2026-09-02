@@ -10,6 +10,7 @@ import logging
 import os
 import random
 import re
+import time
 import uuid
 from typing import Any
 
@@ -28,13 +29,14 @@ from ...engines.vllm_service import get_vllm_service, pil_images_to_b64
 from ...middleware.error_handler import ApiError, ok
 from ...middleware.feature_lock import acquire_or_raise
 from ...services.event_log import log_event
+from ...services.image_queue import get_image_queue
 from ...services.inference import face_similarity as face_sim
 from ...services.inference.comfy_paint_engine import (
     comfy_paint_available,
     get_comfy_paint_engine,
     pulid_available,
 )
-from ...services.inference.gen_router import detect_style, resolve_route
+from ...services.inference.gen_router import detect_style, explain_style, resolve_route
 from ...services.inference.paint_engine import get_paint_engine
 from ...services.offload import run_blocking
 from .common import (
@@ -44,7 +46,6 @@ from .common import (
     _KF_COLS,
     _SB_ROW_COLS,
     _STYLE_NEGATIVE,
-    _STYLE_PHOTO,
     IMG_TARGET_H,
     IMG_TARGET_W,
     _fetch_bound_assets,
@@ -57,46 +58,33 @@ from .common import (
     broadcast_gen_progress,
 )
 
+# 显存协商三件套（2026-08-31 提升至 common 共享层，视频链路同权接入）：
+# 语义与 S7 时期一致——睡眠/唤醒 vLLM + 生成毕卸绘画管线
+from .common import (
+    sleep_vllm_for_generation as _sleep_vllm_for_vram,
+)
+from .common import (
+    unload_paint_pipeline as _unload_paint_after_gen,
+)
+from .common import (
+    wake_vllm_after_generation as _wake_vllm_after_vram,
+)
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.keyframe")
 
 
-async def _sleep_vllm_for_vram() -> None:
-    """生成期显存协商：vLLM 权重卸 RAM 让渡显存（best-effort）。
 
-    互斥矩阵（OmniChat ↔ OmniDraw）运行时落地：9B 关键帧原生
-    1280×720 采样需 ~7.5GB 显存，vLLM 常驻 ~7GB 是硬障碍。持
-    paint 锁后调用；失败只记日志（paint 降级链兜底）。
+def _ensure_source_mode_column(db) -> None:
+    """keyframes 补 source_mode 列（幂等，2026-09-03 方案A：兜底出图标注）。
+
+    方案A 用户裁定：无描述词出图（原文直出兜底）必须在行内/详情可见，
+    防止「描述词失败角标 + 兜底成功出图」同行的误导。describe=按描述
+    词生成；fallback=原文直出；旧数据空串=未知（不标注、不臆测）。
     """
-    try:
-        await run_blocking(get_vllm_service().sleep_for_paint)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("vLLM 睡眠协商失败（不阻断生成）: %s", exc)
-
-
-async def _wake_vllm_after_vram() -> None:
-    """生成期显存协商收尾：唤醒 vLLM 恢复对话能力（best-effort）。"""
-    try:
-        await run_blocking(get_vllm_service().wake_from_paint)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("vLLM 唤醒协商失败（不影响生图结果）: %s", exc)
-
-
-async def _unload_paint_after_gen() -> None:
-    """S7 生成毕即卸 diffusers 驻留权重（2026-08-28，对齐 L1255
-    comfy 即卸的 V40 事故修复）。
-
-    任务结束（单行/整批/故事/重抽的 finally）持锁调用：后续一致性
-    守卫需唤醒 vLLM 评分（~10GB 级），绘画管线与 vLLM 两族权重
-    不可同驻（用户约束 VRAM ≤90%；idle 回收有延迟不够及时）。
-    批量端点整批结束后才调一次——逐行卸会引入整管重建开销。
-    best-effort：未载时 unload_model 快速返回，失败不阻断收尾。
-    """
-    try:
-        await run_blocking(get_paint_engine().unload_model)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("生成毕卸载绘画管线失败（不阻断收尾）: %s", exc)
-
+    cols = {r["name"] for r in db.query("PRAGMA table_info(keyframes)")}
+    if "source_mode" not in cols:
+        db.sql("ALTER TABLE keyframes ADD COLUMN source_mode TEXT DEFAULT ''")
 
 
 def _kf_row_to_dict(r: dict) -> dict:
@@ -110,6 +98,7 @@ def _kf_row_to_dict(r: dict) -> dict:
             "is_current": bool(r.get("is_current", 1)),
             "shot_seeds": r.get("shot_seeds", "[]"),
             "consistency": r.get("consistency", ""),
+            "source_mode": r.get("source_mode", ""),
             "created_at": r.get("created_at", 0)}
 
 
@@ -971,6 +960,15 @@ def _select_shot_references(refs: list, shot_text: str,
     return picked[:_MAX_REF_IMAGES]
 
 
+def _char_anchor_name(asset: dict) -> str:
+    """角色锚短语：名字（2026-09-02 结构化属性整体移除后仅名字）。
+
+    跨镜一致性由「名字 + 参考图锚」承担——名字作为身份标识引导
+    生图模型匹配参考图中该角色的既定外观。
+    """
+    return (asset.get("name") or "角色").strip()
+
+
 def _shot_char_protocol(char_assets: list,
                         shot_text: str) -> tuple[str, list]:
     """逐镜角色锚协议（P0-3 × ABC 结合）：只锚「本镜点名」的角色。
@@ -986,12 +984,12 @@ def _shot_char_protocol(char_assets: list,
              if (a.get("name") or "").strip()
              and a["name"].strip() in text]
     chosen = named or list(char_assets)
-    names = [(a.get("name") or "角色").strip() for a in chosen]
-    if not names:
+    anchors = [_char_anchor_name(a) for a in chosen]
+    if not anchors:
         return "", []
-    if len(names) == 1:
-        return f"{names[0]}，外貌、服装与角色设定图严格一致", chosen
-    return (f"画面中的角色共{len(names)}位：{'、'.join(names)}，"
+    if len(anchors) == 1:
+        return f"{anchors[0]}，外貌、服装与角色设定图严格一致", chosen
+    return (f"画面中的角色共{len(anchors)}位：{'、'.join(anchors)}，"
             "各自外貌、服装与角色设定图严格一致；"
             "除这些角色外不得出现任何其他人物", chosen)
 
@@ -1070,11 +1068,19 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     if not prompt:
         raise ApiError(40008, "分镜行无画面描述且未提供 prompt",
                        detail={"row_id": row_id})
+    # 方案A（2026-09-03 用户裁定）：如实记录画面来源——行无描述词即
+    # 原文直出兜底，前端据此打「原文直出」角标（不臆测、旧数据留空）
+    used_fallback = not (row.get("description") or "").strip()
     # 直传/外贴描述词归一化（流式→行结构化 + 网格标记注入，幂等）：
     # 归一化结果同时作为关键帧记录 prompt——视频侧以记录为准的网格
     # 判据才能与逐镜落盘产物对齐（协议：标记是唯一判据）
     prompt = _normalize_direct_abc(prompt)
     engine = get_paint_engine()
+    # 卡片↔包显式绑定（2026-08-31）：项目所选卡片的风格包随生成传入
+    # 路由——大族卡（韩漫/3D/水墨…）确定切换底座/后处理，自定义包
+    # （导入 JSON）优先；无绑定回落正则嗅探（行为与既往一致）
+    from .comic_asset import _project_style_pack
+    style_pack_id, style_pack_def = _project_style_pack(db, project_id)
     # 底座选择（生图路由引擎，2026-08-27）：风格画像 → 底座×风格
     # 包组合自动切换。漫剧关键帧锁 klein 家族（family="flux"——资
     # 产一致性协议闭环验证于 klein 参考条件机制，qwen 写实底座换
@@ -1083,7 +1089,8 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     # 9B——klein 二次元先验即亲和），全链失败走 SDXL+翻译兜底
     # （诚实降级）。路由决策/切换已写系统日志（gen_route_switch）
     route = resolve_route("manga-paint", prompt, family="flux",
-                          trace_id=row_id)
+                          trace_id=row_id, pack_id=style_pack_id,
+                          pack_def=style_pack_def)
     # 后处理档位资产仲裁（2026-08-27 V32 人脸事故）：A 段风格词判
     # 的是画面风格（cg3d），但角色资产可能由 klein-4b（二次元先验）
     # 生成——立绘的粉腮红/光滑肤/饱满苹果肌是设定的一部分，
@@ -1145,7 +1152,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     if use_comfy:
         if not comfy_paint_available():
             raise ApiError("PAINT_ENGINE_NOT_READY",
-                           "ComfyUI 绘画管线未就绪（便携版或权重缺失）")
+                           "ComfyUI 绘画管线未就绪（便携版或权重缺失）",
+                           suggestion="检查 tools/ComfyUI_windows_portable 与权重目录；"
+                                      "或在「模型管理 → AI 绘画」改用本地绘画模型后重试")
+        # 冷启动可见性（2026-08-31 用户需求「加载要立刻、也要告知」）：
+        # ComfyUI 拉起 ~40s + 首图权重装载，期间按钮进度条明示正在加载
+        broadcast_gen_progress("keyframe", row_id, percent=1,
+                               label="ComfyUI 绘图引擎启动中（约 40-60s）")
         engine.unload_model()  # 本地管线让位（幂等，未载时快速返回）
         flux = True  # comfy 工作流锁 klein-9b fp8（family 协议一致）
     else:
@@ -1153,6 +1166,9 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         if comfy.is_alive():
             comfy.unload()  # 反向互斥：ComfyUI 驻留权重让位
     if not use_comfy:
+        # 冷启动可见性：diffusers 权重装载 0.5-2 分钟，进度条明示
+        broadcast_gen_progress("keyframe", row_id, percent=1,
+                               label="绘画模型加载中（冷启动约 0.5-2 分钟，完成后自动出图）")
         for mid in route.base_chain:
             if "klein" not in mid:
                 break  # sdxl 兜底位——走既有降级分支
@@ -1166,8 +1182,12 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         log.warning("klein 家族加载失败，关键帧降级 SDXL+翻译")
         if not engine.ensure_loaded(None):
             status = engine.get_status()
-            raise ApiError("PAINT_ENGINE_NOT_READY",
-                           status.get("last_error") or "绘画模型未就绪")
+            raise ApiError(
+                "PAINT_ENGINE_NOT_READY",
+                status.get("last_error") or "绘画模型未就绪",
+                suggestion="已在本次点击时自动尝试加载但失败。可到「模型管理 → "
+                           "AI 绘画」查看模型状态并手动加载（如 flux2-klein-4b），"
+                           "或稍后重试；确认 models/paint 下模型权重完整")
     # 新版本号 = 该分行当前最大版本 + 1
     vrow = db.query_one(
         "SELECT MAX(version) AS mv FROM keyframes WHERE row_id=?", (row_id,))
@@ -1299,10 +1319,19 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         else:
             from ...services.inference.prompt_translator import translate_prompt_zh2en
             gw, gh = _gen_size_for_target(out_w, out_h)
+            # 翻译引擎进场可能把绘画模型腾挪出显存（显存独木桥；
+            # 翻译器文档约定「翻译先于 paint 加载」，但降级链在
+            # ensure_loaded 之后才走到这里）：翻译后必须重新确认/
+            # 装载绘画引擎，否则紧接着的 generate 面对未就绪直接
+            # 报错（2026-08-31 实测：加载成功→翻译卸载→生成失败）
+            prompt_en = translate_prompt_zh2en(gen_prompt)
+            if not engine.is_ready and not engine.ensure_loaded(None):
+                raise RuntimeError(
+                    engine.get_status().get("last_error") or "绘画模型未就绪")
             # 负向提示按风格包特化（anime 排 photorealistic 等）
             # min_steps=20：SDXL 降级路径质量下限（24×0.40=9.6→20，
             # 关键帧一致性生产任务不走 12 步全局地板，同 FLUX 路径）
-            params = {"prompt": translate_prompt_zh2en(gen_prompt),
+            params = {"prompt": prompt_en,
                       "negative": route.style_pack.negative_hint or _STYLE_NEGATIVE,
                       "steps": 24, "cfg": 7.0,
                       "width": gw, "height": gh, "seed": seed,
@@ -1357,7 +1386,15 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 (row.get("storyboard_id"),))
             project_id = ((sb or {}).get("project_id") or "")
         style_line = _project_style_line(db, project_id)
-        log.info("画风锚(A段)=项目风格行: %s", style_line[:40])
+        if style_pack_id:
+            log.info("画风锚(A段)=项目风格行: %s（pack=%s）",
+                     style_line[:40], style_pack_id)
+        else:
+            # 2026-09-02 可解释路由：嗅探路径带上裁决凭据（命中词/
+            # 遮蔽关系），排障不再依赖脑内推演词序
+            _pk, _why = explain_style(prompt)
+            log.info("画风锚(A段)=项目风格行: %s（嗅探→%s，%s）",
+                     style_line[:40], _pk.sid, _why)
         # 西化瞳色负面锚 → 模块常量 _CHAR_NEGATIVE_ANCHOR（2026-08-28
         # P1 逐镜化：随逐镜角色锚存在性注入，标定史 v65/v67/v69 见
         # 常量处注释）
@@ -1484,7 +1521,21 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         if _ABC_MARK in prompt:
             gen_prompt = _image_prompt_from_abc(prompt)
         else:
-            gen_prompt = prompt + _STYLE_PHOTO
+            # 直文本兜底画风治理（2026-09-02 P6d 实测修复）：此前缀
+            # _STYLE_PHOTO（08-14 写真人设参考图时代的写实助推遗留），
+            # 网漫项目走此路径（未生成描述词、剧本原文兜底）被推成照
+            # 片风、角色锚外观被文本压漂（实测白背心→黑背心、短寸→
+            # 长发）。改与 ABC 主路径同规则：前置项目风格行（_project_
+            # style_line 空风格回退网漫，非空）。
+            from .comic_asset import _project_style_line
+            pid = project_id
+            if not pid:
+                sb = db.query_one(
+                    "SELECT project_id FROM storyboards WHERE id=?",
+                    (row.get("storyboard_id"),))
+                pid = ((sb or {}).get("project_id") or "")
+            style_line = _project_style_line(db, pid)
+            gen_prompt = f"{style_line}，{prompt}" if style_line else prompt
         broadcast_gen_progress("keyframe", row_id, percent=2,
                                label="正在生成")
         image, _actual = _gen_one(
@@ -1500,13 +1551,15 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     image.save(out_path, "PNG")
     rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     kf_id = uuid.uuid4().hex
+    _ensure_source_mode_column(db)
     db.update("keyframes", {"is_current": 0}, "row_id=?", (row_id,))
     db.insert("keyframes", {
         "id": kf_id, "row_id": row_id, "project_id": project_id,
         "version": version, "file_path": rel_path, "prompt": prompt,
         "status": "done", "error": "", "is_current": 1,
         "created_at": _now(),
-        "shot_seeds": json.dumps(actual_seeds), "consistency": ""})
+        "shot_seeds": json.dumps(actual_seeds), "consistency": "",
+        "source_mode": "fallback" if used_fallback else "describe"})
     db.update("storyboard_rows", {"generation_status": "done"},
               "id=?", (row_id,))
     broadcast_gen_progress("keyframe", row_id, percent=100, status="done",
@@ -2335,21 +2388,19 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
 async def keyframe_generate(req: KeyframeGenerateRequest):
     """生成关键帧（COMIC-121）：分镜行描述 → SDXL 文生图 → 新版本登记。
 
-    持 paint 功能锁（2026-08-26 e2e 事故修复）：klein-4B 走
-    cpu_offload 权重常驻 RAM ~12GB，方案 A 逐镜循环期间 RAM 越
-    85% 线，资源守卫曾把在用管线当「空闲模型」卸载（无锁 →
-    keep_cats 不含 paint）导致 PAINT_GENERATION_FAILED。锁持有中
-    守卫/调度器深层回收/force_unload 均跳过活动功能类别——与
-    storyboard 预览图端点同一模式。
+    2026-09-02 图像队列改造：入统一图像队列（services/image_queue.py）
+    顺序消费——并发多行生图不再「同名锁双双放行后引擎盲等」，而是
+    FIFO 排队 + 排队中位次广播；paint 功能锁由队列排空循环持有
+    （锁持有中守卫/调度器深层回收/force_unload 跳过活动功能类别的
+    保护语义不变，2026-08-26 e2e 事故修复的等效实现）；vLLM 睡眠/
+    绘画管线卸载/唤醒由队列统一编排（连续生图接力免换载 churn）。
     """
-    lock = await acquire_or_raise("paint", task_id=req.row_id)
     # S7 收尾状态捕获（2026-08-28）：记录生成前 vLLM 活跃态（运行中
     # 或冷启动中均视为用户对话态）。守卫评分若系自身点火（生成前
     # 未运行），评分毕须停实例回收显存；生成前已活跃则保留。
-    # 须在 _sleep_vllm_for_vram 之前采样——睡眠会抹掉运行态。
+    # 须在队列准入 vLLM 睡眠之前采样——睡眠会抹掉运行态。
     _svc = get_vllm_service()
     vllm_was_active = _svc.is_running() or _svc.is_booting()
-    await _sleep_vllm_for_vram()
     # P2-C（2026-08-28）默认路由升级 comfy+PuLID：画风仲裁消除拔河
     # 后 comfy+PuLID 实测全面占优（face_sim 0.846 最高 + 视觉画风
     # 归位最佳，ReferenceLatent 的 latent 级画风传递强于 diffusers
@@ -2370,12 +2421,25 @@ async def keyframe_generate(req: KeyframeGenerateRequest):
         src_ver = int((_cur or {}).get("version") or 0)
         log.info("逐镜重抽请求: row=%s shots=%s src=v%d",
                  req.row_id, req.only_shots, src_ver)
-    try:
-        data = await run_blocking(
-            _generate_keyframe_sync, req.row_id, req.project_id or "",
+
+    def _kf_runner(task, check_cancel) -> dict:  # noqa: ARG001
+        return _generate_keyframe_sync(
+            req.row_id, req.project_id or "",
             (req.prompt or "").strip(), req.width, req.height,
             req.seed, req.force_new_seed, engine_backend,
             req.only_shots, src_ver, req.text_priority)
+
+    def _wait_cb(_task_id: str, pos: int) -> None:
+        broadcast_gen_progress(
+            "keyframe", req.row_id, percent=0, status="running",
+            label=f"排队中（前 {pos - 1} 个）" if pos > 1 else "排队中")
+
+    try:
+        data = await get_image_queue().submit_and_wait({
+            "task_id": f"kf:{req.row_id[:12]}:{time.time_ns():x}",
+            "kind": "keyframe", "runner": _kf_runner,
+            "loop": asyncio.get_running_loop(),
+            "wait_progress_cb": _wait_cb})
     except ApiError as exc:
         broadcast_gen_progress("keyframe", req.row_id, percent=0,
                                status="error", label="生成失败",
@@ -2387,13 +2451,6 @@ async def keyframe_generate(req: KeyframeGenerateRequest):
                                status="error", label="生成失败",
                                error=str(exc)[:200])
         raise ApiError("PAINT_GENERATION_FAILED", str(exc)[:300]) from exc
-    finally:
-        # S7 生成毕即卸：持锁先卸绘画管线（守卫跳过活动功能类别，
-        # 卸载不受干扰），再释锁唤醒 vLLM——唤醒/冷启动即有空闲
-        # 显存，避免两族 ~10GB 级权重同驻越 90% 线（V40 事故）。
-        await _unload_paint_after_gen()
-        await lock.release("paint")
-        await _wake_vllm_after_vram()
     # V37 方案B：生成后后台一致性校验（逐镜 VLM 评分 → 低分换 seed
     # 自动重抽 1 次 → 择优置当前）。不阻塞 API 返回；vLLM 唤醒（上方
     # finally 已触发）就绪后才开始评分，全程系统日志可追踪
@@ -2409,19 +2466,18 @@ async def keyframe_generate(req: KeyframeGenerateRequest):
 async def keyframe_batch(req: KeyframeBatchRequest):
     """批量关键帧生成（COMIC-122）：逐行串行生成，聚合成功/失败明细。
 
-    整批持一次 paint 锁（同功能可重入）：循环期间守卫/调度器
-    不得将在用绘画管线当空闲模型卸载（见 keyframe_generate 注释）。
+    2026-09-02 图像队列：整批=一个队列任务（循环期间队列持 paint 锁，
+    守卫不将在用管线当空闲模型卸载；批次结束由队列排空统一收尾协商）。
     """
     if not req.row_ids:
         raise ApiError(40008, "缺少 row_ids 数组")
-    lock = await acquire_or_raise("paint", task_id=f"batch:{req.project_id}")
-    await _sleep_vllm_for_vram()
-    results, failed = [], []
-    try:
+
+    def _batch_runner(task, check_cancel) -> dict:  # noqa: ARG001
+        results, failed = [], []
         for row_id in req.row_ids:
             try:
-                data = await run_blocking(
-                    _generate_keyframe_sync, str(row_id), req.project_id or "",
+                data = _generate_keyframe_sync(
+                    str(row_id), req.project_id or "",
                     "", IMG_TARGET_W, IMG_TARGET_H)
                 results.append(data)
             except ApiError as exc:
@@ -2431,14 +2487,14 @@ async def keyframe_batch(req: KeyframeBatchRequest):
                 failed.append({"row_id": str(row_id),
                                "code": "PAINT_GENERATION_FAILED",
                                "message": str(exc)[:300]})
-    finally:
-        # S7 生成毕即卸：整批结束卸一次（逐行卸会引入整管重建开
-        # 销），持锁卸载后再释锁唤醒 vLLM（见 keyframe_generate）
-        await _unload_paint_after_gen()
-        await lock.release("paint")
-        await _wake_vllm_after_vram()
-    return ok({"succeeded": results, "failed": failed,
-               "total": len(req.row_ids), "success_count": len(results)})
+        return {"succeeded": results, "failed": failed,
+                "total": len(req.row_ids), "success_count": len(results)}
+
+    data = await get_image_queue().submit_and_wait({
+        "task_id": f"kfbatch:{req.project_id[:12]}:{time.time_ns():x}",
+        "kind": "keyframe_batch", "runner": _batch_runner,
+        "loop": asyncio.get_running_loop()})
+    return ok(data)
 
 
 @router.post("/manga/keyframe/regenerate")
@@ -2505,6 +2561,7 @@ def keyframe_list(row_id: str = Query(...),
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询关键帧")
+    _ensure_source_mode_column(db)
     total_row = db.query_one(
         "SELECT COUNT(*) AS c FROM keyframes WHERE row_id=?", (row_id,))
     total = int(total_row["c"]) if total_row else 0
@@ -2558,33 +2615,28 @@ async def story_keyframe_generate(req: StoryKeyframeRequest):
                "576x1024": (576, 1024)}
     w, h = res_map.get(req.resolution, (IMG_TARGET_W, IMG_TARGET_H))
 
-    # 逐行生成（复用 keyframe_generate 核心逻辑）；整批持 paint 锁
-    # 防守卫把在用绘画管线当空闲模型卸载（见 keyframe_generate 注释）
-    succeeded: list[dict] = []
-    failed: list[dict] = []
-    lock = await acquire_or_raise("paint", task_id=f"story:{req.project_id}")
-    await _sleep_vllm_for_vram()
-    try:
+    # 逐行生成（复用 keyframe_generate 核心逻辑）；2026-09-02 图像队列：
+    # 整批=一个队列任务，paint 锁/收尾协商由队列统一编排
+    def _story_runner(task, check_cancel) -> dict:  # noqa: ARG001
+        succeeded: list[dict] = []
+        failed: list[dict] = []
         for r in targets:
             try:
-                data = await run_blocking(
-                    _generate_keyframe_sync, str(r["id"]), req.project_id,
-                    "", w, h)
+                data = _generate_keyframe_sync(
+                    str(r["id"]), req.project_id, "", w, h)
                 succeeded.append(data)
             except ApiError as exc:
                 failed.append({"row_id": str(r["id"]), "code": exc.code,
                                "message": exc.message})
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 failed.append({"row_id": str(r["id"]),
                                "code": "PAINT_GENERATION_FAILED",
                                "message": str(exc)[:300]})
-    finally:
-        # S7 生成毕即卸：整批结束卸一次（见 keyframe_generate 注释）
-        await _unload_paint_after_gen()
-        await lock.release("paint")
-        await _wake_vllm_after_vram()
+        return {"succeeded": succeeded, "failed": failed,
+                "success_count": len(succeeded), "total": len(targets),
+                "degraded": False, "degrade_reason": ""}
 
-    return ok({"succeeded": succeeded, "failed": failed,
-               "success_count": len(succeeded), "total": len(targets),
-               "degraded": False,
-               "degrade_reason": ""})
+    return ok(await get_image_queue().submit_and_wait({
+        "task_id": f"kfstory:{req.project_id[:12]}:{time.time_ns():x}",
+        "kind": "keyframe_batch", "runner": _story_runner,
+        "loop": asyncio.get_running_loop()}))

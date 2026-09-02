@@ -347,9 +347,11 @@ export default function AssetDock() {
   const handleMultiview = () => {
     if (!currentProject) return;
     if (!mvName.trim()) { showToast('请输入角色名称', 'warning'); return; }
-    if (!mvDesc.trim()) { showToast('请输入外观描述', 'warning'); return; }
+    if (!mvDesc.trim()) { showToast('请填写外观描述', 'warning'); return; }
     setGenerating(true);
-    generateTurnaround({ project_id: currentProject.id, name: mvName.trim(), prompt: mvDesc.trim() })
+    generateTurnaround({
+      project_id: currentProject.id, name: mvName.trim(), prompt: mvDesc.trim(),
+    })
       .then((res) => {
         if (res.degraded) showToast(res.degrade_reason || '多视图为降级管线产出', 'warning');
         else showToast('角色多视图已生成', 'success');
@@ -704,7 +706,7 @@ export default function AssetDock() {
             </div>
             <div>
               <div className="text-secondary mb-2" style={{ fontSize: 'var(--font-size-xs)' }}>外观描述</div>
-              <textarea className="input" rows={3} value={mvDesc} maxLength={500} style={{ resize: 'vertical' }} onChange={(e) => setMvDesc(e.target.value)} placeholder="如：双马尾，樱花粉卫衣，薄荷绿短裙，运动鞋" />
+              <textarea className="input" rows={3} value={mvDesc} maxLength={500} style={{ resize: 'vertical' }} onChange={(e) => setMvDesc(e.target.value)} placeholder="如：16岁少女，樱花粉卫衣，薄荷绿短裙，白色运动鞋" />
             </div>
             <div className="flex gap-3" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" disabled={generating} onClick={() => setMultiviewOpen(false)}>取消</button>

@@ -1,0 +1,7 @@
+{
+  "name": "3D国漫·写实",
+  "style_block": "3D Chinese donghua animation style, realistic grounded facial modeling with distinct character features, unreal engine 5 cinematic render, refined wuxia costume and hair detail, subsurface scattering skin texture, dramatic volumetric lighting, epic establishing-shot composition, film-grade muted color grading",
+  "negative_hint": "2D flat anime shading, thick outlines, western cartoon, plastic skin, toy figure",
+  "post": "realistic",
+  "base_prefs": ["flux2-klein-9b", "flux2-klein-4b"]
+}

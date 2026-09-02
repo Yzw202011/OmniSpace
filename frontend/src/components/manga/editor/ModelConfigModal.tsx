@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, Settings2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { listAvailableModels } from '@/services/mangaApi';
+import { getModuleModelConfig, saveModuleModelConfig } from '@/services/modelApi';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import { DEFAULT_MODEL_CONFIG, writeModelConfig, type MangaModelConfig } from '@/constants/modelConfig';
 import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig';
@@ -112,10 +113,33 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
     showToast('已恢复默认模型配置', 'success');
   };
 
-  /** 保存：写 localStorage，供生成视频确认弹窗等读取回填 */
+  /** 保存：写 localStorage（画幅/时长，供确认弹窗回填），并把三个模型
+   *  选型同步到后端 module-config 的 manga-* 槽 default（2026-08-31
+   *  接线：此前仅存 localStorage，推理/绘画选型无任何生成链路消费——
+   *  用户「模型配置没生效」主诉根因）。后端同步失败仅提示，不阻断本地
+   *  保存（画幅/时长仍生效）。 */
   const handleSave = () => {
     writeModelConfig(cfg);
-    showToast('模型配置已保存', 'success');
+    void (async () => {
+      try {
+        const res = await getModuleModelConfig();
+        const configs = { ...res.config };
+        const pairs: Array<[string, string]> = [
+          ['manga-dialog', cfg.dialogModel],
+          ['manga-paint', cfg.paintModel],
+          ['manga-video', cfg.videoModel],
+        ];
+        for (const [slot, modelId] of pairs) {
+          const cur = configs[slot] || { allowed: [], default: '' };
+          configs[slot] = { allowed: cur.allowed, default: modelId };
+        }
+        await saveModuleModelConfig(configs);
+      } catch {
+        showToast('模型选型同步到后端失败（画幅/时长仍已保存），可稍后重试', 'warning');
+        return;
+      }
+      showToast('模型配置已保存', 'success');
+    })();
     onClose();
   };
 

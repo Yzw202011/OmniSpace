@@ -107,13 +107,9 @@ def _chars():
 
 
 def _char_protocol_ns() -> dict:
-    """_shot_char_protocol 沙箱：连同 _char_anchor_name 与
-    common.traits_line（含 _TRAIT_KEYS 常量）一起抽取——M-26 文字锚
-    依赖链。"""
+    """_shot_char_protocol 沙箱：连同 _char_anchor_name 一起抽取。"""
     ns = _extract(KEYFRAME_PY,
                   {"_shot_char_protocol", "_char_anchor_name"}, set())
-    common_ns = _extract(COMMON_PY, {"traits_line"}, {"_TRAIT_KEYS"})
-    ns.update(common_ns)
     return ns
 
 
@@ -133,21 +129,19 @@ def test_char_protocol_fallback_all_and_multi_wording():
     assert "始终只有这一个角色" not in prompt
 
 
-def test_char_protocol_traits_anchor():
-    """M-26：meta.traits 注入文字锚（跨镜一致性结构保障）。
-
-    顶层 traits 键与 meta.traits 旧形态都识别；无 traits 措辞不变。
-    """
+def test_char_protocol_name_only_anchor():
+    """2026-09-02 结构化属性移除后：锚 = 纯名字（残留 traits 键被忽略，
+    不影响锚措辞）；无 traits 措辞与移除前一致。"""
     f = _char_protocol_ns()["_shot_char_protocol"]
     a1 = {"kind": "character", "name": "小满",
-          "traits": {"gender": "女", "hair": "黑色双马尾"}}
+          "traits": {"gender": "女", "hair": "黑色双马尾"}}  # 历史残留键
     a2 = {"kind": "character", "name": "阿澈",
           "meta": {"traits": {"gender": "男", "age": "中年"}}}
     prompt, chosen = f([a1, a2], "小满与阿澈同行")
     assert len(chosen) == 2
-    assert "小满（女，黑色双马尾）" in prompt
-    assert "阿澈（男，中年）" in prompt
-    # 单角色 + 空 traits：与旧措辞完全一致（回归保护）
+    assert "小满" in prompt and "（女，黑色双马尾）" not in prompt
+    assert "阿澈" in prompt and "（男，中年）" not in prompt
+    # 单角色：措辞与旧版完全一致（回归保护）
     prompt2, _ = f([{"kind": "character", "name": "小满"}], "小满独行")
     assert prompt2 == "小满，外貌、服装与角色设定图严格一致"
 

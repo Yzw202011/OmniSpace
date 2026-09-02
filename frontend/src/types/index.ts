@@ -502,64 +502,149 @@ export interface ArtStyleDef {
   hot?: boolean;
 }
 
-const _styleImg = (p: string) =>
-  `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(p)}&image_size=square`;
+/** 卡片缩略图（2026-08-31 本地化：原外链 trae 文生图 API 加载不可靠，
+ *  改用本地引擎按各卡风格词实拍，静态资源 frontend/public/style-thumbs；
+ *  兜底：文件缺失时由渲染层回退调色板图标） */
+const _styleImg = (key: string) => `/style-thumbs/${key}.png`;
 
 export const ART_STYLES: ArtStyleDef[] = [
   {
     key: 'pixar', label: '3D卡通', desc: '皮克斯·茶啊二中质感', hot: true,
     prompt: '3D cartoon style, Pixar style, clay material rendering, soft cinematic lighting, round cute face, clean and bright, high quality',
-    thumb: _styleImg('3D cartoon style, Pixar animation, round cute characters, soft cinematic lighting, clay material rendering, clean and bright'),
+    thumb: _styleImg('pixar'),
   },
   {
     key: 'anime', label: '日系动漫', desc: '清新通用 · 量产稳定', hot: true,
     prompt: 'japanese anime style, vibrant colors, clean lineart, detailed character art, smooth lines',
-    thumb: _styleImg('japanese anime style illustration, vibrant colors, detailed character art, clean lineart'),
+    thumb: _styleImg('anime'),
   },
   {
     key: 'chibi', label: 'Q版卡通', desc: '2-3头身 · 萌系极速', hot: true,
     prompt: 'chibi style, 2-3 head-body ratio, cute exaggerated features, high saturation colors, adorable',
-    thumb: _styleImg('cute chibi cartoon characters, big head small body, high saturation pastel colors, adorable'),
+    thumb: _styleImg('chibi'),
   },
   {
     key: 'guofeng', label: '国风2D', desc: '工笔重彩 · 东方美学', hot: true,
     prompt: 'chinese guofeng 2D anime style, gongbi meticulous line art, elegant oriental aesthetics, ink-wash tinted colors, graceful traditional costume design, semi-3D soft shading',
-    thumb: _styleImg('chinese guofeng 2D anime illustration, gongbi fine lineart, elegant oriental aesthetic, soft ink and pastel colors, flowing hanfu'),
+    thumb: _styleImg('guofeng'),
   },
   {
     key: 'xuanhuan', label: '3D国风', desc: '玄幻仙侠 · 华丽特效', hot: true,
     prompt: 'chinese fantasy 3D animation render, xianxia aesthetic, gorgeous ancient costumes, glowing magic effects, grand celestial architecture, epic cinematic lighting',
-    thumb: _styleImg('chinese fantasy xianxia 3D world, floating mountains, ancient palace, glowing magic effects, epic cinematic'),
+    thumb: _styleImg('xuanhuan'),
   },
   {
     key: 'manhwa', label: '韩漫半写实', desc: '半写实 · 分层上色 · 爆款主力', hot: true,
     prompt: 'korean manhwa webtoon style, semi-realistic proportions, layered soft shading with subtle gradients, clean polished faces, trendy cinematic color grading',
-    thumb: _styleImg('korean manhwa webtoon style illustration, semi-realistic handsome characters, layered soft shading, trendy color grading'),
+    thumb: _styleImg('manhwa'),
   },
   {
     key: 'thickpaint', label: '厚涂玄幻', desc: '厚涂CG · 史诗质感',
     prompt: 'digital thick paint CG illustration, impasto brush strokes, rich material textures, dramatic volumetric lighting, epic fantasy atmosphere, layered depth',
-    thumb: _styleImg('digital thick paint fantasy illustration, dramatic volumetric lighting, rich material textures, epic atmosphere'),
+    thumb: _styleImg('thickpaint'),
   },
   {
     key: 'inkwash', label: '水墨国风', desc: '水墨写意 · 意境留白',
     prompt: 'chinese ink wash painting, shui-mo style, brush strokes, misty atmosphere, negative space',
-    thumb: _styleImg('chinese ink wash painting, misty mountains, brush strokes, minimalist zen, black and white with subtle color'),
+    thumb: _styleImg('inkwash'),
   },
   {
     key: 'cyberpunk', label: '赛博朋克', desc: '科幻3D · 霓虹未来',
     prompt: 'cyberpunk style, neon lights, futuristic sci-fi city, moody atmosphere, high tech low life',
-    thumb: _styleImg('cyberpunk city night, neon lights, futuristic sci-fi atmosphere, rain reflections, moody'),
+    thumb: _styleImg('cyberpunk'),
   },
   {
     key: 'real3d', label: '3D写实', desc: '电影级CG · 质感细腻',
     prompt: '3D render, realistic CGI, cinematic lighting, detailed textures, movie quality',
-    thumb: _styleImg('3D render, realistic CGI character, cinematic lighting, detailed skin textures, movie quality'),
+    thumb: _styleImg('real3d'),
   },
   {
     key: 'battle', label: '热血战斗', desc: '高对比度 · 燃系张力',
     prompt: 'shonen battle anime style, high contrast, dynamic action poses, dramatic lighting, intense energy effects',
-    thumb: _styleImg('shonen battle anime, dynamic action scene, high contrast dramatic lighting, energy effects'),
+    thumb: _styleImg('battle'),
+  },
+  // ── 2026-08-31 新增 12 主流风格包卡（引擎级真实切换底座/后处理）──
+  {
+    key: 'comic_en', label: '美式漫画', desc: '超英分镜 · 网点硬线条',
+    prompt: 'american comic book art, bold ink outlines, halftone dot shading, dynamic action panels, high saturation primary colors',
+    thumb: _styleImg('comic_en'),
+  },
+  {
+    key: 'manga_bw', label: '日式黑白漫画', desc: '网点纸 · 高对比墨线',
+    prompt: 'black and white japanese manga, screentone halftone shading, crisp ink linework, dramatic paneling, monochrome',
+    thumb: _styleImg('manga_bw'),
+  },
+  {
+    key: 'ghibli', label: '吉卜力手绘', desc: '水彩背景 · 温暖自然光',
+    prompt: 'ghibli style hand-painted animation, soft watercolor backgrounds, gentle natural sunlight, warm nostalgic atmosphere',
+    thumb: _styleImg('ghibli'),
+  },
+  {
+    key: 'pixel', label: '像素风', desc: '16位复古游戏 · 抖动上色',
+    prompt: 'pixel art, 16-bit retro game style, crisp pixels, limited color palette, dithering',
+    thumb: _styleImg('pixel'),
+  },
+  {
+    key: 'uscartoon', label: '美式卡通', desc: '扁平夸张 · 粗描边明快',
+    prompt: 'american cartoon style, flat bold shapes, exaggerated expressions, thick outlines, bright playful colors',
+    thumb: _styleImg('uscartoon'),
+  },
+  {
+    key: 'steampunk', label: '蒸汽朋克', desc: '黄铜齿轮 · 维多利亚复古',
+    prompt: 'steampunk, victorian brass machinery, gears and clockwork, copper steam pipes, sepia warm tones',
+    thumb: _styleImg('steampunk'),
+  },
+  {
+    key: 'flat', label: '扁平插画', desc: '几何色块 · 商业设计向',
+    prompt: 'flat design illustration, clean geometric shapes, minimal vector style, bold color blocks, no gradients',
+    thumb: _styleImg('flat'),
+  },
+  {
+    key: 'claymation', label: '黏土定格', desc: '手工黏土 · 定格动画质感',
+    prompt: 'claymation, stop-motion clay puppet, fingerprint texture, handcrafted plasticine surfaces, soft studio lighting',
+    thumb: _styleImg('claymation'),
+  },
+  {
+    key: 'popart', label: '波普复古', desc: '复古印刷 · 双色撞色',
+    prompt: 'pop art style, retro print poster, halftone dots, bold duotone colors, screenprint grain',
+    thumb: _styleImg('popart'),
+  },
+  {
+    key: 'storybook', label: '童话绘本', desc: '水粉蜡笔 · 暖粉彩亲子向',
+    prompt: 'children storybook illustration, soft gouache and crayon texture, warm pastel palette, cute rounded shapes',
+    thumb: _styleImg('storybook'),
+  },
+  {
+    key: 'gothic', label: '哥特暗黑', desc: '巴洛克阴影 · 深红炭黑',
+    prompt: 'gothic dark fantasy, baroque shadows, ornate dark architecture, deep crimson and charcoal palette, chiaroscuro',
+    thumb: _styleImg('gothic'),
+  },
+  {
+    key: 'lowpoly', label: '低多边形3D', desc: '几何切面 · 风格化简约',
+    prompt: 'low poly 3D render, faceted geometry, flat shaded polygons, stylized minimal shapes, gradient color blocking',
+    thumb: _styleImg('lowpoly'),
+  },
+  // ── 2026-09-02 新增 4 包（市场调研爆款赛道：3D国漫/悬疑/次世代二次元；
+  //    key=gen_router 包 sid，中文定族行走后端 _ART_STYLE_ZH）──
+  {
+    key: 'donghua3d', label: '3D国漫写实', desc: '凡人修仙传派 · UE5渲染',
+    prompt: '3D Chinese donghua animation style, realistic grounded facial modeling, unreal engine 5 cinematic render, subsurface scattering skin, film-grade muted color grading',
+    thumb: _styleImg('donghua3d'),
+  },
+  {
+    key: 'mystery3d', label: '3D国漫悬疑暗黑', desc: '冷灰蓝 · 光影切割 · 推理',
+    prompt: '3D donghua characters, murder mystery atmosphere, desaturated cold grey-blue palette, chiaroscuro lighting, single warm light accent, film noir grading',
+    thumb: _styleImg('mystery3d'),
+  },
+  {
+    key: 'xianxia_cg', label: '次世代二次元仙侠CG', desc: '卡通脸+PBR实景 · 二游CG',
+    prompt: 'next-gen anime game CG, cel-shaded anime face with rim light, NPR character over PBR realistic environment, xianxia fantasy, sea of clouds, immortal palaces',
+    thumb: _styleImg('xianxia_cg'),
+  },
+  {
+    key: 'guofeng_hist', label: '3D古风历史', desc: '纯历史质感 · 汉服宫殿 · 无光效',
+    prompt: 'ancient Chinese historical 3D render, hanfu with realistic fabric texture, palace halls, warm candlelight, muted ivory vermilion ink palette, UE5 cinematic',
+    thumb: _styleImg('guofeng_hist'),
   },
 ];
 
@@ -570,6 +655,10 @@ export interface CustomArtStyle {
   name: string;
   prompt: string;
   created_at: number;
+  /** 归属风格包 id（2026-08-31 卡片↔包显式绑定；custom:* 为导入包） */
+  pack?: string;
+  /** 是否带导入的风格包定义（旧数据为 false，路由回落嗅探） */
+  has_pack_def?: boolean;
 }
 
 /** 模型配置（工序弹窗 G2 复用） */
@@ -625,6 +714,9 @@ export interface KeyframeItem {
   shot_seeds?: string;
   /** V37：VLM 一致性评分 JSON（shots/min/retried/picked 等） */
   consistency?: string;
+  /** 画面来源（2026-09-03 方案A）：describe=按描述词；fallback=无描述词原文直出；
+   *  空串=旧数据未知（不标注） */
+  source_mode?: string;
   created_at: number;
 }
 
@@ -859,6 +951,8 @@ export interface OmniTask {
   pausable?: boolean;
   /** 是否暂停中 */
   paused?: boolean;
+  /** 排队位次（1 起；status=pending 且后端视频/图像队列在队时携带） */
+  queue_position?: number;
   created_at?: string | number;
   updated_at?: string | number;
 }

@@ -13,7 +13,7 @@
  * AI 前置守卫：行未持久化（本地新建行）时先全量保存再调单行端点。
  * ========================================================================== */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, History, ImagePlus, Mic, RotateCcw, Sparkles, Trash2, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -27,7 +27,10 @@ import {
 } from '@/services/mangaApi';
 import { ROW_GEN_STATUS_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportActionError, reportBgError } from '@/utils/errors';
+import { warmupFeature } from '@/services/modelApi';
+import { useWarmupStore } from '@/stores/useWarmupStore';
 import { readPromptPrefix } from './batchOps';
+import { waitPaintReady } from './waitPaintReady';
 import { useGenProgress } from './useGenProgress';
 import AssetLightbox from './AssetLightbox';
 
@@ -115,26 +118,68 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
       .finally(() => setBusy(''));
   }, [currentProject, row, ensurePersisted, updateRow, showToast]);
 
+  // 自动续跑中标记：等待模型加载期间保持「生成中」按钮态，防止 finally 提前收敛
+  const autoRetryingRef = useRef(false);
+
   const handleGenerateKeyframe = useCallback(
     () => {
       if (!currentProject || !selectedRowId) return;
       // 有历史版本 = 重生成（产出新版本，旧版保留可回退），否则首版生成
       const existing = useMangaStore.getState().keyframes[selectedRowId];
       const regenerate = (existing?.length ?? 0) > 0;
-      setGenerating(true);
-      ensurePersisted()
-        .then(() =>
-          regenerate
-            ? regenerateKeyframe({ row_id: selectedRowId, project_id: currentProject.id })
-            : generateKeyframe({ row_id: selectedRowId, project_id: currentProject.id }),
-        )
-        .then(() => {
-          showToast(regenerate ? '已重新生成新版本' : '分镜图已生成', 'success');
-          invalidateKeyframes(selectedRowId);
-          return fetchKeyframes(selectedRowId);
-        })
-        .catch((err: unknown) => showToast(getErrorMessage(err, '分镜图生成失败'), 'error'))
-        .finally(() => setGenerating(false));
+
+      const runOnce = (allowAutoRetry: boolean) => {
+        setGenerating(true);
+        ensurePersisted()
+          .then(() =>
+            regenerate
+              ? regenerateKeyframe({ row_id: selectedRowId, project_id: currentProject.id })
+              : generateKeyframe({ row_id: selectedRowId, project_id: currentProject.id }),
+          )
+          .then(() => {
+            showToast(regenerate ? '已重新生成新版本' : '分镜图已生成', 'success');
+            invalidateKeyframes(selectedRowId);
+            return fetchKeyframes(selectedRowId);
+          })
+          .catch((err: unknown) => {
+            const msg = getErrorMessage(err, '分镜图生成失败');
+            // 模型未加载类失败（2026-08-31 用户需求「立刻加载+告知，
+            // 且不要用户再点一次」）：立即点火后台预热 + 弹加载进度
+            // 弹窗，就绪后自动重试一次本次生成
+            if (allowAutoRetry && /MODEL_LOAD_FAILED|PAINT_ENGINE_NOT_READY|绘画模型未就绪|模型未加载|未处于已加载/.test(msg)) {
+              autoRetryingRef.current = true;
+              showToast(
+                `${msg}。正在自动加载绘画模型（约 0.5-2 分钟，弹窗可见进度），就绪后将自动继续生成，无需重新点击`,
+                'info',
+              );
+              void warmupFeature('paint')
+                .then((r) => {
+                  if (r?.started) useWarmupStore.getState().begin(undefined, 'paint');
+                })
+                .catch(() => { /* 预热点火失败静默：等待窗口内后端任务会再兜底装载 */ });
+              void waitPaintReady(150_000).then((ready) => {
+                autoRetryingRef.current = false;
+                if (ready) {
+                  runOnce(false); // 就绪 → 自动续跑（仅一次，防循环）
+                } else {
+                  setGenerating(false);
+                  showToast(
+                    `${msg}。等待模型加载超时：可稍后再点一次「生成」，`
+                    + '或到「模型管理 → AI 绘画」手动加载',
+                    'warning',
+                  );
+                }
+              });
+            } else {
+              showToast(msg, 'error');
+            }
+          })
+          .finally(() => {
+            if (!autoRetryingRef.current) setGenerating(false);
+          });
+      };
+
+      runOnce(true);
     },
     [currentProject, selectedRowId, ensurePersisted, invalidateKeyframes, fetchKeyframes, showToast],
   );
@@ -246,6 +291,19 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
 
       {/* 4. AI 生图主按钮（全宽；有版本 = 重新生成出新版，旧版保留可回退；
           生成中显示 WS 实时进度条填充 + 镜序标签） */}
+      {(() => {
+        const curKf = keyframes?.find((k) => k.is_current) ?? keyframes?.[0];
+        if (curKf?.source_mode !== 'fallback') return null;
+        return (
+          <p
+            className="text-secondary"
+            style={{ margin: 0, fontSize: 'var(--font-size-xs)', padding: '2px 0' }}
+            title="该行未生成描述词，此图按剧本原文直接生成；建议先生成描述词再重新生成分镜图以获得一致性与细节"
+          >
+            ⚠ 当前图为兜底模式（原文直出，未使用描述词）
+          </p>
+        );
+      })()}
       <button
         type="button"
         className="btn btn-primary manga-asset-gen-btn"

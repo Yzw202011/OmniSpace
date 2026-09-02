@@ -32,6 +32,8 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
+import { useWarmupStore } from '@/stores/useWarmupStore';
+import { warmupFeature } from '@/services/modelApi';
 import {
   assetMediaVersion,
   deleteAssetReference,
@@ -72,10 +74,9 @@ function formatHistoryTime(ts: number): string {
 export default function AssetDetailPanel() {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
-  const assets = useMangaStore((s) => s.assets);
+  const asset = useMangaStore((s) => s.assets.find((a) => a.asset_id === s.selectedAssetId));
   const selectedAssetId = useMangaStore((s) => s.selectedAssetId);
   const setSelectedAsset = useMangaStore((s) => s.setSelectedAsset);
-  const asset = useMangaStore((s) => s.assets.find((a) => a.asset_id === s.selectedAssetId));
   const fetchAssets = useMangaStore((s) => s.fetchAssets);
 
   /** 名称/描述词本地草稿（失焦保存） */
@@ -137,7 +138,7 @@ export default function AssetDetailPanel() {
   useEffect(() => {
     setNameDraft(asset?.name ?? '');
     setPromptDraft(asset?.prompt ?? '');
-  }, [asset?.asset_id, asset?.name, asset?.prompt]);
+  }, [asset?.asset_id, asset?.name, asset?.prompt, asset?.meta]);
 
   // 选中资产切换：重置灯箱/历史折叠（避免跨资产串状态）
   useEffect(() => {
@@ -162,8 +163,6 @@ export default function AssetDetailPanel() {
   /** 有四视图：meta.turnaround 为真且整图存在（缺 canvas 的老资产回退主图预览） */
   const hasTurnaround = isCharacter && !!asset.meta?.turnaround && !!canvasUrl;
   const mainUrl = asset.file_path ? getMediaUrl(asset.file_path, assetVer) : '';
-  /** 本项目全部角色资产（角色切换器数据源） */
-  const characterAssets = assets.filter((a) => a.kind === 'character');
   /** AI 参考图 URL（meta.reference_image 为真时：file_path 去文件名 + /reference.png） */
   const refUrl = (() => {
     if (!asset.meta?.reference_image || !asset.file_path) return '';
@@ -304,7 +303,9 @@ export default function AssetDetailPanel() {
     }
     // 本地草稿未保存时先落库，确保后端按最新描述词出图
     const persist = promptDraft.trim() !== asset.prompt
-      ? updateAsset(asset.asset_id, { prompt: promptDraft.trim() }).then(() => undefined)
+      ? updateAsset(asset.asset_id, {
+          prompt: promptDraft.trim(),
+        }).then(() => undefined)
       : Promise.resolve();
     // 角色资产四视图契约：无 meta.turnaround 首次携带 mode 升级；已有则传 {} 重生成四视图
     const regenBody = isCharacter
@@ -315,7 +316,23 @@ export default function AssetDetailPanel() {
       .then(() => regenerateAsset(asset.asset_id, regenBody))
       .then((res) => {
         if (res.degraded) {
-          showToast(res.degrade_reason || '资产图为降级管线产出', 'warning');
+          const reason = res.degrade_reason || '资产图为降级管线产出';
+          // 引擎未就绪降级（2026-08-31 用户需求「立刻加载+告知」）：后端
+          // 本次已自动尝试加载但失败 → 立即点火后台预热 + 弹加载进度窗，
+          // 就绪后用户再点一次即出图（与 InspectorPanel 分镜生图同款语义）
+          if (/未就绪|未加载|PAINT_ENGINE/.test(reason)) {
+            void warmupFeature('paint')
+              .then((r) => {
+                if (r?.started) useWarmupStore.getState().begin(undefined, 'paint');
+              })
+              .catch(() => { /* 预热点火失败静默，指引已给 */ });
+            showToast(
+              `${reason}。正在后台自动加载绘画模型（弹窗可见进度），就绪后请再点一次「AI 生图」`,
+              'warning',
+            );
+          } else {
+            showToast(reason, 'warning');
+          }
         } else {
           showToast(isCharacter ? '角色四视图已生成' : '资产图已生成', 'success');
         }
@@ -419,23 +436,6 @@ export default function AssetDetailPanel() {
             </div>
           )}
         </div>
-      )}
-
-      {/* 3. 角色切换器（仅角色：本项目全部角色资产） */}
-      {isCharacter && (
-        <select
-          className="input manga-char-switch"
-          value={asset.asset_id}
-          title="切换查看本项目其他角色"
-          aria-label="切换角色"
-          onChange={(e) => setSelectedAsset(e.target.value)}
-        >
-          {characterAssets.map((c) => (
-            <option key={c.asset_id} value={c.asset_id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
       )}
 
       {/* 4. 名称（失焦保存） */}

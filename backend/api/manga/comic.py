@@ -94,6 +94,24 @@ def _safe_unlink(path: Path, base: Path) -> None:
         log.warning("文件删除失败 %s: %s", path, exc)
 
 
+def _cleanup_comfy_run_dirs(task_ids: list[str]) -> None:
+    """ComfyUI 侧链式视频工作目录回收（2026-08-31 删除机制补全）。
+
+    链式引擎收片是 move（成片 MP4 不留 ComfyUI），但 output/h3_chains/
+    h3chain_<task_id>/ 下的链式中间帧工作目录从不清理，无限累积
+    （08-31 实测积压 5.4G）。删除记录/删行/删项目时一并回收；
+    零信任守卫同源：resolve 后必须在 _COMFY_OUTPUT 内。
+    """
+    try:
+        # 延迟导入：services 层符号，避免 api 层模块装载顺序耦合
+        from ...services.inference.h3_engine import _COMFY_OUTPUT
+        for tid in task_ids:
+            _safe_rmtree(_COMFY_OUTPUT / "h3_chains" / f"h3chain_{tid}",
+                         _COMFY_OUTPUT)
+    except Exception as exc:  # noqa: BLE001 - 清理失败不阻塞主流程
+        log.warning("ComfyUI 工作目录清理失败: %s", exc)
+
+
 def _cleanup_project_disk(project_id: str, row_ids: list[str],
                           video_files: list[str],
                           video_task_ids: list[str]) -> None:
@@ -126,6 +144,10 @@ def _cleanup_project_disk(project_id: str, row_ids: list[str],
         for tid in video_task_ids:
             for root in video_roots:
                 _safe_unlink(root / f"{tid}.mp4", root)
+        # ComfyUI 侧链式中间帧工作目录（成片已 move 走，此处只剩死重）
+        # （task_ids 为未定义名——Cython 编译期静态检查揪出的潜伏 NameError，
+        #   实际应为 video_task_ids，2026-09-01 修复）
+        _cleanup_comfy_run_dirs(video_task_ids)
     except Exception as exc:  # noqa: BLE001 - 磁盘清理不阻塞主流程
         log.warning("项目磁盘清理失败 %s: %s", project_id, exc)
 
@@ -188,16 +210,21 @@ def art_style_list():
     返回 key=custom:{id}（创建项目时直接写入 projects.art_style）。
     """
     db = get_db_safe()
+    if db is not None:
+        _ensure_pack_columns(db)
     items: list[dict] = []
     if db is not None:
         try:
             rows = db.query(
-                "SELECT id, name, prompt, created_at FROM art_styles"
-                " ORDER BY created_at DESC")
+                "SELECT id, name, prompt, created_at, pack, pack_def "
+                "FROM art_styles ORDER BY created_at DESC")
             items = [{"style_id": r["id"], "key": f"custom:{r['id']}",
                       "name": r.get("name", ""),
                       "prompt": r.get("prompt", ""),
-                      "created_at": r.get("created_at", 0)} for r in rows]
+                      "created_at": r.get("created_at", 0),
+                      "pack": r.get("pack", "") or "",
+                      "has_pack_def": bool(r.get("pack_def", ""))}
+                     for r in rows]
         except Exception as exc:  # noqa: BLE001
             log.warning("自定义风格列表读取失败: %s", exc)
     return ok({"items": items, "total": len(items)})
@@ -205,7 +232,13 @@ def art_style_list():
 
 @router.post("/comic/art-style/create")
 def art_style_create(req: ArtStyleCreate):
-    """新增自定义风格（重名拒绝；名称≤30字，提示词≤500字）。"""
+    """新增自定义风格（重名拒绝；名称≤30字，提示词≤500字）。
+
+    2026-08-31 用户裁定：自定义风格**必须导入风格包**（pack_def JSON，
+    parse_custom_pack 校验）——此前纯文本自定义只影响提示词、引擎
+    行为与默认无异；现在导入的包定义（底座偏好 + 后处理档位 +
+    风格词块）随生成真实生效。
+    """
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法保存风格")
@@ -215,12 +248,61 @@ def art_style_create(req: ArtStyleCreate):
     dup = db.query_one("SELECT id FROM art_styles WHERE name=?", (name,))
     if dup is not None:
         raise ApiError("COMIC_ART_STYLE_NAME_DUPLICATED", detail={"name": name})
+    pack_raw = (req.pack_def or "").strip()
+    if not pack_raw:
+        raise ApiError(
+            40008, "必须导入风格包（.json 文件）——自定义风格需携带"
+            "底座偏好/后处理档位/风格词块定义，模板见弹窗下载示例")
+    from ...services.inference.gen_router import parse_custom_pack
+    _pack, pack_err = parse_custom_pack(pack_raw)
+    if _pack is None:
+        raise ApiError(40008, f"风格包校验失败：{pack_err}")
     sid = uuid.uuid4().hex[:7]
     prompt = req.prompt.strip()
+    _ensure_pack_columns(db)
     db.insert("art_styles", {"id": sid, "name": name, "prompt": prompt,
-                             "created_at": _now()})
+                             "created_at": _now(), "pack": _pack.sid,
+                             "pack_def": pack_raw})
     return ok({"style_id": sid, "key": f"custom:{sid}", "name": name,
-               "prompt": prompt})
+               "prompt": prompt, "pack": _pack.sid,
+               "pack_label": _pack.label})
+
+
+def _ensure_pack_columns(db) -> None:
+    """art_styles 补 pack / pack_def 列（幂等）+ 首次全量族回填。
+
+    回填（2026-08-31 卡片↔包显式绑定）：按 detect_style 对 name+
+    prompt 命中写 pack 列（2026-09-02 起与嗅探/定族同口径收口，
+    三处不再各写一份匹配循环）——大族卡（韩漫/3D/水墨…）生成时
+    确定切换底座/后处理，不再依赖 A 段措辞嗅探。仅在 pack
+    列全空时执行一次（单事务批量提交）。
+    """
+    cols = {r["name"] for r in db.query("PRAGMA table_info(art_styles)")}
+    if "pack" not in cols:
+        db.sql("ALTER TABLE art_styles ADD COLUMN pack TEXT DEFAULT ''")
+    if "pack_def" not in cols:
+        db.sql("ALTER TABLE art_styles ADD COLUMN pack_def TEXT DEFAULT ''")
+    try:
+        tagged = db.query_one(
+            "SELECT COUNT(*) AS n FROM art_styles WHERE pack!=''") or {}
+        if int(tagged.get("n") or 0) > 0:
+            return
+        from ...services.inference.gen_router import detect_style
+        rows = db.query("SELECT id, name, prompt FROM art_styles")
+        updates = []
+        for row in rows:
+            text = f"{row.get('name', '')}、{row.get('prompt', '')}"
+            sid = detect_style(text).sid
+            if sid != "default":  # 未命中不绑（生成时回落嗅探，同旧）
+                updates.append((sid, row["id"]))
+        if updates:
+            db.execute_in_transaction(lambda conn: [
+                conn.execute("UPDATE art_styles SET pack=? WHERE id=?", u)
+                for u in updates])
+            log.info("art_styles 族回填完成: %d/%d 张卡绑定风格包",
+                     len(updates), len(rows))
+    except Exception as exc:  # noqa: BLE001 - 回填失败不阻断接口
+        log.warning("art_styles 族回填失败（不影响现有行为）: %s", exc)
 
 
 @router.delete("/comic/art-style/{style_id}")

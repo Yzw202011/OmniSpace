@@ -12,10 +12,11 @@
  * ========================================================================== */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, History, ImageIcon, PlayCircle, RefreshCw, Video } from 'lucide-react';
+import { Download, History, ImageIcon, PlayCircle, RefreshCw, Trash2, Video } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import {
+  deleteVideoHistory,
   getMediaUrl,
   getVideoDownloadUrl,
   listImageTasks,
@@ -177,6 +178,19 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
       .finally(() => setBusyId(''));
   };
 
+  /** 删除视频记录（2026-08-31 删除机制补全：DB 行 + MP4 文件级联，不可恢复） */
+  const handleDeleteVideo = (task: Awaited<ReturnType<typeof listVideoTasks>>['items'][number]) => {
+    if (!window.confirm(`确定删除镜 ${task.shot_number} 的视频记录？视频文件将一并删除，此操作不可恢复`)) return;
+    setBusyId(task.task_id);
+    deleteVideoHistory(task.task_id)
+      .then(() => {
+        showToast('视频记录已删除', 'success');
+        void load();
+      })
+      .catch((err: unknown) => showToast(getErrorMessage(err, '视频记录删除失败'), 'error'))
+      .finally(() => setBusyId(''));
+  };
+
   /** 图片记录行类型徽标文案（角色/场景/道具 + 动作；关键帧=镜号+版本） */
   const imageTypeLabel = (t: ImageTaskRecord): string =>
     t.category === 'keyframe'
@@ -322,6 +336,19 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
                         onClick={() => handleRetry(t)}
                       >
                         {busyId === t.task_id ? <span className="spinner manga-mini-spin" /> : <PlayCircle size={14} />}
+                      </button>
+                    )}
+                    {/* 终态任务可删（运行中后端拒绝）；删除=DB记录+MP4级联清理 */}
+                    {t.status !== 'pending' && t.status !== 'generating' && (
+                      <button
+                        type="button"
+                        className="manga-row-tool"
+                        title="删除该记录及视频文件（不可恢复）"
+                        aria-label={`镜 ${t.shot_number} 删除视频记录`}
+                        disabled={busyId !== ''}
+                        onClick={() => handleDeleteVideo(t)}
+                      >
+                        {busyId === t.task_id ? <span className="spinner manga-mini-spin" /> : <Trash2 size={14} />}
                       </button>
                     )}
                   </div>

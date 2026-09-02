@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
-import { SAVE_STATUS_LABELS, VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
+import { SAVE_STATUS_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import type { ShotSaveStatus, StoryboardRow } from '@/types';
 import { ScriptImport } from './ScriptImport';
@@ -390,58 +390,48 @@ export default function MangaWorkspace() {
         </div>
       </div>
 
-      {/* ③ 视频任务条 */}
-      {videoTasks.length > 0 && (
+      {/* ③ 视频任务告警条（方案C，2026-08-31）：常规进度统一由分镜表
+          「视频」列的进度块承载；顶栏只报失败/降级，不再堆逐行进度——
+          此前行内元素随状态出现/消失，flex-1 进度条伸缩导致行间错位
+          跳动（用户实测「排序混乱」） */}
+      {videoTasks.some((t) => t.status === 'error' || t.degraded) && (
         <div className="manga-taskbar">
-          {videoTasks.map((t) => (
-            <div key={t.task_id} className="manga-taskbar-row">
-              <span className="text-secondary" style={{ flexShrink: 0 }}>
-                分镜{t.shot_number}
-              </span>
-              <span className="text-tertiary ellipsis" style={{ maxWidth: 200 }} title={t.description}>
-                {t.description}
-              </span>
-              <span className="flex-1 rounded" style={{ height: 6, background: 'var(--color-input-bg)', overflow: 'hidden' }}>
-                <span
-                  className="block h-full"
-                  style={{
-                    width: `${Math.round(t.progress * 100)}%`,
-                    background: 'var(--color-primary)',
-                    transition: 'width var(--duration-normal) var(--ease-out)',
-                  }}
-                />
-              </span>
-              <span className="text-secondary" style={{ flexShrink: 0, width: 96 }}>
-                {VIDEO_STATUS_LABELS[t.status] ?? t.status}
-                {t.status === 'generating' && ` ${Math.round(t.progress * 100)}%`}
-              </span>
-              {t.degraded && (
-                <span className="badge warning" style={{ flexShrink: 0 }} title={t.degrade_reason || '降级管线产出'}>
-                  降级
-                </span>
-              )}
-              {t.status === 'error' && (
-                <span className="text-error ellipsis" style={{ maxWidth: 160 }} title={t.error}>
-                  {t.error || '生成失败'}
-                </span>
-              )}
-              {(t.status === 'generating' || t.status === 'pending') && (
-                <button type="button" className="manga-taskbar-action warn" title="取消任务" onClick={() => handleCancelVideo(t.task_id)}>
-                  取消
-                </button>
-              )}
-              {t.status === 'done' && t.download_url && (
-                <a className="manga-taskbar-link" href={t.download_url} download>
-                  下载 MP4
-                </a>
-              )}
-              {(t.status === 'done' || t.status === 'error') && (
-                <button type="button" className="manga-taskbar-action" title="移除记录" onClick={() => removeVideoTask(t.task_id)}>
+          {videoTasks
+            .filter((t) => t.status === 'error' || t.degraded)
+            .map((t) => (
+              <div key={t.task_id} className="manga-taskbar-row">
+                {t.status === 'error' ? (
+                  <>
+                    <span className="text-error" style={{ flexShrink: 0 }}>⚠</span>
+                    <span className="text-secondary" style={{ flexShrink: 0 }}>
+                      分镜{t.shot_number}
+                    </span>
+                    <span className="text-error ellipsis" style={{ minWidth: 0 }} title={t.error || '生成失败'}>
+                      生成失败：{t.error || '未知错误'}（表格「视频」列可重试）
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-warning" style={{ flexShrink: 0 }}>⚠</span>
+                    <span className="text-secondary" style={{ flexShrink: 0 }}>
+                      分镜{t.shot_number}
+                    </span>
+                    <span className="text-secondary ellipsis" style={{ minWidth: 0 }} title={t.degrade_reason || '降级管线产出'}>
+                      降级产出：{t.degrade_reason || 'Ken Burns 降级管线（非 AI 生成视频）'}
+                    </span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="manga-taskbar-action"
+                  style={{ marginLeft: 'auto', flexShrink: 0 }}
+                  title="移除记录"
+                  onClick={() => removeVideoTask(t.task_id)}
+                >
                   <X size={13} aria-hidden="true" />
                 </button>
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
         </div>
       )}
 
@@ -458,6 +448,7 @@ export default function MangaWorkspace() {
               onSaveStatus={setSaveStatus}
               onGenerateVideo={handleGenerateVideo}
               onOpenInspector={openInspector}
+              onCancelVideo={handleCancelVideo}
             />
           )}
         </div>

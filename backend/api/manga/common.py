@@ -23,9 +23,49 @@ from ...data.models import (
 from ...middleware.error_handler import ApiError
 from ...services.inference.paint_engine import get_paint_engine
 from ...services.inference.prompt_translator import translate_prompt_zh2en
+from ...services.offload import run_blocking
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.common")
+
+
+# ── 漫剧生成期显存协商（2026-08-31 提升为共享层，视频链路补齐） ──────────
+# 漫剧创作模块生成期间「所有其他功能尽量让渡显存」（用户裁定）：
+# vLLM 对话引擎权重卸 RAM/停进程（~7-12GB）+ 本地绘画管线卸载——
+# 关键帧链路（keyframe.py）自 S7 起已编排，视频链路同权接入。
+
+async def sleep_vllm_for_generation() -> None:
+    """生成期显存协商：vLLM 权重卸 RAM 让渡显存（best-effort）。
+
+    互斥矩阵（OmniChat ↔ OmniDraw）运行时落地：漫剧重型生成
+    （关键帧/绘画/视频）持锁后调用；失败只记日志（引擎降级链兜底）。
+    """
+    from ...engines.vllm_service import get_vllm_service
+    try:
+        await run_blocking(get_vllm_service().sleep_for_paint)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("vLLM 睡眠协商失败（不阻断生成）: %s", exc)
+
+
+async def wake_vllm_after_generation() -> None:
+    """生成期显存协商收尾：唤醒 vLLM 恢复对话能力（best-effort）。"""
+    from ...engines.vllm_service import get_vllm_service
+    try:
+        await run_blocking(get_vllm_service().wake_from_paint)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc)
+
+
+async def unload_paint_pipeline() -> None:
+    """卸载本地绘画管线驻留权重（diffusers 族，best-effort）。
+
+    关键帧 S7「生成毕即卸」同源逻辑：绘画管线与 vLLM/H3 视频两族
+    ~10GB 级权重不可同驻（用户约束 VRAM ≤90%）。幂等：未载时快速返回。
+    """
+    try:
+        await run_blocking(get_paint_engine().unload_model)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("绘画管线卸载失败（不阻断收尾）: %s", exc)
 
 
 def manga_dialog_model_id() -> str:
@@ -333,8 +373,14 @@ _ABC_PROMPT_TEMPLATE = """你是专业的 AI 视频分镜提示词工程师。�
 
 B. 高密度世界观构建：一段话（120 字以内）描述本镜世界状态快照——出场角色外貌（必须严格沿用绑定资产设定，不得改动发型/发色/服装/体型等任何外貌细节）、场景环境、时间天气、道具、角色当前情绪基准态。用外貌特征指代角色，不要使用人名。地点/机构/街道等专名（如"望云亭苑""云海大厦"）必须泛化为视觉描述（如"现代沿海别墅小区"），禁止专名原文进入 B、C 段——生图模型会按字面拆解专名（"亭"→古亭）。
 
-C. 分镜时间轴：把本镜视频切成 {shots} 个镜头，每镜一行，格式：
-[起始s-结束s] 画面：[标题] 画面内容（含景别与主体动作；心理情绪必须外化为可拍摄的表情/小动作） | 运镜：英文运镜术语（如 Slow Dolly In / Slow Tilt Up / Static Shot / Orbit） | 音效：环境音与动作音（如有台词，台词必须放进最后一个面部特写镜头并原样引用）
+C. 分镜时间轴：把本镜视频切成 {shots} 个镜头，每镜一个多行块（三行，顺序固定）：
+[起始s-结束s] 画面：[标题] 画面内容
+运镜：景别与机位运动描述
+台词：… | 音效：…
+各行要求：
+- 画面行：高密度可拍摄描述——景别、主体动作、方位与构图、情绪必须外化为可拍摄的表情/小动作（如「轻轻咬了咬下唇」「指尖微微收紧攥住纸条」）。
+- 运镜行：中文导演语言，包含景别 + 机位运动方式 + 机位高度或方向（示例：「平视大全景，沿街道轴向缓慢前推，机位高度 1.7 米」「推镜后固定机位，平视人物中景」「小幅匀速前推，从中景推至上半身近景」）。
+- 台词行：有台词写「台词：角色名（语气）：台词原文 | 音效：环境音与动作音」；无台词写「台词：无 | 音效：…」。台词必须原样引用分镜原文，只放在最后一个面部特写镜头。
 [标题] 为 2~5 字镜头小标题（如 [盛夏的街角]）。时间戳从 0.1s 连续无缝到 {duration}s（0.0s-0.1s 首帧保持段由系统拼装，不要输出）。除氛围行与 B、C 两段正文外禁止输出任何解释。
 {asset_rule}
 【绑定资产设定】<<<用户文本>>>
@@ -358,6 +404,18 @@ def _derive_shot_plan(row: dict) -> tuple[int, float]:
     return shots, duration
 
 
+def _sanitize_delimiters(text: str) -> str:
+    """界定符消毒（P3 2026-09-02 加固）。
+
+    用户可控文本（剧本原文/资产描述/旧描述词）含字面 <<<结束>>>
+    时会提前顶穿定界块，其后内容被模型当块外指令（提示词注入
+    逃逸，B3 污染实测 P3 级）。三连半角尖括号统一替换为全角——
+    视觉保留、语义失活；资产与剧本文本正常不含三连尖括号。
+    """
+    return ((text or "").replace("<<<", "＜＜＜")
+            .replace(">>>", "＞＞＞"))
+
+
 def _build_abc_prompt(row: dict, assets: list[dict]) -> str:
     """组装单行 A/B/C 生成的 LLM 提示词（氛围行 + B/C 正文由 LLM 产出）。"""
     shots, duration = _derive_shot_plan(row)
@@ -366,8 +424,10 @@ def _build_abc_prompt(row: dict, assets: list[dict]) -> str:
         lines = []
         for a in assets:
             kind = _ASSET_KIND_ZH.get(a["kind"], a["kind"] or "资产")
-            body = a["prompt"].strip() or "（无描述词）"
-            lines.append(f"- {kind}【{a['name'] or '未命名'}】：{body}")
+            body = _sanitize_delimiters(
+                a["prompt"].strip()) or "（无描述词）"
+            name = _sanitize_delimiters(a["name"] or "未命名")
+            lines.append(f"- {kind}【{name}】：{body}")
         assets_text = "\n".join(lines)
         asset_rule = ("外貌与场景一律以绑定资产设定为唯一事实来源，"
                       "B 段与 C 段不得偏离或另行发明。")
@@ -379,12 +439,15 @@ def _build_abc_prompt(row: dict, assets: list[dict]) -> str:
         assets_text = "（本镜无绑定资产）"
         asset_rule = "本镜无绑定资产：从原文合理推断角色外貌与场景，保持简洁。"
 
-    dialogue = (row.get("original_dialogue") or "").strip() or "（无台词，纯画面镜）"
+    dialogue = (_sanitize_delimiters(
+        (row.get("original_dialogue") or "").strip())
+        or "（无台词，纯画面镜）")
     old_desc = (row.get("description") or "").strip()
 
     extras: list[str] = []
     if old_desc and _ABC_MARK not in old_desc:
-        extras.append(f"【已有画面描述（供 C 段画面参考，可改写）】{old_desc}\n\n")
+        extras.append(f"【已有画面描述（供 C 段画面参考，可改写）】"
+                      f"{_sanitize_delimiters(old_desc)}\n\n")
     director_bits = []
     if (row.get("camera_type") or "").strip():
         director_bits.append(f"景别={row['camera_type'].strip()}")
@@ -401,6 +464,35 @@ def _build_abc_prompt(row: dict, assets: list[dict]) -> str:
         shots=shots, duration=f"{duration:g}", asset_rule=asset_rule,
         assets_text=assets_text, dialogue=dialogue,
         extra_context=extra_context)
+
+
+# 多行镜头块的续行前缀（2026-09-02 描述词格式 v2）：「运镜：」「台词：」
+# 「音效：」独立成行时归属上一个镜头行
+_SHOT_CONT_RE = re.compile(r"^(?:运镜|台词|音效|镜头)[：:]")
+
+# 镜头行时间码前缀（块起始判定，宽 tys 变体与 _normalize_shot_line 同源）
+_SHOT_HEAD_RE = re.compile(r"^[\[【]?\s*\d[\d.]*s?\s*[-–~—]\s*\d[\d.]*s?\s*[\]】]?")
+
+
+def _merge_multiline_shot_blocks(text: str) -> str:
+    """多行镜头块 → 单行协议（2026-09-02 描述词格式 v2 兼容层）。
+
+    目标格式（用户裁定）每镜为多行块：
+        [0.1s-3.0s] 画面：[标题] 画面内容
+        运镜：平视大全景，沿街道轴向缓慢前推，机位高度 1.7 米
+        台词：夏沐沐（小声呢喃）：… | 音效：蝉鸣渐起、风声
+    而网格协议解析器（_normalize_shot_line/_parse_abc_shots）按「一镜
+    一行」扫描——续行会被当噪音丢弃。本函数把运镜/台词/音效续行以
+    「 | 」合并回镜头行（幂等：已是单行竖线连排的 v1 格式零改动）。
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if _SHOT_CONT_RE.match(s) and out and _SHOT_HEAD_RE.match(out[-1]):
+            out[-1] = f"{out[-1]} | {s}"
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def _normalize_shot_line(line: str) -> str | None:
@@ -489,7 +581,9 @@ def _finalize_abc_body(raw: str, style_line: str,
                     break
             rest = re.sub(r"^[：:\s]+", "", rest)
             text = "B. 高密度世界观构建：" + rest
-    # C 段镜头行归一化（剥行首 C 标记后走 _normalize_shot_line）
+    # C 段镜头行归一化（多行块先合并为单行协议——2026-09-02 格式 v2，
+    # 再剥行首 C 标记后走 _normalize_shot_line）
+    text = _merge_multiline_shot_blocks(text)
     norm_lines: list[str] = []
     for line in text.splitlines():
         s = re.sub(
@@ -498,6 +592,24 @@ def _finalize_abc_body(raw: str, style_line: str,
             "", line.strip())
         shot = _normalize_shot_line(s)
         norm_lines.append(shot if shot is not None else s)
+    # 无时间码镜头行兜底（2026-09-02 格式 v2 实测）：4B 对多行格式
+    # 遵循度不足时输出「[标题] 画面：…」缺时间码——识别不出镜头行
+    # 会导致重拼跳过（网格标记丢失→视频退化单帧）。按出现序对这批行
+    # 按时长等分补 [起s-止s]（先于 reconcile，保持镜头数语义一致）。
+    if required_shots > 0 and duration > 0:
+        tcm = re.compile(r"^(\[[^\[\]]+\])\s*画面[：:]\s*(.+)$")
+        no_tc = [i for i, ln in enumerate(norm_lines)
+                 if tcm.match(ln.strip())
+                 and not re.match(r"^[\[【]?\d[\d.]*s", ln.strip())]
+        if no_tc and len(no_tc) <= required_shots * 2:
+            span = max(duration - 0.1, 0.5) / len(no_tc)
+            for k, i in enumerate(no_tc):
+                t0 = round(0.1 + span * k, 1)
+                t1 = round(0.1 + span * (k + 1), 1)
+                m = tcm.match(norm_lines[i].strip())
+                if m:
+                    norm_lines[i] = (f"[{t0:g}s-{t1:g}s] 画面："
+                                     f"{m.group(1)} {m.group(2)}".rstrip())
     # 镜头数兜底（2026-08-26 用户裁定）：LLM 镜头数 ≠ 模板要求时按
     # 时长等分补齐/合并——网格布局由代码确定性决定，不依赖 4B 遵循度。
     if required_shots > 0:
@@ -768,8 +880,9 @@ def _normalize_direct_abc(desc: str) -> str:
     shots = _parse_abc_shots(text)["shots"]
     if not shots:
         return text
-    # C 段镜头行归一化（剥行首 C 标记变体后走 _normalize_shot_line，
-    # 与 _finalize_abc_body 同一循环形态）
+    # C 段镜头行归一化（多行块先合并——2026-09-02 格式 v2，再剥行首
+    # C 标记变体后走 _normalize_shot_line，与 _finalize_abc_body 同一循环形态）
+    text = _merge_multiline_shot_blocks(text)
     norm_lines: list[str] = []
     for line in text.splitlines():
         s = re.sub(
@@ -812,13 +925,15 @@ def _parse_abc_shots(desc: str) -> dict:
     返回 {"layout": "1x2"|"2x2"|None, "shots": [...]}：
     - layout 仅当 C 段头部携带「分镜网格 N×N」标记时非 None
       （关键帧生成与视频分段都以此标记为唯一判据）
-    - shots 每项 {"start","end","dur","title","text","camera","sfx"}
-      （首帧保持段 [0.0s-0.1s] 跳过；非网格描述也返回镜头列表，
-      layout=None 时调用方按单帧处理）
+    - shots 每项 {"start","end","dur","title","text","camera","sfx",
+      "dialogue"}（dialogue 为 2026-09-02 格式 v2 的台词字段，v1 单行
+      格式该值为 ""；首帧保持段 [0.0s-0.1s] 跳过；非网格描述也返回
+      镜头列表，layout=None 时调用方按单帧处理）
     """
     # 流式 A/B/C（外贴竞品单段落格式）先展开为行结构化（幂等）——
     # 视频侧对旧记录的网格判据同样受益；标记仍是 layout 唯一判据
-    text = _expand_inline_abc((desc or "").strip())
+    text = _merge_multiline_shot_blocks(
+        _expand_inline_abc((desc or "").strip()))
     layout: str | None = None
     m = re.search(r"C[.、．]\s*分镜时间轴\s*[（(]\s*分镜网格\s*"
                   r"([12])\s*[×x]\s*([12])\s*[）)]", text)
@@ -844,12 +959,19 @@ def _parse_abc_shots(desc: str) -> dict:
         seg_text = body.split("|")[0].strip()
         cm = re.search(r"运镜[：:]\s*([^|]+)", body)
         sm = re.search(r"音效[：:]\s*(.+)$", body)
+        # 台词字段（2026-09-02 格式 v2）：「台词：…」（到 | 或行尾）；
+        # v1 单行格式无此字段 → ""（「台词：无」归一为 ""——无台词）
+        dm = re.search(r"台词[：:]\s*([^|]*)", body)
+        dialogue = (dm.group(1).strip() if dm else "")
+        if dialogue in ("无", "无。", ""):
+            dialogue = ""
         shots.append({
             "start": start, "end": end,
             "dur": round(max(end - start, 0.5), 2),
             "title": title, "text": seg_text,
             "camera": (cm.group(1).strip() if cm else ""),
             "sfx": (sm.group(1).strip() if sm else ""),
+            "dialogue": dialogue,
         })
     return {"layout": layout, "shots": shots}
 
@@ -1048,7 +1170,7 @@ _ASSET_COLS = "id, project_id, kind, name, file_path, prompt, meta, created_at, 
 IMG_TARGET_W, IMG_TARGET_H = 2560, 1440
 _IMG_GEN_MAX = 1344                      # SDXL 友好生成上限
 
-# 参考图（E:\OmniSpace\参考图.png）风格：写实人像、柔和影棚光、纯白底、
+# 参考图（项目根/参考图.png）风格：写实人像、柔和影棚光、纯白底、
 # 干净排版的人设图。风格词统一缀尾（用户提示词仍置首，77 token 截断
 # 保护不受影响）。
 _STYLE_PHOTO = (", photorealistic, realistic photograph, soft studio "
@@ -1289,7 +1411,8 @@ def _remove_background(image):
 # ═══════════════════════════════════════════════════════════════════
 
 _KF_COLS = ("id, row_id, project_id, version, file_path, prompt,"
-            " status, error, is_current, created_at, shot_seeds, consistency")
+            " status, error, is_current, created_at, shot_seeds, consistency,"
+            " source_mode")
 
 
 # ═══════════════════════════════════════════════════════════════════

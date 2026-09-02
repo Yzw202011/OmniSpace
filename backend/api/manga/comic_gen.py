@@ -5,6 +5,7 @@ TASK-P2-01 自 manga.py 按路由域拆出（原文件 4521 行 → 包）。
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
 
@@ -312,9 +313,30 @@ def _verify_background_white(image) -> bool:
     左右各 2 列）中位数 RGB 三通道均 ≥245 才算纯白。漂白
     （_whiten_background）后仍不达标（SAM 分割失败保持原图的灰底）
     → 判不合格，触发换 seed 重 roll，不交付。
+
+    2026-09-02 按格判定（小林实拍修复）：四视图为 1×4 横排拼图，
+    「部分格有场景背景」时背景在图**内部**而非整图边框上——整图
+    边框中位数被白格拉白误判通过（bg_verified=True 但右两格是
+    便利店场景）。现按格独立采样边框，任一格不白即整体不通过。
+    非标准宽度（单视图 legacy）退回整图边框判定。
     """
     import numpy as np
     arr = np.asarray(image.convert("RGB"), dtype=np.float32)
+    h, w = arr.shape[:2]
+    # 1×4 横排拼图（宽 ≈ 高 × 16/9 且可整除 4）按格判定
+    if w >= h * 3 and w % 4 == 0:
+        cell_w = w // 4
+        for k in range(4):
+            cell = arr[:, k * cell_w:(k + 1) * cell_w]
+            border = np.concatenate([
+                cell[:2].reshape(-1, 3), cell[-2:].reshape(-1, 3),
+                cell[:, :2].reshape(-1, 3), cell[:, -2:].reshape(-1, 3)])
+            med = np.median(border, axis=0)
+            if med.min() < 245.0:
+                log.info("背景纯白校验未过（第 %d 格）: 边框中位数 RGB=%s",
+                         k + 1, [int(v) for v in med])
+                return False
+        return True
     border = np.concatenate([
         arr[:2].reshape(-1, 3), arr[-2:].reshape(-1, 3),
         arr[:, :2].reshape(-1, 3), arr[:, -2:].reshape(-1, 3)])
@@ -440,6 +462,33 @@ def _repair_view_cell(engine, image, idx: int, prompt_zh_clean: str,
         return image
 
 
+# 剧情态场景信号词（2026-09-02 角色设定图去剧情化）：推理描述词把
+# 剧本「世界状态」写进角色设定（如「雨夜便利店场景中，衣角微湿」）
+# → 设定图后两格被画成剧情场景。含信号词的整句剥离（恒定外观与
+# 恒定随身物保留：工牌/眼镜等不在信号词表内）。
+_SCENE_STATE_RE = re.compile(
+    r"[^。\n]*(?:场景中|雨夜|雨天|雨中|深夜|雪夜|战场上|废墟|"
+    r"淋湿|衣角微湿|浑身湿透|湿漉漉)[^。\n]*(?:。|$)", )
+# 剧情态伴随的湿衣描写短语（非整句时逐短语剥）
+_SCENE_STATE_PHRASE_RE = re.compile(
+    r"[，,、]?(?:衣角(?:微)?湿|浑身湿透|湿漉漉[^，,、。]*)")
+
+
+def _strip_scene_state_clauses(text: str) -> str:
+    """剥角色描述词中的剧情态场景句/湿衣短语（保留恒定外观）。
+
+    角色设定图 = 恒定外观快照（白底、干燥、中性站姿）。剧本剧情态
+    （雨夜/湿衣/特定场景）混入会让设定图带上场景背景（小林实拍）。
+    剥除后可能残留尾随句读，统一清理。
+    """
+    cleaned = _SCENE_STATE_RE.sub("", text or "")
+    cleaned = _SCENE_STATE_PHRASE_RE.sub("", cleaned)
+    cleaned = re.sub(r"[，,、]\s*[。；;]", "。", cleaned)
+    cleaned = re.sub(r"[，,、]\s*$", "。", cleaned.strip())
+    cleaned = re.sub(r"。\s*。", "。", cleaned)
+    return cleaned.strip()
+
+
 def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
     """装配 one-pass 中文长提示词（人设前置 + 全正向语义，2026-08-20
     v2 重构：修复「与描述词差距过大」）。
@@ -449,8 +498,14 @@ def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
     ①人设置首（512 token 截断时最先保住，最核心）②版式逐格正向
     描述 ③背景/风格正向短语 ④姿态。全篇无「禁止」，篇幅 ~200
     token（v1 ~360）。纯白底与去风格化由 SAM 漂白 + PIL 标注代
-    码保底，不依赖模型遵循。中文标注由 PIL 叠加（零漂移）。
+    码保底，不依赖模型遵循。
+
+    2026-09-02 剧情态剥离（v3）：上游推理描述词可能携带剧情场景
+    状态（如「雨夜便利店场景中，衣角微湿」）——角色设定图必须是
+    去剧情化的恒定外观，场景词会让后两格画成剧情场景（小林实拍
+    事故）。生成前按场景信号词剥整句。
     """
+    prompt_zh_clean = _strip_scene_state_clauses(prompt_zh_clean)
     return (
         f"角色设定图。角色：{prompt_zh_clean}。"
         "画面：同一角色的四视图设定图，从左到右依次为——"
@@ -465,7 +520,8 @@ def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
         "约三分之一，面部大而清晰。"
         "恰好四格，四格视角互不相同，横向等宽排成一行；"
         "前三格为竖构图全身像，人物从头到脚完整。"
-        "背景：纯白色，均匀干净。"
+        "背景：纯白色，均匀干净，无任何环境与场景陈设，"
+        "角色处于干燥整洁的日常状态。"
         "美术风格：韩国网漫风，干净线稿，清晰上色，"
         "表情表现力强，色彩干净明快。"
         "姿态：常态平静表情，眼睛平视，空手，画面干净无文字。"
@@ -1150,9 +1206,15 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
                 "id": asset_id, "project_id": req.project_id,
                 "kind": "character", "name": req.name, "file_path": rel_path,
                 "prompt": req.prompt, "meta": meta, "created_at": _now()})
+    # 终态广播（2026-09-02 幽灵任务修复）：此前只发进度不发 done——
+    # 前端任务条建了「漫剧生成」任务后永远等不到完结，通知中心挂
+    # 幽灵而后端早已完成释放显存（用户实报）。与 _regenerate_asset_sync
+    # 的 1305 行终态同款。
+    broadcast_gen_progress("asset", asset_id, percent=100,
+                           status="done", label="生成完成")
     return {"asset_id": asset_id, "project_id": req.project_id,
             "kind": "character", "name": req.name, "file_path": rel_path,
-            "prompt": req.prompt, "views": views,
+            "views": views,
             "consistency": gen["consistency"],
             "view_errors": gen["view_errors"] or None,
             "pipeline": gen["pipeline"],
@@ -1209,16 +1271,24 @@ def _regenerate_asset_sync(asset: dict) -> dict:
         broadcast_gen_progress("asset", _ctx, percent=97,
                                label="裁切落盘")
         _sync_portrait_from_views(out_path.parent)
+        # 主图同步到 file_path（2026-09-02 修正）：主图 = front 正面切片
+        # ——此前曾用 master 整图覆盖 file_path（2026-08-27 为保参考图
+        # 新鲜），导致表格头像/资产卡显示整张四视图拼版（人物缩成一条）。
+        # front 切片同样「新鲜 + 无标注文字」且语义正确（单人全身像）。
+        # out_path 与约定 portrait.png 不同名的历史数据也显式覆盖。
+        _views_dir = out_path.parent / "portrait_views"
+        _front = _views_dir / "front.png"
+        if not _front.is_file():
+            for _v in _TURNAROUND_VIEWS[1:]:
+                _cand = _views_dir / f"{_v}.png"
+                if _cand.is_file():
+                    _front = _cand
+                    break
+        if _front.is_file() and _front.resolve() != out_path.resolve():
+            import shutil as _shutil
+            _shutil.copyfile(_front, out_path)
         _apply_turnaround_meta(meta, gen)
-        # 主图同步到 file_path（2026-08-27 bug 修复）：turnaround 分支
-        # 此前只更新 portrait_views/master/canvas，file_path 指向的旧图
-        # （adopt 拷贝的竞品原图）永不覆盖 → 关键帧 _load_row_reference
-        # 永远拿到旧图、VLM 验的也是旧图。master 为干净整图（无 PIL
-        # 标注文字，参考条件不引入噪声 token），交付标注图另存 canvas
-        master_path = out_path.parent / "master.png"
-        if master_path.is_file():
-            from PIL import Image as _PILImage
-            _PILImage.open(master_path).convert("RGB").save(out_path, "PNG")
+        # regenerate-view 单视图重生子目录路径由 out_path.parent 覆盖同源
         width, height = meta["width"], meta["height"]
         seed_out, model_out = gen["seed"], gen["model"]
         prompt_out: str | None = None
@@ -1231,8 +1301,9 @@ def _regenerate_asset_sync(asset: dict) -> dict:
         #    对齐——此前 regenerate 漏改，SDXL 半分辨率放大=模糊根因）
         # prompt_out 必须先初始化：FLUX 子路径不产出英文译文（21:27
         # e2e 实测 UnboundLocalError——四视图分支的初始化与本分支
-        # 互斥执行，覆盖不到这里）
-        prompt_out: str | None = None
+        # 互斥执行，覆盖不到这里）；本行不再重复类型注解（Cython 拒绝
+        # 同作用域重声明，首处已声明 str | None）
+        prompt_out = None
         engine_used = "sdxl"
         _ctx = asset.get("asset_id") or ""
 

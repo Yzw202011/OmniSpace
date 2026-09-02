@@ -12,7 +12,6 @@ import logging
 import os
 import re
 import subprocess
-import threading
 import time
 import uuid
 from pathlib import Path
@@ -35,10 +34,11 @@ from ...data.models import (
     VideoNarrativeRequest,
 )
 from ...middleware.error_handler import ApiError, ok
-from ...middleware.feature_lock import acquire_or_raise, get_feature_lock
+from ...middleware.feature_lock import acquire_or_raise
 from ...services.inference.dialog_engine import get_dialog_engine
 from ...services.inference.video_engine import VIDEO_OUT_DIR, generate_fallback_video
 from ...services.offload import run_blocking
+from ...services.video_queue import VideoTaskCancelled, get_video_queue
 from .comic import (
     _SPEED_TABLE,
     _TASK_CATEGORY_MAP,
@@ -94,16 +94,32 @@ _VIDEO_TASK_COLUMNS = {
 }
 
 
-def _video_update_task(task_id: str, fields: dict) -> None:
+def _video_update_task(task_id: str, fields: dict,
+                       guard_cancelled: bool = False) -> None:
     """更新视频任务进度/状态（DB 优先，内存兜底）。
 
     项目删除会级联删除其 video_tasks 行：任务行已不存在且内存无镜像
     （即非内存降级任务）时，视为随项目删除的幽灵回写，跳过并记日志，
     避免迟到的 worker 进度写到已删项目的关联任务上。
+
+    guard_cancelled（2026-09-02 视频队列）：进度/生成中回写专用——
+    取消已落库的任务不再被迟到的进度回写复活成 generating
+    （取消后管线收尾回调仍在飞，此前会覆盖 cancelled 状态）。
     """
     fields["updated_at"] = _now()
     db = get_db_safe()
     task = _video_tasks.get(task_id)
+    if guard_cancelled:
+        if task is not None and task.get("status") == "cancelled":
+            return
+        if db is not None:
+            try:
+                if db.query_one(
+                        "SELECT id FROM video_tasks WHERE id=? "
+                        "AND status='cancelled'", (task_id,)) is not None:
+                    return
+            except Exception as exc:  # noqa: BLE001 - 查询失败按无守卫继续
+                log.debug("取消守卫查询失败（照常回写）: %s", exc)
     if db is not None:
         try:
             if db.query_one("SELECT id FROM video_tasks WHERE id=?",
@@ -193,6 +209,10 @@ def _segment_prompt(desc: str, grid: dict, i: int) -> str:
     lines.append(f"本镜：{title} {shot.get('text', '')}".strip())
     if shot.get("camera"):
         lines.append(f"运镜：{shot['camera']}")
+    # 台词（2026-09-02 描述词格式 v2）：音画同步生成需要台词进提示词
+    dialogue = (shot.get("dialogue") or "").strip()
+    if dialogue:
+        lines.append(f"台词：{dialogue}")
     if shot.get("sfx"):
         lines.append(f"音效：{shot['sfx']}")
     return "\n".join(lines)
@@ -629,9 +649,14 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
         shutil.rmtree(seg_dir, ignore_errors=True)
 
 
-def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
-                  flow=None) -> None:
-    """后台线程：真实产出视频文件，进度实时落库。
+def _make_local_runner(req: VideoGenerateRequest, flow=None) -> callable:
+    """本地管线 runner 工厂（2026-09-02 视频队列改造）。
+
+    原后台线程 _video_worker 的管线本体不变；功能锁/显存协商/取消
+    旗标改由 services/video_queue.py 统一编排（队列排空才释放锁并
+    唤醒 vLLM），此处仅负责：管线探测→生成→终态回写。
+    取消检查点从内存旗标改为队列闭包（check_cancel 抛
+    VideoTaskCancelled，转译为管线内 _VideoCancelled）。
 
     生成链路（模型全维度对接，导入 models/ 即可用）：
       1. VideoEngine.prepare_generation() 探测——真实 diffusers 视频模型
@@ -639,24 +664,31 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
       2. AnimateLCM 图生视频分支（F-07，SD1.5 底座齐备时）
       3. Ken Burns 降级真实管线（TASK-010）：PIL 帧渲染 + FFmpeg 编码，
          产出真实可播放 MP4/AV1 到 data/generated/videos/
-    完成后释放 "video_gen" 功能锁。
     执行流程追踪（2026-08-23）：flow 由 video_generate 显式传入，
     节点链 管线探测→视频生成，progress 回调作追踪心跳。
     """
+
+    def runner(task: dict, check_cancel) -> None:
+        _run_local_pipeline(str(task["task_id"]), req, check_cancel, flow)
+
+    return runner
+
+
+def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
+                        check_cancel, flow=None) -> None:
     from ...services.flow_trace import NULL_FLOW
     flow = flow or NULL_FLOW
 
-    # 显存准入协商（2026-08-29 E2E 压测修复）：两次后端进程静默死亡
-    # 均发生于重模型同驻——本次即 vLLM 13.6GB 常驻时 wan22 13GB 直接
-    # 开跑，16GB 卡物理不可同驻。视频任务分钟级，开跑前**停止** vLLM
-    # 让渡全部显存（比 keyframe 的睡眠协商更强）；完成后不自动唤醒，
-    # 对话模块 ensure_loaded 按需重启。best-effort 不阻断。
+    # 显存准入补充（2026-08-29 E2E 压测修复）：两次后端进程静默死亡
+    # 均发生于重模型同驻——本地 diffusers 管线开跑前**停止** vLLM
+    # 让渡全部显存（比队列统一的睡眠协商更强，本管线 13GB 级权重
+    # 需要整卡）；best-effort 不阻断。
     try:
         from ...engines.vllm_service import get_vllm_service
         _vs = get_vllm_service()
         if _vs.is_running() or _vs.is_booting():
             _vs.stop()
-            log.info("视频生成前停止 vLLM 让渡显存 (task=%s)", task_id)
+            log.info("本地视频管线前停止 vLLM 让渡显存 (task=%s)", task_id)
     except Exception as exc:  # noqa: BLE001 - 协商失败不阻断（保守继续）
         log.warning("视频生成前 vLLM 停止失败（显存风险继续）: %s", exc)
 
@@ -669,8 +701,10 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
         """任务取消信号（批 1.7：progress 回调检查点抛出）。"""
 
     def _check_cancel() -> None:
-        if _video_cancel_flags.get(task_id):
-            raise _VideoCancelled()
+        try:
+            check_cancel()
+        except VideoTaskCancelled:
+            raise _VideoCancelled() from None
 
     try:
         def progress_cb(fraction: float, stage: str = "") -> None:
@@ -686,7 +720,7 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
             _video_update_task(task_id, {
                 "progress": round(min(0.99, max(0.0, fraction)), 4),
                 "status": "generating",
-            })
+            }, guard_cancelled=True)
             if gen_node is not None:
                 gen_node.progress(
                     f"{round(fraction * 100)}%"
@@ -715,7 +749,8 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
         if grid_spec is not None:
             _check_cancel()
             _video_update_task(task_id, {"progress": 0.02,
-                                         "status": "generating"})
+                                         "status": "generating"},
+                               guard_cancelled=True)
             with flow.node(
                     "H3 导演台视频" if use_h3 else "分镜网格视频",
                     input_summary=f"{req.resolution} "
@@ -762,7 +797,9 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
 
         if path != "kenburns":
             _check_cancel()
-            _video_update_task(task_id, {"progress": 0.05, "status": "generating"})
+            _video_update_task(task_id, {"progress": 0.05,
+                                         "status": "generating"},
+                               guard_cancelled=True)
             # 节点2：视频生成（真实管线，progress 心跳）
             with flow.node(
                     "视频生成",
@@ -838,24 +875,93 @@ def _video_worker(task_id: str, req: VideoGenerateRequest, loop,
         flow.end("error", error_code="VIDEO_FAILED",
                  error_detail=str(exc)[:500])
     finally:
-        _video_cancel_flags.pop(task_id, None)
         _video_eta.pop(task_id, None)
-        # 释放 video_gen 功能锁（锁由 asyncio 管理，回投到主事件循环）
+        # 功能锁释放/vLLM 唤醒由视频队列在排空时统一编排（2026-09-02）
+
+
+def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
+                          quality: str, aspect: str = "16:9",
+                          start_clip: int = 1, run_name: str = "",
+                          flow=None) -> callable:
+    """H3 链式 runner 工厂（2026-09-02 视频队列改造）。
+
+    统一承接原 generate 单镜 worker 与 generate_h3_chain 直连 worker
+    两处重复实现；区别仅参数（单镜/多镜、断点续跑）。取消接线：
+    check_cancel 直传引擎（采样轮询 3s 一查 + /interrupt 止损）；
+    队列后继同为 H3 时 keep_loaded 跳过收尾卸载（接力免整轮重载）。
+    """
+
+    def runner(task: dict, check_cancel) -> None:
+        task_id = str(task["task_id"])
+        t0 = time.time()
+        from ...services.flow_trace import NULL_FLOW
+        _flow = flow or NULL_FLOW
+
+        def _set_rows(status: str) -> None:
+            d = get_db_safe()
+            if d is None:
+                return
+            for rid in row_ids:
+                try:
+                    d.update("storyboard_rows",
+                             {"generation_status": status}, "id=?", (rid,))
+                except Exception:  # noqa: BLE001 - 行状态回写失败不阻断任务终态
+                    pass
+
+        def cb(frac: float, stage: str = "") -> None:
+            _video_update_task(task_id, {"progress": round(float(frac), 3)},
+                               guard_cancelled=True)
+
         try:
-            if loop is not None and not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(
-                    get_feature_lock().release("video_gen"), loop)
+            from ...services.inference.h3_chain_engine import run_h3_chain_task
+            keep_loaded = get_video_queue().next_kind() == "h3_chain"
+            result = run_h3_chain_task(task_id, row_ids, seconds, quality,
+                                       start_clip=start_clip,
+                                       run_name=run_name, progress_cb=cb,
+                                       aspect=aspect,
+                                       check_cancel=check_cancel,
+                                       keep_loaded=keep_loaded)
+            _video_update_task(task_id, {
+                "status": "done", "progress": 1.0,
+                "file_path": result["file_path"],
+                "model_used": "h3_chain_turbo_v10",
+                "resolution": result["resolution"],
+                "duration_seconds": result["duration_seconds"],
+                "generation_time_ms": int((time.time() - t0) * 1000)})
+            _set_rows("done")
+            _flow.end("success", output_summary=result["file_path"])
+        except VideoTaskCancelled:
+            log.info("H3 链式任务取消: %s", task_id)
+            _video_update_task(task_id, {"status": "cancelled"})
+            _set_rows("error")
+            _flow.end("cancelled", error_detail="用户取消")
         except Exception as exc:  # noqa: BLE001
-            log.warning("video_gen 锁释放失败: %s", exc)
+            import traceback
+            log.error("H3 链式生成失败: %(err)s | %(tb)s",
+                      {"err": str(exc), "tb": traceback.format_exc()[-1200:]})
+            _video_update_task(task_id, {
+                "status": "error", "progress": 1.0,
+                "generation_time_ms": int((time.time() - t0) * 1000)})
+            mirror = _video_tasks.setdefault(task_id,
+                                             {"id": task_id, "progress": 0.0})
+            mirror.update({"status": "error",
+                           "error": str(exc)[:500]})
+            _set_rows("error")
+            _flow.end("error", error_code="H3_CHAIN_FAILED",
+                      error_detail=str(exc)[:300])
+
+    return runner
 
 
 @router.post("/manga/video/generate")
 @router.post("/video/generate")  # 顶层别名（文档 §7.1.4 /v1/video）
 async def video_generate(req: VideoGenerateRequest):
-    """生成视频（规格 §4.4，TASK-010 真实产出）。
+    """生成视频（规格 §4.4，TASK-010 真实产出）——入队即返回（B 方案）。
 
     时长上限 VIDEO_MAX_DURATION；带音频同步时上限 LTX2_MAX_AUDIO_SYNC（60002）。
-    生成期间持有 "video_gen" 功能锁（规格 §6.1 互斥），后台线程完成时释放。
+    2026-09-02 视频队列：校验+落库（pending）+入队即返回，单 worker
+    顺序消费（准入协商/锁持有/vLLM 唤醒时机见 services/video_queue.py）；
+    跨镜多任务凭 status=pending/generating 区分排队与生成中。
     进度经 GET /manga/video/{task_id}/status 轮询真实回传。
     """
     if req.duration_seconds > VIDEO_MAX_DURATION:
@@ -867,195 +973,197 @@ async def video_generate(req: VideoGenerateRequest):
                        detail={"max": LTX2_MAX_AUDIO_SYNC,
                                "given": req.duration_seconds})
 
-    lock = await acquire_or_raise("video_gen", task_id=req.storyboard_row_id)
-    started = False
+    # 连点去重（2026-08-31 实测事故：前端 POST 未返回期间连点 7 次 →
+    # 7 个任务在 H3 引擎锁上排队，依次空转 GPU 数分钟）：同行已有
+    # 生成中/排队中任务直接拒绝（前端已配乐观 pending + 同款去重双保险）。
+    if req.storyboard_row_id:
+        _dup_db = get_db_safe()
+        _dup = None
+        if _dup_db is not None:
+            try:
+                _dup = _dup_db.query_one(
+                    "SELECT id FROM video_tasks WHERE storyboard_row_id=? "
+                    "AND status IN ('generating','pending') LIMIT 1",
+                    (req.storyboard_row_id,))
+            except Exception as exc:  # noqa: BLE001 - 查重失败放行不阻断
+                log.warning("视频任务连点查重失败（放行）: %s", exc)
+        if _dup:
+            raise ApiError(
+                60001, "该分镜已有视频任务在生成中，请等待完成或先取消",
+                detail={"storyboard_row_id": req.storyboard_row_id})
     flow = None  # 入口校验拒绝时 flow 未建立，except 需判空
-    try:
-        # H3 链式引擎依赖分镜图（网格拆格首帧注册为逐镜图像资产），
-        # 无当前关键帧的行诚实拒绝（UAT 2026-08-30：无帧行曾静默建任务
-        # 跑满 90s 采样后才失败，且任务卡死 generating 无提示）。校验必须
-        # 先于任务落库——否则拒绝后库里留下永不更新的幽灵 generating。
-        if (req.storyboard_row_id and req.model_override != "local"
-                and not req.audio_path):
-            _db = get_db_safe()
-            kf = None
-            if _db is not None:
-                try:
-                    kf = _db.query_one(
-                        "SELECT id FROM keyframes WHERE row_id=? AND is_current=1",
-                        (req.storyboard_row_id,))
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("H3 入口关键帧校验查询失败: %s", exc)
-            if not kf:
-                raise ApiError(
-                    40005, "该分镜行尚无分镜图（关键帧），无法生成视频，"
-                    "请先生成分镜图",
-                    detail={"storyboard_row_id": req.storyboard_row_id,
-                            "suggestion": "在分镜详情面板先生成关键帧"})
-        task_id = uuid.uuid4().hex
-        # 执行流程追踪（2026-08-23）：触发=用户提交视频生成
-        from ...services.flow_trace import start_flow
-        flow = start_flow(
-            "video", "generate",
-            f"视频生成：{(req.description or '')[:20]}"
-            f"{'…' if len(req.description or '') > 20 else ''}",
-            trigger="用户提交视频生成任务",
-            input_summary=f"{req.resolution} {req.duration_seconds}s "
-                          f"{req.fps}fps row={req.storyboard_row_id[:16]}",
-            detail=f"task_id={task_id} audio={bool(req.audio_path)}")
-        now = _now()
-        db = get_db_safe()
-        persisted = False
-        # 审计修复：创建时生成路径未定（真实管线 / AnimateLCM / Ken Burns
-        # 由后台线程探测链决定），model_used 置空待完成后回填真实值，
-        # 不预设降级标注。
-        model_used = ""
-        if db is not None:
+    # 前置校验（2026-08-31 用户裁定改版）：分镜图非必需（H3 链式以
+    # 绑定资产多图参考为内容源，关键帧仅本地 I2V 管线使用）；
+    # 分镜描述词 + 带图绑定资产为硬门槛。校验必须先于任务落库——
+    # 否则拒绝后库里留下永不更新的幽灵（UAT 2026-08-30
+    # 教训：无有效输入的行曾静默跑满采样后才失败）。
+    # paint_ 前缀 = 绘画模块合成行（表里无此行，内容源=screenshot_4in1
+    # 初始图），不参与漫剧行门槛与 H3 选路，走本地 I2V 管线
+    # （2026-08-31 误伤修复：曾把绘画图生视频拒成「分镜行不存在」）。
+    use_h3_chain = bool(
+        req.storyboard_row_id
+        and not req.storyboard_row_id.startswith("paint_")
+        and req.model_override != "local"
+        and not req.audio_path)
+    if use_h3_chain:
+        _db = get_db_safe()
+        _row = None
+        if _db is not None:
             try:
-                # 同步 sqlite 写投到线程池，避免阻塞事件循环
-                await run_blocking(db.insert, "video_tasks", {
-                    "id": task_id, "storyboard_row_id": req.storyboard_row_id,
-                    "description": req.description, "screenshot_4in1": req.screenshot_4in1,
-                    "character_assets": req.character_assets,
-                    "audio_path": req.audio_path or "",
-                    "resolution": req.resolution, "fps": req.fps,
-                    "duration_seconds": req.duration_seconds, "codec": req.codec,
-                    "model_override": req.model_override or "",
-                    "model_used": model_used,
-                    "status": "generating", "progress": 0.0, "file_path": "",
-                    "generation_time_ms": 0,
-                    "has_audio_sync": int(bool(req.audio_path)),
-                    "created_at": now, "updated_at": now,
-                })
-                persisted = True
+                _row = _db.query_one(
+                    "SELECT description, asset_ids FROM storyboard_rows "
+                    "WHERE id=?", (req.storyboard_row_id,))
             except Exception as exc:  # noqa: BLE001
-                log.warning("视频任务落库失败，降级内存存储: %s", exc)
-        if not persisted:
-            _video_tasks[task_id] = {
-                "id": task_id, "storyboard_row_id": req.storyboard_row_id,
-                "status": "generating", "progress": 0.0, "created_at": now,
-                "file_path": "", "model_used": model_used,
-                "request": req.model_dump(),
-            }
-        # 2026-08-30: 工作台"生成视频"默认改走 H3 链式引擎(ComfyUI 全能
-        # 多图参考链,每镜 3~15s 带音轨);model_override="local" 回落老管线。
-        # 关键帧前置校验见函数入口（须先于任务落库）。
-        if (req.storyboard_row_id and req.model_override != "local"
-                and not req.audio_path):
-            from ...services.inference.h3_chain_engine import run_h3_chain_task
-            seconds = min(max(float(req.duration_seconds or 10), 3.0), 15.0)
-            quality = ("720p" if str(req.resolution or "").startswith("720")
-                       and seconds <= 8 else "480p")
-
-            def _h3_chain_worker_gen(task_id=task_id,
-                                     row_id=req.storyboard_row_id,
-                                     seconds=seconds, quality=quality,
-                                     loop=asyncio.get_running_loop(),
-                                     flow=flow):
-                t0 = time.time()
-                try:
-                    def cb(frac, stage):
-                        d = get_db_safe()
-                        if d is not None:
-                            try:
-                                d.update("video_tasks",
-                                         {"progress": round(float(frac), 3)},
-                                         "id=?", (task_id,))
-                            except Exception:  # noqa: BLE001
-                                pass
-                    result = run_h3_chain_task(task_id, [row_id], seconds,
-                                               quality, progress_cb=cb)
-                    d = get_db_safe()
-                    if d is not None:
-                        d.update("video_tasks", {
-                            "status": "done", "progress": 1.0,
-                            "file_path": result["file_path"],
-                            "model_used": "h3_chain_turbo_v10",
-                            "resolution": result["resolution"],
-                            "duration_seconds": result["duration_seconds"],
-                            "generation_time_ms": int((time.time() - t0) * 1000),
-                            "updated_at": _now()}, "id=?", (task_id,))
-                        d.update("storyboard_rows",
-                                 {"generation_status": "done"},
-                                 "id=?", (row_id,))
-                    flow.end("success", output_summary=result["file_path"])
-                except Exception as exc:  # noqa: BLE001
-                    import traceback
-                    log.error("H3 链式生成失败: %(err)s | %(tb)s",
-                              {"err": str(exc),
-                               "tb": traceback.format_exc()[-1200:]})
-                    d = get_db_safe()
-                    if d is not None:
-                        try:
-                            # 任务状态必须回写 error——否则前端轮询永不
-                            # 结束（UAT 2026-08-30：失败后 status 卡死
-                            # generating，进度条假活 10 分钟+）
-                            d.update("video_tasks",
-                                     {"status": "error", "progress": 1.0,
-                                      "generation_time_ms":
-                                          int((time.time() - t0) * 1000),
-                                      "updated_at": _now()},
-                                     "id=?", (task_id,))
-                        except Exception:  # noqa: BLE001
-                            pass
-                        try:
-                            d.update("storyboard_rows",
-                                     {"generation_status": "error"},
-                                     "id=?", (row_id,))
-                        except Exception:  # noqa: BLE001
-                            pass
-                    flow.end("error", error_code="H3_CHAIN_FAILED",
-                             error_detail=str(exc)[:300])
-                finally:
-                    try:
-                        asyncio.run_coroutine_threadsafe(
-                            get_feature_lock().release("video_gen"), loop)
-                    except Exception as exc:  # noqa: BLE001
-                        log.warning("video_gen 锁释放失败: %s", exc)
-
-            threading.Thread(target=_h3_chain_worker_gen, daemon=True,
-                             name=f"h3chain-gen-{task_id[:8]}").start()
-            started = True
-            return ok({"task_id": task_id, "status": "generating",
-                       "engine": "h3_chain"})
-        VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
-        threading.Thread(
-            target=_video_worker,
-            args=(task_id, req, asyncio.get_running_loop(), flow),
-            daemon=True, name=f"video-task-{task_id[:8]}",
-        ).start()
-        started = True
-        # 审计修复：与 status 端点同一判定逻辑——仅当确认走 Ken Burns
-        # 降级管线时才携带 degraded 标记；创建时路径未定，不谎称降级。
-        resp = {"task_id": task_id, "status": "generating"}
-        if _is_fallback_video(model_used):
-            resp["degraded"] = True
-            resp["degrade_reason"] = _VIDEO_DEGRADE_REASON
-        # STYLE-026：风格 LoRA 参数随任务回显（降级管线不实际应用，
-        # LTX-2 就绪后由视频引擎消费）；指定版本不存在时如实告警不阻断。
-        if req.style_lora_version:
-            style_note = "风格参数已接收（降级管线不应用）"
+                log.warning("H3 入口前置校验查询失败: %s", exc)
+        if _row is None:
+            raise ApiError(
+                40005, "分镜行不存在",
+                detail={"storyboard_row_id": req.storyboard_row_id})
+        if not ( _row.get("description") or "").strip():
+            raise ApiError(
+                40005, "该分镜行描述词为空，无法生成视频，"
+                "请先填写或用 AI 生成分镜描述词",
+                detail={"storyboard_row_id": req.storyboard_row_id,
+                        "suggestion": "在分镜表格编辑描述词，或执行「分镜生词」"})
+        import json as _json
+        try:
+            _ids = _json.loads(_row.get("asset_ids") or "[]")
+            if not isinstance(_ids, list):
+                _ids = []
+        except Exception:  # noqa: BLE001 - 非法 JSON 按空绑定处理
+            _ids = []
+        _n_img = -1  # -1 = 查询失败放行（引擎内 _collect_refs 还会再校验）
+        if _ids and _db is not None:
+            _ph = ",".join("?" * len(_ids))
             try:
-                from ...services.style_lora_service import get_style_lora_service
-                svc = get_style_lora_service()
-                if not any(v["version"] == req.style_lora_version
-                           for v in svc.list_versions()):
-                    style_note = (f"风格版本 {req.style_lora_version} 未注册，"
-                                  "本次生成未应用风格")
-            except Exception:  # noqa: BLE001
-                pass
-            resp["style_lora_version"] = req.style_lora_version
-            resp["style_strength"] = req.style_strength
-            resp["style_note"] = style_note
-        return ok(resp)
-    except Exception as exc:  # noqa: BLE001 - 启动失败收敛为错误响应
-        if flow is not None:
-            flow.end("error", error_code="SUBMIT_FAILED",
-                     error_detail=str(exc)[:300])
-        raise
-    finally:
-        if not started:
-            await lock.release("video_gen")
+                _n_img = int((_db.query_one(
+                    f"SELECT COUNT(*) AS n FROM comic_assets "
+                    f"WHERE id IN ({_ph}) AND file_path!=''",
+                    _ids) or {}).get("n") or 0)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("绑定资产计数失败（放行交引擎校验）: %s", exc)
+        if _n_img == 0:
+            raise ApiError(
+                40005, "该分镜行未绑定带图资产（人物/场景/道具），"
+                "无法生成视频，请先在资产面板绑定",
+                detail={"storyboard_row_id": req.storyboard_row_id,
+                        "suggestion": "右侧资产面板把角色/场景/道具拖入绑定"})
+    task_id = uuid.uuid4().hex
+    # 执行流程追踪（2026-08-23）：触发=用户提交视频生成
+    from ...services.flow_trace import start_flow
+    flow = start_flow(
+        "video", "generate",
+        f"视频生成：{(req.description or '')[:20]}"
+        f"{'…' if len(req.description or '') > 20 else ''}",
+        trigger="用户提交视频生成任务",
+        input_summary=f"{req.resolution} {req.duration_seconds}s "
+                      f"{req.fps}fps row={req.storyboard_row_id[:16]}",
+        detail=f"task_id={task_id} audio={bool(req.audio_path)}")
+    now = _now()
+    db = get_db_safe()
+    persisted = False
+    # 审计修复：创建时生成路径未定（真实管线 / AnimateLCM / Ken Burns
+    # 由后台线程探测链决定），model_used 置空待完成后回填真实值，
+    # 不预设降级标注。
+    model_used = ""
+    # 2026-09-02 视频队列：落库即 pending（排队中），队列 worker 准入
+    # 协商完成后翻 generating——跨镜多任务由单 worker 顺序消费，前端
+    # 可凭 status 区分「排队中」与「生成中」（此前一律 generating 0%，
+    # 排队与卡死不可分辨）。
+    if db is not None:
+        try:
+            # 同步 sqlite 写投到线程池，避免阻塞事件循环
+            await run_blocking(db.insert, "video_tasks", {
+                "id": task_id, "storyboard_row_id": req.storyboard_row_id,
+                "description": req.description, "screenshot_4in1": req.screenshot_4in1,
+                "character_assets": req.character_assets,
+                "audio_path": req.audio_path or "",
+                "resolution": req.resolution, "fps": req.fps,
+                "duration_seconds": req.duration_seconds, "codec": req.codec,
+                "model_override": req.model_override or "",
+                "model_used": model_used,
+                "status": "pending", "progress": 0.0, "file_path": "",
+                "generation_time_ms": 0,
+                "has_audio_sync": int(bool(req.audio_path)),
+                "created_at": now, "updated_at": now,
+            })
+            persisted = True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("视频任务落库失败，降级内存存储: %s", exc)
+    if not persisted:
+        _video_tasks[task_id] = {
+            "id": task_id, "storyboard_row_id": req.storyboard_row_id,
+            "status": "pending", "progress": 0.0, "created_at": now,
+            "file_path": "", "model_used": model_used,
+            "request": req.model_dump(),
+        }
+    # 2026-08-30: 工作台"生成视频"默认改走 H3 链式引擎(ComfyUI 全能
+    # 多图参考链,每镜 3~15s 带音轨);model_override="local" 回落老管线。
+    # 关键帧前置校验见函数入口（须先于任务落库）。
+    # paint_ 合成行（绘画模块）同样回落本地 I2V：内容源是
+    # screenshot_4in1 初始图而非分镜行/绑定资产，与 H3 链路语义不合。
+    resp = {"task_id": task_id, "status": "pending"}
+    if use_h3_chain:
+        seconds = min(max(float(req.duration_seconds or 10), 3.0), 15.0)
+        # 画质/画幅（2026-08-31 模型配置接线）：720p 的 16G 实测约束
+        # 本就是「单镜 ≤8s」——此前按 resolution 前缀判定，前端传宽高
+        # 串时恒落 480p；画幅从 resolution 宽高推导（9:16 竖屏翻转）
+        quality = "720p" if seconds <= 8.0 else "480p"
+        _aspect = "16:9"
+        try:
+            _w, _, _h = str(req.resolution or "").partition("x")
+            if _w and _h and int(_h) > int(_w):
+                _aspect = "9:16"
+        except ValueError:
+            pass
+        runner = _make_h3_chain_runner(
+            row_ids=[req.storyboard_row_id], seconds=seconds,
+            quality=quality, aspect=_aspect, flow=flow)
+        resp["engine"] = "h3_chain"
+    else:
+        VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+        runner = _make_local_runner(req, flow)
+    position = get_video_queue().submit({
+        "task_id": task_id, "kind": "h3_chain" if use_h3_chain else "local",
+        "runner": runner, "loop": asyncio.get_running_loop(),
+        "update_status": _video_update_task,
+    })
+    resp["queue_position"] = position
+    # 审计修复：与 status 端点同一判定逻辑——仅当确认走 Ken Burns
+    # 降级管线时才携带 degraded 标记；创建时路径未定，不谎称降级。
+    if _is_fallback_video(model_used):
+        resp["degraded"] = True
+        resp["degrade_reason"] = _VIDEO_DEGRADE_REASON
+    # STYLE-026：风格 LoRA 参数随任务回显（降级管线不实际应用，
+    # LTX-2 就绪后由视频引擎消费）；指定版本不存在时如实告警不阻断。
+    if req.style_lora_version:
+        style_note = "风格参数已接收（降级管线不应用）"
+        try:
+            from ...services.style_lora_service import get_style_lora_service
+            svc = get_style_lora_service()
+            if not any(v["version"] == req.style_lora_version
+                       for v in svc.list_versions()):
+                style_note = (f"风格版本 {req.style_lora_version} 未注册，"
+                              "本次生成未应用风格")
+        except Exception:  # noqa: BLE001
+            pass
+        resp["style_lora_version"] = req.style_lora_version
+        resp["style_strength"] = req.style_strength
+        resp["style_note"] = style_note
+    return ok(resp)
+
+
+def _attach_queue_position(resp: dict, task_id: str) -> None:
+    """排队中任务附加队列位次（2026-09-02 视频队列，1 起）。
+
+    仅 pending 状态且仍在队列中时返回；前端展示「排队中·前 N」，
+    与生成中任务的 ETA 并存不冲突（状态互斥）。
+    """
+    if resp.get("status") != "pending":
+        return
+    pos = get_video_queue().position(task_id)
+    if pos is not None:
+        resp["queue_position"] = pos
 
 
 def _attach_eta(resp: dict, task_id: str) -> None:
@@ -1092,6 +1200,7 @@ def video_status(task_id: str):
             resp = {"task_id": task_id,
                     "status": row.get("status", "pending"),
                     "progress": float(row.get("progress", 0.0) or 0.0)}
+            _attach_queue_position(resp, task_id)
             _attach_eta(resp, task_id)
             task = _video_tasks.get(task_id)
             if task and task.get("error"):
@@ -1110,6 +1219,7 @@ def video_status(task_id: str):
         raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
     resp = {"task_id": task_id, "status": task["status"],
             "progress": task["progress"]}
+    _attach_queue_position(resp, task_id)
     _attach_eta(resp, task_id)
     if task.get("error"):
         resp["error"] = task["error"]
@@ -1237,30 +1347,42 @@ def video_paint_history(limit: int = Query(100, ge=1, le=500,
 
 @router.delete("/video/history/{task_id}")
 def video_paint_history_delete(task_id: str):
-    """删除绘画模块视频历史记录（仅限 paint_ 来源任务，防误删漫剧任务）。
+    """删除视频历史记录（2026-08-31 删除机制补全：放开漫剧任务）。
 
-    删除 DB 行；已生成的视频文件一并清理（不存在则静默跳过）。
+    运行中（pending/generating）任务拒绝删除；DB 行与已生成的视频文件
+    一并清理。文件删除走零信任守卫（与项目删除同源）：仅双输出根
+    （VIDEO_OUT_DIR / DATA_DIR/videos）内的路径允许删，越界拒绝。
     """
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除记录")
     row = db.query_one(
-        "SELECT id, storyboard_row_id, file_path FROM video_tasks WHERE id=?",
+        "SELECT id, storyboard_row_id, file_path, status FROM video_tasks"
+        " WHERE id=?",
         (task_id,))
     if row is None:
         raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
-    if not str(row.get("storyboard_row_id", "")).startswith("paint_"):
-        raise ApiError(40008, "仅允许删除绘画模块的视频记录",
-                       detail={"task_id": task_id})
+    if str(row.get("status") or "") in ("pending", "generating"):
+        raise ApiError(40008, "任务正在生成中，无法删除（请等待完成或取消后再删）",
+                       detail={"task_id": task_id,
+                               "status": row.get("status")})
     db.delete("video_tasks", "id=?", (task_id,))
-    file_path = row.get("file_path") or ""
+    file_path = str(row.get("file_path") or "")
     if file_path:
-        try:
-            p = Path(file_path)
-            if p.is_file():
-                p.unlink()
-        except OSError as exc:
-            log.warning("视频文件清理失败 %s: %s", file_path, exc)
+        # 延迟导入：comic.py 反向依赖链上的守卫工具（_is_within 等）
+        from ...config import DATA_DIR
+        from ...services.inference.video_engine import VIDEO_OUT_DIR
+        from .comic import _is_within, _safe_unlink
+        p = Path(file_path)
+        for root in (Path(VIDEO_OUT_DIR), DATA_DIR / "videos"):
+            if _is_within(p, root):
+                _safe_unlink(p, root)
+                break
+        else:
+            log.warning("拒绝删除越界视频文件: %s", file_path)
+    # ComfyUI 侧链式中间帧工作目录一并回收（成片是 move 走的，不重复删）
+    from .comic import _cleanup_comfy_run_dirs
+    _cleanup_comfy_run_dirs([task_id])
     _video_tasks.pop(task_id, None)
     return ok({"task_id": task_id, "deleted": True}, message="记录已删除")
 
@@ -1353,9 +1475,14 @@ def manga_media(relpath: str):
 @router.post("/manga/video/{task_id}/cancel")
 @router.post("/video/{task_id}/cancel")  # 顶层别名
 def video_cancel(task_id: str):
-    """取消视频生成任务（COMIC-131）。
+    """取消视频生成任务（COMIC-131；2026-09-02 接视频队列）。
 
-    工作线程在帧渲染循环检查取消旗标，命中即退出并置 cancelled；
+    三种情形：
+      - 排队中：直接出队（不占 GPU，立即生效）；
+      - 生成中：置取消旗标——本地管线经帧渲染检查点退出并清理半成品；
+        H3 链式经采样轮询检查点（3s 一查）退出并 POST ComfyUI /interrupt
+        止损（此前 H3 链式取消完全无效，取消后仍空跑整镜）；
+      - 不在队列（存量孤儿行）：置内存旗标兜底，行为同旧版。
     已完成/失败任务幂等返回当前状态。
     """
     row = _video_task_record(task_id)
@@ -1365,10 +1492,14 @@ def video_cancel(task_id: str):
     if status in ("done", "error", "cancelled"):
         return ok({"task_id": task_id, "status": status,
                    "already_finished": True})
-    _video_cancel_flags[task_id] = True
+    outcome = get_video_queue().cancel(task_id)
+    if outcome == "missing":
+        # 非队列托管任务（存量行）：保留旧内存旗标路径
+        _video_cancel_flags[task_id] = True
     _video_update_task(task_id, {"status": "cancelled"})
-    # 取消时若任务持锁，由工作线程 finally 释放；这里仅置旗标
-    return ok({"task_id": task_id, "status": "cancelled"})
+    # 生成中任务的锁释放/占位出队由队列 worker 收尾，这里仅置状态
+    return ok({"task_id": task_id, "status": "cancelled",
+               "queue_outcome": outcome})
 
 
 def _speed_label(vram_gb: float) -> str:
@@ -1479,12 +1610,17 @@ async def story_narrative_generate(req: StoryNarrativeRequest):
     lock = await acquire_or_raise("dialog", task_id=req.project_id)
     try:
         if not engine.is_ready:
-            status = engine.get_status()
-            raise ApiError(
-                "DIALOG_NOT_READY",
-                "对话模型未加载，无法生成故事描述词",
-                detail={"engine_state": status["state"],
-                        "last_error": status["last_error"]})
+            # 未加载必须全自动（2026-09-02 用户铁律，对齐本文件批量
+            # 视频描述词端点同款）：自动加载漫剧·文字槽默认模型，
+            # 真失败才报错且带出路指引
+            if not await run_blocking(engine.ensure_loaded,
+                                      manga_dialog_model_id()):
+                status = engine.get_status()
+                raise ApiError(
+                    "DIALOG_NOT_READY",
+                    "对话模型未加载且自动加载失败，无法生成故事描述词",
+                    detail={"engine_state": status["state"],
+                            "last_error": status["last_error"]})
 
         prefix = (req.prompt_prefix or "").strip()
         # 审计 R3-P3：用户故事线用显式定界符包裹，防 prompt 注入
@@ -1661,11 +1797,11 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest):
 
     分镜行描述词 + 绑定资产(人物/场景/道具) → 六段式计划 → ComfyUI Chain
     → 自动逐镜+拼装 → 回收成片入 video_tasks（status/result/download
-    全套前端管道复用）。生成期间持有 video_gen 功能锁。
+    全套前端管道复用）。
+    2026-09-02 视频队列：入队（pending）即返回，单 worker 顺序消费
+    （锁/显存协商由队列编排，多镜任务与 /video/generate 统一排队）。
     quality: 480p(每镜≤15s) | 720p(每镜≤8s,16G 显存实测口径)。
     """
-    from ...services.inference.h3_chain_engine import run_h3_chain_task
-
     row_ids = list(req.row_ids) or (
         [req.storyboard_row_id] if req.storyboard_row_id else [])
     if not row_ids:
@@ -1675,9 +1811,23 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest):
     if req.quality == "720p" and req.seconds_per_shot > 8:
         raise ApiError(60001, "720p 档单镜上限 8 秒(16G 显存实测);更长请用 480p 档")
 
-    await acquire_or_raise("video_gen", task_id=req.storyboard_row_id)
+    # 连点去重（同 video_generate，2026-08-31）
+    if req.storyboard_row_id:
+        _dup_db = get_db_safe()
+        _dup = None
+        if _dup_db is not None:
+            try:
+                _dup = _dup_db.query_one(
+                    "SELECT id FROM video_tasks WHERE storyboard_row_id=? "
+                    "AND status IN ('generating','pending') LIMIT 1",
+                    (req.storyboard_row_id,))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("H3 链式连点查重失败（放行）: %s", exc)
+        if _dup:
+            raise ApiError(
+                60001, "该分镜已有视频任务在生成中，请等待完成或先取消",
+                detail={"storyboard_row_id": req.storyboard_row_id})
     task_id = uuid.uuid4().hex
-    loop = asyncio.get_running_loop()
     db = get_db_safe()
     now = _now()
     if db is not None:
@@ -1689,72 +1839,23 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest):
                 "resolution": "480p" if req.quality == "480p" else "1344x768",
                 "fps": 24, "duration_seconds": req.seconds_per_shot,
                 "codec": "h264", "model_override": "h3_chain",
-                "model_used": "", "status": "generating", "progress": 0.0,
+                "model_used": "", "status": "pending", "progress": 0.0,
                 "file_path": "", "generation_time_ms": 0,
                 "has_audio_sync": 1, "created_at": now, "updated_at": now,
             })
         except Exception as exc:  # noqa: BLE001
             log.warning("H3 链式任务落库失败: %s", exc)
 
-    def _h3_chain_worker() -> None:
-        t0 = time.time()
-        try:
-            def cb(frac, stage):
-                d = get_db_safe()
-                if d is not None:
-                    try:
-                        d.update("video_tasks",
-                                 {"progress": round(float(frac), 3)},
-                                 "id=?", (task_id,))
-                    except Exception:  # noqa: BLE001
-                        pass
+    runner = _make_h3_chain_runner(
+        row_ids=row_ids, seconds=req.seconds_per_shot, quality=req.quality,
+        start_clip=req.start_clip, run_name=req.run_name)
+    position = get_video_queue().submit({
+        "task_id": task_id, "kind": "h3_chain", "runner": runner,
+        "loop": asyncio.get_running_loop(),
+        "update_status": _video_update_task,
+    })
+    return ok({"task_id": task_id, "status": "pending",
+               "queue_position": position, "engine": "h3_chain"})
 
-            result = run_h3_chain_task(task_id, row_ids,
-                                       req.seconds_per_shot, req.quality,
-                                       start_clip=req.start_clip,
-                                       run_name=req.run_name,
-                                       progress_cb=cb)
-            d = get_db_safe()
-            if d is not None:
-                d.update("video_tasks", {
-                    "status": "done", "progress": 1.0,
-                    "file_path": result["file_path"],
-                    "model_used": "h3_chain_turbo_v10",
-                    "resolution": result["resolution"],
-                    "duration_seconds": result["duration_seconds"],
-                    "generation_time_ms": int((time.time() - t0) * 1000),
-                    "updated_at": _now()}, "id=?", (task_id,))
-                for rid in row_ids:
-                    try:
-                        d.update("storyboard_rows",
-                                 {"generation_status": "done"},
-                                 "id=?", (rid,))
-                    except Exception:  # noqa: BLE001
-                        pass
-        except Exception as exc:  # noqa: BLE001
-            log.error("H3 链式生成失败: %s", exc)
-            d = get_db_safe()
-            if d is not None:
-                try:
-                    d.update("video_tasks", {"status": "failed",
-                                             "progress": 0.0,
-                                             "updated_at": _now()},
-                             "id=?", (task_id,))
-                    for rid in row_ids:
-                        d.update("storyboard_rows",
-                                 {"generation_status": "error"},
-                                 "id=?", (rid,))
-                except Exception:  # noqa: BLE001
-                    pass
-        finally:
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    get_feature_lock().release("video_gen"), loop)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("video_gen 锁释放失败: %s", exc)
-
-    VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
-    threading.Thread(target=_h3_chain_worker, daemon=True,
-                     name=f"h3chain-{task_id[:8]}").start()
-    return ok({"task_id": task_id, "status": "generating",
-               "engine": "h3_chain"})
+    return ok({"task_id": task_id, "status": "pending",
+               "queue_position": position, "engine": "h3_chain"})

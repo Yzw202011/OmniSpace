@@ -1,0 +1,8 @@
+{
+  "name": "次世代二次元古风仙侠",
+  "style_block": "next-gen anime game CG, cel-shaded anime character face with clean face shading and rim light, NPR stylized character over PBR realistic environment, ancient Chinese xianxia fantasy, sea of clouds, mountain-top immortal palaces, flying swords, glowing talismans, game cinematic quality render",
+  "quality_block": "highly detailed masterful artwork, crisp clean lines, professional illustration quality, refined color harmony, gallery-grade composition, no visible text, no watermark",
+  "negative_hint": "photorealistic human face, western cartoon, thick oil paint, watercolor, 3d toy figure",
+  "post": "stylized",
+  "base_prefs": ["flux2-klein-9b", "flux2-klein-4b"]
+}

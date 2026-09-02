@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <filter id="glow2" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- 顶面（最亮） -->
+  <polygon points="128,34 200,76 128,118 56,76" fill="none" stroke="#9DF5FF"
+           stroke-width="12" stroke-linejoin="round"/>
+  <!-- 左面（暗） -->
+  <polygon points="56,76 128,118 128,192 56,150" fill="none" stroke="#5EEAFF"
+           stroke-opacity="0.45" stroke-width="12" stroke-linejoin="round"/>
+  <!-- 右面（中） -->
+  <polygon points="200,76 128,118 128,192 200,150" fill="none" stroke="#5EEAFF"
+           stroke-opacity="0.8" stroke-width="12" stroke-linejoin="round"/>
+  <!-- 体内发光核心 -->
+  <circle cx="128" cy="128" r="12" fill="#FFB454" filter="url(#glow2)"/>
+</svg>

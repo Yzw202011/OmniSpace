@@ -46,6 +46,44 @@ async def lifespan(app: FastAPI):
     log.info("OmniSpace AI v2.3.1 后端启动 (%s:%s)", config.HOST, config.PORT)
     log.info("版本: %s", config.APP_VERSION)
     log.info("=" * 60)
+    # 全机单实例限制（2026-08-31）：双栈叠载会塞爆显存（当日实测关键帧采样
+    # 20+ 分钟直至超时；08-29 蓝屏诱因同源），置于一切重资源初始化之前秒失败
+    from .single_instance import acquire as _acquire_single_instance
+    if not _acquire_single_instance():
+        log.error("!" * 60)
+        log.error("本机已有 OmniSpace 后端实例在运行，按「一台电脑只允许一个实例」拒绝启动。")
+        log.error("访问现有实例请用浏览器/启动页地址；重启请先运行根目录 停止OmniSpace.bat。")
+        log.error("调试确需双开：设置环境变量 OMNISPACE_ALLOW_MULTI=1（显存挤爆自担）。")
+        log.error("!" * 60)
+        raise RuntimeError("OmniSpace 单实例限制：本机已有后端实例在运行")
+    # 激活门禁（P5）：启动即预热机器指纹——避免首个业务请求在中间件里
+    # 同步跑 PowerShell 采集（阻塞事件循环）；门禁未启用时零开销
+    from . import license_gate as _license_gate
+    if _license_gate.gate_enabled():
+        try:
+            _license_gate.collect_fingerprints(force=True)
+            _license_gate.is_activated()
+            log.info("激活门禁已启用：%s", _license_gate.status().get("activated")
+                     and "已激活" or "未激活")
+        except Exception as _exc:  # noqa: BLE001 - 门禁初始化失败不阻断启动
+            log.warning("激活门禁初始化异常（不阻断启动）：%s", _exc)
+    # 风格库加密种子（P6 锁4）：首启动空表自动导入（金库未启用则跳过）
+    try:
+        from .services.style_seed import ensure_seed as _ensure_seed
+        log.info("风格库种子：%s", _ensure_seed())
+    except Exception as _exc:  # noqa: BLE001 - 种子导入失败不阻断启动
+        log.warning("风格库种子导入异常（不阻断启动）：%s", _exc)
+    # 外部模型包登记（体验流 2b 跨盘降级）：boot 拖入识别写的标记 →
+    # 按外部 manifest 幂等回填 file_path（激活门禁拦着 API，只能启动期做）
+    try:
+        from .services.model_manager.external_bootstrap import (
+            bootstrap_external_models as _bootstrap_external,
+        )
+        _r = _bootstrap_external()
+        if _r:
+            log.info("外部模型包登记：%s", _r)
+    except Exception as _exc:  # noqa: BLE001 - 登记失败不阻断启动
+        log.warning("外部模型包登记异常（不阻断启动）：%s", _exc)
     # 审计 R3-BE3：非回环绑定醒目告警（API 无认证体系，规格 §14 约束2 要求 127.0.0.1）
     if config.HOST not in ("127.0.0.1", "localhost"):
         log.warning("!" * 60)
@@ -130,6 +168,9 @@ async def lifespan(app: FastAPI):
         hub = get_ws_hub()
         hub.bind_loop(asyncio.get_running_loop())
         hub.start_telemetry()
+        # 页面守卫（2026-09-03 方案A）：全部页面关闭且无任务 → 正规链退出
+        from .services.page_guard import get_page_guard
+        await get_page_guard().start()
         _draw_api.set_ws_broadcaster(hub.broadcast)
         _lora_svc.set_ws_broadcaster(hub.broadcast)
         _agent_svc.set_ws_broadcaster(hub.broadcast)
@@ -166,6 +207,22 @@ async def lifespan(app: FastAPI):
         flow_trace.start_cleanup_task()
     except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
         log.warning("流程追踪初始化异常（降级运行）")
+    # ── 崩溃取证心跳（2026-09-01 日志机制方案 C）：上次异常退出检测 ──
+    try:
+        from .services import heartbeat
+        prev = heartbeat.check_previous_crash()
+        if prev:
+            from .services.event_log import log_event
+            log_event(
+                "system", "system_crash_detected",
+                f"检测到上次后端为异常退出（进程 {prev['pid']}，最后心跳 "
+                f"{prev['stale_seconds']:.0f} 秒前）——崩溃/被强杀/断电均"
+                "属此类；排障请优先查看该时段日志（导出诊断包会标记）",
+                level="error",
+                detail=f"last_seen_epoch={prev['last_seen']}")
+        heartbeat.start()
+    except Exception:  # noqa: BLE001 - 取证失败不阻断启动
+        log.warning("崩溃取证心跳初始化异常（忽略）")
     # ── 视频任务遗留恢复（审计 P1 修复，2026-08-29）：后台 worker
     # 随进程消失，遗留 generating 行永远无人收尾，/status 会无限
     # 回传旧进度——启动即改写为 error（与 flow_trace 孤儿恢复同时机）
@@ -186,6 +243,12 @@ async def lifespan(app: FastAPI):
                   level="info")
     except Exception:  # noqa: BLE001
         pass
+    # 正常退出才摘心跳（残留 = 下次启动判定为异常退出）
+    try:
+        from .services import heartbeat
+        heartbeat.stop()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from .services.browser_pool import get_browser_pool
         get_browser_pool().shutdown()
@@ -194,6 +257,11 @@ async def lifespan(app: FastAPI):
     try:
         from .services.ws_hub import get_ws_hub
         await get_ws_hub().stop_telemetry()
+    except Exception:
+        pass
+    try:
+        from .services.page_guard import get_page_guard
+        await get_page_guard().stop()
     except Exception:
         pass
     if _SCHEDULER_AVAILABLE:
@@ -226,6 +294,7 @@ _API_MODULES = [
     "hardware",  # §4.6 硬件API
     "system",    # §4.7 系统API
     "logs",      # 系统日志API（2026-08-21 日志可视化：事件查询/统计/清理）
+    "license",   # 激活门禁API（P5：状态展示/激活提交，未激活态白名单）
 ]
 
 
@@ -261,6 +330,27 @@ def create_app() -> FastAPI:
     # 中间件
     setup_cors(app)        # §6.1 L4: 仅本地
     setup_rate_limit(app)  # §7: 100 req/min
+
+    # 激活门禁（P5）：发行包注入公钥后启用——未激活时业务 API 全 403，
+    # 白名单=健康检查/激活接口/前端静态页。开发构建（无公钥）完全旁路。
+    from . import license_gate
+
+    @app.middleware("http")
+    async def license_gate_middleware(request: Request, call_next):
+        if license_gate.gate_enabled():
+            path = request.url.path
+            allowed = (path in ("/health", "/")
+                       or path.startswith("/api/v1/license")
+                       or not path.startswith("/api/"))
+            if not allowed:
+                activated, reason = license_gate.is_activated()
+                if not activated:
+                    return error(
+                        "LICENSE_REQUIRED", "产品尚未激活",
+                        reason or "尚未激活",
+                        suggestion="请把收到的激活码粘贴到激活窗口完成激活")
+        return await call_next(request)
+
     # 请求上下文（文档D meta.request_id/duration_ms 支撑）
     # 审计 R3-BE6：最后注册 = 最外层用户中间件（Starlette insert(0) 语义），
     # 使限流/CORS 拒绝的响应也带 X-Request-ID
@@ -339,6 +429,7 @@ def create_app() -> FastAPI:
         except Exception:
             db_status = "error"
         return ok({"status": "healthy", "version": config.APP_VERSION,
+                    "build": config.BUILD_ID,
                     "uptime_s": round(time.time() - _boot_ts, 1), "db": db_status})
 
     # WebSocket: 对话流式（§4.2 ws://127.0.0.1:5800/api/v1/dialog/stream/{session_id}）

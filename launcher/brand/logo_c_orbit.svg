@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="sph" cx="0.35" cy="0.3" r="1">
+      <stop offset="0" stop-color="#16304F"/>
+      <stop offset="1" stop-color="#0A1120"/>
+    </radialGradient>
+    <filter id="glow3" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- 轨道后半（穿入球后，暗但不隐没） -->
+  <g transform="rotate(-24 128 128)">
+    <path d="M 28 128 A 100 38 0 0 1 228 128" fill="none" stroke="#5EEAFF"
+          stroke-opacity="0.58" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <!-- 星球本体 -->
+  <circle cx="128" cy="128" r="64" fill="url(#sph)" stroke="#5EEAFF" stroke-width="10"/>
+  <!-- 轨道前半（越过球前，亮） -->
+  <g transform="rotate(-24 128 128)">
+    <path d="M 28 128 A 100 38 0 0 0 228 128" fill="none" stroke="#9DF5FF"
+          stroke-width="9" stroke-linecap="round"/>
+  </g>
+  <!-- 轨道上的卫星节点 -->
+  <circle cx="90.6" cy="179.4" r="13" fill="#E9F1FF" filter="url(#glow3)"/>
+</svg>

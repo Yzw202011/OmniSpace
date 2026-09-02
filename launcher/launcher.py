@@ -115,7 +115,10 @@ class PortManager:
             project_marker = str(PROJECT_ROOT).lower()
             # 必须满足：进程名/命令行/工作目录包含omnispace关键字
             # 且是python/uvicorn/celery进程，避免误杀系统中其他python web服务
-            is_python = ('python' in name) or ('uvicorn' in cmdline) or ('celery' in cmdline)
+            # （'omnispace' in name：品牌化进程名 OmniSpace-Backend.exe 等
+            # 不含 python 字样，2026-09-02 品牌化后必须显式认领）
+            is_python = (('python' in name) or ('omnispace' in name)
+                         or ('uvicorn' in cmdline) or ('celery' in cmdline))
             is_omnispace = ('omnispace' in name) or ('omnispace' in cmdline) or (project_marker in cwd and 'backend.main' in cmdline)
             return is_python and is_omnispace
         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -414,7 +417,33 @@ class BackendProcess:
         # vLLM 编译缓存开关（2026-09-01）：vllm_service 默认禁用缓存保
         # 发行稳健；开发机需要缓存时全局置 VLLM_DISABLE_COMPILE_CACHE=0
         'VLLM_DISABLE_COMPILE_CACHE',
+        # 页面守卫（2026-09-03 方案A）：boot 链把自己的启动页端口传给
+        # 后端，页面全关且无任务时经 /api/quit 正规退出；无此变量=非
+        # boot 链（开发直启/测试实例）守卫整体不激活
+        'OMNISPACE_SPLASH_PORT',
     )
+
+    def _backend_exe(self) -> str:
+        """后端进程身份（2026-09-02 品牌化，同日加控制台变体）：
+
+        - 无窗链（pythonw / OmniSpace-Boot.exe 拉起）→ OmniSpace-Backend.exe
+          （pythonw 底，GUI 子系统，任务管理器带 logo+说明）；
+        - 控制台调试链（python.exe / OmniSpace-BootC.exe，即 bat 入口）→
+          OmniSpace-BackendC.exe（python 底，控制台子系统，保留 uvicorn
+          日志的 bat 黑窗回显）；
+        - 副本缺失一律回退 sys.executable（不阻断启动）。
+        注意不能用 'omnispace' in name 判无窗——BootC 同样含关键字但属
+        控制台链，判错会让 bat 丢日志。
+        """
+        exe = Path(sys.executable)
+        name = exe.name.lower()
+        windowless = name.endswith('w.exe') or name in (
+            'omnispace-boot.exe', 'omnispace-shell.exe')
+        branded = exe.parent / ('OmniSpace-Backend.exe' if windowless
+                                else 'OmniSpace-BackendC.exe')
+        if branded.is_file():
+            return str(branded)
+        return sys.executable
 
     def _build_child_env(self, port: int) -> dict:
         """L-H1: 构建子进程环境变量（白名单方式），仅传递必要的变量"""
@@ -474,7 +503,7 @@ class BackendProcess:
             use_pipe_stderr = (not sys.stderr) or self.on_output is not None
 
             self.process = subprocess.Popen(
-                [sys.executable, '-m', 'uvicorn', 'backend.main:app',
+                [self._backend_exe(), '-m', 'uvicorn', 'backend.main:app',
                  '--host', self.config.backend_host, '--port', str(port),
                  '--log-level', 'info'],
                 cwd=str(PROJECT_ROOT),

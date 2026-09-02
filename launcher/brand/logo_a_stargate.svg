@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="ga" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9DF5FF"/>
+      <stop offset="1" stop-color="#5EEAFF"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- 六边形环（星门） -->
+  <polygon points="128,42 202.5,85 202.5,171 128,214 53.5,171 53.5,85"
+           fill="none" stroke="url(#ga)" stroke-width="16" stroke-linejoin="round"/>
+  <!-- 门心核心 -->
+  <circle cx="128" cy="128" r="13" fill="#E9F1FF" filter="url(#glow)"/>
+  <!-- 右上棱边星点（底色遮断环体形成缺口） -->
+  <circle cx="165" cy="63.5" r="27" fill="#05080F"/>
+  <circle cx="165" cy="63.5" r="15" fill="#FFB454" filter="url(#glow)"/>
+</svg>

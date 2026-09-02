@@ -20,7 +20,18 @@ from pathlib import Path
 
 LAUNCHER_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = LAUNCHER_DIR.parent
-PYTHONW = PROJECT_ROOT / 'runtime' / 'py310' / 'pythonw.exe'
+
+
+def _boot_exe() -> Path:
+    """快捷方式目标（2026-09-02 品牌化）：OmniSpace-Boot.exe（logo+进程名
+    规范化）优先，副本缺失回退 pythonw.exe——两者同为 pythonw 底，行为一致。"""
+    branded = PROJECT_ROOT / 'runtime' / 'py310' / 'OmniSpace-Boot.exe'
+    if branded.is_file():
+        return branded
+    return PROJECT_ROOT / 'runtime' / 'py310' / 'pythonw.exe'
+
+
+PYTHONW = _boot_exe()
 ICON_PATH = LAUNCHER_DIR / 'omnispace.ico'
 SHORTCUT_NAME = 'OmniSpace.lnk'
 
@@ -68,7 +79,7 @@ def create_shortcut() -> Path:
     内插进 PS 单引号字符串。
     """
     if not PYTHONW.is_file():
-        raise FileNotFoundError(f'未找到解释器: {PYTHONW}')
+        raise FileNotFoundError(f'未找到启动解释器: {PYTHONW}')
     ps_script = '\n'.join([
         '$ws = New-Object -ComObject WScript.Shell',
         "$desktop = [Environment]::GetFolderPath('Desktop')",

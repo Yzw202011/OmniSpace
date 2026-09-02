@@ -17,18 +17,22 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev,
     if (slash)
         *slash = '\0';
 
-    snprintf(py, sizeof(py), "%s\\runtime\\py310\\pythonw.exe", root);
+    /* 品牌化 Boot 优先（2026-09-02）：任务管理器显示 OmniSpace-Boot.exe
+     * + 项目 logo；包不完整时回退 pythonw 并报缺失。 */
+    snprintf(py, sizeof(py), "%s\\runtime\\py310\\OmniSpace-Boot.exe", root);
+    if (GetFileAttributesA(py) == INVALID_FILE_ATTRIBUTES) {
+        snprintf(py, sizeof(py), "%s\\runtime\\py310\\pythonw.exe", root);
+        if (GetFileAttributesA(py) == INVALID_FILE_ATTRIBUTES) {
+            MessageBoxA(NULL,
+                        "Missing runtime\\py310\\OmniSpace-Boot.exe - package incomplete",
+                        "OmniSpace", MB_ICONERROR);
+            return 1;
+        }
+    }
     snprintf(args, sizeof(args), "\"%s\\launcher\\boot.py\"", root);
     if (lpCmdLine && lpCmdLine[0]) {
         strncat(args, " ", sizeof(args) - strlen(args) - 1);
         strncat(args, lpCmdLine, sizeof(args) - strlen(args) - 1);
-    }
-
-    if (GetFileAttributesA(py) == INVALID_FILE_ATTRIBUTES) {
-        MessageBoxA(NULL,
-                    "Missing runtime\\py310\\pythonw.exe - package incomplete",
-                    "OmniSpace", MB_ICONERROR);
-        return 1;
     }
     SetCurrentDirectoryA(root);
     HINSTANCE r = ShellExecuteA(NULL, "open", py, args, root, SW_HIDE);

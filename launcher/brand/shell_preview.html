@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>OmniSpace 桌面壳窗口预览（实况内嵌）</title>
+<style>
+  :root{
+    --void:#05080F; --panel:rgba(12,19,35,.72); --line:rgba(94,234,255,.2);
+    --ion:#5EEAFF; --ion-hi:#9DF5FF; --amber:#FFB454; --ink:#E9F1FF;
+    --mute:#8296B8; --mono:Consolas,"Cascadia Mono",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1100px 560px at 82% -12%, rgba(255,107,157,.13), transparent 62%),
+      radial-gradient(900px 500px at -8% 108%, rgba(78,205,196,.10), transparent 60%),
+      linear-gradient(160deg,#0A0F1C 0%,#05080F 60%,#070B14 100%);
+    color:var(--ink); font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    padding:34px 4vw 26px; min-height:100vh; gap:26px; overflow-x:hidden;
+  }
+  .hdr{text-align:center}
+  .hdr h1{font-size:20px;font-weight:600;letter-spacing:.1em}
+  .hdr h1 b{color:var(--ion);font-weight:600}
+  .hdr p{color:var(--mute);font-size:12.5px;margin-top:6px;font-family:var(--mono)}
+
+  /* ── 壳窗口本体 ── */
+  .shell{
+    width:min(1240px,94vw); border-radius:10px; overflow:hidden;
+    border:1px solid var(--line);
+    box-shadow:0 30px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.03) inset,
+               0 0 42px rgba(94,234,255,.06);
+    display:flex; flex-direction:column; height:min(760px,78vh);
+    background:#0B1220;
+  }
+  .titlebar{
+    height:40px; flex:none; display:flex; align-items:center; gap:10px;
+    padding:0 0 0 14px;
+    background:linear-gradient(180deg, rgba(19,28,48,.92), rgba(13,20,36,.92));
+    border-bottom:1px solid rgba(94,234,255,.14);
+    user-select:none;
+  }
+  .titlebar img{width:18px;height:18px;display:block}
+  .titlebar .t{font-size:12.5px;letter-spacing:.22em;color:#CFE3FF;padding-left:.22em}
+  .titlebar .cap{margin-left:auto;display:flex;height:100%}
+  .cap button{
+    width:46px;height:100%;border:none;background:transparent;color:#B9CBE8;
+    font-size:11px;cursor:default;display:flex;align-items:center;justify-content:center;
+  }
+  .cap button:hover{background:rgba(94,234,255,.08)}
+  .cap button.close:hover{background:#c42b1c;color:#fff}
+  .shellbody{flex:1;position:relative;background:#0B1220;min-height:0}
+  .shellbody .loading{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--mute);font-family:var(--mono);font-size:13px;letter-spacing:.1em;
+  }
+  .shellbody iframe{position:absolute;inset:0;width:100%;height:100%;border:none;background:#0B1220}
+
+  /* ── 关闭确认弹窗（已拍 D2 倒计时 60s 的设计稿） ── */
+  .row{width:min(1240px,94vw);display:flex;gap:22px;flex-wrap:wrap;align-items:stretch}
+  .dialog-card{
+    flex:1 1 320px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:22px 24px;
+  }
+  .dialog-card h3{font-size:14px;letter-spacing:.08em;margin-bottom:4px}
+  .dialog-card h3 span{color:var(--ion);font-family:var(--mono);margin-right:8px}
+  .dialog-card .cap2{color:var(--mute);font-size:12px;margin-bottom:16px;line-height:1.7}
+  /* 模拟弹窗 */
+  .dlg{
+    border:1px solid rgba(94,234,255,.22);border-radius:10px;overflow:hidden;
+    background:rgba(7,12,23,.9); box-shadow:0 16px 44px rgba(0,0,0,.5);
+  }
+  .dlg .bar{
+    height:34px;display:flex;align-items:center;padding:0 12px;gap:8px;
+    border-bottom:1px solid rgba(94,234,255,.12);
+    background:rgba(19,28,48,.85);font-size:11.5px;color:#CFE3FF;letter-spacing:.12em;
+  }
+  .dlg .bar img{width:14px;height:14px}
+  .dlg .bar .x{margin-left:auto;color:#B9CBE8}
+  .dlg .body{padding:18px 20px;display:flex;gap:16px;align-items:center}
+  .ring{
+    --p:85%; width:64px;height:64px;border-radius:50%;flex:none;
+    background:
+      conic-gradient(var(--amber) calc(var(--p)), rgba(94,234,255,.14) 0);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .ring i{
+    width:50px;height:50px;border-radius:50%;background:#0A1120;font-style:normal;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:17px;color:var(--amber);
+  }
+  .dlg .msg{font-size:13px;line-height:1.8}
+  .dlg .msg b{color:var(--amber);font-weight:600}
+  .dlg .msg small{display:block;color:var(--mute);font-size:11.5px;margin-top:4px}
+  .dlg .btns{display:flex;gap:10px;padding:0 20px 18px;justify-content:flex-end}
+  .dlg .btns button{
+    padding:7px 16px;border-radius:7px;font-size:12px;cursor:default;
+    border:1px solid rgba(94,234,255,.3);background:transparent;color:#CFE3FF;
+  }
+  .dlg .btns button.primary{
+    background:linear-gradient(135deg,#9DF5FF,#5EEAFF);color:#04121C;border:none;font-weight:600;
+  }
+  .dlg .btns button.danger{border-color:rgba(255,92,122,.45);color:#FF8FA3}
+
+  /* 任务栏 */
+  .taskbar{
+    position:fixed;left:0;right:0;bottom:0;height:44px;
+    background:rgba(10,16,28,.82);backdrop-filter:blur(10px);
+    border-top:1px solid rgba(94,234,255,.12);
+    display:flex;align-items:center;justify-content:center;gap:14px;
+  }
+  .taskbar .ic{width:26px;height:26px;border-radius:6px;padding:3px}
+  .taskbar .ic.active{
+    background:rgba(94,234,255,.1);border:1px solid rgba(94,234,255,.3);
+    position:relative;
+  }
+  .taskbar .ic.active::after{
+    content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);
+    width:14px;height:2.5px;border-radius:2px;background:var(--ion);
+  }
+  .taskbar img{width:100%;height:100%;display:block}
+  .taskbar .deco{width:22px;height:22px;border-radius:5px;background:rgba(140,160,190,.16)}
+  .note{
+    width:min(1240px,94vw);color:var(--mute);font-size:12px;line-height:1.9;
+    border-left:2px solid var(--ion);padding-left:14px;margin-bottom:40px;
+  }
+  .note b{color:var(--ion-hi)}
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <h1>OMNISPACE <b>桌面壳窗口预览</b></h1>
+    <p>窗口内容 = 实况内嵌（http://127.0.0.1:5800 真实后端页面）｜窗框/弹窗 = 设计稿</p>
+  </div>
+
+  <!-- 壳窗口 -->
+  <div class="shell">
+    <div class="titlebar">
+      <img src="logo_export_a.svg" alt="OmniSpace">
+      <span class="t">OMNISPACE</span>
+      <div class="cap">
+        <button>─</button>
+        <button>▢</button>
+        <button class="close">✕</button>
+      </div>
+    </div>
+    <div class="shellbody">
+      <div class="loading">正在载入主界面…（若长时间空白：后端未运行或被浏览器拦内嵌）</div>
+      <iframe src="http://127.0.0.1:5800/" title="OmniSpace 主界面实况"></iframe>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- 关闭确认弹窗 -->
+    <div class="dialog-card">
+      <h3><span>A</span>关窗确认弹窗（已拍：倒计时 60 秒）</h3>
+      <p class="cap2">点 X 时若后台有任务在跑 → 弹此窗；可「继续等待」可「立即退出」；无任务则直接优雅退出。时长可在设置调。</p>
+      <div class="dlg">
+        <div class="bar"><img src="logo_export_a.svg" alt="">OMNISPACE<span class="x">✕</span></div>
+        <div class="body">
+          <div class="ring"><i>51</i></div>
+          <div class="msg">
+            还有 <b>2 个生成任务</b> 正在运行（视频 · 预计 6 分钟）
+            <small>倒计时结束将自动退出；「继续等待」会等任务跑完再安全退出。</small>
+          </div>
+        </div>
+        <div class="btns">
+          <button>继续等待</button>
+          <button class="danger">立即退出</button>
+          <button class="primary">取消，回到应用</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 说明卡 -->
+    <div class="dialog-card">
+      <h3><span>B</span>这份预览里什么是真的</h3>
+      <p class="cap2" style="margin-bottom:10px">
+        <b style="color:var(--ion-hi)">真：</b>窗框里加载的就是现在正在运行的真实应用（后端 :5800 实况），您在里面点任何功能都是真的在用。
+        弹窗是设计稿（按您已拍板的倒计时 60 秒语义画的）。<br><br>
+        <b style="color:var(--ion-hi)">差异：</b>真壳是独立桌面窗口（无浏览器地址栏、任务栏独立图标），这份 HTML 借浏览器呈现窗框效果。
+        标题栏为「原生+精修」方案（已拍）：系统样式 + 星门图标 + 文案精修。<br><br>
+        <b style="color:var(--amber)">已知问题：</b>原生壳预研窗口本次拉起静默失败（未开窗、无报错），已列入 S1 排障清单——不影响本预览。
+      </p>
+    </div>
+  </div>
+
+  <!-- 任务栏模拟 -->
+  <div class="taskbar">
+    <div class="deco"></div><div class="deco"></div><div class="deco"></div>
+    <div class="ic active"><img src="logo_export_a.svg" alt="OmniSpace"></div>
+    <div class="deco"></div><div class="deco"></div>
+  </div>
+</body>
+</html>

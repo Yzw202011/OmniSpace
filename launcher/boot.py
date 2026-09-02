@@ -36,7 +36,7 @@ import time
 import urllib.request
 import webbrowser
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -237,7 +237,11 @@ class ComfyManager:
             if self._proc and self._proc.poll() is None:
                 return 'ComfyUI 预热已在进行中'
             comfy_dir = PROJECT_ROOT / 'tools' / 'ComfyUI_windows_portable'
-            py = comfy_dir / 'python_embeded' / 'python.exe'
+            embed = comfy_dir / 'python_embeded'
+            # 品牌化优先（OmniSpace-Engine.exe，2026-09-02），缺失回退原版
+            py = embed / 'OmniSpace-Engine.exe'
+            if not py.is_file():
+                py = embed / 'python.exe'
             main = comfy_dir / 'ComfyUI' / 'main.py'
             if not (py.is_file() and main.is_file()):
                 return '未找到 ComfyUI 便携版（tools/ComfyUI_windows_portable）'
@@ -252,7 +256,10 @@ class ComfyManager:
                  '--listen', '127.0.0.1', '--port', str(COMFY_PORT)],
                 cwd=str(comfy_dir), stdout=log_fp, stderr=subprocess.STDOUT,
                 env=env,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                # CREATE_NO_WINDOW：控制台子系统子进程（python/品牌 Engine）
+                # 从无窗父进程拉起时系统会新开控制台黑窗，必须显式压掉
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.CREATE_NO_WINDOW)
             self.state.comfy['warming'] = True
             self.state.log(f'ComfyUI 预热启动 (PID {self._proc.pid}，冷启动约 25s)')
             threading.Thread(target=self._wait_ready, daemon=True,
@@ -412,6 +419,9 @@ class BootOptions:
     no_browser: bool = False
     comfy: bool = False
     warmup: bool = True
+    # 通道 A（拖入）：把 models 文件夹拖到启动 exe/快捷方式上，Windows
+    # 以该路径为命令行参数拉起 exe，桩（omnispace_exe.c）原样透传到这
+    dropped: list = field(default_factory=list)
 
 
 class BootOrchestrator:
@@ -515,6 +525,117 @@ class BootOrchestrator:
         return True
 
     # ── 阶段②：环境自检 ──
+
+    # ── 拖入识别（通道 A：models 文件夹拖到 exe/快捷方式上）──
+
+    def _import_dropped_models(self) -> None:
+        """拖入接线（2026-09-02 体验流定稿第一步）。
+
+        exe 桩透传 argv（launcher/omnispace_exe.c）；拖到图标上的外部
+        models 根 → 以其为源挂接（同卷直接生效，跨卷提示移盘）；未拖入
+        但安装目录 models/ 已有内容（通道 B 收件箱）→ 同样接一遍给启动页
+        反馈；两者皆空 → 一句指引。失败绝不阻断启动：ComfyUI 每次冷启前
+        comfy_proc._mount_models_before_spawn 还会兜底重挂。
+        """
+        dropped_root = None
+        for arg in self.opts.dropped or []:
+            p = Path(arg)
+            if (p / 'models').is_dir():
+                p = p / 'models'   # 拖的是包含 models 的外层文件夹
+            if p.is_dir():
+                dropped_root = p
+                break
+        try:
+            import importlib.util
+            root = BOOT_DIR.parent
+            link_dir = next(
+                (d for d in (root / 'scripts' / 'comfy_link',
+                             root / 'modelxiazai')
+                 if (d / 'comfy_model_map.json').is_file()), None)
+            if link_dir is None or not (link_dir / 'comfy_mount.py').is_file():
+                if dropped_root is not None:
+                    self.state.log('拖入已收到，但包内缺挂接器'
+                                   '（scripts/comfy_link）——模型已就位，'
+                                   '引擎接线待补', 'warn')
+                return
+            spec = importlib.util.spec_from_file_location(
+                '_omnispace_comfy_mount_boot', link_dir / 'comfy_mount.py')
+            mod = importlib.util.module_from_spec(spec)
+            # 先注册再 exec（dataclass 字符串注解按模块名查 sys.modules，
+            # 未注册会在导入期崩，被 except 吞成接线异常）
+            sys.modules[spec.name] = mod
+            spec.loader.exec_module(mod)
+
+            if dropped_root is not None:
+                ok, why = mod.validate_models_root(dropped_root)
+                if not ok:
+                    self.state.log(f'拖入的文件夹不像大模型包（{why}），已忽略'
+                                   '——请拖入整个 models 文件夹', 'warn')
+                    return
+                models_root = dropped_root
+                self.state.log(f'检测到拖入的模型包：{dropped_root}'
+                               f'（{why}），开始接线…')
+            elif (root / 'models').is_dir() and any(
+                    (root / 'models').iterdir()):
+                models_root = root / 'models'   # 通道 B：安装目录收件箱
+            else:
+                self.state.log('未检测到大模型：把 models 文件夹拖到启动图标上'
+                               '（或放入安装目录 models\\），绘画/视频功能即可解锁')
+                return
+            report = mod.ensure_mounted(
+                models_root=models_root,
+                comfy_models=root / 'tools' / 'ComfyUI_windows_portable'
+                / 'ComfyUI' / 'models')
+            if not report.total:
+                self.state.log('模型挂接：包内无映射表，跳过（对话/漫剧关键帧'
+                               '不依赖挂接；绘画引擎依赖）', 'warn')
+                return
+            self.state.log(f'模型接线完成：{report.summary_line()}')
+            for line in report.details[:8]:
+                self.state.log(f'接线明细：{line}',
+                               'warn' if ('冲突' in line or '失败' in line)
+                               else 'info')
+            yaml_path = (root / 'data' / 'comfyui'
+                         / 'extra_model_paths.yaml')
+            marker = root / 'data' / 'models_external.json'
+            if report.cross_volume:
+                # 2b 跨盘降级：yaml 通道（绘画引擎）+ 外部登记标记（后端启动
+                # 时按 models_manifest 幂等回填 file_path——boot 阶段激活门禁
+                # 拦着 /api/v1，登记只能放后端启动期）
+                fr = mod.cross_volume_fallback(
+                    models_root=models_root,
+                    comfy_models=root / 'tools' / 'ComfyUI_windows_portable'
+                    / 'ComfyUI' / 'models',
+                    yaml_path=yaml_path)
+                try:
+                    marker.parent.mkdir(parents=True, exist_ok=True)
+                    marker.write_text(json.dumps(
+                        {'root': str(models_root)}, ensure_ascii=False),
+                        encoding='utf-8')
+                except OSError:
+                    pass
+                self.state.log(f'模型在别的磁盘，已启用跨盘降级：'
+                               f'{fr.summary_line()}（对话/漫剧走外部路径，'
+                               '绘画引擎走跨盘通道）')
+                for rel in fr.unresolvable[:5]:
+                    self.state.log(f'跨盘用不了的件（移到同盘即好）：{rel}',
+                                   'warn')
+                self.state.log('最佳体验：把 models 文件夹移动到软件所在磁盘'
+                               '（同盘移动瞬间完成）后重启，自动回到满血模式',
+                               'warn')
+            else:
+                if marker.is_file():
+                    try:
+                        marker.unlink()
+                        self.state.log('检测到模型已与软件同盘，已撤销跨盘登记')
+                    except OSError:
+                        pass
+                if report.missing_src:
+                    self.state.log(f'还有 {report.missing_src} 件模型未放入'
+                                   '（补齐后下次启动引擎自动接上）')
+        except Exception as e:  # noqa: BLE001 - 接线失败不阻断启动
+            self.state.log(f'模型接线异常（不阻断启动，引擎冷启时重试）：{e}',
+                           'warn')
 
     def _run_env_checks(self) -> bool:
         self.state.set_phase('env', 'running')
@@ -624,6 +745,11 @@ class BootOrchestrator:
             return False
         self.state.log(f'端口决策：{msg}')
         self._owns_backend = True
+        # 页面守卫（2026-09-03 方案A）：把自己的启动页端口传给后端——
+        # 全部页面关闭且无任务时，后端经 /api/quit 正规退出（等价
+        # stop.py，看门狗随启动页收尾放行）。仅自有的后端才传；接管
+        # 模式不传（守卫不激活，不代他人链做退出决策）
+        os.environ['OMNISPACE_SPLASH_PORT'] = str(self._splash_port)
         # 端口先行记录：失败路径下 poller 也能探测真实端口（而非 :0）
         self.state.backend['port'] = port
         if not self.backend.start(port):
@@ -830,6 +956,9 @@ class BootOrchestrator:
 
         if not self._start_splash():
             return 0 if self._deferred_to_existing else 1
+        # 体验流第一步（通道 A/B 模型接线）——先于环境自检，接线结果直接
+        # 进启动页日志；让位分支（已在运行实例）不会走到这里，无重复挂接
+        self._import_dropped_models()
         if not self._run_env_checks():
             self.state.log('环境自检未通过，启动中止（启动页保持打开供查看原因）',
                            'error')
@@ -910,10 +1039,15 @@ def main() -> int:
     parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器')
     parser.add_argument('--comfy', action='store_true', help='启动时预热 ComfyUI')
     parser.add_argument('--no-warmup', action='store_true', help='跳过对话模型预热')
+    # 位置参数＝拖入透传（通道 A）：拖文件夹到 exe 上，Windows 以路径为
+    # 参数启动；不定义此项 argparse 会因多余参数直接报错退出
+    parser.add_argument('dropped', nargs='*',
+                        help='拖入的 models 文件夹（透传，勿手填）')
     args = parser.parse_args()
 
     opts = BootOptions(port=args.port, no_browser=args.no_browser,
-                       comfy=args.comfy, warmup=not args.no_warmup)
+                       comfy=args.comfy, warmup=not args.no_warmup,
+                       dropped=list(args.dropped or []))
     return BootOrchestrator(opts).run()
 
 

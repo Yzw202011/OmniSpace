@@ -186,6 +186,17 @@ export function DialogView({
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     if (generating) return;
+    // P2-2 修复（2026-09-02 实测复现）：浮层被 Esc 关闭/输入法组合态
+    // 键序跳过 applyCommand 时，回车会把命令原文当消息发给模型
+    // （「/清空输入不生效」观感来源）。全文等值命令键 → 直接执行。
+    const directCmd = SLASH_COMMANDS.find((c) => c.key === text);
+    if (directCmd) {
+      directCmd.run();
+      setCmdIdx(0);
+      setCmdDismissed(false);
+      inputRef.current?.focus();
+      return;
+    }
     // 兜底：输入后立刻发送而自动创建尚未完成（或未触发）时，
     // 等待会话就绪再发——输入内容保留（仅成功发送才清空）
     if (!activeSessionId) {

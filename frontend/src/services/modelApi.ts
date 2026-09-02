@@ -91,6 +91,34 @@ export function purgeModelFiles(modelId: string) {
     `/models/${encodeURIComponent(modelId)}/files`);
 }
 
+/* ------------------------------ 就绪总检 ------------------------------ */
+
+/** 就绪总检模块行（GET /models/readiness；体验流 #3 绿灯/缺件指路） */
+export interface ReadinessModule {
+  key: string;
+  label: string;
+  ready: boolean;
+  /** 内置件模块（随软件包发行，缺件只记 notes 不翻灰） */
+  builtin: boolean;
+  present: string[];
+  missing: string[];
+}
+
+/** 就绪总检响应（对齐 backend/services/model_manager/readiness.py） */
+export interface ModelReadiness {
+  manifest_found: boolean;
+  models_root: string;
+  modules: ReadinessModule[];
+  missing_count: number;
+  all_ready: boolean;
+  notes: string[];
+}
+
+/** 模型就绪总检：模块级绿/灰 + 缺件清单（「拖入→启动→首启激活→即用」验收门面） */
+export function fetchModelReadiness() {
+  return get<ModelReadiness>('/models/readiness');
+}
+
 /* ------------------------------ 手动选择 ------------------------------ */
 
 /** 可选择模型的功能名（后端 models_select 合法值：dialog/paint/video/voice） */

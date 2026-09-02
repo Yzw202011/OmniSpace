@@ -61,15 +61,29 @@ export function formatDuration(seconds: number | null | undefined): string {
 }
 
 /**
+ * 入参转 Date：数值按秒级 epoch 自适应放大到毫秒
+ * （后端 created_at 约定为 time.time() 秒；直接 new Date(秒) 会按毫秒
+ * 解析成 1970-01，2026 年秒值 1.78e9 → 显示 1970-01-22。阈值 1e11
+ * 区分：秒 < 1e11 < 毫秒，毫秒级入参不受影响）
+ */
+function toDateSafe(date: Date | number | string | null | undefined): Date | null {
+  if (date === null || date === undefined || date === 0 || date === '') return null;
+  if (typeof date === 'number' && date > 0 && date < 1e11) {
+    return new Date(date * 1000);
+  }
+  const d = new Date(date);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
  * 格式化日期时间
  * @param date 日期对象、时间戳或日期字符串
  * @param withSeconds 是否包含秒
  * @returns 如 "2026-08-05 14:30"
  */
 export function formatDateTime(date: Date | number | string | null | undefined, withSeconds = false): string {
-  if (!date) return '--';
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return '--';
+  const d = toDateSafe(date);
+  if (!d) return '--';
   const pad = (n: number) => String(n).padStart(2, '0');
   const y = d.getFullYear();
   const mo = pad(d.getMonth() + 1);
@@ -86,10 +100,10 @@ export function formatDateTime(date: Date | number | string | null | undefined, 
  * @returns 如 "刚刚"、"3分钟前"、"2小时前"、"3天前"
  */
 export function formatRelativeTime(date: Date | number | string | null | undefined): string {
-  if (!date) return '--';
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return '--';
+  const d = toDateSafe(date);
+  if (!d) return '--';
   const diff = Date.now() - d.getTime();
+  if (diff < 0) return formatDateTime(d);
   const sec = Math.floor(diff / 1000);
   if (sec < 60) return '刚刚';
   const min = Math.floor(sec / 60);

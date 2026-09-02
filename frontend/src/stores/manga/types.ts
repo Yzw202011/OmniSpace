@@ -57,6 +57,8 @@ export interface MangaVideoTask {
   description: string;
   /** 任务状态（对齐后端 video_tasks.status；取消链路终态为 cancelled） */
   status: VideoTaskStatus;
+  /** 排队位次（1 起；仅 pending 时有意义，2026-09-02 视频队列） */
+  queue_position?: number;
   /** 进度 0~1（真实轮询） */
   progress: number;
   /** 失败信息 */
@@ -205,10 +207,18 @@ export interface VideoSlice {
   videoGenerating: boolean;
 
   /** 发起视频生成（功能互斥 video_gen + 轮询进度；opts.modelOverride
-   *  为可选引擎点名，如 "h3_director" = MiniMax H3 导演台） */
+   *  为可选引擎点名，如 "h3_director" = MiniMax H3 导演台；
+   *  duration/aspect 为模型配置·视频默认参数（2026-08-31 接线：
+   *  此前确认弹窗只回填表单显示，画幅/时长从不进请求） */
   generateVideo: (
     row: StoryboardRow,
-    opts?: { modelOverride?: string },
+    opts?: {
+      modelOverride?: string;
+      /** 时长（秒，4/8/11/15） */
+      duration?: number;
+      /** 画幅 */
+      aspect?: '16:9' | '9:16';
+    },
   ) => Promise<boolean>;
   /** 拉取项目历史视频任务（openProject 调用，行级取最新终态） */
   loadVideoHistory: (projectId: string) => Promise<void>;

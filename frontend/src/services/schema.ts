@@ -148,8 +148,11 @@ export const VideoGenerateRespSchema = z
   .object({
     task_id: z.string(),
     status: z.string(),
+    /** 排队位次（1 起，入队即返回时携带；2026-09-02 视频队列） */
+    queue_position: z.number().int().positive().optional(),
   })
   .passthrough();
+export type VideoGenerateResp = z.infer<typeof VideoGenerateRespSchema>;
 
 /** GET /manga/video/{taskId}/status 响应 */
 export const VideoStatusRespSchema = z
@@ -158,6 +161,8 @@ export const VideoStatusRespSchema = z
     status: z.enum(['pending', 'generating', 'done', 'error', 'cancelled']),
     progress: z.number().min(0).max(1),
     error: z.string().optional(),
+    /** 排队位次（1 起，仅 pending 且仍在队列中时返回；2026-09-02 视频队列） */
+    queue_position: z.number().int().positive().optional(),
     /** 预计剩余秒数（生成中且引擎已采样到步耗时才返回，2026-08-22） */
     eta_seconds: z.number().int().nonnegative().optional(),
   })

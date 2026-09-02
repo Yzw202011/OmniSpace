@@ -82,5 +82,12 @@ scripts/scratch/
 # ===== 构建工具链第三方树（pip --target 安装，同 pydeps 待遇不入库） =====
 build_tools/
 
+# ===== 打包台本地产物（构建台账/日志/默认参数，仅本机） =====
+packaging_console/builds/
+packaging_console/config.json
+
 # ===== 安全扫描工具本地数据（Mimosa 审计证据库） =====
 .mimosa/
+
+# ===== ZCode 会话状态目录（本地工具产物，不入库） =====
+.zcode/

@@ -15,9 +15,11 @@ import type { PaintRequest, PaintResult } from '@/types';
 import * as paintApi from '@/services/paintApi';
 import type { DrawModelItem } from '@/services/paintApi';
 import { API_BASE } from '@/services/api';
+import { warmupFeature } from '@/services/modelApi';
 import { trackBehavior } from '@/services/learningApi';
 import { useAppStore } from './useAppStore';
 import { useTaskStore } from './useTaskStore';
+import { useWarmupStore } from './useWarmupStore';
 
 /** 默认绘画参数 */
 const DEFAULT_REQUEST: PaintRequest = {
@@ -33,6 +35,59 @@ const DEFAULT_REQUEST: PaintRequest = {
   mode: 'quick',
   loras: [],
 };
+
+/* ──────────────────────────────────────────────────────────────────
+ * 生图前置：绘画模型未加载时立即点火加载并告知用户（2026-08-31 用户需求
+ * 「点击生图时未加载要立刻加载、也要告知」）。
+ * 已就绪 → 零开销直通；未就绪 → POST /models/warmup feature=paint 点火
+ * （与进页面预热同一通道，inflight 幂等）+ PaintWarmupModal 进度弹窗
+ * + toast 说明，就绪后自动继续提交。等待上限 120s，超时仍提交——后端
+ * 任务内「模型加载」节点会再次兜底 ensure_loaded，失败则如实报错。
+ * ────────────────────────────────────────────────────────────────── */
+const PAINT_READY_POLL_MS = 2_000;
+const PAINT_READY_TIMEOUT_MS = 120_000;
+
+async function isPaintReady(): Promise<boolean> {
+  try {
+    const st = (await paintApi.getStatus()) as {
+      loaded?: boolean;
+      state?: string;
+    };
+    return Boolean(st && (st.loaded === true || st.state === 'ready'));
+  } catch {
+    // 状态接口不可达（后端瞬断）：不拦截生成，交由后端如实报错
+    return true;
+  }
+}
+
+async function ensurePaintReady(model?: string): Promise<void> {
+  if (await isPaintReady()) return;
+  try {
+    const r = await warmupFeature('paint', model || undefined);
+    if (r?.reason === 'already_ready') return;
+  } catch {
+    // 预热请求被拒（互斥/后端异常）：不再等待，直接提交，
+    // 由 /draw/generate 预检给出真实原因（用户能看到可操作的报错）
+    return;
+  }
+  useWarmupStore.getState().begin(undefined, 'paint');
+  useAppStore.getState().showToast(
+    '绘画模型未加载，正在自动加载（约 0.5-1 分钟），完成后将自动开始生成，无需其他操作',
+    'info',
+  );
+  const deadline = Date.now() + PAINT_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, PAINT_READY_POLL_MS));
+    if (await isPaintReady()) return;
+  }
+}
+
+/** 模型加载类失败的补充指引：告诉用户去哪里手动处理，而不是一句「未加载」 */
+function withLoadHint(msg: string): string {
+  return /MODEL_LOAD_FAILED|绘画模型未就绪|模型未加载|未处于已加载/.test(msg)
+    ? `${msg}。可在「模型管理」页查看绘画模型状态并手动加载，或稍后重试`
+    : msg;
+}
 
 /** 由历史 file_path 拼图片 URL（generated/images/<file> → /v1/draw/image/<file>） */
 function fileUrl(filePath: string): string {
@@ -165,21 +220,33 @@ export const usePaintStore = create<PaintState>((set, get) => ({
 
     try {
       set({ generating: true });
-      const { task_id } = await paintApi.generate(paintRequest);
-      set({ currentTaskId: task_id });
-
-      // 注册到全局任务，接收进度
-      useTaskStore.getState().upsertTask({
-        id: task_id,
-        type: 'text2img',
-        name: '文生图',
-        status: 'running',
-        progress: 0,
-        pausable: false,
+      // 模型未加载 → 立即点火 + 弹窗告知，就绪（或超时兜底）后继续提交
+      await ensurePaintReady(paintRequest.model);
+      const res = await paintApi.generate(paintRequest);
+      // 批量（P2 复核修复 2026-09-02）：后端按 batch_size 派发 N 个队列
+      // 任务（定种子按序派生防同图）；逐张轮询，全部终态才释放
+      // generating/功能锁（单张路径行为不变）
+      const ids = res.task_ids?.length ? res.task_ids : [res.task_id];
+      set({ currentTaskId: ids[0] });
+      const pending = { n: ids.length };
+      const onSettled = () => {
+        pending.n -= 1;
+        if (pending.n <= 0) {
+          usePaintStore.setState({ generating: false, currentTaskId: null });
+          useAppStore.getState().releaseActiveFeature();
+        }
+      };
+      ids.forEach((tid, idx) => {
+        useTaskStore.getState().upsertTask({
+          id: tid,
+          type: 'text2img',
+          name: ids.length > 1 ? `文生图 ${idx + 1}/${ids.length}` : '文生图',
+          status: 'running',
+          progress: 0,
+          pausable: false,
+        });
+        pollTaskStatus(tid, paintRequest, onSettled);
       });
-
-      // 轮询状态直到完成（进度逐次回写任务 store，驱动进度条）
-      pollTaskStatus(task_id, paintRequest);
 
       // 行为学习埋点（fire-and-forget，失败静默）
       trackBehavior('paint_generate', {
@@ -193,7 +260,7 @@ export const usePaintStore = create<PaintState>((set, get) => ({
         err && typeof err === 'object' && 'message' in err
           ? (err as { message: string }).message
           : '生成失败';
-      useAppStore.getState().showToast(msg, 'error');
+      useAppStore.getState().showToast(withLoadHint(msg), 'error');
       set({ generating: false });
       appStore.releaseActiveFeature();
       return false;
@@ -213,6 +280,8 @@ export const usePaintStore = create<PaintState>((set, get) => ({
     };
     try {
       set({ generating: true });
+      // 模型未加载 → 立即点火 + 弹窗告知（同文生图入口）
+      await ensurePaintReady(params.model);
       const { task_id } = await paintApi.img2img(params);
       set({ currentTaskId: task_id });
       useTaskStore.getState().upsertTask({
@@ -229,7 +298,7 @@ export const usePaintStore = create<PaintState>((set, get) => ({
         err && typeof err === 'object' && 'message' in err
           ? (err as { message: string }).message
           : '生成失败';
-      useAppStore.getState().showToast(msg, 'error');
+      useAppStore.getState().showToast(withLoadHint(msg), 'error');
       set({ generating: false });
       appStore.releaseActiveFeature();
       return false;
@@ -418,16 +487,22 @@ export const usePaintStore = create<PaintState>((set, get) => ({
  * 每次轮询把 percent 回写任务 store（progress 0~1 约定），驱动进度条；
  * done 时装配 PaintResult 插入结果列表，error 时 toast 并释放功能锁。
  */
-function pollTaskStatus(taskId: string, request: PaintRequest) {
+function pollTaskStatus(taskId: string, request: PaintRequest,
+                        onSettled?: () => void) {
   let stopped = false;
   let failStreak = 0; // 连续轮询失败计数（后端不可达检测）
   const finishError = (message: string) => {
     stopped = true;
     clearInterval(timer);
+    // 模型加载类失败附上「去哪加载」的指引，避免用户面对裸「未加载」
     useTaskStore.getState().failTask(taskId, message);
-    useAppStore.getState().showToast(message, 'error');
-    usePaintStore.setState({ generating: false, currentTaskId: null });
-    useAppStore.getState().releaseActiveFeature();
+    useAppStore.getState().showToast(withLoadHint(message), 'error');
+    if (onSettled) {
+      onSettled();  // 批量：计数释放；单张沿用旧语义（回调内释放）
+    } else {
+      usePaintStore.setState({ generating: false, currentTaskId: null });
+      useAppStore.getState().releaseActiveFeature();
+    }
   };
   const timer = setInterval(async () => {
     if (stopped) {
@@ -436,11 +511,14 @@ function pollTaskStatus(taskId: string, request: PaintRequest) {
     try {
       const task = await paintApi.getStatus(taskId);
       failStreak = 0;
-      // 进度回写（OmniTask.progress 约定 0~1）
+      // 进度回写（OmniTask.progress 约定 0~1）；排队中如实标 pending
+      // 并透出位次（统一图像队列 2026-09-02：TopBar 显示「排队中·前N」）
       useTaskStore
         .getState()
         .updateProgress(taskId, (task.percent ?? 0) / 100, {
-          status: task.status === 'error' ? 'error' : undefined,
+          status: task.status === 'error' ? 'error'
+            : task.status === 'pending' ? 'pending' : undefined,
+          queue_position: task.queue_position,
         });
 
       if (task.status === 'done') {
@@ -458,11 +536,15 @@ function pollTaskStatus(taskId: string, request: PaintRequest) {
         };
         usePaintStore.setState((state) => ({
           results: [result, ...state.results],
-          generating: false,
-          currentTaskId: null,
         }));
         useTaskStore.getState().completeTask(taskId, result.url);
-        useAppStore.getState().releaseActiveFeature();
+        if (onSettled) {
+          onSettled();  // 批量：计数释放；单张沿用旧语义
+        } else {
+          usePaintStore.setState({ generating: false, currentTaskId: null });
+          useAppStore.getState().releaseActiveFeature();
+        }
+        useAppStore.getState().showToast('生成完成，新图已添加到画廊', 'success');
       } else if (task.status === 'error') {
         finishError(task.error || '生成失败');
       }

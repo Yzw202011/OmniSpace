@@ -18,9 +18,10 @@ import type { PaintRequest, Paginated } from '@/types';
 
 /* ------------------------------ 生成 ------------------------------ */
 
-/** 文生图生成 */
+/** 文生图生成（batch_size>1 时返回 task_ids 全量，task_id 恒为首个） */
 export function generate(params: PaintRequest) {
-  return post<{ task_id: string }>('/draw/generate', params);
+  return post<{ task_id: string; task_ids?: string[]; batch?: number }>(
+    '/draw/generate', params);
 }
 
 /** 图生图（init_image base64 + strength） */
@@ -125,6 +126,8 @@ export interface DrawTaskResult {
   sampler?: string;
   elapsed_ms?: number;
   created_at?: number;
+  /** 排队位次（1 起，仅 pending 且仍在统一图像队列中时返回） */
+  queue_position?: number;
   /** done 时返回：相对路径 generated/images/<task_id>.png */
   file_path?: string;
   /** done 时返回：图片 PNG base64（无 data: 前缀） */

@@ -2,10 +2,11 @@
 
 > 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：backend/data/database.py 及各服务层自建表 DDL 全量提取
 > **2026-08-28 校准**：实测 `data/omnispace.db` 共 **31 张用户表**（37 个对象含 FTS5 影子表与 sqlite_sequence），本文档成文时为 30 张、漏记 `art_styles`（database.py `_SCHEMA` 建表，供漫剧漫画风格包使用）；`PRAGMA user_version` 实测为 **7**（原文 3），迁移组 4~7 详见 `database.py` `_MIGRATION_GROUPS`。
+> **2026-09-01 校准（只读实测）**：主库实测 **30 张用户表**（36 对象 = 30 用户表 + 6 张 knowledge_fts\* 影子表；加上 sqlite_sequence 为 37）。两处口径修正：① `flow_executions / flow_nodes` 实际建在**独立库 `logs/flow_trace.db`**（此前按主库口径计数系误差），两库合计 **32 张用户表**；② `paint_history` 一直在主库但历史计数从未包含。列级漂移已同步：art_styles 6 列（+pack/pack_def）、keyframes（+shot_seeds/consistency）、dialog_messages（+reasoning）、projects（+art_style）。全字段清单见 `docs/全量技术文档-2026-09-01.md` 附录 B。
 >
 > 配套文档：[架构总览](architecture-overview.md) ｜ [API 端点总表](api-endpoints.md)
 
-单一 SQLite 库 `data/omnispace.db`（WAL 模式，busy_timeout 5000ms，`PRAGMA foreign_keys=ON`）。规格 §3.2 称"13 张业务表"，实际 DDL 共 **31 张用户表**（2026-08-28 实测校准，原文 30 漏记 art_styles）：18 张集中在 `database.py` 的 `_SCHEMA`（建库时统一创建，含 art_styles），另外 13 张由各服务层在首次使用时 `CREATE TABLE IF NOT EXISTS` 幂等自建。向量数据不在 SQLite——`data/vector_db.py` 走 ChromaDB 独立持久化（data/chroma/）。
+单一 SQLite 库 `data/omnispace.db`（WAL 模式，busy_timeout 10000ms，`PRAGMA foreign_keys=ON`）。规格 §3.2 称"13 张业务表"，实际用户表 **32 张 = 主库 30 + flow 独立库 2**（2026-09-01 实测校准）：18 张集中在 `database.py` 的 `_SCHEMA`（建库时统一创建，含 art_styles），主库另有 12 张由各服务层在首次使用时 `CREATE TABLE IF NOT EXISTS` 幂等自建（含此前漏计的 paint_history），`flow_executions/flow_nodes` 两张建在独立库 `logs/flow_trace.db`。向量数据不在 SQLite——`data/vector_db.py` 走 ChromaDB 独立持久化（data/chroma/）。
 
 ## 1. 全景关系图
 
@@ -84,6 +85,7 @@
 | model_used | TEXT | 生成模型 |
 | rating | INTEGER | 1 赞 / -1 踩 / 0 未评（DIALOG-024） |
 | favorite | INTEGER | 0/1 收藏（DIALOG-046） |
+| reasoning | TEXT | 深度思考链（深度思考开关，2026-08-31 接线） |
 | timestamp | REAL | |
 
 索引：`idx_dialog_messages_session(session_id)`。
@@ -98,6 +100,7 @@
 | name | TEXT | 默认"未命名项目"，重命名查重 |
 | path | TEXT | |
 | work_mode | TEXT | `regular`（5 步普通漫剧）/ `narrative`（6 步解说漫剧，G1，v2 迁移） |
+| art_style | TEXT | 项目画风绑定（画风库 517 条，`custom:{id}` 建项目即用，2026-08-29） |
 | created_at / updated_at | REAL | |
 
 ### storyboards — 分镜表
@@ -149,7 +152,7 @@
 
 ### art_styles — 漫画风格包（database.py `_SCHEMA`，2026-08-28 校准补记）
 
-此前本文档漏记。四列：id TEXT PK / name TEXT / prompt TEXT / created_at REAL。
+此前本文档漏记。现 **6 列**：id TEXT PK / name TEXT / prompt TEXT / created_at REAL / **pack / pack_def**（2026-08-31 风格卡↔风格包显式绑定：500 卡族回填，resolve_route(pack_id/pack_def) 覆写嗅探；自定义风格必须导入风格包 JSON）。
 供漫剧漫画项目（api/manga/comic.py）查询与新增风格预设。
 
 ### keyframes — 关键帧（多版本）
@@ -165,6 +168,8 @@
 | error | TEXT | |
 | is_current | INTEGER | 当前版本标记（rollback 切换，delete 当前版自动回退上一版） |
 | created_at | REAL | |
+| shot_seeds | TEXT | 按镜位种子记录（确定性生成 0 diff 的凭证） |
+| consistency | TEXT | 一致性标定记录（按镜位阈值 0.58/0.82/0.75、相似度实测值） |
 
 ### scene_objects — 3D 场景对象
 
@@ -257,7 +262,12 @@ FTS5 虚拟表 + content 表双结构，与 knowledge_meta 同步维护；语义
 
 ### paint_history — 绘画历史（paint_engine.py 自建）
 
-task_id PK / prompt / negative / params_json / file_path / seed（-1 表密码学随机）/ created_at；索引 created_at DESC。服务重启后内存任务表丢失，从此表恢复查询。
+task_id PK / prompt / negative / params_json / file_path / seed（-1 表密码学随机）/ favorite / created_at；索引 created_at DESC。服务重启后内存任务表丢失，从此表恢复查询。（2026-09-01 校准：实测另有 favorite 列。）
+
+### flow_executions / flow_nodes — 执行流程追踪（flow_trace.py 自建，**独立库 logs/flow_trace.db**）
+
+- flow_executions（18 列）：flow_id / module / feature / status / friendly / trigger / detail / input_summary / output_summary / error_code / error_detail / started_at / ended_at / duration_ms / last_active / node_count / resource_start / resource_end——flow_id 贯穿一次业务流程，孤儿恢复任务把遗留 running 改写为 orphan。
+- flow_nodes（14 列）：自增 id / flow_id / seq / node / module / status / started_at / duration_ms / input_summary / output_summary / detail / friendly / error / resource——流程内节点级明细，供 /logs/flows 泳道图与甘特时间轴。
 
 ## 6. 迁移与加密机制
 

@@ -203,6 +203,11 @@ export async function request<T = unknown>(
   }
 
   if (!env.success) {
+    // 激活门禁（P8 补洞）：任何接口报未激活 → 通知全局遮罩弹出激活窗
+    // （激活面板不止在启动页——堵「绕过启动页直接进界面」的路）
+    if (env.error?.code === 'LICENSE_REQUIRED') {
+      window.dispatchEvent(new CustomEvent('omnispace:license-required'));
+    }
     throw {
       code: env.error?.code ?? 'FRONTEND_PARSE_ERROR',
       message: env.error?.message || `请求失败（HTTP ${res.status}）`,

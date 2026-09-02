@@ -68,13 +68,21 @@ def _pydeps_filter(parts: tuple[str, ...]) -> bool:
 def _comfy_filter(parts: tuple[str, ...]) -> bool:
     """ComfyUI 便携包：只带引擎代码，剔权重/产物/用户区。
 
-    - models/output/input/temp：权重与产物（模型按套餐另行分发）
-    - user：工作流模板与个人配置（含 V8 明文工作流=核心 IP，后端链路
-      用的是 backend 资产金库里的加密模板，不依赖此目录）
+    - models：权重剔除（用户侧由挂接器按 comfy_model_map 重建硬链），
+      但保留引擎自带小件 vae_approx/configs/embeddings（预览/花样等，
+      ~30M，随包走免得用户机缺件）
+    - output/input/temp/user：产物与用户区（user 含 V8 明文工作流=核心
+      IP，后端链路用的是资产金库加密模板，不依赖此目录）
     - custom_nodes：保留（MiniMaxH3 上下文循环等后端链路依赖）
     """
-    _DROP = {"models", "output", "input", "temp", "user", "__pycache__",
+    _DROP = {"output", "input", "temp", "user", "__pycache__",
              "update", ".git"}
+    _KEEP_MODELS = {"vae_approx", "configs", "embeddings"}
+    if "models" in parts[:-1]:
+        i = parts.index("models")
+        nxt = parts[i + 1] if i + 1 < len(parts) - 1 else ""
+        if nxt not in _KEEP_MODELS:
+            return True
     if _DROP & set(parts[:-1]):
         return True
     return parts[-1].endswith((".log", ".lock", ".db", ".whl", ".zip"))
@@ -92,8 +100,14 @@ COPY_DIRS: list[tuple[str, str, object]] = [
     ("runtime/py310", "runtime/py310", _plain_filter),
     ("runtime/py313", "runtime/py313", _plain_filter),  # vLLM 对话引擎运行时
     ("tools/ComfyUI_windows_portable", "tools/ComfyUI_windows_portable",
-     _comfy_filter),  # 绘画/漫剧/视频管线引擎（代码部分）
+     _comfy_filter),  # 绘画/漫剧/视频管线引擎（代码+引擎小件）
     ("runtime/ffmpeg", "runtime/ffmpeg", None),
+    # 内置辅助件（2026-09-02 包政策：≤50G、大模型外置、其余内置；
+    # 法律考量经用户裁定豁免）——四个目录合计 ~4.3G
+    ("models/sam-vit-h", "models/sam-vit-h", _plain_filter),
+    ("models/embed", "models/embed", _plain_filter),
+    ("models/face", "models/face", _plain_filter),
+    ("models/whisper-tiny", "models/whisper-tiny", _plain_filter),
 ]
 COPY_FILES = [
     ("models/models_manifest.json", "models/models_manifest.json"),
@@ -139,6 +153,16 @@ ESSENTIALS = [
     "backend/build_info.py", "frontend/dist/index.html",
     "pydeps/fastapi/__init__.py", "pydeps/uvicorn/__init__.py",
     "runtime/py310/python.exe", "runtime/py310/python310._pth",
+    # 进程品牌化副本（2026-09-02，tools/brand_exe.py 生成；boot 拉起链
+    # 优先取用，缺失会静默回退裸 python——哨兵防包内悄悄退化。
+    # C 后缀=控制台变体，供 bat 入口）
+    "runtime/py310/OmniSpace-Boot.exe",
+    "runtime/py310/OmniSpace-Backend.exe",
+    "runtime/py310/OmniSpace-Shell.exe",
+    "runtime/py310/OmniSpace-BootC.exe",
+    "runtime/py310/OmniSpace-BackendC.exe",
+    "runtime/py313/OmniSpace-LLM.exe",
+    "tools/ComfyUI_windows_portable/python_embeded/OmniSpace-Engine.exe",
     # MinGW 运行库哨兵（2026-09-01 测试机事故）：Cython .pyd 动态链接
     # winpthread；缺它则异机启动即崩（本机有 WinLibs PATH 掩盖过问题）
     "runtime/py310/libwinpthread-1.dll",
@@ -154,6 +178,11 @@ ESSENTIALS = [
     "tools/ComfyUI_windows_portable/python_embeded/python.exe",
     "tools/ComfyUI_windows_portable/ComfyUI/main.py",
     "models/models_manifest.json", "dist_manifest.json",
+    # 即插即用挂接两件套（2026-09-02 挂接器产品化）：包内目录名是
+    # modelxiazai/（COPY_DIRS 由 scripts/comfy_link 映射而来）——
+    # 缺映射表则挂接器空转，缺 comfy_mount 则 boot/comfy_proc 接线
+    # 全部静默跳过（绘画引擎找不到模型），哨兵防悄悄丢件
+    "modelxiazai/comfy_mount.py", "modelxiazai/comfy_model_map.json",
 ]
 
 
@@ -309,6 +338,18 @@ def main() -> int:
         shutil.rmtree(_lp(dest))  # 长路径安全清场（上次半成品可能含超长目录）
     dest.mkdir(parents=True)
     print(f"构建号：{build_id}\n输出目录：{dest}")
+
+    # 进程品牌化刷新（2026-09-02）：出包前强制重建五个品牌副本（logo+版本
+    # 说明随 config.yaml 版本号走）；运行中的副本无法覆盖时跳过——此时包内
+    # 会带上旧副本，属可容忍降级但必须吆喝出来
+    sys.path.insert(0, str(REPO / "tools"))
+    import brand_exe
+    brand_results = brand_exe.ensure_all(force=True)
+    stale = {p: s for p, s in brand_results.items() if s not in ("ok", "fresh")}
+    for p, s in stale.items():
+        print(f"⚠️ 品牌副本未刷新（{s}）：{p}")
+    if stale:
+        print("⚠️ 包内将带旧品牌副本，建议停机后重新出包")
 
     t0 = time.time()
     n, total = copy_all(dest)

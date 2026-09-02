@@ -107,6 +107,18 @@ export interface TaskState {
 /** 解订函数集合 */
 let unsubscribers: Array<() => void> = [];
 
+/**
+ * 陈旧任务自动收敛阈值（2026-09-02 幽灵任务修复）：running/pending
+ * 任务超过此时长无任何进度更新，视为已完成（后端漏发终态广播或后端
+ * 中途重启的兜底——否则通知中心永久挂「进行中」幽灵任务）。
+ * 15 分钟对所有真实任务都足够宽裕（关键帧逐镜 ~2min 一广播、视频
+ * 轮询 2~10s 一刷、四视图逐视图数分钟一报）。
+ */
+const STALE_TASK_MS = 15 * 60 * 1000;
+/** 陈旧收敛巡检周期 */
+const STALE_SWEEP_INTERVAL_MS = 60 * 1000;
+let staleSweeper: ReturnType<typeof setInterval> | null = null;
+
 export const useTaskStore = create<TaskState>((set, get) => ({
   tasks: [],
   wsStatus: 'closed',
@@ -191,6 +203,26 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     });
 
     unsubscribers = [offStatus, offProgress, offPreview, offComplete, offError];
+
+    // 陈旧任务巡检（2026-09-02 幽灵任务兜底）：running/pending 超过
+    // STALE_TASK_MS 无进度更新 → 标记完成。任何真实任务的进度心跳
+    // 都远密于阈值；只有「后端已死/漏发终态」的任务会命中。
+    if (staleSweeper === null) {
+      staleSweeper = setInterval(() => {
+        const now = Date.now();
+        const stale = get().tasks.filter((t) => {
+          if (t.status !== 'running' && t.status !== 'pending') return false;
+          // updated_at 兼容 string | number（OmniTask 契约）
+          const ts = typeof t.updated_at === 'number'
+            ? t.updated_at
+            : (Date.parse(String(t.updated_at ?? '')) || 0);
+          return now - ts > STALE_TASK_MS;
+        });
+        for (const t of stale) {
+          get().completeTask(t.id);
+        }
+      }, STALE_SWEEP_INTERVAL_MS);
+    }
   },
 
   destroy: () => {
@@ -202,6 +234,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       }
     });
     unsubscribers = [];
+    if (staleSweeper !== null) {
+      clearInterval(staleSweeper);
+      staleSweeper = null;
+    }
     set({ subscribed: false });
   },
 
@@ -210,10 +246,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       const idx = state.tasks.findIndex((t) => t.id === task.id);
       if (idx >= 0) {
         const next = [...state.tasks];
-        next[idx] = { ...next[idx], ...task };
+        next[idx] = { ...next[idx], ...task, updated_at: Date.now() };
         return { tasks: next };
       }
-      return { tasks: [...state.tasks, task] };
+      return { tasks: [...state.tasks, { ...task, updated_at: Date.now() }] };
     });
   },
 
@@ -227,7 +263,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     set((state) => ({
       tasks: state.tasks.map((t) =>
         t.id === taskId
-          ? { ...t, progress, status: 'running', ...extra }
+          ? { ...t, progress, status: 'running', ...extra,
+              updated_at: Date.now() }
           : t,
       ),
     }));

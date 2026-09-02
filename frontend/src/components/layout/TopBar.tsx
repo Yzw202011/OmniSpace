@@ -209,9 +209,12 @@ export default function TopBar() {
                       {t.name || TASK_TYPE_LABELS[t.type] || t.type}
                     </span>
                     <span className="topbar-task-progress">
-                      {t.status === 'running' || t.status === 'pending'
-                        ? `${Math.round((t.progress || 0) * 100)}%`
-                        : TRAIN_STATUS_LABELS[t.status as TrainStatusKey] ?? t.status}
+                      {t.status === 'pending'
+                        ? `排队中${t.queue_position && t.queue_position > 1
+                            ? `·前${t.queue_position - 1}` : ''}`
+                        : t.status === 'running'
+                          ? `${Math.round((t.progress || 0) * 100)}%`
+                          : TRAIN_STATUS_LABELS[t.status as TrainStatusKey] ?? t.status}
                     </span>
                   </div>
                 ))

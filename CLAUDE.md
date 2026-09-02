@@ -19,7 +19,7 @@
 - [ ] 我知道 Python 运行时是**嵌入式 3.10.11**（runtime/py310 唯一解释器；vLLM 子进程独用 py313），不是 3.12
 - [ ] 我知道后端用 FastAPI 0.141 + Pydantic v2，不是 Django/Flask
 - [ ] 我知道**没有 Tauri/Rust 壳层**——ADR-002（2026-08-20）已裁剪，交付形态 = launcher + 系统浏览器
-- [ ] 我知道数据库是 SQLite（WAL，**31 张用户表**，user_version=7）+ ChromaDB，不是 PostgreSQL/MongoDB
+- [ ] 我知道数据库是 SQLite（WAL，**32 张用户表＝主库 30 + flow 独立库 logs/flow_trace.db 2**，user_version=7，2026-09-01 实测校准）+ ChromaDB，不是 PostgreSQL/MongoDB
 - [ ] 我知道任务队列是**进程内 PriorityQueue（模拟 Celery 语义）**，没有 Celery/Redis 依赖（Redis 仅缓存可选降级）
 - [ ] 我知道所有CSS颜色必须用 var(--color-*)（权威源 frontend/src/styles/tokens.css），禁止硬编码
 - [ ] 我知道在进行所有项目操作和决策过程中，必须严格遵循团队协作模式（产品/设计/前端/后端/测试各司其职，决策基于讨论）
@@ -42,7 +42,7 @@
 | 后端语言 | **Python 3.10.11**（runtime/py310 嵌入式；pydeps/ 156 包双站点承载） | Python 3.12 |
 | 后端框架 | **FastAPI 0.141.1 + Pydantic v2 + uvicorn** | SQLAlchemy ORM（2.0.51 装而未用，全裸 sqlite3） |
 | AI 推理 | **torch 2.11.0+cu128 + diffusers 0.39 + transformers**；GGUF 走 llama.cpp；vLLM 0.26.0+cu128 子进程（py313，AWQ/GPTQ 自动路由） | — |
-| 关系数据库 | **SQLite WAL + FTS5**（31 张用户表，PRAGMA user_version=7） | — |
+| 关系数据库 | **SQLite WAL + FTS5**（32 张用户表=主库 30+flow 独立库 2，PRAGMA user_version=7） | — |
 | 向量数据库 | **ChromaDB 1.5.9**（bge-large-zh 1024 维，不可用时降级 TF-IDF 内存检索） | — |
 | 任务队列 | **进程内 PriorityQueue**（high/medium/low/background 四级，模拟 Celery 语义）+ WS Hub 广播 | Celery + Redis（F-13 已裁定 ⚪ 豁免） |
 | 浏览器 | **Playwright Chromium 进程池**（学习代理用）+ 用户系统浏览器 | CEF 120+ |
@@ -94,8 +94,7 @@ src/stores/：
 
 ### 2.4 3D 导演台
 
-现状是**原生 Three.js 命令式封装**（`src/three/SceneManager.ts` 等六件套 + `components/manga/DirectorStage.tsx`）。
-若未来引入 @react-three/fiber 重写，属技术栈变更，须先立 ADR 再动工；日常迭代沿用现有封装。
+**已整链路移除（2026-08-29 用户裁定）**：`src/three/` 六件套、`components/manga/DirectorStage.tsx`、3D 路由与后端 director 路由均不存在；前端零 three import（package.json/vite.config 的 three 残留已于 2026-09-03 清除）。未来若重启 3D 能力，属技术栈变更，须先立 ADR 再动工。
 
 ### 2.5 CSS 变量体系（已落地，权威源 tokens.css）
 
@@ -152,13 +151,13 @@ src/stores/：
 
 ---
 
-## 4. API路由现状（实测 2026-08-28）
+## 4. API路由现状（实测 2026-08-28；2026-09-02 复核：319 装饰器、模块 15 个）
 
 ```
 Base URL: http://127.0.0.1:5800/api/v1   （直接 uvicorn / config.yaml）
           launcher 默认 --port 8765（冲突扫描 5800-5835）—— 两套端口并存，联调前先确认
 
-14 个路由模块（main.py _API_MODULES）：
+14→15 个路由模块（main.py _API_MODULES 实测 15，2026-09-02 license 入列）：
 ├── /api/v1/dialog  (≈/chat 别名)   对话（send/history/sessions/status，SSE: /chat/stream）
 ├── /api/v1/draw    (≈/paint 别名)  绘画（generate 异步任务 /img2img /inpaint /upscale /queue /history）
 ├── /api/v1/manga/*                 漫剧包：storyboard / comic / comic_asset / keyframe / video
@@ -173,7 +172,8 @@ Base URL: http://127.0.0.1:5800/api/v1   （直接 uvicorn / config.yaml）
 ├── /api/v1/voice                   Whisper ASR + TTS
 ├── /api/v1/hardware                硬件（含 realtime WS）
 ├── /api/v1/system                  系统（设置/日志/事件）
-└── /api/v1/logs                    日志可视化
+├── /api/v1/logs                    日志可视化
+└── /api/v1/license                 激活门禁（status/activate，boot 启动页直调；发行公钥出包注入后生效）
 
 WebSocket 4 个：/ws（消息中枢）、/api/v1/dialog/stream/{session_id}（已废弃，兼容保留）、
                /api/v1/hardware/realtime、/api/v1/learn/session/progress
@@ -188,7 +188,7 @@ WebSocket 4 个：/ws（消息中枢）、/api/v1/dialog/stream/{session_id}（�
 
 | 数据库 | 用途 | 规则 |
 |--------|------|------|
-| SQLite (WAL) | `data/omnispace.db`，**31 张用户表**（database.py `_SCHEMA` 18 张 + 服务层自建 13 张） | PRAGMA user_version=**7**（迁移组机制，历史组禁改只许追加）；FTS5 知识全文检索 |
+| SQLite (WAL) | `data/omnispace.db` 主库 **30 张用户表**（database.py `_SCHEMA` 18 张 + 服务层自建 12 张）+ 独立库 `logs/flow_trace.db` 2 张（2026-09-01 实测校准） | PRAGMA user_version=**7**（迁移组机制，历史组禁改只许追加）；FTS5 知识全文检索 |
 | ChromaDB | 向量/知识库（data/chroma/） | bge-large-zh 1024 维；不可用降级 TF-IDF |
 | localStorage / IndexedDB | 前端偏好/缓存 | 前端直接读写 |
 
@@ -205,6 +205,12 @@ WebSocket 4 个：/ws（消息中枢）、/api/v1/dialog/stream/{session_id}（�
 **Tauri 已裁剪**（ADR-002，2026-08-20）：交付形态 = launcher 守护进程（自检/端口冲突三级处理/心跳/崩溃重启≤5次/托盘）+ 系统浏览器。
 Rust/Tauri 编码规则整节作废；重启壳决策须新立 ADR（重启条件见 ADR-002 §5）。
 
+启动/停止入口（2026-08-31 落地并 E2E 实测）：
+- **有窗（日常调试）**：根目录 `启动OmniSpace.bat` → `launcher/boot.py`（启动页/自检/心跳/ComfyUI 清理；Ctrl+C 或关窗退出）
+- **免黑窗（桌面交付）**：`launcher/make_shortcut.py` 生成桌面 `OmniSpace.lnk`（pythonw 直拉 boot.py，端口 5800-5835，重复运行幂等重建；boot.py 启动各阶段含冷启动等待期均响应 /api/quit；重复双击触发单实例守卫——检测到在跑启动页即让位退出 exit 0，不再累积守护进程）
+- **停止（免黑窗唯一主动退出通道）**：根目录 `停止OmniSpace.bat` → `launcher/stop.py`（优先 POST 启动页 /api/quit 优雅收尾；兜底只清本启动链——boot.py 进程 / 5800-5835 的 backend.main / 8189 ComfyUI；项目内独立实例如 :8765 只提示不动手）
+- **单实例限制**（2026-08-31，`backend/single_instance.py`）：backend.main lifespan 首步经 Windows 命名互斥体全机唯一，重复启动秒失败并给出指引；豁免 = pytest 运行态或 `OMNISPACE_ALLOW_MULTI=1`。动机：双栈叠载显存（当日关键帧采样 20+ 分钟超时；08-29 蓝屏同源）。注意：仅对运行新代码的实例生效，存量老进程需重启后才持有互斥体
+
 ---
 
 ## 7. 安全与资源策略（阈值真源 = backend/config.yaml scheduler.thresholds）
@@ -217,6 +223,8 @@ Rust/Tauri 编码规则整节作废；重启壳决策须新立 ADR（重启条�
 
 GPU 利用率：>85% 持续 5s 轻度降参（steps×0.67）；>95% 持续 15s 深度降档（×0.4）；4s 滞回（S4，2026-08-28）。
 温度：热保护 ≥90°C 拒绝新任务（feature_lock 层）；空闲回收：功能锁空闲 60s 释放小模型 / 300s 卸载非驻留大模型。
+漫剧生成期显存协商（2026-08-31 补齐视频链路，助手在 `api/manga/common.py`）：关键帧/视频生成持锁后自动 vLLM 睡眠让渡（~7-12GB）+ 本地绘画管线卸载，收尾释放锁后自动唤醒恢复；前端模块切换/进漫剧项目时 `/models/release-for-module` 兜底。绘画模块冷启动弹窗（PaintWarmupModal）+ `/models/warmup feature=paint` 预热点火（对齐对话模块模式）。
+漫剧「模型配置」接线（2026-08-31）：画幅/时长经确认弹窗随 `/manga/video/generate` 下发（H3 分支按时长定 720p/480p、按宽高比定竖屏，`run_h3_chain_task(aspect=)` 翻转宽高）；推理/绘画/视频选型保存时同步 PUT module-config 的 manga-* 槽 default，`gen_router.resolve_route` 对槽内 default 提权到偏好序首位。视频生成门槛改为「描述词 + 带图绑定资产」必填、分镜图可选（H3 以绑定资产多图参考为内容源）。H3 链式六段式提示词按 A/B/C 结构化注入并按时长窗口截取 C 段镜头（此前 summary 仅 120 字且 detailed 塞整行全量时间轴，单镜生成被稀释）。
 
 其他安全（保留有效）：零信任输入校验；上传闸门（扩展名白名单 + 文件头魔数，PE/ELF 黑名单）；
 回环绑定闸门（非 127.0.0.1 拒绝启动，豁免 OMNISPACE_ALLOW_LAN=1）；TrustedHost 防 DNS 重绑定；限流 300 req/min/端点。
@@ -298,7 +306,8 @@ P0/P1/P2 整改计划已收尾（TASK-收尾 21/21，见 git 历史与 docs/audi
 | 数据库 ER | docs/design/database-er.md | 31 张表结构 + 迁移 |
 | 需求追踪矩阵 | docs/requirements-traceability.md | 需求状态唯一真源 |
 | Tauri 裁剪裁决 | docs/ADR-002-tauri-shell-decision.md | 交付形态依据 |
-| 全量技术文档（协作者上手版） | docs/omnispace-tech-doc/（HTML，含 12.4 差异对照） | 新人上手 |
+| 全量技术文档（协作者上手版） | docs/omnispace-tech-doc/（HTML，含 12.4 差异对照；08-26 时点） | 新人上手 |
+| 全量技术快照（2026-09-01） | **docs/全量技术文档-2026-09-01.md**（16 章 + 4 附录：319 端点/32 表字段/模型占用/前端 131 文件实测清单） | 全景首选，上手先看这份 |
 | 部署 / 故障排查 | docs/deployment-manual.md / docs/troubleshooting.md | 部署与排障 |
 | 测试入口 | tools/run_tests.py（唯一入口）+ tests/README.md | 三层测试体系 |
 
@@ -318,7 +327,7 @@ P0/P1/P2 整改计划已收尾（TASK-收尾 21/21，见 git 历史与 docs/audi
 6. **新文件命名**：.tsx（前端）/ .py（后端）
 7. **绝不自创规范**：所有规范以代码 + docs/ 现行文档 + 本文件为准
 8. **组件开发**：沿用自研 Omni 体系（components/common/），不从零另起炉灶
-9. **3D开发**：沿用 src/three/ 自研封装，勿引入原生 new THREE.Scene 散落在组件里
+9. **3D**：已整链路移除（2026-08-29 裁定）；勿凭旧文档恢复 src/three 引用，重启 3D 须先立 ADR
 10. **状态管理**：用 Zustand create() 创建 store，不要用 Context+useReducer
 
 ---

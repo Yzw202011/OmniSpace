@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniSpace 全量测试问题汇总（四轮 · 79 项去重后）</title>
+<style>
+:root {
+  --bg: #1A1A2E; --card: #16213E; --card2: #101733; --border: #26335c;
+  --text: #E6E9F5; --muted: #9BA3C0; --dim: #5E6785;
+  --pink: #FF6B9D; --mint: #4ECDC4; --gold: #FFD93D; --green: #6BCB77; --red: #FF6B6B;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.65; padding: 30px 16px 60px; }
+.wrap { max-width: 1280px; margin: 0 auto; }
+
+.hero { background: linear-gradient(135deg, #1d2145 0%, #16213E 60%, #1a2d4a 100%); border: 1px solid var(--border); border-radius: 18px; padding: 36px 40px; position: relative; overflow: hidden; }
+.hero::before { content: ""; position: absolute; top: -60%; right: -10%; width: 480px; height: 480px; background: radial-gradient(circle, rgba(255,107,157,.13), transparent 65%); }
+.hero h1 { font-size: 27px; letter-spacing: .5px; }
+.hero h1 .accent { color: var(--pink); }
+.hero .sub { color: var(--muted); margin-top: 8px; font-size: 14.5px; }
+.hero .meta { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 18px; font-size: 13px; color: var(--muted); }
+.hero .meta b { color: var(--text); }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-top: 24px; position: relative; }
+.vcard { background: rgba(16,23,51,.75); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; text-align: center; }
+.vcard .num { font-size: 32px; font-weight: 800; }
+.vcard .lbl { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.n-green { color: var(--green); } .n-red { color: var(--red); } .n-gold { color: var(--gold); } .n-mint { color: var(--mint); } .n-pink { color: var(--pink); }
+
+section { margin-top: 34px; }
+h2 { font-size: 19px; padding-bottom: 10px; border-bottom: 2px solid var(--border); display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h2 .idx { font-size: 12px; color: var(--dim); font-weight: 400; margin-left: auto; }
+h3 { font-size: 15.5px; margin: 20px 0 10px; color: var(--mint); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+h3 .cnt { font-size: 12px; color: var(--dim); font-weight: 400; }
+.desc { color: var(--muted); font-size: 13.5px; margin-top: 10px; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px 24px; margin-top: 16px; }
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 2px solid var(--border); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid rgba(38,51,92,.55); vertical-align: top; }
+tr:hover td { background: rgba(78,205,196,.04); }
+.mono { font-family: Consolas, monospace; font-size: 12px; color: var(--gold); }
+
+.pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.p0 { background: rgba(255,107,107,.15); color: var(--red); }
+.p1 { background: rgba(255,150,80,.13); color: #FFA96B; }
+.p2 { background: rgba(255,217,61,.12); color: var(--gold); }
+.p3 { background: rgba(154,160,192,.14); color: var(--muted); }
+.st-fix { background: rgba(107,203,119,.15); color: var(--green); }
+.st-open { background: rgba(255,107,107,.12); color: var(--red); }
+.st-watch { background: rgba(255,217,61,.10); color: var(--gold); }
+
+.round { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 6px; background: rgba(78,205,196,.10); color: var(--mint); border: 1px solid rgba(78,205,196,.25); white-space: nowrap; }
+.round.r2 { background: rgba(255,107,157,.10); color: var(--pink); border-color: rgba(255,107,157,.25); }
+.round.r3 { background: rgba(255,217,61,.08); color: var(--gold); border-color: rgba(255,217,61,.22); }
+.round.r4 { background: rgba(140,150,255,.10); color: #9CA8FF; border-color: rgba(140,150,255,.25); }
+
+.callout { border-left: 4px solid var(--mint); background: rgba(78,205,196,.07); border-radius: 0 10px 10px 0; padding: 14px 18px; margin-top: 14px; font-size: 13.5px; }
+.callout.warn { border-left-color: var(--gold); background: rgba(255,217,61,.06); }
+.callout.bad { border-left-color: var(--red); background: rgba(255,107,107,.06); }
+.callout b { color: var(--text); }
+
+.bar-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.bar-row .bl { width: 150px; font-size: 12.5px; color: var(--muted); text-align: right; flex-shrink: 0; }
+.bar { flex: 1; height: 16px; background: var(--card2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); display: flex; }
+.bar i { display: block; height: 100%; }
+.bar-row .bv { width: 66px; font-size: 12.5px; font-weight: 700; flex-shrink: 0; }
+
+a { color: var(--mint); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--dim); font-size: 12px; text-align: center; }
+.dup { color: var(--dim); font-size: 11.5px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } .verdict { grid-template-columns: repeat(2,1fr); } }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.filter-bar button { background: var(--card2); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 5px 16px; font-size: 12.5px; cursor: pointer; }
+.filter-bar button.on { background: rgba(255,107,157,.14); color: var(--pink); border-color: rgba(255,107,157,.4); }
+tr.hide { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ═══════════ 头部 ═══════════ -->
+<div class="hero">
+  <h1>OmniSpace AI 全量测试问题汇总 <span class="accent">（四轮 · 90 条记录 → 79 项去重）</span></h1>
+  <div class="sub">对话 / 绘画 / 漫剧创作 / 关键帧 / H3 视频 / 知识学习 / 模型管理 / 全局系统 —— 全模块问题总台账</div>
+  <div class="meta">
+    <span>汇总日期 <b>2026-08-31</b></span>
+    <span>测试轮次 <b>4 轮</b>（2026-08-30 ~ 08-31）</span>
+    <span>测试角色 <b>17 个人格</b>（新手/日常/画师/短剧制作人/技术/运维/质检官…）</span>
+    <span>硬件 <b>RTX 5070 Ti 16GB</b></span>
+    <span>源报告 <b>4 份</b>（见附录链接）</span>
+  </div>
+  <div class="verdict">
+    <div class="vcard"><div class="num n-red">10</div><div class="lbl">P0 致命（去重后）</div></div>
+    <div class="vcard"><div class="num n-gold">24</div><div class="lbl">P1 严重</div></div>
+    <div class="vcard"><div class="num n-mint">36</div><div class="lbl">P2 一般（含 1 已修）</div></div>
+    <div class="vcard"><div class="num">9</div><div class="lbl">P3 轻微</div></div>
+    <div class="vcard"><div class="num n-green">5</div><div class="lbl">已修复并验证</div></div>
+    <div class="vcard"><div class="num n-red">74</div><div class="lbl">待修/待优化</div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 01 轮次总览 ═══════════ -->
+<section>
+  <h2>01 · 四轮测试总览与去重口径<span class="idx">90 条原始记录 · 11 组跨轮重复合并</span></h2>
+  <div class="desc">四轮测试按时间顺序推进：细粒度边界测试 → 五角色全页面走查 → 漫剧模块深度测试 → 漫剧一致性全链路验证。同一问题在多轮被独立发现的，合并为一条并标注「复现轮次」——重复发现率本身就是置信度信号。</div>
+  <div class="card">
+    <table>
+      <tr><th style="width:64px">轮次</th><th>报告</th><th style="width:210px">角色设定</th><th style="width:190px">覆盖范围</th><th style="width:74px">原始记录</th><th style="width:88px">P0 / P1 / P2 / P3</th></tr>
+      <tr><td><span class="round">R1</span></td><td><a href="../uat-fine-grained/uat-fine-grained-report.html">细粒度深度测试报告</a></td><td>A 新手·B 对话·C 绘画·D 漫剧·E 运维（5 人格）</td><td>交互细节 / 参数边界 / 错误路径 / 数据一致性</td><td>28</td><td>3 / 8 / 12 / 5</td></tr>
+      <tr><td><span class="round r2">R2</span></td><td><a href="../uat-multi-role-report/uat-multi-role-report.html">多角色全页面走查报告</a></td><td>新手 / 日常用户 / 画师 / 短剧创作者 / 技术型（5 人格）</td><td>9 大功能页面自然操作流 + 性能计时</td><td>31</td><td>4 / 9 / 15 / 3</td></tr>
+      <tr><td><span class="round r3">R3</span></td><td><a href="../uat-manga-deep-dive/manga-module-deep-test-report.html">漫剧模块深度测试报告</a></td><td>D1 资深 / D2 新手 / D3 批量 / D4 技术型（4 人格）</td><td>作品列表 → 剧本 → 分镜工作区全流程</td><td>16</td><td>0 / 5 / 7 / 4</td></tr>
+      <tr><td><span class="round r4">R4</span></td><td><a href="../uat-manga-consistency/manga-consistency-deep-test-report.html">漫剧一致性深度测试报告</a></td><td>F1 资深制作人 / F2 一致性质检官（2 人格）</td><td>剧本→资产→描述词→关键帧→H3 视频全链路一致性 + 错误排除</td><td>15</td><td>4 / 6 / 5 / 0</td></tr>
+    </table>
+    <div class="callout"><b>去重规则：</b>同一底层缺陷在不同轮次被独立发现 → 合并为一条，级别取最高，轮次全列。共合并 11 组（明细见 §06）。合并后 <b>79 项唯一问题</b>：P0×10、P1×24、P2×36、P3×9。</div>
+  </div>
+</section>
+
+<!-- ═══════════ 02 已修复 ═══════════ -->
+<section>
+  <h2>02 · 已修复闭环项（5 项）<span class="idx">全部经真实浏览器复测验证</span></h2>
+  <div class="desc">R4 一致性轮的 4 个 P0 缺陷已当场修复并复测闭环（ruff 全绿 + 全量单测 146 passed）；其中 P0-4 的修复同时联动解决了 P2 层的「拒绝无 toast」问题。</div>
+  <div class="card">
+    <table>
+      <tr><th style="width:56px">级别</th><th style="width:64px">编号</th><th>问题</th><th>修复方式</th><th style="width:130px">验证</th></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>M-01</td><td>H3 视频对无关键帧行不拒绝，静默建任务跑满 90s 采样后失败，任务卡死 generating</td><td>video.py 入口校验前置到任务落库之前，无帧行 raise 40005 诚实拒绝</td><td class="n-green">API 0.0s 拒绝 + 无幽灵任务 ✓</td></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>M-02</td><td>H3 失败后 video_tasks 状态永远停在 generating，前端进度条假活 10 分钟+</td><td>except 分支补 status='error'/progress=1.0/generation_time_ms 回写</td><td class="n-green">失败 141s 内转 error ✓</td></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>M-03</td><td>ComfyUI 拼接段选中宿主 Electron 阉割版 ffmpeg（探测能过、执行报 Option not found），H3 全军覆没</td><td>comfy_paint_engine.py + h3_engine.py 两处 spawn 统一 PATH 前置 runtime/ffmpeg/bin（完整版 8.1.2）</td><td class="n-green">123s 产出 5.17s 带音轨成片 ✓</td></tr>
+      <tr><td><span class="pill p0">P0</span></td><td>M-04</td><td>拒绝路径 flow 未初始化 → UnboundLocalError 500 打穿结构化错误，前端 toast 静默（M-01 修复的回归）</td><td>flow=None 前置初始化 + except 判空守卫</td><td class="n-green">结构化错误 + toast 完整展示 ✓</td></tr>
+      <tr><td><span class="pill p2">P2</span></td><td>M-65</td><td>无关键帧行被拒后前端 4s 内无任何可见反馈</td><td>根因即 M-04 的 500，随其修复联动解决</td><td class="n-green">toast 展示完整错误文案 ✓</td></tr>
+    </table>
+    <div class="callout warn"><b>教训沉淀（写入项目记忆）：</b>负向测试必须同时断言「副作用未发生」与「错误响应结构正确」——只看任务未创建会漏掉 500 类回归；ffmpeg 类工具查找不要依赖系统 PATH（宿主 Electron 阉割版探测能过、执行才炸）。</div>
+  </div>
+</section>
+
+<!-- ═══════════ 03 主台账 ═══════════ -->
+<section>
+  <h2>03 · 全量问题总台账（按模块分组）<span class="idx">79 项 · 可按级别筛选</span></h2>
+  <div class="desc">编号 M-01 ~ M-79 为汇总台账统一编号。状态列：已修复（R4 闭环）/ 待修 / 待优化 / 观察项。复现列标注该问题被独立发现的轮次——两轮以上复现的问题置信度最高。</div>
+  <div class="filter-bar" id="filterBar">
+    <button class="on" data-f="all">全部 79</button>
+    <button data-f="p0">P0 致命 10</button>
+    <button data-f="p1">P1 严重 24</button>
+    <button data-f="p2">P2 一般 36</button>
+    <button data-f="p3">P3 轻微 9</button>
+  </div>
+
+  <!-- ── AI对话 ── -->
+  <div class="card">
+    <h3>模块 A · AI 对话 <span class="cnt">12 项</span></h3>
+    <table>
+      <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:100px">复现轮次</th><th style="width:76px">状态</th></tr>
+      <tr data-lv="p0"><td class="mono">M-05</td><td><span class="pill p0">P0</span></td><td>首次打开对话页直接弹出「冷启动」模态窗，无任何引导就被扔进 2~3 分钟等待——新用户第一印象极差</td><td><span class="round">R1</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-15</td><td><span class="pill p1">P1</span></td><td>特殊字符长串（~!@#$%…）被直接作为会话标题显示，视觉混乱</td><td><span class="round">R1</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-16</td><td><span class="pill p1">P1</span></td><td>右侧设置面板的模型/温度/上下文配置「已本地保存，暂未下发到生成通道」——呈现可用但实际无效</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-17</td><td><span class="pill p1">P1</span></td><td>单轮响应 23~27 秒（一句话任务），首字 2 秒后长时间无「正在生成」类过程反馈</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-18</td><td><span class="pill p1">P1</span></td><td>温度滑块旁标注「(6:2:1)」——规格文档编号直接暴露给终端用户，无任何意义</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p2"><td class="mono">M-41</td><td><span class="pill p2">P2</span></td><td>空状态引导（「开始一段新对话吧」）与历史会话列表同屏显示，状态逻辑混乱</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-42</td><td><span class="pill p2">P2</span></td><td>用户消息操作按钮在气泡上方、AI 消息在气泡下方，同类操作位置不统一</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-43</td><td><span class="pill p2">P2</span></td><td>新建对话按钮无防抖，快速连点会创建多个空会话</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-44</td><td><span class="pill p2">P2</span></td><td>会话列表全部默认名为「新对话」，无自动摘要或重命名入口，多会话后无法区分</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-45</td><td><span class="pill p2">P2</span></td><td>右键点击会话无上下文菜单（删除/重命名/置顶）</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p3"><td class="mono">M-71</td><td><span class="pill p3">P3</span></td><td>模型 ID「qwen3-vl-4b」直接作为消息署名暴露给普通用户，宜用产品化名称</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p3"><td class="mono">M-72</td><td><span class="pill p3">P3</span></td><td>空状态中央文案与粉色「新建对话」按钮视觉权重争夺，主行动点不突出</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+    </table>
+  </div>
+
+  <!-- ── AI绘画 ── -->
+  <div class="card">
+    <h3>模块 B · AI 绘画 <span class="cnt">13 项</span></h3>
+    <table>
+      <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:100px">复现轮次</th><th style="width:76px">状态</th></tr>
+      <tr data-lv="p0"><td class="mono">M-06</td><td><span class="pill p0">P0</span></td><td>生成全程零进度反馈：87 秒内按钮状态、进度条、加载动画、「生成状态」字段全部无变化（恒显「空闲」），且按钮不禁用有重复提交风险</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p0"><td class="mono">M-07</td><td><span class="pill p0">P0</span></td><td>空提示词时「文字生成图片」按钮不禁用，可直接点击提交——可能触发后端异常或生成无意义结果</td><td><span class="round">R1</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-19</td><td><span class="pill p1">P1</span></td><td>生成完成无任何提示：无 toast、新图无高亮/「新」标记，新图混入历史网格需自行扫图辨认</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-20</td><td><span class="pill p1">P1</span></td><td>副标题文案「SDXL + LCM-LoRA 本地推理」与实际路由模型（FLUX.2 Klein / Qwen-Image）不符，状态栏 LoRA 信息误导</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-21</td><td><span class="pill p1">P1</span></td><td>比例选择 9:16（1536×2688）与参数面板「尺寸 1024×1024」矛盾显示，两处尺寸口径不一致</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-22</td><td><span class="pill p1">P1</span></td><td>数字输入框（步数/CFG 等）无上限限制，可输入 9999 等极端值，可能导致后端异常</td><td><span class="round">R1</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p2"><td class="mono">M-46</td><td><span class="pill p2">P2</span></td><td>ControlNet 显示「未就绪：生成链路建设中，配置暂不生效」——未完成功能直接暴露在正式界面</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-47</td><td><span class="pill p2">P2</span></td><td>LoRA 选择显示「未挂载（后端未提供）」，功能入口空转</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-48</td><td><span class="pill p2">P2</span></td><td>比例按钮 7 个但无当前选中高亮（或选中态不明显），用户无法确认当前比例</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-49</td><td><span class="pill p2">P2</span></td><td>快速切换 Tab（文生图/图生图/局部重绘等）6 次后界面无报错但状态可能混乱</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-50</td><td><span class="pill p2">P2</span></td><td>历史图片点击后无明显详情视图/放大预览，交互反馈弱</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-51</td><td><span class="pill p2">P2</span></td><td>多个纯图标按钮无可读文本/aria-label（DOM 中为空 BUTTON），可访问性与自动化识别差</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p3"><td class="mono">M-73</td><td><span class="pill p3">P3</span></td><td>采样器下拉选项较多但无搜索/快速定位</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+    </table>
+  </div>
+
+  <!-- ── 漫剧·作品与资产 ── -->
+  <div class="card">
+    <h3>模块 C · 漫剧创作 · 作品与资产 <span class="cnt">12 项</span></h3>
+    <table>
+      <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:100px">复现轮次</th><th style="width:76px">状态</th></tr>
+      <tr data-lv="p1"><td class="mono">M-23</td><td><span class="pill p1">P1</span></td><td>「创建并进入」按钮点击后停留在作品列表页，未进入工作区，需再点一次作品卡片——按钮承诺与行为不符</td><td><span class="round r2">R2</span> <span class="round r3">R3</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-24</td><td><span class="pill p1">P1</span></td><td>风格选择器数量庞大（上百种）但只有「热门」一个分类标签，无搜索、无分类过滤（国风/日系/3D/写实等），查找成本极高</td><td><span class="round r3">R3</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-25</td><td><span class="pill p1">P1</span></td><td>新建作品弹窗名称为空时「创建」按钮不禁用——可创建无名作品</td><td><span class="round">R1</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-26</td><td><span class="pill p1">P1</span></td><td>添加角色只有名称和描述词两个纯文本字段，缺少性别/年龄/服装/发型等结构化选项——多镜角色一致性无结构保障</td><td><span class="round r3">R3</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-27</td><td><span class="pill p1">P1</span></td><td>角色生图、分镜生词等前置步骤未满足时按钮 disabled，但无 tooltip 说明「为什么不能点」，新手困惑</td><td><span class="round r3">R3</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-28</td><td><span class="pill p1">P1</span></td><td>剧本录入页和分镜工作区的返回按钮（左上箭头）面积小、对比度低，新手不易发现</td><td><span class="round r3">R3</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p2"><td class="mono">M-52</td><td><span class="pill p2">P2</span></td><td>新建作品风格网格出现两个风格同时带粉色对勾（3D卡通 + 日系动漫），疑似多选状态渲染 bug</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-53</td><td><span class="pill p2">P2</span></td><td>角色库「刀客」（古风男性人物）标签误标为「动物」</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-54</td><td><span class="pill p2">P2</span></td><td>风格网格末行 4 个占位格仅有粉色圆图标，无「即将上线」等任何说明</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-55</td><td><span class="pill p2">P2</span></td><td>作品名称无字符数上限（68 字符可正常输入），卡片显示截断且可能引发存储问题</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-56</td><td><span class="pill p2">P2</span></td><td>进入批量管理模式后「新建作品」按钮消失，浏览批量选择时无法同时新建</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-57</td><td><span class="pill p2">P2</span></td><td>作品列表只有卡片视图，无按更新/创建时间排序、无列表视图切换、无标签分类管理</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+    </table>
+  </div>
+
+  <!-- ── 漫剧·创作流程 ── -->
+  <div class="card">
+    <h3>模块 D · 漫剧创作 · 剧本与分镜流程 <span class="cnt">11 项</span></h3>
+    <table>
+      <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:100px">复现轮次</th><th style="width:76px">状态</th></tr>
+      <tr data-lv="p0"><td class="mono">M-08</td><td><span class="pill p0">P0</span></td><td>AI 切分分镜冷启动 242 秒零进度反馈：全程仅静态标签文案「AI 镜头级切分」，无模型加载进度、无预计时间（热启动 18s，冷热差 13 倍）</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p2"><td class="mono">M-58</td><td><span class="pill p2">P2</span></td><td>切分结果「景别」列填「夜景」（光线概念当景别用），正确应为远景/中景/特写</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-59</td><td><span class="pill p2">P2</span></td><td>行级「生成」按钮实际行为是选中该镜并打开右侧详情面板，并非直接生成——语义歧义</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-60</td><td><span class="pill p2">P2</span></td><td>分镜行数多时（几十上百镜）纯滚动查找效率低，缺「跳转到第 N 镜」、镜号筛选、滚动进度指示</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-61</td><td><span class="pill p2">P2</span></td><td>分镜描述词只有行内编辑，多镜统一调整风格/场景时无批量编辑/追加/替换能力</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-62</td><td><span class="pill p2">P2</span></td><td>剧本编辑器为纯 textarea，缺行号、撤销/重做历史，字数统计位置不醒目——长剧本创作体验不足</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-63</td><td><span class="pill p2">P2</span></td><td>DSL 上传区「严格模式（语法错误即整体拒绝）」概念对新手不友好，缺 hover 说明或问号图标解释</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-64</td><td><span class="pill p2">P2</span></td><td>顶部进度「4/200 镜」——200 为系统上限而非本项目镜数，易被误读为项目规模</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p3"><td class="mono">M-74</td><td><span class="pill p3">P3</span></td><td>AI 切分结果预览不支持单镜删除/调序/合并相邻镜，微调需改剧本重切，效率低</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p3"><td class="mono">M-75</td><td><span class="pill p3">P3</span></td><td>右侧面板「作品中角色」与「全部可用角色」关系不明确，新手不知如何把可用角色加入作品</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p3"><td class="mono">M-76</td><td><span class="pill p3">P3</span></td><td>「视频 0/10 已完成」文案歧义（10 镜中 0 个生成？还是 10 个视频任务？）；场景/道具 Tab 空状态仅「暂无数据」无引导按钮</td><td><span class="round r3">R3</span></td><td class="n-gold">待优化</td></tr>
+    </table>
+  </div>
+
+  <!-- ── 漫剧·一致性 ── -->
+  <div class="card">
+    <h3>模块 E · 漫剧创作 · 关键帧与视频一致性 <span class="cnt">15 项（含 5 项已修）</span></h3>
+    <table>
+      <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:100px">复现轮次</th><th style="width:76px">状态</th></tr>
+      <tr data-lv="p0"><td class="mono">M-01</td><td><span class="pill p0">P0</span></td><td>H3 视频对无关键帧行不拒绝，静默建任务跑满采样后失败</td><td><span class="round r4">R4</span></td><td class="n-green">已修复✓</td></tr>
+      <tr data-lv="p0"><td class="mono">M-02</td><td><span class="pill p0">P0</span></td><td>H3 失败后任务状态卡死 generating，前端假活</td><td><span class="round r4">R4</span></td><td class="n-green">已修复✓</td></tr>
+      <tr data-lv="p0"><td class="mono">M-03</td><td><span class="pill p0">P0</span></td><td>ComfyUI 拼接选中宿主 Electron 阉割 ffmpeg，H3 全军覆没</td><td><span class="round r4">R4</span></td><td class="n-green">已修复✓</td></tr>
+      <tr data-lv="p0"><td class="mono">M-04</td><td><span class="pill p0">P0</span></td><td>拒绝路径 flow 未初始化 → 500 打穿结构化错误（M-01 修复的回归）</td><td><span class="round r4">R4</span></td><td class="n-green">已修复✓</td></tr>
+      <tr data-lv="p1"><td class="mono">M-29</td><td><span class="pill p1">P1</span></td><td><b>画风三段式漂移</b>：资产 2D 写实 → 关键帧 3D 皮克斯 → 视频 2D 日动；style 门禁全程报警（20~60 分）却零拦截——全链路最高优先待修项</td><td><span class="round r4">R4</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-30</td><td><span class="pill p1">P1</span></td><td>网格第二镜门禁重抽 2 次均不过仍标 done 放行，用户不知情（face_sim 0.52→0.50 始终低于 0.75）</td><td><span class="round r4">R4</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-31</td><td><span class="pill p1">P1</span></td><td>镜2 描述词场景错位（门外 vs 店内柜台）+ 动作主体错位（苏晚收伞写成老周收伞），传导至关键帧成「晴/雨对比」矛盾画面</td><td><span class="round r4">R4</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-32</td><td><span class="pill p1">P1</span></td><td>镜3 描述词缺「分镜网格 N×N」标记与秒数，双镜内容退化单帧模式（LLM 结构输出不稳定）</td><td><span class="round r4">R4</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-33</td><td><span class="pill p1">P1</span></td><td>跨镜道具漂移：蓝格纹长柄伞（镜1）→ 深色折叠伞（镜3）；镜1 首帧凭空多一把黑伞</td><td><span class="round r4">R4</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p1"><td class="mono">M-34</td><td><span class="pill p1">P1</span></td><td>镜2 有人脸却以 scene_sim 翻转判定（face_sim 0.30/0.42 判 passed），与 0.75 硬门禁口径不符——判定不可解释</td><td><span class="round r4">R4</span></td><td class="n-red">待修</td></tr>
+      <tr data-lv="p2"><td class="mono">M-65</td><td><span class="pill p2">P2</span></td><td>无关键帧行被拒后前端无可见 toast（根因 M-04 的 500）</td><td><span class="round r4">R4</span></td><td class="n-green">已联动修复✓</td></tr>
+      <tr data-lv="p2"><td class="mono">M-66</td><td><span class="pill p2">P2</span></td><td>顶部残留旧「上次生成失败」提示条，不随重试清除</td><td><span class="round r4">R4</span></td><td class="n-gold">待优化</td></tr>
+      <tr data-lv="p2"><td class="mono">M-67</td><td><span class="pill p2">P2</span></td><td>镜1 视频首帧一次性漂移（形象偏男性化+披肩发 → 后帧恢复马尾）</td><td><span class="round r4">R4</span></td><td class="n-gold">观察项</td></tr>
+      <tr data-lv="p2"><td class="mono">M-68</td><td><span class="pill p2">P2</span></td><td>便当资产以「散装热食」形态呈现（语义转化而非资产形态复刻）</td><td><span class="round r4">R4</span></td><td class="n-gold">观察项</td></tr>
+      <tr data-lv="p2"><td class="mono">M-69</td><td><span class="pill p2">P2</span></td><td>镜2 关键帧老周凭空戴细框眼镜（资产无此元素）；左帧晴天与深夜暴雨剧情矛盾</td><td><span class="round r4">R4</span></td><td class="n-gold">待优化</td></tr>
+    </table>
+  </div>
+
+  <!-- ── 其余模块 ── -->
+  <div class="grid2">
+    <div class="card">
+      <h3>模块 F · 知识学习 / 模型管理 <span class="cnt">6 项</span></h3>
+      <table>
+        <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:70px">复现</th><th style="width:70px">状态</th></tr>
+        <tr data-lv="p0"><td class="mono">M-09</td><td><span class="pill p0">P0</span></td><td>知识库 1761 条时间戳全部显示 1970-01-22（epoch 偏移 bug），时序管理完全失效</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+        <tr data-lv="p1"><td class="mono">M-35</td><td><span class="pill p1">P1</span></td><td>学习主题「短剧编剧技巧」显示 0 知识/0 页，但知识库 1761 条全部为短剧类——主题与知识条目关联断裂</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+        <tr data-lv="p1"><td class="mono">M-36</td><td><span class="pill p1">P1</span></td><td>模型管理推荐「Codestral 22B」但对话槽白名单仅 qwen3-vl-4b/8b；漫剧视频默认显示「Wan」与实际 minimax-h3 矛盾——推荐与白名单脱节</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+        <tr data-lv="p2"><td class="mono">M-70</td><td><span class="pill p2">P2</span></td><td>学习状态标签「completed」却提示「当前没有进行中的学习会话」——语义自相矛盾</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p2"><td class="mono">M-37</td><td><span class="pill p2">P2</span></td><td>模型管理「已下载：—」统计为空但实际模型在运行；「常驻模型 —」与「缓存模型数 8」语义难懂</td><td><span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p2"><td class="mono">M-38</td><td><span class="pill p2">P2</span></td><td>模型搜索无结果时为纯空状态，无「未找到匹配模型」提示</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>模块 G · 全局 / 帮助 / 设置 / 日志 <span class="cnt">10 项</span></h3>
+      <table>
+        <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th style="width:70px">复现</th><th style="width:70px">状态</th></tr>
+        <tr data-lv="p0"><td class="mono">M-10</td><td><span class="pill p0">P0</span></td><td>开发测试数据残留直达用户：对话历史含「鸡：18只，兔：17只」测试对话；作品列表含 E2E-R1/R2/R3、123456789 等测试残留</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+        <tr data-lv="p1"><td class="mono">M-39</td><td><span class="pill p1">P1</span></td><td>帮助页快速上手第 5 步仍描述「单分镜版本，不支持多项目管理」——与实际多项目/AI 切分流程严重不符，帮助文档过时</td><td><span class="round r2">R2</span></td><td class="n-red">待修</td></tr>
+        <tr data-lv="p1"><td class="mono">M-40</td><td><span class="pill p1">P1</span></td><td>功能互斥机制无用户可见提示：对话占用中切到绘画点生成，无任何「功能冲突」反馈（后端返回 FEATURE_MUTEX_LOCKED 前端不展示）</td><td><span class="round">R1</span></td><td class="n-red">待修</td></tr>
+        <tr data-lv="p2"><td class="mono">M-11</td><td><span class="pill p2">P2</span></td><td>底部状态栏 10+ 项指标同排展示（CPU/GPU/显存/协同/AV1/知识/LoRA/联网/学习），信息密度过高且点击无 tooltip/详情</td><td><span class="round">R1</span> <span class="round r2">R2</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p2"><td class="mono">M-12</td><td><span class="pill p2">P2</span></td><td>全局设置直接暴露英文键名（theme/font_size/auto_model_select/default_video_codec），无中文标签</td><td><span class="round r2">R2</span> <span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p2"><td class="mono">M-13</td><td><span class="pill p2">P2</span></td><td>作品类型「普通漫剧/解说漫剧」选项缺少详细说明，新用户不知区别</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p2"><td class="mono">M-14</td><td><span class="pill p2">P2</span></td><td>日志级别过滤按钮仅 2 个（非完整 ERROR/WARN/INFO/DEBUG 四级）</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p3"><td class="mono">M-77</td><td><span class="pill p3">P3</span></td><td>帮助页 15 张卡片点击无跳转/展开反应，纯静态展示</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p3"><td class="mono">M-78</td><td><span class="pill p3">P3</span></td><td>四主题名称过长（如「Sakura · 夜樱暗色樱粉 × 薄荷绿」），按钮内文字拥挤</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+        <tr data-lv="p3"><td class="mono">M-79</td><td><span class="pill p3">P3</span></td><td>新建作品弹窗「热门」角标覆盖在风格缩略图左上角，影响视觉判断</td><td><span class="round">R1</span></td><td class="n-gold">待优化</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 04 分布 ═══════════ -->
+<section>
+  <h2>04 · 问题分布全景<span class="idx">按模块 × 严重度</span></h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>各模块问题量（去重后 79 项）</h3>
+      <div class="bar-row"><div class="bl">漫剧·一致性/视频</div><div class="bar"><i style="width:100%;background:linear-gradient(90deg,#FF6B9D,#FF9DBE)"></i></div><div class="bv">15 项</div></div>
+      <div class="bar-row"><div class="bl">AI 绘画</div><div class="bar"><i style="width:87%;background:linear-gradient(90deg,#4ECDC4,#8AE4DE)"></i></div><div class="bv">13 项</div></div>
+      <div class="bar-row"><div class="bl">漫剧·作品/资产</div><div class="bar"><i style="width:80%;background:linear-gradient(90deg,#4ECDC4,#8AE4DE)"></i></div><div class="bv">12 项</div></div>
+      <div class="bar-row"><div class="bl">AI 对话</div><div class="bar"><i style="width:80%;background:linear-gradient(90deg,#4ECDC4,#8AE4DE)"></i></div><div class="bv">12 项</div></div>
+      <div class="bar-row"><div class="bl">全局/帮助/设置/日志</div><div class="bar"><i style="width:67%;background:linear-gradient(90deg,#9CA8FF,#C3CAFF)"></i></div><div class="bv">10 项</div></div>
+      <div class="bar-row"><div class="bl">漫剧·剧本/分镜流程</div><div class="bar"><i style="width:73%;background:linear-gradient(90deg,#FFD93D,#FFE88A)"></i></div><div class="bv">11 项</div></div>
+      <div class="bar-row"><div class="bl">知识/模型管理</div><div class="bar"><i style="width:40%;background:linear-gradient(90deg,#9CA8FF,#C3CAFF)"></i></div><div class="bv">6 项</div></div>
+    </div>
+    <div class="card">
+      <h3>严重度构成（79 项）</h3>
+      <div class="bar-row"><div class="bl">P0 致命（6 待修）</div><div class="bar"><i style="width:67%;background:linear-gradient(90deg,#FF6B6B,#FF9B9B)"></i></div><div class="bv">10 项</div></div>
+      <div class="bar-row"><div class="bl">P1 严重（24 待修）</div><div class="bar"><i style="width:100%;background:linear-gradient(90deg,#FFA96B,#FFC9A3)"></i></div><div class="bv">24 项</div></div>
+      <div class="bar-row"><div class="bl">P2 一般（35 待修）</div><div class="bar"><i style="width:93%;background:linear-gradient(90deg,#FFD93D,#FFE88A)"></i></div><div class="bv">36 项</div></div>
+      <div class="bar-row"><div class="bl">P3 轻微（9 待修）</div><div class="bar"><i style="width:34%;background:linear-gradient(90deg,#9BA3C0,#C0C6DC)"></i></div><div class="bv">9 项</div></div>
+      <div class="callout warn" style="margin-top:18px"><b>关键观察：</b>P0 中 4 项已闭环，剩余 6 项集中在<b>「零进度反馈」类（M-06 绘画 87s、M-08 切分 242s、M-05 冷启动弹窗）与「数据可信性」类（M-09 时间戳 1970、M-10 测试数据残留、M-07 空提示词）</b>——共同特征是<b>长时间无反馈</b>与<b>不可信数据直接见用户</b>，对新手信任度杀伤最大。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 05 高置信复现 ═══════════ -->
+<section>
+  <h2>05 · 跨轮复现问题（两轮以上独立发现）<span class="idx">8 项 · 修复优先级加权</span></h2>
+  <div class="desc">以下问题被不同轮次、不同角色独立发现——跨轮复现意味着问题稳定存在且影响面广，建议在排期时优先加权。</div>
+  <div class="card">
+    <table>
+      <tr><th style="width:52px">编号</th><th style="width:46px">级别</th><th>问题</th><th>复现轮次</th></tr>
+      <tr><td class="mono">M-06</td><td><span class="pill p0">P0</span></td><td>绘画生成全程零进度反馈（R1 细粒度 + R2 多角色均触发）</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+      <tr><td class="mono">M-09</td><td><span class="pill p0">P0</span></td><td>知识库时间戳 1970 epoch 偏移（两轮均记录 1761 条全异常）</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+      <tr><td class="mono">M-16</td><td><span class="pill p1">P1</span></td><td>对话设置面板配置不生效（「已保存未下发」）</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+      <tr><td class="mono">M-21</td><td><span class="pill p1">P1</span></td><td>绘画比例选择与参数面板尺寸口径矛盾</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+      <tr><td class="mono">M-18</td><td><span class="pill p1">P1</span></td><td>温度滑块「(6:2:1)」规格编号外露</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+      <tr><td class="mono">M-23</td><td><span class="pill p1">P1</span></td><td>「创建并进入」不进入工作区（R2 全页面 + R3 漫剧专项）</td><td><span class="round r2">R2</span> <span class="round r3">R3</span></td></tr>
+      <tr><td class="mono">M-12</td><td><span class="pill p2">P2</span></td><td>设置页英文键名直接暴露</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+      <tr><td class="mono">M-54</td><td><span class="pill p2">P2</span></td><td>风格网格占位格无任何说明</td><td><span class="round">R1</span> <span class="round r2">R2</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════ 06 去重映射 ═══════════ -->
+<section>
+  <h2>06 · 跨轮去重映射表<span class="idx">11 组合并明细</span></h2>
+  <div class="card">
+    <table>
+      <tr><th style="width:70px">合并后</th><th>R1 细粒度</th><th>R2 多角色</th><th>R3 漫剧深测</th><th>R4 一致性</th></tr>
+      <tr><td class="mono">M-06</td><td class="mono">F-P1-6</td><td class="mono">P0-1</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-09</td><td class="mono">F-P0-2</td><td class="mono">P0-3</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-16</td><td class="mono">F-P1-3</td><td class="mono">P1-1</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-21</td><td class="mono">F-P1-5</td><td class="mono">P1-4</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-18</td><td class="mono">F-P1-1（P1）</td><td class="mono">P2-14（P2）</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-23</td><td class="dup">—</td><td class="mono">P1-5</td><td class="mono">DD-1</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-12</td><td class="mono">F-P2-12</td><td class="mono">P2-9</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-54</td><td class="mono">F-P2-8</td><td class="mono">P2-12</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-11</td><td class="mono">F-P2-4（无 tooltip）</td><td class="mono">P3-1（密度过高）</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-71</td><td class="mono">F-P3-1</td><td class="mono">P3-2</td><td class="dup">—</td><td class="dup">—</td></tr>
+      <tr><td class="mono">M-76</td><td class="dup">—</td><td class="dup">—</td><td class="mono">DD-15 + DD-16（同域合并）</td><td class="dup">—</td></tr>
+    </table>
+    <div class="callout">90 条原始记录 − 11 组合并 = <b>79 项唯一问题</b>。R1 与 R2 重叠度最高（9 组）——两轮测试覆盖同一批高频路径，属正常收敛信号。</div>
+  </div>
+</section>
+
+<!-- ═══════════ 07 路线图 ═══════════ -->
+<section>
+  <h2>07 · 修复路线图建议（按优先级分批）<span class="idx">74 项待修的分批策略</span></h2>
+  <div class="card">
+    <table>
+      <tr><th style="width:76px">批次</th><th style="width:110px">范围</th><th>内容</th><th>预期收益</th></tr>
+      <tr><td class="n-red"><b>第一批<br>P0 收口</b></td><td>6 项 P0</td><td>M-06/M-08/M-05 三项「零进度反馈」统一接入任务进度广播（后端已有 WS Hub，前端补 loading 态+阶段文案）；M-09 时间戳 epoch 修复；M-10 测试数据清理脚本 + 生产库过滤；M-07 空提示词禁用</td><td>新手信任度根因治理——三类「黑箱等待」与「脏数据」全部消除</td></tr>
+      <tr><td class="n-gold"><b>第二批<br>P1 核心链路</b></td><td>24 项 P1</td><td><b>画风统一工程</b>（M-29：资产/关键帧/H3 三段对齐 klein-9b + 风格参考注入）；门禁放行透明化（M-30/M-34：done_with_warnings 状态 + face_sim 口径对齐）；描述词结构校验（M-31/M-32：网格标记强制 + 主体一致性复核）；漫剧工作台五项（M-23~M-28）；绘画口径三项（M-19~M-21）</td><td>漫剧全链路一致性与可解释性；工作台新手可用性</td></tr>
+      <tr><td class="n-mint"><b>第三批<br>P2/P3 体验打磨</b></td><td>44 项</td><td>按模块横向推进：对话会话管理（重命名/右键/摘要）、绘画历史预览与选中态、漫剧批量编辑与快速定位、设置中文化、状态栏 tooltip 化</td><td>日常使用顺滑度与专业用户效率</td></tr>
+    </table>
+    <div class="callout"><b>排序依据：</b>① 用户可感知的伤害程度（黑箱等待 &gt; 功能错误 &gt; 体验粗糙）；② 跨轮复现加权（§05 的 8 项优先）；③ 是否阻塞核心创作链路（漫剧一致性 P1 直接影响成片质量）。</div>
+  </div>
+</section>
+
+<!-- ═══════════ 08 附录 ═══════════ -->
+<section>
+  <h2>08 · 附录：源报告索引</h2>
+  <div class="card">
+    <table>
+      <tr><th>轮次</th><th>源报告</th><th>补充材料</th></tr>
+      <tr><td><span class="round">R1</span></td><td><a href="../uat-fine-grained/uat-fine-grained-report.html">docs/uat-fine-grained/uat-fine-grained-report.html</a></td><td>边界场景取证截图（assets/）</td></tr>
+      <tr><td><span class="round r2">R2</span></td><td><a href="../uat-multi-role-report/uat-multi-role-report.html">docs/uat-multi-role-report/uat-multi-role-report.html</a></td><td>8 张证据截图 + 耗时对数图 + 严重度堆叠图</td></tr>
+      <tr><td><span class="round r3">R3</span></td><td><a href="../uat-manga-deep-dive/manga-module-deep-test-report.html">docs/uat-manga-deep-dive/manga-module-deep-test-report.html</a></td><td>41+ 张过程截图（temp_uat_manga/evidence/）</td></tr>
+      <tr><td><span class="round r4">R4</span></td><td><a href="../uat-manga-consistency/manga-consistency-deep-test-report.html">docs/uat-manga-consistency/manga-consistency-deep-test-report.html</a></td><td>54 张截图 + 一致性四维对照图 + 5.17s 成片</td></tr>
+    </table>
+  </div>
+</section>
+
+<div class="footer">
+  OmniSpace AI v2.3.1 · 全量测试问题汇总台账 · 2026-08-31 生成 ·
+  4 轮 / 17 人格 / 90 条原始记录 / 79 项去重 / 5 项已修复闭环
+</div>
+</div>
+
+<script>
+(function () {
+  var buttons = document.querySelectorAll('#filterBar button');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      buttons.forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      var f = btn.dataset.f;
+      document.querySelectorAll('tr[data-lv]').forEach(function (tr) {
+        tr.classList.toggle('hide', f !== 'all' && tr.dataset.lv !== f);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

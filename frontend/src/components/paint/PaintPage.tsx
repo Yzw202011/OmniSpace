@@ -52,6 +52,12 @@ function mapResult(r: PaintResult): GeneratedImage {
     height: r.params.height,
     seed: r.seed,
     favorite: r.favorite,
+    created_at:
+      typeof r.created_at === 'number'
+        ? r.created_at < 1e11
+          ? r.created_at * 1000 // 秒级 epoch → 毫秒（与后端 time.time() 约定一致）
+          : r.created_at
+        : Date.parse(String(r.created_at)) || Date.now(),
   };
 }
 

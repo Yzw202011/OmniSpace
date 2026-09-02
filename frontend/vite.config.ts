@@ -22,7 +22,6 @@ export default defineConfig({
       { find: '@services', replacement: `${src}/services` },
       { find: '@stores', replacement: `${src}/stores` },
       { find: '@types', replacement: `${src}/types` },
-      { find: '@three', replacement: `${src}/three` },
       { find: '@hooks', replacement: `${src}/hooks` },
       { find: '@utils', replacement: `${src}/utils` },
       { find: '@styles', replacement: `${src}/styles` },
@@ -63,14 +62,10 @@ export default defineConfig({
       output: {
         // 函数式 chunk 分组：把所有 node_modules 依赖聚合进少数 vendor，
         // 避免 zustand/lucide 等散入各懒加载页面 chunk、破坏浏览器缓存复用。
-        // three 单独成包（体型最大且仅 3D 导演台使用）。
         // react-vendor 仅收纳 react 核心族；react-markdown 及其 unified/remark
         // 生态整体留在 vendor，否则 chunk 相互引用会形成循环依赖警告。
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('/three/') || id.includes('\\three\\')) {
-            return 'three-vendor';
-          }
           if (
             /node_modules[\\/](react|react-dom|react-router|react-router-dom|react-is|scheduler|use-sync-external-store|zustand)[\\/]/.test(id)
           ) {
@@ -82,10 +77,9 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // 仅预打包 three；react/react-dom 必须保持 externalized——
-    // 强制预打包会与 @vitejs/plugin-react 的运行时形成双 React 实例，
-    // 导致 "Cannot read properties of null (reading 'useState/useEffect')" 崩溃
-    include: ['three'],
+    // react/react-dom 必须保持 externalized——强制预打包会与
+    // @vitejs/plugin-react 的运行时形成双 React 实例，导致
+    // "Cannot read properties of null (reading 'useState/useEffect')" 崩溃
     esbuildOptions: {
       jsx: 'automatic',
       target: 'es2022',

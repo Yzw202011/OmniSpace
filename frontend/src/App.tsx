@@ -32,6 +32,8 @@ import { trackBehavior } from './services/learningApi';
 import Tooltip from './components/common/Tooltip';
 import TechParticles from './components/common/TechParticles';
 import WarmupModal from './components/common/WarmupModal';
+import PaintWarmupModal from './components/common/PaintWarmupModal';
+import LicenseGate from './components/common/LicenseGate';
 import TopBar from './components/layout/TopBar';
 import RightPanel from './components/layout/RightPanel';
 import BottomStatusBar from './components/layout/BottomStatusBar';
@@ -289,6 +291,27 @@ export function AppShell() {
           // 后端不可达静默
         }
       }
+      // AI 绘画预热（2026-08-31，用户需求「跟 AI 对话一样的冷启动弹窗」）：
+      // 进页面即点火 diffusers 管线（冷启动 10~60s），选参数/浏览时间即
+      // 加载时间；3s 延迟防路由路过误点火（与对话预热 S6 同口径），
+      // 视频生成/训练持锁期间跳过。弹窗 = PaintWarmupModal，
+      // 就绪信号 GET /draw/status loaded（诚实进度）
+      if (feature === 'paint') {
+        const heavy = useAppStore.getState().activeFeature;
+        if (heavy === 'video_gen' || heavy === 'training') {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (cancelled) return;
+        try {
+          const r = await warmupFeature('paint');
+          if (r.started) {
+            useWarmupStore.getState().begin(undefined, 'paint');
+          }
+        } catch {
+          // 后端不可达静默
+        }
+      }
     })();
     return () => { cancelled = true; };
   }, [location.pathname]);
@@ -413,6 +436,10 @@ export function AppShell() {
 
       {/* 对话模型冷启动进度弹窗（全局单例，App 根渲染不随路由卸载） */}
       <WarmupModal />
+      {/* AI 绘画模型冷启动进度弹窗（同 store 分流，paint 预热时显示） */}
+      <PaintWarmupModal />
+      {/* 激活门禁遮罩（P8 补洞）：任何接口报未激活即全屏弹激活窗 */}
+      <LicenseGate />
     </div>
   );
 }

@@ -19,7 +19,6 @@
     "react-router-dom": "7.0.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
-    "three": "0.170.0",
     "zod": "^4.4.3",
     "zustand": "5.0.0"
   },
@@ -29,7 +28,6 @@
     "@types/node": "^22.20.1",
     "@types/react": "19.0.0",
     "@types/react-dom": "19.0.0",
-    "@types/three": "^0.170.0",
     "@vitejs/plugin-react": "4.3.4",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",

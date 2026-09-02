@@ -39,6 +39,8 @@ import { useMangaStore } from '@/stores/useMangaStore';
 import { useModelStore } from '@/stores/useModelStore';
 import { useStyleStore } from '@/stores/useStyleStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
+import DialogWarmupBar from '../common/DialogWarmupBar';
+import PaintWarmupBar from '../common/PaintWarmupBar';
 import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
 import { LEARN_SESSION_STATUS_LABELS, TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
@@ -243,13 +245,16 @@ function ChatPanel() {
             开启后展示完整推理路径：问题分析 → 信息检索 → 方案评估 → 决策依据，思考完成再输出最终回答
           </div>
         </div>
-        {/* 诚实标注：WS 流式通道（_ws_handle_message）当前不消费 model/temperature/context_tokens，
-            模型由后端按硬件档位自动路由；以上选择仅本地持久化，后续版本接入生成通道 */}
+        {/* 参数接线说明（2026-08-31 温度/上下文接入后端后更新）：
+            模型/深度思考此前已生效，温度/上下文当日接线，四项全通 */}
         <div className="rp-hint">
-          注：当前版本流式对话由后端按硬件档位自动路由模型（8B 需 ≥12GB 显存档），上述模型 / 温度 / 上下文选择已本地保存、暂未下发到生成通道，后续版本接入。
+          注：模型 / 温度 / 上下文 / 深度思考均随每次发送生效；切换模型将在下次发送时热切换引擎（首次切换约需 0.5-2 分钟加载）。
         </div>
       </Section>
       <Section title="当前会话">
+        {/* 对话模型冷启动进度条（2026-08-31 用户需求：右栏常驻可见，
+            弹窗被「后台继续」关掉后仍持续显示，就绪即自动收起） */}
+        <DialogWarmupBar />
         {currentSession ? (
           <>
             <Row label="标题" value={currentSession.title || '未命名'} title={currentSession.title} />
@@ -271,12 +276,11 @@ function ChatPanel() {
 /* ============================== 2. AI 绘画面板（/paint） ============================== */
 function PaintPanel() {
   const paintRequest = usePaintStore((s) => s.paintRequest);
-  const setPaintRequest = usePaintStore((s) => s.setPaintRequest);
   const generating = usePaintStore((s) => s.generating);
-  const models = usePaintStore((s) => s.models);
   const fetchModels = usePaintStore((s) => s.fetchModels);
 
-  // 进入面板时确保绘画模型路由表已加载（幂等：store 内部静默失败）
+  // 进入面板时确保绘画模型路由表已加载（幂等：store 内部静默失败；
+  // 主面板模型下拉的数据源）
   useEffect(() => {
     if (usePaintStore.getState().models.length === 0) {
       fetchModels();
@@ -284,77 +288,16 @@ function PaintPanel() {
   }, [fetchModels]);
 
   const loras = paintRequest.loras ?? [];
-  const steps = paintRequest.steps ?? 20;
-  const cfg = paintRequest.cfg_scale ?? 7;
-  const seed = paintRequest.seed ?? -1;
 
   return (
     <>
-      <Section title="参数面板">
-        <div className="form-row">
-          <label className="form-label" htmlFor="rp-paint-model">模型</label>
-          <select
-            id="rp-paint-model"
-            className="input"
-            value={paintRequest.model ?? ''}
-            onChange={(e) => setPaintRequest({ model: e.target.value || undefined })}
-          >
-            <option value="">自动调度</option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id} disabled={m.status !== 'ready'}>
-                {m.name}{m.status !== 'ready' ? '（未就绪）' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="form-row">
-          <label className="form-label" htmlFor="rp-paint-steps">
-            采样步数
-            <span className="form-value">{steps}</span>
-          </label>
-          <input
-            id="rp-paint-steps"
-            type="range"
-            className="slider"
-            min={1}
-            max={50}
-            step={1}
-            value={steps}
-            onChange={(e) => setPaintRequest({ steps: parseInt(e.target.value, 10) })}
-          />
-        </div>
-        <div className="form-row">
-          <label className="form-label" htmlFor="rp-paint-cfg">
-            引导强度 CFG
-            <span className="form-value">{cfg}</span>
-          </label>
-          <input
-            id="rp-paint-cfg"
-            type="range"
-            className="slider"
-            min={1}
-            max={20}
-            step={0.5}
-            value={cfg}
-            onChange={(e) => setPaintRequest({ cfg_scale: parseFloat(e.target.value) })}
-          />
-        </div>
-        <div className="form-row">
-          <label className="form-label" htmlFor="rp-paint-seed">种子（-1 随机）</label>
-          <input
-            id="rp-paint-seed"
-            type="number"
-            className="input"
-            value={seed}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10);
-              setPaintRequest({ seed: Number.isNaN(n) ? -1 : n });
-            }}
-          />
-        </div>
-        <Row label="尺寸" value={`${paintRequest.width ?? 1024}×${paintRequest.height ?? 1024}`} />
-        <Row label="采样器" value={paintRequest.sampler || '默认'} />
-        <Row label="生成状态" value={generating ? '生成中…' : '空闲'} />
+      {/* 旧「参数面板」已于 2026-08-31 下线（用户裁定方案 A）：其中
+          模型/步数/CFG/种子/尺寸/采样器只写 store，与主面板（自管参数
+          + 共享模型偏好）双头不同步，右栏改动静默失效误导用户——
+          参数唯一入口 = 主面板。此处仅保留实时状态展示。 */}
+      <Section title="生成状态">
+        <Row label="状态" value={generating ? '生成中…' : '空闲'} />
+        <div className="rp-hint">绘画参数（模型 / 步数 / CFG / 种子 / 画面比例）请在左侧主面板设置，随生成请求直接生效。</div>
       </Section>
       <Section title="LoRA 选择">
         {loras.length > 0 ? (
@@ -366,6 +309,9 @@ function PaintPanel() {
         )}
       </Section>
       <Section title="ControlNet">
+        {/* 绘画模型冷启动进度条（2026-08-31 用户需求：绘画页右栏常驻可见，
+            预热弹窗被「后台继续」关掉后仍持续显示，就绪即自动收起） */}
+        <PaintWarmupBar />
         <Row label="状态" value="未就绪" />
         <div className="rp-hint">生成链路建设中，配置暂不生效，后续版本开放。</div>
       </Section>

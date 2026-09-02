@@ -5,6 +5,7 @@ import type { StateCreator } from 'zustand';
 import type { StoryboardGenerationStatus } from '@/types';
 import * as mangaApi from '@/services/mangaApi';
 import { reportBgError } from '@/utils/errors';
+import { loadModelConfig } from '@/constants/modelConfig';
 import { useAppStore } from '../useAppStore';
 import { useTaskStore } from '../useTaskStore';
 import { currentPid } from './helpers';
@@ -102,10 +103,14 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           status: st.status,
           progress: st.progress,
           error: st.error,
+          queue_position: st.queue_position,
           degraded,
           degrade_reason: degradeReason,
         });
-        useTaskStore.getState().updateProgress(taskId, st.progress);
+        useTaskStore.getState().updateProgress(taskId, st.progress, {
+          status: st.status === 'pending' ? 'pending' : undefined,
+          queue_position: st.queue_position,
+        });
         consecutiveFailCount = 0;
 
         if (st.status === 'done') {
@@ -162,8 +167,44 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
       if (!appStore.setActiveFeature('video_gen')) {
         return false;
       }
+      // 客户端连点去重（2026-08-31 事故：POST 含关键帧 base64 拉取与后端
+      // 编排需数秒，期间按钮无变化 → 用户连点 7 次 → 7 个任务在引擎锁上
+      // 排队空转 GPU）。与后端 generating 查重构成双保险。
+      if (get().videoTasks.some(
+        (t) => t.row_id === row.id
+          && (t.status === 'generating' || t.status === 'pending'))) {
+        useAppStore.getState().showToast('该分镜已有视频在生成中，请等待完成或先取消', 'warning');
+        appStore.releaseActiveFeature();
+        return false;
+      }
       const description =
         row.description || row.original_dialogue || `分镜 ${row.shot_number}`;
+      // 模型配置兜底（2026-08-31 用户实测「还是 5 秒」）：表格行内
+      // 生成/重试按钮不经确认弹窗（无 opts）——此前直接落 Pydantic
+      // 默认 5s。统一兜底读 localStorage 模型配置，任何入口都尊重
+      // 用户配置的时长/画幅/视频模型（显式 opts 仍优先）。
+      const mcfg = loadModelConfig();
+      const duration = opts?.duration ?? mcfg.duration;
+      const aspect = opts?.aspect ?? mcfg.aspect;
+      const modelOverride = opts?.modelOverride
+        || (mcfg.videoModel || undefined);
+      // 点击即时反馈（同事故另一半根因）：POST 返回前先乐观置 pending——
+      // 单元格立即切换为进度块，按钮不再「看似没反应」。响应到达后以
+      // 真实任务替换临时条目；失败则撤除并回置行错误态。
+      const tempId = `pending_${Date.now()}_${row.id.slice(-6)}`;
+      const tempEntry: MangaVideoTask = {
+        task_id: tempId,
+        row_id: row.id,
+        shot_number: row.shot_number,
+        description,
+        status: 'pending',
+        progress: 0,
+      };
+      set((state) => ({ videoTasks: [...state.videoTasks, tempEntry], videoGenerating: true }));
+      syncRowGenerationStatus(row.id, 'generating');
+      const dropTemp = (): void => set((state) => ({
+        videoTasks: state.videoTasks.filter((t) => t.task_id !== tempId),
+      }));
       try {
         // 当前关键帧图随请求进后端：I2V 首帧 / 分镜网格拆格的载体
         //（此前恒为空串，I2V 通道从未接通——2026-08-25 修复）
@@ -173,7 +214,11 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           description,
           screenshot_4in1: screenshotB64,
           // 引擎点名透传（P1 2026-08-29）：如 "h3_director" = MiniMax H3 导演台
-          model_override: opts?.modelOverride || undefined,
+          model_override: modelOverride,
+          // 模型配置·视频默认参数接线（2026-08-31）：时长/画幅随请求下发
+          //（画幅经宽高串表达，后端 H3 分支按时长定画质、按宽高比推导竖屏）
+          duration_seconds: duration,
+          resolution: aspect === '9:16' ? '576x1024' : '1024x576',
         });
         const degraded =
           typeof (res as { degraded?: unknown }).degraded === 'boolean'
@@ -183,12 +228,17 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           typeof (res as { degrade_reason?: unknown }).degrade_reason === 'string'
             ? ((res as { degrade_reason?: string }).degrade_reason as string)
             : undefined;
+        dropTemp();
         const entry: MangaVideoTask = {
           task_id: res.task_id,
           row_id: row.id,
+          created_at: Math.floor(Date.now() / 1000),
           shot_number: row.shot_number,
           description,
-          status: 'generating',
+          // 后端入队即返回 pending（2026-09-02 视频队列）：单 worker
+          // 顺序消费，开跑才翻 generating——多镜连点时此处如实反映排队态
+          status: (res.status as MangaVideoTask['status']) || 'pending',
+          queue_position: res.queue_position,
           progress: 0,
           degraded,
           degrade_reason: degradeReason,
@@ -207,6 +257,9 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
         startVideoPoll(res.task_id, row.id);
         return true;
       } catch (err) {
+        dropTemp();
+        // 行状态回置：乐观 generating 需撤回，单元格恢复「失败重试」
+        syncRowGenerationStatus(row.id, 'error');
         const msg =
           err && typeof err === 'object' && 'message' in err
             ? (err as { message: string }).message
@@ -267,6 +320,16 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
     fetchVideoStatus: async (taskId) => {
       try {
         const st = await mangaApi.getVideoStatus(taskId);
+        // 终态提醒（2026-08-31 用户反馈「不知道有没有在生成」）：
+        // 仅状态切换到终态的瞬间 toast 一次，轮询期间不重复
+        const prev = get().videoTasks.find((t) => t.task_id === taskId);
+        if (prev && prev.status !== 'done' && st.status === 'done') {
+          useAppStore.getState().showToast(
+            `分镜${prev.shot_number} 视频已生成完成（视频列可预览/下载）`, 'success');
+        } else if (prev && prev.status !== 'error' && st.status === 'error') {
+          useAppStore.getState().showToast(
+            `分镜${prev.shot_number} 视频生成失败：${st.error || '未知错误'}`, 'error');
+        }
         patchVideoTask(taskId, {
           status: st.status,
           progress: st.progress,

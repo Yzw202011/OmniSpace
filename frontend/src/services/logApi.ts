@@ -317,9 +317,44 @@ export function listLogFiles() {
   return get<{ files: RawLogFile[]; retention_days: number }>('/logs/files');
 }
 
-/** 原始日志尾部（技术诊断；name 限白名单 backend.log/error.log/vllm-server.log） */
-export function getRawLogTail(name: string, lines = 200) {
-  return get<RawLogTail>('/logs/raw', { name, lines });
+/** 原始日志尾部（技术诊断；name 限白名单，含启动链日志）。
+ * filters（2026-09-01 方案 C）：keyword 命中行±上下文；level 按行内标记过滤 */
+export function getRawLogTail(
+  name: string,
+  lines = 200,
+  filters?: { keyword?: string; level?: string },
+) {
+  return get<RawLogTail>('/logs/raw', {
+    name,
+    lines,
+    ...(filters?.keyword ? { keyword: filters.keyword } : {}),
+    ...(filters?.level ? { level: filters.level } : {}),
+  });
+}
+
+/** 最近异常聚合（错误面板：模块×事件类型归并计数） */
+export function getErrorSummary(days = 7) {
+  return get<{
+    groups: Array<{
+      module: string;
+      event: string;
+      count: number;
+      first_ts?: string;
+      last_ts?: string;
+      example: string;
+    }>;
+    total_errors: number;
+    days: number;
+  }>('/logs/errors/summary', { days });
+}
+
+/** 前端 console 错误/警告上报（window.onerror / unhandledrejection） */
+export function postFrontendEvent(kind: 'error' | 'warning', message: string, stack = '') {
+  return post<{ recorded: boolean }>('/logs/frontend-event', {
+    kind,
+    message,
+    stack,
+  }).catch(() => undefined); // 上报失败静默（不能因日志再抛错）
 }
 
 /** 手动触发 30 天过期清理 */
@@ -338,4 +373,6 @@ export default {
   listLogFiles,
   getRawLogTail,
   triggerLogCleanup,
+  getErrorSummary,
+  postFrontendEvent,
 };

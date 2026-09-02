@@ -43,6 +43,7 @@ import {
   parseWith,
   type ExportStoryboardResp,
   type VideoResultResp,
+  type VideoGenerateResp,
   type VideoStatusResp,
   type VoiceListResp,
   type VoicePreviewResp,
@@ -227,10 +228,10 @@ export interface VideoGeneratePayload {
   model_override?: string;
 }
 
-/** 发起视频生成（POST /manga/video/generate）→ {task_id, status} */
+/** 发起视频生成（POST /manga/video/generate）→ {task_id, status, queue_position} */
 export async function generateVideo(
   body: VideoGeneratePayload,
-): Promise<{ task_id: string; status: string }> {
+): Promise<VideoGenerateResp> {
   return parseWith(
     VideoGenerateRespSchema,
     await post<unknown>('/manga/video/generate', body),
@@ -279,6 +280,12 @@ export async function listVideoTasks(
   projectId: string,
 ): Promise<{ items: VideoTaskRecord[]; total: number }> {
   return get('/manga/video/tasks', { project_id: projectId });
+}
+
+/** 删除视频历史记录（DELETE /video/history/{task_id}：DB 行 + MP4 一并
+ * 级联清理；运行中任务后端拒绝——2026-08-31 删除机制补全） */
+export async function deleteVideoHistory(taskId: string): Promise<void> {
+  await del(`/video/history/${taskId}`);
 }
 
 /* ============================== 四、音色 ============================== */
@@ -371,12 +378,14 @@ export async function listArtStyles(): Promise<CustomArtStyle[]> {
   return res.items ?? [];
 }
 
-/** 新增自定义风格（POST /comic/art-style/create；重名 → COMIC_ART_STYLE_NAME_DUPLICATED） */
+/** 新增自定义风格（POST /comic/art-style/create；重名 → COMIC_ART_STYLE_NAME_DUPLICATED；
+ * 2026-08-31：packDef 必填——风格包 JSON 原文，后端 parse_custom_pack 校验） */
 export async function createArtStyle(
   name: string,
   prompt: string,
+  packDef: string,
 ): Promise<CustomArtStyle> {
-  return post('/comic/art-style/create', { name, prompt });
+  return post('/comic/art-style/create', { name, prompt, pack_def: packDef });
 }
 
 /** 删除自定义风格（DELETE /comic/art-style/{id}） */
@@ -496,7 +505,7 @@ export async function listAssets(
 }
 
 /** 角色多视图生成（POST /comic/asset/generate-turnaround：2560×1440 横排 4 格，自动裁切入库；
- *  FLUX 未随包 → SDXL 兜底（1280×720 生成 + 2x 上采样），响应带 degraded 标记） */
+ *  FLUX 未随包 → SDXL 兜底（1280×720 生成 + 2x 上采样），响应带 degraded 标记。 */
 export async function generateTurnaround(body: {
   project_id: string;
   name: string;
@@ -568,7 +577,7 @@ export async function unbindAsset(assetId: string, rowId: string): Promise<Asset
   return put('/comic/asset/unbind', { asset_id: assetId, row_id: rowId });
 }
 
-/** 更新资产名称/描述词（PUT /comic/asset/{assetId}） */
+/** 更新资产名称/描述词（PUT /comic/asset/{assetId}）。 */
 export async function updateAsset(
   assetId: string,
   patch: { name?: string; prompt?: string },
@@ -965,6 +974,7 @@ export default {
   getVideoResult,
   getVideoDownloadUrl,
   listVideoTasks,
+  deleteVideoHistory,
   cancelVideo,
   // 音色
   listVoices,

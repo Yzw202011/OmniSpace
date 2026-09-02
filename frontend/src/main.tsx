@@ -31,3 +31,28 @@ if (bootScreen) {
     bootScreen.remove();
   }, 320);
 }
+
+// 前端异常采集（2026-09-01 日志机制方案 C）：window.onerror 与
+// unhandledrejection 进入系统日志事件库（/logs/frontend-event），
+// 排障时前端崩溃不再无声消失。节流：同消息 10s 一条，防风暴。
+void import('./services/logApi').then(({ postFrontendEvent }) => {
+  const lastSent = new Map<string, number>();
+  const report = (kind: 'error' | 'warning', message: string, stack: string) => {
+    const key = message.slice(0, 80);
+    const now = Date.now();
+    if (now - (lastSent.get(key) ?? 0) < 10_000) return;
+    lastSent.set(key, now);
+    void postFrontendEvent(kind, message, stack);
+  };
+  window.addEventListener('error', (e) => {
+    report('error', e.message || '未知脚本错误', e.error?.stack ?? '');
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e.reason;
+    report(
+      'error',
+      typeof reason === 'string' ? reason : reason?.message || '未处理的 Promise 拒绝',
+      reason?.stack ?? '',
+    );
+  });
+});

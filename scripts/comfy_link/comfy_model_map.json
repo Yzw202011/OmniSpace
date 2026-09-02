@@ -2,8 +2,9 @@
  "version": 1,
  "exported_from": "dev-machine",
  "map": {
-  "diffusion_models/flux-2-klein-9b-fp8.safetensors": "paint/flux2-klein-9b-fp8/flux-2-klein-9b-fp8.safetensors",
   "diffusion_models/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors": "video_gen/h3/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors",
+  "diffusion_models/flux-2-klein-9b-fp8.safetensors": "paint/flux2-klein-9b-fp8/flux-2-klein-9b-fp8.safetensors",
+  "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors": "video_gen/h3/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
   "insightface/models/antelopev2/1k3d68.onnx": "face/insightface/antelopev2/1k3d68.onnx",
   "insightface/models/antelopev2/2d106det.onnx": "face/insightface/antelopev2/2d106det.onnx",
   "insightface/models/antelopev2/genderage.onnx": "face/insightface/antelopev2/genderage.onnx",
@@ -11,8 +12,11 @@
   "insightface/models/antelopev2/scrfd_10g_bnkps.onnx": "face/insightface/antelopev2/scrfd_10g_bnkps.onnx",
   "loras/flux2-klein-9b-consistency-v1.safetensors": "paint/loras/flux2-klein-9b-consistency-v1.safetensors",
   "loras/flux2-klein-9b-consistency-v2.safetensors": "paint/loras/flux2-klein-9b-consistency-v2.safetensors",
-  "text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors": "video_gen/h3/text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+  "loras/minimax_h3_turbo_v4_step600_ema.safetensors": "video_gen/h3/loras/minimax_h3_turbo_v4_step600_ema.safetensors",
   "text_encoders/qwen3_8b.safetensors": "paint/flux2-klein-9b/text_encoder_comfy/qwen3_8b.safetensors",
-  "vae/flux2-vae.safetensors": "paint/flux2-klein-9b/vae/diffusion_pytorch_model.safetensors"
+  "text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors": "video_gen/h3/text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+  "vae/flux2-vae.safetensors": "paint/flux2-klein-9b/vae/diffusion_pytorch_model.safetensors",
+  "vae/minimax_h3_audio_vae_fp32.safetensors": "video_gen/h3/vae/minimax_h3_audio_vae_fp32.safetensors",
+  "vae/minimax_h3_video_vae_fp16.safetensors": "video_gen/h3/vae/minimax_h3_video_vae_fp16.safetensors"
  }
 }

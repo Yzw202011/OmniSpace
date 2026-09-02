@@ -407,25 +407,28 @@ def x10_encoder() -> None:
     results = []
     # 服务状态
     import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    py = str(root / "runtime" / "py310" / "python.exe")
     probe = subprocess.run(
-        [r"e:\OmniSpace\runtime\py310\python.exe", "-c",
-         "import sys; sys.path.insert(0, 'e:/OmniSpace');"
+        [py, "-c",
+         f"import sys; sys.path.insert(0, {str(root)!r});"
          "from backend.services.encoder_service import get_encoder_service as g;"
          "e = g(); print(int(e.available)); print(int(e.has_encoder('h264_nvenc')))"],
-        capture_output=True, text=True, timeout=60, cwd=r"e:\OmniSpace")
+        capture_output=True, text=True, timeout=60, cwd=str(root))
     lines = (probe.stdout or "").strip().splitlines()
     results.append(("ffmpeg可用", lines[0] == "1" if lines else False))
     results.append(("h264_nvenc可用",
                     len(lines) > 1 and lines[1] == "1"))
     # 非法帧目录 → EncodeError 友好抛出（不崩溃）
     probe2 = subprocess.run(
-        [r"e:\OmniSpace\runtime\py310\python.exe", "-c",
-         "import sys; sys.path.insert(0, 'e:/OmniSpace');"
+        [py, "-c",
+         f"import sys; sys.path.insert(0, {str(root)!r});"
          "from backend.services.encoder_service import get_encoder_service as g, EncodeError;"
          "e = g();"
          "out = None;"
          "exec(\"try:\\n e.encode_frames_to_video('e:/nonexistent_dir_xyz', 'e:/tmp_x.mp4', timeout_s=30)\\n print('NO_RAISE')\\nexcept EncodeError:\\n print('ENCODE_ERR')\\nexcept Exception as ex:\\n print('OTHER', type(ex).__name__)\")"],
-        capture_output=True, text=True, timeout=120, cwd=r"e:\OmniSpace")
+        capture_output=True, text=True, timeout=120, cwd=str(root))
     out2 = (probe2.stdout or "").strip()
     results.append(("非法帧目录→友好报错", "NO_RAISE" not in out2 and out2 != ""))
 

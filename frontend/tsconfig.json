@@ -22,7 +22,6 @@
       "@stores/*": ["src/stores/*"],
       "@services/*": ["src/services/*"],
       "@types/*": ["src/types/*"],
-      "@three/*": ["src/three/*"],
       "@hooks/*": ["src/hooks/*"],
       "@utils/*": ["src/utils/*"],
       "@styles/*": ["src/styles/*"]

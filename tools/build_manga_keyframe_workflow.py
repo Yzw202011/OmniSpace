@@ -22,7 +22,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 COMFY = REPO / "tools" / "ComfyUI_windows_portable" / "ComfyUI"
-OUT_DIR = COMFY / "user/default/workflows/漫剧创作套件"
+# 用户区 2026-09-02 起统一收编 data/comfyui/user（--user-directory 同源）
+OUT_DIR = (REPO / "data" / "comfyui" / "user" / "default" / "workflows"
+           / "漫剧创作套件")
 OUT = OUT_DIR / "分镜图工作流_KF1.json"
 
 BYPASS = 4  # ComfyUI 旁路模式（节点不执行、接口直通）
@@ -73,7 +75,7 @@ NOTE_4 = """### ④ 产出区（成品间）
 - **保存分镜图**：PNG 落到 `ComfyUI/output/manga_kf/`（前缀可带子文件夹）。
 - **画布预览**：不落盘，仅供查看。
 - **与视频工作流接力**：把满意的分镜图按 `shot_01.png…shot_NN.png` 拷进
-  `E:/OmniSpace/data/manga_kf/`，打开「分镜工作流_KF1」的兄弟工作流
+  `<项目根>/data/manga_kf/`，打开「分镜工作流_KF1」的兄弟工作流
   `漫剧分镜关键帧生视频_V8`（H3-分段参考/8、漫剧关键帧锚定版）即可逐镜生成视频。
 """
 

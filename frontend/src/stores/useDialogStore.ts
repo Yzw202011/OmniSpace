@@ -363,6 +363,23 @@ export const useDialogStore = create<DialogState>((set, get) => ({
 
     // 流式 token 追加（首个 token = 思考结束/正文开始，定格 reasoning_ms）
     let firstTokenAt = 0;
+    /** 清除加载占位（2026-09-02 修复占位串进正文）：必须在追加 token
+     * 之前执行——旧实现放在独立 offFirstToken 监听器里，而 offToken
+     * 先注册先分发，追加后 content 变成「占位+正文」，精确匹配恒失败，
+     * 占位永远留在气泡里。改为 append 前先剥占位（同处理器内顺序保证）。 */
+    const consumeLoadingHint = (): boolean => {
+      if (!loadingHint) return false;
+      const hint = loadingHint;
+      loadingHint = '';
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === assistantId && m.content === hint
+            ? { ...m, content: '' }
+            : m,
+        ),
+      }));
+      return true;
+    };
     const offToken = conn.on<{ token?: string; content?: string }>(
       'token',
       (data) => {
@@ -370,6 +387,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
         if (!text) {
           return;
         }
+        consumeLoadingHint();
         if (!firstTokenAt) {
           firstTokenAt = Date.now();
         }
@@ -432,12 +450,18 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       (data) => {
         const msg = data?.message || '生成失败';
         useAppStore.getState().showToast(msg, 'error');
+        // P1 修复（2026-09-02 冷启动实测）：content 为加载占位符时必须
+        // 先清掉再写错误文案——`m.content ||` 短路会把错误吞进占位符，
+        // 用户只看到永远「冷启动中」的气泡、无任何失败提示
+        const hint = loadingHint;
+        loadingHint = '';
         set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: m.content || `[生成失败] ${msg}` }
-              : m,
-          ),
+          messages: state.messages.map((m) => {
+            if (m.id !== assistantId) return m;
+            const base = !m.content || m.content === hint
+              ? '' : m.content;
+            return { ...m, content: base || `[生成失败] ${msg}` };
+          }),
           generating: false,
         }));
         cleanup();
@@ -470,44 +494,11 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       },
     );
 
-    // 首个 token 到达时清除加载提示：精确匹配占位文案再清空（不能
-    // startsWith('[')——offToken 先执行已追加真实 token，模糊匹配会
-    // 把真实内容一起清掉；无提示时立即自注销零开销）
-    // 深度思考模式下首个产出是 reasoning 帧而非 token 帧 → 同样监听
-    const offFirstToken = conn.on<{ token?: string; content?: string }>(
-      'token',
-      () => {
-        if (!loadingHint) {
-          offFirstToken();
-          return;
-        }
-        const hint = loadingHint;
-        loadingHint = '';
-        offFirstToken();
-        set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === assistantId && m.content === hint
-              ? { ...m, content: '' }
-              : m,
-          ),
-        }));
-      },
-    );
+    // 深度思考模式下首个产出是 reasoning 帧而非 token 帧 → reasoning
+    // 通道同样清除占位（reasoning 不改 content，精确匹配安全）
     const offFirstReasoning = conn.on<{ text?: string }>('reasoning', () => {
-      if (!loadingHint) {
-        offFirstReasoning();
-        return;
-      }
-      const hint = loadingHint;
-      loadingHint = '';
+      consumeLoadingHint();
       offFirstReasoning();
-      set((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === assistantId && m.content === hint
-            ? { ...m, content: '' }
-            : m,
-        ),
-      }));
     });
 
     function cleanup() {
@@ -517,7 +508,6 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       offError();
       offDone();
       offStatus();
-      offFirstToken();
       offFirstReasoning();
       set({ _streamingMessageId: null, _streamUnsubs: [] });
       // 审计 R3-FE2：流式结束释放连接池条目（destroy 并移出 Map），避免池随会话数线性增长；
@@ -528,7 +518,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     set({
       _streamUnsubs: [
         offToken, offReasoning, offMeta, offError, offDone,
-        offStatus, offFirstToken, offFirstReasoning,
+        offStatus, offFirstReasoning,
       ],
     });
 

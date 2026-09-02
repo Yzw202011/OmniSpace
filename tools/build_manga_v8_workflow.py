@@ -32,15 +32,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 COMFY = REPO / "tools" / "ComfyUI_windows_portable" / "ComfyUI"
-SRC = (COMFY / "user/default/workflows/H3-分段参考"
+# 用户区 2026-09-02 起统一收编 data/comfyui/user（--user-directory 同源）
+WF_ROOT = REPO / "data" / "comfyui" / "user" / "default" / "workflows"
+SRC = (WF_ROOT / "H3-分段参考"
        / "6、V6_latent传递保证段间一致性" / "Impact_V6_单次采样.json")
-OUT_DIR = (COMFY / "user/default/workflows/H3-分段参考"
+OUT_DIR = (WF_ROOT / "H3-分段参考"
            / "8、漫剧关键帧锚定版")
 OUT = OUT_DIR / "漫剧分镜关键帧生视频_V8.json"
 
 UNET = "MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors"
-KF_DIR = "E:/OmniSpace/data/manga_kf"
-ASSET_DIR = "E:/OmniSpace/data/manga_asset"
+KF_DIR = str(REPO / "data" / "manga_kf")
+ASSET_DIR = str(REPO / "data" / "manga_asset")
 
 # ══ 大白话文案（依据源码/实机接线核实，防幻觉）══════════════════
 
@@ -51,11 +53,11 @@ NOTE_MAIN = """## 漫剧分镜关键帧生视频 V8（OmniSpace 漫剧模块联�
 
 ### 与 OmniSpace 漫剧模块的联动
 1. **关键帧**：漫剧模块每镜出图后，把各镜关键帧按 `shot_01.png`…`shot_12.png`
-   拷入 `E:/OmniSpace/data/manga_kf/`（后端原图在 `data/keyframes/<关键帧ID>/`）。
+   拷入 `<项目根>/data/manga_kf/`（后端原图在 `data/keyframes/<关键帧ID>/`）。
    文件名排序 = 镜序，第 1 镜 = index 0。
 2. **提示词**：从漫剧分镜表逐镜粘贴完整提示词（画面/运镜/台词/环境音）；
    H3 的文本编码器（Qwen3-VL）原生读中文，**不用翻译成英文**。
-3. **角色/场景资产**：放到 `E:/OmniSpace/data/manga_asset/`（第 1 个文件=主角槽、
+3. **角色/场景资产**：放到 `<项目根>/data/manga_asset/`（第 1 个文件=主角槽、
    第 2 个=场景槽；可在②区两个「取资产」节点上改序号）。
 4. **时长表**：逐镜秒数（逗号分隔，条数=镜数），帧数自动对齐 17k+5 网格。
 
@@ -86,8 +88,8 @@ NOTE_Z2 = """### ② 资产图输入区（选角+取景+道具间）
 **干什么**：给 AI 看的"定妆照"，保证每镜人物长一个样。
 
 - **漫剧关键帧目录**：每镜第一张参考（构图/景别锚）。漫剧模块出图后按
-  `shot_01.png…shot_12.png` 放进 `E:/OmniSpace/data/manga_kf/`，文件名排序=镜序。
-- **漫剧资产目录**：`E:/OmniSpace/data/manga_asset/` 里**第 1 张=主角**（进参考槽2）、
+  `shot_01.png…shot_12.png` 放进 `<项目根>/data/manga_kf/`，文件名排序=镜序。
+- **漫剧资产目录**：`<项目根>/data/manga_asset/` 里**第 1 张=主角**（进参考槽2）、
   **第 2 张=场景**（进参考槽3）。想换就替换文件，或在右侧两个「取资产」节点上改序号。
 - **备用参考槽③~⑧**：默认空。想加道具、配角、服装时，自己加 LoadImage/目录节点
   接到主引擎对应的空槽上（槽序=<Picture 序号>）。

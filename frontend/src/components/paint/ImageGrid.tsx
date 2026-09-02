@@ -26,7 +26,12 @@ export interface GeneratedImage {
   seed?: number;
   /** 是否收藏 */
   favorite?: boolean;
+  /** 创建时间（毫秒 epoch；近 NEW_WINDOW_MS 内的卡片显示「新」角标） */
+  created_at?: number;
 }
+
+/** 「新」角标展示窗口（ms）：仅最近生成的图标记，历史图不标 */
+const NEW_WINDOW_MS = 120_000;
 
 export interface ImageGridProps {
   /** 图片列表 */
@@ -192,8 +197,12 @@ export function ImageGrid({
 
         {/* 图片项 */}
         {!loading &&
-          images.map((img) => {
+            images.map((img) => {
             const isSelected = selected.has(img.id);
+            const isNew =
+              !selectMode &&
+              typeof img.created_at === 'number' &&
+              Date.now() - img.created_at < NEW_WINDOW_MS;
             return (
               <div
                 key={img.id}
@@ -218,13 +227,23 @@ export function ImageGrid({
                 }
               >
                 <img
-                  src={img.url}
+                  src={`${img.url}${img.url.includes('?') ? '&' : '?'}thumb=1`}
                   alt={img.prompt || '生成图片'}
                   loading="lazy"
+                  decoding="async"
                   className={`w-full h-full object-cover transition-transform duration-300 ${
                     selectMode ? '' : 'group-hover:scale-105'
-                  } ${selectMode && !isSelected ? 'opacity-50' : ''}`}
+                  } ${selectMode && !isSelected ? 'opacity-50' : ''} ${isNew ? 'ring-2 ring-sakura-500' : ''}`}
                 />
+                {/* 新生成角标（2 分钟内，选择模式下隐藏） */}
+                {isNew ? (
+                  <span
+                    className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-sakura-500 text-white text-[10px] font-bold shadow-sm pointer-events-none"
+                    aria-hidden="true"
+                  >
+                    新
+                  </span>
+                ) : null}
                 {/* 选择模式：选中角标 */}
                 {selectMode ? (
                   <span

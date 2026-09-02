@@ -20,12 +20,24 @@ import { useAppStore } from '@/stores/useAppStore';
 
 /** 常见错误对象 → 用户可读文案（无 message 时用 fallback） */
 export function getErrorMessage(err: unknown, fallback: string): string {
+  let msg = fallback;
   if (err && typeof err === 'object' && 'message' in err) {
-    const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === 'string' && m.trim()) msg = m;
+  } else if (typeof err === 'string' && err.trim()) {
+    msg = err;
   }
-  if (typeof err === 'string' && err.trim()) return err;
-  return fallback;
+  // 后端语义化 suggestion（如「到模型管理手动加载」）随错误一并呈现：
+  // 只报现象不给出路 = 用户面对「未加载」却不知道怎么办
+  // （2026-08-31 漫剧生图未加载弹窗诉求）
+  const suggestion =
+    err && typeof err === 'object'
+      ? (err as { suggestion?: unknown }).suggestion
+      : undefined;
+  if (typeof suggestion === 'string' && suggestion.trim() && !msg.includes(suggestion)) {
+    msg = `${msg}。${suggestion}`;
+  }
+  return msg;
 }
 
 /** 入口①：用户动作失败 → toast（store 直取 getState，错误路径低频无需订阅） */

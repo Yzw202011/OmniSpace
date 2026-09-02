@@ -31,7 +31,9 @@ REPO = Path(__file__).resolve().parent.parent
 COMFY = REPO / "tools" / "ComfyUI_windows_portable" / "ComfyUI"
 SRC = (COMFY / "custom_nodes/ComfyUI-MiniMaxH3-Contex-Loop/example_workflows"
        / "Ref2V Basic - MiniMax H3.json")
-OUT_DIR = COMFY / "user/default/workflows/漫剧创作套件"
+# 用户区 2026-09-02 起统一收编 data/comfyui/user（--user-directory 同源）
+OUT_DIR = (REPO / "data" / "comfyui" / "user" / "default" / "workflows"
+           / "漫剧创作套件")
 OUT = OUT_DIR / "全能参考链式工作流_V9.json"
 
 BYPASS = 4

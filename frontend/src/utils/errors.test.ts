@@ -95,6 +95,29 @@ describe('getErrorMessage：错误对象 → 用户可读文案', () => {
     expect(getErrorMessage(undefined, '兜底')).toBe('兜底');
     expect(getErrorMessage(42, '兜底')).toBe('兜底');
   });
+
+  it('后端 suggestion 字段随 message 一并呈现（漫剧生图未加载指引）', () => {
+    expect(
+      getErrorMessage(
+        { message: '绘画模型未就绪', suggestion: '可到「模型管理」手动加载' },
+        '兜底',
+      ),
+    ).toBe('绘画模型未就绪。可到「模型管理」手动加载');
+  });
+
+  it('suggestion 已含在 message 中时不重复拼接', () => {
+    expect(
+      getErrorMessage(
+        { message: '失败。可到「模型管理」手动加载', suggestion: '可到「模型管理」手动加载' },
+        '兜底',
+      ),
+    ).toBe('失败。可到「模型管理」手动加载');
+  });
+
+  it('无 suggestion / 非 string suggestion 不影响原文案', () => {
+    expect(getErrorMessage({ message: '普通错误' }, '兜底')).toBe('普通错误');
+    expect(getErrorMessage({ message: '普通错误', suggestion: 42 }, '兜底')).toBe('普通错误');
+  });
 });
 
 describe('isBenignError：白名单判定（主动取消类）', () => {

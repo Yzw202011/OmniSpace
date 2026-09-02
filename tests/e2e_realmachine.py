@@ -503,7 +503,7 @@ def tc_s_security() -> None:
         body = r.json()
         rejected = body.get("code") != 0
         # 目标目录不应被创建
-        evil = Path("E:/OmniSpace/evil")
+        evil = Path(__file__).resolve().parent.parent / "evil"
         ok1 = rejected and not evil.exists()
         record("TC-S-SEC-1", "安全-models/import路径穿越", ok1,
                f"拒绝={'是' if rejected else '否'} 穿越目录={'未创建' if not evil.exists() else '被创建!'}")

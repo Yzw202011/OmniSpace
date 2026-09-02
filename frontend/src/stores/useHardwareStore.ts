@@ -56,6 +56,7 @@ export interface HardwareState {
 
   /* ------------------------------ 内部计时器 ------------------------------ */
   _synergyTimer: ReturnType<typeof setInterval> | null;
+  _wsBackoffTimer: ReturnType<typeof setInterval> | null;
   _subscribed: boolean;
 
   /* ------------------------------ 动作 ------------------------------ */
@@ -97,6 +98,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
   wsStatus: 'closed',
 
   _synergyTimer: null,
+  _wsBackoffTimer: null,
   _subscribed: false,
 
   init: async () => {
@@ -141,11 +143,33 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     schedule();
     _synergyVisHandler = () => schedule();
     document.addEventListener('visibilitychange', _synergyVisHandler);
+
+    // 4. WS 断连兜底（#7 2026-09-02 实测复盘）：后端重启窗口内 WS
+    //    指数退避重连（最长 30s），期间实时遥测冻结在末值——徽标
+    //    「不刷新」观感即来自此空档（WS 正常时实测 2s 跟手无误）。
+    //    断连时降频 5s HTTP 拉取遥测保活，重连成功即自动停拉。
+    const backoffTimer = setInterval(async () => {
+      if (useHardwareStore.getState().wsStatus === 'open') {
+        return;
+      }
+      try {
+        const rt = await hardwareApi.getRealtime();
+        if (rt) {
+          set({ realtime: rt });
+        }
+      } catch {
+        /* 后端未就绪保持末值 */
+      }
+    }, 5000);
+    set({ _wsBackoffTimer: backoffTimer });
   },
 
   destroy: () => {
     if (get()._synergyTimer) {
       clearInterval(get()._synergyTimer as ReturnType<typeof setInterval>);
+    }
+    if (get()._wsBackoffTimer) {
+      clearInterval(get()._wsBackoffTimer as ReturnType<typeof setInterval>);
     }
     if (_synergyVisHandler) {
       document.removeEventListener('visibilitychange', _synergyVisHandler);
@@ -161,6 +185,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
     wsUnsubscribers = [];
     set({
       _synergyTimer: null,
+      _wsBackoffTimer: null,
       _subscribed: false,
     });
   },

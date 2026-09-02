@@ -154,7 +154,7 @@ export function PaintView({
       <div className="flex-[2] min-w-80 shrink-0 border-l border-[var(--color-border-light)] bg-[var(--color-card)] flex flex-col">
         <div className="p-4 border-b border-[var(--color-divider)] shrink-0">
           <h2 className="text-base font-semibold text-[var(--color-text-primary)] inline-flex items-center gap-2"><Palette size={18} aria-hidden="true" className="text-[var(--color-primary)]" /> AI 绘画</h2>
-          <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">SDXL + LCM-LoRA 本地推理</p>
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">FLUX.2 Klein · Qwen-Image 本地推理</p>
 
           {/* 三模式分段控件 */}
           <div className="flex gap-1 mt-3 p-1 rounded-lg bg-[var(--color-input-bg)]" role="tablist">

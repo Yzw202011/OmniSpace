@@ -1252,6 +1252,14 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-thumb-ph { display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--color-text-tertiary); }
 .manga-thumb-name { max-width: 88px; font-size: 10px; color: var(--color-text-secondary); }
+/* 兜底出图角标（2026-09-03 方案A）：无描述词原文直出的关键帧，行内一眼可辨 */
+.manga-thumb { position: relative; }
+.manga-thumb-fallback {
+  position: absolute; top: 2px; left: 2px; z-index: 1;
+  font-size: 9px; line-height: 1; padding: 2px 4px; border-radius: var(--radius-sm);
+  color: #FFD88A; background: rgba(20, 16, 4, 0.78); border: 1px solid rgba(255, 216, 138, 0.45);
+  pointer-events: none;
+}
 .manga-thumb-btn { cursor: pointer; }
 .manga-thumb-btn:hover img { border-color: var(--color-primary-200); }
 .manga-add-box {
@@ -1289,6 +1297,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: var(--font-weight-semibold); color: var(--color-primary-300);
 }
+/* 方案C（2026-08-31）：顶栏进度行移除后，取消入口收进进度块（悬停出现） */
+.manga-video-cancel {
+  position: absolute; top: 1px; right: 1px; display: none;
+  align-items: center; justify-content: center;
+  width: 14px; height: 14px; padding: 0; cursor: pointer;
+  border: none; border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.45); color: #fff;
+}
+.manga-video-prog:hover .manga-video-cancel { display: flex; }
+.manga-video-cancel:hover { background: #e5484d; }
 /* 已生成视频：缩略视频框（悬停预览，角标下载）2026-08-25 */
 .manga-video-thumb {
   position: relative; width: 88px; height: 52px;
@@ -1633,7 +1651,6 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-asset-preview-btn { position: relative; }
 
 /* 角色切换器（详情面板内全宽下拉） */
-.manga-char-switch { width: 100%; }
 
 /* 图片放大灯箱（资产详情/多视图共用） */
 .manga-lightbox {
@@ -1710,6 +1727,23 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 /* 作品风格选择网格（MangaLibrary 创建弹窗，竞品式画风卡片；预置+自定义+"自定义"添加卡） */
 .manga-style-grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  /* 限高 + 竖向滚动（2026-08-31 用户实测：1200 条风格库全量渲染把
+     新建作品弹窗撑到 ~19800px 高，无法使用）；首屏约 3 行热门款可见 */
+  max-height: 420px; overflow-y: auto; padding-right: 6px;
+  align-content: start;
+  /* 行高塌缩修复：容器一旦有确定高度约束，auto 行会被按约束高度摊薄
+     （实测 ~1200 行 × 2px 卡片成纸片）——显式 max-content 按内容计 */
+  grid-auto-rows: max-content;
+}
+.manga-style-grid::-webkit-scrollbar { width: 8px; }
+.manga-style-grid::-webkit-scrollbar-track {
+  background: rgba(94, 234, 255, .04); border-radius: 4px;
+}
+.manga-style-grid::-webkit-scrollbar-thumb {
+  background: rgba(94, 234, 255, .28); border-radius: 4px;
+}
+.manga-style-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(94, 234, 255, .5);
 }
 .manga-style-card {
   display: flex; flex-direction: column; gap: 4px;

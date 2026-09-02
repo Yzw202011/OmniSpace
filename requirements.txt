@@ -17,10 +17,11 @@ httpx>=0.27
 sse-starlette>=2.1
 websockets>=12.0
 pyyaml>=6.0
-loguru>=0.7
 
 # --- AI 推理 ---
-numpy>=1.26.4,<2.0
+# numpy 上限放开（2026-09-01 P1 裁决）：requirements-lock 锁 2.2.6 且 pydeps/site-packages
+# 实际双树共存均按 2.x 运行，原 <2.0 与现实冲突
+numpy>=2.2,<3.0
 torch>=2.8
 transformers>=4.46
 diffusers>=0.31
@@ -56,15 +57,13 @@ ultralytics>=8.2
 segment-anything>=1.0
 
 # --- TTS ---
+# 注：AI TTS 权重已隔离待语音路线拍板（拍板清单 D1b），当前合成走
+# comtypes 直连 SAPI5；librosa 等保留待路线定案
 librosa>=0.10
 soundfile>=0.12
 cn2an>=0.5
 pypinyin>=0.50
 jieba_fast>=0.53
-pyttsx3>=2.90
-
-# --- 安全沙箱 ---
-RestrictedPython>=7.0
 
 # --- 测试 ---
 pytest>=8.0

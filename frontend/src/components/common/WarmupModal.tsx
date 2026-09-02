@@ -38,23 +38,28 @@ function calcProgress(elapsedMs: number): number {
 }
 
 export function WarmupModal() {
-  const { visible, done, startedAt, modelId, finish, dismiss } = useWarmupStore();
+  const { visible, kind, done, startedAt, modelId, finish, dismiss } = useWarmupStore();
   const showToast = useAppStore((s) => s.showToast);
   const [now, setNow] = useState(() => Date.now());
   /** vllm 进程存活（booting 或 running，阶段文案用） */
   const vllmAliveRef = useRef(false);
   const aliveStreakRef = useRef(0);
+  /** 仅服务对话模块预热（paint 走 PaintWarmupModal，同 store 分流）。
+   * 早退判定只能放在全部 hooks 之后：条件 return 提前会破坏 Hook
+   * 恒定调用次序 → store 切到 paint 时整页崩（React #300，
+   * 2026-08-31 绘画页崩溃根因） */
+  const isPaint = kind === 'paint';
 
   /* 进度 ticker：挂载期间 250ms 重算已耗时 */
   useEffect(() => {
-    if (!visible || done) return;
+    if (!visible || done || isPaint) return;
     const id = window.setInterval(() => setNow(Date.now()), TICK_MS);
     return () => window.clearInterval(id);
-  }, [visible, done]);
+  }, [visible, done, isPaint]);
 
   /* 就绪轮询：/dialog/status 主信号 + /models/vllm/status 阶段细化 */
   useEffect(() => {
-    if (!visible || done) return;
+    if (!visible || done || isPaint) return;
     let cancelled = false;
     async function poll() {
       const elapsed = Date.now() - startedAt;
@@ -95,7 +100,7 @@ export function WarmupModal() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [visible, done, startedAt, finish, dismiss, showToast]);
+  }, [visible, done, isPaint, startedAt, finish, dismiss, showToast]);
 
   /* 就绪后 1.5s 自动关闭 */
   useEffect(() => {
@@ -104,7 +109,7 @@ export function WarmupModal() {
     return () => window.clearTimeout(id);
   }, [done, dismiss]);
 
-  if (!visible) return null;
+  if (!visible || isPaint) return null;
 
   const elapsed = done ? EXPECTED_MS : now - startedAt;
   const progress = done ? 100 : calcProgress(elapsed);

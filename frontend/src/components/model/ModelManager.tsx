@@ -52,6 +52,7 @@ import { formatDuration, truncate } from '@/utils/format';
 import { MODEL_RUNTIME_STATUS_LABELS } from '@/constants/statusLabels';
 import { Modal } from '@/components/common/Modal';
 import { ModuleModelConfig } from '@/components/model/ModuleModelConfig';
+import { ReadinessBanner } from '@/components/model/ReadinessBanner';
 import type { ModelInfo } from '@/types';
 
 /* ------------------------------ 类型体系 ------------------------------ */
@@ -314,7 +315,7 @@ const PURPOSE_OVERRIDES: Record<string, string> = {
   'flux2-klein-4b': 'OmniDraw 轻量绘画：FLUX 架构快速出图（低显存友好）',
   AnimateLCM: '漫剧模块：SD1.5 图生视频动画（512×512、16fps、4s 短镜头）',
   'ltx-video-0.9.5': '漫剧模块：高质量视频生成（int8 量化档，实拍级运动一致性）',
-  TripoSR: '漫剧 3D 导演台：单图快速重建 3D 资产，供导演台摆放调度',
+  TripoSR: '单图 3D 资产重建（TripoSR）——3D 导演台已移除，当前无功能入口，模型在隔离区',
   'bge-large-zh': 'OmniLearn 知识库：中文语义嵌入，RAG 检索的向量底座',
   'bge-m3': 'OmniLearn 知识库：多语混合嵌入，长文档检索增强（8K 上下文）',
   'chinese-roberta-wwm-ext-large': '语音克隆组件：GPT-SoVITS 中文文本理解编码器',
@@ -323,7 +324,7 @@ const PURPOSE_OVERRIDES: Record<string, string> = {
   'qwen3-tts': '语音合成：文字转语音（对话朗读 / 漫剧角色配音）',
   'models--nvidia--bigvgan_v2_24khz_100band_256x': '语音克隆组件：GPT-SoVITS 音频声码器（波形还原）',
   'gsv-v2final-pretrained': '语音克隆底模：GPT-SoVITS v2 声音克隆预训练基座',
-  depth: '漫剧 3D 导演台：单目深度估计（为 3D 场景生成纵深）',
+  depth: '单目深度估计（MiDaS）——3D 导演台已移除，当前无功能入口，模型在隔离区',
   'sam-vit-h': '漫剧模块：图像分割抠图（角色 / 景物精准提取）',
 };
 
@@ -826,6 +827,9 @@ export const ModelManager: React.FC = () => {
         </button>
       </div>
 
+      {/* 模型就绪总检（体验流 #3）：模块级绿/灰+缺件指路，置顶当验收门面 */}
+      <ReadinessBanner />
+
       {/* 本机配置推荐：按本机 GPU 显存筛选可流畅运行的模型，并给出各类型最佳型号 */}
       <section className="mm-reco" aria-label="本机配置推荐">
         <div className="mm-reco-head">
@@ -1220,13 +1224,13 @@ export const ModelManager: React.FC = () => {
             <input
               id="mm-import-path"
               className="input"
-              placeholder="如 models/qwen3-vl-4b 或 D:\weights\model.safetensors"
+              placeholder="如 models/qwen3-vl-4b 或任意路径的 model.safetensors"
               value={importPath}
               disabled={importBusy}
               onChange={(e) => setImportPath(e.target.value)}
             />
             <div className="form-hint">
-              相对路径以项目根目录解析；后端将自动推断名称、类别与大小并校验路径存在性。
+              相对路径以项目根目录解析；导入时自动识别类别、大小与显存需求，导入后立即出现在列表。对话类模型（GGUF / transformers / AWQ 量化）可直接加载使用；文件保留在原路径，不会复制占用磁盘。
             </div>
           </div>
         </Modal>
@@ -1375,6 +1379,9 @@ export const ModelManager: React.FC = () => {
               </span>
             )}
             {isSelected && <span className="model-status-badge selected">已选择</span>}
+            {model.purpose === '用户导入' && (
+              <span className="model-status-badge reco-ok" title="经「导入模型」登记的外部路径模型，文件保留在原位置">用户导入</span>
+            )}
           </div>
           <div className="model-meta">
             <span>{displayPurpose(model)}</span>

@@ -20,8 +20,10 @@ export interface WarmupState {
   startedAt: number;
   /** 预热目标模型（展示用，空 = 引擎默认） */
   modelId: string;
+  /** 预热目标模块（弹窗分流：dialog=vLLM 对话 / paint=AI 绘画管线） */
+  kind: 'dialog' | 'paint';
   /** 弹窗开启（App.tsx 预热点火 started=true 时调用） */
-  begin: (modelId?: string) => void;
+  begin: (modelId?: string, kind?: 'dialog' | 'paint') => void;
   /** 模型就绪（轮询检测 state=ready 时调用） */
   finish: () => void;
   /** 关闭弹窗（用户点「后台继续」/被中断/自动关闭，不影响后台加载） */
@@ -33,8 +35,9 @@ export const useWarmupStore = create<WarmupState>((set) => ({
   done: false,
   startedAt: 0,
   modelId: '',
-  begin: (modelId = '') =>
-    set({ visible: true, done: false, startedAt: Date.now(), modelId }),
+  kind: 'dialog',
+  begin: (modelId = '', kind = 'dialog') =>
+    set({ visible: true, done: false, startedAt: Date.now(), modelId, kind }),
   finish: () => set({ done: true }),
   dismiss: () => set({ visible: false }),
 }));

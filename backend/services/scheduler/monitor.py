@@ -150,7 +150,7 @@ class HardwareMonitor:
 
         nvmlDeviceGetProcessUtilization(handle, 0) 返回驱动侧最近采样
         窗内各进程 SM 利用率百分比（本机 RTX 5070 Ti / driver 610.88
-        实测可用，探针 cssc/_nvml_proc_util_probe.py）。窗口均值与整
+        实测可用，探针 scripts/scratch/archive/cssc/_nvml_proc_util_probe.py）。窗口均值与整
         卡瞬时值口径不同，之和可能略超整卡值，调用方以 max(0,...) 钳
         制。API 异常时返回 None，调用方回退整卡口径。
         """

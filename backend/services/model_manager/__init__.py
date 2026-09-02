@@ -252,6 +252,12 @@ class ModelManager:
         #                                loaded_at, engine}
         self._loaded: dict[str, dict] = {}
         self._loaded_lock = threading.Lock()
+        # 用户装载钉（#8 2026-09-02 修复）：model_id -> 打钉时间戳。
+        # 用户显式装载（/models/load）后 30 分钟内，调度器空闲深层
+        # 回收跳过该模型——用户刚装的模型不该 5 分钟空闲就被预防性
+        # 卸载（09-02 上午实测事故：对话模型装好去干了别的，回来被
+        # 卸了）。硬件压力卸载（resource_guard）不豁免——救场优先。
+        self._user_load_pins: dict[str, float] = {}
         self._reserved_vram_gb = 0.0        # allocate_memory 逻辑预留量
         # 审计 P0-5：_reserved_vram_gb 读改写必须原子，专用锁全程保护
         # （allocate_memory / unload_model / ensure_loaded 回滚三处共用）。
@@ -469,6 +475,30 @@ class ModelManager:
         self._disk_scan_ts = time.time()
         return dict(pruned)
 
+    def shed_memory(self) -> dict:
+        """RAM 危急收缩（resource_guard ≥90% 危急线调用）。
+
+        只吐「可再生」内存：权重缓存全量卸载（miss 后下次装载重新
+        读盘）+ 磁盘扫描缓存丢弃（下次 list 重扫磁盘自动重建）。不碰
+        已加载模型、功能锁、会话状态——生成链路零影响。
+
+        背景（2026-09-02 18:49 静默死亡事故）：WER RADAR_PRE_LEAK_64
+        实证 RAM 提交耗尽原生硬死；85% 动作线卸完空闲模型后仍可能
+        持续高位，危急线把可再生数据全让出来防提交打顶。
+        """
+        try:
+            cache_unloaded = self.cache.full_unload()
+        except Exception as exc:  # noqa: BLE001 - 收缩失败不阻断守卫
+            log.warning("权重缓存卸载失败: %s", exc)
+            cache_unloaded = -1
+        scan_dropped = len(self._disk_scan_cache)
+        self._disk_scan_cache = {}
+        self._disk_scan_ts = 0.0
+        log.info("RAM 危急收缩: 权重缓存卸载 %s 条, 磁盘扫描缓存丢弃 %d 条",
+                 cache_unloaded, scan_dropped)
+        return {"cache_unloaded": cache_unloaded,
+                "scan_cache_dropped": scan_dropped}
+
     @staticmethod
     def _looks_like_model_dir(p: Path) -> bool:
         for sig in _DIR_SIGNATURES:
@@ -494,14 +524,41 @@ class ModelManager:
             pass
         return round(total / (1024 ** 3), 3)
 
+    def registry_entry(self, model_id: str) -> dict | None:
+        """登记表（models 表）条目查询——用户导入模型的路径真源兜底。
+
+        导入的外部路径（models/ 之外）不在磁盘扫描命名空间内，
+        resolve_model_path / estimate_vram_gb 扫描未命中时经此解析。
+        条目失效（文件被删）返回 None，与扫描层「未下载」语义一致。
+        """
+        try:
+            from ...data.database import get_db_safe
+            db = get_db_safe()
+            if db is None:
+                return None
+            row = db.query_one(
+                "SELECT id, category, min_vram_gb, size_gb, file_path"
+                " FROM models WHERE id = ?", (model_id,))
+        except Exception:  # noqa: BLE001 - 登记表不可用时静默降级
+            return None
+        if not row:
+            return None
+        path = row.get("file_path") or ""
+        if not path or not Path(path).exists():
+            return None
+        return row
+
     def resolve_model_path(self, model_id: str) -> str | None:
-        """解析模型的本地路径（注册表 file_path → 磁盘扫描），未下载返回 None。"""
+        """解析模型的本地路径（注册表 file_path → 磁盘扫描 → 登记表兜底），未下载返回 None。"""
         info = self._models.get(model_id)
         if info is not None and info.file_path and Path(info.file_path).exists():
             return info.file_path
         scanned = self.scan_downloaded_models()
         hit = scanned.get(model_id)
-        return hit["path"] if hit else None
+        if hit:
+            return hit["path"]
+        row = self.registry_entry(model_id)
+        return row["file_path"] if row else None
 
     def estimate_vram_gb(self, model_id: str, category: str = "") -> float:
         """估计加载所需显存：人工覆盖 → 引擎候选表 → 路由表 min_vram_gb → 磁盘大小 × 1.2 → 默认 4GB。
@@ -532,6 +589,13 @@ class ModelManager:
                 mid = mid.value if hasattr(mid, "value") else str(mid)
                 if mid == model_id:
                     return float(entry["min_vram_gb"]) or 1.0
+        # 登记表兜底（用户导入的外部路径模型：导入时按体积 ×1.2 落库）
+        row = self.registry_entry(model_id)
+        if row is not None:
+            if float(row.get("min_vram_gb") or 0) > 0:
+                return float(row["min_vram_gb"])
+            if float(row.get("size_gb") or 0) > 0:
+                return round(float(row["size_gb"]) * 1.2, 2)
         scanned = self.scan_downloaded_models()
         if model_id in scanned and scanned[model_id]["size_gb"] > 0:
             return round(scanned[model_id]["size_gb"] * 1.2, 2)
@@ -862,6 +926,8 @@ class ModelManager:
         """从 GPU 卸载模型并释放记账显存。"""
         with self._loaded_lock:
             entry = self._loaded.pop(model_id, None)
+            # 钉随卸载失效（getattr 兜底：测试裸实例可能未建该属性）
+            getattr(self, "_user_load_pins", {}).pop(model_id, None)
         if entry is None:
             return False
 
@@ -994,6 +1060,23 @@ class ModelManager:
         with self._loaded_lock:
             return [dict(model_id=mid, **info) for mid, info in self._loaded.items()]
 
+    # ── 用户装载钉（#8 2026-09-02 修复）──────────────────────────
+    USER_PIN_WINDOW_S = 30 * 60.0
+
+    def note_user_load(self, model_id: str) -> None:
+        """用户显式装载（/models/load）→ 打 30 分钟免空闲回收钉。"""
+        with self._loaded_lock:
+            self._user_load_pins[model_id] = time.time()
+        log.info("用户装载钉: %s（%d 分钟内空闲深层回收豁免）",
+                 model_id, int(self.USER_PIN_WINDOW_S // 60))
+
+    def is_user_pinned(self, model_id: str) -> bool:
+        """钉窗口内（且模型确在加载台账）返回 True。"""
+        with self._loaded_lock:
+            ts = self._user_load_pins.get(model_id)
+            return bool(ts and model_id in self._loaded
+                        and time.time() - ts < self.USER_PIN_WINDOW_S)
+
     # ═══════════════════════════════════════════════════════════════
     #  模块切换资源调度（用户裁定 2026-08-21）
     # ═══════════════════════════════════════════════════════════════
@@ -1113,6 +1196,25 @@ class ModelManager:
         elif "dialog" in locked_cats:
             skipped.append("qwen3-vl-8b-awq(vllm)")
             log.info("vLLM 子进程跳过释放（dialog 功能锁持有中）")
+
+        # ComfyUI 子进程（H3 视频 + ComfyUI 绘画共用，2026-08-31 治理）：
+        # 仅卸载权重（/free）释放不了进程的 CUDA context（数百 MB 显存）
+        # 与 torch 常驻（GB 级 RAM）——16GB 卡上对目标模块就是抢占。
+        # 目标为对话（vLLM 需 ~12GB）或训练（GPU 全占）→ 直接杀进程；
+        # 目标为绘画/视频（本模块在用）→ 保留；轻量切换（设置/日志等）
+        # → 保留热备，交给空闲自动关闭兜底（comfy_proc 默认 300s）。
+        if target in ("dialog", "training"):
+            try:
+                from ..inference.comfy_proc import get_comfy_proc
+                proc_mgr = get_comfy_proc()
+                if proc_mgr.poll() is None:
+                    t_comfy = time.monotonic()
+                    proc_mgr.shutdown()
+                    freed_models.append("comfyui-subprocess")
+                    log.info("ComfyUI 子进程按需终止(→%s)供显存: %dms",
+                             target, round((time.monotonic() - t_comfy) * 1000))
+            except Exception as exc:  # noqa: BLE001 - 释放失败不阻断
+                log.warning("ComfyUI 子进程释放异常: %s", exc)
 
         duration_ms = round((time.monotonic() - t0) * 1000)
         if freed_models or not vllm_kept_hot:

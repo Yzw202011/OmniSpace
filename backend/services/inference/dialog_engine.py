@@ -271,6 +271,57 @@ def discover_dialog_models() -> dict[str, dict]:
     return found
 
 
+def imported_dialog_models() -> dict[str, dict]:
+    """登记表（用户导入的外部路径）中可作对话模型使用的条目。
+
+    与 discover_dialog_models 同构（{id: {path, backend, vram_gb}}），
+    供 _pick_model 与 /dialog/models 清单兜底：导入的 GGUF 单文件直走
+    gguf 后端，目录经 _detect_backend 探测（awq→vllm、VL→vl、其余→text）；
+    非对话类别（vision/video/voice/…）不进对话链。models/ 内的登记条目
+    已由 discover 覆盖，此处跳过避免重复。
+    """
+    found: dict[str, dict] = {}
+    try:
+        from ...data.database import get_db_safe
+        db = get_db_safe()
+        if db is None:
+            return found
+        rows = db.query(
+            "SELECT id, category, min_vram_gb, file_path FROM models"
+            " WHERE category IN ('dialog', 'language', 'omni')")
+    except Exception:  # noqa: BLE001 - 登记表不可用时静默降级
+        return found
+    base = Path(MODELS_DIR)
+    for row in rows:
+        path = Path(row.get("file_path") or "")
+        if not path.exists():
+            continue
+        try:
+            if path.is_relative_to(base):
+                continue
+        except (OSError, ValueError):
+            pass
+        if path.is_file():
+            if path.suffix.lower() != ".gguf":
+                continue
+            if path.stat().st_size < _MIN_WEIGHT_BYTES:
+                continue
+            backend = "gguf"
+        else:
+            if _dir_weight_bytes(path) < _MIN_WEIGHT_BYTES:
+                continue
+            backend = _detect_backend(path) or ""
+            if not backend:
+                continue
+        vram = float(row.get("min_vram_gb") or 0)
+        if vram <= 0:
+            vram = _estimate_vram_gb(path, backend)
+        found.setdefault(row["id"], {
+            "path": str(path), "backend": backend, "vram_gb": vram,
+        })
+    return found
+
+
 def _gpu_tier_min_vram_gb() -> float:
     """当前 GPU 命中的硬件档位 min_vram_gb（文档B §4.2 六档）；探测失败返回 0。"""
     try:
@@ -564,6 +615,9 @@ class DialogEngine(BaseEngine):
         self._model_dir: Path | None = None
         self._state: str = "unavailable"
         self._last_error: str = ""
+        # 降级来源（2026-09-02 用户拍板）：ensure_loaded 显存装不下自动
+        # 降级小模型时记录原目标 id；用户重新加载原模型/卸载即清空
+        self._degraded_from: str = ""
         self._lock = threading.Lock()
 
         # 推理统计（编排层统一计时，后端无感知）
@@ -657,7 +711,10 @@ class DialogEngine(BaseEngine):
                         model_id = mid
                         break
             if hit is None:
-                return None
+                # 登记表兜底：用户导入的外部路径模型（2026-09-01 完整接入）
+                hit = imported_dialog_models().get(model_id)
+                if hit is None:
+                    return None
             # 动态发现命中同样过物理闸门
             over = _exceeds_physical_vram(Path(hit["path"]), hit["backend"])
             if over > 0:
@@ -796,6 +853,7 @@ class DialogEngine(BaseEngine):
         """
         with self._lock:
             self._last_error = ""
+            self._degraded_from = ""  # 新加载意图=降级状态结束
             _t0 = time.perf_counter()
             _prev_model = self._model_id
             if self._state == "ready":
@@ -954,6 +1012,7 @@ class DialogEngine(BaseEngine):
         self._model_id = ""
         self._model_dir = None
         self._state = "unloaded"
+        self._degraded_from = ""  # 旧模型已走,降级状态结束
         if backend is not None:
             try:
                 backend.unload()
@@ -978,6 +1037,7 @@ class DialogEngine(BaseEngine):
             self._model_dir = None
             if had:
                 self._state = "unloaded"
+                self._degraded_from = ""  # 卸载即不再处于降级态
                 try:
                     backend.unload()
                 except Exception as exc:  # noqa: BLE001
@@ -1063,6 +1123,89 @@ class DialogEngine(BaseEngine):
         if mgr_result is True:
             return True  # mgr 协调加载成功（台账已记账，无需补登记）
         if mgr_result is False:
+            # 孤儿收养兜底（2026-09-02 P1 修复）：mgr 因「显存不足」拒绝
+            # 常见于后端在 vLLM 启动中途重启——上个进程树的 vLLM 孤儿
+            # 健康服务在 8101 且占着显存（记账恒不足）。先探测收养：
+            # 端口健康且模型匹配 → 直接引擎加载（秒级、零显存新增），
+            # 不再尊重 mgr 的拒绝。
+            try:
+                from ...config import MODELS_DIR
+                _want = model_id or self._default_model_id()
+                _dir = next(
+                    (str(MODELS_DIR / rel) for mid, rel, _v
+                     in DIALOG_MODEL_CANDIDATES if mid == _want), None)
+                if _dir is not None:
+                    from ...engines.vllm_service import get_vllm_service
+                    _svc = get_vllm_service()
+                    if _svc._adopt_if_healthy(_dir):
+                        if self.load_model(_want):
+                            logger.info(
+                                "mgr 拒绝后经 vLLM 孤儿收养恢复加载: %s",
+                                _want)
+                            return True
+                    # 收养不匹配（端口服务着别的模型）：孤儿仍占显存，
+                    # mgr 恒拒绝——清理 py313 vLLM 孤儿后重试 mgr 一次
+                    _svc._reap_orphans()
+                    import time as _time
+                    _time.sleep(3.0)  # 显存释放窗口
+                    try:
+                        if bool(ensure("dialog", _want)):
+                            logger.info(
+                                "清理不匹配 vLLM 孤儿后 mgr 加载成功: %s",
+                                _want)
+                            return True
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("孤儿清理后重试 mgr 失败: %s", exc)
+            except Exception as exc:  # noqa: BLE001 - 收养失败回落原拒绝
+                logger.debug("孤儿收养兜底失败: %s", exc)
+            # 显存装不下 → 自动降级（2026-09-02 用户拍板）：冷引擎且
+            # 大模型装不下时不再只报错——改用引擎默认小模型继续生成，
+            # 并广播大白话事件告知（不偷偷降质）。仅当失败原因属显存
+            # 不足类、且目标 ≠ 默认小模型时触发；降级模型也装不下则
+            # 走原诚实报错路径。换回：显存恢复后重新加载原模型即可
+            # （load_model 起手自动清降级旗标）。
+            _reason = " ".join(filter(None, (
+                str(getattr(mgr, "last_error", "") or ""),
+                self._last_error or "")))
+            _want_id = (model_id or self._default_model_id()).strip()
+            _fallback_id = self._default_model_id()
+            if ("显存" in _reason and _fallback_id
+                    and _fallback_id != _want_id):
+                logger.warning(
+                    "对话模型 %s 显存装不下，自动降级 %s 继续并通知用户"
+                    "（原因: %s）", _want_id, _fallback_id,
+                    _reason.strip()[:80])
+                try:  # 大白话事件：降级通知（WS 广播前端可见）
+                    from ..event_log import log_event
+                    log_event(
+                        "dialog", "model_fallback",
+                        f"「{_want_id}」在当前显存余量下装不下，已自动改"
+                        f"用「{_fallback_id}」继续生成（效果可能略降）。"
+                        f"关闭占用显存的应用后，重新加载「{_want_id}」"
+                        "即可换回。",
+                        level="warning",
+                        detail={"from": _want_id, "to": _fallback_id,
+                                "reason": _reason.strip()[:200]})
+                except Exception:  # noqa: BLE001
+                    pass
+                if self.load_model(_fallback_id):
+                    self._degraded_from = _want_id
+                    # 台账补登记（同下方 ok 路径，防 08-23 显存锚定）
+                    try:
+                        _mid = self._model_id
+                        if _mid:
+                            _mgr2 = get_model_manager()
+                            if not any(e.get("model_id") == _mid
+                                       for e in _mgr2.get_loaded_models()):
+                                _req = _mgr2.estimate_vram_gb(
+                                    _mid, "dialog")
+                                _pth = _mgr2.resolve_model_path(_mid) or _mid
+                                _mgr2.register_external_load(
+                                    "dialog", _mid, str(_pth),
+                                    max(0.5, _req))
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("降级加载台账补登记跳过: %s", exc)
+                    return True
             logger.info(
                 "model_manager 未加载 dialog 模型（%s），尊重裁决不直载",
                 getattr(mgr, "last_error", "") or "已取消/拒绝")
@@ -1405,6 +1548,7 @@ class DialogEngine(BaseEngine):
             "discovered_models": sorted(discover_dialog_models().keys()),
             "knowledge_lora": backend.lora_version if backend else "",
             "last_error": self._last_error,
+            "degraded_from": self._degraded_from,
             "vram_free_gb": round(_cuda_free_gb(), 2),
             "last_first_token_ms": round(self.last_first_token_ms, 1),
         }

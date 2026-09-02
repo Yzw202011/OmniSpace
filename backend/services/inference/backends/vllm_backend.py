@@ -52,6 +52,39 @@ class VLLMBackend(DialogBackend):
             big = weight_gb >= 8.0
             max_len = 4096 if big else 8192
             util = 0.87 if big else 0.85
+            # 显存自适应让档（2026-09-02 漫剧描述词自动加载实测）：静态
+            # util 按「模块释放后的空卡」标定，桌面/浏览器常态占 2GB+
+            # 时 0.2GB 级差距即被准入闸门拒绝（16GB 卡：需 13.6 空闲
+            # 13.4）。装载前实测空闲：不足目标但差口可让时，把 util 降
+            # 到「空闲装得下」的档位（KV 预算同步缩，4K 上下文仅需
+            # ~0.75GB）；低于可行下限（权重+开销3.4+KV0.8，08-25 实测
+            # 口径）→ 诚实报空闲不足。
+            if big:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        _free_b, _total_b = torch.cuda.mem_get_info(0)
+                        free_gb, total_gb = _free_b / 2**30, _total_b / 2**30
+                        floor_budget = weight_gb + 4.2
+                        if free_gb < util * total_gb:
+                            fit_util = (free_gb - 0.2) / total_gb
+                            if fit_util >= floor_budget / total_gb:
+                                logger.info(
+                                    "vLLM util 自适应让档: %.2f → %.2f"
+                                    "（实测空闲 %.1fGB / 整卡 %.1fGB）",
+                                    util, fit_util, free_gb, total_gb)
+                                util = fit_util
+                            else:
+                                self._last_error = (
+                                    f"设备空闲显存 {free_gb:.1f}GB 低于该模型"
+                                    f"可行下限 ~{floor_budget:.1f}GB（权重 "
+                                    f"{weight_gb:.1f}GB + 运行开销与 4K KV "
+                                    "预算）；请关闭占用显存的应用后重试")
+                                logger.warning("vLLM 装载让档不可行: %s",
+                                               self._last_error)
+                                return False
+                except Exception:  # noqa: BLE001 - 探测失败保持静态档
+                    pass
             logger.info("vLLM 启动参数: weights=%.1fGB → max_len=%d util=%.2f",
                         weight_gb, max_len, util)
             if not svc.start(model_dir=str(model_dir),

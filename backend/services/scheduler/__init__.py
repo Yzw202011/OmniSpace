@@ -272,8 +272,17 @@ class SchedulerEngine:
                 and now - self._last_deep_reclaim_at >= IDLE_RECLAIM_SECONDS):
             self._last_deep_reclaim_at = now
             # 表层已回收小模型，深层聚焦剩余重模型（排除共享小模型）
+            # 用户装载钉豁免（#8 2026-09-02 修复）：用户显式装载
+            # （/models/load）30 分钟内的模型跳过——空闲预防性回收
+            # 不该卸用户刚装好的模型（09-02 上午事故：装完对话模型
+            # 去看别的页面 5 分钟，回来模型被卸）。
             heavy = [e for e in mgr.get_loaded_models()
-                     if (e.get("category") or "").strip().lower() not in shared_small]
+                     if (e.get("category") or "").strip().lower() not in shared_small
+                     and not mgr.is_user_pinned(e.get("model_id") or "")]
+            pinned = [e.get("model_id") for e in mgr.get_loaded_models()
+                      if mgr.is_user_pinned(e.get("model_id") or "")]
+            if pinned:
+                log.info("深层回收跳过用户装载钉（30 分钟窗口）: %s", pinned)
             if heavy:
                 log.warning("空闲 %.0fs 达深层阈值，回收 %d 个驻留大模型释放显存: %s",
                             idle_s, len(heavy), [e.get("model_id") for e in heavy])

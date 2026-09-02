@@ -37,7 +37,7 @@ logger = __import__("logging").getLogger("omnispace.inference.qwen_stream")
 _KERNELS: dict[str, Any] | None = None
 _STATE: dict[str, Any] = {"buf": None, "orig_forward": None}
 
-_ROOT = Path(__file__).resolve().parents[3]  # e:\OmniSpace
+_ROOT = Path(__file__).resolve().parents[3]  # 项目根
 _TCC = _ROOT / "pydeps" / "triton" / "runtime" / "tcc" / "tcc.exe"
 
 

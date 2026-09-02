@@ -140,6 +140,14 @@ UI_AI_GENERATED_BG = _cfg["ui"]["ai_generated_bg"]
 
 APP_VERSION = str(_cfg.get("app", {}).get("version", "2.3.1"))
 
+# 构建号（P1 单一真源方案）：config.yaml 的 app.version 是唯一手写处；
+# make_dist.py 出包时在包内生成 backend/build_info.py（版本+git 短哈希+日期），
+# 开发环境无此文件时回退 "+dev"，用于区分开发跑的还是发行包跑的
+try:
+    from .build_info import BUILD_ID  # type: ignore[attr-defined]
+except Exception:  # noqa: BLE001 - 开发环境无生成文件
+    BUILD_ID = f"{APP_VERSION}+dev"
+
 
 def get_config() -> dict[str, Any]:
     """返回完整配置字典。"""

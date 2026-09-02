@@ -44,18 +44,20 @@ class ModelImporter:
         self.classifier = ModelClassifier()
         self.validator = ModelValidator()
 
-    def import_model(self, path: str) -> ImportResult:
+    def import_model(self, path: str, *, max_sha_gb: float = 1.0) -> ImportResult:
         """导入模型文件或目录。
 
         规格 §5.4 流程:
           1. 校验路径
           2. 自动分类
-          3. SHA256 计算
+          3. SHA256 计算（超过 max_sha_gb 的大文件跳过——全量哈希
+             数十 GB 权重会把导入请求卡住数分钟，需要时走校验按钮）
           4. 提取大小信息
           5. 生成 model_id
 
         Args:
             path: 模型文件或目录的路径
+            max_sha_gb: 单文件超过该 GB 数时跳过 SHA256（0 = 一律跳过）
 
         Returns:
             ImportResult 导入结果
@@ -96,13 +98,18 @@ class ModelImporter:
             result.warnings.append(f"大小计算失败: {e}")
             result.size_gb = 0.0
 
-        # 5. 计算 SHA256（仅对文件，目录跳过）
+        # 5. 计算 SHA256（仅对文件；大文件跳过防导入卡死）
         if file_path.is_file():
-            try:
-                result.sha256 = self.validator.compute_sha256(str(file_path))
-                logger.info("SHA256: %s...", result.sha256[:16])
-            except Exception as e:
-                result.warnings.append(f"SHA256 计算失败: {e}")
+            if file_path.stat().st_size > max_sha_gb * (1024 ** 3):
+                result.warnings.append(
+                    f"文件超过 {max_sha_gb:.0f}GB，跳过导入时 SHA256"
+                    "（可在模型管理页用「校验」按需计算）")
+            else:
+                try:
+                    result.sha256 = self.validator.compute_sha256(str(file_path))
+                    logger.info("SHA256: %s...", result.sha256[:16])
+                except Exception as e:
+                    result.warnings.append(f"SHA256 计算失败: {e}")
         else:
             result.warnings.append("目录模型跳过 SHA256 校验")
 

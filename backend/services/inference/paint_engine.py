@@ -25,6 +25,7 @@ import base64
 import gc
 import importlib
 import io
+import json
 import logging
 import secrets
 import threading
@@ -82,6 +83,79 @@ PAINT_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
 # LoRA 适配器目录（R1 人物一致性：dx8152 consistency 实测起点，
 # R2 角色 LoRA 训练产物同目录登记）
 LORA_DIR = MODELS_DIR / "paint" / "loras"
+
+
+def _imported_paint_family_anchor(model_id: str, path: Path) -> str | None:
+    """导入的绘画模型 → 家族锚点 id（复用家族管线代码，2026-09-01）。
+
+    探测顺序：id/目录名关键词（sdxl / qwen-image / flux2-klein）→
+    model_index.json 的 _class_name。仅接受标准 diffusers 布局（目录含
+    model_index.json）；flux2-klein-9b 的量化布局（GGUF/分层 offload）
+    为手工调优目录，外部导入不认；识别不了的家族返回 None 由调用方
+    明确报错（不装死）。
+    """
+    if not (path / "model_index.json").is_file():
+        return None
+    text = f"{model_id} {path.name}".lower()
+    if "sdxl" in text:
+        return "sdxl-base-1.0"
+    if "qwen-image" in text:
+        return "qwen-image-2512"
+    if "flux2-klein-4b" in text:
+        return "flux2-klein-4b"
+    if "flux2-klein" in text:
+        return "flux2-klein-4b"
+    try:
+        cls = str(json.loads(
+            (path / "model_index.json").read_text(encoding="utf-8")
+        ).get("_class_name", "")).lower()
+    except Exception:  # noqa: BLE001 - 解析失败按不支持处理
+        return None
+    if "sdxl" in cls:
+        return "sdxl-base-1.0"
+    if "qwen" in cls:
+        return "qwen-image-2512"
+    if "flux" in cls:
+        return "flux2-klein-4b"
+    return None
+
+
+def imported_paint_models() -> dict[str, dict]:
+    """登记表（用户导入的外部路径）中可作绘画模型使用的条目。
+
+    仅收 vision 类别、models/ 之外、且家族探测命中的条目（陌生家族
+    不进 /draw/models 下拉——明确不支持的不提供点选）。返回
+    {id: {"path", "min_vram_gb", "anchor"}}。
+    """
+    found: dict[str, dict] = {}
+    try:
+        from ...data.database import get_db_safe
+        db = get_db_safe()
+        if db is None:
+            return found
+        rows = db.query(
+            "SELECT id, category, min_vram_gb, file_path FROM models"
+            " WHERE category = 'vision'")
+    except Exception:  # noqa: BLE001 - 登记表不可用时静默降级
+        return found
+    for row in rows:
+        path = Path(row.get("file_path") or "")
+        if not path.is_dir():
+            continue
+        try:
+            if path.is_relative_to(MODELS_DIR):
+                continue
+        except (OSError, ValueError):
+            pass
+        anchor = _imported_paint_family_anchor(str(row["id"]), path)
+        if anchor is None:
+            continue
+        found[str(row["id"])] = {
+            "path": str(path),
+            "min_vram_gb": float(row.get("min_vram_gb") or 0) or 8.0,
+            "anchor": anchor,
+        }
+    return found
 
 # sampler 名称 -> (diffusers 调度器类名, 额外 kwargs)
 SAMPLER_MAP: dict[str, tuple[str, dict]] = {
@@ -334,6 +408,9 @@ class PaintEngine(BaseEngine):
         self._pipe: Any = None            # txt2img 管线
         self._pipe_i2i: Any = None        # img2img 管线（from_pipe 共享组件）
         self._model_id: str = ""
+        # 导入模型身份别名：_model_id 为家族锚点（家族行为分支靠它判定），
+        # 别名记录用户请求的导入 id（台账/切换 verify/loaded 对账用）
+        self._model_alias: str = ""
         self._model_dir: Path | None = None
         self._sampler: str = DEFAULT_SAMPLER
         self._state: str = "unavailable"
@@ -393,6 +470,10 @@ class PaintEngine(BaseEngine):
         显式 id 精确匹配（sdxl* 前缀宽容归一到 sdxl-base-1.0，兼容
         前端自由填写）；缺省取候选表首位 sdxl-base-1.0——
         flux2-klein-4b 仅 one-pass 四视图路径显式点名，不作通用缺省。
+
+        登记表兜底（2026-09-01 完整接入）：用户导入的绘画模型按
+        「家族锚点 id + 导入路径」返回（复用家族管线代码）；
+        陌生家族明确报错不装死。
         """
         want = (model_id or "").strip().lower()
         for mid, rel, vram in PAINT_MODEL_CANDIDATES:
@@ -402,6 +483,26 @@ class PaintEngine(BaseEngine):
             path = MODELS_DIR / rel
             if paint_model_dir_ready(path):
                 return mid, path, vram
+        if want:
+            try:
+                from ..model_manager import get_model_manager  # type: ignore
+                row = get_model_manager().registry_entry(want)
+            except Exception:  # noqa: BLE001 - 登记表不可用时静默降级
+                row = None
+            if row is not None and str(row.get("category") or "") == "vision":
+                path = Path(row["file_path"])
+                anchor = _imported_paint_family_anchor(want, path)
+                if anchor is None:
+                    self._last_error = (
+                        f"绘画模型 {want} 已登记，但引擎暂不支持该模型家族"
+                        "（当前支持 SDXL / FLUX.2 Klein 4B / Qwen-Image "
+                        "标准 diffusers 布局）；可删除登记或改用受支持家族")
+                    logger.warning("导入绘画模型家族不支持: %s", path)
+                    return None
+                vram = float(row.get("min_vram_gb") or 0) or 8.0
+                logger.info("导入绘画模型 %s 按家族 %s 加载: %s",
+                            want, anchor, path)
+                return anchor, path, vram
         return None
 
     # ── 显存协调 ──────────────────────────────────────────────────
@@ -477,6 +578,7 @@ class PaintEngine(BaseEngine):
                 self._pipe = None
                 self._pipe_i2i = None
                 self._model_id = ""
+                self._model_alias = ""
                 self._model_dir = None
                 self._state = "unloaded"
                 self._reset_lora_state()
@@ -527,6 +629,9 @@ class PaintEngine(BaseEngine):
 
             try:
                 logger.info("开始加载绘画模型 %s <- %s", mid, path)
+                # loading 状态位（2026-08-31）：/draw/status 据此区分
+                # 「加载进行中」与「空闲未加载」，前端冷启动进度条的真信号
+                self._state = "loading"
                 # qwen-image GGUF 专属布局旗标（见分支内注释）：
                 # True 时跳过下方通用 cpu offload（会破坏 GPU 常驻布局）
                 qwen_gguf_layout = False
@@ -834,6 +939,9 @@ class PaintEngine(BaseEngine):
                 self._pipe = pipe
                 self._pipe_i2i = None  # 懒加载
                 self._model_id = mid
+                requested = (model_id or "").strip().lower()
+                self._model_alias = (requested
+                                     if requested and requested != mid else "")
                 self._model_dir = path
                 self._state = "ready"
                 self._last_error = ""
@@ -869,6 +977,7 @@ class PaintEngine(BaseEngine):
             self._pipe = None
             self._pipe_i2i = None
             self._model_id = ""
+            self._model_alias = ""
             self._model_dir = None
             self._reset_lora_state()
             if had:
@@ -886,12 +995,13 @@ class PaintEngine(BaseEngine):
         中的旧绘画底座（记账与真实管线同步释放），再加载目标底座。
         """
         want = (model_id or "").strip()
-        if self._state == "ready" and (not want or want == self._model_id):
+        if self._state == "ready" and (
+                not want or want in (self._model_id, self._model_alias)):
             return True
         try:
             from ..model_manager import get_model_manager  # type: ignore
             mgr = get_model_manager()
-            if want and want != self._model_id:
+            if want and want not in (self._model_id, self._model_alias):
                 for entry in mgr.get_loaded_models():
                     if (entry.get("category") in ("paint", "vision", "image")
                             and entry.get("model_id") != want):
@@ -1590,14 +1700,14 @@ class PaintEngine(BaseEngine):
 
     @property
     def model_name(self) -> str:
-        return self._model_id or "none"
+        return self._model_alias or self._model_id or "none"
 
     def get_status(self) -> dict:
         return {
             "engine": "paint",
             "state": self._state,
             "loaded": self._state == "ready",
-            "model": self._model_id,
+            "model": self._model_alias or self._model_id,
             "model_dir": str(self._model_dir) if self._model_dir else "",
             "available_models": self.available_models(),
             "sampler": self._sampler,

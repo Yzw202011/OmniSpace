@@ -28,6 +28,9 @@ from PIL import Image
 
 from ...config import ROOT_DIR
 from ...middleware.error_handler import ApiError
+from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
+from .comfy_proc import COMFY_OUTPUT_DIR as _COMFY_OUTPUT
+from .comfy_proc import get_comfy_proc
 
 logger = logging.getLogger("omnispace.inference.comfy_paint")
 
@@ -38,8 +41,8 @@ _COMFY_MAIN = _COMFY_DIR / "ComfyUI" / "main.py"
 _COMFY_PORT = int(os.environ.get("OMNISPACE_COMFYUI_PORT", "8189"))
 _COMFY_BASE = f"http://127.0.0.1:{_COMFY_PORT}"
 _COMFY_MODELS = _COMFY_DIR / "ComfyUI" / "models"
-_COMFY_INPUT = _COMFY_DIR / "ComfyUI" / "input"
-_COMFY_OUTPUT = _COMFY_DIR / "ComfyUI" / "output"
+# 输入/输出目录 2026-09-02 起统一收编 data/comfyui（单源 comfy_proc，
+# 与子进程启动参数 --input/--output-directory 同源，引擎树内不再落产物）
 
 # 绘画权重（硬链接挂接于 ComfyUI/models 标准目录；源仓
 # models/paint/flux2-klein-9b*，TE 为 diffusers 4 分片流式合并产物）
@@ -145,9 +148,29 @@ class ComfyPaintEngine:
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 return None  # /history/{id} 未完成 —— 调用方按执行中处理
+            # 非 404 HTTP 错误（如工作流校验 400+node_errors）：解析错误体
+            # 交调用方转成带细节的 ApiError——不让裸 HTTPError 漏到用户
+            body = self._parse_error_body(exc)
+            if body is not None:
+                return body
             raise
         except (urllib.error.URLError, TimeoutError, OSError):
             return None  # 进程未起/端口不通 —— 探活语义
+
+    @staticmethod
+    def _parse_error_body(exc: urllib.error.HTTPError) -> dict | None:
+        """解析 HTTP 错误响应体为 dict；无体/非 JSON 返回兜底错误 dict。
+
+        仅在非 404 分支使用——保底也返回 dict 而非 None（None=执行中语义，
+        不能让错误被误判成执行中）。"""
+        try:
+            raw = exc.read()
+            body = json.loads(raw) if raw else {}
+            if isinstance(body, dict):
+                return body
+        except Exception:  # noqa: BLE001 - 错误体不是 JSON 时走兜底
+            pass
+        return {"error": {"message": f"HTTP {exc.code} {exc.reason}"}}
 
     # ── 进程生命周期 ──────────────────────────────────────────────
 
@@ -156,42 +179,13 @@ class ComfyPaintEngine:
         return self._api("GET", "/object_info", timeout=5.0) is not None
 
     def _spawn(self) -> None:
-        """冷启动 ComfyUI 子进程（日志重定向文件，防 PIPE 满管死锁）。
+        """冷启动委托统一进程管理器（2026-08-31 治理）。
 
-        --deterministic（2026-08-28 P0-1）：CUBLAS_WORKSPACE_CONFIG
-        固定 + cudnn.benchmark 缺省关（set_cudnn_benchmark 仅 --fast
-        开启）→ 同 seed 采样可复现（PuLID 身份硬锁链路的前提——
-        v40 事故同 seed face_sim 0.781→0.648 漂移即非确定性所致）。
-        对 H3 视频共实例仅有微弱速度代价，产物无影响。
+        单一所有者 + Job Object 共生死 + 空闲自动关闭；
+        --deterministic / HF 镜像 / ffmpeg PATH 前置等启动参数
+        统一收敛在 comfy_proc.py（两引擎共用同一实例）。
         """
-        logs_dir = ROOT_DIR / "logs"
-        logs_dir.mkdir(exist_ok=True)
-        log_path = logs_dir / "comfyui_paint.log"
-        self._log_fp = open(log_path, "ab")
-        cmd = [str(_COMFY_PY), "-s", "ComfyUI/main.py",
-               "--windows-standalone-build",
-               "--deterministic",
-               "--listen", "127.0.0.1", "--port", str(_COMFY_PORT)]
-        creationflags = 0x08000000  # CREATE_NO_WINDOW
-        # HF 镜像（P1）：PuLID 的 EVA-CLIP 首跑经 open_clip 自动下载，
-        # 本机 huggingface.co 直连超时——子进程注入镜像环境变量
-        env = dict(os.environ)
-        env.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-        env.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-        # runtime/ffmpeg 前置 PATH（2026-08-30 P0）：H3 custom node 用
-        # shutil.which("ffmpeg") 找拼接器，系统 PATH 首位可能是宿主应用
-        # （如 Electron 发行版）的阉割版 ffmpeg——`-version` 探测能过，
-        # 实际执行 concat/ffmetadata/movflags 时报 "Option not found"，
-        # 导致 H3 采样成功却在最后拼接段整任务失败。前置完整版根治。
-        ff_bin = ROOT_DIR / "runtime" / "ffmpeg" / "bin"
-        if ff_bin.is_dir():
-            env["PATH"] = str(ff_bin) + os.pathsep + env.get("PATH", "")
-            logger.info("ComfyUI 子进程 PATH 前置 runtime/ffmpeg: %s", ff_bin)
-        self._proc = subprocess.Popen(
-            cmd, cwd=str(_COMFY_DIR), stdout=self._log_fp,
-            stderr=subprocess.STDOUT, creationflags=creationflags, env=env)
-        logger.info("ComfyUI 子进程已启动 (pid=%s, port=%s, deterministic)",
-                    self._proc.pid, _COMFY_PORT)
+        self._proc = get_comfy_proc().spawn("comfyui_paint.log")
 
     def _ensure_running(self) -> None:
         """确保 ComfyUI 服务可用（复用探测 + 单次冷启动等待）。"""
@@ -235,24 +229,11 @@ class ComfyPaintEngine:
                   timeout=60.0)
 
     def shutdown(self) -> None:
-        """终止 ComfyUI 子进程树（后端退出/彻底释放显存用）。"""
+        """终止 ComfyUI 子进程树（委托统一管理器，幂等——无论哪个
+        引擎 spawn 的实例都可杀；外部手动起的实例不受影响）。"""
         with self._proc_lock:
-            proc, self._proc = self._proc, None
-        if proc is None or proc.poll() is not None:
-            if self._log_fp is not None:
-                self._log_fp.close()
-                self._log_fp = None
-            return
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                       capture_output=True, check=False)
-        try:
-            proc.wait(timeout=10.0)
-        except subprocess.TimeoutExpired:  # noqa: PERF203 - 兜底
-            pass
-        if self._log_fp is not None:
-            self._log_fp.close()
-            self._log_fp = None
-        logger.info("ComfyUI 子进程已终止")
+            self._proc = None
+        get_comfy_proc().shutdown()
 
     # ── 工作流构造（Flux2 Klein + 可选 LoRA + 可选参考图注入）─────
 
@@ -436,8 +417,14 @@ class ComfyPaintEngine:
     def _run(self, params: dict,
              ref_image: Image.Image | None,
              pulid_image: Image.Image | None = None) -> dict:
-        with self._gen_lock:
-            return self._run_locked(params, ref_image, pulid_image)
+        # 生成期间标记忙碌：空闲自动关闭计时暂停（mark/mark_idle 配对）
+        proc_mgr = get_comfy_proc()
+        proc_mgr.mark_busy()
+        try:
+            with self._gen_lock:
+                return self._run_locked(params, ref_image, pulid_image)
+        finally:
+            proc_mgr.mark_idle()
 
     def _run_locked(self, params: dict,
                     ref_image: Image.Image | None,

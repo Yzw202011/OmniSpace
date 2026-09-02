@@ -116,6 +116,11 @@ class WsHub:
                 cls._instance = cls()
             return cls._instance
 
+    def connection_count(self) -> int:
+        """当前 WebSocket 连接数（页面守卫用；0=所有前端页面已关闭）。"""
+        with self._lock:
+            return len(self._conns)
+
     # ── 生命周期 ───────────────────────────────────────────────
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:

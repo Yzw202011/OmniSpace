@@ -106,6 +106,25 @@ _TRIPLE_PATTERNS: list[tuple[re.Pattern, str]] = [
 _ENTITY_BAD_RE = re.compile(r"[的了在是和与及或等吗呢吧啊嗯噢]|^(我们|你们|他们|它们|"
                             r"这个|那个|这些|那些|可以|没有|什么|怎么)")
 MAX_TRIPLES_PER_ITEM = 10     # 单条知识入库的三元组上限
+_HAS_CJK_RE = re.compile(r"[\u4e00-\u9fa5]")
+# 陈述兜底的主语截断（P2-1）：单字停用（虚词+高频触发字）与双字
+# 截断词（时间副词/常见动词），主语片段遇之首截，防「高温会加速
+# 化学反应」「系统每天凌晨自动备份」整段进实体位
+_SUBJECT_STOP_CHARS = ("的了在是和与及或等会能将被不，。；：、！？")
+_SUBJECT_CUT_WORDS = frozenset((
+    "每天", "每日", "经常", "通常", "常常", "有时", "已经", "正在",
+    "释放", "吸收", "生成", "消耗", "转化", "驱动", "加速", "自动",
+))
+
+
+def _subject_head(s: str) -> str:
+    """句首主语片段：遇停用字/截断词截断，上限 16 字。"""
+    for i, ch in enumerate(s):
+        if ch in _SUBJECT_STOP_CHARS or s[i:i + 2] in _SUBJECT_CUT_WORDS:
+            return s[:i]
+        if i >= 16:
+            return s[:16]
+    return s[:16]
 
 
 def extract_triples_rule(text: str, topic: str = "",
@@ -136,11 +155,29 @@ def extract_triples_rule(text: str, topic: str = "",
         s = sent.strip().strip("，。；：、 ")
         if not (4 <= len(s) <= 120):
             continue
+        matched = False
         for pat, rel in _TRIPLE_PATTERNS:
             m = pat.match(s)
             if m:
                 _push(m.group(1), rel, m.group(2))
+                matched = True
                 break
+        if not matched:
+            # P2-1 修复（2026-09-02）：普通陈述句兜底——无句式命中的
+            # 句子此前直接丢弃（「高温会加速化学反应」类事实从图谱
+            # 消失、检索不可达）。取句首主语片段为实体（截断规则见
+            # _subject_head），全句为宾语，关系记「陈述」；宾语是完整
+            # 句子必含虚词，绕过 _push 的虚词实体过滤（主语仍过滤）。
+            # 仅中文句兜底（英文无停用字切分依据，交给 LLM 主链）。
+            if _HAS_CJK_RE.search(s):
+                head = _subject_head(s)
+                obj = s[:60]
+                if (2 <= len(head) <= 16 and head != obj
+                        and not _ENTITY_BAD_RE.search(head)):
+                    key = (head, "陈述", obj)
+                    if key not in seen:
+                        seen.add(key)
+                        triples.append(key)
         if len(triples) >= MAX_TRIPLES_PER_ITEM:
             break
 

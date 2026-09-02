@@ -29,6 +29,7 @@ import importlib
 import json
 import logging
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -381,6 +382,11 @@ class StyleLoraService:
 
     def dataset_stats(self, dataset_id: str) -> dict:
         """数据集样本统计（供训练充分性判定）。"""
+        # 穿越防护（2026-09-02 B0 审计）：dataset_id 直接拼路径，非法
+        # 形态（../ 等）按空数据集返回，不做文件系统访问
+        if not self._safe_dataset_id(dataset_id):
+            return {"dataset_id": dataset_id[:40], "total": 0,
+                    "sufficient": False}
         manifest = DATASET_DIR / dataset_id / "manifest.jsonl"
         total = 0
         if manifest.is_file():
@@ -1009,8 +1015,27 @@ class StyleLoraService:
         versions.sort(key=lambda v: int(v["version"][1:]))
         return versions
 
+    # 版本号格式（2026-09-02 B0 审计修复，P1-5 当代形态）：version/
+    # dataset_id 直接拼接路径（STYLE_LORA_DIR / v、DATASET_DIR / id），
+    # 无格式校验时 "../xxx" 可穿越——rename_version 任意目录写
+    # meta.json、dataset_stats 穿越读、rollback 污染 current 指针。
+    # 合法形态仅服务端自产：v<纯数字>（版本）与 32 位 hex（dataset uuid）。
+    _VERSION_RE = re.compile(r"^v\d{1,6}$")
+    _DATASET_RE = re.compile(r"^[0-9a-f]{32}$")
+
+    @classmethod
+    def _safe_version(cls, version: str) -> bool:
+        return bool(version) and bool(cls._VERSION_RE.match(version))
+
+    @classmethod
+    def _safe_dataset_id(cls, dataset_id: str) -> bool:
+        return bool(dataset_id) and bool(cls._DATASET_RE.match(dataset_id))
+
     def rollback(self, version: str) -> bool:
         """回滚到指定版本（置 current 指针）。版本不存在返回 False。"""
+        if not self._safe_version(version):
+            logger.warning("风格 LoRA 回滚版本号非法（拒绝）: %r", version[:60])
+            return False
         if not (STYLE_LORA_DIR / version).is_dir():
             logger.warning("风格 LoRA 回滚目标版本不存在: %s", version)
             return False
@@ -1022,6 +1047,9 @@ class StyleLoraService:
 
     def rename_version(self, version: str, name: str) -> bool:
         """重命名风格项目（STYLE-028：写 meta.json name 字段）。"""
+        if not self._safe_version(version):
+            logger.warning("风格版本重命名版本号非法（拒绝）: %r", version[:60])
+            return False
         version_dir = STYLE_LORA_DIR / version
         if not version_dir.is_dir():
             return False

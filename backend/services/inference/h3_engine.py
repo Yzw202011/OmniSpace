@@ -42,6 +42,9 @@ from PIL import Image
 
 from ...config import ROOT_DIR
 from ...middleware.error_handler import ApiError
+from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
+from .comfy_proc import COMFY_OUTPUT_DIR as _COMFY_OUTPUT
+from .comfy_proc import get_comfy_proc
 
 logger = logging.getLogger("omnispace.inference.h3")
 
@@ -52,8 +55,8 @@ _COMFY_MAIN = _COMFY_DIR / "ComfyUI" / "main.py"
 _COMFY_PORT = int(os.environ.get("OMNISPACE_COMFYUI_PORT", "8189"))
 _COMFY_BASE = f"http://127.0.0.1:{_COMFY_PORT}"
 _COMFY_MODELS = _COMFY_DIR / "ComfyUI" / "models"
-_COMFY_INPUT = _COMFY_DIR / "ComfyUI" / "input"
-_COMFY_OUTPUT = _COMFY_DIR / "ComfyUI" / "output"
+# 输入/输出目录 2026-09-02 起统一收编 data/comfyui（单源 comfy_proc，
+# 与子进程启动参数 --input/--output-directory 同源，引擎树内不再落产物）
 
 # H3 权重（硬链接挂接于 ComfyUI/models 标准目录，源仓
 # Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot）
@@ -145,6 +148,21 @@ class H3Engine:
 
     # ── HTTP 基础（urllib，零依赖；线程内同步调用） ──────────────
 
+    @staticmethod
+    def _parse_error_body(exc: urllib.error.HTTPError) -> dict | None:
+        """解析 HTTP 错误响应体为 dict；无体/非 JSON 返回兜底错误 dict。
+
+        仅在非 404 分支使用——保底也返回 dict 而非 None（None=执行中语义，
+        不能让错误被误判成执行中）。"""
+        try:
+            raw = exc.read()
+            body = json.loads(raw) if raw else {}
+            if isinstance(body, dict):
+                return body
+        except Exception:  # noqa: BLE001 - 错误体不是 JSON 时走兜底
+            pass
+        return {"error": {"message": f"HTTP {exc.code} {exc.reason}"}}
+
     def _api(self, method: str, path: str,
              body: dict | None = None, timeout: float = 10.0) -> dict | None:
         url = f"{_COMFY_BASE}{path}"
@@ -159,6 +177,11 @@ class H3Engine:
             # /history/{id} 未完成时返回 404 —— 调用方按"执行中"处理
             if exc.code == 404:
                 return None
+            # 非 404 HTTP 错误（如工作流校验 400+node_errors）：解析错误体
+            # 交调用方转成带细节的 ApiError——不让裸 HTTPError 漏到用户
+            body = self._parse_error_body(exc)
+            if body is not None:
+                return body
             raise
         except (urllib.error.URLError, TimeoutError, OSError):
             return None  # 进程未起/端口不通 —— 探活语义
@@ -174,30 +197,13 @@ class H3Engine:
         return self._api("GET", "/object_info", timeout=5.0) is not None
 
     def _spawn(self) -> None:
-        """冷启动 ComfyUI 子进程（日志重定向文件，防 PIPE 满管死锁）。"""
-        logs_dir = ROOT_DIR / "logs"
-        logs_dir.mkdir(exist_ok=True)
-        log_path = logs_dir / "comfyui_h3.log"
-        self._log_fp = open(log_path, "ab")
-        cmd = [str(_COMFY_PY), "-s", "ComfyUI/main.py",
-               "--windows-standalone-build",
-               "--listen", "127.0.0.1", "--port", str(_COMFY_PORT)]
-        creationflags = 0x08000000  # CREATE_NO_WINDOW
-        # runtime/ffmpeg 前置 PATH（2026-08-30 P0，与 comfy_paint_engine
-        # 同根因）：H3 custom node 用 shutil.which("ffmpeg") 找拼接器，
-        # 系统 PATH 首位是宿主 Electron 阉割版 ffmpeg（--disable-everything
-        # 仅留 libx264），探测 -version 能过，实际执行 concat/ffmetadata
-        # 报 "Option not found" → H3 采样成功却整任务失败于拼接段。
-        env = dict(os.environ)
-        ff_bin = ROOT_DIR / "runtime" / "ffmpeg" / "bin"
-        if ff_bin.is_dir():
-            env["PATH"] = str(ff_bin) + os.pathsep + env.get("PATH", "")
-            logger.info("ComfyUI 子进程 PATH 前置 runtime/ffmpeg: %s", ff_bin)
-        self._proc = subprocess.Popen(
-            cmd, cwd=str(_COMFY_DIR), stdout=self._log_fp,
-            stderr=subprocess.STDOUT, creationflags=creationflags, env=env)
-        logger.info("ComfyUI 子进程已启动 (pid=%s, port=%s)",
-                    self._proc.pid, _COMFY_PORT)
+        """冷启动委托统一进程管理器（2026-08-31 治理）。
+
+        单一所有者 + Job Object 共生死 + 空闲自动关闭；启动参数
+        （--deterministic / ffmpeg PATH 前置等）统一收敛在
+        comfy_proc.py（与 comfy_paint_engine 共用同一实例）。
+        """
+        self._proc = get_comfy_proc().spawn("comfyui_h3.log")
 
     def _ensure_running(self, progress_cb: ProgressCB | None) -> None:
         """确保 ComfyUI 服务可用（复用探测 + 单次冷启动等待）。"""
@@ -245,25 +251,11 @@ class H3Engine:
                   timeout=60.0)
 
     def shutdown(self) -> None:
-        """终止 ComfyUI 子进程树（后端退出/彻底释放显存用）。"""
+        """终止 ComfyUI 子进程树（委托统一管理器，幂等——无论哪个
+        引擎 spawn 的实例都可杀；外部手动起的实例不受影响）。"""
         with self._proc_lock:
-            proc, self._proc = self._proc, None
-        if proc is None or proc.poll() is not None:
-            if self._log_fp is not None:
-                self._log_fp.close()
-                self._log_fp = None
-            return
-        # Windows 进程树终止（taskkill /T 兜孙子进程）
-        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                       capture_output=True, check=False)
-        try:
-            proc.wait(timeout=10.0)
-        except subprocess.TimeoutExpired:  # noqa: PERF203 - 兜底
-            pass
-        if self._log_fp is not None:
-            self._log_fp.close()
-            self._log_fp = None
-        logger.info("ComfyUI 子进程已终止")
+            self._proc = None
+        get_comfy_proc().shutdown()
 
     # ── 工作流构造 ────────────────────────────────────────────────
 
@@ -351,10 +343,15 @@ class H3Engine:
             ApiError: 启动/提交/执行失败或超时
         """
         with self._gen_lock:
-            return self._generate_locked(
-                prompt=prompt, width=width, height=height, seconds=seconds,
-                out_path=out_path, first_frame=first_frame, steps=steps,
-                progress_cb=progress_cb)
+            # 生成期间标记忙碌：空闲自动关闭计时暂停（mark 配对）
+            get_comfy_proc().mark_busy()
+            try:
+                return self._generate_locked(
+                    prompt=prompt, width=width, height=height, seconds=seconds,
+                    out_path=out_path, first_frame=first_frame, steps=steps,
+                    progress_cb=progress_cb)
+            finally:
+                get_comfy_proc().mark_idle()
 
     def _generate_locked(self, *, prompt: str, width: int, height: int,
                          seconds: float, out_path: Path,

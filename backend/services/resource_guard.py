@@ -45,11 +45,16 @@ log = logging.getLogger("omnispace.resource_guard")
 # RAM 动作线：mem_critical_ratio=0.15 可用占比 = 已用 85%（文档B §4.1）
 RAM_HARD_RATIO = 1.0 - float(THRESHOLDS.get("mem_critical_ratio", 0.15))
 RAM_SOFT_RATIO = 1.0 - float(THRESHOLDS.get("mem_warning_ratio", 0.25))
+# RAM 危急线（2026-09-02 静默死亡事故）：已用 90%——WER 取证
+# RADAR_PRE_LEAK_64 实证提交耗尽原生硬死；动作线卸完空闲模型后仍
+# 可能持续高位（可再生缓存占着），危急线收缩可再生内存防打顶。
+RAM_CRITICAL_RATIO = float(THRESHOLDS.get("mem_critical2_ratio", 0.90))
 # VRAM 动作线：gpu_vram_critical=0.90（用户裁定硬限制）
 VRAM_HARD_RATIO = float(THRESHOLDS.get("gpu_vram_critical", 0.90))
 
 # 动作冷却（秒）：避免阈值边缘抖动导致反复卸载/装载 thrashing
 _RAM_SHED_COOLDOWN_S = 60.0
+_RAM_CRITICAL_COOLDOWN_S = 120.0
 _VRAM_SHED_COOLDOWN_S = 30.0
 _SOFT_COLLECT_THROTTLE_S = 10.0
 
@@ -67,6 +72,7 @@ class ResourceGuard:
         self._lock = threading.Lock()
         self._last_ram_shed = 0.0
         self._last_vram_shed = 0.0
+        self._last_critical_shed = 0.0
         self._last_soft_collect = 0.0
         self._last_broadcast = 0.0
         # 状态快照（get_status / hardware API 透出）
@@ -151,6 +157,24 @@ class ResourceGuard:
                         + (f"已释放 {freed} 个空闲模型" if freed else "无可卸载的空闲模型"),
                         warning=True)
         _log_event("ram_shed", detail, level="warning")
+        # 危急线（≥90%）：动作线之上的追加收缩——把可再生内存（权重
+        # 缓存/磁盘扫描缓存）全吐出来。数据可再生（miss 自动重建），
+        # 不碰已加载模型与运行中任务，宁可激进防提交打顶硬死。
+        if (percent >= RAM_CRITICAL_RATIO * 100
+                and now - self._last_critical_shed >= _RAM_CRITICAL_COOLDOWN_S):
+            self._last_critical_shed = now
+            try:
+                from .model_manager import get_model_manager
+                shed = get_model_manager().shed_memory()
+                detail = (f"RAM {percent:.0f}% 越危急线（≥"
+                          f"{RAM_CRITICAL_RATIO*100:.0f}%），已收缩可再生内存："
+                          f"权重缓存卸载 {shed.get('cache_unloaded')} 条、"
+                          f"磁盘扫描缓存丢弃 {shed.get('scan_cache_dropped')} 条")
+                self._record_event("ram_critical_shed", detail)
+                _log_event("ram_critical_shed", detail, level="warning")
+                log.warning("RAM 危急收缩: %s", detail)
+            except Exception as exc:  # noqa: BLE001 - 收缩失败不影响守卫主链
+                log.warning("RAM 危急收缩失败: %s", exc)
 
     # ── VRAM 动作线：逐个卸载直到回到线下 ───────────────────────
     def _shed_vram(self, ratio: float) -> None:

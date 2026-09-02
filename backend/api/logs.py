@@ -19,10 +19,11 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, Query
 
 from ..config import LOGS_DIR
 from ..middleware.error_handler import ApiError, ok
@@ -32,6 +33,7 @@ from ..services.event_log import (
     cleanup_expired,
     event_stats,
     list_modules,
+    log_event,
     query_events,
     query_flows,
 )
@@ -40,11 +42,14 @@ log = logging.getLogger("omnispace.api.logs")
 
 router = APIRouter()
 
-# 原始日志白名单（tail 仅允许项目自有日志，防任意文件读取）
+# 原始日志白名单（tail/导出仅允许项目自有日志，防任意文件读取）
 _RAW_LOG_FILES = {
     "backend.log": LOGS_DIR / "backend.log",
     "error.log": LOGS_DIR / "error.log",
     "vllm-server.log": LOGS_DIR / "vllm-server.log",
+    "boot.log": LOGS_DIR / "boot.log",
+    "comfyui_boot.log": LOGS_DIR / "comfyui_boot.log",
+    "launcher.log": LOGS_DIR / "launcher.log",
 }
 
 
@@ -166,12 +171,21 @@ def logs_files():
 def logs_raw(
     name: str = Query("backend.log", description="日志文件名（白名单校验）"),
     lines: int = Query(200, ge=1, le=2000, description="尾部行数"),
+    keyword: str = Query("", description="关键词过滤（命中行±上下文）"),
+    level: str | None = Query(
+        None, description="级别过滤 DEBUG/INFO/WARNING/ERROR"),
 ):
-    """原始日志尾部（技术诊断用；仅白名单文件）。"""
+    """原始日志尾部（技术诊断用；仅白名单文件）。
+
+    过滤（2026-09-01 方案 C）：keyword 命中行带 ±3 行上下文返回；
+    level 按行内级别标记过滤。扫描上限 20 万行防打爆。
+    """
     path = _RAW_LOG_FILES.get(name)
     if path is None:
         raise ApiError("SYSTEM_PARAM_INVALID",
                        f"未知日志文件: {name}（可选: {sorted(_RAW_LOG_FILES)}）")
+    if level and level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR"):
+        raise ApiError("SYSTEM_PARAM_INVALID", f"非法级别: {level}")
     if not path.is_file():
         return ok({"name": name, "lines": [], "total_lines": 0,
                    "exists": False})
@@ -179,12 +193,33 @@ def logs_raw(
         content = path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         raise ApiError("SYSTEM_INTERNAL_ERROR", f"读取日志失败: {exc}") from exc
-    all_lines = content.splitlines()
+    all_lines = content.splitlines()[-200_000:]
+    total = len(all_lines)
+
+    def _match(line: str) -> bool:
+        if keyword and keyword not in line:
+            return False
+        if level and f"[{level.upper()}]" not in line:
+            return False
+        return True
+
+    if not keyword and not level:
+        picked = list(range(max(0, total - lines), total))
+    else:
+        hits = [i for i, ln in enumerate(all_lines) if _match(ln)]
+        ctx = 3 if keyword else 0
+        picked_set: set[int] = set()
+        for h in hits:
+            for j in range(max(0, h - ctx), min(total, h + ctx + 1)):
+                picked_set.add(j)
+        picked = sorted(picked_set)[-lines * 2:]  # 命中+上下文，防超量
     return ok({
         "name": name,
         "exists": True,
-        "total_lines": len(all_lines),
-        "lines": all_lines[-lines:],
+        "total_lines": total,
+        "keyword": keyword,
+        "level": level,
+        "lines": [all_lines[i] for i in picked],
     })
 
 
@@ -198,3 +233,209 @@ def logs_cleanup():
         "freed_mb": round(result["freed_bytes"] / 1024 / 1024, 2),
         "retention_days": RETENTION_DAYS,
     }, message=f"清理完成：删除 {len(result['deleted'])} 个过期文件")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  错误聚合 / 前端采集 / 导出诊断包（2026-09-01 日志机制方案 C）
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/logs/errors/summary")
+def logs_errors_summary(
+    days: int = Query(7, ge=1, le=30, description="聚合回溯天数"),
+    limit: int = Query(20, ge=1, le=100, description="返回分组上限"),
+):
+    """最近异常聚合（错误面板）：按 模块×事件类型 归并计数 + 代表文案。
+
+    排障入口视图：一眼看出「哪类错最多、最近一次何时」。
+    """
+    items = query_events(limit=100_000, days=days,
+                         level="error")["items"]
+    groups: dict[tuple, dict] = {}
+    for e in items:
+        key = (str(e.get("module") or "?"), str(e.get("event") or "?"))
+        g = groups.get(key)
+        if g is None:
+            groups[key] = {
+                "module": key[0], "event": key[1], "count": 1,
+                "first_ts": e.get("ts"), "last_ts": e.get("ts"),
+                "example": str(e.get("friendly") or "")[:160],
+            }
+        else:
+            g["count"] += 1
+            g["last_ts"] = e.get("ts")
+            if len(str(e.get("friendly") or "")) > len(g["example"]):
+                g["example"] = str(e.get("friendly"))[:160]
+    top = sorted(groups.values(), key=lambda g: -g["count"])[:limit]
+    return ok({"groups": top, "total_errors": len(items), "days": days})
+
+
+@router.post("/logs/frontend-event")
+def logs_frontend_event(body: dict = Body(default_factory=dict)):
+    """前端 console 错误采集入口（方案 C：window.onerror / unhandledrejection）。
+
+    前端按节流策略上报（同 key 5s 一条），此处只做长度钳制后入事件库。
+    """
+    msg = str(body.get("message") or "").strip()[:200]
+    if not msg:
+        raise ApiError("SYSTEM_PARAM_INVALID", "message 不能为空")
+    kind = str(body.get("kind") or "error")
+    if kind not in ("error", "warning"):
+        kind = "error"
+    stack = str(body.get("stack") or "")[:1000]
+    log_event("frontend", f"console_{kind}",
+              f"前端{'异常' if kind == 'error' else '警告'}：{msg}",
+              level=kind, detail=stack)
+    return ok({"recorded": True})
+
+
+# 导出脱敏：这些字段的值视为用户内容（提示词/描述词），打码
+_SANITIZE_KEYS = {"prompt", "description", "content",
+                  "input_summary", "output"}
+
+
+def _mask_text(v: str) -> str:
+    return (v[:4] + "***" + v[-4:]) if len(v) > 12 else "***"
+
+
+def _sanitize_obj(obj):
+    """递归脱敏 dict/list 中的用户内容字段（导出勾选「脱敏」时）。"""
+    if isinstance(obj, dict):
+        return {k: (_mask_text(v) if k in _SANITIZE_KEYS
+                    and isinstance(v, str) and v.strip() else _sanitize_obj(v))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_obj(x) for x in obj]
+    return obj
+
+
+@router.get("/logs/export")
+def logs_export(
+    hours: int = Query(24, ge=1, le=720, description="导出时间范围（小时）"),
+    include: str = Query("events,flows,raw,hardware",
+                         description="包含项逗号分隔：events/flows/raw/hardware"),
+    failed_flows: int = Query(10, ge=0, le=50,
+                              description="附带最近 N 条失败流程全明细"),
+    sanitize: bool = Query(False, description="脱敏：提示词/描述词打码"),
+):
+    """一键导出诊断包（方案 C）：zip = 事件 + 失败流程明细 + 原始日志 +
+    硬件快照 + manifest。自用排障含提示词；发他人勾 sanitize。"""
+    import csv
+    import io
+    import os
+    import tempfile
+    import zipfile
+    from datetime import timedelta
+
+    from starlette.background import BackgroundTask
+    from starlette.responses import FileResponse
+
+    from ..config import APP_VERSION
+    from .hardware import _build_hardware_profile
+
+    parts = {p.strip() for p in include.split(",") if p.strip()}
+    now = datetime.now()
+    cutoff = (now - timedelta(hours=hours)).isoformat(timespec="milliseconds")
+    generated_at = now.isoformat(timespec="seconds")
+    counts: dict[str, int] = {}
+    crash_note = ""
+
+    # ── 事件（时间窗过滤；CSV+JSON 双格式）──
+    events: list[dict] = []
+    if "events" in parts:
+        days = max(1, min(30, -(-hours // 24)))
+        events = [e for e in query_events(limit=100_000, days=days)["items"]
+                  if str(e.get("ts", "")) >= cutoff]
+        # 崩溃取证标记（heartbeat 检测写入的事件，manifest 里醒目提示）
+        for e in events:
+            if e.get("event") == "system_crash_detected":
+                crash_note = f"注意：该时段内检测到异常退出（{e.get('friendly')}）"
+                break
+    if sanitize:
+        events = _sanitize_obj(events)
+
+    # ── 失败流程明细 ──
+    failed_details: list[dict] = []
+    if "flows" in parts and failed_flows > 0:
+        try:
+            tr = flow_trace.query_flow_traces(status="error",
+                                              limit=failed_flows)
+            for row in (tr.get("items") or []):
+                fid = row.get("flow_id")
+                detail = flow_trace.get_flow_trace(fid) if fid else None
+                if detail:
+                    failed_details.append(detail)
+        except Exception as exc:  # noqa: BLE001 - 流程导出失败不阻断打包
+            log.warning("失败流程导出失败（跳过）: %s", exc)
+    if sanitize:
+        failed_details = _sanitize_obj(failed_details)
+
+    # ── 硬件快照 ──
+    hardware: dict = {}
+    if "hardware" in parts:
+        hardware = dict(_build_hardware_profile())
+        try:
+            from ..services.resource_sampler import get_resource_sampler
+            hardware["recent_resource_samples"] = \
+                get_resource_sampler().get_samples(limit=120)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ── 打包（全部 writestr，无中间文件句柄）──
+    fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="omnidiag_")
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            if "events" in parts:
+                zf.writestr("events.json",
+                            json.dumps(events, ensure_ascii=False, indent=1))
+                buf = io.StringIO()
+                if events:
+                    # 字段并集（事件可选字段多，取首条字段会漏列）
+                    cols = sorted({k for e in events for k in e.keys()})
+                    w = csv.DictWriter(buf, fieldnames=cols,
+                                       extrasaction="ignore")
+                    w.writeheader()
+                    w.writerows(events)
+                zf.writestr("events.csv", buf.getvalue())
+                counts["events"] = len(events)
+            if failed_details:
+                zf.writestr("failed_flows.json", json.dumps(
+                    failed_details, ensure_ascii=False, indent=1))
+                counts["failed_flows"] = len(failed_details)
+            if "raw" in parts:
+                for fname, fpath in _RAW_LOG_FILES.items():
+                    if fpath.is_file():
+                        try:
+                            zf.writestr(
+                                f"raw/{fname}",
+                                fpath.read_text(encoding="utf-8",
+                                                errors="replace"))
+                            counts[f"raw:{fname}"] = 1
+                        except OSError as exc:  # noqa: BLE001
+                            log.warning("日志文件入包失败 %s: %s", fname, exc)
+            if "hardware" in parts:
+                zf.writestr("hardware.json", json.dumps(
+                    hardware, ensure_ascii=False, indent=1, default=str))
+                counts["hardware"] = 1
+            manifest = "\n".join([
+                "OmniSpace 诊断包",
+                f"生成时间: {generated_at}",
+                f"版本: {APP_VERSION}",
+                f"时间范围: 最近 {hours} 小时（{cutoff} 起）",
+                f"包含项: {', '.join(sorted(parts))}",
+                f"失败流程明细: {len(failed_details)} 条",
+                f"脱敏: {'是（提示词/描述词已打码）' if sanitize else '否（含用户内容）'}",
+                f"事件数: {len(events)}",
+                crash_note,
+                "文件说明: events.json/csv=事件库导出；failed_flows.json=失败"
+                "生成流程全链路明细；raw/=原始日志；hardware.json=硬件与资源快照",
+            ])
+            zf.writestr("manifest.txt", manifest)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+
+    filename = f"omnispace_diagnostics_{now.strftime('%Y%m%d_%H%M%S')}.zip"
+    return FileResponse(
+        tmp_path, filename=filename, media_type="application/zip",
+        background=BackgroundTask(os.unlink, tmp_path))

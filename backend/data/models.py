@@ -117,7 +117,8 @@ VIDEO_ROUTING_TABLE = [
 ]
 
 DIALOG_ROUTING_TABLE = [
-    {"min_vram_gb": 16, "model": "qwen3-vl-8b"},
+    # 09-02 清理：qwen3-vl-8b 完整版本为空壳已隔离（拍板清单 D3），
+    # 16GB+ 档位由 awq 档承接
     {"min_vram_gb": 12, "model": "qwen3-vl-8b-awq"},
     {"min_vram_gb": 8, "model": "qwen3-vl-4b"},
 ]
@@ -146,7 +147,7 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx5090", "label": "RTX 5090 32GB",
         "name_patterns": ["rtx 5090", "5090"],
         "min_vram_gb": 30,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-9b",
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
                    "video": "minimax-h3"},
         "learn_tabs": 5,
     },
@@ -195,7 +196,7 @@ HARDWARE_TIER_TABLE: list[dict] = [
         "tier": "rtx4090", "label": "RTX 4090 24GB",
         "name_patterns": ["rtx 4090", "4090"],
         "min_vram_gb": 20,
-        "models": {"dialog": "qwen3-vl-8b", "paint": "flux2-klein-9b",
+        "models": {"dialog": "qwen3-vl-8b-awq", "paint": "flux2-klein-9b",
                    "video": "minimax-h3"},
         "learn_tabs": 5,
     },
@@ -635,9 +636,14 @@ class ProjectBatchDelete(BaseModel):
 
 
 class ArtStyleCreate(BaseModel):
-    """自定义作品风格创建（2026-08-24：新建作品选画风，预置之外可自定义）。"""
+    """自定义作品风格创建（2026-08-24：新建作品选画风，预置之外可自定义）。
+
+    2026-08-31：pack_def 必填——自定义风格必须导入风格包 JSON
+    （底座偏好/后处理档位/风格词块），纯文本自定义不再接受。
+    """
     name: str = Field(min_length=1, max_length=30)
     prompt: str = Field(default="", max_length=500)   # 生图提示词关键词
+    pack_def: str = Field(default="", max_length=4000)  # 风格包 JSON 原文
 
 
 class SessionBatchDelete(BaseModel):

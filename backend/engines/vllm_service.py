@@ -44,8 +44,41 @@ log = logging.getLogger("omnispace.vllm")
 # ── 路径常量（项目根 = backend/ 上级） ───────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PY313_EXE = _PROJECT_ROOT / "runtime" / "py313" / "python.exe"
+# 进程品牌化（2026-09-02）：任务管理器显示 OmniSpace-LLM.exe + logo +
+# 说明列，不再是裸 python.exe（tools/brand_exe.py 生成，缺失回退原版）
+LLM_BRAND_EXE = _PROJECT_ROOT / "runtime" / "py313" / "OmniSpace-LLM.exe"
+
+
+def _llm_exe() -> Path:
+    return LLM_BRAND_EXE if LLM_BRAND_EXE.is_file() else PY313_EXE
 VLLM_LOG = _PROJECT_ROOT / "logs" / "vllm-server.log"
 MODELS_DIR = _PROJECT_ROOT / "models"
+
+# RAM 余量闸门的模型目录体量估算缓存（mdir → GB）
+_DIR_SIZE_CACHE: dict[str, float] = {}
+
+
+def _estimate_model_dir_gb(mdir: str) -> float:
+    """模型目录权重体量估算（GB，结果缓存）——RAM 余量闸门用。
+
+    只累计权重类扩展名（safetensors/gguf/bin/pth/npz）；目录不可读
+    或无权重文件时按 1GB 下限（保守放行小模型，闸门仍有 3GB 开销
+    垫底）。
+    """
+    cached = _DIR_SIZE_CACHE.get(mdir)
+    if cached is not None:
+        return cached
+    total = 0.0
+    try:
+        for p in Path(mdir).rglob("*"):
+            if (p.is_file() and p.suffix.lower() in
+                    (".safetensors", ".gguf", ".bin", ".pth", ".npz")):
+                total += p.stat().st_size
+    except OSError:
+        pass
+    gb = max(1.0, total / 2 ** 30)
+    _DIR_SIZE_CACHE[mdir] = gb
+    return gb
 
 # 默认服务模型：Qwen3-VL-8B AWQ int4（权重 ~6GB，16GB 卡可承载）
 DEFAULT_MODEL_REL = "qwen3-vl-8b-awq"
@@ -301,6 +334,44 @@ class VLLMService:
         log.warning("vLLM wake_up 结算超时 %.0fs", settle_timeout_s)
         return False
 
+    def _vram_admission_wait(self, gpu_memory_utilization: float) -> bool:
+        """显存准入复测（2026-09-02 自 start() 内联闸门抽取复用；
+        闸门语义/参数不变，文件序哨兵仍锚 start() 内的闸门注释块）。
+
+        60s 内每 2s 复测设备空闲显存（历史：一次采样不足即永久拒绝
+        的 state=error 卡死自愈；采样常撞「已记账未卸完」窗口）。
+        空闲 < 预分配量 → 诚实拒绝（写 _last_error）。无 CUDA 环境按
+        通过（探测失败保持旧行为）。
+        """
+        try:
+            import torch as _torch
+            if _torch.cuda.is_available():
+                _need_b = 0
+                for _attempt in range(30):
+                    _free_b, _total_b = _torch.cuda.mem_get_info(0)
+                    if _need_b == 0:
+                        _need_b = int(_total_b * gpu_memory_utilization * 0.98)
+                    if _free_b >= _need_b:
+                        break
+                    if _attempt == 0:
+                        log.info(
+                            "vLLM 准入等待：空闲 %.1fGB < 需预分配 %.1fGB，"
+                            "等待在途生成释放（最长 60s）",
+                            _free_b / 2 ** 30, _need_b / 2 ** 30)
+                    time.sleep(2.0)
+                else:
+                    self._last_error = (
+                        f"设备空闲显存 {_free_b / 2 ** 30:.1f}GB 不足以"
+                        f"安全启动 vLLM（需预分配 {_need_b / 2 ** 30:.1f}GB，"
+                        f"util={gpu_memory_utilization}，已等待 60s）；请"
+                        "等待在途生成结束或卸载驻留模型后重试")
+                    log.warning("vLLM 启动被显存准入闸门拒绝: %s",
+                                self._last_error)
+                    return False
+        except Exception:  # noqa: BLE001 - 探测失败保持旧行为
+            pass
+        return True
+
     def start(
         self,
         model_dir: str | Path | None = None,
@@ -323,6 +394,19 @@ class VLLMService:
         Returns:
             True 服务就绪；False 失败（原因见 last_error，进程已回收）
         """
+        # 孤儿收养（2026-09-02 P1 修复）：后端在 vLLM 启动中途重启 →
+        # 上个进程树留下的 vLLM 孤儿占着显存与 8101 端口健康活着——
+        # 新进程不认识它（_proc=None），ensure_loaded 显存记账恒不足、
+        # 等待循环也等不到 ready（实测 200s 超时）。start 首步探测端口：
+        # 若已有健康服务且所载模型即目标 → 直接收养置 ready（幂等，
+        # 免去整轮冷启动）；模型不符则交给 _reap_orphans 清理。
+        _adopt_mdir = str(Path(model_dir) if model_dir
+                          else MODELS_DIR / DEFAULT_MODEL_REL)
+        try:
+            if self._adopt_if_healthy(_adopt_mdir):
+                return True
+        except Exception as exc:  # noqa: BLE001 - 收养失败走正常冷启动
+            log.debug("vLLM 孤儿收养探测失败: %s", exc)
         # 功能锁门禁（2026-08-28 V77 事故根修）：paint/video_gen/
         # training 持锁期间禁止启动 vLLM——冷启动全程（最长 240s）
         # 与在途生成争抢 GPU 算力/显存/RAM，触发质量总督深度降步
@@ -339,27 +423,60 @@ class VLLMService:
             log.info("vLLM 启动暂缓：%s 功能锁持有中，生成结束后再启动",
                      _active)
             return False
+        # RAM 提交余量闸门（2026-09-02 静默死亡取证修复）：WER 取证
+        # RADAR_PRE_LEAK_64（OmniSpace-Backend.exe，18:49 事故）实证
+        # RAM 86%+ 冷启动 vLLM（9.2GB 权重 mmap 装载 + 子进程 Python/
+        # CUDA 开销）把系统提交推过顶 → 后端原生层硬死（无 Python
+        # traceback，boot 看门狗补位重启）。语义与显存闸门一致：60s
+        # 短等重试（资源守卫可能在回收），仍不足诚实拒绝——
+        # dialog_engine 有 transformers 4B 诚实降级链兜底。
+        try:
+            import psutil as _ps
+            _w_gb = _estimate_model_dir_gb(
+                str(Path(model_dir) if model_dir
+                    else MODELS_DIR / DEFAULT_MODEL_REL))
+            _need_ram = _w_gb + 3.0
+            _avail = _ps.virtual_memory().available / 2 ** 30
+            for _attempt in range(30):
+                if _avail >= _need_ram:
+                    break
+                if _attempt == 0:
+                    log.info(
+                        "vLLM RAM 准入等待：可用 %.1fGB < 需 %.1fGB"
+                        "（权重 %.1fGB+开销），等待资源回收（最长 60s）",
+                        _avail, _need_ram, _w_gb)
+                time.sleep(2.0)
+                _avail = _ps.virtual_memory().available / 2 ** 30
+            else:
+                self._last_error = (
+                    f"系统可用内存 {_avail:.1f}GB 不足以安全启动 vLLM"
+                    f"（权重 {_w_gb:.1f}GB+开销，需 {_need_ram:.1f}GB，"
+                    "已等待 60s）；请关闭其他应用或释放内存后重试")
+                log.warning("vLLM 启动被 RAM 余量闸门拒绝: %s",
+                            self._last_error)
+                return False
+        except Exception:  # noqa: BLE001 - 探测失败保持旧行为
+            pass
         # 显存准入闸门（2026-08-29 E2E 压测修复）：两次后端进程静默
         # 死亡（无 Python traceback，原生层崩溃特征）均发生于显存
         # ≥97% 时启动 vLLM——0.85 util 对整卡硬预分配，空闲不足即推
         # 过 100% 触发原生崩溃。设备级空闲 < 预分配量 → 诚实拒绝
         #（dialog_engine 有 transformers 4B 诚实降级链兜底）。
-        try:
-            import torch as _torch
-            if _torch.cuda.is_available():
-                _free_b, _total_b = _torch.cuda.mem_get_info(0)
-                _need_b = int(_total_b * gpu_memory_utilization * 0.98)
-                if _free_b < _need_b:
-                    self._last_error = (
-                        f"设备空闲显存 {_free_b / 2 ** 30:.1f}GB 不足以"
-                        f"安全启动 vLLM（需预分配 {_need_b / 2 ** 30:.1f}GB，"
-                        f"util={gpu_memory_utilization}）；请等待在途生成"
-                        "结束或卸载驻留模型后重试")
-                    log.warning("vLLM 启动被显存准入闸门拒绝: %s",
-                                self._last_error)
-                    return False
-        except Exception:  # noqa: BLE001 - 探测失败保持旧行为
-            pass
+        # 2026-09-02 自愈修复：此前一次采样不足即永久拒绝（state=error
+        # 卡死）——但采样点常撞上绘画/视频管线「已记账未卸完」的窗口
+        # （批量生词实测：采样空闲 13.4GB < 需 13.6GB，数秒后 flux 卸
+        # 完空闲 13.9GB，报错却不复验）。现改为闸门内短等重试：60s 内
+        # 每 2s 复测，显存释放即自愈放行；仍不足才诚实拒绝。
+        # 2026-09-02 热切换时序修复：旧 vLLM 健康（本次调用若换模型会
+        # 走热切换杀进程）时跳过预检——旧进程占用的显存会在切换时释放，
+        # 预检把「即将释放」算成「不可用」会误拒（实测：vl-4b 驻留 9GB，
+        # 空闲 13.4GB < 需 13.6GB 被拒，杀掉后 22.4GB 充裕，漫剧描述词
+        # 自动加载连败两轮）。杀进程后的真实复测在锁内热切换分支执行；
+        # 若锁内竞态失活（预检被跳过但已不健康），冷启动前补检。
+        _skip_precheck = self.is_healthy()
+        if not _skip_precheck:
+            if not self._vram_admission_wait(gpu_memory_utilization):
+                return False
         with self._lock:
             self._last_error = ""
             self._cancel_requested = False  # 新一轮启动，清除历史取消
@@ -393,6 +510,13 @@ class VLLMService:
                     f"请稍后重试或查看 {VLLM_LOG}")
                 return False
 
+            # 预检被跳过（预检时旧进程健康）的两种落点都在此真实复测：
+            # ①热切换刚杀完旧进程（显存释放有数秒窗口，复测循环自愈）；
+            # ②锁内竞态失活转冷启动。预检已过的路径不重复检查。
+            if _skip_precheck:
+                if not self._vram_admission_wait(gpu_memory_utilization):
+                    return False
+
             # 冷启动前清扫上次会话孤儿（后端崩溃重启场景：py313
             # EngineCore 孤儿占满显存会导致新服务无法加载权重）
             self._reap_orphans()
@@ -413,7 +537,7 @@ class VLLMService:
             # served-model-name = 模型目录名（热切换后请求方按此路由）
             served_name = mdir.name
             cmd = [
-                str(PY313_EXE), "-m", "vllm.entrypoints.openai.api_server",
+                str(_llm_exe()), "-m", "vllm.entrypoints.openai.api_server",
                 "--model", str(mdir),
                 "--served-model-name", served_name,
                 "--host", VLLM_HOST,
@@ -457,6 +581,13 @@ class VLLMService:
             cache_root.mkdir(parents=True, exist_ok=True)
             env["VLLM_CACHE_ROOT"] = str(cache_root)
             env["TRITON_CACHE_DIR"] = str(_PROJECT_ROOT / ".cache" / "triton")
+            # 2026-09-01 测试机三层洋葱终审：全新机器上 torch inductor
+            # 不会自建 torch_aot_compile/<hash>/inductor_cache 深层目录，
+            # write_atomic 的 rename 直接 WinError 3 → vLLM 启动即崩。
+            # 发行稳健优先：默认禁用 vLLM 编译缓存（代价=每次冷启动多
+            # 几十秒重编译）；需要缓存的开发机可显式置 0（launcher 白
+            # 名单已放行本变量）
+            env.setdefault("VLLM_DISABLE_COMPILE_CACHE", "1")
 
             VLLM_LOG.parent.mkdir(parents=True, exist_ok=True)
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
@@ -711,13 +842,48 @@ class VLLMService:
             pass
         return True
 
+    def _adopt_if_healthy(self, target_mdir: str | None) -> bool:
+        """收养端口上的健康 vLLM 孤儿（2026-09-02 P1 修复）。
+
+        后端重启后上个进程树的 vLLM 可能仍健康服务在 8101——本进程
+        _proc=None 不认识它，显存记账恒不足且永不 ready。探测 /health
+        + /v1/models：健康且所载模型与目标一致 → 直接置 ready 收养
+        （_proc 保持 None，停止时按孤儿清扫口径 taskkill）；不一致或
+        不健康 → 不收养（冷启动路径的 _reap_orphans 会清理）。
+        """
+        if self._proc is not None or self._booting:
+            return False  # 自己有进程在管，无需收养
+        try:
+            import requests
+            if requests.get(HEALTH_URL, timeout=3.0).status_code != 200:
+                return False
+            models = requests.get(
+                f"http://{VLLM_HOST}:{VLLM_PORT}/v1/models",
+                timeout=3.0).json()
+            served = {m.get("id") for m in models.get("data", [])}
+        except Exception:  # noqa: BLE001 - 端口无服务/探测失败
+            return False
+        want = Path(target_mdir).name if target_mdir else ""
+        if want and want not in served:
+            log.info("vLLM 端口服务模型不符（want=%s served=%s），不收养",
+                     want, sorted(served))
+            return False
+        with self._lock:
+            self._model_dir = target_mdir or self._model_dir
+            self._served_name = want or next(iter(served), "")
+            self._state = "ready"
+            self._last_error = ""
+        log.info("vLLM 孤儿收养：端口已有健康服务（model=%s），直接置 ready",
+                 self._served_name)
+        return True
+
     def _reap_orphans(self) -> None:
         """清扫上次会话遗留的 py313 vLLM 孤儿进程（尽力而为，不抛错）。
 
-        判据 = exe == runtime/py313/python.exe **且命令行含
-        vllm.entrypoints**（2026-08-27 误杀事故修复：原版只按 exe
-        路径匹配，把同运行时的任意 py313 进程——沙箱验证脚本、
-        用户自启工具——一律 taskkill /T 误杀；两次 int4 压测「无
+        判据 = exe ∈ {runtime/py313/python.exe, OmniSpace-LLM.exe（品牌化
+        副本，2026-09-02）} **且命令行含 vllm.entrypoints**（2026-08-27 误杀
+        事故修复：原版只按 exe 路径匹配，把同运行时的任意 py313 进程——
+        沙箱验证脚本、用户自启工具——一律 taskkill /T 误杀；两次 int4 压测「无
         traceback 静默死亡」均为此因）。仍须排除当前进程及其全部
         祖先（2026-08-26 自杀事故，后端/launcher 同样运行在 py313
         运行时，launcher 父进程被当孤儿 taskkill /T 整树（含后端
@@ -727,7 +893,10 @@ class VLLMService:
             import psutil
         except ImportError:  # py310 无 psutil 时跳过（依赖交付清单含 psutil）
             return
-        target = str(PY313_EXE).lower()
+        # 品牌化后 vLLM 主进程跑在 OmniSpace-LLM.exe 上，两个名字都要认
+        # （旧版孤儿仍是 python.exe；多进程 EngineCore 孙进程经 spawn
+        # 继承 sys.executable=品牌 exe）
+        targets = {str(PY313_EXE).lower(), str(LLM_BRAND_EXE).lower()}
         try:
             me_proc = psutil.Process(os.getpid())
             protected = {me_proc.pid} | {pp.pid for pp in me_proc.parents()}
@@ -737,7 +906,7 @@ class VLLMService:
             try:
                 exe = (p.info["exe"] or "").lower()
                 cmdline = " ".join(p.info["cmdline"] or []).lower()
-                if (exe == target and "vllm.entrypoints" in cmdline
+                if (exe in targets and "vllm.entrypoints" in cmdline
                         and p.info["pid"] not in protected):
                     log.warning("清扫 vLLM 孤儿进程 pid=%d", p.info["pid"])
                     subprocess.run(

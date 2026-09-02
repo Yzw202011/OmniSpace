@@ -32,6 +32,7 @@ import logging
 import re
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Body, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -479,6 +480,7 @@ def dialog_list_models():
             _estimated_load_gb,
             _resolve_candidate_dir,
             discover_dialog_models,
+            imported_dialog_models,
         )
         total_vram = _cuda_total_gb()
         # 候选表 + 动态发现合并（保序去重）。物理装不下的候选（如 16GB
@@ -508,6 +510,22 @@ def dialog_list_models():
                                               "asr", "audio")):
                 continue
             est = _estimated_load_gb(path, "vl")
+            fits = total_vram <= 0 or est <= total_vram * 0.98
+            items.append({
+                "model_id": mid,
+                "name": _dialog_model_display_name(mid),
+                "size_label": _dialog_model_size_label(mid),
+                "est_vram_gb": round(est, 1),
+                "fits_local": fits,
+                "loaded": engine.is_ready and engine.model_name == mid,
+            })
+        # 用户导入的外部路径对话模型（登记表兜底，2026-09-01 完整接入）：
+        # 类别已过 dialog/language/omni 闸门，不重复套 tts/voice 关键词过滤
+        listed_ids = {m["model_id"] for m in items}
+        for mid, info in imported_dialog_models().items():
+            if mid in listed_ids:
+                continue
+            est = _estimated_load_gb(Path(info["path"]), info["backend"])
             fits = total_vram <= 0 or est <= total_vram * 0.98
             items.append({
                 "model_id": mid,
@@ -1447,6 +1465,45 @@ async def _ws_send_error(websocket: WebSocket, code: int, message: str) -> None:
     })
 
 
+async def _wait_vllm_booting(engine, websocket: WebSocket,
+                             sid: str, timeout_s: float = 200.0) -> bool:
+    """vLLM 冷启动等待（2026-09-02 P1 修复）。
+
+    ensure_loaded 因显存被 booting 预分配拒绝时进入宽限轮询：就绪
+    立即返回 True；期间捕获「消息先到、vLLM 一秒后才点火」的竞态
+    （实测 12:24:51 消息 / 12:24:52 booting——首版仅在已 booting 时
+    等待，恰好错过）。等待期间向 WS 推送 status 帧维持前端占位。
+    返回 True=已就绪可重试；False=超时/WS 断开。
+    """
+    try:
+        await websocket.send_json({
+            "type": "status",
+            "data": {"phase": "model_loading",
+                     "message": "对话模型冷启动中，本条消息已自动排队，"
+                                "就绪后立即回复"},
+        })
+    except Exception:  # noqa: BLE001 - 推送失败不阻断等待
+        pass
+    import asyncio
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(2.0)
+        try:
+            if engine.get_status().get("state") == "ready":
+                log.info("冷启动等待命中：vLLM 就绪，继续处理消息 sid=%s", sid)
+                return True
+        except Exception:  # noqa: BLE001 - 状态探测失败继续等
+            continue
+        # WS 断开检测：客户端关页即放弃
+        try:
+            if websocket.client_state == 1:  # DISCONNECTED
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+    log.warning("冷启动等待超时 %.0fs sid=%s", timeout_s, sid)
+    return False
+
+
 # WS 模型参数旧标签 → 完整 model_id 映射（前端规格档位兼容；
 # 2026-08-20 模型选择接线：完整 model_id 直传不经此表）
 _WS_MODEL_LABEL_MAP = {
@@ -1520,6 +1577,20 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                       if thinking else DEFAULT_SYSTEM_PROMPT)
         # 思考通道有独立 token 预算需求（思考 500-2000 token 常态）
         max_new_tokens = 2048 if thinking else 1024
+        # 温度 / 上下文长度接线（2026-08-31 补全）：前端早已随消息下发
+        # （useDialogStore.sendMessage），此前后端未消费——温度恒走引擎
+        # 默认 0.7、上下文恒写死 8192。钳制防野值：温度 0~2（对齐滑杆
+        # 范围），上下文 2048~8192（对齐选择器；vLLM 启动 max-model-len
+        # 即 8192，超了会直接撞墙）
+        try:
+            temperature = min(2.0, max(0.0, float(data.get("temperature", 0.7))))
+        except (TypeError, ValueError):
+            temperature = 0.7
+        try:
+            ctx_tokens = int(data.get("context_tokens") or 8192)
+        except (TypeError, ValueError):
+            ctx_tokens = 8192
+        ctx_tokens = min(8192, max(2048, ctx_tokens))
         # 冷启动窗口状态推送（2026-08-22 思考过长事故）：模型未就绪时
         # 先告知前端加载阶段——vLLM 冷启动 ~157s 全程零消息，用户只
         # 见"思考中"无任何反馈（含被模块切换杀掉后二次冷启动场景）
@@ -1537,20 +1608,32 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             pass
         # 审计 R1-04：同 dialog_send，ensure_loaded 阻塞调用经 run_blocking 卸载
         if not await run_blocking(engine.ensure_loaded, model_req):
-            status = engine.get_status()
-            code = 30004 if status["state"] == "error" else 30003
-            await _ws_send_error(
-                websocket, code,
-                status["last_error"] or "对话模型未就绪，请稍后再试")
-            return
+            # P1 修复（2026-09-02 冷启动实测）：vLLM 正在 booting 时
+            # model_manager 因显存被预分配而拒绝（可用 0.0GB）——但服务
+            # 就绪后即可用。产品铁律「未加载必须全自动」：消息应等待
+            # 冷启动完成重试一次（最长 200s），而非立即拒绝。
+            if await _wait_vllm_booting(engine, websocket, sid):
+                if not await run_blocking(engine.ensure_loaded, model_req):
+                    status = engine.get_status()
+                    await _ws_send_error(
+                        websocket, 30003,
+                        status["last_error"] or "对话模型未就绪，请稍后再试")
+                    return
+            else:
+                status = engine.get_status()
+                code = 30004 if status["state"] == "error" else 30003
+                await _ws_send_error(
+                    websocket, code,
+                    status["last_error"] or "对话模型未就绪，请稍后再试")
+                return
 
-        # RAG 注入 + 上下文组装
+        # RAG 注入 + 上下文组装（max_tokens=前端上下文长度选择，钳制后）
         knowledge_text, _refs = _rag_enhance(content)
         history = _load_history(sid)
         messages = engine.build_context(
             content, history=history, knowledge_text=knowledge_text,
             system_prompt=sys_prompt, images=images or None,
-            max_tokens=8192,
+            max_tokens=ctx_tokens,
         )
 
         _ensure_session(sid, content, engine.model_name)
@@ -1569,6 +1652,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             try:
                 for event in engine.chat_stream_ex(
                         messages, images=images or None,
+                        temperature=temperature,
                         max_new_tokens=max_new_tokens,
                         enable_thinking=thinking,
                         stop_check=lambda: sid in _stop_flags):

@@ -113,6 +113,15 @@ paint:
   default_guidance: 7.5
   max_batch_size: 4
 
+# ComfyUI 子进程生命周期（2026-08-31 抢占治理；进程统一由
+# backend/services/inference/comfy_proc.py 管理：Job Object 与后端
+# 共生死 + atexit + 空闲自动关闭 + 模块切换按需终止）
+comfyui:
+  # 空闲自动关闭：最后一个生成任务结束后 N 秒无新任务 → 杀进程
+  # （释放 CUDA context 数百 MB 显存 + torch GB 级常驻 RAM；冷启动
+  # ~40s）。0 = 禁用（进程常驻热启动）
+  idle_shutdown_seconds: 300
+
 manga:
   # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，
   # 10000 字≈170 镜，50 行上限直接阻断导入

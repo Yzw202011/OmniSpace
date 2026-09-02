@@ -151,11 +151,27 @@ def _is_vllm_model(model_id: str) -> bool:
     quant_method ∈ {awq, compressed-tensors}（与 dialog_engine.
     _is_awq_model 同口径——py310 无 autoawq/compressed_tensors 包，
     必经 vLLM 子进程）；读不到时回退 deepseek-r1 前缀启发式。
+
+    2026-09-01：config.json 读取经 ModelManager.resolve_model_path 解析
+    （用户导入的外部路径模型同样能路由 vLLM），models/<id> 直读仅兜底。
     """
+    cfg_path: Path | None = None
     try:
-        mgr_path = _PROJECT_ROOT / "models" / model_id / "config.json"
-        if mgr_path.is_file():
-            with open(mgr_path, encoding="utf-8") as f:
+        from .model_manager import get_model_manager
+        resolved = get_model_manager().resolve_model_path(model_id)
+        if resolved:
+            cand = Path(resolved)
+            cand = cand if cand.is_dir() else cand.parent
+            cand = cand / "config.json"
+            if cand.is_file():
+                cfg_path = cand
+    except Exception:  # noqa: BLE001 - 判定失败不阻断
+        pass
+    if cfg_path is None:
+        cfg_path = _PROJECT_ROOT / "models" / model_id / "config.json"
+    try:
+        if cfg_path.is_file():
+            with open(cfg_path, encoding="utf-8") as f:
                 raw = json.load(f)
             qcfg = raw.get("quantization_config")
             if isinstance(qcfg, dict):
@@ -729,6 +745,14 @@ class ModelSwitchEngine:
                 get_h3_engine().unload()
             except Exception as exc:  # noqa: BLE001 - /free 失败不阻断
                 logger.debug("H3 权重卸载跳过: %s", exc)
+            # 引擎切换驱逐 = 腾地方给新引擎：/free 之外直接杀 ComfyUI
+            # 进程（CUDA context + torch 常驻一并释放；冷启动 ~40s，
+            # 2026-08-31 抢占治理）。外部手动起的实例不受影响。
+            try:
+                from .inference.comfy_proc import get_comfy_proc
+                get_comfy_proc().shutdown()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("ComfyUI 进程终止跳过: %s", exc)
             get_model_manager().unload_model(model_id)
             return
         get_model_manager().unload_model(model_id)

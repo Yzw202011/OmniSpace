@@ -34,10 +34,10 @@
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import io
 import logging
+import pathlib
 import threading
 import time
 import uuid
@@ -48,7 +48,8 @@ from fastapi import APIRouter, Body, Query
 from ..data.database import get_db_safe, parse_json
 from ..data.models import PAINT_ROUTING_TABLE
 from ..middleware.error_handler import ApiError, ok
-from ..middleware.feature_lock import acquire_or_raise, get_feature_lock
+from ..middleware.feature_lock import acquire_or_raise
+from ..services.image_queue import get_image_queue
 from ..services.inference.paint_engine import (
     DEFAULT_SAMPLER,
     SAMPLER_MAP,
@@ -103,10 +104,9 @@ _tasks: dict[str, dict] = {}
 _tasks_lock = threading.Lock()
 _TASK_KEEP = 200  # 最多保留的任务数（超出淘汰最旧）
 
-# PAINT-041/042/044：等待队列（优先级调度）+ 协作式取消旗标
-_pending: list[str] = []           # 等待调度的 task_id
-_pending_lock = threading.Lock()
-_dispatcher_running = False
+# PAINT-041/042/044：协作式取消旗标 + 副作用表（等待队列/调度已迁移
+# services/image_queue.py——2026-09-02 统一图像队列，绘画页与漫剧生图
+# 全族单 worker 顺序消费、排空才释放 paint 锁）
 _cancel_flags: set[str] = set()    # 取消旗标（进度回调检查并抛 _TaskCancelled）
 _task_images: dict[str, tuple] = {}  # task_id -> (init_image, mask) 副作用表
 
@@ -614,7 +614,12 @@ def _run_generate_task(task_id: str, params: dict,
 
 
 def _submit_precheck() -> None:
-    """提交期快速预检（保持 40007/20004 提交期语义，不入队即拒）。"""
+    """提交期快速预检（仅热保护；2026-09-02 图像队列改造）。
+
+    此前其他功能（视频/对话）持锁时直接 40007 拒绝——现一律受理入队，
+    由 services/image_queue.py 的 worker 等锁让位顺序执行（与视频队列
+    同语义）；热保护仍保持提交期拒绝（用户立即得到反馈）。
+    """
     try:  # 热保护（与 acquire_or_raise 同源逻辑，失败不阻断）
         from ..services.thermal_guard import get_thermal_guard
         guard = get_thermal_guard()
@@ -628,93 +633,38 @@ def _submit_precheck() -> None:
         raise
     except Exception:  # noqa: BLE001
         pass
-    mgr = get_feature_lock()
-    reason = mgr.get_block_reason("paint")
-    if reason:
-        raise ApiError(40007, reason,
-                       detail={"active_feature": mgr.active_feature,
-                               "feature": "paint"})
 
 
-def _enqueue_task(task_id: str) -> None:
-    """入队并按需唤醒调度线程（PAINT-044 优先级队列）。"""
-    global _dispatcher_running
-    with _pending_lock:
-        _pending.append(task_id)
-        if not _dispatcher_running:
-            _dispatcher_running = True
-            threading.Thread(target=_dispatch_loop, daemon=True).start()
+def _make_paint_queue_runner(task_id: str):
+    """绘画任务的图像队列 runner（2026-09-02 迁移自 _dispatch_loop）。
 
-
-def _dispatch_loop() -> None:
-    """调度线程：按优先级串行执行等待任务（单 GPU 显存保护）。
-
-    每轮从等待队列取（priority 降序，同优先级按提交先后）队首执行；
-    队空即退出。功能锁逐任务在独立事件循环内获取/释放。
+    功能锁/vLLM 协商由队列统一编排；此处仅取副作用图 + 跑推理。
+    运行中取消 = draw 自己的 _cancel_flags（progress 回调协作中断，
+    引擎抛 PaintCancelledError，由 _run_generate_task 内部收敛终态）。
     """
-    global _dispatcher_running
-    try:
-        while True:
-            with _pending_lock:
-                if not _pending:
-                    return
-                pick = min(
-                    _pending,
-                    key=lambda t: (-(_task_get(t) or {}).get("priority", 5),
-                                   (_task_get(t) or {}).get("created_at", 0)))
-                _pending.remove(pick)
 
-            task = _task_get(pick)
-            if task is None:
-                continue
-            if pick in _cancel_flags:
-                _cancel_flags.discard(pick)
-                _task_images.pop(pick, None)
-                _task_update(pick, status="cancelled", error="排队中被取消")
-                _broadcast_progress(pick, 0, 0, status="cancelled")
-                # 追踪收尾：排队中被取消（流程对象随任务字典丢弃前结束）
-                _end_flow(pick, "cancelled", error_detail="排队中被用户取消")
-                continue
+    def runner(task: dict, check_cancel) -> None:  # noqa: ARG001
+        imgs = _task_images.pop(task_id, None)
+        init_image = imgs[0] if imgs else None
+        mask = imgs[1] if imgs and len(imgs) > 1 else None
+        params = (_task_get(task_id) or {}).get("params", {})
+        _run_generate_task(task_id, params, init_image, mask)
 
-            async def _run_locked(tid: str = pick, t: dict = task) -> None:
-                lock = await acquire_or_raise("paint", task_id=tid)
-                try:
-                    imgs = _task_images.pop(tid, None)
-                    init_image = imgs[0] if imgs else None
-                    mask = imgs[1] if imgs and len(imgs) > 1 else None
-                    await run_blocking(
-                        _run_generate_task, tid, t["params"],
-                        init_image, mask)
-                finally:
-                    await lock.release("paint")
-
-            try:
-                asyncio.run(_run_locked())
-            except Exception as exc:  # noqa: BLE001 - 锁竞争/热保护等
-                log.warning("任务调度失败 %s: %s", pick, exc)
-                _task_images.pop(pick, None)
-                _task_update(pick, status="error", code=50001,
-                             error=str(exc))
-                _broadcast_progress(pick, 0, 0, status="error")
-                # 追踪收尾：功能锁竞争/热保护等调度层失败
-                _end_flow(pick, "error", error_code="DISPATCH_FAILED",
-                          error_detail=str(exc)[:500])
-    finally:
-        with _pending_lock:
-            _dispatcher_running = False
-            restart = bool(_pending)
-            if restart:  # 退出竞态：finally 期间又有任务入队
-                _dispatcher_running = True
-        if restart:
-            threading.Thread(target=_dispatch_loop, daemon=True).start()
+    return runner
 
 
 def _submit_task(task: dict, init_image=None, mask=None) -> None:
-    """提交任务：预检 → 副作用登记 → 入队。"""
+    """提交任务：预检 → 副作用登记 → 入统一图像队列。"""
     _submit_precheck()
     if init_image is not None or mask is not None:
         _task_images[task["task_id"]] = (init_image, mask)
-    _enqueue_task(task["task_id"])
+    import asyncio as _asyncio
+    get_image_queue().submit({
+        "task_id": task["task_id"], "kind": "paint",
+        "runner": _make_paint_queue_runner(task["task_id"]),
+        "loop": _asyncio.get_running_loop(),
+        "priority": task.get("priority", 5),
+    })
 
 
 # ── 文生图 ──────────────────────────────────────────────────────────
@@ -726,16 +676,35 @@ async def draw_generate(body: dict = Body(default_factory=dict)):
 
     请求: {"prompt", "negative"?, "steps"=30, "cfg"=7.5, "width"=1024,
            "height"=1024, "sampler"="euler_a", "seed"=-1, "model"?,
-           "optimize"?}
-    返回: {"task_id"}；进度经 ws_broadcaster 推送，结果走 /result/{task_id}。
+           "optimize"?, "batch_size"=1(1~4)}
+    返回: {"task_id"(首个), "task_ids"(批量时全量)}；进度经
+    ws_broadcaster 推送，结果走 /result/{task_id}。
+
+    批量（P2 复核修复 2026-09-02）：此前 batch_size 前端有控件、
+    后端静默丢弃——批量=2 实生 1 张。现钳 1~4 派发 N 个队列任务
+    （统一图像队列 FIFO 串行）；固定种子按序派生 seed+i 防同图，
+    随机种子(-1)各任务独立随机。
     """
     params = _parse_common(body)
     if not params["prompt"]:
         raise ApiError(50001, "生成失败，请检查提示词是否为空")
 
-    task = _task_create("txt2img", params)
-    _submit_task(task)
-    return ok({"task_id": task["task_id"], "priority": task["priority"]})
+    try:
+        batch = int(body.get("batch_size") or 1)
+    except (TypeError, ValueError):
+        batch = 1
+    batch = max(1, min(batch, 4))
+    base_seed = params.get("seed", -1)
+    task_ids: list[str] = []
+    for i in range(batch):
+        task_params = dict(params)  # 每任务独立（防 params 别名共享）
+        if isinstance(base_seed, int) and base_seed >= 0:
+            task_params["seed"] = base_seed + i  # 定种子按序派生防同图
+        task = _task_create("txt2img", task_params)
+        task_ids.append(task["task_id"])
+        _submit_task(task)
+    return ok({"task_id": task_ids[0], "task_ids": task_ids,
+               "priority": 5, "batch": batch})
 
 
 # ── 图生图 ──────────────────────────────────────────────────────────
@@ -914,6 +883,10 @@ def draw_result(task_id: str):
         "elapsed_ms": task["elapsed_ms"],
         "created_at": task["created_at"],
     }
+    if task["status"] == "pending":
+        pos = get_image_queue().position(task_id)
+        if pos is not None:
+            resp["queue_position"] = pos
     if task["status"] in ("error", "cancelled"):
         resp["error"] = task["error"]
         resp["code"] = task["code"]
@@ -934,7 +907,7 @@ def draw_result(task_id: str):
 def paint_task_cancel(task_id: str):
     """取消绘画任务（协作式）。
 
-    - 排队中：直接从等待队列剔除，状态 → cancelled
+    - 排队中：直接从图像队列剔除，状态 → cancelled
     - 运行中：置取消旗标，下一推理步进度回调抛中断（状态 → cancelled）
     - 已结束（done/error/cancelled）：40008
     """
@@ -944,21 +917,19 @@ def paint_task_cancel(task_id: str):
     if task["status"] in ("done", "error", "cancelled"):
         raise ApiError(40008, f"任务已结束（{task['status']}），无法取消")
 
-    was_pending = False
-    with _pending_lock:
-        if task_id in _pending:
-            _pending.remove(task_id)
-            was_pending = True
+    outcome = get_image_queue().cancel(task_id)
     _task_images.pop(task_id, None)
 
-    if was_pending:
+    if outcome == "queued":
         _task_update(task_id, status="cancelled", error="排队中被取消")
         _broadcast_progress(task_id, 0, 0, status="cancelled")
+        # 追踪收尾：排队中被取消（流程对象随任务字典丢弃前结束）
+        _end_flow(task_id, "cancelled", error_detail="排队中被用户取消")
     else:
         _cancel_flags.add(task_id)  # 运行中：进度回调协作中断
 
     return ok({"task_id": task_id, "status": "cancelled",
-               "was_pending": was_pending})
+               "was_pending": outcome == "queued"})
 
 
 @router.post("/paint/task/{task_id}/priority")
@@ -977,8 +948,7 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)):
         raise ApiError(40008, "priority 必须是 0~9 的整数") from None
     priority = max(0, min(priority, 9))
 
-    with _pending_lock:
-        effective = task_id in _pending
+    effective = get_image_queue().set_priority(task_id, priority)
     _task_update(task_id, priority=priority)
     return ok({"task_id": task_id, "priority": priority,
                "effective": effective,
@@ -988,9 +958,12 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)):
 @router.get("/paint/queue")
 @router.get("/draw/queue")
 def paint_queue():
-    """绘画任务队列快照（PAINT-042）：等待队列（按调度顺序）+ 运行中。"""
-    with _pending_lock:
-        pending_ids = list(_pending)
+    """绘画任务队列快照（PAINT-042）：等待队列（按调度顺序）+ 运行中。
+
+    2026-09-02：等待队列真源 = services/image_queue.py（统一图像队列，
+    与漫剧关键帧/资产图同队）。
+    """
+    snap = get_image_queue().snapshot()
     with _tasks_lock:
         running = [dict(t) for t in _tasks.values()
                    if t["status"] == "running"]
@@ -1005,9 +978,7 @@ def paint_queue():
         }
 
     pending = [_brief(t) for t in
-               sorted((_task_get(tid) for tid in pending_ids),
-                      key=lambda t: (-(t or {}).get("priority", 5),
-                                     (t or {}).get("created_at", 0)))
+               (_task_get(str(q.get("task_id"))) for q in snap["queued"])
                if t]
     return ok({
         "pending": pending,
@@ -1133,6 +1104,11 @@ def _delete_history_file(file_path: str) -> bool:
         from ..data.file_store import GENERATED_DIR
         name = _P(file_path).name
         target = GENERATED_DIR / "images" / name
+        # 同步清缩略图缓存（#5 缩略图端点配套，防孤儿堆积）
+        thumb = (GENERATED_DIR / "images" / _THUMB_DIR_NAME
+                 / f"{target.stem}_{_THUMB_SIZE}.jpg")
+        if thumb.is_file():
+            thumb.unlink(missing_ok=True)
         if target.is_file():
             target.unlink()
             return True
@@ -1216,12 +1192,47 @@ def paint_history_batch_delete(body: dict = Body(default_factory=dict)):
 
 # ── 生成图回读 ────────────────────────────────────────────────────
 
+_THUMB_DIR_NAME = ".thumbs"
+_THUMB_SIZE = 512
+
+
+def _paint_thumbnail(src) -> pathlib.Path | None:
+    """512px JPEG 缩略图（首访生成 + 磁盘缓存，原子替换）。
+
+    #5 画廊卡顿修复：历史图为 2560×1440 PNG（单张 2-4MB），画廊
+    每卡解码 3.7MP → 滚动几十张即百 MB 级解码抖动。网格用缩略图
+    （~30KB/张），灯箱仍回原图。生成失败回落 None（调用方回原图）。
+    """
+    try:
+        from pathlib import Path as _P
+
+        tdir = _P(src).parent / _THUMB_DIR_NAME
+        tpath = tdir / f"{_P(src).stem}_{_THUMB_SIZE}.jpg"
+        if tpath.is_file():
+            return tpath
+        from PIL import Image
+
+        tdir.mkdir(parents=True, exist_ok=True)
+        tmp = tpath.with_suffix(".tmp")
+        with Image.open(src) as im:
+            rgb = im.convert("RGB")
+        rgb.thumbnail((_THUMB_SIZE, _THUMB_SIZE))
+        rgb.save(tmp, "JPEG", quality=82)
+        tmp.replace(tpath)
+        return tpath
+    except Exception as exc:  # noqa: BLE001 - PIL 缺失/解码失败回落原图
+        log.debug("缩略图生成失败（回落原图）: %s", exc)
+        return None
+
+
 @router.get("/draw/image/{filename}")
-def draw_image(filename: str):
+def draw_image(filename: str, thumb: int = 0):
     """按文件名回读生成图片（前端历史画廊/预览用）。
 
     历史记录只存相对路径 generated/images/<task_id>.png，
     本端点按文件名安全回读（Path.name 防路径穿越）。
+    thumb=1 → 512px JPEG 缩略图（首访生成落盘 .thumbs/ 缓存）；
+    生成失败诚实回落原图。
     """
     from pathlib import Path
 
@@ -1234,7 +1245,14 @@ def draw_image(filename: str):
     if not path.is_file():
         raise ApiError(40005, "图片不存在或已被清理",
                        detail={"filename": safe})
-    return FileResponse(str(path), media_type="image/png")
+    if thumb:
+        thumb_path = _paint_thumbnail(path)
+        if thumb_path is not None:
+            return FileResponse(str(thumb_path), media_type="image/jpeg",
+                                headers={
+                                    "Cache-Control": "private, max-age=86400"})
+    return FileResponse(str(path), media_type="image/png",
+                        headers={"Cache-Control": "private, max-age=3600"})
 
 
 # ── 模型与状态 ──────────────────────────────────────────────────────
@@ -1267,6 +1285,23 @@ def draw_models():
             "status": status,
             "local_model": local_id,
         })
+    # 用户导入的绘画模型（登记表兜底，2026-09-01 完整接入）：家族探测
+    # 命中才入列——陌生家族明确不支持，不提供点选
+    try:
+        from ..services.inference.paint_engine import imported_paint_models
+        for mid, info in imported_paint_models().items():
+            if any(m["id"] == mid for m in items):
+                continue
+            items.append({
+                "id": mid,
+                "name": mid,
+                "category": "vision",
+                "min_vram_gb": info["min_vram_gb"],
+                "status": "ready",
+                "local_model": mid,
+            })
+    except Exception as exc:  # noqa: BLE001 - 清单失败不阻断主流程
+        log.warning("导入绘画模型清单并入跳过: %s", exc)
     # 模块级选型配置（模型管理 → 功能模块模型配置）：
     # 白名单过滤 + 默认模型下发。allowed 为空 = 不限制（兼容存量）。
     default_model = ""

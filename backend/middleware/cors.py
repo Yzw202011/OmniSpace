@@ -106,6 +106,9 @@ def setup_cors(app: FastAPI, extra_origins: list[str] | None = None) -> None:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
+        # P7：启动页（127.0.0.1:5850-5869）直连后端激活接口——复用下方
+        # 自定义中间件同款「仅本地任意端口」严格正则，安全性不降级
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
         allow_credentials=True,
         allow_methods=_ALLOWED_METHODS,
         allow_headers=_ALLOWED_HEADERS,

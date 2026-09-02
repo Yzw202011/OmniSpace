@@ -171,7 +171,8 @@ CREATE TABLE IF NOT EXISTS keyframes (
     is_current  INTEGER NOT NULL DEFAULT 1,
     created_at  REAL NOT NULL DEFAULT 0,
     shot_seeds  TEXT DEFAULT '[]',              -- V37：逐镜实际种子 JSON
-    consistency TEXT DEFAULT ''                 -- V37：VLM 一致性评分 JSON
+    consistency TEXT DEFAULT '',                -- V37：VLM 一致性评分 JSON
+    source_mode TEXT DEFAULT ''                 -- 兜底标注(2026-09-03 方案A)：describe=按描述词/fallback=原文直出；旧数据空=未知
 );
 CREATE INDEX IF NOT EXISTS idx_keyframes_row ON keyframes(row_id);
 

@@ -2,6 +2,7 @@
 
 端点清单（/v1 前缀由 main.py 挂载）：
 - GET    /models                模型列表（路由表 ∪ 磁盘扫描，downloaded 标记）
+- GET    /models/readiness      模型就绪总检（体验流 #3：模块级绿/灰+缺件清单）
 - GET    /models/{model_id}     模型详情
 - POST   /models/import         导入模型（ModelImportRequest）
 - POST   /models/{model_id}/verify  SHA256 校验
@@ -269,6 +270,12 @@ def _merged_models() -> list[dict]:
             item["file_path"] = hit["path"]
             if hit["size_gb"] > 0:
                 item["size_gb"] = hit["size_gb"]
+            if item.get("status") in (ModelStatus.NOT_INSTALLED.value, ""):
+                item["status"] = ModelStatus.READY.value
+        elif item.get("file_path") and Path(item["file_path"]).exists():
+            # 用户导入的外部路径（models/ 之外扫描层看不到）：文件在盘
+            # 即视为已下载，导入后立即可见；文件被删则回落未下载
+            item["downloaded"] = True
             if item.get("status") in (ModelStatus.NOT_INSTALLED.value, ""):
                 item["status"] = ModelStatus.READY.value
         else:
@@ -740,6 +747,20 @@ def models_list():
                "downloaded": sum(1 for m in items if m.get("downloaded"))})
 
 
+@router.get("/models/readiness")
+def models_readiness():
+    """模型就绪总检（2026-09-03 体验流 #3：绿灯/缺件指路）。
+
+    按 models_manifest.json 契约核对盘上存在性，输出功能模块级
+    ready/missing——「拖入→启动→首启激活→即用」的验收门面。
+    注意：须声明在 /models/{model_id} 之前，否则被路径参数吞掉。
+    """
+    from ..config import MODELS_DIR
+    from ..services.model_manager.readiness import compute_readiness
+    return ok(compute_readiness(
+        MODELS_DIR, MODELS_DIR / "models_manifest.json"))
+
+
 @router.get("/models/status")
 def models_status():
     """模型管理全景状态（TASK-011）：GPU + 已加载 + 互斥 + 预测器。"""
@@ -912,38 +933,118 @@ def models_detail(model_id: str):
 
 @router.post("/models/import")
 async def models_import(req: ModelImportRequest):
-    """导入模型（规格 §4.5）。校验路径后登记到注册表。"""
-    path = Path(req.path)
-    if not path.is_absolute():
-        path = (ROOT_DIR / path).resolve()
-    if not path.exists():
+    """导入模型（规格 §4.5；2026-09-01 完整接入：自动识别 + 即刻可见 + 可加载）。
+
+    经 ModelImporter 自动识别类别（config.json 元数据 → 文件名关键词 →
+    目录特征 → 扩展名 → safetensors header），递归统计目录体积（修复旧
+    实现目录导入 size 恒 0 的缺陷），最低显存按磁盘体积 ×1.2 估算；
+    大文件（>1GB）跳过导入时 SHA256（防数十 GB 哈希把请求卡住数分钟）。
+
+    登记条目对运行时立即可用：_merged_models 按 file_path 存在性判
+    downloaded（models/ 外部路径同样可见），ModelManager.resolve_model_path
+    以登记表兜底解析路径。
+
+    幂等与命名：同一路径重复导入直接返回既有记录；models/ 内路径沿用
+    目录名/文件 stem 作 id（与磁盘扫描同一命名空间，预置行借此回填
+    file_path 而不产生重复条目，身份字段 category/purpose 保持原值）。
+    """
+    from ..config import MODELS_DIR
+
+    raw = Path(req.path)
+    if not raw.is_absolute():
+        raw = ROOT_DIR / raw
+    raw = raw.resolve()
+    if not raw.exists():
         raise ApiError(30001, "模型文件未找到，请导入模型",
                        detail={"path": req.path})
+    resolved = str(raw)
 
-    model_id = uuid.uuid4().hex
-    size_gb = round(path.stat().st_size / (1024 ** 3), 2) if path.is_file() else 0.0
+    db = get_db_safe()
+
+    def _find_by_path() -> dict | None:
+        """按 file_path 查既有登记（幂等判据）。"""
+        if db is not None:
+            try:
+                row = db.query_one(
+                    "SELECT id, name, category, purpose, size_gb, params,"
+                    " min_vram_gb, associated_features, status, file_path, sha256"
+                    " FROM models WHERE file_path = ?", (resolved,))
+                if row:
+                    return _row_to_model(row)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("导入查重失败: %s", exc)
+        for m in _models.values():
+            if m.get("file_path") == resolved:
+                return dict(m)
+        return None
+
+    existing = _find_by_path()
+    if existing is not None:
+        return ok(existing, message="该路径已导入，返回既有登记")
+
+    mgr = get_model_manager()
+    result = await run_blocking(mgr.importer.import_model, resolved)
+
+    # id 命名空间：models/ 内沿用目录名/文件 stem（与扫描 key 一致）；
+    # 外部路径用导入器语义化 id
+    model_id = result.model_id
+    try:
+        in_models_dir = raw.is_relative_to(MODELS_DIR.resolve())
+    except (OSError, ValueError):
+        in_models_dir = False
+    if in_models_dir:
+        model_id = raw.stem if raw.is_file() else raw.name
+
     info = {
         "id": model_id,
-        "name": path.stem,
-        "category": ModelCategory.AUXILIARY.value,
+        "name": result.name,
+        "category": result.category.value,
         "purpose": "用户导入",
-        "size_gb": size_gb,
+        "size_gb": result.size_gb,
         "params": "",
-        "min_vram_gb": 0.0,
+        "min_vram_gb": round(result.size_gb * 1.2, 2) if result.size_gb > 0 else 0.0,
         "associated_features": [],
         "status": ModelStatus.READY.value,
-        "file_path": str(path),
-        "sha256": "",
+        "file_path": result.file_path,
+        "sha256": result.sha256,
     }
-    db = get_db_safe()
+    if result.warnings:
+        log.info("导入 %s 提示: %s", result.name, "; ".join(result.warnings))
+
     if db is not None:
         try:
-            db.insert("models", info)
+            row = db.query_one(
+                "SELECT id, file_path FROM models WHERE id = ?", (model_id,))
+            if row is not None and row.get("file_path") not in ("", None, resolved):
+                # 同 id 已被其他路径占用：语义化 id 兜底防撞
+                model_id = result.model_id
+                info["id"] = model_id
+                row = db.query_one(
+                    "SELECT id FROM models WHERE id = ?", (model_id,))
+            if row is not None:
+                # 预置/既有行撞名（models/ 内导入常见）：只回填物理字段，
+                # category/purpose 等身份字段保持登记原值
+                db.update("models", {
+                    "size_gb": info["size_gb"],
+                    "min_vram_gb": info["min_vram_gb"],
+                    "status": info["status"],
+                    "file_path": info["file_path"],
+                    "sha256": info["sha256"],
+                }, "id = ?", (model_id,))
+                full = db.query_one(
+                    "SELECT id, name, category, purpose, size_gb, params,"
+                    " min_vram_gb, associated_features, status, file_path, sha256"
+                    " FROM models WHERE id = ?", (model_id,))
+                info = _row_to_model(full) if full else info
+            else:
+                db.insert("models", info)
+            info["imported"] = True
             return ok(info, message="模型已导入")
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库写入失败，降级内存存储: %s", exc)
 
     _models[model_id] = info
+    info["imported"] = True
     return ok(info, message="模型已导入")
 
 
@@ -1020,6 +1121,7 @@ async def models_load(req: ModelLoadRequest):
             raise ApiError(20011, str(e), detail={"model_id": req.model_id}) from e
         status = result.get("status", "")
         if status == "done":
+            mgr.note_user_load(req.model_id)  # #8：用户显式装载打免回收钉
             return ok({"model_id": req.model_id, "category": category,
                        "loaded": True, "loaded_models": mgr.get_loaded_models(),
                        "switch_task": result},
@@ -1045,6 +1147,7 @@ async def models_load(req: ModelLoadRequest):
             20011 if "未下载" in reason else 20010)
         raise ApiError(code, f"模型加载失败：{reason}",
                        detail={"model_id": req.model_id, "category": category})
+    mgr.note_user_load(req.model_id)  # #8：用户显式装载打免回收钉
     return ok({"model_id": req.model_id, "category": category, "loaded": True,
                "loaded_models": mgr.get_loaded_models()},
               message="模型已加载")
@@ -1257,6 +1360,40 @@ async def models_warmup(req: ModuleWarmupRequest):
     import threading
 
     feature = (req.feature or "").strip().lower()
+
+    # 绘画模块预热（2026-08-31，用户需求「跟 AI 对话一样的冷启动弹窗」）：
+    # 本地 diffusers 管线冷启动约 10~60s，进页面即点火把加载摊进浏览
+    # 时间；就绪信号 = /draw/status loaded（PaintEngine state=ready）
+    if feature == "paint":
+        from ..services.inference.paint_engine import get_paint_engine
+        engine = get_paint_engine()
+        status = engine.get_status()
+        want_model = (req.model_id or "").strip() or None
+        if (status.get("loaded")
+                and (want_model is None or status.get("model") == want_model)):
+            _warmup_inflight.discard("paint")
+            return ok({"feature": "paint", "started": False,
+                       "reason": "already_ready"}, message="绘画模型已就绪")
+        if "paint" in _warmup_inflight:
+            return ok({"feature": "paint", "started": False,
+                       "reason": "inflight"}, message="绘画模型预热中")
+
+        _warmup_inflight.add("paint")
+
+        def _bg_warmup_paint() -> None:
+            try:
+                engine.ensure_loaded(want_model)
+            except Exception:  # noqa: BLE001 - 预热失败静默（生成时如实报错）
+                pass
+            finally:
+                _warmup_inflight.discard("paint")
+
+        threading.Thread(target=_bg_warmup_paint, daemon=True,
+                         name="paint-warmup").start()
+        return ok({"feature": "paint", "started": True,
+                   "model_id": want_model or "auto"},
+                  message="绘画模型预热已启动（冷启动约 0.5-1 分钟）")
+
     if feature != "dialog":
         return ok({"feature": feature, "started": False,
                    "reason": "unsupported"},

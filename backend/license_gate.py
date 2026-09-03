@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import re
 import struct
 import subprocess
 import threading
@@ -48,15 +49,43 @@ class GateError(Exception):
 
 
 # ── 指纹采集（客户端独立实现，与管理台同规范）──────────────────
+# 三件套（2026-09-03 熵修复）= MachineGuid + 主板UUID + CPUID：
+# 同配置设备最多对上 CPU 一项（1/3 < 2 拒绝）；换/加硬盘三件全不动，
+# 换系统盘重装也只丢 MachineGuid 一项（2/3 仍过）。旧三件套（主板
+# 序列号+卷序列号+CPUID）已废：占位串与型号级值可致同配置设备 2/3
+# 通配（实测本机主板序列号即 "Default string"）。
 
 _PS_FINGERPRINT = r"""
-$b = (Get-CimInstance Win32_BaseBoard).SerialNumber
+$g = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography').MachineGuid
+$u = (Get-CimInstance Win32_ComputerSystemProduct).UUID
 $c = (Get-CimInstance Win32_Processor).ProcessorId
-$v = (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'").VolumeSerialNumber
-Write-Output "$b"
+Write-Output "$g"
+Write-Output "$u"
 Write-Output "$c"
-Write-Output "$v"
 """
+
+# 占位串黑名单（采集遇到=无效，绝不参与匹配——激活将以人话失败）
+_PLACEHOLDER = {
+    "", "default string", "none", "null", "n/a",
+    "to be filled by o.e.m.", "system serial number",
+    "0123456789", "1234567890", "123456789",
+}
+_GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _fp_component_ok(kind: str, val: str) -> bool:
+    v = (val or "").strip()
+    if v.lower() in _PLACEHOLDER:
+        return False
+    if kind in ("guid", "uuid"):
+        if not _GUID_RE.match(v):
+            return False
+        hexes = v.replace("-", "")
+        return hexes not in ("0" * 32, "f" * 32)
+    if kind == "cpu":
+        return len(v) >= 8 and all(ch in "0123456789ABCDEFabcdef" for ch in v)
+    return True
 
 
 def _fp_digest(component: str) -> str:
@@ -73,9 +102,12 @@ def collect_fingerprints(force: bool = False) -> list[str]:
             ["powershell", "-NoProfile", "-Command", _PS_FINGERPRINT],
             capture_output=True, text=True, timeout=30)
         parts = [x.strip() for x in r.stdout.splitlines() if x.strip()][:3]
-        if r.returncode != 0 or len(parts) < 3:
-            # 硬件信息读不全：给确定性占位（激活必然失败并提示人话，
-            # 绝不静默放行）
+        kinds = ["guid", "uuid", "cpu"]
+        # 读不全 / 任一项为占位串：给确定性占位指纹（激活必然以
+        # 「设备不匹配」人话失败，绝不静默放行，也绝不拿占位串匹配）
+        if (r.returncode != 0 or len(parts) < 3
+                or not all(_fp_component_ok(k, v)
+                           for k, v in zip(kinds, parts, strict=False))):
             parts = ["<unreadable>"] * 3
         _cache["fp"] = [_fp_digest(p) for p in parts]
         _cache["fp_at"] = time.time()

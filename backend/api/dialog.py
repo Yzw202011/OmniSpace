@@ -648,12 +648,26 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
             with flow.node("模型加载", input_summary=f"model={model_req or 'auto'}",
                            friendly="加载对话模型") as n:
                 if not await run_blocking(engine.ensure_loaded, model_req):
-                    status = engine.get_status()
-                    code = 30004 if status["state"] == "error" else 30003
-                    raise ApiError(
-                        code,
-                        status["last_error"] or "对话模型未就绪，请稍后再试",
-                        detail={"engine": status})
+                    # 装载已触发但 15s 内未完成（看门狗空闲卸载/重启后的
+                    # 首条消息场景）——铁律：排队等装载完自动续跑，绝不
+                    # 弄丢消息。有界轮询（≤5 分钟）至就绪；仅 error/
+                    # unavailable/超时才诚实报错（带出路）。
+                    deadline = time.monotonic() + 300.0
+                    st = engine.get_status()
+                    while not engine.is_ready:
+                        if st["state"] in ("error", "unavailable"):
+                            raise ApiError(
+                                30004,
+                                st["last_error"] or "对话模型加载失败，请重试",
+                                detail={"engine": st})
+                        if time.monotonic() >= deadline:
+                            raise ApiError(
+                                30003,
+                                "对话模型装载超时（已等待 5 分钟），请稍后重试；"
+                                "持续失败请到「模型管理」页查看",
+                                detail={"engine": st})
+                        await asyncio.sleep(2)
+                        st = engine.get_status()
                 n.output(f"模型就绪: {engine.model_name}")
 
         # 节点：上下文组装（RAG 检索 + 历史 + build_context）

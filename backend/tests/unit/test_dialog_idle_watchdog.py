@@ -41,10 +41,30 @@ def test_decision_pure_function_contract() -> None:
 
 
 def test_uses_regular_unload_chain_and_plain_event() -> None:
-    """触发必须走正规卸载链，且写大白话事件（绝不直接杀进程）。"""
-    assert "if self.unload_model():" in SRC, "正规卸载链调用被删"
+    """触发必须走持锁二次确认的正规卸载链，且写大白话事件（绝不直接杀进程）。"""
+    assert "with self._lock:" in SRC, "看门狗持锁二次确认被删（竞态防线）"
+    assert "had = self._unload_locked()" in SRC, "持锁卸载调用被删"
     assert '"dialog", "idle_unload"' in SRC, "idle_unload 大白话事件被删"
     assert "下次对话将自动重新加载" in SRC, "出路指引被删（诚实事件必须带出路）"
+
+
+def test_send_preflight_queues_instead_of_dropping() -> None:
+    """dialog.py 生成预检：装载未完成时排队等待（≤5 分钟）而非快速失败
+    弄丢消息（2026-09-05 [生成失败]对话模型未就绪 事故根修）。"""
+    api_src = (Path(__file__).resolve().parents[2]
+               / "api" / "dialog.py").read_text(encoding="utf-8")
+    assert "排队等装载完自动续跑" in api_src, "等待语义注释被删"
+    assert "deadline = time.monotonic() + 300.0" in api_src, "有界等待被删"
+    assert 'st["state"] in ("error", "unavailable")' in api_src, "失败态判定被删"
+    assert "await asyncio.sleep(2)" in api_src, "轮询让出事件循环被删"
+
+
+def test_false_ready_liveness_gate() -> None:
+    """假 ready 防线：vLLM 后端 ready 必须过子进程健康体检，失联即
+    降级重载（2026-09-05 孤儿进程事故：假 ready 放行生成撞死服务）。"""
+    assert "假 ready 防线" in SRC, "假 ready 防线注释被删"
+    assert "if not get_vllm_service().is_healthy():" in SRC, "健康体检被删"
+    assert 'self._state = "unloaded"' in SRC, "失联降级被删"
 
 
 def test_watchdog_thread_and_threshold_source() -> None:

@@ -1077,35 +1077,39 @@ class DialogEngine(BaseEngine):
         引擎层 _release_cuda_memory 兜底。
         """
         with self._lock:
-            backend, self._backend = self._backend, None
-            had = backend is not None
-            _unloaded_name = self._model_id
-            _unloaded_backend = self._backend_name
-            self._backend_name = ""
-            self._model_id = ""
-            self._model_dir = None
-            if had:
-                self._state = "unloaded"
-                self._degraded_from = ""  # 卸载即不再处于降级态
-                try:
-                    backend.unload()
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("后端卸载异常: %s", exc)
-            _release_cuda_memory()
-            if had:
-                logger.info("对话模型已卸载，显存已释放（空闲 %.1fGB）",
-                            _cuda_free_gb())
-                try:  # 大白话事件：模型卸载
-                    from ..event_log import log_event
-                    log_event(
-                        "dialog", "model_unloaded",
-                        f"对话模型「{_unloaded_name}」已卸载，"
-                        f"显存已释放（当前空闲 {_cuda_free_gb():.1f}GB）",
-                        level="info",
-                        detail=f"backend={_unloaded_backend or 'unknown'}")
-                except Exception:  # noqa: BLE001
-                    pass
-            return had
+            return self._unload_locked()
+
+    def _unload_locked(self) -> bool:
+        """卸载实现（调用方必须已持有 self._lock；看门狗持锁二次确认用）。"""
+        backend, self._backend = self._backend, None
+        had = backend is not None
+        _unloaded_name = self._model_id
+        _unloaded_backend = self._backend_name
+        self._backend_name = ""
+        self._model_id = ""
+        self._model_dir = None
+        if had:
+            self._state = "unloaded"
+            self._degraded_from = ""  # 卸载即不再处于降级态
+            try:
+                backend.unload()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("后端卸载异常: %s", exc)
+        _release_cuda_memory()
+        if had:
+            logger.info("对话模型已卸载，显存已释放（空闲 %.1fGB）",
+                        _cuda_free_gb())
+            try:  # 大白话事件：模型卸载
+                from ..event_log import log_event
+                log_event(
+                    "dialog", "model_unloaded",
+                    f"对话模型「{_unloaded_name}」已卸载，"
+                    f"显存已释放（当前空闲 {_cuda_free_gb():.1f}GB）",
+                    level="info",
+                    detail=f"backend={_unloaded_backend or 'unknown'}")
+            except Exception:  # noqa: BLE001
+                pass
+        return had
 
     # ── 知识 LoRA 挂载（R2-B04 自主进化闭环）────────────────────
     # 实现收敛在 TransformersBackend（仅 transformers 路径支持 peft）
@@ -1134,6 +1138,21 @@ class DialogEngine(BaseEngine):
         不可用或返回 False 时走自身加载流程。
         """
         self._last_activity_ts = time.monotonic()  # 空闲看门狗活动戳
+        # 假 ready 防线（2026-09-05 实测）：引擎标志 ready 但 vLLM 子进程
+        # 事实已消失（孤儿清扫/模块切换终止/异常退出）时，若直接信任标志
+        # 会放行生成、撞上已死服务报「vLLM 服务未就绪」——先做子进程健康
+        # 体检，失联即如实降级为 unloaded 走下面的重载流程。
+        if self._state == "ready" and self._backend is not None \
+                and getattr(self._backend, "name", "") == "vllm":
+            try:
+                from ...engines.vllm_service import get_vllm_service
+                if not get_vllm_service().is_healthy():
+                    logger.warning(
+                        "ensure_loaded: 引擎态 ready 但 vLLM 子进程失联，"
+                        "降级 unloaded 走重载")
+                    self._state = "unloaded"
+            except Exception:  # noqa: BLE001 - 服务不可用时按原状态走
+                pass
         if self._state == "ready":
             if not model_id or model_id in (self._model_id,
                                             Path(self._model_id).stem):
@@ -1604,17 +1623,25 @@ class DialogEngine(BaseEngine):
             return None
 
     def _maybe_idle_unload(self) -> None:
-        """空闲达标且全系统空闲 → 走正规卸载链还显存并写大白话事件。"""
+        """空闲达标且全系统空闲 → 持锁二次确认后走正规卸载链还显存。
+
+        持引擎锁期间重读活动戳再判定：与 ensure_loaded/生成入口串行化，
+        消灭「判定时空闲、卸载瞬间用户刚好发消息」的竞态——若用户已
+        回来（活动戳刷新），本次放弃，下个巡检周期再看。
+        """
         holder = self._active_feature_snapshot()
-        idle_seconds = time.monotonic() - self._last_activity_ts
-        if not _idle_unload_due(state=self._state, idle_seconds=idle_seconds,
-                                threshold_seconds=DIALOG_IDLE_UNLOAD_SECONDS,
-                                active_feature=holder):
-            return
-        name = self._model_id
-        logger.info("对话引擎空闲看门狗: 空闲 %.0f 分钟达阈值，走正规链卸载「%s」",
-                    idle_seconds / 60.0, name)
-        if self.unload_model():
+        with self._lock:
+            idle_seconds = time.monotonic() - self._last_activity_ts
+            if not _idle_unload_due(
+                    state=self._state, idle_seconds=idle_seconds,
+                    threshold_seconds=DIALOG_IDLE_UNLOAD_SECONDS,
+                    active_feature=holder):
+                return
+            name = self._model_id
+            logger.info("对话引擎空闲看门狗: 空闲 %.0f 分钟达阈值，走正规链卸载「%s」",
+                        idle_seconds / 60.0, name)
+            had = self._unload_locked()
+        if had:
             try:  # 大白话事件：解释「模型怎么没了」，下次对话自动加载
                 from ..event_log import log_event
                 log_event(

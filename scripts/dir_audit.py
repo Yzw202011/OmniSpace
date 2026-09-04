@@ -54,7 +54,7 @@ DIR_WHITELIST = {
     # 登记的历史目录（清理清单处置中，处置完删除登记行）
     "采集素材",
     # 工具缓存（免审）
-    ".cache", ".pytest_cache", ".ruff_cache", ".githooks", ".vscode",
+    ".cache", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".githooks", ".vscode",
     ".mimosa", ".zcode", ".trae", ".trae-html-share-packages", ".git",
 }
 

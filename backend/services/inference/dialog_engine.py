@@ -508,7 +508,28 @@ def _resolve_candidate_dir(rel: str) -> Path | None:
 
 
 def _cuda_free_gb() -> float:
-    """当前 GPU 空闲显存（GB）；无 CUDA 时返回 0。"""
+    """当前 GPU 空闲显存（GB）；无 CUDA 时返回 0。
+
+    数据源优先 pynvml（驱动级计数器，与硬件遥测/nvidia-smi 同源）——
+    torch.cuda.mem_get_info 在 Windows WDDM 下不含其他进程占用，
+    2026-09-05 实测 vLLM 子进程吃满 15.6GB 时该口径仍报空闲 11.69GB，
+    导致 /dialog/status 的 vram_free_gb 严重失真，故统一走 NVML。
+    """
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            return mem.free / (1024 ** 3)
+        finally:
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+    except Exception:
+        pass
     torch = _try_import("torch")
     if torch is None or not torch.cuda.is_available():
         return 0.0

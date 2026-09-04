@@ -61,7 +61,11 @@ import time
 import uuid
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .scheduler.monitor import HardwareMonitor
 
 from ..config import LOGS_DIR
 
@@ -93,7 +97,7 @@ _current_flow: ContextVar[Flow | None] = ContextVar("flow_trace", default=None)
 _monitor_instance = None
 
 
-def _monitor():
+def _monitor() -> HardwareMonitor:
     """惰性复用 scheduler.monitor.HardwareMonitor（自带 TTL 缓存）。"""
     global _monitor_instance
     if _monitor_instance is None:
@@ -236,7 +240,7 @@ class _NodeCtx:
 
     def __init__(self, flow: Flow, name: str, seq: int,
                  input_summary: str = "", friendly: str = "",
-                 module: str = "", detail: str = ""):
+                 module: str = "", detail: str = "") -> None:
         self.flow = flow
         self.name = name
         self.seq = seq
@@ -307,7 +311,10 @@ class _NodeCtx:
         self.flow._node_seq += 1
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self,
+                 exc_type: type[BaseException] | None,
+                 exc: BaseException | None,
+                 tb: TracebackType | None) -> bool:
         duration_ms = int((time.time() - self.started_at) * 1000)
         if exc_type is None:
             self._finish("success", duration_ms)
@@ -329,7 +336,7 @@ class Flow:
 
     def __init__(self, module: str, feature: str, friendly: str,
                  trigger: str = "", input_summary: str = "",
-                 detail: str = ""):
+                 detail: str = "") -> None:
         self.module = module
         self.feature = feature
         self.friendly = friendly

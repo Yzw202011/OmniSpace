@@ -8,13 +8,17 @@ from __future__ import annotations
 import asyncio
 import importlib
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match, Mount
+from starlette.types import Scope
 
 from . import config
 from .data.database import get_db
@@ -41,7 +45,7 @@ except Exception:
 # ═══════════════════════════════════════════════════════════════════
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("=" * 60)
     log.info("OmniSpace AI v2.3.1 后端启动 (%s:%s)", config.HOST, config.PORT)
     log.info("版本: %s", config.APP_VERSION)
@@ -336,7 +340,8 @@ def create_app() -> FastAPI:
     from . import license_gate
 
     @app.middleware("http")
-    async def license_gate_middleware(request: Request, call_next):
+    async def license_gate_middleware(request: Request,
+                                      call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         if license_gate.gate_enabled():
             path = request.url.path
             allowed = (path in ("/health", "/")
@@ -368,12 +373,12 @@ def create_app() -> FastAPI:
 
     # 异常处理（§6.1 / §8）
     @app.exception_handler(ApiError)
-    async def api_error_handler(_: Request, exc: ApiError):
+    async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
         log.warning("ApiError: code=%s msg=%s", exc.code, exc.message)
         return error(exc.code, exc.message, exc.detail, suggestion=exc.suggestion)
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(_: Request, exc: RequestValidationError):
+    async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
         fields = [{"loc": [str(p) for p in e.get("loc", [])], "msg": e.get("msg", "")}
                   for e in exc.errors()[:5]]
         detail_str = "; ".join(f"{'.'.join(f['loc'])} {f['msg']}" for f in fields)
@@ -385,7 +390,7 @@ def create_app() -> FastAPI:
     # 不允许等框架级异常），避免泄漏 FastAPI 默认 {"detail": "Not Found"}
     # 结构——前端只需面对统一 {success,data,error,meta} 信封契约（审计 R1-07）。
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(_: Request, exc: StarletteHTTPException):
+    async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         if exc.status_code == 404:
             log.info("路由不存在: %s", getattr(_, "url", "").path if _ else "")
             return error("SYSTEM_RESOURCE_NOT_FOUND", "资源不存在",
@@ -403,7 +408,7 @@ def create_app() -> FastAPI:
                      {"http_status": exc.status_code})
 
     @app.exception_handler(Exception)
-    async def unhandled_handler(_: Request, exc: Exception):
+    async def unhandled_handler(_: Request, exc: Exception) -> JSONResponse:
         log.exception("未捕获异常: %s", exc)
         try:  # 大白话事件：系统异常（用户可见）
             from .services.event_log import log_event
@@ -422,7 +427,7 @@ def create_app() -> FastAPI:
 
     # 健康检查
     @app.get("/health", include_in_schema=False)
-    async def health():
+    async def health() -> dict[str, Any]:
         db_status = "ok"
         try:
             get_db().query_one("SELECT 1 AS one")
@@ -437,7 +442,7 @@ def create_app() -> FastAPI:
     # 本 WS 端点仅为兼容现有前端 ws.ts 保留。
     # 真实引擎推理实现在 api.dialog.handle_dialog_stream（协议与前端 ws.ts 契约对齐）
     @app.websocket(f"{config.API_PREFIX}/dialog/stream/{{session_id}}")
-    async def dialog_stream(websocket: WebSocket, session_id: str):
+    async def dialog_stream(websocket: WebSocket, session_id: str) -> None:
         from .middleware.cors import ws_origin_guard
         if not await ws_origin_guard(websocket):  # 审计 R3-SEC1：防 CSWSH
             return
@@ -451,7 +456,7 @@ def create_app() -> FastAPI:
     # WebSocket: 通用消息中枢（§2.2 ws://127.0.0.1:5800/ws）
     # 前端 useWebSocket 默认连接此端点；支持 ping/pong 与 subscribe_system。
     @app.websocket("/ws")
-    async def ws_hub_endpoint(websocket: WebSocket):
+    async def ws_hub_endpoint(websocket: WebSocket) -> None:
         from .middleware.cors import ws_origin_guard
         if not await ws_origin_guard(websocket):  # 审计 R3-SEC1：防 CSWSH
             return
@@ -460,7 +465,7 @@ def create_app() -> FastAPI:
 
     # 前端静态资源（§14约束2：离线本地前端）
     class NoCacheStaticFiles(StaticFiles):
-        async def get_response(self, path, scope):
+        async def get_response(self, path: str, scope: Scope) -> Response:
             resp = await super().get_response(path, scope)
             resp.headers["Cache-Control"] = "no-cache"
             return resp
@@ -476,7 +481,7 @@ def create_app() -> FastAPI:
     from fastapi import Response as _FResponse
 
     @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon():
+    async def favicon() -> Response:
         return _FResponse(status_code=204)
     if static_dir.exists():
         # Vite 构建产物引用 /assets/...（base=/），挂载在根路径使其可直接访问；
@@ -488,7 +493,7 @@ def create_app() -> FastAPI:
         class _ApiAwareMount(Mount):
             _API_PREFIXES = ("/api/v1", "/health", "/ws", "/favicon.ico")
 
-            def matches(self, scope):  # type: ignore[override]
+            def matches(self, scope: Scope) -> tuple[Match, dict]:  # type: ignore[override]
                 path = scope.get("path", "")
                 for p in self._API_PREFIXES:
                     if path == p or path.startswith(p + "/"):

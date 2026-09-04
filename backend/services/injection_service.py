@@ -13,6 +13,11 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..data.vector_db import VectorDB
+
 import logging
 import threading
 import time
@@ -33,7 +38,7 @@ RECALL_MULT = 2           # 单路召回倍数（每路取 top_k*RECALL_MULT 参
 class KnowledgeInjectionService:
     """RAG 检索注入服务（TASK-034）。单例，见 get_injection_service()。"""
 
-    def __init__(self, vector_db=None,
+    def __init__(self, vector_db: VectorDB | None = None,
                  score_threshold: float = SCORE_THRESHOLD) -> None:
         self._vdb = vector_db if vector_db is not None else get_vector_db()
         self._threshold = score_threshold

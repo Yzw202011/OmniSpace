@@ -713,7 +713,8 @@ def generate_director(*, project: dict, plan: list[dict],
 
 def _generate_director_locked(*, project: dict, plan: list[dict],
                               asset_images: dict, out_dir: Path,
-                              steps: int, progress_cb) -> list[Path]:
+                              steps: int,
+                              progress_cb: Callable[[float, str], None] | None) -> list[Path]:
     import copy
 
     engine = get_h3_engine()

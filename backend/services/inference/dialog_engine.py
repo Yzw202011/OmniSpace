@@ -413,7 +413,7 @@ class _ThinkingStreamParser:
                 return len(p)
         return 0
 
-    def feed(self, text: str):
+    def feed(self, text: str) -> list[tuple[str, str]]:
         """喂入一段增量，产出 [(kind, chunk), ...]（kind: reasoning/content）。"""
         self._buf += text
         out: list[tuple[str, str]] = []
@@ -442,7 +442,7 @@ class _ThinkingStreamParser:
                     self._buf = ""
             return out
 
-    def flush(self):
+    def flush(self) -> list[tuple[str, str]]:
         """EOF 冲刷：残余按当前状态归属；未见标记时思考全文复制为正文。"""
         out: list[tuple[str, str]] = []
         if self._buf:

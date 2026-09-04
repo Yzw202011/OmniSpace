@@ -17,7 +17,10 @@ import logging
 import threading
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .database import Database
 
 log = logging.getLogger("omnispace.graph")
 
@@ -66,7 +69,7 @@ def _norm_entity(name: str) -> str:
 class GraphStore:
     """知识图谱存储（线程安全单例，见 get_graph_store()）。"""
 
-    def __init__(self, db=None) -> None:
+    def __init__(self, db: Database | None = None) -> None:
         self._lock = threading.Lock()
         if db is None:
             from .database import get_db_safe

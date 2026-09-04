@@ -38,7 +38,10 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..data.database import Database
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 from ..config import DATA_DIR
@@ -223,7 +226,7 @@ _ACTION_LABELS = {
 class LearningError(Exception):
     """学习域业务异常，携带统一错误码。"""
 
-    def __init__(self, code: int, message: str, detail: Any = None):
+    def __init__(self, code: int, message: str, detail: Any = None) -> None:
         self.code = code
         self.message = message
         self.detail = detail if detail is not None else {}
@@ -475,7 +478,7 @@ def ensure_learning_tables() -> bool:
             return False
 
 
-def _db():
+def _db() -> Database:
     from ..data.database import get_db_safe
     return get_db_safe()
 

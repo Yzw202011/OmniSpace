@@ -12,6 +12,7 @@ OmniSpace AI Launcher 守护进程
 - Launcher与主程序WebSocket双向通信
 """
 
+import io
 import json
 import os
 import socket
@@ -24,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import psutil
 import yaml
@@ -80,7 +82,7 @@ class LauncherConfig:
 class PortManager:
     """端口管理器 - 三级递进策略"""
 
-    def __init__(self, config: LauncherConfig):
+    def __init__(self, config: LauncherConfig) -> None:
         self.config = config
 
     def is_port_in_use(self, port: int) -> bool:
@@ -169,7 +171,7 @@ class PortManager:
 class EnvironmentChecker:
     """环境检查器"""
 
-    def __init__(self, config: LauncherConfig):
+    def __init__(self, config: LauncherConfig) -> None:
         self.config = config
         self.results = {}
 
@@ -297,10 +299,10 @@ class EnvironmentChecker:
         """
         import hashlib
 
-        def _blake3_factory():
+        def _blake3_factory() -> Any:
             return blake3.blake3()
 
-        def _blake2b_factory():
+        def _blake2b_factory() -> Any:
             return hashlib.new('blake2b', digest_size=32)
 
         # 优先使用blake3（需第三方包），否则降级到blake2b
@@ -384,7 +386,7 @@ class EnvironmentChecker:
 class BackendProcess:
     """后端进程管理器"""
 
-    def __init__(self, config: LauncherConfig):
+    def __init__(self, config: LauncherConfig) -> None:
         self.config = config
         self.process: subprocess.Popen | None = None
         self._heartbeat_thread: threading.Thread | None = None
@@ -465,7 +467,7 @@ class BackendProcess:
         env['OMNISPACE_LAUNCHER'] = '1'
         return env
 
-    def _drain_pipe(self, pipe, log_path: Path):
+    def _drain_pipe(self, pipe: io.BufferedReader, log_path: Path) -> None:
         """L-M2: 后台线程持续读取子进程管道内容写入日志文件，避免管道满后子进程阻塞"""
         try:
             with open(log_path, 'a', encoding='utf-8') as f:
@@ -538,7 +540,7 @@ class BackendProcess:
             print(f'启动后端失败: {e}')
             return False
 
-    def stop(self, timeout: float = 10.0):
+    def stop(self, timeout: float = 10.0) -> None:
         """停止后端进程"""
         self._running = False
         if self.process:
@@ -582,7 +584,7 @@ class BackendProcess:
             time.sleep(1)
         return False
 
-    def _heartbeat_loop(self, gen: int):
+    def _heartbeat_loop(self, gen: int) -> None:
         """心跳检测循环（使用实际运行端口；R2-N3：代际失配自动退出防线程累积）"""
         port = self._actual_port if hasattr(self, '_actual_port') else self.config.backend_port
         consecutive_failures = 0
@@ -613,12 +615,12 @@ class BackendProcess:
             else:
                 consecutive_failures = 0
 
-    def _handle_crash(self, port: int):
+    def _handle_crash(self, port: int) -> None:
         """处理崩溃 - 自动重启（R2-N3：锁保护，并发心跳仅一个执行重启）"""
         with self._crash_lock:
             self._handle_crash_locked(port)
 
-    def _handle_crash_locked(self, port: int):
+    def _handle_crash_locked(self, port: int) -> None:
         now = time.time()
 
         # 端口归属检查（2026-08-22 僵尸循环修复）：双 launcher 共存时，
@@ -674,11 +676,11 @@ class BackendProcess:
 class TrayIcon:
     """系统托盘图标"""
 
-    def __init__(self, launcher: 'Launcher'):
+    def __init__(self, launcher: 'Launcher') -> None:
         self.launcher = launcher
         self._icon = None
 
-    def show(self):
+    def show(self) -> None:
         """显示托盘图标（如果pystray可用）"""
         try:
             import pystray
@@ -701,7 +703,7 @@ class TrayIcon:
         except ImportError:
             print('pystray/PIL未安装，跳过托盘图标')
 
-    def notify(self, title: str, message: str):
+    def notify(self, title: str, message: str) -> None:
         """显示气泡通知"""
         if self._icon:
             try:
@@ -710,14 +712,14 @@ class TrayIcon:
                 pass
         print(f'[通知] {title}: {message}')
 
-    def _open_browser(self):
+    def _open_browser(self) -> None:
         self.launcher.open_browser()
 
-    def _show_status(self, icon=None, item=None):
+    def _show_status(self, icon: object | None = None, item: object | None = None) -> None:
         status = self.launcher.get_status()
         self.notify('OmniSpace AI 状态', status)
 
-    def _quit(self, icon=None, item=None):
+    def _quit(self, icon: object | None = None, item: object | None = None) -> None:
         self.launcher.shutdown()
         if self._icon:
             self._icon.stop()
@@ -726,7 +728,7 @@ class TrayIcon:
 class Launcher:
     """OmniSpace Launcher主类"""
 
-    def __init__(self, config: LauncherConfig | None = None):
+    def __init__(self, config: LauncherConfig | None = None) -> None:
         self.config = config or LauncherConfig()
         self.port_manager = PortManager(self.config)
         self.env_checker = EnvironmentChecker(self.config)
@@ -797,7 +799,7 @@ class Launcher:
 
         return True
 
-    def _write_frontend_config(self):
+    def _write_frontend_config(self) -> None:
         """前端配置注入（已废弃，保留为 no-op）。
 
         现行前端 frontend/index.html + frontend/src/api.js 采用同源相对路径自动探测
@@ -806,7 +808,7 @@ class Launcher:
         """
         return
 
-    def open_browser(self):
+    def open_browser(self) -> None:
         """打开浏览器界面"""
         url = f'http://{self.config.backend_host}:{self._actual_port}'
         webbrowser.open(url)
@@ -821,19 +823,19 @@ class Launcher:
             uptime = f'运行{hours}小时{minutes}分钟'
         return f'端口: {self._actual_port} | {uptime}'
 
-    def _on_backend_status(self, status: str, message: str):
+    def _on_backend_status(self, status: str, message: str) -> None:
         """后端状态变化回调"""
         print(f'[后端] {status}: {message}')
         self.tray.notify('OmniSpace AI', message)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """关闭Launcher"""
         print('\n正在关闭OmniSpace AI...')
         self.backend.stop()
         self._kill_comfyui_leftover()
         print('已关闭')
 
-    def _kill_comfyui_leftover(self):
+    def _kill_comfyui_leftover(self) -> None:
         """清理 ComfyUI 子进程残留（2026-08-31 治理，第三道防线）。
 
         后端侧已有 Job Object 共生死 + atexit 双保险（backend/
@@ -861,7 +863,7 @@ class Launcher:
         except Exception as e:
             print(f'ComfyUI 残留清理跳过: {e}')
 
-    def run(self):
+    def run(self) -> None:
         """运行Launcher主循环"""
         if not self.initialize():
             input('\n按回车键退出...')
@@ -882,7 +884,7 @@ class Launcher:
             self.shutdown()
 
 
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description='OmniSpace AI Launcher')
     parser.add_argument('--port', type=int, default=8765, help='后端端口')

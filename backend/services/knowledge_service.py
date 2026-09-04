@@ -25,7 +25,10 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..data.vector_db import VectorDB
 
 from ..data.database import get_db_safe
 from ..data.fts_store import get_fts_store
@@ -370,7 +373,7 @@ class KnowledgeProcessingService:
     """知识处理管线（TASK-033/045）。单例，见 get_knowledge_service()。"""
 
     def __init__(self, llm_extractor: Callable[[str], str] | None = None,
-                 vector_db=None) -> None:
+                 vector_db: VectorDB | None = None) -> None:
         self._lock = threading.Lock()
         self._llm_extractor = llm_extractor
         self._vdb = vector_db if vector_db is not None else get_vector_db()

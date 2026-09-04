@@ -114,7 +114,7 @@ ERR_BROWSER_TIMEOUT = 72008       # 浏览器操作超时
 class BrowserError(Exception):
     """浏览器服务基础异常，携带统一错误码。"""
 
-    def __init__(self, code: int, message: str, detail: Any = None):
+    def __init__(self, code: int, message: str, detail: Any = None) -> None:
         self.code = code
         self.message = message
         self.detail = detail if detail is not None else {}

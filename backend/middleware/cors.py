@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import PORT
@@ -62,7 +63,7 @@ def is_allowed_origin(origin: str | None) -> bool:
     return bool(_ALLOWED_ORIGIN_PATTERN.match(origin))
 
 
-async def ws_origin_guard(websocket) -> bool:
+async def ws_origin_guard(websocket: WebSocket) -> bool:
     """WebSocket Origin 校验（审计 R3-SEC1：防 CSWSH 跨站 WebSocket 劫持）。
 
     CORS 中间件不覆盖 WS 握手，恶意网页可 new WebSocket("ws://127.0.0.1:5800/ws")
@@ -117,7 +118,8 @@ def setup_cors(app: FastAPI, extra_origins: list[str] | None = None) -> None:
 
     # ── 动态 Origin 校验中间件（拦截非常规端口的本地请求放行，外部拒绝）──
     @app.middleware("http")
-    async def cors_origin_guard(request, call_next):
+    async def cors_origin_guard(request: Request,
+                                call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         origin = request.headers.get("origin")
         # 非浏览器请求（无 Origin 头）直接放行
         if origin and not is_allowed_origin(origin):

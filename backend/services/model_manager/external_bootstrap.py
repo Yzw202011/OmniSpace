@@ -16,6 +16,11 @@ models_manifest.json 把外部绝对路径幂等回填进 models 表——激活
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ...data.database import Database
+
 import json
 import logging
 from pathlib import Path
@@ -82,7 +87,7 @@ def external_rows_from_manifest(root: Path) -> list[dict]:
     return rows
 
 
-def sync_external_models(db, rows: list[dict]) -> dict:
+def sync_external_models(db: Database, rows: list[dict]) -> dict:
     """幂等回填：同 id 只更新物理字段，新 id 插入（db=get_db_safe() 句柄）。"""
     result = {"inserted": 0, "updated": 0, "unchanged": 0}
     for row in rows:

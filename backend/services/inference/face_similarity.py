@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -156,7 +157,7 @@ def arc_available() -> bool:
     return _ARC_RECOG.is_file()
 
 
-def _ensure_arc_loaded():
+def _ensure_arc_loaded() -> Any:
     global _arc_session
     if _arc_session is not None:
         return _arc_session

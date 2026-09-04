@@ -183,7 +183,7 @@ class VectorDB:
             self._client = None
             self._collection = None
 
-    def _get_embed_model(self):
+    def _get_embed_model(self) -> Any:
         """懒加载嵌入模型（降级时返回 None）。
 
         TASK-033：加载本地 BGE-large-zh（models/embed/bge-large-zh，1024 维）。

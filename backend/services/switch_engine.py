@@ -57,6 +57,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("omnispace.switch")
 
@@ -71,7 +72,7 @@ _LOAD_PROGRESS_MIN, _LOAD_PROGRESS_MAX = 30, 88
 class SwitchBusyError(Exception):
     """同类切换任务进行中（单飞行互斥）。"""
 
-    def __init__(self, active_task_id: str, category: str):
+    def __init__(self, active_task_id: str, category: str) -> None:
         self.active_task_id = active_task_id
         self.category = category
         super().__init__(f"{category} 类别已有切换任务进行中: {active_task_id}")
@@ -1040,7 +1041,7 @@ class ModelSwitchEngine:
     # ── 验证 / 引擎解析 ────────────────────────────────────────
 
     @staticmethod
-    def _engine_for(category: str):
+    def _engine_for(category: str) -> Any:
         """引擎单例适配器：dialog/vision(绘画)/video。"""
         if category == "dialog":
             from .inference.dialog_engine import get_dialog_engine

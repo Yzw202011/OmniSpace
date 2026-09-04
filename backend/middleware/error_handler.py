@@ -273,7 +273,7 @@ class ApiError(Exception):
     """
 
     def __init__(self, code: int | str, message: str = "",
-                 detail: Any = None, suggestion: str = ""):
+                 detail: Any = None, suggestion: str = "") -> None:
         self.code = _to_semantic(code)
         self.message = message or _default_message(code)
         self.detail = detail

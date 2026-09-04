@@ -14,6 +14,10 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .database import Database
 
 log = logging.getLogger("omnispace.fts")
 
@@ -63,7 +67,7 @@ def _query_terms(query: str) -> tuple[list[str], list[str]]:
 class FtsStore:
     """知识全文索引（线程安全单例，见 get_fts_store()）。"""
 
-    def __init__(self, db=None) -> None:
+    def __init__(self, db: Database | None = None) -> None:
         self._lock = threading.Lock()
         self._fts5 = False
         if db is None:

@@ -1121,7 +1121,8 @@ class PaintEngine(BaseEngine):
 
     @staticmethod
     def _make_step_callback(progress_cb: Callable[[int, int], None] | None,
-                            total_steps: int, watch: dict):
+                            total_steps: int,
+                            watch: dict) -> Callable[[Any, int, Any, dict], dict]:
         """构造 diffusers callback_on_step_end 回调。
 
         progress_cb(percent, step) —— percent 0~100，step 为当前步（1 起）。
@@ -1130,7 +1131,8 @@ class PaintEngine(BaseEngine):
         回调只做进度上报，不做在途中断。
         """
 
-        def _cb(pipe, step_index: int, timestep, callback_kwargs):
+        def _cb(pipe: Any, step_index: int, timestep: Any,
+                callback_kwargs: dict) -> dict:
             current = step_index + 1
             watch["last_step"] = current
             # F-10 降参已上移至任务启动时降步数（generate/img2img 入口），

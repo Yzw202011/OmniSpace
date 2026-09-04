@@ -475,7 +475,7 @@ class Database:
         c = conn or self._conn()
         return int(c.execute("PRAGMA user_version").fetchone()[0])
 
-    def _migrate_columns(self, conn) -> None:
+    def _migrate_columns(self, conn: sqlite3.Connection) -> None:
         """为已存在的旧库补齐新增列，并推进 user_version（幂等）。
 
         版本守护：库版本高于代码版本（用户回退到旧程序打开新库）时拒绝启动，
@@ -499,13 +499,13 @@ class Database:
             self._run_data_migrations(conn, version)
             log.info("数据库 schema 已升级至 v%d", version)
 
-    def _run_data_migrations(self, conn, version: int) -> None:
+    def _run_data_migrations(self, conn: sqlite3.Connection, version: int) -> None:
         """执行指定版本登记的数据迁移（列迁移之后、版本日志之前）。"""
         for ver, method in self._DATA_MIGRATIONS:
             if ver == version:
                 getattr(self, method)(conn)
 
-    def _migrate_encrypt_legacy_fields(self, conn) -> None:
+    def _migrate_encrypt_legacy_fields(self, conn: sqlite3.Connection) -> None:
         """v3 数据迁移：存量明文字段一次性加密（要求#36 / RTM A-02）。
 
         落库前加密自接线起生效，此前的明文行在此补加密：

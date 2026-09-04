@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
 
 from ..asset_vault import read_asset
@@ -33,7 +34,7 @@ def ensure_seed() -> dict:
     rows = [(it.get("id", ""), it.get("name", ""), it.get("prompt", ""),
              float(it.get("created_at") or now)) for it in items]
 
-    def _do_import(conn) -> int:
+    def _do_import(conn: sqlite3.Connection) -> int:
         conn.executemany(
             "INSERT OR IGNORE INTO art_styles(id, name, prompt, created_at)"
             " VALUES (?,?,?,?)", rows)

@@ -9,6 +9,11 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ....engines.vllm_service import VLLMService
+
 import logging
 from collections.abc import Iterator
 from pathlib import Path
@@ -24,7 +29,7 @@ class VLLMBackend(DialogBackend):
     name = "vllm"
     supports_images = True  # Qwen3-VL 经 image_url base64 透传
 
-    def _service(self):
+    def _service(self) -> VLLMService:
         from ....engines.vllm_service import get_vllm_service
         return get_vllm_service()
 

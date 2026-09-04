@@ -11,6 +11,7 @@ import logging
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Literal
 
 from .base import DialogBackend, _try_import, preferred_load_dtype
@@ -120,7 +121,8 @@ class TransformersBackend(DialogBackend):
             logger.exception("对话模型加载失败")
             return False
 
-    def _load_vl(self, torch, transformers, path: Path):
+    def _load_vl(self, torch: ModuleType, transformers: ModuleType,
+                 path: Path) -> tuple[Any, Any] | bool:
         """VL 多模态加载路径（Qwen-VL / LLaVA / InternVL 等）。"""
         try:
             processor = transformers.AutoProcessor.from_pretrained(
@@ -156,7 +158,8 @@ class TransformersBackend(DialogBackend):
             )
         return model, processor
 
-    def _load_text(self, torch, transformers, path: Path):
+    def _load_text(self, torch: ModuleType, transformers: ModuleType,
+                 path: Path) -> tuple[Any, Any] | bool:
         """纯文本 LLM 加载路径（Qwen3 / Llama / GLM-4 / DeepSeek / Mistral /
         Yi / Phi / 代码模型等，trust_remote_code 覆盖 GLM/MiniCPM 自定义架构）。"""
         tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -280,7 +283,7 @@ class TransformersBackend(DialogBackend):
         # 粗估：中英文混合约 1 token / 1.5 字符
         return max(1, int(len(text) / 1.5))
 
-    def _prepare_inputs(self, messages: list[dict], images: list | None):
+    def _prepare_inputs(self, messages: list[dict], images: list | None) -> Any:
         """应用 chat template 并编码输入（vl / text 两类 processor）。"""
         processor = self._processor
         text = processor.apply_chat_template(

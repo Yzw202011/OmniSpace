@@ -20,6 +20,7 @@ import shutil
 import socket
 import sys
 import time
+from collections.abc import Callable
 
 from .config import (
     APP_VERSION,
@@ -574,7 +575,7 @@ _CHECKS = [
 ]
 
 
-def _run_check(idx: int, check_fn) -> dict:
+def _run_check(idx: int, check_fn: Callable[[], CheckResult]) -> dict:
     """执行单项目检并返回结果 dict（含异常兜底与日志）。"""
     try:
         result = check_fn()

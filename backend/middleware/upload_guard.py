@@ -25,7 +25,7 @@ Sniffer = Callable[[bytes], bool]
 class UploadRejected(ValueError):
     """上传文件未通过类型闸门；message 面向用户，reason 供日志与测试断言。"""
 
-    def __init__(self, message: str, reason: str = ""):
+    def __init__(self, message: str, reason: str = "") -> None:
         super().__init__(message)
         self.reason = reason
 

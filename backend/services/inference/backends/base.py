@@ -19,6 +19,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any, ClassVar
 
 logger = logging.getLogger("omnispace.inference.backends")
@@ -53,7 +54,7 @@ def _precision_pref() -> str:
     return "bf16"
 
 
-def preferred_load_dtype(torch) -> tuple:
+def preferred_load_dtype(torch: ModuleType) -> tuple:
     """读取 models.config.precision 加载偏好（MODEL-034，PUT /models/config）。
 
     P3 统一口径：先经 gpu_backend 精度×量化兼容矩阵裁决，得到当前硬件

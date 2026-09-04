@@ -16,6 +16,12 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import asyncio
+
 import hashlib
 import json
 import re
@@ -52,7 +58,7 @@ _QUALITY = {"480p": (864, 480), "720p": (1344, 768)}
 _MAX_REFS = 7  # 与模板槽位一致（引擎上限 9,槽 8/9 预留）
 
 
-def _split_names(value) -> list[str]:
+def _split_names(value: Any) -> list[str]:
     """分镜行绑定字段 → 名单（容忍 JSON 数组/顿号/逗号/换行分隔）。"""
     if not value:
         return []
@@ -80,7 +86,7 @@ def _lcs_len(a: str, b: str) -> int:
     return best
 
 
-def _parse_id_list(v) -> list[str]:
+def _parse_id_list(v: Any) -> list[str]:
     """asset_ids 兼容解析：list / JSON 字符串 / 逗号分隔（对齐 keyframe
     的 _fetch_bound_assets 三形态兼容）。"""
     if isinstance(v, list):
@@ -96,7 +102,7 @@ def _parse_id_list(v) -> list[str]:
     return []
 
 
-def _collect_refs(row: dict, row_id) -> list[dict]:
+def _collect_refs(row: dict, row_id: str) -> list[dict]:
     """按 角色→场景→道具 收集参考（comic_assets 真源，≤7）。
 
     P0 修复（2026-08-31）：绑定真源 = storyboard_rows.asset_ids（资产
@@ -325,8 +331,10 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
 
 def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                       quality: str, start_clip: int = 1, run_name: str = "",
-                      loop=None, progress_cb=None, aspect: str = "16:9",
-                      check_cancel=None,
+                      loop: asyncio.AbstractEventLoop | None = None,
+                      progress_cb: Callable[[float, str], None] | None = None,
+                      aspect: str = "16:9",
+                      check_cancel: Callable[[], None] | None = None,
                       keep_loaded: bool = False) -> dict:
     """链式生成主流程（阻塞,供视频队列 worker 调用）。
 
@@ -348,7 +356,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         if check_cancel is not None:
             check_cancel()
 
-    def _cancel_interrupt(engine_ref) -> None:
+    def _cancel_interrupt(engine_ref: Any) -> None:
         """取消时 best-effort 中断 ComfyUI 当前 prompt（止损 GPU）。"""
         try:
             engine_ref._api("POST", "/interrupt", timeout=5.0)
@@ -363,7 +371,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     engine = get_h3_engine()
     run_name = run_name or f"h3chain_{task_id}"
 
-    def report(frac, stage):
+    def report(frac: float, stage: str) -> None:
         if progress_cb:
             try:
                 progress_cb(frac, stage)
@@ -509,9 +517,10 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
             "run_name": run_name, "start_clip": start_clip}
 
 
-def _poll_chain_history(engine, prompt_id: str, seconds: float,
-                        frames: int, report,
-                        check_cancel=None, on_cancel=None) -> str:
+def _poll_chain_history(engine: Any, prompt_id: str, seconds: float,
+                        frames: int, report: Callable[[float, str], None],
+                        check_cancel: Callable[[], None] | None = None,
+                        on_cancel: Callable[[], None] | None = None) -> str:
     """链式轮询：整体 ETA 按帧数线性 + 队列活性检测（复用导演台口径）。
 
     check_cancel：每轮（3s）取消检查，命中经 on_cancel 中断 ComfyUI

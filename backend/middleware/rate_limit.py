@@ -14,8 +14,9 @@ import re
 import threading
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 
 from ..config import API_PREFIX, RATE_LIMIT
 from .error_handler import error
@@ -213,7 +214,8 @@ def setup_rate_limit(app: FastAPI, max_requests: int = RATE_LIMIT,
                                 window_seconds=window_seconds)
 
     @app.middleware("http")
-    async def rate_limit_middleware(request: Request, call_next):
+    async def rate_limit_middleware(request: Request,
+                                    call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         path = request.url.path
         # 白名单放行
         if any(path.startswith(p) for p in _WHITELIST_PREFIXES):

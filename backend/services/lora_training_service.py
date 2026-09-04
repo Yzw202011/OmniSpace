@@ -1241,7 +1241,8 @@ class LoRATrainingService:
         from transformers import TrainerCallback  # type: ignore
 
         class _Cb(TrainerCallback):
-            def on_log(self, args, state, control, logs=None, **kw):
+            def on_log(self, args: Any, state: Any, control: Any,
+                       logs: dict | None = None, **kw: Any) -> None:
                 if not logs or "loss" not in logs or progress_cb is None:
                     return
                 try:
@@ -1259,7 +1260,8 @@ class LoRATrainingService:
         from transformers import TrainerCallback  # type: ignore
 
         class _Cb(TrainerCallback):
-            def on_epoch_end(self, args, state, control, **kw):
+            def on_epoch_end(self, args: Any, state: Any, control: Any,
+                             **kw: Any) -> None:
                 gc.collect()
                 try:
                     torch.cuda.empty_cache()
@@ -1273,7 +1275,8 @@ class LoRATrainingService:
         from transformers import TrainerCallback  # type: ignore
 
         class _Cb(TrainerCallback):
-            def on_step_end(self, args, state, control, **kw):
+            def on_step_end(self, args: Any, state: Any, control: Any,
+                            **kw: Any) -> None:
                 time.sleep(throttle_ms / 1000.0)
         return _Cb()
 
@@ -1288,7 +1291,8 @@ class LoRATrainingService:
         svc = self
 
         class _Cb(TrainerCallback):
-            def on_step_end(self, args, state, control, **kw):
+            def on_step_end(self, args: Any, state: Any, control: Any,
+                            **kw: Any) -> None:
                 if svc._is_cancelled(task_id):
                     control.should_training_stop = True
                     logger.info("训练循环收到取消信号，将于本步后停止: %s", task_id)

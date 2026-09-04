@@ -131,7 +131,8 @@ def _patch_dino_offline_fallback() -> None:
         return
     original = _img_tok.hf_hub_download
 
-    def _fallback_hf_hub_download(repo_id: str, filename: str, **kwargs):
+    def _fallback_hf_hub_download(repo_id: str, filename: str,
+                                  **kwargs: Any) -> Any:
         try:
             return original(repo_id=repo_id, filename=filename, **kwargs)
         except Exception:  # noqa: BLE001

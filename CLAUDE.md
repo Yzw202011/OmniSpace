@@ -284,6 +284,16 @@ P0/P1/P2 整改计划已收尾（TASK-收尾 21/21，见 git 历史与 docs/audi
 
 （F-003/Rust、F-004/C++、F-010/CUDA context 条目随 Tauri/C++ 层裁剪暂不适用，保留备查。）
 
+### 12.1 编程语言规范执行细则（2026-09-04 合规计划落地）
+
+- 规范真源：`docs/历史资料/编程语言规范A.txt` 的**适用部分**（Rust/Tauri/C++/CEF 等作废章节不复活）；
+  计划与批次进度：`docs/编程语言规范合规计划-2026-09-04.md`；已批例外：`docs/编程语言规范例外清单.md`。
+- **范围冻结（2026-09-04 用户令）**：`packaging_console/` 与 `license_console/` 代码不动（除其自身 bug 修复），合规改造与统计均不含。
+- Python：新函数 100% type hints，存量目标 ≥95%（豁免需注释）；async 内禁 time.sleep/requests（阻塞一律走 services/offload.py）；SQL 只参数化。
+- TS：禁 any（ESLint error 已落）；新接 API/WS 消息入口一律 Zod `.parse()`（模板=services/schema.ts，schema 照后端 Pydantic 抄，宁松勿严）；路由级组件走 React.lazy 代码分割。
+- AI token 流一律 SSE；WS 只做状态广播/遥测（存量 /dialog/stream 为例外 E2，不新增同类）。
+- CSS 动画只用 transform/opacity；进度条用 scaleX/scaleY（布局类 width 过渡见例外 E6）。
+
 ---
 
 ## 13. Git提交规范

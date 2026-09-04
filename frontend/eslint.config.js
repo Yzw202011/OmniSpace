@@ -12,6 +12,7 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}'],
     plugins: {
       'react-hooks': reactHooks,
+      '@typescript-eslint': tseslint.plugin,
     },
     languageOptions: {
       parser: tseslint.parser,
@@ -54,6 +55,7 @@ export default tseslint.config(
       'no-redeclare': 'off',   // TS 函数重载语法合法，真实重复声明由 tsc 拦截
       'no-console': 'warn',
       'no-debugger': 'error',
+      '@typescript-eslint/no-explicit-any': 'error', // 规范 F-002（2026-09-04 合规批0落地；存量为0，零噪音防新增）
       eqeqeq: ['warn', 'smart'],
       'prefer-const': 'warn',
       'no-var': 'error',

@@ -73,6 +73,9 @@ HYSTERESIS_SECONDS = _cfg["scheduler"]["hysteresis_seconds"]
 #   表层 60s → 释放 embed/aux/voice 小模型；深层默认 300s → 卸载非常驻大模型
 SHALLOW_RECLAIM_SECONDS = float(_cfg["scheduler"].get("shallow_reclaim_seconds", 60))
 IDLE_RECLAIM_SECONDS = float(_cfg["scheduler"].get("idle_reclaim_seconds", 300))
+# 对话引擎空闲看门狗阈值（方案A，2026-09-05）：就绪且全系统空闲达此秒数
+# → 正规卸载链还显存；0=禁用（见 config.yaml scheduler 注释）
+DIALOG_IDLE_UNLOAD_SECONDS = float(_cfg["scheduler"].get("dialog_idle_unload_seconds", 900))
 THRESHOLDS = _cfg["scheduler"]["thresholds"]
 
 # ── 磁盘阈值（P2 统一口径：单一来源 config.yaml `disk` 节）─────────

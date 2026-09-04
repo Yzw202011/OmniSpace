@@ -22,6 +22,10 @@ scheduler:
   #   idle_reclaim_seconds    300 → 深层：卸载非常驻大模型释放显存
   shallow_reclaim_seconds: 60
   idle_reclaim_seconds: 300
+  # 对话引擎空闲看门狗（2026-09-05 方案A）：对话模型就绪且全系统空闲
+  # 达此阈值 → 正规卸载链自动还显存（vLLM KV 预分配池约 5.5GB 不卸不清）；
+  # 0=禁用；下次对话自动重载（约 1-2 分钟，进度弹窗）
+  dialog_idle_unload_seconds: 900
   # 阈值表已对齐文档B §4.1（审计 BK-023）：
   #   GPU 显存 > 90%        → 降低模型精度 / 卸载非活跃模型（critical=0.90）
   #   GPU 利用率 > 95% 持续10s → 降低生成质量参数（critical=0.95 + sustained_s=10）

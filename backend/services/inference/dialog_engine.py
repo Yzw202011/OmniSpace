@@ -29,7 +29,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, ClassVar
 
-from ...config import DIALOG_MAX_PREFILL_TOKENS, MODELS_DIR
+from ...config import DIALOG_IDLE_UNLOAD_SECONDS, DIALOG_MAX_PREFILL_TOKENS, MODELS_DIR
 from .backends import DialogBackend, TransformersBackend, create_backend
 from .base_engine import BaseEngine
 
@@ -540,6 +540,24 @@ def _cuda_free_gb() -> float:
         return 0.0
 
 
+def _idle_unload_due(*, state: str, idle_seconds: float,
+                     threshold_seconds: float,
+                     active_feature: str | None) -> bool:
+    """空闲卸载判定（纯函数，2026-09-05 方案A）。
+
+    仅当：阈值>0 且引擎就绪 且 系统完全空闲（无任何重量级功能持锁——
+    含进行中的对话请求）且 空闲时长达标。持锁期间不回收：别的任务在跑
+    时不添乱，显存协调交给 release_for_module / offload 机制。
+    """
+    if threshold_seconds <= 0:
+        return False
+    if state != "ready":
+        return False
+    if active_feature is not None:
+        return False
+    return idle_seconds >= threshold_seconds
+
+
 def _cuda_total_gb() -> float:
     """GPU 物理显存总量（GB）；无 CUDA 时返回 0。"""
     torch = _try_import("torch")
@@ -640,6 +658,16 @@ class DialogEngine(BaseEngine):
         # 降级小模型时记录原目标 id；用户重新加载原模型/卸载即清空
         self._degraded_from: str = ""
         self._lock = threading.Lock()
+
+        # 空闲看门狗（2026-09-05 方案A）：最后活动时间戳（monotonic）+
+        # 常驻巡检线程——就绪态引擎在阈值内无人使用且系统完全空闲时，
+        # 走正规卸载链还显存（vLLM KV 预分配池不卸会一直占着）
+        self._last_activity_ts: float = time.monotonic()
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread = threading.Thread(
+            target=self._idle_watchdog_loop, name="dialog-idle-watchdog",
+            daemon=True)
+        self._watchdog_thread.start()
 
         # 推理统计（编排层统一计时，后端无感知）
         self.last_first_token_ms: float = 0.0
@@ -1105,6 +1133,7 @@ class DialogEngine(BaseEngine):
         优先尝试 model_manager.ensure_loaded 契约协调（另一 agent 实现），
         不可用或返回 False 时走自身加载流程。
         """
+        self._last_activity_ts = time.monotonic()  # 空闲看门狗活动戳
         if self._state == "ready":
             if not model_id or model_id in (self._model_id,
                                             Path(self._model_id).stem):
@@ -1406,6 +1435,7 @@ class DialogEngine(BaseEngine):
         Raises:
             RuntimeError: 引擎未就绪
         """
+        self._last_activity_ts = time.monotonic()  # 空闲看门狗活动戳
         backend = self._backend
         if self._state != "ready" or backend is None:
             raise RuntimeError(self._last_error or "对话模型未就绪")
@@ -1554,6 +1584,47 @@ class DialogEngine(BaseEngine):
             logger.info("对话引擎态 ready 但 vLLM 子进程已消失，状态降级 unloaded")
             return "unloaded"
         return self._state
+
+    # ── 空闲看门狗（方案A，阈值=config.scheduler.dialog_idle_unload_seconds）──
+
+    def _idle_watchdog_loop(self) -> None:
+        """常驻巡检线程（daemon）：每 60s 判定一次，异常不致死。"""
+        while not self._watchdog_stop.wait(60.0):
+            try:
+                self._maybe_idle_unload()
+            except Exception as exc:  # noqa: BLE001 - 看门狗绝不能带崩引擎
+                logger.debug("空闲看门狗巡检异常: %s", exc)
+
+    def _active_feature_snapshot(self) -> str | None:
+        """读功能锁当前持有人（引擎层不长期依赖中间件，惰性导入）。"""
+        try:
+            from ...middleware.feature_lock import FeatureLockManager
+            return FeatureLockManager.instance().active_feature
+        except Exception:  # noqa: BLE001 - 锁不可用时按系统空闲处理
+            return None
+
+    def _maybe_idle_unload(self) -> None:
+        """空闲达标且全系统空闲 → 走正规卸载链还显存并写大白话事件。"""
+        holder = self._active_feature_snapshot()
+        idle_seconds = time.monotonic() - self._last_activity_ts
+        if not _idle_unload_due(state=self._state, idle_seconds=idle_seconds,
+                                threshold_seconds=DIALOG_IDLE_UNLOAD_SECONDS,
+                                active_feature=holder):
+            return
+        name = self._model_id
+        logger.info("对话引擎空闲看门狗: 空闲 %.0f 分钟达阈值，走正规链卸载「%s」",
+                    idle_seconds / 60.0, name)
+        if self.unload_model():
+            try:  # 大白话事件：解释「模型怎么没了」，下次对话自动加载
+                from ..event_log import log_event
+                log_event(
+                    "dialog", "idle_unload",
+                    f"对话模型「{name}」空闲 "
+                    f"{DIALOG_IDLE_UNLOAD_SECONDS / 60:.0f} 分钟无人使用，"
+                    f"已自动卸载释放显存（当前空闲 {_cuda_free_gb():.1f}GB）；"
+                    "下次对话将自动重新加载（约 1-2 分钟）")
+            except Exception:  # noqa: BLE001
+                pass
 
     def get_status(self) -> dict:
         """引擎状态快照。"""

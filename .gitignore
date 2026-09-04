@@ -16,7 +16,8 @@ tmp_key.txt
 # ===== 运行时产物 =====
 .cache/
 /data/
-logs/
+# 锚定根目录（2026-09-05 修复：原 logs/ 误伤 frontend/src/components/logs/ 致日志页源码从未入库）
+/logs/
 debug.log
 *.log
 e2e_state.json
@@ -91,3 +92,6 @@ packaging_console/config.json
 
 # ===== ZCode 会话状态目录（本地工具产物，不入库） =====
 .zcode/
+
+# mypy 类型检查缓存（批4 开发机工具）
+.mypy_cache/

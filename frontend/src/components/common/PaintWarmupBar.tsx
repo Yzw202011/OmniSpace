@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getStatus } from '@/services/paintApi';
 import { useWarmupStore } from '@/stores/useWarmupStore';
+import { reportBgError } from '@/utils/errors';
 
 /** 冷启动预估总时长（ms）：diffusers 管线实测 10~60s，文案口径「0.5-1 分钟」 */
 const EXPECTED_MS = 60_000;
@@ -38,7 +39,10 @@ export default function PaintWarmupBar() {
   useEffect(() => {
     let cancelled = false;
     async function poll() {
-      const st = await getStatus().catch(() => null);
+      const st = await getStatus().catch((err: unknown) => {
+        reportBgError('PaintWarmupBar.status', err);
+        return null;
+      });
       if (cancelled) return;
       const ws = useWarmupStore.getState();
       const state = (st as { state?: string } | null)?.state;
@@ -119,11 +123,13 @@ export default function PaintWarmupBar() {
       >
         <div
           style={{
-            width: `${progress}%`,
+            width: '100%',
             height: '100%',
             borderRadius: 999,
             backgroundColor: done ? 'var(--color-success)' : 'var(--color-primary)',
-            transition: 'width .3s ease-out',
+            transform: `scaleX(${Math.min(100, Math.max(0, progress)) / 100})`,
+            transformOrigin: 'left center',
+            transition: 'transform .3s ease-out',
           }}
         />
       </div>

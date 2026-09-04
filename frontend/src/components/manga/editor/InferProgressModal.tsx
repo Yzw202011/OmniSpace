@@ -159,7 +159,7 @@ export default function InferProgressModal({
 
         {/* ② 进度条（CSS transition 平滑推进，单块推理停顿期不僵死） */}
         <div className="manga-video-prog infer-prog-bar">
-          <span className="manga-video-prog-bar" style={{ width: `${percent}%`, transition: 'width .8s ease' }} />
+          <span className="manga-video-prog-bar" style={{ width: '100%', transform: `scaleX(${Math.min(100, Math.max(0, percent)) / 100})`, transformOrigin: 'left center', transition: 'transform .8s ease' }} />
           <span className="manga-video-prog-text">{percent}%</span>
         </div>
 

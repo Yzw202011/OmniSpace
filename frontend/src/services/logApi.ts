@@ -15,6 +15,7 @@
 
 import { get, post } from './api';
 import type { QueryParams } from './api';
+import { reportBgError } from '@/utils/errors';
 
 /** 事件级别（后端 event_log._LEVELS） */
 export type EventLevel = 'info' | 'success' | 'warning' | 'error';
@@ -354,7 +355,7 @@ export function postFrontendEvent(kind: 'error' | 'warning', message: string, st
     kind,
     message,
     stack,
-  }).catch(() => undefined); // 上报失败静默（不能因日志再抛错）
+  }).catch((err: unknown) => reportBgError('postFrontendEvent', err)); // 上报失败降级 console（不得因日志上报再抛错）
 }
 
 /** 手动触发 30 天过期清理 */

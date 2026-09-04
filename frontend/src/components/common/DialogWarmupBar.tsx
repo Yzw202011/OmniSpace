@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useWarmupStore } from '@/stores/useWarmupStore';
 import { getDialogEngineStatus } from '@/services/dialogApi';
 import { getVllmStatus } from '@/services/modelApi';
+import { reportBgError } from '@/utils/errors';
 
 /** 冷启动预估总时长（ms）：vLLM 实测 ~157s，文案口径「2-3 分钟」 */
 const EXPECTED_MS = 150_000;
@@ -40,8 +41,14 @@ export default function DialogWarmupBar() {
     let cancelled = false;
     async function poll() {
       const [st, v] = await Promise.all([
-        getDialogEngineStatus().catch(() => null),
-        getVllmStatus().catch(() => null),
+        getDialogEngineStatus().catch((err: unknown) => {
+          reportBgError('DialogWarmupBar.dialogStatus', err);
+          return null;
+        }),
+        getVllmStatus().catch((err: unknown) => {
+          reportBgError('DialogWarmupBar.vllmStatus', err);
+          return null;
+        }),
       ]);
       if (cancelled) return;
       const ws = useWarmupStore.getState();
@@ -128,11 +135,13 @@ export default function DialogWarmupBar() {
       >
         <div
           style={{
-            width: `${progress}%`,
+            width: '100%',
             height: '100%',
             borderRadius: 999,
             backgroundColor: done ? 'var(--color-success)' : 'var(--color-primary)',
-            transition: 'width .3s ease-out',
+            transform: `scaleX(${Math.min(100, Math.max(0, progress)) / 100})`,
+            transformOrigin: 'left center',
+            transition: 'transform .3s ease-out',
           }}
         />
       </div>

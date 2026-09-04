@@ -19,6 +19,7 @@ import logging
 import threading
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, File, Form, UploadFile
 
@@ -26,6 +27,9 @@ from ..config import DATA_DIR
 from ..data.models import VoicePreviewRequest
 from ..middleware.error_handler import ApiError, ok
 from ..services.offload import run_blocking
+
+if TYPE_CHECKING:
+    from ..services.inference.voice_engine import VoiceEngine
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.voice")
@@ -39,7 +43,7 @@ _engine_instance = None
 _engine_lock = threading.Lock()
 
 
-def _get_engine():
+def _get_engine() -> VoiceEngine:
     """VoiceEngine 进程级单例（与 manga.py 共享同一实例类）。"""
     global _engine_instance
     if _engine_instance is None:
@@ -51,13 +55,13 @@ def _get_engine():
 
 
 @router.get("/voice/status")
-def voice_status():
+def voice_status() -> dict[str, Any]:
     """语音引擎状态：TTS 后端链、ASR 就绪、SoVITS 门控、发现的语音模型。"""
     return ok(_get_engine().get_status())
 
 
 @router.get("/voice/models")
-def voice_models():
+def voice_models() -> dict[str, Any]:
     """models/ 目录动态发现的语音模型（ready=True 表示当前环境可直接推理）。"""
     from ..services.inference.voice_engine import discover_voice_models
     found = discover_voice_models()
@@ -70,7 +74,7 @@ async def voice_transcribe(
     file: UploadFile = File(...),
     language: str = Form(""),
     model_id: str = Form(""),
-):
+) -> dict[str, Any]:
     """语音转写（Whisper 真实推理）。
 
     - WAV 直接解码；mp3/m4a/flac/ogg 等经 FFmpeg 转 16k 单声道 WAV；
@@ -112,7 +116,7 @@ async def voice_transcribe(
 
 
 @router.post("/voice/synthesize")
-async def voice_synthesize(req: VoicePreviewRequest):
+async def voice_synthesize(req: VoicePreviewRequest) -> dict[str, Any]:
     """语音合成（复用 VoicePreviewRequest 契约：voice_id/text/emotion）。
 
     TTS 自动装载链：cosyvoice → chattts → bark（transformers 原生，

@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, File, Query, UploadFile
 
@@ -31,6 +32,9 @@ from .common import (
     _voices,
 )
 
+if TYPE_CHECKING:
+    from ...data.database import Database
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.voice")
 
@@ -40,7 +44,7 @@ log = logging.getLogger("omnispace.api.manga.voice")
 #  音色（持久化到 voice_profiles 表，降级到内存预置）
 # ═══════════════════════════════════════════════════════════════════
 
-def _seed_voices(db) -> None:
+def _seed_voices(db: Database) -> None:
     """首次启动时将预置音色写入 voice_profiles 表（如果表为空）。"""
     try:
         existing = db.query_one("SELECT COUNT(*) AS cnt FROM voice_profiles")
@@ -72,7 +76,7 @@ def _row_to_voice(r: dict) -> dict:
 
 
 @router.get("/manga/voices")
-def voices_list():
+def voices_list() -> dict[str, Any]:
     """音色列表（规格 §4.4）。含预置情感标签。优先从数据库读取。"""
     db = get_db_safe()
     if db is not None:
@@ -90,7 +94,7 @@ def voices_list():
 
 
 @router.post("/manga/voices/bind")
-def voices_bind(req: VoiceBindRequest):
+def voices_bind(req: VoiceBindRequest) -> dict[str, Any]:
     """绑定角色与音色（规格 §4.4）。持久化到 voice_profiles 表。"""
     db = get_db_safe()
     if db is not None:
@@ -125,7 +129,7 @@ def voices_bind(req: VoiceBindRequest):
 
 
 @router.put("/manga/voices/{voice_id}/emotion")
-def voices_emotion(voice_id: str, req: VoiceEmotionUpdate):
+def voices_emotion(voice_id: str, req: VoiceEmotionUpdate) -> dict[str, Any]:
     """更新音色情感（规格 §4.4）。持久化到 voice_profiles 表。"""
     db = get_db_safe()
     if db is not None:
@@ -153,7 +157,7 @@ def voices_emotion(voice_id: str, req: VoiceEmotionUpdate):
 
 
 @router.post("/manga/voices/preview")
-async def voices_preview(req: VoicePreviewRequest):
+async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
     """试听音色（规格 §4.4）。
 
     审计 BK-013 诚实降级：优先调用语音引擎真实合成；CosyVoice/ChatTTS
@@ -244,7 +248,7 @@ _VOICE_UPLOAD_EXTS = (".wav", ".mp3", ".flac", ".m4a")
 
 @router.post("/manga/voices/upload")
 async def voices_upload(name: str = Query("自定义音色"),
-                        file: UploadFile = File(...)):
+                        file: UploadFile = File(...)) -> dict[str, Any]:
     """上传自定义音色音频（wav/mp3/flac/m4a ≤20MB）。
 
     落盘 data/voices/ 并登记 voice_profiles 表（is_preset=0），
@@ -283,7 +287,7 @@ async def voices_upload(name: str = Query("自定义音色"),
 
 @router.post("/manga/voices/clone")
 async def voices_clone(name: str = Query("克隆音色"),
-                       file: UploadFile = File(...)):
+                       file: UploadFile = File(...)) -> dict[str, Any]:
     """音色克隆（COMIC-053/054）。
 
     GPT-SoVITS 权重随包但缺官方推理代码包与 pypinyin（中文 G2P），

@@ -9,7 +9,9 @@ import io
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 
@@ -17,7 +19,7 @@ from ...config import (
     API_PREFIX,
     DATA_DIR,
 )
-from ...data.database import get_db_safe, parse_json
+from ...data.database import Database, get_db_safe, parse_json
 from ...data.models import (
     AssetAdoptRequest,
     AssetBatchGenerateRequest,
@@ -32,7 +34,7 @@ from ...engines.vllm_service import get_vllm_service, pil_images_to_b64
 from ...middleware.error_handler import ApiError, ok
 from ...middleware.feature_lock import acquire_or_raise
 from ...services.image_queue import get_image_queue
-from ...services.inference.dialog_engine import get_dialog_engine
+from ...services.inference.dialog_engine import DialogEngine, get_dialog_engine
 from ...services.offload import run_blocking
 from .comic_gen import (
     _generate_turnaround_sync,
@@ -52,12 +54,15 @@ from .common import (
     manga_dialog_model_id,
 )
 
+if TYPE_CHECKING:
+    from ...services.flow_trace import Flow
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.comic_asset")
 
 
 def _start_asset_flow(feature: str, friendly: str, *,
-                       input_summary: str = ""):
+                       input_summary: str = "") -> Flow | None:
     """漫剧生图执行流程追踪（2026-08-25 用户裁定补埋）：
 
     漫剧四视图/资产生成此前无 flow_trace 埋点，失败与取消任务在
@@ -74,7 +79,7 @@ def _start_asset_flow(feature: str, friendly: str, *,
         return None
 
 
-def _end_asset_flow(flow, status: str, *, error_code: str = "",
+def _end_asset_flow(flow: Flow | None, status: str, *, error_code: str = "",
                     error_detail: str = "", output_summary: str = "") -> None:
     """结束漫剧生图追踪流程（幂等，失败吞掉不影响业务）。"""
     if flow is None:
@@ -96,13 +101,13 @@ def _asset_row_to_dict(r: dict) -> dict:
             "scope": r.get("scope") or "project"}
 
 
-def _asset_kind_endpoint(kind: str):
+def _asset_kind_endpoint(kind: str) -> Callable[[AssetGenerateRequest], Awaitable[dict[str, Any]]]:
     """生成角色/场景/道具三个端点的公共实现工厂。
 
     2026-09-02 图像队列：submit_and_wait 在请求内排队（HTTP 契约不变），
     与绘画页/关键帧同队顺序消费（此前无锁直跑，靠引擎内部锁盲等）。
     """
-    async def _handler(req: AssetGenerateRequest):
+    async def _handler(req: AssetGenerateRequest) -> dict[str, Any]:
         db = get_db_safe()
         if db is not None:
             _ensure_project(db, req.project_id)
@@ -113,7 +118,7 @@ def _asset_kind_endpoint(kind: str):
             input_summary=f"{req.width}x{req.height} "
                           f"{(req.prompt or '')[:60]}")
 
-        def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+        def _runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
             return _generate_asset_sync(req, kind)
 
         try:
@@ -147,7 +152,7 @@ router.post("/comic/asset/generate-prop")(
 
 
 @router.post("/comic/asset/generate-turnaround")
-async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest):
+async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest) -> dict[str, Any]:
     """角色多视图生成（COMIC-033~037，竞品对齐）：正面/侧面/背面/特写
     四张独立 16:9 图逐视图生成（每张可单独重生），同 seed 保一致性，
     自动落盘 portrait_views/ + canvas.png（2×2 拼图）→ 入库。
@@ -165,7 +170,7 @@ async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest):
         f"漫剧·角色四视图：{(req.name or '')[:20]}",
         input_summary=f"seed={req.seed} {(req.prompt or '')[:60]}")
 
-    def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         return _generate_turnaround_sync(req)
 
     try:
@@ -191,7 +196,7 @@ async def comic_asset_generate_turnaround(req: AssetTurnaroundRequest):
 
 
 @router.post("/comic/asset/batch-generate")
-async def comic_asset_batch_generate(req: AssetBatchGenerateRequest):
+async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str, Any]:
     """批量资产生成（COMIC-030）：逐项串行生成，聚合成功/失败明细。
 
     2026-09-02 图像队列：整批=一个队列任务（循环语义不变）。
@@ -216,7 +221,7 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest):
         input_summary=", ".join(
             str(item.get("name") or "")[:12] for item in req.items[:8]))
 
-    def _batch_runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         results: list[dict] = []
         failed: list[dict] = []
         for item, raw_prompt in zip(req.items, raw_prompts, strict=True):
@@ -264,7 +269,7 @@ def comic_asset_library(project_id: str | None = Query(None),
                         limit: int = Query(100, ge=1, le=500,
                                            description="返回条数上限"),
                         offset: int = Query(0, ge=0,
-                                            description="分页偏移")):
+                                            description="分页偏移")) -> dict[str, Any]:
     """资产清单（COMIC-031）：按项目/类型过滤，返回缩略图信息。
 
     审计 R3-P3：增加 limit/offset 分页（默认 100、上限 500），
@@ -305,7 +310,7 @@ def _row_asset_ids(row: dict) -> list[str]:
     return [str(a) for a in asset_ids]
 
 
-def _replace_row_bindings(db, project_id: str, old_id: str, new_id: str) -> int:
+def _replace_row_bindings(db: Database, project_id: str, old_id: str, new_id: str) -> int:
     """将项目内分镜行绑定中的 old_id 资产替换为 new_id（2026-08-26 修复）。
 
     跨项目「引入」此前只建副本不换旧绑定：行 asset_ids 新旧 id 并存
@@ -337,7 +342,7 @@ def _replace_row_bindings(db, project_id: str, old_id: str, new_id: str) -> int:
 
 
 @router.put("/comic/asset/bind")
-def comic_asset_bind(req: AssetBindRequest):
+def comic_asset_bind(req: AssetBindRequest) -> dict[str, Any]:
     """资产 ↔ 分镜行绑定（COMIC-032，竞品对齐多资产）。
 
     追加语义：读行 asset_ids → 去重追加 → 写回 asset_ids；
@@ -366,7 +371,7 @@ def comic_asset_bind(req: AssetBindRequest):
 
 
 @router.post("/comic/asset/adopt")
-def comic_asset_adopt(req: AssetAdoptRequest):
+def comic_asset_adopt(req: AssetAdoptRequest) -> dict[str, Any]:
     """资产库资产引入当前项目（竞品「全部可用角色」对齐）。
 
     复制 DB 行（新 id、目标项目）并复制资产目录文件；file_path /
@@ -484,7 +489,7 @@ def _asset_move_to_global(asset: dict, project_id: str) -> tuple[str, dict]:
     return new_rel, meta
 
 
-def assets_to_global(db, project_id: str) -> int:
+def assets_to_global(db: Database, project_id: str) -> int:
     """项目资产整体转全局域（删除项目时调用，用户裁定：不删除生成资产）。
 
     DB 行：scope='global'、project_id 置空；磁盘目录同步迁移到
@@ -515,7 +520,7 @@ def assets_to_global(db, project_id: str) -> int:
 
 
 @router.post("/comic/asset/{asset_id}/to-global")
-def comic_asset_to_global(asset_id: str):
+def comic_asset_to_global(asset_id: str) -> dict[str, Any]:
     """项目资产转为全局资产（跨项目复用）：单条迁移磁盘目录 + 置
     scope='global'、project_id=''。已是全局资产时幂等返回。"""
     db = get_db_safe()
@@ -540,7 +545,7 @@ def comic_asset_to_global(asset_id: str):
 
 
 @router.put("/comic/asset/unbind")
-def comic_asset_unbind(req: AssetBindRequest):
+def comic_asset_unbind(req: AssetBindRequest) -> dict[str, Any]:
     """资产 ↔ 分镜行解绑（竞品对齐多资产）。
 
     从 asset_ids 移除指定资产；asset_id 旧列若指向被解绑资产，
@@ -575,7 +580,7 @@ def comic_asset_unbind(req: AssetBindRequest):
 # 否则 bind/unbind 会被 {asset_id} 吞掉。
 
 @router.put("/comic/asset/{asset_id}")
-def comic_asset_update(asset_id: str, req: AssetUpdateRequest):
+def comic_asset_update(asset_id: str, req: AssetUpdateRequest) -> dict[str, Any]:
     """资产元信息更新（竞品对齐）：仅更新非 None 的 name/prompt 字段。"""
     db = get_db_safe()
     if db is None:
@@ -601,7 +606,7 @@ def comic_asset_update(asset_id: str, req: AssetUpdateRequest):
 
 @router.post("/comic/asset/{asset_id}/regenerate")
 async def comic_asset_regenerate(asset_id: str,
-                                 body: dict = Body(default_factory=dict)):
+                                 body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """资产图重生成（竞品对齐）：按资产现有 prompt 重新出图并覆盖 file_path。
 
     prompt 为空 → 40008「请先填写描述词」；绘画引擎不可用 →
@@ -637,7 +642,7 @@ async def comic_asset_regenerate(asset_id: str,
         input_summary=f"kind={asset.get('kind')} "
                       f"{(asset.get('prompt') or '')[:60]}")
 
-    def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         return _regenerate_asset_sync(asset)
 
     try:
@@ -674,7 +679,7 @@ async def comic_asset_regenerate(asset_id: str,
 
 @router.post("/comic/asset/{asset_id}/regenerate-view")
 async def comic_asset_regenerate_view(asset_id: str,
-                                      req: AssetRegenerateViewRequest):
+                                      req: AssetRegenerateViewRequest) -> dict[str, Any]:
     """单视图重生（竞品对齐）：仅重生成四视图资产的指定视图并覆盖
     portrait_views/{view}.png，同步重建 canvas.png 拼图。
 
@@ -701,7 +706,7 @@ async def comic_asset_regenerate_view(asset_id: str,
         f"漫剧·单视图重生：{(asset.get('name') or '')[:20]}·{req.view}",
         input_summary=f"view={req.view} {prompt_zh[:60]}")
 
-    def _runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         return _regenerate_view_sync(asset, req.view, prompt_zh)
 
     try:
@@ -740,7 +745,7 @@ def _asset_dir_for(asset: dict) -> Path:
 
 @router.post("/comic/asset/{asset_id}/reference")
 async def comic_asset_reference_upload(asset_id: str,
-                                       file: UploadFile = File(...)):
+                                       file: UploadFile = File(...)) -> dict[str, Any]:
     """上传 AI 参考图（竞品对齐 img2img）：保存为资产目录 reference.png
     并置 meta.reference_image=True。
 
@@ -789,7 +794,7 @@ async def comic_asset_reference_upload(asset_id: str,
 
 
 @router.delete("/comic/asset/{asset_id}")
-def comic_asset_delete(asset_id: str):
+def comic_asset_delete(asset_id: str) -> dict[str, Any]:
     """删除单个资产（2026-08-20 用户裁定）：DB 行 + 分镜行绑定引用
     清理 + 磁盘目录清理。
 
@@ -841,7 +846,7 @@ def comic_asset_delete(asset_id: str):
 
 
 @router.delete("/comic/asset/{asset_id}/reference")
-def comic_asset_reference_delete(asset_id: str):
+def comic_asset_reference_delete(asset_id: str) -> dict[str, Any]:
     """删除 AI 参考图：移除资产目录 reference.png 并清 meta 标记。"""
     db = get_db_safe()
     if db is None:
@@ -867,7 +872,7 @@ def comic_asset_reference_delete(asset_id: str):
 
 
 @router.get("/comic/asset/{asset_id}/history")
-def comic_asset_history(asset_id: str):
+def comic_asset_history(asset_id: str) -> dict[str, Any]:
     """资产生成历史（竞品对齐）：meta.history 留痕（最新在前），
     每项补 /manga/media 可回读 url。"""
     db = get_db_safe()
@@ -900,7 +905,7 @@ def comic_image_task_list(project_id: str = Query("", description="项目ID"),
                           limit: int = Query(100, ge=1, le=500,
                                              description="返回条数上限"),
                           offset: int = Query(0, ge=0,
-                                              description="分页偏移")):
+                                              description="分页偏移")) -> dict[str, Any]:
     """项目图片生成记录（2026-08-24 用户裁定：生成记录需含图片，具体详细）。
 
     聚合两类图片产物，统一 created_at 倒序：
@@ -1006,7 +1011,7 @@ _ASSET_UPLOAD_MAX_BYTES = 10 * 1024 * 1024  # 10MB
 
 @router.post("/comic/asset/{asset_id}/image")
 async def comic_asset_image_replace(asset_id: str,
-                                    file: UploadFile = File(...)):
+                                    file: UploadFile = File(...)) -> dict[str, Any]:
     """替换资产图片（2026-08-20 用户裁定：上传 = 替换当前资产，非新建）。
 
     落盘到资产专属子目录 {资产目录}/{asset_id}/portrait|image{ext}——
@@ -1088,7 +1093,7 @@ async def comic_asset_image_replace(asset_id: str,
 async def comic_asset_upload(project_id: str = Form(...),
                              kind: str = Form("character"),
                              name: str = Form(""),
-                             file: UploadFile = File(...)):
+                             file: UploadFile = File(...)) -> dict[str, Any]:
     """资产图片上传（竞品对齐）：本地图片登记为项目资产。
 
     multipart 字段：file / project_id / kind / name。
@@ -1164,7 +1169,7 @@ _INFER_PROMPT_TPL = {
 }
 
 
-def _infer_era_llm(engine, db, project_id: str) -> str:
+def _infer_era_llm(engine: DialogEngine, db: Database, project_id: str) -> str:
     """从剧本原文提取项目整体时代背景（2026-08-24 用户裁定）。
 
     返回 ≤40 字短语（如"当代中国城市，21世纪20年代"/"架空古代王朝，
@@ -1259,7 +1264,7 @@ _PROP_REJECT_SUBSTRS = (
 )
 
 
-def _vet_props_llm(engine, names: list[str]) -> set[str]:
+def _vet_props_llm(engine: DialogEngine, names: list[str]) -> set[str]:
     """裁定 LLM 提取的候选道具的资产价值，返回保留集。
 
     两层闸门（2026-08-24 用户裁定：道具提取噪声大）：
@@ -1320,8 +1325,8 @@ def _row_text_chunks(rows: list[dict],
     return chunks
 
 
-def _extract_entity_names_llm(engine, rows: list[dict],
-                              on_chunk=None) -> dict[str, set[str]]:
+def _extract_entity_names_llm(engine: DialogEngine, rows: list[dict],
+                              on_chunk: Callable[[int, int], None] | None = None) -> dict[str, set[str]]:
     """LLM 从分镜行原文提取实体名（2026-08-24 实体列空白兜底）。
 
     返回 {character/scene/prop: {名字}}；引擎失败/解析为空返回空集
@@ -1372,7 +1377,7 @@ def _extract_entity_names_llm(engine, rows: list[dict],
     return out
 
 
-def _backfill_row_entities(db, rows: list[dict],
+def _backfill_row_entities(db: Database, rows: list[dict],
                            names: dict[str, set[str]]) -> int:
     """按子串匹配回填分镜行实体列（仅填空列，不覆盖已有值）。
 
@@ -1408,7 +1413,7 @@ def _backfill_row_entities(db, rows: list[dict],
     return updated
 
 
-def _infer_character_settings_llm(db, project_id: str,
+def _infer_character_settings_llm(db: Database, project_id: str,
                                   names: list[str],
                                   style_line: str = "",
                                   era_line: str = "") -> dict[str, str]:
@@ -1467,12 +1472,12 @@ def _infer_character_settings_llm(db, project_id: str,
         return {}
 
 
-def _infer_scene_prop_settings_llm(db, project_id: str,
+def _infer_scene_prop_settings_llm(db: Database, project_id: str,
                                    scenes: list[str],
                                    props: list[str],
                                    style_line: str = "",
                                    era_line: str = "",
-                                   on_stage=None) -> tuple[dict[str, str],
+                                   on_stage: Callable[[str], None] | None = None) -> tuple[dict[str, str],
                                                           dict[str, str]]:
     """批量生成场景/道具设定段（角色推理 v3，2026-08-24 用户裁定）。
 
@@ -1779,7 +1784,7 @@ def _infer_entities_sync(project_id: str) -> dict:
 
 
 @router.post("/comic/asset/infer-entities")
-async def comic_asset_infer_entities(req: AssetInferRequest):
+async def comic_asset_infer_entities(req: AssetInferRequest) -> dict[str, Any]:
     """从分镜行系统性提取实体资产（角色推理 v3，2026-08-24 用户裁定）。
 
     从分镜行的 characters/scene/props 列聚合实体；AI 切分不填实体列，
@@ -1811,7 +1816,7 @@ async def comic_asset_infer_entities(req: AssetInferRequest):
 
 @router.get("/comic/asset/infer-progress")
 def comic_asset_infer_progress(project_id: str = Query(
-        "", description="项目ID")):
+        "", description="项目ID")) -> dict[str, Any]:
     """角色推理进度轮询（前端弹窗 1s 拉取，2026-08-24 用户需求）。
 
     percent 按推理耗时占比加权 → 线性外推 ETA：
@@ -1950,7 +1955,7 @@ _PRESET_STYLE_PACK: dict[str, str] = {
 }
 
 
-def _project_style_line(db, project_id: str) -> str:
+def _project_style_line(db: Database, project_id: str) -> str:
     """项目作品风格 → 描述词美术风格行（未选/未知回退网漫风）。
 
     projects.art_style：预置 key 直查映射；custom:{id} 查 art_styles
@@ -1980,7 +1985,7 @@ def _project_style_line(db, project_id: str) -> str:
         return fallback
 
 
-def _project_style_pack(db, project_id: str) -> tuple[str, dict | None]:
+def _project_style_pack(db: Database, project_id: str) -> tuple[str, dict | None]:
     """项目作品风格 → 显式风格包（2026-08-31 卡片↔包绑定）。
 
     返回 (pack_id, pack_def)：预置卡读 art_styles.pack（族回填写入）；
@@ -2081,7 +2086,7 @@ def _build_prop_prompt_v2(name: str, desc: str,
             f"其他要求：{_PROP_OTHER_REQ}")
 
 
-def _entity_story_context(db, project_id: str, name: str,
+def _entity_story_context(db: Database, project_id: str, name: str,
                           kind: str) -> str:
     """收集实体在分镜行中的上下文（描述+台词摘要，前 4 行）。"""
     sb = _find_storyboard(db, project_id)
@@ -2187,7 +2192,7 @@ async def _wait_vllm_for_rewrite(timeout_s: float, *, ignite: bool) -> bool:
     return False
 
 
-def _mark_prompt_stale(db, asset_id: str, meta: dict, stale: bool,
+def _mark_prompt_stale(db: Database, asset_id: str, meta: dict, stale: bool,
                        *, source: str | None = None) -> dict:
     """更新 meta.prompt_stale / prompt_source 并落库（best-effort）。"""
     out = dict(meta)
@@ -2259,7 +2264,7 @@ def _spawn_prompt_rewrite(asset_id: str) -> None:
 
 
 @router.post("/comic/asset/{asset_id}/describe")
-async def comic_asset_describe(asset_id: str):
+async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
     """资产描述词 AI 扩写（竞品对齐）：对话引擎把 name+kind 扩写为绘图
     描述词并写回 prompt。
 
@@ -2376,7 +2381,7 @@ async def comic_asset_describe(asset_id: str):
 
 
 @router.post("/comic/asset/export-pack")
-def comic_asset_export_pack(body: dict = Body(default_factory=dict)):
+def comic_asset_export_pack(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """项目资产打包导出（COMIC-138）：zip 含 manifest.json 与全部资产文件。"""
     import zipfile
     project_id = str(body.get("project_id") or "").strip()

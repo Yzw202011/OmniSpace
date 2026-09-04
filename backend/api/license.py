@@ -1,6 +1,8 @@
 """激活 API（P5）：状态展示与激活提交（未激活态下的白名单端点）。"""
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -15,12 +17,12 @@ class ActivateReq(BaseModel):
 
 
 @router.get("/license/status")
-def license_status():
+def license_status() -> dict[str, Any]:
     return ok(license_gate.status())
 
 
 @router.post("/license/activate")
-def license_activate(req: ActivateReq):
+def license_activate(req: ActivateReq) -> dict[str, Any]:
     try:
         info = license_gate.activate(req.code)
     except license_gate.GateError as exc:

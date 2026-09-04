@@ -21,6 +21,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...data.database import Database
 
 log = logging.getLogger("omnispace.api.manga.describe_refine")
 
@@ -67,7 +72,7 @@ _REWRITE_PROMPT = """你是漫剧分镜描述词修笔师。下面的描述词�
 {description}"""
 
 
-def read_refine_config(db) -> dict:
+def read_refine_config(db: Database | None) -> dict:
     """读精修开关（默认关：无 key/读库失败/解析失败 → enabled=False）。"""
     config = {"enabled": False, "threshold": _DEFAULT_THRESHOLD}
     if db is None:
@@ -129,8 +134,8 @@ def _parse_score_json(raw: str) -> tuple[int, list[str]] | None:
 
 
 async def refine_description(
-    engine, description: str, assets: list[dict], db,
-    finalize,
+    engine: Any, description: str, assets: list[dict], db: Database | None,
+    finalize: Callable[[str], str],
 ) -> dict | None:
     """二遍精修入口（ai-describe 端点在持有 dialog 锁的上下文内调用）。
 

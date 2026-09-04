@@ -18,6 +18,8 @@ from __future__ import annotations
 import base64
 import logging
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body
 
@@ -30,11 +32,14 @@ from ..services.browser_service import (
     playwright_unavailable_reason,
 )
 
+if TYPE_CHECKING:
+    from ..services.browser_service import BrowserService
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.browser")
 
 
-def _call_browser(fn, *args, **kwargs):
+def _call_browser(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """执行浏览器操作并把 BrowserError 转为 ApiError（统一错误码）。"""
     try:
         return fn(*args, **kwargs)
@@ -46,7 +51,7 @@ def _call_browser(fn, *args, **kwargs):
                        f"浏览器服务异常：{exc}") from exc
 
 
-def _ensure_ready():
+def _ensure_ready() -> BrowserService:
     """确保浏览器可用：未运行则尝试初始化；失败抛 72001/72002。"""
     svc = get_browser_service()
     if svc.is_running:
@@ -67,7 +72,7 @@ def _ensure_ready():
 
 
 @router.get("/browser/status")
-def browser_status():
+def browser_status() -> dict[str, Any]:
     """浏览器状态快照（running/tabs/memory/current_url 等）。"""
     svc = get_browser_service()
     return ok(svc.get_status())
@@ -85,7 +90,7 @@ _shot_cache: tuple[float, str] | None = None  # (monotonic 时间戳, base64)
 
 
 @router.get("/browser/screenshot")
-def browser_screenshot():
+def browser_screenshot() -> dict[str, Any]:
     """当前页面截图，返回 base64 PNG（前端 2s 轮询用；2.5s 结果缓存）。"""
     global _shot_cache
     svc = _ensure_ready()
@@ -97,7 +102,7 @@ def browser_screenshot():
 
 
 @router.get("/browser/current-page")
-def browser_current_page():
+def browser_current_page() -> dict[str, Any]:
     """当前页面信息：url/title。
 
     仅 1 个节流操作（list_tabs）。曾在此处调 get_text + get_links 统计
@@ -116,7 +121,7 @@ def browser_current_page():
 
 
 @router.get("/browser/tabs")
-def browser_tabs():
+def browser_tabs() -> dict[str, Any]:
     """标签页列表（上限按硬件等级自适应 1~5 个，文档B §4.2，审计 BK-011）。"""
     svc = _ensure_ready()
     tabs = _call_browser(svc.list_tabs)
@@ -125,7 +130,7 @@ def browser_tabs():
 
 
 @router.post("/browser/navigate")
-def browser_navigate(body: dict = Body(default_factory=dict)):
+def browser_navigate(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """用户手动导航（仅 http/https；黑名单拒绝；≥1s 节流）。"""
     global _shot_cache
     url = str((body or {}).get("url", "") or "").strip()
@@ -138,7 +143,7 @@ def browser_navigate(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/browser/takeover")
-def browser_takeover():
+def browser_takeover() -> dict[str, Any]:
     """用户接管浏览器：AI 控制暂停（Agent 循环每步检查）。"""
     svc = get_browser_service()
     svc.set_user_takeover(True)
@@ -147,7 +152,7 @@ def browser_takeover():
 
 
 @router.post("/browser/handback")
-def browser_handback():
+def browser_handback() -> dict[str, Any]:
     """交还浏览器控制权给 AI。"""
     svc = get_browser_service()
     svc.set_user_takeover(False)

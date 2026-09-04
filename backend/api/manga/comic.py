@@ -8,6 +8,7 @@ import logging
 import shutil
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, File, Query, UploadFile
 
@@ -48,6 +49,9 @@ from .voice import (
     _DSL_MAX_BYTES,
     _TEMPLATE_COMIC_DRAMA,
 )
+
+if TYPE_CHECKING:
+    from ...data.database import Database
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.comic")
@@ -153,7 +157,7 @@ def _cleanup_project_disk(project_id: str, row_ids: list[str],
 
 
 @router.post("/comic/project/create")
-def comic_project_create(req: ProjectCreate):
+def comic_project_create(req: ProjectCreate) -> dict[str, Any]:
     """创建漫剧项目（COMIC-001/002/003）。
 
     template=comic_drama 时预置 5 行模板分镜；项目重名 →
@@ -189,7 +193,7 @@ def comic_project_create(req: ProjectCreate):
 
 
 @router.get("/comic/project/list")
-def comic_project_list():
+def comic_project_list() -> dict[str, Any]:
     """项目列表（COMIC-004），按更新时间倒序。"""
     db = get_db_safe()
     if db is None:
@@ -204,7 +208,7 @@ def comic_project_list():
 # ══ 自定义作品风格 CRUD（2026-08-24：预置之外可自定义画风）══════════
 
 @router.get("/comic/art-style/list")
-def art_style_list():
+def art_style_list() -> dict[str, Any]:
     """自定义风格列表（预置风格由前端 ART_STYLES 常量提供，不落库）。
 
     返回 key=custom:{id}（创建项目时直接写入 projects.art_style）。
@@ -231,7 +235,7 @@ def art_style_list():
 
 
 @router.post("/comic/art-style/create")
-def art_style_create(req: ArtStyleCreate):
+def art_style_create(req: ArtStyleCreate) -> dict[str, Any]:
     """新增自定义风格（重名拒绝；名称≤30字，提示词≤500字）。
 
     2026-08-31 用户裁定：自定义风格**必须导入风格包**（pack_def JSON，
@@ -268,7 +272,7 @@ def art_style_create(req: ArtStyleCreate):
                "pack_label": _pack.label})
 
 
-def _ensure_pack_columns(db) -> None:
+def _ensure_pack_columns(db: Database) -> None:
     """art_styles 补 pack / pack_def 列（幂等）+ 首次全量族回填。
 
     回填（2026-08-31 卡片↔包显式绑定）：按 detect_style 对 name+
@@ -306,7 +310,7 @@ def _ensure_pack_columns(db) -> None:
 
 
 @router.delete("/comic/art-style/{style_id}")
-def art_style_delete(style_id: str):
+def art_style_delete(style_id: str) -> dict[str, Any]:
     """删除自定义风格（引用该风格的项目不做级联清理，展示层兜底）。"""
     db = get_db_safe()
     if db is None:
@@ -319,7 +323,7 @@ def art_style_delete(style_id: str):
 
 
 @router.put("/comic/project/{project_id}")
-def comic_project_update(project_id: str, req: ProjectUpdate):
+def comic_project_update(project_id: str, req: ProjectUpdate) -> dict[str, Any]:
     """重命名项目（COMIC-004）；新名与他项目重名 → 名称重复错误。"""
     db = get_db_safe()
     if db is None:
@@ -337,7 +341,7 @@ def comic_project_update(project_id: str, req: ProjectUpdate):
     return ok({"project_id": project_id, "name": req.name})
 
 
-def _delete_project_cascade(db, project_id: str) -> bool:
+def _delete_project_cascade(db: Database, project_id: str) -> bool:
     """级联删除单个项目：分镜表/分镜行/视频任务/资产/关键帧/场景对象
     + 磁盘产物清理。项目不存在返回 False（供单删报错、批删跳过复用）。"""
     row = db.query_one("SELECT id FROM projects WHERE id=?", (project_id,))
@@ -383,7 +387,7 @@ def _delete_project_cascade(db, project_id: str) -> bool:
 
 
 @router.delete("/comic/project/{project_id}")
-def comic_project_delete(project_id: str):
+def comic_project_delete(project_id: str) -> dict[str, Any]:
     """删除项目（COMIC-004）：级联删除分镜表/分镜行/视频任务/资产/关键帧/
     场景对象，并清理项目磁盘产物（资产目录/关键帧目录/视频文件）。"""
     db = get_db_safe()
@@ -395,7 +399,7 @@ def comic_project_delete(project_id: str):
 
 
 @router.post("/comic/project/batch-delete")
-def comic_project_batch_delete(req: ProjectBatchDelete):
+def comic_project_batch_delete(req: ProjectBatchDelete) -> dict[str, Any]:
     """批量删除项目（COMIC-004 扩展）：逐个复用级联删除，不存在的跳过。
     返回 {deleted, deleted_ids, missing_ids}；至少删掉 1 个即视为成功。"""
     db = get_db_safe()
@@ -421,7 +425,7 @@ def comic_project_batch_delete(req: ProjectBatchDelete):
 @router.post("/comic/script/import-dsl")
 async def comic_script_import_dsl(project_id: str = Query(...),
                                   strict: bool = Query(False),
-                                  file: UploadFile = File(...)):
+                                  file: UploadFile = File(...)) -> dict[str, Any]:
     """DSL 剧本文件上传导入（multipart，.txt/.dsl ≤10MB）。
 
     strict=true 时要求文本含 ``shot:`` 分镜标记，否则
@@ -459,7 +463,7 @@ async def comic_script_import_dsl(project_id: str = Query(...),
 
 
 @router.put("/comic/scene/object/update")
-def comic_scene_object_update(req: SceneObjectUpdate):
+def comic_scene_object_update(req: SceneObjectUpdate) -> dict[str, Any]:
     """3D 场景对象 Transform 持久化（COMIC-090，scene_objects 表 upsert）。"""
     import json as _json
     db = get_db_safe()
@@ -490,7 +494,7 @@ def comic_scene_object_update(req: SceneObjectUpdate):
 
 
 @router.get("/comic/scene/object/list")
-def comic_scene_object_list(project_id: str = Query(...)):
+def comic_scene_object_list(project_id: str = Query(...)) -> dict[str, Any]:
     """项目 3D 场景对象列表（scene_objects 表）。"""
     db = get_db_safe()
     if db is None:
@@ -508,7 +512,7 @@ def comic_scene_object_list(project_id: str = Query(...)):
 
 
 @router.post("/comic/export/bundle")
-def comic_export_bundle(body: dict = Body(default_factory=dict)):
+def comic_export_bundle(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """项目内容合并打包（COMIC-139）：分镜 json/csv + 资产 zip + 视频 → 单 zip。"""
     import json as _json
     import zipfile

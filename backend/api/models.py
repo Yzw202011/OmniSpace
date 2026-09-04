@@ -43,12 +43,13 @@ import tarfile
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from ..config import API_PREFIX, DATA_DIR, ROOT_DIR
-from ..data.database import get_db_safe, parse_json
+from ..data.database import Database, get_db_safe, parse_json
 from ..data.models import (
     DIALOG_ROUTING_TABLE,
     PAINT_ROUTING_TABLE,
@@ -171,7 +172,7 @@ def _dialog_entry_category(mid: str) -> tuple[str, str]:
     return (ModelCategory.DIALOG.value, "对话")
 
 
-def _seed_db(db) -> None:
+def _seed_db(db: Database) -> None:
     """表为空时从路由表播种初始模型到数据库。"""
     if db.count("models") > 0:
         return
@@ -390,7 +391,7 @@ _MODEL_DEPENDENCIES: dict[str, list[dict]] = {
 }
 
 
-def _kv_get(key: str, default=None):
+def _kv_get(key: str, default: Any = None) -> Any:
     """读 system_settings 表（JSON 值）；异常/缺失返回 default。"""
     db = get_db_safe()
     if db is None:
@@ -405,7 +406,7 @@ def _kv_get(key: str, default=None):
     return default
 
 
-def _kv_set(key: str, value) -> None:
+def _kv_set(key: str, value: Any) -> None:
     """写 system_settings 表（JSON 值，UPSERT）。"""
     db = get_db_safe()
     if db is None:
@@ -604,13 +605,13 @@ class ModuleModelConfigRequest(BaseModel):
 
 
 @router.get("/models/module-config")
-def models_module_config_get():
+def models_module_config_get() -> dict[str, Any]:
     """功能模块级模型选型配置读取（模型管理页配置面板数据源）。"""
     return ok(_module_config_payload())
 
 
 @router.put("/models/module-config")
-def models_module_config_put(req: ModuleModelConfigRequest):
+def models_module_config_put(req: ModuleModelConfigRequest) -> dict[str, Any]:
     """保存模块级选型配置（白名单 + 默认模型，即时持久化）。
 
     校验（诚实语义）：
@@ -737,7 +738,7 @@ def _model_dependencies(model: dict) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/models")
-def models_list():
+def models_list() -> dict[str, Any]:
     """模型列表（规格 §4.5）。按类别分组，合并磁盘扫描 downloaded 标记。"""
     items = _merged_models()
     grouped: dict[str, list[dict]] = {}
@@ -748,7 +749,7 @@ def models_list():
 
 
 @router.get("/models/readiness")
-def models_readiness():
+def models_readiness() -> dict[str, Any]:
     """模型就绪总检（2026-09-03 体验流 #3：绿灯/缺件指路）。
 
     按 models_manifest.json 契约核对盘上存在性，输出功能模块级
@@ -762,14 +763,14 @@ def models_readiness():
 
 
 @router.get("/models/status")
-def models_status():
+def models_status() -> dict[str, Any]:
     """模型管理全景状态（TASK-011）：GPU + 已加载 + 互斥 + 预测器。"""
     mgr = get_model_manager()
     return ok(mgr.get_status())
 
 
 @router.get("/models/predict")
-def models_predict(current_feature: str = Query("", description="当前功能名")):
+def models_predict(current_feature: str = Query("", description="当前功能名")) -> dict[str, Any]:
     """ML 预测下一功能（TASK-011）：概率 > 0.7 时返回预加载建议。"""
     mgr = get_model_manager()
     result = mgr.predict_next_feature(current_feature or None)
@@ -782,13 +783,13 @@ def models_predict(current_feature: str = Query("", description="当前功能名
 # 否则 "list"/"health"/"vram" 会被参数化路由吞掉当作 model_id。
 
 @router.get("/models/list")
-def models_list_alias():
+def models_list_alias() -> dict[str, Any]:
     """规格 §7.1 契约别名：/models/list → 模型列表（同 GET /models）。"""
     return models_list()
 
 
 @router.get("/models/vram")
-def models_vram():
+def models_vram() -> dict[str, Any]:
     """规格 §7.1 契约端点：显存全景（GPU 状态 + 逻辑预留 + 已加载占用）。"""
     mgr = get_model_manager()
     gpu = mgr.get_gpu_status()
@@ -807,7 +808,7 @@ def models_vram():
 
 
 @router.get("/models/health")
-def models_health():
+def models_health() -> dict[str, Any]:
     """规格 §7.1 契约端点：模型子系统健康检查。
 
     汇总：GPU 可用性 / 已加载模型数 / 已下载模型数 / 功能锁状态。
@@ -829,7 +830,7 @@ def models_health():
 
 
 @router.post("/models/usage")
-def models_usage(req: ModelUsageEvent):
+def models_usage(req: ModelUsageEvent) -> dict[str, Any]:
     """记录一次功能切换事件（TASK-011 ML 预测学习数据源）。"""
     mgr = get_model_manager()
     mgr.record_feature_switch(req.from_feature, req.to_feature)
@@ -837,7 +838,7 @@ def models_usage(req: ModelUsageEvent):
 
 
 @router.get("/models/config")
-def models_config_get():
+def models_config_get() -> dict[str, Any]:
     """模型加载配置读取（MODEL-034）：量化精度偏好。"""
     cfg = _models_config()
     return ok({**cfg,
@@ -848,7 +849,7 @@ def models_config_get():
 
 
 @router.get("/models/update")
-def models_update_check():
+def models_update_check() -> dict[str, Any]:
     """模型版本更新检查（MODEL-023）。
 
     离线单机定位：默认无远程版本源，如实返回 offline；若在
@@ -897,7 +898,7 @@ def models_update_check():
 
 @router.get("/models/benchmark/history")
 def models_benchmark_history(model_id: str = Query(default=""),
-                             limit: int = Query(default=20, ge=1, le=100)):
+                             limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
     """基准测试历史（MODEL-038）：按模型过滤，时间倒序。"""
     db = get_db_safe()
     if db is None:
@@ -920,7 +921,7 @@ def models_benchmark_history(model_id: str = Query(default=""),
 
 
 @router.get("/models/{model_id}")
-def models_detail(model_id: str):
+def models_detail(model_id: str) -> dict[str, Any]:
     """模型详情（规格 §4.5 + MODEL-036 依赖关系字段）。"""
     model = _find_model(model_id)
     if model is None:
@@ -932,7 +933,7 @@ def models_detail(model_id: str):
 
 
 @router.post("/models/import")
-async def models_import(req: ModelImportRequest):
+async def models_import(req: ModelImportRequest) -> dict[str, Any]:
     """导入模型（规格 §4.5；2026-09-01 完整接入：自动识别 + 即刻可见 + 可加载）。
 
     经 ModelImporter 自动识别类别（config.json 元数据 → 文件名关键词 →
@@ -1049,7 +1050,7 @@ async def models_import(req: ModelImportRequest):
 
 
 @router.post("/models/load")
-async def models_load(req: ModelLoadRequest):
+async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
     """加载模型到 GPU（TASK-011 接线 ModelManager.ensure_loaded）。
 
     错误码（20xxx 段）：20011 未下载 / 20014 互斥阻断 / 20013 显存不足 /
@@ -1154,7 +1155,7 @@ async def models_load(req: ModelLoadRequest):
 
 
 @router.post("/models/unload")
-def models_unload(req: ModelUnloadRequest):
+def models_unload(req: ModelUnloadRequest) -> dict[str, Any]:
     """从 GPU 卸载模型（TASK-011 接线 ModelManager.unload_model）。"""
     mgr = get_model_manager()
     if not mgr.unload_model(req.model_id):
@@ -1217,7 +1218,7 @@ async def _acquire_switch_lock(feature: str, model_id: str) -> None:
 
 
 @router.post("/models/switch")
-async def models_switch(req: ModelSwitchRequest):
+async def models_switch(req: ModelSwitchRequest) -> dict[str, Any]:
     """提交模型切换任务（异步：plan→unload→load→verify，WS 进度推送）。
 
     返回任务快照（含 plan 显存账/驱逐清单/预估耗时）；进度经
@@ -1269,7 +1270,7 @@ async def models_switch(req: ModelSwitchRequest):
 
 
 @router.get("/models/switch/list")
-def models_switch_list(limit: int = Query(20, ge=1, le=100)):
+def models_switch_list(limit: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
     """最近切换任务列表（新在前，供任务面板/排查）。
 
     路径必须两段（/switch/list）：单段 /models/switch 会被先注册的
@@ -1281,7 +1282,7 @@ def models_switch_list(limit: int = Query(20, ge=1, le=100)):
 
 
 @router.get("/models/switch/{task_id}")
-def models_switch_status(task_id: str):
+def models_switch_status(task_id: str) -> dict[str, Any]:
     """查询单个切换任务状态（含 plan/进度/错误/回滚状态）。"""
     from ..services.switch_engine import get_switch_engine
     info = get_switch_engine().get(task_id)
@@ -1292,7 +1293,7 @@ def models_switch_status(task_id: str):
 
 
 @router.post("/models/switch/{task_id}/cancel")
-async def models_switch_cancel(task_id: str, force: bool = Query(False)):
+async def models_switch_cancel(task_id: str, force: bool = Query(False)) -> dict[str, Any]:
     """请求取消切换任务。
 
     P1 语义：
@@ -1319,7 +1320,7 @@ class ModuleReleaseRequest(BaseModel):
 
 
 @router.post("/models/release-for-module")
-async def models_release_for_module(req: ModuleReleaseRequest):
+async def models_release_for_module(req: ModuleReleaseRequest) -> dict[str, Any]:
     """模块切换资源调度：其他模块 3 秒内释放显存/内存，优先供应目标模块。
 
     前端导航切换模块/进入漫剧项目时调用。时间预算内尽力卸载其他
@@ -1346,7 +1347,7 @@ _warmup_inflight: set[str] = set()
 
 
 @router.post("/models/warmup")
-async def models_warmup(req: ModuleWarmupRequest):
+async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
     """后台预热模块常驻模型（fire-and-forget，立即返回 started）。
 
     对话模块主用（2026-08-22 思考过长事故）：vLLM 冷启动 ~157s，
@@ -1431,14 +1432,14 @@ async def models_warmup(req: ModuleWarmupRequest):
 
 
 @router.get("/models/vllm/status")
-def vllm_status():
+def vllm_status() -> dict[str, Any]:
     """vLLM 推理服务状态（runtime 安装/进程存活/健康/PID/运行时长）。"""
     from ..engines.vllm_service import get_vllm_service
     return ok(get_vllm_service().status())
 
 
 @router.post("/models/vllm/stop")
-async def vllm_stop():
+async def vllm_stop() -> dict[str, Any]:
     """停止 vLLM 子进程并回收显存（用户操作最高权限，强制终止）。"""
     from ..engines.vllm_service import get_vllm_service
     svc = get_vllm_service()
@@ -1485,7 +1486,7 @@ def _compute_model_fingerprint(file_path: str) -> str | None:
 
 
 @router.post("/models/{model_id}/verify")
-async def models_verify(model_id: str):
+async def models_verify(model_id: str) -> dict[str, Any]:
     """SHA256 校验（规格 §4.5）。计算模型文件指纹。
 
     审计 BK-044 诚实行为：模型无本地文件时不再伪造模拟指纹，
@@ -1518,7 +1519,7 @@ async def models_verify(model_id: str):
 
 
 @router.delete("/models/{model_id}")
-def models_delete(model_id: str):
+def models_delete(model_id: str) -> dict[str, Any]:
     """从注册表移除模型（规格 §4.5）。已加载模型先卸载。"""
     mgr = get_model_manager()
     mgr.unload_model(model_id)  # 未加载时为 no-op
@@ -1546,7 +1547,7 @@ def models_delete(model_id: str):
 
 
 @router.delete("/models/{model_id}/files")
-def models_purge_files(model_id: str):
+def models_purge_files(model_id: str) -> dict[str, Any]:
     """彻底删除模型磁盘文件（2026-08-20 卸载按钮升级：卸载+删盘）。
 
     流程：已加载先卸载 → 删除磁盘权重（目录 rmtree / 文件 unlink）→
@@ -1627,7 +1628,7 @@ def models_purge_files(model_id: str):
 
 
 @router.put("/models/select")
-async def models_select(req: ModelSelectRequest):
+async def models_select(req: ModelSelectRequest) -> dict[str, Any]:
     """手动选择模型（规格 §4.5）。feature -> model_id 绑定。
 
     P1 prefetch 预热：feature ∈ {dialog, paint, video} 且功能锁空闲
@@ -1752,7 +1753,7 @@ class ModelDownloadRequest(BaseModel):
 
 
 @router.put("/models/config")
-def models_config_put(req: ModelConfigRequest):
+def models_config_put(req: ModelConfigRequest) -> dict[str, Any]:
     """量化精度偏好持久化（MODEL-034）。
 
     写 system_settings[models.config]；对话/多模态引擎加载时读取
@@ -1821,7 +1822,7 @@ def _export_model_tarball(model: dict, out_path: Path) -> dict:
 
 
 @router.post("/models/export")
-async def models_export(req: ModelExportRequest):
+async def models_export(req: ModelExportRequest) -> dict[str, Any]:
     """模型导出（MODEL-037）：模型目录 → .tar.gz + manifest + SHA256 侧车。
 
     产物落 data/generated/exports/models/；安全约束：仅允许导出
@@ -1917,7 +1918,7 @@ def _run_dialog_benchmark(req: ModelBenchmarkRequest) -> dict:
 
 
 @router.post("/models/benchmark")
-async def models_benchmark(req: ModelBenchmarkRequest):
+async def models_benchmark(req: ModelBenchmarkRequest) -> dict[str, Any]:
     """模型性能基准（MODEL-038）：对已加载对话模型跑 N 次真实推理。
 
     测 Tokens/s、首 token 延迟、显存峰值；结果落 model_benchmarks
@@ -1946,7 +1947,7 @@ async def models_benchmark(req: ModelBenchmarkRequest):
 
 
 @router.post("/models/download")
-def models_download(req: ModelDownloadRequest):
+def models_download(req: ModelDownloadRequest) -> dict[str, Any]:
     """模型在线下载（MODEL-019/021/022 诚实语义）。
 
     OmniSpace AI 为离线单机定位（127.0.0.1 绑定 + 本地推理），不提供

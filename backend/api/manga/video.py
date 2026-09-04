@@ -14,7 +14,9 @@ import re
 import subprocess
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
@@ -26,7 +28,7 @@ from ...config import (
     ROOT_DIR,
     VIDEO_MAX_DURATION,
 )
-from ...data.database import get_db_safe
+from ...data.database import Database, get_db_safe
 from ...data.models import (
     StoryNarrativeRequest,
     VideoGenerateRequest,
@@ -61,6 +63,12 @@ from .common import (
     _video_tasks,
     manga_dialog_model_id,
 )
+
+if TYPE_CHECKING:
+    from PIL import Image
+
+    from ...services.encoder_service import EncoderService
+    from ...services.flow_trace import Flow
 
 # 视频降级管线标识与诚实降级文案（审计 BK-014）：AI 视频模型未随包
 # 时走 Ken Burns 图片推拉 + FFmpeg 降级管线（产出真实可播放文件但非
@@ -145,7 +153,7 @@ def _video_update_task(task_id: str, fields: dict,
 # ═══════════════════════════════════════════════════════════════════
 
 
-def _detect_row_grid(db, req: VideoGenerateRequest) -> dict | None:
+def _detect_row_grid(db: Database, req: VideoGenerateRequest) -> dict | None:
     """网格协议判据：当前关键帧记录的 prompt 携带网格标记。
 
     以关键帧记录（生成该图所用的描述词）为准而非请求描述——用户
@@ -177,7 +185,7 @@ def _detect_row_grid(db, req: VideoGenerateRequest) -> dict | None:
     return grid
 
 
-def _center_crop_169(img):
+def _center_crop_169(img: Image.Image) -> Image.Image:
     """1×2 网格竖幅格 → 16:9 视频首帧（居中裁剪，保主体）。"""
     w, h = img.size
     target = 16 / 9
@@ -218,7 +226,7 @@ def _segment_prompt(desc: str, grid: dict, i: int) -> str:
     return "\n".join(lines)
 
 
-def _probe_has_audio(enc, path: Path) -> bool:
+def _probe_has_audio(enc: EncoderService, path: Path) -> bool:
     """ffprobe 探测片段是否含音频流（不可用按有音频处理）。"""
     ffprobe = getattr(enc, "ffprobe_path", "") or getattr(enc, "_ffprobe", "")
     if not ffprobe:
@@ -238,7 +246,7 @@ def _probe_has_audio(enc, path: Path) -> bool:
 
 def _trim_concat_segments(seg_specs: list[tuple],
                           out_path: Path, req: VideoGenerateRequest,
-                          progress_cb=None) -> dict:
+                          progress_cb: Callable[[float, str], None] | None = None) -> dict:
     """分段视频 → 逐段裁至镜头时长（统一编码，无音轨补静音）→ concat。
 
     seg_specs 元组 (seg, dur) 从 0 裁 dur 秒；P2 支持 (seg, start, dur)
@@ -307,7 +315,7 @@ def _trim_concat_segments(seg_specs: list[tuple],
                 pass
 
 
-def _load_shot_frames(db, row_id: str, layout: str, n: int) -> list | None:
+def _load_shot_frames(db: Database, row_id: str, layout: str, n: int) -> list | None:
     """方案 A：读后端逐镜独立落盘的各镜首帧（v{N}_shot{i}.png）。
 
     逐镜生成的独立首帧质量高于拼图拆格（无黑缝、已是 16:9、无
@@ -372,7 +380,8 @@ def _load_grid_cells(req: VideoGenerateRequest, grid: dict) -> list:
 
 def _generate_grid_video(req: VideoGenerateRequest, grid: dict,
                          out_path: Path, path: str,
-                         progress_cb=None, check_cancel=None) -> VideoGenResult:
+                         progress_cb: Callable[[float, str], None] | None = None,
+                         check_cancel: Callable[[], None] | None = None) -> VideoGenResult:
     """网格关键帧 → 逐镜分段生成 → 裁时拼接（竞品协议核心）。
 
     每格 = 对应镜头 I2V 首帧；分段描述词 = A 段风格 + B 段世界观 +
@@ -482,7 +491,7 @@ _H3_TRANSLATE_SYSTEM = (
 )
 
 
-def _h3_translator():
+def _h3_translator() -> Callable[[str], str]:
     """H3 描述词翻译器（完整忠实，不压缩；失败时转换层诚实降级保留中文）。"""
     from ...services.inference.prompt_translator import translate_prompt_zh2en
 
@@ -493,7 +502,7 @@ def _h3_translator():
     return _translate
 
 
-def _load_h3_convert():
+def _load_h3_convert() -> tuple[Callable[..., Any], Callable[..., Any]]:
     """skills/h3_convert 转换层导入（P0 裁定：sys.path 注入本目录）。
 
     导入后立即移除注入路径；convert/rules/validate 三模块名常驻
@@ -511,7 +520,8 @@ def _load_h3_convert():
 
 def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
                             out_path: Path,
-                            progress_cb=None, check_cancel=None) -> VideoGenResult:
+                            progress_cb: Callable[[float, str], None] | None = None,
+                            check_cancel: Callable[[], None] | None = None) -> VideoGenResult:
     """H3 导演台：转换层工程包 → ComfyUI 导播台逐段生成 → 裁时拼接。
 
     与 _generate_grid_video 共用网格拆格首帧（方案 A）。合并模式：相邻
@@ -649,7 +659,7 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
         shutil.rmtree(seg_dir, ignore_errors=True)
 
 
-def _make_local_runner(req: VideoGenerateRequest, flow=None) -> callable:
+def _make_local_runner(req: VideoGenerateRequest, flow: Flow | None = None) -> callable:
     """本地管线 runner 工厂（2026-09-02 视频队列改造）。
 
     原后台线程 _video_worker 的管线本体不变；功能锁/显存协商/取消
@@ -668,14 +678,15 @@ def _make_local_runner(req: VideoGenerateRequest, flow=None) -> callable:
     节点链 管线探测→视频生成，progress 回调作追踪心跳。
     """
 
-    def runner(task: dict, check_cancel) -> None:
+    def runner(task: dict, check_cancel: Callable[[], None]) -> None:
         _run_local_pipeline(str(task["task_id"]), req, check_cancel, flow)
 
     return runner
 
 
 def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
-                        check_cancel, flow=None) -> None:
+                        check_cancel: Callable[[], None],
+                        flow: Flow | None = None) -> None:
     from ...services.flow_trace import NULL_FLOW
     flow = flow or NULL_FLOW
 
@@ -882,7 +893,7 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
 def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                           quality: str, aspect: str = "16:9",
                           start_clip: int = 1, run_name: str = "",
-                          flow=None) -> callable:
+                          flow: Flow | None = None) -> callable:
     """H3 链式 runner 工厂（2026-09-02 视频队列改造）。
 
     统一承接原 generate 单镜 worker 与 generate_h3_chain 直连 worker
@@ -891,7 +902,7 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
     队列后继同为 H3 时 keep_loaded 跳过收尾卸载（接力免整轮重载）。
     """
 
-    def runner(task: dict, check_cancel) -> None:
+    def runner(task: dict, check_cancel: Callable[[], None]) -> None:
         task_id = str(task["task_id"])
         t0 = time.time()
         from ...services.flow_trace import NULL_FLOW
@@ -955,7 +966,7 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
 
 @router.post("/manga/video/generate")
 @router.post("/video/generate")  # 顶层别名（文档 §7.1.4 /v1/video）
-async def video_generate(req: VideoGenerateRequest):
+async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     """生成视频（规格 §4.4，TASK-010 真实产出）——入队即返回（B 方案）。
 
     时长上限 VIDEO_MAX_DURATION；带音频同步时上限 LTX2_MAX_AUDIO_SYNC（60002）。
@@ -1187,7 +1198,7 @@ def _attach_eta(resp: dict, task_id: str) -> None:
 
 @router.get("/manga/video/{task_id}/status")
 @router.get("/video/{task_id}/status")  # 顶层别名
-def video_status(task_id: str):
+def video_status(task_id: str) -> dict[str, Any]:
     """视频生成状态（规格 §4.4）——真实进度回传（由后台工作线程落库）。"""
     db = get_db_safe()
     if db is not None:
@@ -1246,7 +1257,7 @@ def _video_task_record(task_id: str) -> dict | None:
 
 @router.get("/manga/video/{task_id}/result")
 @router.get("/video/{task_id}/result")  # 顶层别名
-def video_result(task_id: str):
+def video_result(task_id: str) -> dict[str, Any]:
     """视频生成结果（规格 §4.4）——返回真实文件路径与下载地址。"""
     row = _video_task_record(task_id)
     if row is None:
@@ -1288,7 +1299,7 @@ def video_result(task_id: str):
 
 @router.get("/manga/video/{task_id}/download")
 @router.get("/video/{task_id}/download")  # 顶层别名
-def video_download(task_id: str):
+def video_download(task_id: str) -> FileResponse:
     """下载生成的视频文件（真实文件流式返回）。"""
     row = _video_task_record(task_id)
     if row is None:
@@ -1309,7 +1320,7 @@ def video_download(task_id: str):
 
 @router.get("/video/history")
 def video_paint_history(limit: int = Query(100, ge=1, le=500,
-                                          description="返回条数上限")):
+                                          description="返回条数上限")) -> dict[str, Any]:
     """绘画模块视频生成历史（2026-08-22 记录持久化修复）。
 
     绘画模块发起的视频任务 storyboard_row_id 以 ``paint_`` 开头（见
@@ -1346,7 +1357,7 @@ def video_paint_history(limit: int = Query(100, ge=1, le=500,
 
 
 @router.delete("/video/history/{task_id}")
-def video_paint_history_delete(task_id: str):
+def video_paint_history_delete(task_id: str) -> dict[str, Any]:
     """删除视频历史记录（2026-08-31 删除机制补全：放开漫剧任务）。
 
     运行中（pending/generating）任务拒绝删除；DB 行与已生成的视频文件
@@ -1391,7 +1402,7 @@ def video_paint_history_delete(task_id: str):
 def video_task_list(project_id: str = Query("", description="项目ID"),
                     limit: int = Query(100, ge=1, le=500,
                                        description="返回条数上限"),
-                    offset: int = Query(0, ge=0, description="分页偏移")):
+                    offset: int = Query(0, ge=0, description="分页偏移")) -> dict[str, Any]:
     """项目视频任务列表（竞品对齐）：JOIN storyboard_rows 取 shot_number，
     按 created_at 倒序返回（列取自 _VIDEO_TASK_COLS）。
 
@@ -1449,7 +1460,7 @@ _MEDIA_TYPES = {
 
 
 @router.get("/manga/media/{relpath:path}")
-def manga_media(relpath: str):
+def manga_media(relpath: str) -> FileResponse:
     """漫剧媒体文件回读（前端资产库缩略图/关键帧版本图/导出包下载）。
 
     relpath 为 DATA_DIR 相对路径（资产/关键帧/导出包记录中的 file_path）。
@@ -1474,7 +1485,7 @@ def manga_media(relpath: str):
 
 @router.post("/manga/video/{task_id}/cancel")
 @router.post("/video/{task_id}/cancel")  # 顶层别名
-def video_cancel(task_id: str):
+def video_cancel(task_id: str) -> dict[str, Any]:
     """取消视频生成任务（COMIC-131；2026-09-02 接视频队列）。
 
     三种情形：
@@ -1510,7 +1521,7 @@ def _speed_label(vram_gb: float) -> str:
 
 
 @router.get("/manga/models/available")
-async def list_available_models(task_type: str = Query("dialog")):
+async def list_available_models(task_type: str = Query("dialog")) -> dict[str, Any]:
     """返回指定任务类型可用的本地模型列表及状态（G2 工序弹窗数据源）。
 
     task_type: dialog | paint | video
@@ -1576,7 +1587,7 @@ async def list_available_models(task_type: str = Query("dialog")):
 
 
 @router.post("/manga/story/narrative")
-async def story_narrative_generate(req: StoryNarrativeRequest):
+async def story_narrative_generate(req: StoryNarrativeRequest) -> dict[str, Any]:
     """故事生词（解说漫剧第 3 步）：跨分镜聚合生成连贯描述词。
 
     将选中行的 original_dialogue 聚合为故事线，调对话引擎生成连贯长描述词，
@@ -1692,7 +1703,7 @@ async def story_narrative_generate(req: StoryNarrativeRequest):
 
 
 @router.post("/manga/video/narrative")
-async def video_narrative_generate(req: VideoNarrativeRequest):
+async def video_narrative_generate(req: VideoNarrativeRequest) -> dict[str, Any]:
     """视频生词（解说漫剧第 5 步）：生成 A/B/C 结构化视频描述词。
 
     双输入源融合：绑定资产（asset_ids → comic_assets 段式描述词，
@@ -1792,7 +1803,7 @@ class H3ChainGenerateRequest(_PydanticBaseModel):
 
 
 @router.post("/manga/video/generate_h3_chain")
-async def video_generate_h3_chain(req: H3ChainGenerateRequest):
+async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]:
     """漫剧一镜 → H3 全能多图参考链式工作流（ComfyUI）→ 单条成片。
 
     分镜行描述词 + 绑定资产(人物/场景/道具) → 六段式计划 → ComfyUI Chain

@@ -22,8 +22,10 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Body, Query
+from fastapi.responses import FileResponse
 
 from ..config import LOGS_DIR
 from ..middleware.error_handler import ApiError, ok
@@ -61,7 +63,7 @@ def logs_events(
     level: str | None = Query(None, description="级别过滤 info/success/warning/error"),
     module: str | None = Query(None, description="模块过滤"),
     keyword: str = Query("", description="关键词（大白话/详情/事件名）"),
-):
+) -> dict[str, Any]:
     """重要事件分页查询（新→旧，大白话时间线）。"""
     if level and level not in ("info", "success", "warning", "error"):
         raise ApiError("SYSTEM_PARAM_INVALID", f"非法级别: {level}")
@@ -77,7 +79,7 @@ def logs_flows(
     module: str | None = Query(None, description="模块过滤（流程涉及该模块）"),
     keyword: str = Query("", description="关键词（流程内任一事件命中）"),
     limit: int = Query(50, ge=1, le=200, description="返回流程数上限"),
-):
+) -> dict[str, Any]:
     """功能执行流程聚合（执行流程可视化面板数据源）。
 
     把事件日志按时间邻近性聚合成「一次功能执行的完整链路」（跨模块
@@ -103,7 +105,7 @@ def logs_flow_traces(
     end: float | None = Query(None, description="结束 Unix 时间戳（秒）"),
     limit: int = Query(50, ge=1, le=200, description="返回流程数上限"),
     offset: int = Query(0, ge=0, description="跳过条数（新→旧游标）"),
-):
+) -> dict[str, Any]:
     """执行流程追踪列表（精确 flow_id 链路，2026-08-23 流程记录机制优化）。
 
     与 /logs/flows（事件启发式聚合）互补：本端点读 flow_trace.db 精确
@@ -120,7 +122,7 @@ def logs_flow_traces(
 
 
 @router.get("/logs/flows/trace/{flow_id}")
-def logs_flow_trace_detail(flow_id: str):
+def logs_flow_trace_detail(flow_id: str) -> dict[str, Any]:
     """单流程全明细：完整节点链（输入/输出/状态/耗时/资源/异常）。
 
     卡住定位：running/stalled 流程附 stall_analysis——卡在哪个环节、
@@ -133,25 +135,25 @@ def logs_flow_trace_detail(flow_id: str):
 
 
 @router.get("/logs/flows/trace-stats")
-def logs_flow_trace_stats():
+def logs_flow_trace_stats() -> dict[str, Any]:
     """追踪面板筛选项与状态计数（模块/功能清单 + 卡住数量）。"""
     return ok(flow_trace.flow_trace_stats())
 
 
 @router.get("/logs/stats")
-def logs_stats(days: int = Query(7, ge=1, le=30, description="统计回溯天数")):
+def logs_stats(days: int = Query(7, ge=1, le=30, description="统计回溯天数")) -> dict[str, Any]:
     """统计：级别分布 + 模块分布 + 24h 逐小时趋势。"""
     return ok(event_stats(days=days))
 
 
 @router.get("/logs/modules")
-def logs_modules():
+def logs_modules() -> dict[str, Any]:
     """已产生事件的模块列表（前端筛选项动态生成）。"""
     return ok({"modules": list_modules()})
 
 
 @router.get("/logs/files")
-def logs_files():
+def logs_files() -> dict[str, Any]:
     """原始日志文件清单（名称/大小/修改时间/可否 tail）。"""
     files = []
     for name, path in _RAW_LOG_FILES.items():
@@ -174,7 +176,7 @@ def logs_raw(
     keyword: str = Query("", description="关键词过滤（命中行±上下文）"),
     level: str | None = Query(
         None, description="级别过滤 DEBUG/INFO/WARNING/ERROR"),
-):
+) -> dict[str, Any]:
     """原始日志尾部（技术诊断用；仅白名单文件）。
 
     过滤（2026-09-01 方案 C）：keyword 命中行带 ±3 行上下文返回；
@@ -224,7 +226,7 @@ def logs_raw(
 
 
 @router.post("/logs/cleanup")
-def logs_cleanup():
+def logs_cleanup() -> dict[str, Any]:
     """手动触发过期日志清理（30 天规则，与自动巡检同一实现）。"""
     result = cleanup_expired()
     return ok({
@@ -243,7 +245,7 @@ def logs_cleanup():
 def logs_errors_summary(
     days: int = Query(7, ge=1, le=30, description="聚合回溯天数"),
     limit: int = Query(20, ge=1, le=100, description="返回分组上限"),
-):
+) -> dict[str, Any]:
     """最近异常聚合（错误面板）：按 模块×事件类型 归并计数 + 代表文案。
 
     排障入口视图：一眼看出「哪类错最多、最近一次何时」。
@@ -270,7 +272,7 @@ def logs_errors_summary(
 
 
 @router.post("/logs/frontend-event")
-def logs_frontend_event(body: dict = Body(default_factory=dict)):
+def logs_frontend_event(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """前端 console 错误采集入口（方案 C：window.onerror / unhandledrejection）。
 
     前端按节流策略上报（同 key 5s 一条），此处只做长度钳制后入事件库。
@@ -297,7 +299,7 @@ def _mask_text(v: str) -> str:
     return (v[:4] + "***" + v[-4:]) if len(v) > 12 else "***"
 
 
-def _sanitize_obj(obj):
+def _sanitize_obj(obj: Any) -> Any:
     """递归脱敏 dict/list 中的用户内容字段（导出勾选「脱敏」时）。"""
     if isinstance(obj, dict):
         return {k: (_mask_text(v) if k in _SANITIZE_KEYS
@@ -316,7 +318,7 @@ def logs_export(
     failed_flows: int = Query(10, ge=0, le=50,
                               description="附带最近 N 条失败流程全明细"),
     sanitize: bool = Query(False, description="脱敏：提示词/描述词打码"),
-):
+) -> FileResponse:
     """一键导出诊断包（方案 C）：zip = 事件 + 失败流程明细 + 原始日志 +
     硬件快照 + manifest。自用排障含提示词；发他人勾 sanitize。"""
     import csv

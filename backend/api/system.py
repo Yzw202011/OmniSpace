@@ -26,14 +26,16 @@ import threading
 import time
 import uuid
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, BinaryIO
 
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import FileResponse
 
 from .. import startup_check
 from ..config import APP_VERSION, DATA_DIR, DB_PATH, HOST, LOGS_DIR, MODELS_DIR, PORT, ROOT_DIR
-from ..data.database import get_db_safe
+from ..data.database import Database, get_db_safe
 from ..data.models import ProjectExport, ProjectImport, SystemSettings
 from ..middleware.error_handler import ApiError, ok
 from ..services.offload import run_blocking
@@ -52,7 +54,7 @@ BACKUP_DIR = DATA_DIR / "backups"
 _SETTINGS_KEY = "system.settings"
 
 
-def _kv_get(key: str, default=None):
+def _kv_get(key: str, default: Any = None) -> Any:
     """读 system_settings 表（JSON 值）；异常/缺失返回 default。"""
     db = get_db_safe()
     if db is None:
@@ -67,7 +69,7 @@ def _kv_get(key: str, default=None):
     return default
 
 
-def _kv_set(key: str, value) -> None:
+def _kv_set(key: str, value: Any) -> None:
     """写 system_settings 表（JSON 值，UPSERT）。"""
     db = get_db_safe()
     if db is None:
@@ -132,13 +134,13 @@ def _now_ts() -> str:
 
 
 @router.get("/system/settings")
-def system_settings_get():
+def system_settings_get() -> dict[str, Any]:
     """获取系统设置（规格 §4.7，持久化 system_settings 表）。"""
     return ok(_load_persisted_settings())
 
 
 @router.put("/system/settings")
-def system_settings_update(req: SystemSettings):
+def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     """更新系统设置（规格 §4.7）：写库持久化 + 刷新内存副本。"""
     global _settings
     _settings = req.model_dump()
@@ -147,7 +149,7 @@ def system_settings_update(req: SystemSettings):
 
 
 @router.post("/system/backup")
-async def system_backup():
+async def system_backup() -> dict[str, Any]:
     """备份（规格 §4.7）：设置 JSON + SQLite 数据库真实副本（审计 BK-019）。
 
     数据库副本经 sqlite3 backup API 在线热备，写到 data/backups/。
@@ -202,7 +204,7 @@ async def system_backup():
 # 不存在的子系统（数据库加密/激活/机器指纹）如实返回 warn + "未实现"，
 # 禁止谎报 pass（安全状态误导）。
 
-def _from_startup(check_fn) -> tuple[str, str]:
+def _from_startup(check_fn: Callable[[], startup_check.CheckResult]) -> tuple[str, str]:
     """复用 startup_check 真实检查项：passed+level → pass/warn/fail。"""
     try:
         r = check_fn()
@@ -424,7 +426,7 @@ _DIAG_PROBES = [
 
 
 @router.post("/system/diagnose")
-async def system_diagnose():
+async def system_diagnose() -> dict[str, Any]:
     """运行 26 项检测（规格 §4.7，审计 BK-002 真实探测版）。
 
     每项实时探测硬件/数据库/引擎/目录真实状态；不存在的子系统
@@ -464,7 +466,7 @@ _ARCHIVE_FORMAT = "omnispace-project"
 _ARCHIVE_FORMAT_VERSION = 1
 
 
-def _collect_project_bundle(db, project_id: str) -> dict:
+def _collect_project_bundle(db: Database, project_id: str) -> dict:
     """从数据库采集项目完整数据包。"""
     project = db.query_one(
         "SELECT id, name, path, created_at, updated_at"
@@ -571,7 +573,7 @@ def _write_project_archive(path: Path, manifest: dict, bundle: dict) -> None:
 
 
 @router.post("/system/project/export")
-async def system_project_export(req: ProjectExport):
+async def system_project_export(req: ProjectExport) -> dict[str, Any]:
     """打包 .omnispace（规格 §4.7，审计 BK-041 真实归档版）。
 
     导出项目元数据 + 分镜表 + 导演台数据 + 资产清单为 ZIP 归档，
@@ -616,7 +618,7 @@ async def system_project_export(req: ProjectExport):
                "video_tasks": len(bundle["video_tasks"])})
 
 
-def _read_archive_json(zf: zipfile.ZipFile, name: str, required: bool = True):
+def _read_archive_json(zf: zipfile.ZipFile, name: str, required: bool = True) -> Any:
     """读取归档内 JSON 成员；缺失/损坏按 PROJECT_FILE_CORRUPTED 处理。"""
     try:
         raw = zf.read(name)
@@ -632,7 +634,7 @@ def _read_archive_json(zf: zipfile.ZipFile, name: str, required: bool = True):
                        f"归档成员 {name} 解析失败: {exc}") from exc
 
 
-def _fresh_id(db, table: str, old_id: str) -> str:
+def _fresh_id(db: Database, table: str, old_id: str) -> str:
     """id 冲突时生成新 id，否则沿用原 id。"""
     if old_id and not db.query_one(f"SELECT id FROM {table} WHERE id=?",
                                    (old_id,)):
@@ -641,7 +643,7 @@ def _fresh_id(db, table: str, old_id: str) -> str:
 
 
 @router.post("/system/project/import")
-async def system_project_import(req: ProjectImport):
+async def system_project_import(req: ProjectImport) -> dict[str, Any]:
     """导入项目（规格 §4.7，审计 BK-042 真实恢复版）。
 
     路径经白名单校验（BK-028）→ 解析 .omnispace 归档 → 恢复
@@ -669,7 +671,7 @@ async def system_project_import(req: ProjectImport):
               message="项目导入完成")
 
 
-def _parse_project_archive(path: Path):
+def _parse_project_archive(path: Path) -> tuple[dict, dict, dict]:
     """同步解析 .omnispace 归档（经 run_blocking 卸载的同步核心）。
 
     返回 (project, storyboard_pack, director_pack)；容器/成员损坏时
@@ -695,7 +697,7 @@ def _parse_project_archive(path: Path):
     return project, sb_pack, director
 
 
-def _restore_project_records(db, project: dict, sb_pack: dict,
+def _restore_project_records(db: Database, project: dict, sb_pack: dict,
                              director: dict) -> tuple[str, dict]:
     """同步恢复项目数据库记录（经 run_blocking 卸载的同步核心）。
 
@@ -807,7 +809,7 @@ def _restore_project_records(db, project: dict, sb_pack: dict,
 
 
 @router.get("/system/version")
-def system_version():
+def system_version() -> dict[str, Any]:
     """版本信息（规格 §4.7）。"""
     return ok({
         "version": APP_VERSION,
@@ -819,7 +821,7 @@ def system_version():
 
 
 @router.get("/system/update")
-def system_update():
+def system_update() -> dict[str, Any]:
     """软件更新（文档B §7.1.4，审计 R2-B09 / F-09 契约对齐）。
 
     RC 为免安装整体替换形态，软件更新经"整体替换目录"完成，
@@ -835,7 +837,7 @@ def system_update():
 
 
 @router.get("/system/info")
-def system_info():
+def system_info() -> dict[str, Any]:
     """系统信息聚合（文档B §7.1.4 /system/info，审计 R2-B09）。
 
     合并版本信息与硬件摘要（GPU 名/显存/tier/CPU/内存），
@@ -884,7 +886,7 @@ def _inference_config() -> dict:
 
 
 @router.get("/system/inference/config")
-def inference_config_get():
+def inference_config_get() -> dict[str, Any]:
     """推理参数配置（SET-010）：线程数 / 卸载清缓存策略。"""
     cfg = _inference_config()
     cfg["cpu_cores"] = os.cpu_count() or 1
@@ -892,7 +894,7 @@ def inference_config_get():
 
 
 @router.put("/system/inference/config")
-def inference_config_put(body: dict = Body(default_factory=dict)):
+def inference_config_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新推理参数配置（SET-010）。
 
     - num_threads: 1~物理核数（0=不限制），torch.set_num_threads
@@ -964,13 +966,13 @@ def _apply_network_env(cfg: dict) -> list[str]:
 
 
 @router.get("/system/network/config")
-def network_config_get():
+def network_config_get() -> dict[str, Any]:
     """网络配置（SET-012/013/014）：代理 / HF 镜像源 / 带宽上限。"""
     return ok(_network_config())
 
 
 @router.put("/system/network/config")
-def network_config_put(body: dict = Body(default_factory=dict)):
+def network_config_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新网络配置（SET-012/013/014）。
 
     离线定位如实说明：本系统仅学习模块（网页抓取）与模型下载联网；
@@ -1006,14 +1008,14 @@ def network_config_put(body: dict = Body(default_factory=dict)):
 # ── SET-015 训练默认参数 ─────────────────────────────────────────
 
 @router.get("/learn/train/defaults")
-def train_defaults_get():
+def train_defaults_get() -> dict[str, Any]:
     """训练默认参数（SET-015）：内置默认 + 用户覆盖合并结果。"""
     from ..services.lora_training_service import get_train_defaults
     return ok(get_train_defaults())
 
 
 @router.put("/learn/train/defaults")
-def train_defaults_put(body: dict = Body(default_factory=dict)):
+def train_defaults_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新训练默认参数（SET-015）。
 
     白名单字段: lora_rank/lora_alpha/lora_dropout/learning_rate/epochs/
@@ -1095,7 +1097,7 @@ def _ensure_backup_scheduler() -> None:
 
 
 @router.get("/system/backup/config")
-def backup_config_get():
+def backup_config_get() -> dict[str, Any]:
     """自动备份配置（SET-019）：{enabled, interval_hours, last_backup_at}。"""
     _ensure_backup_scheduler()
     cfg = _backup_config()
@@ -1104,7 +1106,7 @@ def backup_config_get():
 
 
 @router.put("/system/backup/config")
-def backup_config_put(body: dict = Body(default_factory=dict)):
+def backup_config_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新自动备份配置（SET-019）：开关 + 间隔（小时，下限 1h）。"""
     _ensure_backup_scheduler()
     cur = _backup_config()
@@ -1126,7 +1128,7 @@ def backup_config_put(body: dict = Body(default_factory=dict)):
 class _HashWriter:
     """透传写并累计 SHA256 的文件包装器。"""
 
-    def __init__(self, fp):
+    def __init__(self, fp: BinaryIO) -> None:
         self._fp = fp
         self._hash = hashlib.sha256()
 
@@ -1197,7 +1199,7 @@ def _write_full_export(dest: Path) -> str:
 
 
 @router.post("/system/export")
-async def system_full_export():
+async def system_full_export() -> dict[str, Any]:
     """全量数据导出（SET-021）：tar.gz + SHA256，写 exports/ 目录。
 
     含数据库热备副本 + 设置快照 + generated/ 生成物；排除 backups/ 与
@@ -1238,7 +1240,7 @@ def _ensure_api_keys_table() -> None:
 
 
 @router.get("/system/apikeys")
-def api_keys_list():
+def api_keys_list() -> dict[str, Any]:
     """API Key 列表（SET-023）：仅返回脱敏前缀，绝不返回完整 Key。"""
     _ensure_api_keys_table()
     db = get_db_safe()
@@ -1250,7 +1252,7 @@ def api_keys_list():
 
 
 @router.post("/system/apikeys")
-def api_keys_create(body: dict = Body(default_factory=dict)):
+def api_keys_create(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """创建 API Key（SET-023）：完整 Key 仅此一次返回，库存 bcrypt 哈希。"""
     import bcrypt
 
@@ -1276,7 +1278,7 @@ def api_keys_create(body: dict = Body(default_factory=dict)):
 
 
 @router.delete("/system/apikeys/{key_id}")
-def api_keys_delete(key_id: str):
+def api_keys_delete(key_id: str) -> dict[str, Any]:
     """删除 API Key（SET-023）。"""
     _ensure_api_keys_table()
     db = get_db_safe()
@@ -1302,7 +1304,7 @@ def _apply_log_level(level: str) -> None:
 
 
 @router.put("/system/logs/level")
-def logs_level_put(body: dict = Body(default_factory=dict)):
+def logs_level_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """运行时设置日志级别（SET-025）：即时生效 + 持久化。"""
     level = str(body.get("level", "") or "").strip().upper()
     if level not in _LOG_LEVELS:
@@ -1325,7 +1327,7 @@ def _log_files() -> list[Path]:
 @router.get("/system/logs")
 def system_logs(page: int = Query(1, ge=1),
                 page_size: int = Query(100, ge=1, le=500),
-                level: str = Query("")):
+                level: str = Query("")) -> dict[str, Any]:
     """日志分页查询（SET-026）：最新在前，可按级别过滤。"""
     lvl = level.strip().upper()
     if lvl and lvl not in _LOG_LEVELS:
@@ -1349,7 +1351,7 @@ def system_logs(page: int = Query(1, ge=1),
 
 
 @router.get("/system/logs/export")
-def system_logs_export():
+def system_logs_export() -> FileResponse:
     """日志导出（SET-026）：当前 backend.log 以 .txt 下载。"""
     current = LOGS_DIR / "backend.log"
     if not current.is_file():
@@ -1359,7 +1361,7 @@ def system_logs_export():
 
 
 @router.post("/system/logs/cleanup")
-def system_logs_cleanup(body: dict = Body(default_factory=dict)):
+def system_logs_cleanup(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """日志清理（SET-026）：删除 mtime 早于 keep_days 的日志文件
     （当前活跃 backend.log 永不删除）。"""
     try:
@@ -1402,7 +1404,7 @@ def _do_restart() -> None:
 
 
 @router.post("/system/restart")
-def system_restart(body: dict = Body(default_factory=dict)):
+def system_restart(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """重启后端（SET-029）：{"confirm": "RESTART"}。
 
     浏览器形态如实说明：无桌面壳守护进程，采用 os.execv 原地替换
@@ -1439,7 +1441,7 @@ def _dir_size(path: Path) -> int:
 
 
 @router.get("/system/disk")
-def system_disk(top: int = Query(20, ge=1, le=100)):
+def system_disk(top: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
     """磁盘概览（SET-030）：各卷用量 + 数据目录占用 + top 大文件。"""
     import psutil
 

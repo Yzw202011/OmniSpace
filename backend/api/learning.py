@@ -30,11 +30,12 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Body, Query, WebSocket, WebSocketDisconnect
 
-from ..data.database import get_db_safe, parse_json
+from ..data.database import Database, get_db_safe, parse_json
 from ..middleware.error_handler import ApiError, ok
 from ..services.browser_agent_service import (
     ERR_QUOTA_DENIED,
@@ -42,6 +43,7 @@ from ..services.browser_agent_service import (
     ERR_TOPIC_LIMIT,
     ERR_TOPIC_NOT_FOUND,
     LearningError,
+    LearningSession,
     ensure_learning_tables,
     get_browser_agent_service,
     get_learning_settings,
@@ -64,11 +66,11 @@ def _now() -> float:
     return time.time()
 
 
-def _db():
+def _db() -> Database | None:
     return get_db_safe()
 
 
-def _agent_call(fn, *args, **kwargs):
+def _agent_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """调用 Agent 服务并把 LearningError 转为 ApiError。"""
     try:
         return fn(*args, **kwargs)
@@ -119,7 +121,7 @@ def _topic_row_to_dict(r: dict) -> dict:
 
 
 @router.post("/learn/topic/create")
-def topic_create(body: dict = Body(default_factory=dict)):
+def topic_create(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """创建学习主题：{name, keywords?, source?, depth?, seed_urls?}。
 
     LEARN-003：同名主题拒绝（LEARN_TOPIC_NAME_DUPLICATED）。
@@ -195,7 +197,7 @@ def topic_create(body: dict = Body(default_factory=dict)):
 @router.get("/learn/topic/list")
 def topic_list(keyword: str = Query(default=""),
                status: str = Query(default=""),
-               sort: str = Query(default="created_desc")):
+               sort: str = Query(default="created_desc")) -> dict[str, Any]:
     """主题列表（LEARN-006）：keyword 模糊匹配名称/关键词、status 过滤、
     sort=created_desc|created_asc|name|progress，附各主题最新会话进度。"""
     agent = get_browser_agent_service()
@@ -244,7 +246,7 @@ def topic_list(keyword: str = Query(default=""),
 
 @router.delete("/learn/topic/delete")
 def topic_delete(body: dict = Body(default_factory=dict),
-                 id: str = Query(default="")):
+                 id: str = Query(default="")) -> dict[str, Any]:
     """删除主题（body.id / body.topic_id / ?id= 均可）。"""
     topic_id = str((body or {}).get("id", "") or (body or {}).get("topic_id", "")
                    or id or "").strip()
@@ -267,7 +269,7 @@ def topic_delete(body: dict = Body(default_factory=dict),
 
 
 @router.post("/learn/topic/clone")
-def topic_clone(body: dict = Body(default_factory=dict)):
+def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """克隆学习主题（LEARN-069）：复制名称/关键词/深度/种子URL设置。
 
     请求体: {"topic_id": str, "name"?: str（缺省=原名-副本）,
@@ -345,7 +347,7 @@ def topic_clone(body: dict = Body(default_factory=dict)):
 
 
 @router.put("/learn/topic/{topic_id}")
-def topic_update(topic_id: str, body: dict = Body(default_factory=dict)):
+def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新主题：{name?, keywords?, status?}。"""
     patch: dict = {}
     if "name" in (body or {}):
@@ -414,7 +416,7 @@ def _resolve_session_id(session_id: str = "", body: dict | None = None) -> str:
     return sid
 
 
-def _persist_session_row(session) -> None:
+def _persist_session_row(session: LearningSession) -> None:
     """会话状态落库（best effort）。"""
     db = _db()
     if db is None:
@@ -443,7 +445,7 @@ def _persist_session_row(session) -> None:
 
 
 @router.post("/learn/session/start")
-def session_start(body: dict = Body(default_factory=dict)):
+def session_start(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """启动学习会话：{topic_id, budget?, enqueue?}。后台线程运行 Agent 循环。
 
     - 校验主题存在（61001）
@@ -532,7 +534,7 @@ def session_start(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/learn/session/pause")
-def session_pause(body: dict = Body(default_factory=dict)):
+def session_pause(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """暂停学习会话。"""
     sid = _resolve_session_id(body=body)
     session = _agent_call(get_browser_agent_service().pause_session, sid)
@@ -541,7 +543,7 @@ def session_pause(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/learn/session/resume")
-def session_resume(body: dict = Body(default_factory=dict)):
+def session_resume(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """恢复学习会话。"""
     sid = _resolve_session_id(body=body)
     session = _agent_call(get_browser_agent_service().resume_session, sid)
@@ -550,7 +552,7 @@ def session_resume(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/learn/session/stop")
-def session_stop(body: dict = Body(default_factory=dict)):
+def session_stop(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """停止学习会话（Agent 循环下一拍退出并生成报告）。"""
     sid = _resolve_session_id(body=body)
     session = _agent_call(get_browser_agent_service().stop_session, sid)
@@ -558,7 +560,7 @@ def session_stop(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/learn/session/status")
-def session_status(session_id: str = Query(default="")):
+def session_status(session_id: str = Query(default="")) -> dict[str, Any]:
     """会话状态快照；session_id 缺省时返回活跃会话或最近一次会话。"""
     agent = get_browser_agent_service()
     sid = (session_id or "").strip()
@@ -620,7 +622,7 @@ def _session_progress_snapshot() -> dict:
 
 
 @router.websocket("/learn/session/progress")
-async def learn_session_progress_ws(websocket: WebSocket):
+async def learn_session_progress_ws(websocket: WebSocket) -> None:
     """学习进度实时推送（文档B §7.1.2 /learn/session/progress WS）。
 
     每 2 秒推送一次会话状态快照（审计 R2-B05：替代前端轮询
@@ -652,7 +654,7 @@ async def learn_session_progress_ws(websocket: WebSocket):
 
 @router.get("/learn/session/logs")
 def session_logs(session_id: str = Query(default=""),
-                 limit: int = Query(default=200, ge=1, le=1000)):
+                 limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
     """会话操作日志（时间戳/动作/理由/结果）。"""
     agent = get_browser_agent_service()
     sid = _resolve_session_id(session_id=session_id)
@@ -678,7 +680,7 @@ def session_logs(session_id: str = Query(default=""),
 
 
 @router.get("/learn/session/report")
-def session_report(session_id: str = Query(default="")):
+def session_report(session_id: str = Query(default="")) -> dict[str, Any]:
     """学习完成报告（进行中的会话返回当前进度报告）。"""
     agent = get_browser_agent_service()
     sid = _resolve_session_id(session_id=session_id)
@@ -720,14 +722,14 @@ def session_report(session_id: str = Query(default="")):
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/learn/settings")
-def learn_settings_get():
+def learn_settings_get() -> dict[str, Any]:
     """读取学习设置（时长/页数/搜索引擎/黑白名单/广告过滤/流量/
     学习时段/自动微调频率/行为学习开关）。"""
     return ok(get_learning_settings())
 
 
 @router.put("/learn/settings")
-def learn_settings_put(body: dict = Body(default_factory=dict)):
+def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新学习设置并持久化到 learning_settings 表（变更即时生效）。"""
     if not isinstance(body, dict) or not body:
         raise ApiError(40004, "请求体必须是非空 JSON 对象")
@@ -775,7 +777,7 @@ def learn_settings_put(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/learn/quota")
-def learn_quota():
+def learn_quota() -> dict[str, Any]:
     """当前资源配额快照（TASK-014 配额矩阵 + 流量消耗）。
 
     LEARN-063：容量接近上限（知识库 ≥90% 或主题数 ≥90%）时返回
@@ -825,19 +827,19 @@ def learn_quota():
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/learn/settings/get")
-def learn_settings_get_alias():
+def learn_settings_get_alias() -> dict[str, Any]:
     """契约别名：= GET /learn/settings。"""
     return learn_settings_get()
 
 
 @router.put("/learn/settings/update")
-def learn_settings_update_alias(body: dict = Body(default_factory=dict)):
+def learn_settings_update_alias(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """契约别名：= PUT /learn/settings（部分更新）。"""
     return learn_settings_put(body)
 
 
 @router.get("/learn/session/log")
 def session_log_alias(session_id: str = Query(default=""),
-                      limit: int = Query(default=200, ge=1, le=1000)):
+                      limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
     """契约别名：= GET /learn/session/logs。"""
     return session_logs(session_id=session_id, limit=limit)

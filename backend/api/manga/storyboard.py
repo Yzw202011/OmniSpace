@@ -11,6 +11,7 @@ import re
 import sqlite3
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, Query
 
@@ -58,6 +59,11 @@ from .keyframe import (
     _EMOTION_KEYWORDS,
 )
 
+if TYPE_CHECKING:
+    from PIL import Image
+
+    from ...data.database import Database
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.storyboard")
 
@@ -69,7 +75,7 @@ log = logging.getLogger("omnispace.api.manga.storyboard")
 
 @router.post("/manga/storyboard")
 @router.post("/storyboard")  # 顶层别名（文档 §7.1.4 /v1/storyboard）
-def storyboard_create(req: StoryboardCreate):
+def storyboard_create(req: StoryboardCreate) -> dict[str, Any]:
     """创建分镜表（规格 §4.4）。为项目初始化空分镜表。"""
     pid = req.project_id
     db = get_db_safe()
@@ -86,7 +92,7 @@ def storyboard_create(req: StoryboardCreate):
 
 @router.get("/manga/storyboard/list")
 @router.get("/storyboard/list")  # 顶层别名
-def storyboard_list(project_id: str = Query("", description="项目ID")):
+def storyboard_list(project_id: str = Query("", description="项目ID")) -> dict[str, Any]:
     """分镜行列表（R2-B06）：按 sort_index 升序返回，供拖拽排序视图。
 
     注意：必须注册在 GET /manga/storyboard/{project_id} 之前，
@@ -112,7 +118,7 @@ def storyboard_list(project_id: str = Query("", description="项目ID")):
 
 @router.get("/manga/storyboard/{project_id}")
 @router.get("/storyboard/{project_id}")  # 顶层别名
-def storyboard_get(project_id: str):
+def storyboard_get(project_id: str) -> dict[str, Any]:
     """获取分镜表（规格 §4.4）。
 
     项目不存在 → 40005（与 PUT/DELETE 口径一致）；项目存在但无分镜行
@@ -141,7 +147,8 @@ def storyboard_get(project_id: str):
 
 @router.put("/manga/storyboard/{project_id}/rows/{row_id}")
 @router.put("/storyboard/{project_id}/rows/{row_id}")  # 顶层别名
-def storyboard_row_update(project_id: str, row_id: str, req: StoryboardRowUpdate):
+def storyboard_row_update(project_id: str, row_id: str,
+                          req: StoryboardRowUpdate) -> dict[str, Any]:
     """更新分镜行（规格 §4.4）。仅更新非空字段。"""
     db = get_db_safe()
     if db is not None:
@@ -191,8 +198,8 @@ def storyboard_row_update(project_id: str, row_id: str, req: StoryboardRowUpdate
     return ok({"row": target})
 
 
-def _cascade_removed_rows(db, project_id: str, old_ids: set[str],
-                          submitted_rows: list) -> None:
+def _cascade_removed_rows(db: Database, project_id: str, old_ids: set[str],
+                          submitted_rows: list[Any]) -> None:
     """被删分镜行的级联清理（2026-08-31 删除机制补全）。
 
     整表覆盖保存移除行时：keyframes / video_tasks 的 DB 行与磁盘产物
@@ -233,7 +240,8 @@ def _cascade_removed_rows(db, project_id: str, old_ids: set[str],
 
 @router.put("/manga/storyboard/{project_id}")
 @router.put("/storyboard/{project_id}")  # 顶层别名
-async def storyboard_save(project_id: str, body: dict = Body(default_factory=dict)):
+async def storyboard_save(project_id: str,
+                          body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """全量保存分镜表（前端「保存」按钮 / 自动保存 / 拖拽排序持久化）。
 
     body: {rows: [分镜行 dict, ...]}——按数组顺序全量替换：
@@ -873,7 +881,7 @@ async def _ai_split_script(script: str, project_id: str = "") -> tuple[list[dict
 
 @router.get("/manga/storyboard/{project_id}/auto-split/progress")
 @router.get("/storyboard/{project_id}/auto-split/progress")  # 顶层别名
-async def storyboard_auto_split_progress(project_id: str):
+async def storyboard_auto_split_progress(project_id: str) -> dict[str, Any]:
     """AI 切分实时进度（前端 SplitProgressBar 3s 轮询）。
 
     响应 {active, blocks_done, blocks_total}；无在途切分时 active=false。
@@ -943,7 +951,8 @@ async def _persist_split_rows(project_id: str, shots: list[dict],
 
 @router.post("/manga/storyboard/{project_id}/auto-split")
 @router.post("/storyboard/{project_id}/auto-split")  # 顶层别名
-async def storyboard_auto_split(project_id: str, body: dict = Body(default_factory=dict)):
+async def storyboard_auto_split(project_id: str,
+                                body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """AI 自动分镜（2026-08-23 镜头级真分镜改造）。
 
     body: {script: <剧本文本>, dry_run?: true}
@@ -1025,7 +1034,8 @@ async def storyboard_auto_split(project_id: str, body: dict = Body(default_facto
 
 @router.post("/manga/storyboard/{project_id}/auto-split/commit")
 @router.post("/storyboard/{project_id}/auto-split/commit")  # 顶层别名
-async def storyboard_auto_split_commit(project_id: str, body: dict = Body(default_factory=dict)):
+async def storyboard_auto_split_commit(project_id: str,
+                                       body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """确认 dry-run 预览结果并落库（body: {split_id}，避免二次 AI 推理）。"""
     split_id = str(body.get("split_id") or "").strip()
     cached = _split_cache.get(split_id)
@@ -1060,7 +1070,7 @@ async def storyboard_auto_split_commit(project_id: str, body: dict = Body(defaul
 
 @router.post("/manga/storyboard/import")
 @router.post("/storyboard/import")  # 顶层别名
-async def storyboard_import(body: dict = Body(default_factory=dict)):
+async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """导入剧本（规格 §4.4）。解析剧本文本为分镜行结构。"""
     project_id = str(body.get("project_id") or "").strip()
     script = str(body.get("script") or body.get("content") or "").strip()
@@ -1114,7 +1124,7 @@ async def storyboard_import(body: dict = Body(default_factory=dict)):
 @router.get("/manga/storyboard/{project_id}/export")
 @router.get("/storyboard/{project_id}/export")  # 顶层别名
 def storyboard_export(project_id: str,
-                      format: str = Query("json", description="导出格式：csv|json|png-seq|pdf")):
+                      format: str = Query("json", description="导出格式：csv|json|png-seq|pdf")) -> dict[str, Any]:
     """导出分镜表（规格 §4.4）。format=csv|json|png-seq|pdf（批 1.7 扩展）。
 
     png-seq：各分镜行当前关键帧（无关键帧用占位图）打成 zip；
@@ -1214,7 +1224,7 @@ def _storyboard_export_visual(project_id: str, rows: list[dict],
                "total": len(rows), "engine": engine})
 
 
-def _placeholder_image(row: dict):
+def _placeholder_image(row: dict) -> Image:
     """无关键帧时的占位图：灰色底 + 镜头号（真实 PIL 渲染，非空文件）。"""
     from PIL import Image, ImageDraw
     img = Image.new("RGB", (960, 540), (36, 36, 48))
@@ -1257,7 +1267,7 @@ def _export_pdf_reportlab(pdf_path: Path, project_id: str,
 
 @router.post("/manga/storyboard/reorder")
 @router.post("/storyboard/reorder")  # 顶层别名
-def storyboard_reorder(body: dict = Body(default_factory=dict)):
+def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """拖拽重排（R2-B06）：按 row_ids 数组顺序重写各行 sort_index。
 
     body: {row_ids: [str, ...], project_id?: str}
@@ -1350,7 +1360,7 @@ def _load_storyboard_row(row_id: str, project_id: str = "") -> dict | None:
 
 @router.post("/manga/storyboard/ai-describe")
 @router.post("/storyboard/ai-describe")  # 顶层别名
-async def storyboard_ai_describe(req: AiDescribeRequest):
+async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     """AI 分镜描述词（R2-B07 / 2026-08-25 竞品对齐 A/B/C 统一格式）。
 
     与「视频生词」共用 common.py A/B/C 管线：A 段=项目画风代码拼装
@@ -1456,7 +1466,7 @@ async def storyboard_ai_describe(req: AiDescribeRequest):
 
 @router.post("/manga/storyboard/preview")
 @router.post("/storyboard/preview")  # 顶层别名
-async def storyboard_preview(body: dict = Body(default_factory=dict)):
+async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """分镜预览图（R2-B07）：按分镜行画面描述调用绘画引擎生成预览图。
 
     body: {row_id?: str, description?: str, project_id?: str, seed?: int}
@@ -1531,7 +1541,7 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/manga/storyboard/emotion-detect")
-async def storyboard_emotion_detect(req: EmotionDetectRequest):
+async def storyboard_emotion_detect(req: EmotionDetectRequest) -> dict[str, Any]:
     """台词情绪识别（COMIC-070）。
 
     对话引擎就绪时走 LLM 分类；未就绪回退本地规则词典（degraded 标记）。

@@ -35,10 +35,12 @@ import json
 import logging
 import time
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from ..data.database import Database
 from ..middleware import upload_guard
 from ..middleware.error_handler import ApiError, ok
 from ..services.behavior_service import get_behavior_service
@@ -146,7 +148,7 @@ def _decode_text(data: bytes) -> str:
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/knowledge/stats")
-def knowledge_stats():
+def knowledge_stats() -> dict[str, Any]:
     """知识库统计：条数 / 磁盘大小 / 主题分布 / 后端状态。"""
     svc = get_knowledge_service()
     return ok(svc.stats())
@@ -158,7 +160,7 @@ def knowledge_list(page: int = Query(1, ge=1),
                    topic: str = Query(""),
                    keyword: str = Query(""),
                    type: str = Query(""),
-                   min_score: float = Query(0.0, ge=0.0)):
+                   min_score: float = Query(0.0, ge=0.0)) -> dict[str, Any]:
     """知识列表：分页 + topic 过滤 + keyword 搜索（匹配 content/title）。
 
     LEARN-040：type 精确过滤、min_score 质量分下限过滤。"""
@@ -170,7 +172,7 @@ def knowledge_list(page: int = Query(1, ge=1),
 
 @router.get("/knowledge/graph")
 def knowledge_graph(kid: str = Query(""),
-                    max_nodes: int = Query(200, ge=1, le=1000)):
+                    max_nodes: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     """知识图谱（TASK-055）：kid 为空返回全局 Top-N 图谱，
     否则返回该知识直接关系 + 一跳邻居扩展。"""
     svc = get_knowledge_service()
@@ -179,13 +181,13 @@ def knowledge_graph(kid: str = Query(""),
 
 @router.get("/learn/knowledge/graph")
 def learn_knowledge_graph(kid: str = Query(""),
-                          max_nodes: int = Query(200, ge=1, le=1000)):
+                          max_nodes: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     """规格 §4 契约路径别名（/v1/learn/knowledge/graph，v2.3.1 新增）。"""
     return knowledge_graph(kid=kid, max_nodes=max_nodes)
 
 
 @router.get("/knowledge/{kid}")
-def knowledge_detail(kid: str):
+def knowledge_detail(kid: str) -> dict[str, Any]:
     """知识详情。"""
     svc = get_knowledge_service()
     row = svc.get_knowledge(kid)
@@ -196,7 +198,7 @@ def knowledge_detail(kid: str):
 
 
 @router.delete("/knowledge/{kid}")
-def knowledge_delete(kid: str):
+def knowledge_delete(kid: str) -> dict[str, Any]:
     """删除知识：级联删向量与元数据。"""
     svc = get_knowledge_service()
     if not svc.delete_knowledge(kid):
@@ -208,7 +210,7 @@ def knowledge_delete(kid: str):
 @router.post("/knowledge/import-document")
 async def knowledge_import_document(file: UploadFile = File(...),
                                     topic: str = Form(...),
-                                    source_url: str = Form("")):
+                                    source_url: str = Form("")) -> dict[str, Any]:
     """导入文档（multipart 上传 pdf/docx/txt/md），走完整管线入话题。"""
     if not file or not file.filename:
         raise ApiError("SYSTEM_PARAM_INVALID", "未提供上传文件")
@@ -255,7 +257,7 @@ async def knowledge_import_document(file: UploadFile = File(...),
 
 
 @router.post("/knowledge/process-text")
-def knowledge_process_text(req: ProcessTextRequest):
+def knowledge_process_text(req: ProcessTextRequest) -> dict[str, Any]:
     """直接处理文本（测试用），走完整管线入话题。"""
     if not req.content or not req.content.strip():
         raise ApiError("SYSTEM_PARAM_INVALID", "content 不能为空")
@@ -283,7 +285,7 @@ def learn_knowledge_list(page: int = Query(1, ge=1),
                          topic: str = Query(""),
                          keyword: str = Query(""),
                          type: str = Query(""),
-                         min_score: float = Query(0.0, ge=0.0)):
+                         min_score: float = Query(0.0, ge=0.0)) -> dict[str, Any]:
     """契约别名：= GET /knowledge/list（LEARN-040 支持 type/min_score）。"""
     return knowledge_list(page=page, page_size=page_size,
                           topic=topic, keyword=keyword,
@@ -291,7 +293,7 @@ def learn_knowledge_list(page: int = Query(1, ge=1),
 
 
 @router.put("/learn/knowledge/{kid}")
-def learn_knowledge_update(kid: str, body: dict = Body(default_factory=dict)):
+def learn_knowledge_update(kid: str, body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """编辑知识条目（LEARN-041）：{content?, topic?, type?}。
 
     content 变更会重算 simhash 与语言标记并同步全文索引。
@@ -324,7 +326,7 @@ def learn_knowledge_update(kid: str, body: dict = Body(default_factory=dict)):
 
 @router.get("/learn/knowledge/search")
 def learn_knowledge_search(q: str = Query(..., min_length=1),
-                           top_k: int = Query(5, ge=1, le=50)):
+                           top_k: int = Query(5, ge=1, le=50)) -> dict[str, Any]:
     """知识语义检索（规格 §7.1.2）：混合检索（向量+FTS5 关键词，RRF 融合）。"""
     svc = get_injection_service()
     items = svc.retrieve(q, top_k=top_k)
@@ -333,7 +335,7 @@ def learn_knowledge_search(q: str = Query(..., min_length=1),
 
 
 @router.delete("/learn/knowledge/delete")
-def learn_knowledge_delete(body: dict = Body(default_factory=dict)):
+def learn_knowledge_delete(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """删除知识（契约路径）：单条 {"id": "..."} 或批量 {"ids": [...]}。"""
     kid = str((body or {}).get("id", "") or "").strip()
     ids_raw = (body or {}).get("ids")
@@ -360,7 +362,7 @@ def learn_knowledge_delete(body: dict = Body(default_factory=dict)):
 
 @router.get("/learn/knowledge/export")
 def learn_knowledge_export(format: str = Query("json"),
-                           topic: str = Query("")):
+                           topic: str = Query("")) -> dict[str, Any]:
     """导出知识库（规格 §7.1.2 / T53）：format=json|csv，可按 topic 过滤。
 
     CSV 内容内嵌 ok() 信封的 data.content（与 /manga/storyboard export 一致）。
@@ -438,7 +440,7 @@ def _import_rows_from_payload(filename: str, data: bytes) -> list[dict]:
 async def learn_knowledge_import(
         file: UploadFile = File(...),
         merge_strategy: str = Form("dedup"),
-        topic: str = Form("")):
+        topic: str = Form("")) -> dict[str, Any]:
     """导入知识条目（LEARN-046）：multipart 上传 .json/.csv。
 
     merge_strategy:
@@ -515,7 +517,7 @@ async def learn_knowledge_import(
 
 @router.get("/learn/knowledge/graph/export")
 def learn_knowledge_graph_export(format: str = Query("gexf"),
-                                 max_nodes: int = Query(500, ge=1, le=2000)):
+                                 max_nodes: int = Query(500, ge=1, le=2000)) -> dict[str, Any]:
     """知识图谱导出（LEARN-032）：format=gexf|graphml（networkx 序列化，
     内容内嵌 ok() 信封 data.content，与知识库导出一致）。"""
     fmt = (format or "gexf").strip().lower()
@@ -551,7 +553,7 @@ def learn_knowledge_graph_export(format: str = Query("gexf"),
 
 # ── 学习分析（LEARN-049~052，SQL 聚合）──────────────────────────────
 
-def _analysis_db():
+def _analysis_db() -> Database:
     from ..data.database import get_db_safe
     db = get_db_safe()
     if db is None:
@@ -562,7 +564,7 @@ def _analysis_db():
 
 
 @router.get("/learn/analysis/efficiency")
-def learn_analysis_efficiency(days: int = Query(30, ge=1, le=365)):
+def learn_analysis_efficiency(days: int = Query(30, ge=1, le=365)) -> dict[str, Any]:
     """学习效率（LEARN-049）：近 N 天会话的提取率（知识点/页）与
     每小时提取量。"""
     db = _analysis_db()
@@ -586,7 +588,7 @@ def learn_analysis_efficiency(days: int = Query(30, ge=1, le=365)):
 
 
 @router.get("/learn/analysis/sources")
-def learn_analysis_sources(limit: int = Query(20, ge=1, le=100)):
+def learn_analysis_sources(limit: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
     """来源分析（LEARN-050）：知识条目按来源域名聚合（条数 + 平均质量分，
     平均质量分作为可信度代理指标）。"""
     db = _analysis_db()
@@ -612,7 +614,7 @@ def learn_analysis_sources(limit: int = Query(20, ge=1, le=100)):
 
 
 @router.get("/learn/analysis/trend")
-def learn_analysis_trend(days: int = Query(30, ge=1, le=365)):
+def learn_analysis_trend(days: int = Query(30, ge=1, le=365)) -> dict[str, Any]:
     """学习趋势（LEARN-051）：近 N 天知识条目按日聚合（新增数/均分）。"""
     db = _analysis_db()
     since = time.time() - days * 86400
@@ -635,7 +637,7 @@ def learn_analysis_trend(days: int = Query(30, ge=1, le=365)):
 
 
 @router.get("/learn/analysis/topic-compare")
-def learn_analysis_topic_compare(topics: str = Query("")):
+def learn_analysis_topic_compare(topics: str = Query("")) -> dict[str, Any]:
     """主题对比（LEARN-052）：?topics=主题A,主题B（缺省对比全部主题，
     上限 10 个）——条数/平均质量分/最近学习时间。"""
     db = _analysis_db()
@@ -660,13 +662,13 @@ def learn_analysis_topic_compare(topics: str = Query("")):
 
 
 @router.get("/learn/behavior/stats")
-def learn_behavior_stats():
+def learn_behavior_stats() -> dict[str, Any]:
     """契约别名：= GET /behavior/stats。"""
     return behavior_stats()
 
 
 @router.post("/learn/behavior/reset")
-def learn_behavior_reset(body: dict = Body(default_factory=dict)):
+def learn_behavior_reset(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """契约别名：= POST /behavior/clear（重置行为数据，清空重学）。
 
     审计 P2-9：破坏性操作必须显式确认——请求体必须携带
@@ -684,7 +686,7 @@ def learn_behavior_reset(body: dict = Body(default_factory=dict)):
 @router.post("/learn/import/document")
 async def learn_import_document(file: UploadFile = File(...),
                                 topic: str = Form(...),
-                                source_url: str = Form("")):
+                                source_url: str = Form("")) -> dict[str, Any]:
     """契约别名：= POST /knowledge/import-document。"""
     return await knowledge_import_document(file=file, topic=topic,
                                            source_url=source_url)
@@ -695,7 +697,7 @@ async def learn_import_document(file: UploadFile = File(...),
 # ═══════════════════════════════════════════════════════════════════
 
 @router.post("/behavior/event")
-def behavior_event(req: BehaviorEventRequest):
+def behavior_event(req: BehaviorEventRequest) -> dict[str, Any]:
     """记录行为事件（异步落库，<10ms 返回）。"""
     if not req.event_type:
         raise ApiError("SYSTEM_PARAM_INVALID", "event_type 不能为空")
@@ -709,14 +711,14 @@ def behavior_event(req: BehaviorEventRequest):
 
 
 @router.get("/behavior/stats")
-def behavior_stats():
+def behavior_stats() -> dict[str, Any]:
     """行为学习统计：操作数 / 偏好模型状态 / 下次微调时间 / 最近学习摘要。"""
     svc = get_behavior_service()
     return ok(svc.stats())
 
 
 @router.get("/behavior/training-pairs")
-def behavior_training_pairs(limit: int = Query(0, ge=0, le=10000)):
+def behavior_training_pairs(limit: int = Query(0, ge=0, le=10000)) -> dict[str, Any]:
     """LoRA 训练数据预览（instruction/input/output 格式）。"""
     svc = get_behavior_service()
     pairs = svc.build_training_pairs()
@@ -728,7 +730,7 @@ def behavior_training_pairs(limit: int = Query(0, ge=0, le=10000)):
 
 
 @router.post("/behavior/clear")
-def behavior_clear():
+def behavior_clear() -> dict[str, Any]:
     """清空行为学习数据（用户手动清除）。"""
     svc = get_behavior_service()
     try:

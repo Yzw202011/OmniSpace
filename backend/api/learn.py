@@ -23,6 +23,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Body, File, Query, UploadFile
 
@@ -71,7 +72,7 @@ _TRAINABLE_BASE_MODELS = [
 
 
 @router.post("/learn/train")
-def learn_train(req: TrainTaskCreate):
+def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
     """创建训练任务（规格 §4.4）：真实 QLoRA 微调入队。
 
     dataset_path 留空时自动从知识库 + 行为偏好对构建训练集
@@ -140,7 +141,7 @@ def learn_train(req: TrainTaskCreate):
 
 
 @router.get("/learn/tasks")
-def learn_tasks():
+def learn_tasks() -> dict[str, Any]:
     """训练任务列表（规格 §4.4）。按创建时间倒序。"""
     db = get_db_safe()
     if db is not None:
@@ -159,7 +160,7 @@ def learn_tasks():
 
 
 @router.get("/learn/tasks/{task_id}")
-def learn_task_detail(task_id: str):
+def learn_task_detail(task_id: str) -> dict[str, Any]:
     """训练任务详情（规格 §4.4）：返回服务实时写入的真实状态与进度。"""
     db = get_db_safe()
     if db is not None:
@@ -191,7 +192,7 @@ _CANCELLABLE_STATUSES = {
 
 
 @router.post("/learn/tasks/{task_id}/cancel")
-def learn_task_cancel(task_id: str):
+def learn_task_cancel(task_id: str) -> dict[str, Any]:
     """强制取消训练任务（审计 R3-BE1 + 用户最高权限铁律）。
 
     仅 queued/training/evaluating 可取消；终态任务返回
@@ -240,7 +241,7 @@ def learn_task_cancel(task_id: str):
 
 
 @router.post("/learn/tasks/reorder")
-def learn_tasks_reorder(body: dict = Body(default_factory=dict)):
+def learn_tasks_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """调整训练任务优先级（审计 R3-BE1）。
 
     body: {"task_ids": ["id1", "id2", ...]}，按数组顺序将
@@ -275,7 +276,7 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 @router.post("/learn/dataset/upload")
-async def learn_dataset_upload(file: UploadFile = File(...)):
+async def learn_dataset_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     """上传训练数据（JSONL：{"instruction","input","output"} 每行一条）。
 
     文件落盘 data/training/uploads/，作为 /learn/train 的 dataset_path 使用。
@@ -320,14 +321,14 @@ async def learn_dataset_upload(file: UploadFile = File(...)):
 
 
 @router.get("/learn/models")
-def learn_models():
+def learn_models() -> dict[str, Any]:
     """可训练的基础模型列表（规格 §4.4）。"""
     return ok({"items": _TRAINABLE_BASE_MODELS,
                "total": len(_TRAINABLE_BASE_MODELS)})
 
 
 @router.get("/learn/training/status")
-def learn_training_status():
+def learn_training_status() -> dict[str, Any]:
     """训练服务状态：数据集充分性 / 当前版本 / 版本列表 / 队列 / 活跃任务。"""
     svc = get_lora_training_service()
     status = svc.get_status()
@@ -337,7 +338,7 @@ def learn_training_status():
 
 
 @router.post("/learn/lora/rollback")
-def learn_lora_rollback(body: dict = Body(default_factory=dict)):
+def learn_lora_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """LoRA 版本回滚：{"version": "v3"} → 置为当前生效版本。"""
     version = str((body or {}).get("version", "")).strip()
     if not version:
@@ -357,13 +358,13 @@ def learn_lora_rollback(body: dict = Body(default_factory=dict)):
 # ═══════════════════════════════════════════════════════════════════
 
 @router.post("/learn/lora/train")
-def learn_lora_train(req: TrainTaskCreate):
+def learn_lora_train(req: TrainTaskCreate) -> dict[str, Any]:
     """契约别名：= POST /learn/train（手动触发 LoRA 微调）。"""
     return learn_train(req)
 
 
 @router.get("/learn/lora/versions")
-def learn_lora_versions():
+def learn_lora_versions() -> dict[str, Any]:
     """LoRA 版本列表（规格 §7.1.2）：含质量评分与当前生效版本。"""
     svc = get_lora_training_service()
     versions = svc.list_versions()
@@ -373,7 +374,7 @@ def learn_lora_versions():
 
 @router.get("/learn/lora/versions/compare")
 def learn_lora_versions_compare(a: str = Query(..., min_length=1),
-                                b: str = Query(..., min_length=1)):
+                                b: str = Query(..., min_length=1)) -> dict[str, Any]:
     """LoRA 版本对比（LEARN-035）：?a=v1&b=v2 → 质量分/样本数/超参/
     训练耗时逐项对比，并给出字段级差值。"""
     svc = get_lora_training_service()

@@ -12,14 +12,16 @@ import random
 import re
 import time
 import uuid
-from typing import Any
+from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, Query
 
 from ...config import (
     DATA_DIR,
 )
-from ...data.database import get_db_safe
+from ...data.database import Database, get_db_safe
 from ...data.models import (
     KeyframeBatchRequest,
     KeyframeGenerateRequest,
@@ -70,12 +72,15 @@ from .common import (
     wake_vllm_after_generation as _wake_vllm_after_vram,
 )
 
+if TYPE_CHECKING:
+    from PIL import Image
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.keyframe")
 
 
 
-def _ensure_source_mode_column(db) -> None:
+def _ensure_source_mode_column(db: Database) -> None:
     """keyframes 补 source_mode 列（幂等，2026-09-03 方案A：兜底出图标注）。
 
     方案A 用户裁定：无描述词出图（原文直出兜底）必须在行内/详情可见，
@@ -544,7 +549,7 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
     return "。".join(segs) + "。"
 
 
-def _compose_grid_image(frames: list, layout: str):
+def _compose_grid_image(frames: list, layout: str) -> Image.Image | None:
     """逐镜首帧列表 → 网格拼图 PIL 图（方案 A：代码拼图）。
 
     每格为独立 16:9 首帧，按阅读顺序（镜头时间序）排入网格，格间
@@ -571,7 +576,7 @@ def _compose_grid_image(frames: list, layout: str):
     return canvas
 
 
-def _enhance_frame(img, profile: str = "realistic"):
+def _enhance_frame(img: Image.Image, profile: str = "realistic") -> Image.Image:
     """FLUX 关键帧帧级画质增强（2026-08-27 v20 竞品对齐）。
 
     profile 档位（2026-08-27 生图路由引擎）：
@@ -716,7 +721,7 @@ def _enhance_frame(img, profile: str = "realistic"):
     return img
 
 
-def _load_row_reference(db, row: dict):
+def _load_row_reference(db: Database, row: dict) -> Image.Image | None:
     """行绑定资产 → 参考条件图（多资产合成拼图，2026-08-26 竞品对齐）。
 
     竞品（yl.man-tui.com）把角色/场景/道具等多张资产图同时注入采样
@@ -785,7 +790,7 @@ def _load_row_reference(db, row: dict):
     return canvas
 
 
-def _face_ref_for_asset(a: dict):
+def _face_ref_for_asset(a: dict) -> Image.Image | None:
     """单角色资产的面部参考图（V32 优先级链，见 _load_face_reference）。
 
     P0-3 重构：从 _load_face_reference 内联逻辑抽出——多角色协议
@@ -831,7 +836,7 @@ def _face_ref_for_asset(a: dict):
     return None
 
 
-def _load_face_reference(db, row: dict):
+def _load_face_reference(db: Database, row: dict) -> Image.Image | None:
     """特写镜专用面部参考图（首位绑定角色的）。
 
     来源优先级（2026-08-27 V32 裁定）：
@@ -857,7 +862,7 @@ def _load_face_reference(db, row: dict):
     return None
 
 
-def _load_face_references(db, row: dict) -> list:
+def _load_face_references(db: Database, row: dict) -> list:
     """逐角色面部参考图列表（P0-3 多角色协议）。
 
     与绑定 character 资产序对齐（含缺失位 None）——多角色的
@@ -877,7 +882,7 @@ def _load_face_references(db, row: dict) -> list:
 _MAX_REF_IMAGES = 8
 
 
-def _load_asset_references(db, row: dict) -> list:
+def _load_asset_references(db: Database, row: dict) -> list:
     """行绑定资产 → 逐资产独立参考图列表（P1 多参考拆分）。
 
     返回 [{"kind", "name", "image"}]（character → scene → prop 序，
@@ -924,7 +929,7 @@ def _load_asset_references(db, row: dict) -> list:
 
 def _select_shot_references(refs: list, shot_text: str,
                             face_imgs: list | None = None,
-                            chain_frame=None) -> list:
+                            chain_frame: Image.Image | None = None) -> list:
     """逐镜参考选择（P1「结合 ABC 分镜描述词」+ 8 张上限）。
 
     排序即加权——FLUX.2 多参考无逐图权重语义，位置序 = 重要性序，
@@ -994,7 +999,7 @@ def _shot_char_protocol(char_assets: list,
             "除这些角色外不得出现任何其他人物", chosen)
 
 
-def _resolve_base_seed(db, row_id: str, seed: int | None,
+def _resolve_base_seed(db: Database, row_id: str, seed: int | None,
                        force_new_seed: bool) -> tuple[int, str]:
     """V37 seed 解析（方案A 固定兜底）：显式 seed > 沿用最近版本已存
     seed > 随机；force_new_seed 跳过沿用（用户主动重抽 / VLM 低分重试）。
@@ -1215,8 +1220,10 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def _gen_one(gen_prompt: str, out_w: int, out_h: int,
-                 refs: list | None = None, on_step=None, seed: int = -1,
-                 reflat_hint: str = "", char_negative: str = ""):
+                 refs: list | None = None,
+                 on_step: Callable[[int], None] | None = None,
+                 seed: int = -1, reflat_hint: str = "",
+                 char_negative: str = "") -> tuple[Image.Image, int]:
         """单张首帧生成（FLUX 原生分辨率直出 / SDXL 半分辨率+上采样）。
 
         on_step(percent) 采样步级回调 → WS 实时进度条（引擎原生
@@ -1723,7 +1730,7 @@ def _parse_consistency_score(text: str) -> int | None:
     return max(0, min(100, int(m.group(1))))
 
 
-def _score_shot_sync(shot_path, ref_b64: list[str],
+def _score_shot_sync(shot_path: Path, ref_b64: list[str],
                      char_anchor: bool) -> tuple[int | None, str]:
     """单镜一致性评分（阻塞，经 run_blocking 调用）。
 
@@ -1782,7 +1789,7 @@ _STYLE_PROMPT = (
     "厚涂化倾向；<75=画风体系明显不同）。")
 
 
-def _score_style_sync(shot_path, style_ref_b64: str) -> tuple[int | None, str]:
+def _score_style_sync(shot_path: Path, style_ref_b64: str) -> tuple[int | None, str]:
     """单镜画风评分（阻塞，经 run_blocking 调用）：角色资产图 vs 首帧。
 
     Returns:
@@ -1807,7 +1814,7 @@ def _score_style_sync(shot_path, style_ref_b64: str) -> tuple[int | None, str]:
         return None, str(exc)[:200]
 
 
-def _scoring_context(db, row: dict) -> tuple[list[str], bool]:
+def _scoring_context(db: Database, row: dict) -> tuple[list[str], bool]:
     """评分基准（P0 修正 2026-08-27：仅图像锚，文本通道已废除）：
 
     参考图 b64 列表（行级参考 + 面部参考，≤2 张）；返回值第二项
@@ -1881,7 +1888,7 @@ async def _wait_vllm_healthy(timeout_s: float = _CONSISTENCY_WAIT_S) -> bool:
     return False
 
 
-def _annotate_consistency(db, kf_id: str, payload: dict) -> None:
+def _annotate_consistency(db: Database, kf_id: str, payload: dict) -> None:
     """评分结果落 keyframes.consistency（JSON，前端详情可查）。"""
     try:
         db.update("keyframes", {"consistency": json.dumps(
@@ -2385,7 +2392,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
 
 
 @router.post("/manga/keyframe/generate")
-async def keyframe_generate(req: KeyframeGenerateRequest):
+async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
     """生成关键帧（COMIC-121）：分镜行描述 → SDXL 文生图 → 新版本登记。
 
     2026-09-02 图像队列改造：入统一图像队列（services/image_queue.py）
@@ -2422,7 +2429,7 @@ async def keyframe_generate(req: KeyframeGenerateRequest):
         log.info("逐镜重抽请求: row=%s shots=%s src=v%d",
                  req.row_id, req.only_shots, src_ver)
 
-    def _kf_runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _kf_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         return _generate_keyframe_sync(
             req.row_id, req.project_id or "",
             (req.prompt or "").strip(), req.width, req.height,
@@ -2463,7 +2470,7 @@ async def keyframe_generate(req: KeyframeGenerateRequest):
 
 
 @router.post("/manga/keyframe/batch")
-async def keyframe_batch(req: KeyframeBatchRequest):
+async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
     """批量关键帧生成（COMIC-122）：逐行串行生成，聚合成功/失败明细。
 
     2026-09-02 图像队列：整批=一个队列任务（循环期间队列持 paint 锁，
@@ -2472,7 +2479,7 @@ async def keyframe_batch(req: KeyframeBatchRequest):
     if not req.row_ids:
         raise ApiError(40008, "缺少 row_ids 数组")
 
-    def _batch_runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         results, failed = [], []
         for row_id in req.row_ids:
             try:
@@ -2498,13 +2505,13 @@ async def keyframe_batch(req: KeyframeBatchRequest):
 
 
 @router.post("/manga/keyframe/regenerate")
-async def keyframe_regenerate(req: KeyframeGenerateRequest):
+async def keyframe_regenerate(req: KeyframeGenerateRequest) -> dict[str, Any]:
     """重新生成关键帧（COMIC-123）：产出 v{n+1} 新版本，旧版保留可回退。"""
     return await keyframe_generate(req)
 
 
 @router.post("/manga/keyframe/rollback")
-def keyframe_rollback(body: dict = Body(default_factory=dict)):
+def keyframe_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """关键帧回退（COMIC-124）：把指定版本置为当前版本。"""
     keyframe_id = str(body.get("keyframe_id") or "").strip()
     if not keyframe_id:
@@ -2523,7 +2530,7 @@ def keyframe_rollback(body: dict = Body(default_factory=dict)):
 
 
 @router.delete("/manga/keyframe/{keyframe_id}")
-def keyframe_delete(keyframe_id: str):
+def keyframe_delete(keyframe_id: str) -> dict[str, Any]:
     """删除关键帧版本（COMIC-124）：删记录与文件；当前版本删除后自动回退到上一版本。"""
     db = get_db_safe()
     if db is None:
@@ -2552,7 +2559,7 @@ def keyframe_delete(keyframe_id: str):
 def keyframe_list(row_id: str = Query(...),
                   limit: int = Query(100, ge=1, le=500,
                                      description="返回条数上限"),
-                  offset: int = Query(0, ge=0, description="分页偏移")):
+                  offset: int = Query(0, ge=0, description="分页偏移")) -> dict[str, Any]:
     """分镜行关键帧版本列表（版本倒序）。
 
     审计 R3-P3：增加 limit/offset 分页（默认 100、上限 500），
@@ -2588,7 +2595,7 @@ _EMOTION_KEYWORDS = {
 
 
 @router.post("/manga/story/keyframe")
-async def story_keyframe_generate(req: StoryKeyframeRequest):
+async def story_keyframe_generate(req: StoryKeyframeRequest) -> dict[str, Any]:
     """故事生图（解说漫剧第 4 步）：跨分镜一致性风格图。
 
     以故事线为单位生图：第 1 张用文生图，后续分镜以第 1 张为参考（img2img
@@ -2617,7 +2624,7 @@ async def story_keyframe_generate(req: StoryKeyframeRequest):
 
     # 逐行生成（复用 keyframe_generate 核心逻辑）；2026-09-02 图像队列：
     # 整批=一个队列任务，paint 锁/收尾协商由队列统一编排
-    def _story_runner(task, check_cancel) -> dict:  # noqa: ARG001
+    def _story_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         succeeded: list[dict] = []
         failed: list[dict] = []
         for r in targets:

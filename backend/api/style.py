@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Body, File, UploadFile
 
@@ -48,7 +49,7 @@ log = logging.getLogger("omnispace.api.style")
 # ═══════════════════════════════════════════════════════════════════
 
 @router.post("/style/upload")
-async def style_upload(file: UploadFile = File(...)):
+async def style_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     """上传风格素材并构建训练数据集。
 
     视频（mp4/webm/mov/mkv/avi）经 FFmpeg 以 fps=1 抽帧（≤32 帧）；
@@ -92,7 +93,7 @@ async def style_upload(file: UploadFile = File(...)):
 
 
 @router.get("/style/datasets")
-def style_datasets():
+def style_datasets() -> dict[str, Any]:
     """已构建的风格数据集列表（按更新时间倒序）。"""
     svc = get_style_lora_service()
     items = svc.list_datasets()
@@ -100,7 +101,7 @@ def style_datasets():
 
 
 @router.get("/style/datasets/{dataset_id}")
-def style_dataset_detail(dataset_id: str):
+def style_dataset_detail(dataset_id: str) -> dict[str, Any]:
     """数据集样本统计与训练充分性判定。"""
     svc = get_style_lora_service()
     stats = svc.dataset_stats(dataset_id)
@@ -116,7 +117,7 @@ def style_dataset_detail(dataset_id: str):
 # ═══════════════════════════════════════════════════════════════════
 
 @router.post("/style/train")
-def style_train(body: dict = Body(default_factory=dict)):
+def style_train(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """触发视频风格 LoRA 训练（文档 §8.3.7 QLoRA 4bit，P2 优先级入队）。
 
     请求体:
@@ -179,7 +180,7 @@ def style_train(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/style/tasks")
-def style_tasks():
+def style_tasks() -> dict[str, Any]:
     """风格训练任务列表（按创建时间倒序）。"""
     svc = get_style_lora_service()
     items = svc.list_tasks()
@@ -187,7 +188,7 @@ def style_tasks():
 
 
 @router.get("/style/tasks/{task_id}")
-def style_task_detail(task_id: str):
+def style_task_detail(task_id: str) -> dict[str, Any]:
     """风格训练任务详情：服务实时写入的真实状态与进度。"""
     svc = get_style_lora_service()
     task = svc.get_task(task_id)
@@ -201,7 +202,7 @@ def style_task_detail(task_id: str):
 #  任务控制（批 2 STYLE-017/018：pause/resume/cancel/resume-training）
 # ═══════════════════════════════════════════════════════════════════
 
-def _task_control(task_id: str, action: str):
+def _task_control(task_id: str, action: str) -> dict[str, Any]:
     """pause/resume/cancel 公共分发。"""
     svc = get_style_lora_service()
     handler = {"pause": svc.pause_task, "resume": svc.resume_task,
@@ -220,26 +221,26 @@ def _task_control(task_id: str, action: str):
 
 
 @router.post("/style/tasks/{task_id}/pause")
-def style_task_pause(task_id: str):
+def style_task_pause(task_id: str) -> dict[str, Any]:
     """暂停训练任务（STYLE-017）：epoch 检查点挂起，状态 → paused。"""
     return _task_control(task_id, "pause")
 
 
 @router.post("/style/tasks/{task_id}/resume")
-def style_task_resume(task_id: str):
+def style_task_resume(task_id: str) -> dict[str, Any]:
     """恢复已暂停任务（STYLE-017）：清除挂起旗标，状态 → training。"""
     return _task_control(task_id, "resume")
 
 
 @router.post("/style/tasks/{task_id}/cancel")
-def style_task_cancel(task_id: str):
+def style_task_cancel(task_id: str) -> dict[str, Any]:
     """取消训练任务（STYLE-017）：队列中直接置 cancelled；
     训练中置取消旗标，下个 epoch 检查点中断；已终结任务幂等返回。"""
     return _task_control(task_id, "cancel")
 
 
 @router.post("/style/tasks/{task_id}/resume-training")
-def style_task_resume_training(task_id: str):
+def style_task_resume_training(task_id: str) -> dict[str, Any]:
     """断点续训（STYLE-018）：复制原任务配置（数据集+超参）重新入队新任务。"""
     svc = get_style_lora_service()
     new_task_id = svc.resume_training(task_id)
@@ -255,7 +256,7 @@ def style_task_resume_training(task_id: str):
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/style/versions")
-def style_versions():
+def style_versions() -> dict[str, Any]:
     """风格 LoRA 版本列表（含 meta、是否当前版本）。"""
     svc = get_style_lora_service()
     versions = svc.list_versions()
@@ -264,7 +265,7 @@ def style_versions():
 
 
 @router.post("/style/rollback")
-def style_rollback(body: dict = Body(default_factory=dict)):
+def style_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """风格 LoRA 版本回滚：{"version": "v3"} → 置为当前生效版本。"""
     version = str((body or {}).get("version", "")).strip()
     if not version:
@@ -280,7 +281,7 @@ def style_rollback(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/style/preview")
-def style_preview(body: dict = Body(default_factory=dict)):
+def style_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """风格预览：应用指定（或当前）版本 LoRA 生成风格化对比帧。
 
     请求体: {"version"?: str（缺省=当前版本）, "image_path"?: str,
@@ -324,7 +325,7 @@ def style_preview(body: dict = Body(default_factory=dict)):
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/style/status")
-def style_status():
+def style_status() -> dict[str, Any]:
     """风格服务状态：基座就绪 / FFmpeg / 队列 / 当前版本 / 数据集统计。"""
     svc = get_style_lora_service()
     return ok(svc.get_status())
@@ -335,7 +336,7 @@ def style_status():
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/style/list")
-def style_list(search: str = "", status: str = ""):
+def style_list(search: str = "", status: str = "") -> dict[str, Any]:
     """风格项目列表（STYLE-027）：版本即项目实体，支持名称搜索/状态筛选。"""
     svc = get_style_lora_service()
     items = svc.list_versions()
@@ -351,7 +352,7 @@ def style_list(search: str = "", status: str = ""):
 
 
 @router.put("/style/{version}")
-def style_rename(version: str, body: dict = Body(default_factory=dict)):
+def style_rename(version: str, body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """重命名风格项目（STYLE-028）：写 meta.json name。"""
     name = str((body or {}).get("name") or "").strip()
     if not name:
@@ -364,7 +365,7 @@ def style_rename(version: str, body: dict = Body(default_factory=dict)):
 
 
 @router.delete("/style/{version}")
-def style_delete(version: str):
+def style_delete(version: str) -> dict[str, Any]:
     """删除风格项目（STYLE-028）：训练中引用拒绝（STYLE_TRAINING_LOCKED）。"""
     svc = get_style_lora_service()
     deleted, reason = svc.delete_version(version)
@@ -381,7 +382,7 @@ def style_delete(version: str):
 
 
 @router.get("/style/{version}/metrics")
-def style_metrics(version: str):
+def style_metrics(version: str) -> dict[str, Any]:
     """版本质量指标（STYLE-030）：quality_score + 关联训练记录。"""
     svc = get_style_lora_service()
     metrics = svc.version_metrics(version)
@@ -392,7 +393,7 @@ def style_metrics(version: str):
 
 
 @router.post("/style/merge")
-def style_merge(body: dict = Body(default_factory=dict)):
+def style_merge(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """多 LoRA 权重线性融合（STYLE-024）。
 
     请求体: {"versions": ["v1","v2",...], "weights": [0.6,0.4,...],
@@ -425,7 +426,7 @@ def style_merge(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/style/export")
-def style_export(body: dict = Body(default_factory=dict)):
+def style_export(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """导出风格包（STYLE-025）：tar.gz 含 adapter+meta+SHA256 校验文件。"""
     svc = get_style_lora_service()
     version = str((body or {}).get("version") or "").strip() or svc.get_current()
@@ -439,7 +440,7 @@ def style_export(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/style/clone")
-def style_clone(body: dict = Body(default_factory=dict)):
+def style_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """克隆风格项目（STYLE-032）：数据集+配置复制为新训练任务入队。"""
     svc = get_style_lora_service()
     version = str((body or {}).get("version") or "").strip()
@@ -456,7 +457,7 @@ def style_clone(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/style/templates")
-def style_templates():
+def style_templates() -> dict[str, Any]:
     """风格模板列表（STYLE-032）。"""
     svc = get_style_lora_service()
     items = svc.list_templates()
@@ -464,7 +465,7 @@ def style_templates():
 
 
 @router.post("/style/templates")
-def style_template_save(body: dict = Body(default_factory=dict)):
+def style_template_save(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """保存风格模板（STYLE-032）：name/style_prompt/超参集合。"""
     if not (body or {}).get("name"):
         raise ApiError(40008, "缺少必填参数: name")

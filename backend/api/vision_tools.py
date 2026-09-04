@@ -21,6 +21,7 @@ import io
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body
 from fastapi.responses import FileResponse
@@ -33,6 +34,9 @@ from ..services.inference.segment_engine import get_segment_engine
 from ..services.inference.triposr_engine import get_triposr_engine
 from ..services.offload import run_blocking
 
+if TYPE_CHECKING:
+    from PIL import Image
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.vision_tools")
 
@@ -40,7 +44,7 @@ log = logging.getLogger("omnispace.api.vision_tools")
 ASSETS_3D_DIR = DATA_DIR / "assets" / "3d"
 
 
-def _decode_image(data: str):
+def _decode_image(data: str) -> Image | None:
     """base64 / data-url → PIL.Image；解析失败返回 None。"""
     if not data or not isinstance(data, str):
         return None
@@ -57,14 +61,14 @@ def _decode_image(data: str):
         return None
 
 
-def _require_image(body: dict):
+def _require_image(body: dict) -> Image:
     img = _decode_image(str(body.get("image", "") or ""))
     if img is None:
         raise ApiError("SYSTEM_PARAM_INVALID", "缺少或无法解析 image 图像数据（base64）")
     return img
 
 
-def _ensure_loaded(engine, name: str) -> None:
+def _ensure_loaded(engine: Any, name: str) -> None:
     """引擎就绪门控：未加载则尝试加载，失败如实抛语义码。"""
     if getattr(engine, "is_loaded", False):
         return
@@ -77,7 +81,7 @@ def _ensure_loaded(engine, name: str) -> None:
 
 # ── TripoSR 单图 3D 生成 ─────────────────────────────────────────
 @router.post("/art/image-to-3d")
-async def art_image_to_3d(body: dict = Body(default_factory=dict)):
+async def art_image_to_3d(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     img = _require_image(body)
     mc_resolution = int(body.get("mc_resolution", 256) or 256)
     mc_resolution = max(64, min(mc_resolution, 512))
@@ -101,7 +105,7 @@ async def art_image_to_3d(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/art/assets/3d/{filename}")
-def art_asset_3d(filename: str):
+def art_asset_3d(filename: str) -> FileResponse:
     """3D 资产下载（防路径穿越：仅允许纯文件名）。"""
     safe = Path(filename).name
     if safe != filename or not safe.lower().endswith(".glb"):
@@ -116,7 +120,7 @@ def art_asset_3d(filename: str):
 
 # ── SAM 分割 ─────────────────────────────────────────────────────
 @router.post("/art/segment")
-async def art_segment(body: dict = Body(default_factory=dict)):
+async def art_segment(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     img = _require_image(body)
     points = body.get("points")  # [[x, y], ...]
     box = body.get("box")        # [x1, y1, x2, y2]
@@ -131,7 +135,7 @@ async def art_segment(body: dict = Body(default_factory=dict)):
 
 # ── MiDaS 深度估计 ───────────────────────────────────────────────
 @router.post("/art/depth")
-async def art_depth(body: dict = Body(default_factory=dict)):
+async def art_depth(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     img = _require_image(body)
     engine = get_depth_engine()
     _ensure_loaded(engine, "深度估计引擎")
@@ -144,7 +148,7 @@ async def art_depth(body: dict = Body(default_factory=dict)):
 
 # ── YOLOv8 目标检测 ──────────────────────────────────────────────
 @router.post("/art/detect")
-async def art_detect(body: dict = Body(default_factory=dict)):
+async def art_detect(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     img = _require_image(body)
     conf = float(body.get("conf", 0.4) or 0.4)
     engine = get_detect_engine()
@@ -158,7 +162,7 @@ async def art_detect(body: dict = Body(default_factory=dict)):
 
 # ── 状态聚合 ─────────────────────────────────────────────────────
 @router.get("/art/tools/status")
-def art_tools_status():
+def art_tools_status() -> dict[str, Any]:
     """四引擎状态聚合（如实上报，不做可用性粉饰）。"""
     t0 = time.time()
     engines = {

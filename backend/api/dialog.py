@@ -32,7 +32,9 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -42,14 +44,18 @@ from ..data.crypto import decrypt_text, encrypt_text
 from ..data.database import get_db_safe, parse_json
 from ..data.models import DialogSessionCreate, SessionBatchDelete
 from ..middleware.error_handler import ApiError, ok
-from ..middleware.feature_lock import acquire_or_raise
+from ..middleware.feature_lock import FeatureLockManager, acquire_or_raise
 from ..services.inference.dialog_engine import (
     DEFAULT_SYSTEM_PROMPT,
     THINKING_SYSTEM_SUFFIX,
+    DialogEngine,
     get_dialog_engine,
     strip_think_tags,
 )
 from ..services.offload import run_blocking, sync_core
+
+if TYPE_CHECKING:
+    from ..services.flow_trace import Flow
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.dialog")
@@ -104,7 +110,7 @@ def _row_to_message(row: dict) -> dict:
     }
 
 
-def _sse(payload) -> str:
+def _sse(payload: Any) -> str:
     """格式化一条 SSE 事件。"""
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -321,7 +327,7 @@ def _quick_search_supplement(keywords: list[str]) -> str:
 
 
 @sync_core
-def _passive_reinfer(engine, message: str, history: list[dict],
+def _passive_reinfer(engine: DialogEngine, message: str, history: list[dict],
                      knowledge_text: str, supplement: str,
                      images: list, temperature: float,
                      max_new_tokens: int, max_ctx: int) -> str:
@@ -337,7 +343,7 @@ def _passive_reinfer(engine, message: str, history: list[dict],
 
 
 async def _maybe_passive_completion(
-        engine, message: str, reply: str, history: list[dict],
+        engine: DialogEngine, message: str, reply: str, history: list[dict],
         knowledge_text: str, sid: str, images: list,
         temperature: float, max_new_tokens: int,
         max_ctx: int) -> tuple[str, dict | None]:
@@ -407,7 +413,7 @@ def _ensure_session(sid: str, title_seed: str, model: str) -> None:
 
 
 def _save_message(sid: str, role: str, content: str,
-                  model_used: str = "", attachments=None,
+                  model_used: str = "", attachments: Any = None,
                   reasoning: str = "") -> dict:
     msg = {
         "id": uuid.uuid4().hex,
@@ -465,7 +471,7 @@ def _load_history(sid: str, max_rounds: int = 20) -> list[dict]:
 # ── 发送消息 ────────────────────────────────────────────────────────
 
 @router.get("/dialog/models")
-def dialog_list_models():
+def dialog_list_models() -> dict[str, Any]:
     """对话可用模型清单（2026-08-20：模型选择 + 档位选择前端数据源）。
 
     返回每个本地就绪模型：model_id / 显示名 / 参数量档位 / 预估显存 /
@@ -578,7 +584,7 @@ def _dialog_model_size_label(mid: str) -> str:
 
 @router.post("/dialog/send")
 @router.post("/chat/send")
-async def dialog_send(body: dict = Body(default_factory=dict)):
+async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
     """发送对话消息（真实推理）。
 
     请求: {"message"|"content": str, "images"?: [base64], "model"?: str,
@@ -732,7 +738,7 @@ async def dialog_send(body: dict = Body(default_factory=dict)):
 
 
 @router.post("/chat/stream")
-async def chat_stream(body: dict = Body(default_factory=dict)):
+async def chat_stream(body: dict = Body(default_factory=dict)) -> Any:
     """SSE 流式对话（F-011 / 文档 §7.1.4 /v1/chat → /stream）。
 
     等价于 POST /dialog/send 且强制 stream=true：
@@ -746,13 +752,14 @@ async def chat_stream(body: dict = Body(default_factory=dict)):
     return await dialog_send(forced)
 
 
-async def _stream_response(engine, lock, sid: str, message: str,
+async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
+                           sid: str, message: str,
                            history: list, knowledge_text: str,
                            messages: list,
                            images: list, refs: list,
                            temperature: float, max_new_tokens: int,
                            max_ctx: int, thinking: bool = False,
-                           flow=None):
+                           flow: Flow | None = None) -> StreamingResponse:
     """构造 SSE 流式响应；生成结束后落库并释放功能锁。
 
     深度思考模式（2026-08-22）：思考段以 {"reasoning": str} 事件推送
@@ -763,14 +770,14 @@ async def _stream_response(engine, lock, sid: str, message: str,
     from ..services.flow_trace import NULL_FLOW
     flow = flow or NULL_FLOW
 
-    async def event_gen():
+    async def event_gen() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         collected: list[str] = []
         reasoning_parts: list[str] = []
         error_holder: list[str] = []
 
-        def _produce():
+        def _produce() -> None:
             # 推理节点：executor 线程内执行，token 片段作追踪心跳
             with flow.node(
                     "流式生成",
@@ -885,7 +892,7 @@ async def _stream_response(engine, lock, sid: str, message: str,
 
 @router.get("/dialog/history")
 def dialog_history(session_id: str = Query(..., description="会话ID"),
-                   limit: int = Query(50, ge=1, le=500, description="返回条数上限")):
+                   limit: int = Query(50, ge=1, le=500, description="返回条数上限")) -> dict[str, Any]:
     """获取指定会话的历史消息（最近 limit 条，时间升序）。"""
     db = get_db_safe()
     if db is not None:
@@ -914,7 +921,7 @@ def dialog_history(session_id: str = Query(..., description="会话ID"),
 @router.get("/chat/history")
 def chat_history(session_id: str = Query("", description="会话ID（可选）"),
                  page: int = Query(1, ge=1),
-                 page_size: int = Query(50, ge=1, le=200)):
+                 page_size: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
     """分页对话历史（文档 TASK-004 /v1/chat/history）。
 
     指定 session_id 时返回该会话消息；否则返回跨会话最近消息。
@@ -957,7 +964,7 @@ def chat_history(session_id: str = Query("", description="会话ID（可选）")
 
 
 @router.post("/chat/clear")
-def chat_clear(body: dict = Body(default_factory=dict)):
+def chat_clear(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """清空对话历史（文档 TASK-004）。
 
     body: {"session_id"?: str}；缺省时清空所有会话消息。
@@ -981,7 +988,7 @@ def chat_clear(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/dialog/sessions")
-def dialog_sessions():
+def dialog_sessions() -> dict[str, Any]:
     """获取会话列表（按最后更新时间倒序）。"""
     db = get_db_safe()
     if db is not None:
@@ -1000,7 +1007,7 @@ def dialog_sessions():
 
 
 @router.post("/dialog/sessions")
-def dialog_create_session(req: DialogSessionCreate):
+def dialog_create_session(req: DialogSessionCreate) -> dict[str, Any]:
     """创建新会话。"""
     sid = uuid.uuid4().hex
     now = _now()
@@ -1025,7 +1032,7 @@ def dialog_create_session(req: DialogSessionCreate):
 
 
 @router.delete("/dialog/sessions/{session_id}")
-def dialog_delete_session(session_id: str):
+def dialog_delete_session(session_id: str) -> dict[str, Any]:
     """删除会话及其历史消息。"""
     db = get_db_safe()
     if db is not None:
@@ -1051,7 +1058,7 @@ def dialog_delete_session(session_id: str):
 
 
 @router.post("/chat/sessions/batch-delete")
-def chat_batch_delete_sessions(body: SessionBatchDelete):
+def chat_batch_delete_sessions(body: SessionBatchDelete) -> dict[str, Any]:
     """批量删除会话及消息（2026-08-20：单批 ≤100，前端超量分批）。
 
     逐 ID 复用单删清理（messages + sessions 级联，内存兜底同步），
@@ -1091,13 +1098,13 @@ def chat_batch_delete_sessions(body: SessionBatchDelete):
 
 
 @router.get("/dialog/status")
-def dialog_status():
+def dialog_status() -> dict[str, Any]:
     """对话引擎状态（模型可用性 / 显存 / 首 token 统计）。"""
     return ok(get_dialog_engine().get_status())
 
 
 @router.post("/dialog/prewarm")
-async def dialog_prewarm(request: Request):
+async def dialog_prewarm(request: Request) -> dict[str, Any]:
     """对话页预热（2026-08-22 性能优化）：后台线程加载默认模型。
 
     前端 DialogPage 挂载时调用——用户进入对话页到发出第一条消息之间
@@ -1205,7 +1212,7 @@ def _enrich_session(row: dict) -> dict:
 @router.get("/chat/sessions")
 def chat_list_sessions(keyword: str = Query(""),
                        page: int = Query(1, ge=1),
-                       page_size: int = Query(50, ge=1, le=200)):
+                       page_size: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
     """会话列表（置顶优先，再按更新时间倒序；支持标题/内容关键词搜索）。"""
     db = get_db_safe()
     rows: list[dict] = []
@@ -1236,7 +1243,7 @@ def chat_list_sessions(keyword: str = Query(""),
 
 
 @router.post("/chat/sessions")
-def chat_create_session(body: dict = Body(default_factory=dict)):
+def chat_create_session(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """创建新会话（{title?, mode?} → DialogSession）。"""
     sid = uuid.uuid4().hex
     now = _now()
@@ -1262,7 +1269,7 @@ def chat_create_session(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/chat/sessions/{session_id}")
-def chat_get_session(session_id: str):
+def chat_get_session(session_id: str) -> dict[str, Any]:
     """会话详情 + 全部消息（时间升序）。"""
     row = _get_session_row(session_id)
     if row is None:
@@ -1275,7 +1282,7 @@ def chat_get_session(session_id: str):
 @router.get("/chat/sessions/{session_id}/messages")
 def chat_list_messages(session_id: str,
                        page: int = Query(1, ge=1),
-                       page_size: int = Query(200, ge=1, le=1000)):
+                       page_size: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     """会话消息列表（分页，时间升序）。"""
     if _get_session_row(session_id) is None:
         raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
@@ -1287,7 +1294,7 @@ def chat_list_messages(session_id: str,
 
 
 @router.put("/chat/sessions/{session_id}")
-def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)):
+def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新会话（重命名 title / 置顶 pinned / 模式 mode）。"""
     row = _get_session_row(session_id)
     if row is None:
@@ -1317,13 +1324,13 @@ def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)
 
 
 @router.delete("/chat/sessions/{session_id}")
-def chat_delete_session(session_id: str):
+def chat_delete_session(session_id: str) -> dict[str, Any]:
     """删除会话及其消息（复用 /dialog/sessions 删除语义）。"""
     return dialog_delete_session(session_id)
 
 
 @router.delete("/chat/sessions/{session_id}/messages")
-def chat_clear_messages(session_id: str):
+def chat_clear_messages(session_id: str) -> dict[str, Any]:
     """清空会话消息但保留会话（规格 §4.1）。"""
     if _get_session_row(session_id) is None:
         raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
@@ -1339,7 +1346,7 @@ def chat_clear_messages(session_id: str):
 
 @router.post("/chat/sessions/{session_id}/messages/{message_id}/rating")
 def chat_rate_message(session_id: str, message_id: str,
-                      body: dict = Body(default_factory=dict)):
+                      body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """消息评分（1 赞 / -1 踩 / 0 取消，DIALOG-024）。"""
     try:
         rating = int(body.get("rating", 0))
@@ -1350,12 +1357,13 @@ def chat_rate_message(session_id: str, message_id: str,
 
 
 @router.post("/chat/sessions/{session_id}/messages/{message_id}/favorite")
-def chat_favorite_message(session_id: str, message_id: str):
+def chat_favorite_message(session_id: str, message_id: str) -> dict[str, Any]:
     """收藏切换（DIALOG-046）：favorite 取反。"""
     return _update_message_flag(session_id, message_id, "favorite", None)
 
 
-def _update_message_flag(sid: str, mid: str, field: str, value):
+def _update_message_flag(sid: str, mid: str, field: str,
+                         value: int | None) -> dict[str, Any]:
     """更新消息 rating/favorite 标志（db 优先，内存兜底），返回更新后消息。"""
     db = get_db_safe()
     if db is not None:
@@ -1385,7 +1393,7 @@ def _update_message_flag(sid: str, mid: str, field: str, value):
 
 @router.get("/chat/favorites")
 def chat_list_favorites(page: int = Query(1, ge=1),
-                        page_size: int = Query(50, ge=1, le=200)):
+                        page_size: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
     """收藏夹列表（全部收藏消息，时间倒序）。"""
     db = get_db_safe()
     items: list[dict] = []
@@ -1412,7 +1420,7 @@ def chat_list_favorites(page: int = Query(1, ge=1),
 
 
 @router.post("/chat/stop")
-def chat_stop(body: dict = Body(default_factory=dict)):
+def chat_stop(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """停止指定会话进行中的流式生成（置停止标记，流式循环感知后收尾）。"""
     sid = str(body.get("session_id") or "").strip()
     if not sid:
@@ -1465,7 +1473,7 @@ async def _ws_send_error(websocket: WebSocket, code: int, message: str) -> None:
     })
 
 
-async def _wait_vllm_booting(engine, websocket: WebSocket,
+async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
                              sid: str, timeout_s: float = 200.0) -> bool:
     """vLLM 冷启动等待（2026-09-02 P1 修复）。
 
@@ -1512,7 +1520,7 @@ _WS_MODEL_LABEL_MAP = {
 }
 
 
-def _resolve_ws_model(raw) -> str | None:
+def _resolve_ws_model(raw: Any) -> str | None:
     """把前端 model 参数（旧档位标签或完整 model_id）归一为完整 id。
 
     None / 未知名 → None（引擎自动路由，行为与旧版一致）。
@@ -1648,7 +1656,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         reasoning_parts: list[str] = []
         error_holder: list[str] = []
 
-        def _produce():
+        def _produce() -> None:
             try:
                 for event in engine.chat_stream_ex(
                         messages, images=images or None,

@@ -7,7 +7,9 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
 
@@ -37,6 +39,12 @@ from .common import (
     _upscale_to,
     broadcast_gen_progress,
 )
+
+if TYPE_CHECKING:
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFont
+
+    from ...services.inference.paint_engine import PaintEngine
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.comic_gen")
@@ -97,7 +105,7 @@ _ZH_FONT_CANDIDATES = (
 )
 
 
-def _load_zh_font(size: int):
+def _load_zh_font(size: int) -> ImageFont.FreeTypeFont | None:
     """加载中文字体（按候选路径回退；全失败返回 None 降级跳过标注）。"""
     from PIL import ImageFont
     for path in _ZH_FONT_CANDIDATES:
@@ -108,7 +116,7 @@ def _load_zh_font(size: int):
     return None
 
 
-def _sam_whiten(image, bg):
+def _sam_whiten(image: Image, bg: np.ndarray) -> Image | None:
     """SAM 人物分割背景漂白（主路径，2026-08-20 接线本地 sam-vit-h）。
 
     四视图整图逐格（1/4 画宽）多点联合提示（头/胸/腰/腿，覆盖整
@@ -144,7 +152,8 @@ def _sam_whiten(image, bg):
             cell_w = w // 4
             ys = (int(h * 0.12), int(h * 0.30), int(h * 0.50),
                   int(h * 0.75))
-            def _check_mask(m, score, probe_pts):
+            def _check_mask(m: np.ndarray, score: float,
+                            probe_pts: list[list[int]]) -> bool:
                 """三重校验：点包含 + 分数 + 面积。通过 True。"""
                 area = float(m.mean())
                 pts_in = all(m[min(y, h - 1), min(px, w - 1)]
@@ -156,7 +165,7 @@ def _sam_whiten(image, bg):
                             idx, score, pts_in, area * 100)
                 return False
 
-            def _mask_of(r):
+            def _mask_of(r: dict) -> np.ndarray:
                 m_img = Image.open(io.BytesIO(
                     base64.b64decode(r["mask_png_b64"]))).convert("L")
                 m = np.asarray(m_img.resize((w, h))) > 127
@@ -206,7 +215,7 @@ def _sam_whiten(image, bg):
     return Image.fromarray(out)
 
 
-def _whiten_background(image):
+def _whiten_background(image: Image) -> Image:
     """背景漂白（交付格式保底，对齐 参考图.png 纯白底）。
 
     FLUX.2 Klein 对「纯白背景」遵循不稳定（2026-08-20 实测角点
@@ -245,7 +254,7 @@ def _whiten_background(image):
     return Image.fromarray(arr.astype(np.uint8))
 
 
-def _verify_view_layout(image):
+def _verify_view_layout(image: Image) -> tuple[bool | None, list[str]]:
     """VL 视角组合校验（本地 qwen3-vl 多模态，2026-08-20 接线）。
 
     修复「视图与标签不对应」：one-pass 是概率模型整图直出，四格
@@ -306,7 +315,7 @@ def _verify_view_layout(image):
         return None, []
 
 
-def _verify_background_white(image) -> bool:
+def _verify_background_white(image: Image) -> bool:
     """交付前背景纯白硬校验（2026-08-20 三关闸门·关2）。
 
     像素级确定性判定（不依赖概率模型）：边框采样（上下各 2 行 +
@@ -348,7 +357,7 @@ def _verify_background_white(image) -> bool:
     return ok
 
 
-def _verify_prompt_match(image, desc_zh: str):
+def _verify_prompt_match(image: Image, desc_zh: str) -> bool | None:
     """VL 图文符合度校验（2026-08-20 三关闸门·关3）。
 
     判断图中人物外观（发型发色/脸型/服装款式与颜色/鞋子等主要
@@ -397,8 +406,8 @@ def _verify_prompt_match(image, desc_zh: str):
         return None
 
 
-def _repair_view_cell(engine, image, idx: int, prompt_zh_clean: str,
-                      seed: int):
+def _repair_view_cell(engine: PaintEngine, image: Image, idx: int,
+                      prompt_zh_clean: str, seed: int) -> Image:
     """错位格局部修复（VL 校验定位 → 单格 FLUX.2 inpaint，2026-08-20）。
 
     整图重生换 seed 是「推倒重来」——实测 6 连抽每次恰好只错 1 格。
@@ -528,8 +537,10 @@ def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
     )
 
 
-def _draw_label_with_backdrop(canvas, draw, xy, text, font, *, pad=14,
-                              radius=12):
+def _draw_label_with_backdrop(canvas: Image, draw: ImageDraw.ImageDraw,
+                              xy: tuple[int, int], text: str,
+                              font: ImageFont.FreeTypeFont, *,
+                              pad: int = 14, radius: int = 12) -> None:
     """白底圆角衬底 + 黑字标注：角色肢体可能延伸到画幅底部，黑字直接
     叠深色衣物即失去对比度（2026-08-20 冒烟实测「背面全身」不可读）。"""
     from PIL import ImageDraw
@@ -543,7 +554,7 @@ def _draw_label_with_backdrop(canvas, draw, xy, text, font, *, pad=14,
     draw.text((x, y), text, fill=(24, 24, 24), font=font)
 
 
-def _draw_onepass_labels(image, name: str):
+def _draw_onepass_labels(image: Image, name: str) -> Image:
     """整图叠加中文标注（竞品交付形态对齐）：左上角角色名 +
     各视图格下方视图标签（白底衬底保证任意构图下可读）。
     字体缺失时跳过标注（降级不阻断）。"""
@@ -568,7 +579,7 @@ def _draw_onepass_labels(image, name: str):
     return canvas
 
 
-def _slice_onepass_views(image) -> dict:
+def _slice_onepass_views(image: Image) -> dict:
     """整图等分四格横排裁切（front/side/back/closeup，左→右）。
 
     提示词约束四视图等宽并排，等分即视图边界；格间白底分隔使
@@ -583,7 +594,7 @@ def _slice_onepass_views(image) -> dict:
     return views
 
 
-def _load_onepass_reference(out_dir: Path):
+def _load_onepass_reference(out_dir: Path) -> Image | None:
     """读取资产目录参考图（原尺寸保比例——FLUX.2 管线内部缩至 ≤1MP
     作条件 token，等价竞品「参考图」层）。缺失/损坏返回 None 忽略。"""
     ref_path = out_dir / "reference.png"
@@ -598,7 +609,7 @@ def _load_onepass_reference(out_dir: Path):
         return None
 
 
-def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
+def _generate_turnaround_onepass(engine: PaintEngine, out_dir: Path, *, name: str,
                                  prompt: str, seed: int,
                                  transparent: bool = False,
                                  ctx_id: str = "") -> dict:
@@ -753,7 +764,7 @@ def _generate_turnaround_onepass(engine, out_dir: Path, *, name: str,
     }
 
 
-def _run_turnaround_pipeline(engine, out_dir: Path, *, name: str,
+def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
                              prompt: str, seed: int,
                              transparent: bool = False,
                              ctx_id: str = "") -> dict:
@@ -912,7 +923,7 @@ def _append_asset_history(meta: dict, kind: str, view: str | None,
     meta["history"] = history[-_ASSET_HISTORY_MAX:]
 
 
-def _load_reference_image(out_dir: Path, gen_w: int, gen_h: int):
+def _load_reference_image(out_dir: Path, gen_w: int, gen_h: int) -> Image | None:
     """读取资产目录 AI 参考图（reference.png），统一缩至生成尺寸。
 
     img2img 输出尺寸跟随 init_image，预缩至 1280×720 保证 16:9 产出。
@@ -930,10 +941,11 @@ def _load_reference_image(out_dir: Path, gen_w: int, gen_h: int):
         return None
 
 
-def _generate_single_view(engine, prompt_en: str, view: str, seed: int,
-                          out_dir: Path, ref_image=None,
+def _generate_single_view(engine: PaintEngine, prompt_en: str, view: str,
+                          seed: int, out_dir: Path,
+                          ref_image: Image | None = None,
                           transparent: bool = False,
-                          on_step=None) -> dict:
+                          on_step: Callable[[int], None] | None = None) -> dict:
     """生成单个角色视图：1280×720 生成 → LANCZOS 2x 上采样 2560×1440
     → 落盘 portrait_views/{view}.png。
 
@@ -1024,7 +1036,7 @@ def _rebuild_turnaround_canvas(out_dir: Path,
     return str(canvas_path.relative_to(DATA_DIR)).replace("\\", "/")
 
 
-def _generate_four_views(engine, prompt_en: str, seed: int,
+def _generate_four_views(engine: PaintEngine, prompt_en: str, seed: int,
                          out_dir: Path, transparent: bool = False,
                          ctx_id: str = "") -> dict:
     """四视图逐张独立生成（竞品对齐：四张独立 16:9 图，每张可单独重生）。

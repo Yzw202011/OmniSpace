@@ -14,6 +14,8 @@ import asyncio
 import logging
 import platform
 import time
+from types import ModuleType
+from typing import Any
 
 from fastapi import APIRouter, Body, Query, WebSocket, WebSocketDisconnect
 
@@ -25,7 +27,7 @@ router = APIRouter()
 log = logging.getLogger("omnispace.api.hardware")
 
 
-def _try_psutil():
+def _try_psutil() -> ModuleType | None:
     """惰性尝试导入 psutil；不可用返回 None。"""
     try:
         import psutil  # type: ignore
@@ -212,7 +214,7 @@ def _realtime_data() -> dict:
 
 
 @router.get("/hardware/info")
-def hardware_info():
+def hardware_info() -> dict[str, Any]:
     """硬件画像（规格 §4.6 GET /v1/hardware/info）。
 
     响应额外携带 tier 字段（文档B §4.2，审计 BK-011）：
@@ -242,7 +244,7 @@ def hardware_info():
 
 
 @router.put("/hardware/tier")
-def hardware_tier_set(body: dict = Body(default_factory=dict)):
+def hardware_tier_set(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """手动设置硬件档位（SET-008）：{"tier": "auto"|六档之一}。
 
     覆盖自动探测结果（持久化 system_settings 表，重启保持）；
@@ -263,13 +265,13 @@ def hardware_tier_set(body: dict = Body(default_factory=dict)):
 
 
 @router.get("/hardware/realtime")
-def hardware_realtime():
+def hardware_realtime() -> dict[str, Any]:
     """实时遥测（规格 §4.6 GET /v1/hardware/realtime）。"""
     return ok(_realtime_data())
 
 
 @router.get("/hardware/resource-samples")
-def hardware_resource_samples(limit: int = Query(240, ge=1, le=2880)):
+def hardware_resource_samples(limit: int = Query(240, ge=1, le=2880)) -> dict[str, Any]:
     """资源占用采样趋势（P3-⑤）：后台采样器近 2 小时 RAM/显存/磁盘快照。
 
     采样器每 30s 采集一次；端点返回最近 limit（默认 240≈2 小时）条
@@ -288,7 +290,7 @@ def hardware_resource_samples(limit: int = Query(240, ge=1, le=2880)):
 
 
 @router.get("/hardware/synergy")
-def hardware_synergy():
+def hardware_synergy() -> dict[str, Any]:
     """协同调度聚合状态（规格 §4.6 GET /v1/hardware/synergy）。
 
     返回 {scheduler, vram, feature_lock, thermal_guard} 四段聚合
@@ -365,7 +367,7 @@ def hardware_synergy():
 
 
 @router.websocket("/hardware/realtime")
-async def hardware_realtime_ws(websocket: WebSocket):
+async def hardware_realtime_ws(websocket: WebSocket) -> None:
     """实时推送（规格 §4.6 WebSocket /v1/hardware/realtime）。
 
     每 2 秒推送一次遥测数据，直到客户端断开。

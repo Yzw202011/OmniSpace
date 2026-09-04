@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter
 
@@ -24,6 +25,13 @@ from ...middleware.error_handler import ApiError
 from ...services.inference.paint_engine import get_paint_engine
 from ...services.inference.prompt_translator import translate_prompt_zh2en
 from ...services.offload import run_blocking
+
+if TYPE_CHECKING:
+    from PIL import Image
+
+    from ...data.database import Database
+    from ...services.inference.video_engine import VideoEngine
+    from ...services.inference.voice_engine import VoiceEngine
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.common")
@@ -205,7 +213,7 @@ def _now() -> float:
     return time.time()
 
 
-def _make_row(shot_number: int, **kw) -> dict:
+def _make_row(shot_number: int, **kw: Any) -> dict:
     """构造一条分镜行（字段对齐 StoryboardRow 模型）。"""
     return {
         "id": kw.get("id") or uuid.uuid4().hex,
@@ -304,7 +312,7 @@ _ABC_HOLD_LINE = "[0.0s-0.1s] 画面：参考图保持 | 运镜：固定 | 音�
 _ASSET_KIND_ZH = {"character": "角色", "scene": "场景", "prop": "道具"}
 
 
-def _fetch_bound_assets(db, asset_ids) -> list[dict]:
+def _fetch_bound_assets(db: Database, asset_ids: list[str] | str | None) -> list[dict]:
     """按行绑定 asset_ids 批查 comic_assets（保留绑定顺序，去重）。
 
     返回 [{"kind", "name", "prompt"}]；查不到的 id 静默跳过（资产可能
@@ -984,7 +992,7 @@ _ABC_GRID_CELLS = {
 }
 
 
-def _split_grid_image(image, layout: str, shot_count: int):
+def _split_grid_image(image: Image, layout: str, shot_count: int) -> list[Image]:
     """网格关键帧图 → 各镜首帧 PIL 列表（按镜头顺序）。
 
     2×2 格 1280×720 恰为 16:9；1×2 格 1280×1440 为竖幅，视频侧
@@ -1054,7 +1062,7 @@ def _public_row_to_db(row: dict, storyboard_id: str, sort_index: int) -> dict:
     }
 
 
-def _ensure_project(db, project_id: str) -> None:
+def _ensure_project(db: Database, project_id: str) -> None:
     """确保 projects 表存在指定项目记录。"""
     if not db.query_one("SELECT id FROM projects WHERE id=?", (project_id,)):
         now = _now()
@@ -1064,7 +1072,7 @@ def _ensure_project(db, project_id: str) -> None:
         })
 
 
-def _find_storyboard(db, project_id: str):
+def _find_storyboard(db: Database, project_id: str) -> dict | None:
     """返回项目的分镜表记录（可能为 None）。
 
     纯读 helper，不自动补建 projects 行——项目删除后迟到的轮询/读请求
@@ -1077,7 +1085,7 @@ def _find_storyboard(db, project_id: str):
         (project_id,))
 
 
-def _ensure_storyboard(db, project_id: str) -> dict:
+def _ensure_storyboard(db: Database, project_id: str) -> dict:
     """返回项目的分镜表记录，不存在则创建（写路径，级联补建项目行）。"""
     _ensure_project(db, project_id)
     sb = _find_storyboard(db, project_id)
@@ -1093,7 +1101,7 @@ def _ensure_storyboard(db, project_id: str) -> dict:
     return sb
 
 
-def _load_rows(db, storyboard_id: str) -> list[dict]:
+def _load_rows(db: Database, storyboard_id: str) -> list[dict]:
     """加载分镜表所有行（按 sort_index 升序）。"""
     rows = db.query(
         f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE storyboard_id=? "
@@ -1111,7 +1119,7 @@ _video_engine_instance = None
 _video_engine_lock = threading.Lock()
 
 
-def _get_video_engine():
+def _get_video_engine() -> VideoEngine:
     """VideoEngine 进程级单例（视频模型自动装载链复用同一实例）。
 
     委托 video_engine.get_video_engine()：与 ModelManager 共享同一实例，
@@ -1126,7 +1134,7 @@ def _get_video_engine():
     return _video_engine_instance
 
 
-def _get_voice_engine():
+def _get_voice_engine() -> VoiceEngine:
     """获取语音引擎单例（懒创建，不在模块导入时实例化）。"""
     global _voice_engine_instance
     if _voice_engine_instance is None:
@@ -1191,7 +1199,7 @@ def _gen_size_for_target(width: int, height: int) -> tuple[int, int]:
     return gw, gh
 
 
-def _upscale_to(image, width: int, height: int):
+def _upscale_to(image: Image, width: int, height: int) -> Image:
     """LANCZOS 重采样至目标出图尺寸（已达标则原样返回）。"""
     if image.size == (width, height):
         return image
@@ -1217,7 +1225,7 @@ def _norm_asset_name(name: str) -> str:
     return " ".join((name or "").split()).lower()
 
 
-def _find_character_asset_stub(db, project_id: str,
+def _find_character_asset_stub(db: Database, project_id: str,
                                name: str) -> dict | None:
     """查找同项目同名 character 资产桩（infer-entities 创建或无图片版本）。
 
@@ -1304,7 +1312,7 @@ def _flux_asset_params(prompt_zh: str, kind: str,
             "width": w, "height": h}
 
 
-def _flux_asset_gen_params(req, kind: str) -> dict:
+def _flux_asset_gen_params(req: AssetGenerateRequest, kind: str) -> dict:
     """_flux_asset_params 的 req 形态适配（_generate_asset_sync 用）。"""
     return _flux_asset_params(req.prompt, kind, req.width, req.height)
 
@@ -1389,7 +1397,7 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
             "meta": meta}
 
 
-def _remove_background(image):
+def _remove_background(image: Image) -> Image:
     """PIL 阈值抠图（四角采样背景色 → 相近色透明化）。无 SAM 时的经典降级。"""
     img = image.convert("RGBA")
     px = img.load()
@@ -1419,7 +1427,7 @@ _KF_COLS = ("id, row_id, project_id, version, file_path, prompt,"
 #  G1 — 解说漫剧：故事生词 / 故事生图 / 视频生词
 # ═══════════════════════════════════════════════════════════════════
 
-def _load_project_rows(project_id: str) -> tuple:
+def _load_project_rows(project_id: str) -> tuple[Database, dict, list[dict]]:
     """加载项目分镜行（按 sort_index 排序），返回 (db, storyboard, rows)。"""
     db = get_db_safe()
     if db is None:

@@ -42,8 +42,10 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, Query
+from fastapi.responses import FileResponse
 
 from ..data.database import get_db_safe, parse_json
 from ..data.models import PAINT_ROUTING_TABLE
@@ -62,6 +64,9 @@ from ..services.inference.prompt_translator import (
     translate_prompt_zh2en,
 )
 from ..services.offload import run_blocking
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.draw")
@@ -180,7 +185,7 @@ def _task_create(task_type: str, params: dict) -> dict:
     return task
 
 
-def _task_update(task_id: str, **fields) -> None:
+def _task_update(task_id: str, **fields: Any) -> None:
     with _tasks_lock:
         task = _tasks.get(task_id)
         if task is not None:
@@ -210,7 +215,7 @@ def _task_get(task_id: str) -> dict | None:
 
 # ── 参数解析辅助 ─────────────────────────────────────────────────────
 
-def _clamp_size(value, default: int = 1024) -> int:
+def _clamp_size(value: Any, default: int = 1024) -> int:
     try:
         v = int(value)
     except (TypeError, ValueError):
@@ -256,7 +261,7 @@ def _parse_common(body: dict) -> dict:
     }
 
 
-def _decode_b64_image(data: str):
+def _decode_b64_image(data: str) -> Image.Image | None:
     """base64 -> PIL.Image；失败返回 None。"""
     try:
         from PIL import Image
@@ -270,7 +275,8 @@ def _decode_b64_image(data: str):
 # ── 后台执行任务 ─────────────────────────────────────────────────────
 
 def _run_generate_task(task_id: str, params: dict,
-                       init_image=None, mask=None) -> None:
+                       init_image: Image.Image | None = None,
+                       mask: Image.Image | None = None) -> None:
     """后台线程：加载引擎 → 推理 → 落盘 → 更新任务/广播。
 
     mask 非空时走局部重绘（inpaint）链路；协作式取消：进度回调发现
@@ -635,7 +641,7 @@ def _submit_precheck() -> None:
         pass
 
 
-def _make_paint_queue_runner(task_id: str):
+def _make_paint_queue_runner(task_id: str) -> Callable[[dict, Callable[[], None]], None]:
     """绘画任务的图像队列 runner（2026-09-02 迁移自 _dispatch_loop）。
 
     功能锁/vLLM 协商由队列统一编排；此处仅取副作用图 + 跑推理。
@@ -643,7 +649,7 @@ def _make_paint_queue_runner(task_id: str):
     引擎抛 PaintCancelledError，由 _run_generate_task 内部收敛终态）。
     """
 
-    def runner(task: dict, check_cancel) -> None:  # noqa: ARG001
+    def runner(task: dict, check_cancel: Callable[[], None]) -> None:  # noqa: ARG001
         imgs = _task_images.pop(task_id, None)
         init_image = imgs[0] if imgs else None
         mask = imgs[1] if imgs and len(imgs) > 1 else None
@@ -653,7 +659,8 @@ def _make_paint_queue_runner(task_id: str):
     return runner
 
 
-def _submit_task(task: dict, init_image=None, mask=None) -> None:
+def _submit_task(task: dict, init_image: Image.Image | None = None,
+                 mask: Image.Image | None = None) -> None:
     """提交任务：预检 → 副作用登记 → 入统一图像队列。"""
     _submit_precheck()
     if init_image is not None or mask is not None:
@@ -671,7 +678,7 @@ def _submit_task(task: dict, init_image=None, mask=None) -> None:
 
 @router.post("/draw/generate")
 @router.post("/paint/generate")
-async def draw_generate(body: dict = Body(default_factory=dict)):
+async def draw_generate(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """文生图（异步任务）。
 
     请求: {"prompt", "negative"?, "steps"=30, "cfg"=7.5, "width"=1024,
@@ -711,7 +718,7 @@ async def draw_generate(body: dict = Body(default_factory=dict)):
 
 @router.post("/draw/img2img")
 @router.post("/paint/img2img")
-async def draw_img2img(body: dict = Body(default_factory=dict)):
+async def draw_img2img(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """图生图（异步任务）。额外参数: init_image(base64), strength(0.05~1.0)。"""
     params = _parse_common(body)
     if not params["prompt"]:
@@ -744,7 +751,7 @@ _MASK_MAX_RATIO = 0.95
 
 @router.post("/art/inpaint")
 @router.post("/paint/inpaint")
-async def art_inpaint(body: dict = Body(default_factory=dict)):
+async def art_inpaint(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """局部重绘（异步任务）。
 
     请求: {"image": base64 原图, "mask": base64 遮罩（白色=待重绘区）,
@@ -804,7 +811,7 @@ async def art_inpaint(body: dict = Body(default_factory=dict)):
 
 @router.post("/draw/upscale")
 @router.post("/paint/upscale")
-async def draw_upscale(body: dict = Body(default_factory=dict)):
+async def draw_upscale(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """图像超分。{"image": base64, "scale": 2|4}
 
     Real-ESRGAN 可用时真超分；否则 PIL LANCZOS 并标注 degraded=true。
@@ -843,7 +850,7 @@ async def draw_upscale(body: dict = Body(default_factory=dict)):
 
 @router.get("/draw/result/{task_id}")
 @router.get("/paint/result/{task_id}")
-def draw_result(task_id: str):
+def draw_result(task_id: str) -> dict[str, Any]:
     """查询任务状态与结果。done 时返回图片 base64 + 文件路径。"""
     task = _task_get(task_id)
     if task is None:
@@ -904,7 +911,7 @@ def draw_result(task_id: str):
 
 @router.post("/paint/task/{task_id}/cancel")
 @router.post("/draw/task/{task_id}/cancel")
-def paint_task_cancel(task_id: str):
+def paint_task_cancel(task_id: str) -> dict[str, Any]:
     """取消绘画任务（协作式）。
 
     - 排队中：直接从图像队列剔除，状态 → cancelled
@@ -933,7 +940,7 @@ def paint_task_cancel(task_id: str):
 
 
 @router.post("/paint/task/{task_id}/priority")
-def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)):
+def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """调整排队任务优先级（PAINT-044）：{"priority": 0~9}。
 
     仅对仍在等待队列中的任务生效（运行中/已结束任务返回
@@ -957,7 +964,7 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)):
 
 @router.get("/paint/queue")
 @router.get("/draw/queue")
-def paint_queue():
+def paint_queue() -> dict[str, Any]:
     """绘画任务队列快照（PAINT-042）：等待队列（按调度顺序）+ 运行中。
 
     2026-09-02：等待队列真源 = services/image_queue.py（统一图像队列，
@@ -1013,7 +1020,7 @@ def draw_history(page: int = Query(1, ge=1),
                  end: float | None = Query(None),
                  width: int | None = Query(None),
                  height: int | None = Query(None),
-                 keyword: str = Query("")):
+                 keyword: str = Query("")) -> dict[str, Any]:
     """生成历史（paint_history 表，按时间倒序分页）。
 
     PAINT-046 画廊筛选：
@@ -1120,7 +1127,7 @@ def _delete_history_file(file_path: str) -> bool:
 @router.post("/paint/history/{task_id}/favorite")
 @router.post("/draw/history/{task_id}/favorite")
 def paint_history_favorite(task_id: str,
-                           body: dict = Body(default_factory=dict)):
+                           body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """切换/设置收藏（PAINT-048）。body.favorite 缺省时取反。"""
     from ..services.inference.paint_engine import PaintEngine
     PaintEngine.ensure_history_table()
@@ -1143,7 +1150,7 @@ def paint_history_favorite(task_id: str,
 
 @router.delete("/paint/history/{task_id}")
 @router.delete("/draw/history/{task_id}")
-def paint_history_delete(task_id: str):
+def paint_history_delete(task_id: str) -> dict[str, Any]:
     """删除单条历史（PAINT-050）：记录 + 图文件（best-effort）。"""
     from ..services.inference.paint_engine import PaintEngine
     PaintEngine.ensure_history_table()
@@ -1161,7 +1168,7 @@ def paint_history_delete(task_id: str):
 
 @router.post("/paint/history/batch-delete")
 @router.post("/draw/history/batch-delete")
-def paint_history_batch_delete(body: dict = Body(default_factory=dict)):
+def paint_history_batch_delete(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """批量删除历史（PAINT-051）：{"ids": ["task_id", ...]}（上限 200）。"""
     ids = body.get("ids")
     if not isinstance(ids, list) or not ids:
@@ -1196,7 +1203,7 @@ _THUMB_DIR_NAME = ".thumbs"
 _THUMB_SIZE = 512
 
 
-def _paint_thumbnail(src) -> pathlib.Path | None:
+def _paint_thumbnail(src: str | pathlib.Path) -> pathlib.Path | None:
     """512px JPEG 缩略图（首访生成 + 磁盘缓存，原子替换）。
 
     #5 画廊卡顿修复：历史图为 2560×1440 PNG（单张 2-4MB），画廊
@@ -1226,7 +1233,7 @@ def _paint_thumbnail(src) -> pathlib.Path | None:
 
 
 @router.get("/draw/image/{filename}")
-def draw_image(filename: str, thumb: int = 0):
+def draw_image(filename: str, thumb: int = 0) -> FileResponse:
     """按文件名回读生成图片（前端历史画廊/预览用）。
 
     历史记录只存相对路径 generated/images/<task_id>.png，
@@ -1258,7 +1265,7 @@ def draw_image(filename: str, thumb: int = 0):
 # ── 模型与状态 ──────────────────────────────────────────────────────
 
 @router.get("/draw/models")
-def draw_models():
+def draw_models() -> dict[str, Any]:
     """绘画模型列表：路由表 + 本地实际可用状态。"""
     engine = get_paint_engine()
     available = set(engine.available_models())
@@ -1321,7 +1328,7 @@ def draw_models():
 
 
 @router.get("/draw/status")
-def draw_status():
+def draw_status() -> dict[str, Any]:
     """绘画引擎状态。"""
     return ok(get_paint_engine().get_status())
 
@@ -1329,7 +1336,7 @@ def draw_status():
 # ── ControlNet 预览 ─────────────────────────────────────────────────
 
 @router.post("/draw/controlnet/preview")
-async def controlnet_preview(body: dict = Body(default_factory=dict)):
+async def controlnet_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """预览 ControlNet 条件图（审计 BK-012 诚实降级版）。
 
     ControlNet 模型未随包 / 预处理管线未接入时，不再抛恒定的 501 空壳

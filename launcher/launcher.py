@@ -247,7 +247,9 @@ class EnvironmentChecker:
             r = subprocess.run(
                 ['powershell', '-NoProfile', '-Command',
                  '(Get-CimInstance Win32_ComputerSystem).HypervisorPresent'],
-                capture_output=True, text=True, timeout=15)
+                capture_output=True, text=True, timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if os.name == "nt" else 0)
             if 'True' in (r.stdout or ''):
                 return True, 'Hyper-V 虚拟化运行中（若遇蓝屏/性能异常，可考虑关闭后对比）'
             return True, '未检测到 Hyper-V（最优配置）'

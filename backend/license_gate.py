@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import os
 import re
 import struct
 import subprocess
@@ -100,7 +101,8 @@ def collect_fingerprints(force: bool = False) -> list[str]:
             return _cache["fp"]
         r = subprocess.run(
             ["powershell", "-NoProfile", "-Command", _PS_FINGERPRINT],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         parts = [x.strip() for x in r.stdout.splitlines() if x.strip()][:3]
         kinds = ["guid", "uuid", "cpu"]
         # 读不全 / 任一项为占位串：给确定性占位指纹（激活必然以

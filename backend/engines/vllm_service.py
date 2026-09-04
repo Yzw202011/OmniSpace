@@ -806,7 +806,9 @@ class VLLMService:
         if sys.platform == "win32":
             r = subprocess.run(
                 ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                capture_output=True)
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if os.name == "nt" else 0)
             if r.returncode != 0:
                 log.error("taskkill 失败(code=%d): %s",
                           r.returncode, r.stderr.decode(errors="replace"))
@@ -911,7 +913,9 @@ class VLLMService:
                     log.warning("清扫 vLLM 孤儿进程 pid=%d", p.info["pid"])
                     subprocess.run(
                         ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
-                        capture_output=True)
+                        capture_output=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                        if os.name == "nt" else 0)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 

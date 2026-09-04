@@ -295,7 +295,9 @@ class ComfyProcManager:
             if proc.poll() is None:
                 subprocess.run(
                     ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                    capture_output=True, check=False)
+                    capture_output=True, check=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" else 0)
                 try:
                     proc.wait(timeout=10.0)
                 except subprocess.TimeoutExpired:  # noqa: PERF203 - 兜底

@@ -609,7 +609,8 @@ class VoiceEngine(BaseEngine):
         proc = subprocess.run(
             [ffmpeg, "-y", "-i", audio_path, "-ar", "16000", "-ac", "1",
              "-f", "wav", tmp_path],
-            capture_output=True, timeout=120)
+            capture_output=True, timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         if proc.returncode != 0 or not os.path.isfile(tmp_path):
             raise ApiError(code=71004, message="音频转码失败（FFmpeg）",
                            detail={"stderr": proc.stderr.decode("utf-8", "ignore")[-300:]})

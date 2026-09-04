@@ -255,6 +255,8 @@ class EncoderService:
                     [self._ffmpeg, "-hide_banner", "-encoders"],
                     capture_output=True, text=True, timeout=30,
                     encoding="utf-8", errors="replace",
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" else 0,
                 )
                 self._encoders = self.parse_encoders_output(proc.stdout or "")
                 logger.info(
@@ -566,6 +568,8 @@ class EncoderService:
                 args,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if os.name == "nt" else 0,
                 text=True, encoding="utf-8", errors="replace",
             )
         except OSError as exc:
@@ -665,6 +669,8 @@ class EncoderService:
                      "format=duration", "-of", "csv=p=0", str(path)],
                     capture_output=True, text=True, timeout=20,
                     encoding="utf-8", errors="replace",
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if os.name == "nt" else 0,
                 )
                 duration = max(0.0, float((proc.stdout or "").strip() or 0.0))
                 if duration > 0:

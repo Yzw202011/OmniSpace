@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -94,7 +95,8 @@ def create_shortcut() -> Path:
     ])
     result = subprocess.run(
         ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
-        capture_output=True, text=True, encoding='utf-8', errors='replace')
+        capture_output=True, text=True, encoding='utf-8', errors='replace',
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     if result.returncode != 0:
         raise RuntimeError(f'快捷方式创建失败: {result.stderr.strip()}')
     return Path(result.stdout.strip())

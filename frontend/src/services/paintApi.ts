@@ -14,6 +14,7 @@
 
 import { get, post, del, API_BASE } from './api';
 import type { QueryParams } from './api';
+import { parseWith, DrawStatusRespSchema } from './schema';
 import type { PaintRequest, Paginated } from '@/types';
 
 /* ------------------------------ 生成 ------------------------------ */
@@ -142,7 +143,10 @@ export function getStatus(taskId: string): Promise<DrawTaskResult>;
 export function getStatus(): Promise<Record<string, unknown>>;
 export function getStatus(taskId?: string) {
   return taskId
-    ? get<DrawTaskResult>(`/draw/result/${taskId}`)
+    ? get<unknown>(`/draw/result/${taskId}`).then(
+        // 批 3-3c：queue_position 链入口过 Zod（FRONTEND_PARSE_ERROR 走错误三分法）
+        (d) => parseWith(DrawStatusRespSchema, d, '绘画任务状态') as unknown as DrawTaskResult,
+      )
     : get<Record<string, unknown>>('/draw/status');
 }
 

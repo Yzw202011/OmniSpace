@@ -19,6 +19,7 @@
 
 import { get, post, put, del } from './api';
 import type { QueryParams } from './api';
+import { parseWith, DialogSessionListRespSchema } from './schema';
 import type {
   DialogMessage,
   DialogSession,
@@ -72,9 +73,11 @@ export interface UpdateSessionBody {
   mode?: string;
 }
 
-/** 获取会话列表 */
+/** 获取会话列表（批 3-3c：响应过 Zod，非法抛 FRONTEND_PARSE_ERROR 走三分法） */
 export function listSessions(query?: SessionListQuery) {
-  return get<Paginated<DialogSession>>('/chat/sessions', query);
+  return get<unknown>('/chat/sessions', query).then(
+    (d) => parseWith(DialogSessionListRespSchema, d, '会话列表') as unknown as Paginated<DialogSession>,
+  );
 }
 
 /** 获取会话详情（含全部消息） */

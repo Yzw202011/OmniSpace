@@ -11,6 +11,8 @@
 import { create } from 'zustand';
 import type { OmniTask, WsStatus } from '@/types';
 import { getWsHub } from '@/services/ws';
+import { TaskBroadcastSchema } from '@/services/schema';
+import { reportBgError } from '@/utils/errors';
 
 /** WsHub 广播的原始载荷（各后端服务字段不完全一致，统一在此规整） */
 type TaskBroadcastPayload = Record<string, unknown>;
@@ -49,9 +51,17 @@ interface NormalizedTaskEvent {
  * 规整 WsHub 广播载荷。
  * 后端各服务字段差异：draw 用 {task_id, percent, status}；
  * lora_training 用 {task_id, event, progress}；统一映射到 OmniTask 约定。
+ * Zod 信封校验（批 3-3b）：非对象帧 reportBgError 后返回 null（调用方跳过），
+ * 字段级守卫保持本函数原有 typeof 链——宁松勿严双层防线。
+ * @returns 规整事件；载荷非法时返回 null
  */
-function normalizeTaskEvent(data: TaskBroadcastPayload | null | undefined): NormalizedTaskEvent {
-  const d = data || {};
+function normalizeTaskEvent(data: TaskBroadcastPayload | null | unknown): NormalizedTaskEvent | null {
+  const parsed = TaskBroadcastSchema.safeParse(data);
+  if (!parsed.success) {
+    reportBgError('task.broadcast', parsed.error.issues[0] ?? new Error('任务广播帧非法'));
+    return null;
+  }
+  const d = parsed.data;
   const id =
     (typeof d.id === 'string' && d.id) ||
     (typeof d.task_id === 'string' && d.task_id) ||
@@ -144,6 +154,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // 绘画等模块仅在 task_progress 内携带终态，不单独发 task_complete）
     const offProgress = conn.on<TaskBroadcastPayload>('task_progress', (data) => {
       const ev = normalizeTaskEvent(data);
+      if (!ev) {
+        return;
+      }
       if (!ev.id) {
         return;
       }
@@ -173,6 +186,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // task_preview：预览图更新
     const offPreview = conn.on<TaskBroadcastPayload>('task_preview', (data) => {
       const ev = normalizeTaskEvent(data);
+      if (!ev) {
+        return;
+      }
       if (ev.id && ev.previewUrl) {
         const existing = get().tasks.find((t) => t.id === ev.id);
         get().upsertTask({
@@ -189,6 +205,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // task_complete：任务完成
     const offComplete = conn.on<TaskBroadcastPayload>('task_complete', (data) => {
       const ev = normalizeTaskEvent(data);
+      if (!ev) {
+        return;
+      }
       if (ev.id) {
         get().completeTask(ev.id, ev.resultUrl);
       }
@@ -197,6 +216,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // task_error：任务失败
     const offError = conn.on<TaskBroadcastPayload>('task_error', (data) => {
       const ev = normalizeTaskEvent(data);
+      if (!ev) {
+        return;
+      }
       if (ev.id) {
         get().failTask(ev.id, ev.error || '任务执行失败');
       }

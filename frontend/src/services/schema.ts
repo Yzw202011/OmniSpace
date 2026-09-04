@@ -292,3 +292,80 @@ export const ModelItemSchema = z
     status: z.string().optional(),
   })
   .passthrough();
+
+/* ============================== WS 消息与高频端点（批 3：FE-033 渐进覆盖） ============================== */
+
+/** WS 帧信封：ws.ts onmessage 单点校验（/ws、/hardware/realtime、/dialog/stream 三端点共用） */
+export const WsFrameSchema = z
+  .object({
+    type: z.string().min(1),
+    data: z.unknown(),
+  })
+  .passthrough();
+
+/** /hardware/realtime `system_status` 载荷（宁松勿严：只锁对象性与数值类型，
+ *  字段缺失放行——normalizeRealtime 本就逐字段可选链兜底） */
+export const RealtimePayloadSchema = z
+  .object({
+    cpu: z
+      .object({ usage_percent: z.number().optional() })
+      .passthrough()
+      .optional(),
+    ram: z
+      .object({
+        usage_percent: z.number().optional(),
+        total_gb: z.number().optional(),
+        available_gb: z.number().optional(),
+      })
+      .passthrough()
+      .optional(),
+    gpu: z
+      .object({
+        usage_percent: z.number().optional(),
+        vram_used_mb: z.number().optional(),
+        vram_total_mb: z.number().optional(),
+        temp_celsius: z.number().optional(),
+      })
+      .passthrough()
+      .optional(),
+    timestamp: z.unknown().optional(),
+  })
+  .passthrough();
+
+/** /ws hub 任务广播载荷（宁松勿严：仅断言「是对象」；字段差异大，
+ *  逐字段守卫仍由 useTaskStore.normalizeTaskEvent 承担） */
+export const TaskBroadcastSchema = z.record(z.string(), z.unknown());
+
+/** GET /draw/result/{taskId} 绘画任务状态（queue_position 链 types→api→store） */
+export const DrawStatusRespSchema = z
+  .object({
+    task_id: z.string().optional(),
+    status: z.string(),
+    percent: z.number().optional(),
+    step: z.number().optional(),
+    queue_position: z.number().int().positive().optional(),
+    file_path: z.string().optional(),
+    image: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+
+/** GET /chat/sessions 会话项（对话高频端点） */
+export const DialogSessionItemSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    pinned: z.boolean().optional(),
+    mode: z.string().optional(),
+    created_at: z.union([z.string(), z.number()]),
+    updated_at: z.union([z.string(), z.number()]),
+  })
+  .passthrough();
+
+/** GET /chat/sessions 分页响应 */
+export const DialogSessionListRespSchema = z
+  .object({
+    items: z.array(DialogSessionItemSchema),
+    total: z.number(),
+  })
+  .passthrough();

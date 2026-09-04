@@ -9,7 +9,8 @@
 
 import { get } from './api';
 import { HARDWARE_REALTIME_URL } from './ws';
-import { parseWith, HardwareInfoRespSchema } from './schema';
+import { parseWith, HardwareInfoRespSchema, RealtimePayloadSchema } from './schema';
+import { reportBgError } from '@/utils/errors';
 import type {
   HardwareProfile,
   HardwareRealtime,
@@ -70,9 +71,15 @@ export function normalizeRealtime(raw: RealtimeRaw | null | undefined): Hardware
   };
 }
 
-/** 获取实时遥测（1 秒刷新） */
+/** 获取实时遥测（1 秒刷新；批 3-3b：响应过 Zod，非法抛错由调用方兜底保持末值） */
 export async function getRealtime(): Promise<HardwareRealtime> {
-  return normalizeRealtime(await get<RealtimeRaw>('/hardware/realtime'));
+  const raw = await get<RealtimeRaw>('/hardware/realtime');
+  const parsed = RealtimePayloadSchema.safeParse(raw);
+  if (!parsed.success) {
+    reportBgError('hardware.realtime', parsed.error.issues[0] ?? new Error('遥测响应格式非法'));
+    throw new Error('硬件遥测响应格式非法（FRONTEND_PARSE_ERROR）');
+  }
+  return normalizeRealtime(parsed.data as RealtimeRaw);
 }
 
 /** 获取协同调度状态（功能互斥锁 + VRAM 协同状态） */

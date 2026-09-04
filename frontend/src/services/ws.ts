@@ -12,7 +12,9 @@
  *   - 未连接时消息进入待发送队列，重连后补发（COM-011 休眠恢复友好）
  * ========================================================================== */
 
-import type { WsMessage, WsStatus } from '@/types';
+import type { WsStatus } from '@/types';
+import { WsFrameSchema } from './schema';
+import { reportBgError } from '@/utils/errors';
 
 /**
  * 推导 WebSocket 根地址（不含任何路径前缀）。
@@ -130,16 +132,20 @@ export class WsConnection {
     };
 
     sock.onmessage = (ev: MessageEvent) => {
-      let msg: WsMessage | null = null;
+      let raw: unknown;
       try {
-        msg = JSON.parse(ev.data) as WsMessage;
+        raw = JSON.parse(ev.data) as unknown;
       } catch {
         return; // 非 JSON 帧忽略
       }
-      if (!msg || !msg.type) {
+      // Zod 帧信封校验（批 3-3b：三端点单点把关）。非法帧丢弃并 console
+      // 留痕，不断链不抛出——解析失败降级语义 = 跳帧，后续帧照常分发。
+      const frame = WsFrameSchema.safeParse(raw);
+      if (!frame.success) {
+        reportBgError('ws.frame', frame.error.issues[0] ?? new Error('WS 帧信封非法'));
         return;
       }
-      this.dispatch(msg.type, msg.data);
+      this.dispatch(frame.data.type, frame.data.data);
     };
 
     sock.onclose = () => {

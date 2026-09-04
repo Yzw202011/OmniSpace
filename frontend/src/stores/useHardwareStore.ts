@@ -21,6 +21,8 @@ import type {
 } from '@/types';
 import * as hardwareApi from '@/services/hardwareApi';
 import { getHardwareRealtime } from '@/services/ws';
+import { RealtimePayloadSchema } from '@/services/schema';
+import { reportBgError } from '@/utils/errors';
 
 /** 协同模式中文文案映射（规格 §5.1，C-1：StatusBar 展示协同模式） */
 export const SYNERGY_MODE_TEXT: Record<SynergyMode, string> = {
@@ -119,8 +121,14 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       set({ wsStatus: status });
     });
 
-    // system_status：实时遥测推送（WS 内置桥接）
-    const offRealtime = conn.on<Parameters<typeof hardwareApi.normalizeRealtime>[0]>('system_status', (data) => {
+    // system_status：实时遥测推送（WS 内置桥接）。Zod 信封校验（批 3-3b）：
+    // 非法帧 reportBgError 后丢弃保持末值，等断线兜底轮询自愈，不崩页
+    const offRealtime = conn.on<unknown>('system_status', (data) => {
+      const parsed = RealtimePayloadSchema.safeParse(data);
+      if (!parsed.success) {
+        reportBgError('hardware.realtime', parsed.error.issues[0] ?? new Error('遥测帧格式非法'));
+        return;
+      }
       if (data) {
         set({ realtime: hardwareApi.normalizeRealtime(data) });
       }

@@ -34,6 +34,7 @@ from ..data.database import get_db_safe
 from ..data.fts_store import get_fts_store
 from ..data.graph_store import get_graph_store
 from ..data.vector_db import get_vector_db
+from . import knowledge_quality_gate
 
 log = logging.getLogger("omnispace.knowledge")
 
@@ -946,6 +947,13 @@ class KnowledgeProcessingService:
                 score = self.evaluate_quality(k, topic)
                 k.quality_score = score.total
                 if not score.passed:
+                    continue
+                # 入库质检闸（升级批2）：导航残渣/无答案QA/超短拒收
+                gate_ok, gate_reason = knowledge_quality_gate.check(
+                    k.content or "", k.type or "fact")
+                if not gate_ok:
+                    log.info("知识入库质检拒收(%s): %s",
+                             gate_reason, (k.content or "")[:40])
                     continue
                 decision = self.deduplicate(k)
                 if decision == "new":

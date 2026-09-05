@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ..data.vector_db import VectorDB
 
 import logging
+import re
 import threading
 import time
 
@@ -33,6 +34,15 @@ DEFAULT_TOP_K = 5
 MAX_INJECT_CHARS = 2000   # 注入文本总长度上限（防止 Prompt 膨胀）
 RRF_K = 60                # RRF 融合常数（标准值，压制高名次的分数差异）
 RECALL_MULT = 2           # 单路召回倍数（每路取 top_k*RECALL_MULT 参与融合）
+# 注入质量闸（升级批3，2026-09-05）：向量分低于此地板的条目不注入
+# （关键词路命中分恒=SCORE_THRESHOLD，属无向量分兜底通道，不适用本地板）
+MIN_VECTOR_SCORE = 0.55
+# 创作意图降权（D3 软规则）：命中则方法论/概念类优先、剧情 fact 靠后且
+# 条数收敛到 3——「写剧本要的是方法不是剧透」
+_CREATIVE_INTENT_RE = re.compile(
+    r"(?:写|创作|编|生成)[^。？！\n]{0,12}"
+    r"(?:剧本|文案|故事|大纲|小说|脚本|台词)")
+_CREATIVE_TYPE_ORDER = {"methodology": 0, "concept": 1, "case": 2, "fact": 3}
 
 
 class KnowledgeInjectionService:
@@ -136,6 +146,11 @@ class KnowledgeInjectionService:
         self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
         if self.last_latency_ms > 100.0:
             log.warning("RAG 检索延迟超标: %.1fms (>100ms)", self.last_latency_ms)
+        # 注入质量闸（升级批3）：向量分低于地板的条目不注入；
+        # 关键词路独有命中（恒=阈值分）是无向量分时的兜底通道，不受此限
+        items = [it for it in items
+                 if it.get("match") == "keyword"
+                 or float(it.get("score", 0.0)) >= MIN_VECTOR_SCORE]
         return items
 
     @staticmethod
@@ -202,9 +217,20 @@ class KnowledgeInjectionService:
         results = self.retrieve(user_message)
         if not results:
             return "", []
+        # 创作意图降权（升级批3/D3 软规则）：方法论/概念优先、剧情
+        # fact 靠后且条数收敛到 3——写剧本要的是方法不是剧透
+        if _CREATIVE_INTENT_RE.search(user_message):
+            results = sorted(
+                results,
+                key=lambda r: _CREATIVE_TYPE_ORDER.get(r.get("type", "fact"), 3))
+            results = results[:3]
         injected = self.inject_to_prompt(user_message, results)
         if not injected:
             return "", []
+        log.info("RAG 注入 %d 条（%s）: %s",
+                 len(results),
+                 "创作模式" if _CREATIVE_INTENT_RE.search(user_message) else "常规",
+                 [r.get("id", "")[:8] for r in results])
         return injected, results
 
 

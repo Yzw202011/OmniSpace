@@ -43,6 +43,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from ..data.database import Database
 from ..middleware import upload_guard
 from ..middleware.error_handler import ApiError, ok
+from ..services import knowledge_quality_gate
 from ..services.behavior_service import get_behavior_service
 from ..services.injection_service import get_injection_service
 from ..services.knowledge_service import get_knowledge_service
@@ -471,7 +472,7 @@ async def learn_knowledge_import(
 
     from ..services.knowledge_service import Knowledge, simhash64
     svc = get_knowledge_service()
-    imported, skipped, overwritten, failed = 0, 0, 0, 0
+    imported, skipped, overwritten, failed, rejected = 0, 0, 0, 0, 0
     existing_simhashes: set[str] = set()
     if merge_strategy == "dedup":
         for r in svc._iter_simhashes():  # noqa: SLF001 - 同服务协作
@@ -481,6 +482,13 @@ async def learn_knowledge_import(
         content = str(r.get("content") or "").strip()
         if not content:
             failed += 1
+            continue
+        # 入库质检闸（升级批2）：导航残渣/无答案QA/超短拒收
+        gate_ok, gate_reason = knowledge_quality_gate.check(
+            content, str(r.get("type") or "concept"))
+        if not gate_ok:
+            log.info("知识导入质检拒收(%s): %s", gate_reason, content[:40])
+            rejected += 1
             continue
         k = Knowledge(
             id=str(r.get("id") or "").strip() or uuid.uuid4().hex,
@@ -510,9 +518,10 @@ async def learn_knowledge_import(
             failed += 1
     return ok({"imported": imported, "overwritten": overwritten,
                "skipped_duplicates": skipped, "failed": failed,
+               "rejected": rejected,
                "total_rows": len(rows), "merge_strategy": merge_strategy},
               message=f"导入完成：新增 {imported}，覆盖 {overwritten}，"
-                      f"去重跳过 {skipped}，失败 {failed}")
+                      f"去重跳过 {skipped}，质检拒收 {rejected}，失败 {failed}")
 
 
 @router.get("/learn/knowledge/graph/export")

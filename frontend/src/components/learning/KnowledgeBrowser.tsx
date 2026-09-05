@@ -123,7 +123,7 @@ export const KnowledgeBrowser: React.FC = () => {
               暂无知识条目（后端 /v1/knowledge/list 未就绪或知识库为空）。
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2" style={{ maxHeight: 480, overflowY: 'auto' }}>
               {items.map((item) => (
                 <div
                   key={item.id}

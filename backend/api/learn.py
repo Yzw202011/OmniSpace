@@ -240,6 +240,48 @@ def learn_task_cancel(task_id: str) -> dict[str, Any]:
               message="训练任务已取消")
 
 
+# 终态任务记录可删（进行中须先取消：避免删除后服务内存态与库不一致）
+_TERMINAL_STATUSES = {
+    TrainStatus.DONE.value,
+    TrainStatus.ERROR.value,
+    TrainStatus.CANCELLED.value,
+}
+
+
+@router.delete("/learn/tasks/{task_id}")
+def learn_task_delete(task_id: str) -> dict[str, Any]:
+    """删除训练任务记录（2026-09-05 用户需求：训练任务记录要能删除）。
+
+    仅终态（done/error/cancelled）可删；进行中（queued/training/
+    evaluating）须先取消。只删任务记录，不影响已产出的 LoRA 版本
+    文件（版本管理见 /learn/lora/versions）。
+    """
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_UNAVAILABLE", "数据库不可用，无法删除训练任务")
+    try:
+        row = db.query_one(
+            "SELECT id, status FROM train_tasks WHERE id=?", (task_id,))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("训练任务查询失败: %s", exc)
+        raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)}) from exc
+    if row is None:
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
+                       detail={"task_id": task_id})
+    status = row.get("status", TrainStatus.QUEUED.value)
+    if status not in _TERMINAL_STATUSES:
+        raise ApiError(
+            "TRAINING_TASK_STATE_INVALID",
+            f"任务仍在进行中（{status}），请先取消再删除记录",
+            detail={"task_id": task_id, "status": status})
+    try:
+        db.delete("train_tasks", "id=?", (task_id,))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("训练任务删除失败: %s", exc)
+        raise ApiError(40006, "训练任务删除失败", detail={"error": str(exc)}) from exc
+    return ok({"deleted": task_id}, message="训练任务记录已删除")
+
+
 @router.post("/learn/tasks/reorder")
 def learn_tasks_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """调整训练任务优先级（审计 R3-BE1）。

@@ -45,6 +45,7 @@ export const LearnView: React.FC = () => {
   const fetchAvailableModels = useLearnStore((s) => s.fetchAvailableModels);
   const createTrain = useLearnStore((s) => s.createTrain);
   const cancelTask = useLearnStore((s) => s.cancelTask);
+  const deleteTask = useLearnStore((s) => s.deleteTask);
   const liveTasks = useTaskStore((s) => s.tasks);
   const showToast = useAppStore((s) => s.showToast);
 
@@ -259,8 +260,8 @@ export const LearnView: React.FC = () => {
         </div>
       )}
 
-      {/* 训练任务列表 */}
-      <div className="learn-task-list">
+      {/* 训练任务列表（限高 + 竖向滚动，2026-09-05 用户需求） */}
+      <div className="learn-task-list" style={{ maxHeight: 520, overflowY: 'auto' }}>
         {mergedTasks.length === 0 ? (
           <div className="learn-empty">
             <p>{tasksLoaded ? '暂无训练任务' : '任务加载中…'}</p>
@@ -328,6 +329,21 @@ export const LearnView: React.FC = () => {
                   <div className="learn-task-actions">
                     <button className="btn btn-secondary btn-sm" onClick={() => cancelTask(task.id)}>
                       取消
+                    </button>
+                  </div>
+                )}
+
+                {/* 删除记录（仅终态：done/error/cancelled，2026-09-05 用户需求） */}
+                {(task.status === 'done' || task.status === 'error' || task.status === 'cancelled') && (
+                  <div className="learn-task-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        if (!window.confirm(`确定删除训练任务记录「${task.name}」？此操作不可恢复`)) return;
+                        void deleteTask(task.id);
+                      }}
+                    >
+                      删除记录
                     </button>
                   </div>
                 )}

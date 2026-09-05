@@ -16,7 +16,7 @@
  * - POST /learn/crawl /learn/auto  网页爬取 / 自动学习
  * ========================================================================== */
 
-import { get, post, upload } from './api';
+import { get, post, del, upload } from './api';
 import type { QueryParams } from './api';
 import type {
   TrainTask,
@@ -133,9 +133,14 @@ export async function getTask(taskId: string): Promise<TrainTask> {
   return normalizeTrainTask(raw);
 }
 
-/** 取消训练任务（待后端补齐端点；当前调用将收到 404 信封，由调用方降级） */
+/** 取消训练任务 */
 export function cancelTask(taskId: string) {
   return post<TrainTask>(`/learn/tasks/${taskId}/cancel`, {});
+}
+
+/** 删除训练任务记录（仅终态 done/error/cancelled 可删，2026-09-05 用户需求） */
+export function deleteTask(taskId: string) {
+  return del<{ deleted: string }>(`/learn/tasks/${taskId}`);
 }
 
 /** 拖拽重排优先级（待后端补齐端点） */

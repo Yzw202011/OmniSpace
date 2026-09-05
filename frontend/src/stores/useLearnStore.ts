@@ -54,6 +54,8 @@ export interface LearnState {
   createTrain: (body: learnApi.CreateTrainBody) => Promise<boolean>;
   /** 取消训练任务 */
   cancelTask: (taskId: string) => Promise<void>;
+  /** 删除终态训练任务记录（done/error/cancelled） */
+  deleteTask: (taskId: string) => Promise<void>;
   /** 重排优先级 */
   reorderTasks: (taskIds: string[]) => Promise<void>;
   /** 上传训练数据集 */
@@ -176,6 +178,19 @@ export const useLearnStore = create<LearnState>((set, get) => ({
         err && typeof err === 'object' && 'message' in err
           ? (err as { message: string }).message
           : '取消训练任务失败';
+      useAppStore.getState().showToast(msg, 'error');
+    }
+  },
+
+  deleteTask: async (taskId) => {
+    try {
+      await learnApi.deleteTask(taskId);
+      set((state) => ({
+        trainTasks: state.trainTasks.filter((t) => t.id !== taskId),
+      }));
+      useAppStore.getState().showToast('训练任务记录已删除', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '删除失败';
       useAppStore.getState().showToast(msg, 'error');
     }
   },

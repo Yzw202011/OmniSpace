@@ -1065,7 +1065,17 @@ class StyleLoraService:
         训练中（存在引用该版本的未完成训练任务）拒绝删除；
         当前生效版本先清除 current 指针再删。
         """
+        if not self._safe_version(version):
+            # P1-5 收尾（2026-09-05）：delete 是 rollback/rename 之外最后
+            # 一个漏网入口——非法版本对外统一按 not_found（不向请求方区分
+            # 格式非法与不存在），拒绝原因只进日志。
+            logger.warning("风格版本删除版本号非法（拒绝）: %r", version[:60])
+            return False, "not_found"
         version_dir = STYLE_LORA_DIR / version
+        if not version_dir.resolve().is_relative_to(STYLE_LORA_DIR.resolve()):
+            # 纵深防御第二闸：格式白名单之后的越界兜底（防未来新入口绕过）
+            logger.warning("风格版本删除路径越界（拒绝）: %r", version[:60])
+            return False, "not_found"
         if not version_dir.is_dir():
             return False, "not_found"
         for t in self.list_tasks():

@@ -39,6 +39,36 @@ def test_dataset_stats_rejects_traversal(svc) -> None:
     assert out["total"] == 0 and out["sufficient"] is False
 
 
+def test_delete_rejects_traversal(svc, tmp_path) -> None:
+    # 2026-09-05 P1-5 收尾：delete_version 是 rollback/rename 之外最后
+    # 一个漏网入口（外部参数直拼路径后 rmtree）。非法版本必须被拒且
+    # 目标目录毫发无损；对外统一 not_found（不区分格式非法）。
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "keep.txt").write_text("x", encoding="utf-8")
+    assert svc.delete_version(f"../../{victim.name}") == (False, "not_found")
+    assert svc.delete_version("..\\..\\Windows") == (False, "not_found")
+    assert svc.delete_version("") == (False, "not_found")
+    assert (victim / "keep.txt").exists()
+
+
+def test_delete_legitimate_version(tmp_path, monkeypatch) -> None:
+    # 合法形态不受影响：真实版本目录被删、训练锁链路与 current 清理保持
+    from backend.services import style_lora_service as sls
+    fake_root = tmp_path / "style_lora"
+    fake_root.mkdir()
+    (fake_root / "v2").mkdir()
+    monkeypatch.setattr(sls, "STYLE_LORA_DIR", fake_root)
+    monkeypatch.setattr(sls, "CURRENT_FILE", fake_root / "current.json")
+    svc = sls.get_style_lora_service()
+    monkeypatch.setattr(svc, "list_tasks", lambda: [])
+    assert svc.delete_version("v2") == (True, "deleted")
+    assert not (fake_root / "v2").exists()
+    # 非法形态在真实目录下同样被拒（不误删根目录自身）
+    assert svc.delete_version("v2/../../..") == (False, "not_found")
+    assert fake_root.is_dir()
+
+
 def test_legitimate_ids_pass(svc, tmp_path, monkeypatch) -> None:
     # 合法形态不受影响：v3 回滚（构造真实版本目录）
     from backend.services import style_lora_service as sls

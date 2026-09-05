@@ -101,4 +101,57 @@ export const NAV_ITEMS: NavItemMeta[] = [
   { route: 'help', path: '/help', icon: CircleQuestionMark, label: '帮助' },
 ];
 
+/* ────────────────── 侧栏自定义摆放（2026-09-05 用户需求）──────────────────
+ * 拖拽重排导航项，顺序持久化 localStorage（key: omni.sidebar.order）。
+ * 健壮性：保存里含已下线路由则过滤、缺失的路由按默认序追加尾部；
+ * localStorage 不可用（隐私模式/无 DOM）时静默回退默认序。
+ * ─────────────────────────────────────────────────────────────────────── */
+const SIDEBAR_ORDER_KEY = 'omni.sidebar.order';
+
+/** 读取保存的导航顺序（route 名数组）；无记录/损坏返回空数组 */
+export function loadSidebarOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_ORDER_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr.filter((x): x is string => typeof x === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 保存导航顺序；传空数组 = 恢复默认序 */
+export function saveSidebarOrder(routes: string[]): void {
+  try {
+    localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(routes));
+  } catch {
+    /* 写入失败静默（隐私模式） */
+  }
+}
+
+/** 按保存顺序排列导航项；无记录回退默认序，缺失项按默认序追加尾部 */
+export function arrangedNavItems(): NavItemMeta[] {
+  const saved = loadSidebarOrder();
+  if (saved.length === 0) {
+    return [...NAV_ITEMS];
+  }
+  const byRoute = new Map(NAV_ITEMS.map((it) => [it.route, it]));
+  const arranged: NavItemMeta[] = [];
+  for (const route of saved) {
+    const it = byRoute.get(route);
+    if (it) {
+      arranged.push(it);
+      byRoute.delete(route);
+    }
+  }
+  for (const it of NAV_ITEMS) {
+    if (byRoute.has(it.route)) {
+      arranged.push(it);
+      byRoute.delete(it.route);
+    }
+  }
+  return arranged;
+}
+
 export default router;

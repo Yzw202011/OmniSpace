@@ -16,7 +16,11 @@
  * ========================================================================== */
 
 import { Component, useEffect, useRef, useState } from 'react';
-import type { ErrorInfo, ReactNode } from 'react';
+import type {
+  DragEvent as ReactDragEvent,
+  ErrorInfo,
+  ReactNode,
+} from 'react';
 import { RouterProvider, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   PanelLeftClose,
@@ -27,7 +31,12 @@ import {
   Info,
   type LucideIcon,
 } from 'lucide-react';
-import { router, NAV_ITEMS } from './router';
+import {
+  router,
+  NAV_ITEMS,
+  arrangedNavItems,
+  saveSidebarOrder,
+} from './router';
 import { trackBehavior } from './services/learningApi';
 import Tooltip from './components/common/Tooltip';
 import TechParticles from './components/common/TechParticles';
@@ -227,6 +236,46 @@ function ToastContainer() {
  * ========================================================================================== */
 export function AppShell() {
   const [collapsed, setCollapsed] = useState<boolean>(loadSidebarCollapsed);
+  // 侧栏自定义摆放（2026-09-05 用户需求）：拖拽重排 + localStorage 持久化
+  const [navItems, setNavItems] = useState(() => arrangedNavItems());
+  const navDragRouteRef = useRef<string | null>(null);
+  const isCustomNavOrder = navItems.some(
+    (it, i) => it.route !== NAV_ITEMS[i]?.route,
+  );
+
+  const handleNavDragStart =
+    (route: string) => (e: ReactDragEvent<HTMLAnchorElement>) => {
+      navDragRouteRef.current = route;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', route);
+    };
+  const handleNavDragOver =
+    (route: string) => (e: ReactDragEvent<HTMLAnchorElement>) => {
+      e.preventDefault(); // 允许放置
+      e.dataTransfer.dropEffect = 'move';
+      setNavItems((items) => {
+        const from = items.findIndex(
+          (it) => it.route === navDragRouteRef.current,
+        );
+        const to = items.findIndex((it) => it.route === route);
+        if (from < 0 || to < 0 || from === to) return items;
+        const next = [...items];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        return next;
+      });
+    };
+  const handleNavDragEnd = () => {
+    navDragRouteRef.current = null;
+    setNavItems((items) => {
+      saveSidebarOrder(items.map((it) => it.route));
+      return items;
+    });
+  };
+  const resetNavOrder = () => {
+    setNavItems([...NAV_ITEMS]);
+    saveSidebarOrder([]); // 空数组 = 回默认序
+  };
   // 功能互斥快照（规格 §6.1）：重量级功能活跃时驱动导航置灰（CROSS-002/003）
   const activeFeature = useAppStore((s) => s.activeFeature);
   const location = useLocation();
@@ -351,7 +400,7 @@ export function AppShell() {
         {/* 左侧导航（文档D §1.1.1：收起 64px 仅图标 / 展开 260px 图标+文字） */}
         <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
           <nav className="sidebar-nav" aria-label="主导航">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               // 功能互斥置灰：该路由对应重量级功能且被当前活跃功能阻断时置灰提示
               const feature = ROUTE_FEATURE[item.route];
@@ -361,6 +410,11 @@ export function AppShell() {
               const link = (
                 <NavLink
                   to={item.path}
+                  draggable
+                  onDragStart={handleNavDragStart(item.route)}
+                  onDragOver={handleNavDragOver(item.route)}
+                  onDragEnd={handleNavDragEnd}
+                  style={{ cursor: 'grab' }}
                   className={({ isActive }) =>
                     `nav-item${isActive ? ' active' : ''}${blockedMsg ? ' blocked' : ''}`
                   }
@@ -402,6 +456,18 @@ export function AppShell() {
             })}
           </nav>
           <div className="sidebar-footer">
+            {/* 自定义摆放：顺序与默认不同且展开态时提供恢复入口 */}
+            {!collapsed && isCustomNavOrder && (
+              <button
+                type="button"
+                className="sidebar-collapse-btn"
+                style={{ fontSize: 11, height: 'auto', padding: '6px 0', marginBottom: 4 }}
+                onClick={resetNavOrder}
+                title="恢复导航默认排序"
+              >
+                恢复默认排序
+              </button>
+            )}
             <button
               type="button"
               className="sidebar-collapse-btn"

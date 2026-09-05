@@ -414,7 +414,8 @@ def _ensure_session(sid: str, title_seed: str, model: str) -> None:
 
 def _save_message(sid: str, role: str, content: str,
                   model_used: str = "", attachments: Any = None,
-                  reasoning: str = "") -> dict:
+                  reasoning: str = "",
+                  rag_refs: list | None = None) -> dict:
     msg = {
         "id": uuid.uuid4().hex,
         "session_id": sid,
@@ -423,6 +424,7 @@ def _save_message(sid: str, role: str, content: str,
         "attachments": attachments,
         "model_used": model_used,
         "reasoning": reasoning,
+        "rag_refs": json.dumps(rag_refs or [], ensure_ascii=False),
         "timestamp": _now(),
     }
     db = get_db_safe()
@@ -726,7 +728,8 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
         with flow.node("消息落库", friendly="保存对话记录") as n:
             msg = _save_message(sid, "assistant", reply,
                                 model_used=engine.model_name,
-                                reasoning=reply_reasoning)
+                                reasoning=reply_reasoning,
+                                rag_refs=refs)
             n.output(f"回复 {len(reply)} 字")
         flow.end("success",
                  output_summary=f"回复 {len(reply)} 字"
@@ -872,7 +875,11 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                     # M-4 兜底：异常路径残留标签剥离，防污染后续轮上下文
                     _save_message(sid, "assistant", strip_think_tags(reply),
                                   model_used=engine.model_name,
-                                  reasoning=reasoning_full)
+                                  reasoning=reasoning_full,
+                                  rag_refs=refs)
+                    n.output(f"回复 {len(reply)} 字"
+                             + (f"，思考 {len(reasoning_full)} 字"
+                                if reasoning_full else ""))
                     n.output(f"回复 {len(reply)} 字"
                              + (f"，思考 {len(reasoning_full)} 字"
                                 if reasoning_full else ""))
@@ -1367,7 +1374,36 @@ def chat_rate_message(session_id: str, message_id: str,
     except (TypeError, ValueError):
         rating = 0
     rating = max(-1, min(1, rating))
-    return _update_message_flag(session_id, message_id, "rating", rating)
+    result = _update_message_flag(session_id, message_id, "rating", rating)
+    # RAG 反馈闭环（知识学习升级批5）：点踩 → 本次生成引用的知识条目
+    # 质量分 -0.8（负分即不再注入）；点赞 → +0.2 小幅回升。失败不影响评分。
+    if rating != 0:
+        try:
+            db = get_db_safe()
+            if db is not None:
+                row = db.query_one(
+                    "SELECT rag_refs FROM dialog_messages"
+                    " WHERE id=? AND session_id=?", (message_id, session_id))
+                kids: list[str] = []
+                if row is not None and row.get("rag_refs"):
+                    try:
+                        parsed = json.loads(row["rag_refs"])
+                        for r in parsed:
+                            if isinstance(r, dict) and isinstance(r.get("id"), str):
+                                kids.append(r["id"])
+                    except (json.JSONDecodeError, TypeError):
+                        kids = []
+                if kids:
+                    from ..services.knowledge_service import get_knowledge_service
+                    ksvc = get_knowledge_service()
+                    delta = -0.8 if rating < 0 else 0.2
+                    for kid in kids:
+                        ksvc.adjust_quality_score(kid, delta)
+                    log.info("知识反馈闭环: 消息 %s 评分 %d → 调整 %d 条引用知识质量分",
+                             message_id[:8], rating, len(kids))
+        except Exception as exc:  # noqa: BLE001 - 反馈降权失败不影响评分
+            log.warning("知识反馈降权失败（评分已保存）: %s", exc)
+    return result
 
 
 @router.post("/chat/sessions/{session_id}/messages/{message_id}/favorite")

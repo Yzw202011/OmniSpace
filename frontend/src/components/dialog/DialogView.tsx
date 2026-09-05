@@ -79,6 +79,8 @@ export interface DialogViewProps {
   onCopy?: (message: ChatMessage) => void;
   /** 重新生成 */
   onRegenerate?: (message: ChatMessage) => void;
+  /** 评分（批5 反馈闭环：踩→引用知识降权） */
+  onRate?: (message: ChatMessage, rating: number) => void;
 }
 
 /** 输入字数上限（对齐 DIALOG-016） */
@@ -109,6 +111,7 @@ export function DialogView({
   onQuote,
   onCopy,
   onRegenerate,
+  onRate,
 }: DialogViewProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -448,6 +451,7 @@ export function DialogView({
                     onQuote={onQuote}
                     onCopy={onCopy}
                     onRegenerate={onRegenerate}
+                    onRate={onRate}
                   />
                 )}
               />

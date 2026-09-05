@@ -47,6 +47,8 @@ export interface ChatMessage {
   streaming?: boolean;
   /** 深度思考过程（reasoning 双通道；与 content 分离渲染，四步框架分段展示） */
   reasoning?: string;
+  /** 用户评分（1 赞 / -1 踩 / 0 未评；历史回放带出，批5 反馈闭环） */
+  rating?: number;
   /** 思考耗时毫秒（store 首 token 帧定格；历史回放无） */
   reasoningMs?: number;
   /** 错误文案 */
@@ -66,6 +68,8 @@ export interface MessageBubbleProps {
   onCopy?: (message: ChatMessage) => void;
   /** 重新生成回调（仅助手消息） */
   onRegenerate?: (message: ChatMessage) => void;
+  /** 评分回调（仅助手消息，1 赞 / -1 踩；批5 反馈闭环：踩→引用知识降权） */
+  onRate?: (message: ChatMessage, rating: number) => void;
 }
 
 /** 格式化时间 HH:MM */
@@ -286,11 +290,20 @@ export const MessageBubble = memo(function MessageBubble({
   onQuote,
   onCopy,
   onRegenerate,
+  onRate,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isError = !!message.errorText;
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
   const images = isUser ? message.images ?? [] : [];
+  // 批5 反馈闭环：本消息评分（1 赞 / -1 踩 / 0 未评），本地视觉态
+  const [myRating, setMyRating] = useState<number>(message.rating ?? 0);
+
+  const handleRate = (rating: number) => {
+    const next = myRating === rating ? 0 : rating; // 重复点击=取消评分
+    setMyRating(next);
+    onRate?.(message, next);
+  };
 
   return (
     <div className={['flex gap-3', isUser ? 'flex-row-reverse' : 'flex-row'].join(' ')}>
@@ -442,6 +455,35 @@ export const MessageBubble = memo(function MessageBubble({
             >
               重新生成
             </button>
+          ) : null}
+          {/* 赞/踩（批5 反馈闭环：踩→本次引用的知识自动降权） */}
+          {!isUser && onRate && !message.streaming ? (
+            <>
+              <button
+                type="button"
+                onClick={() => handleRate(1)}
+                className={`text-xs px-1.5 py-0.5 rounded transition-colors ${
+                  myRating === 1
+                    ? 'text-[var(--color-success)] font-semibold'
+                    : 'text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50'
+                }`}
+                title="赞（有用的回答）"
+              >
+                👍
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRate(-1)}
+                className={`text-xs px-1.5 py-0.5 rounded transition-colors ${
+                  myRating === -1
+                    ? 'text-[var(--color-error)] font-semibold'
+                    : 'text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50'
+                }`}
+                title="踩（回答质量差，将降低所引用知识的权重）"
+              >
+                👎
+              </button>
+            </>
           ) : null}
         </div>
       </div>

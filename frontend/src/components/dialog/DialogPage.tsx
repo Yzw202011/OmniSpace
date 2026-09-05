@@ -18,7 +18,7 @@ import type { ChatMessage } from './MessageBubble';
 import { useDialogStore } from '@/stores/useDialogStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { getErrorMessage } from '@/utils/errors';
-import { prewarmModel } from '@/services/dialogApi';
+import { prewarmModel, rateMessage } from '@/services/dialogApi';
 import type { DialogSession, DialogMessage } from '@/types';
 
 /** 时间戳统一转毫秒 */
@@ -226,6 +226,25 @@ export default function DialogPage() {
     [showToast],
   );
 
+  // 消息评分（批5 反馈闭环：踩→本次生成引用的知识自动降权，服务端落账）
+  const handleRateMessage = useCallback(
+    (message: ChatMessage, rating: number) => {
+      if (!currentSession) {
+        return;
+      }
+      rateMessage(currentSession.id, message.id, rating).catch(() =>
+        showToast('评分保存失败，请稍后重试', 'error'),
+      );
+      showToast(
+        rating === -1
+          ? '已记录反馈：所引用知识的权重将被降低'
+          : '已记录反馈：感谢肯定',
+        'success',
+      );
+    },
+    [currentSession, showToast],
+  );
+
   // 引用消息：下发引用请求，DialogView 回填输入框
   const handleQuoteMessage = useCallback((message: ChatMessage) => {
     setQuoteRequest((prev) => ({ seq: (prev?.seq ?? 0) + 1, message }));
@@ -275,6 +294,7 @@ export default function DialogPage() {
       onCopy={handleCopyMessage}
       onQuote={handleQuoteMessage}
       onRegenerate={handleRegenerate}
+      onRate={handleRateMessage}
     />
   );
 }

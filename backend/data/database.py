@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS dialog_messages (
     model_used  TEXT DEFAULT '',
     rating      INTEGER NOT NULL DEFAULT 0, -- 1 赞 / -1 踩 / 0 未评（DIALOG-024）
     favorite    INTEGER NOT NULL DEFAULT 0, -- 0/1 收藏（DIALOG-046）
+    rag_refs    TEXT DEFAULT '[]',      -- JSON 数组：本次生成引用的知识条目（批5反馈闭环）
     reasoning   TEXT DEFAULT '',        -- 深度思考过程（加密，与 content 同链路）
     timestamp   REAL NOT NULL DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES dialog_sessions(id) ON DELETE CASCADE
@@ -395,7 +396,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -456,6 +457,12 @@ class Database:
             # 新库 _SCHEMA 已含，幂等跳过）
             ("keyframes", "shot_seeds", "TEXT DEFAULT '[]'"),
             ("keyframes", "consistency", "TEXT DEFAULT ''"),
+        )),
+        (8, (
+            # RAG 反馈闭环（2026-09-05 知识学习升级批5）：assistant 消息
+            # 记录本次生成引用的知识条目（JSON 数组 [{id,topic}]），点踩
+            # 时据此对相应知识降权（新库 _SCHEMA 已含，幂等跳过）
+            ("dialog_messages", "rag_refs", "TEXT DEFAULT '[]'"),
         )),
     )
 

@@ -1184,6 +1184,38 @@ class KnowledgeProcessingService:
                 log.warning("查询知识失败: %s", exc)
         return self._mem_meta.get(kid)
 
+    def adjust_quality_score(self, kid: str, delta: float,
+                             floor: float = -1.0,
+                             ceiling: float = 1.0) -> float | None:
+        """反馈闭环（升级批5）：按用户评价调整知识质量分。
+
+        点踩 → 负 delta（默认 -0.8，常规条目一次即压到注入地板之下）；
+        点赞 → 正 delta 小幅回升（可复活被误踩条目）。
+        注入检索跳过质量分为负的条目。条目不存在返回 None。
+        """
+        if self._db is None:
+            return None
+        try:
+            row = self._db.query_one(
+                "SELECT quality_score FROM knowledge_meta WHERE id=?", (kid,))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("知识质量分查询失败: %s", exc)
+            return None
+        if row is None:
+            return None
+        try:
+            current = float(row.get("quality_score") or 0.0)
+        except (TypeError, ValueError):
+            current = 0.0
+        new_score = max(floor, min(ceiling, current + delta))
+        try:
+            self._db.update("knowledge_meta",
+                            {"quality_score": new_score}, "id=?", (kid,))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("知识质量分更新失败: %s", exc)
+            return None
+        return new_score
+
     def delete_knowledge(self, kid: str) -> bool:
         """级联删除：向量 + 元数据 + 全文索引 + 图谱边。返回是否删除成功。"""
         existed = self.get_knowledge(kid) is not None

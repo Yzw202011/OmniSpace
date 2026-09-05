@@ -151,7 +151,26 @@ class KnowledgeInjectionService:
         items = [it for it in items
                  if it.get("match") == "keyword"
                  or float(it.get("score", 0.0)) >= MIN_VECTOR_SCORE]
+        # 反馈降权过滤（升级批5）：被点踩降权至负分的知识不再注入
+        items = [it for it in items if not self._is_demoted(it.get("id", ""))]
         return items
+
+    def _is_demoted(self, kid: str) -> bool:
+        """质量分为负（用户点踩降权）→ 不再注入。查询失败按未降权处理。"""
+        if not kid:
+            return False
+        try:
+            from ..data.database import get_db_safe
+            db = get_db_safe()
+            if db is None:
+                return False
+            row = db.query_one(
+                "SELECT quality_score FROM knowledge_meta WHERE id=?", (kid,))
+            if row is None:
+                return False
+            return float(row.get("quality_score") or 0.0) < 0.0
+        except Exception:  # noqa: BLE001
+            return False
 
     @staticmethod
     def _meta_of(kid: str) -> dict | None:

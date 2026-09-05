@@ -51,6 +51,11 @@ RAM_SOFT_RATIO = 1.0 - float(THRESHOLDS.get("mem_warning_ratio", 0.25))
 RAM_CRITICAL_RATIO = float(THRESHOLDS.get("mem_critical2_ratio", 0.90))
 # VRAM 动作线：gpu_vram_critical=0.90（用户裁定硬限制）
 VRAM_HARD_RATIO = float(THRESHOLDS.get("gpu_vram_critical", 0.90))
+# 提交内存动作线（2026-09-05 A2 补口，架构升级计划 P0-2）：WER 取证
+# RADAR_PRE_LEAK_64 实证死因是提交（commit）耗尽——提交上限=物理+页面
+# 文件，物理 RAM 百分比盯不住它。GetPerformanceInfo 与 WER 同源口径；
+# 90% 动作线=本机 59.2G 上限留 ~6G 缓冲。
+COMMIT_HARD_RATIO = float(THRESHOLDS.get("commit_critical_ratio", 0.90))
 
 # 动作冷却（秒）：避免阈值边缘抖动导致反复卸载/装载 thrashing
 _RAM_SHED_COOLDOWN_S = 60.0
@@ -72,14 +77,17 @@ class ResourceGuard:
         self._lock = threading.Lock()
         self._last_ram_shed = 0.0
         self._last_vram_shed = 0.0
+        self._last_commit_shed = 0.0
         self._last_critical_shed = 0.0
         self._last_soft_collect = 0.0
         self._last_broadcast = 0.0
         # 状态快照（get_status / hardware API 透出）
         self._ram_percent = 0.0
         self._vram_ratio = 0.0
+        self._commit_ratio = 0.0
         self._ram_shed_count = 0
         self._vram_shed_count = 0
+        self._commit_shed_count = 0
         self._last_event = "normal"       # normal/ram_soft/ram_shed/vram_shed
         self._last_event_at = 0.0
         self._last_detail: str = ""
@@ -113,6 +121,14 @@ class ResourceGuard:
         # VRAM 动作线（≥90%）：卸载空闲模型直到回到线下
         if vram_used_ratio >= VRAM_HARD_RATIO:
             self._shed_vram(vram_used_ratio)
+
+        # 提交内存动作线（≥90%，2026-09-05 A2 补口）：采样在守卫内部
+        # 完成，调度器调用方零改动；非 Windows/采样失败返回 None 静默跳过
+        commit = _commit_charge_ratio()
+        if commit is not None:
+            self._commit_ratio = commit
+            if commit >= COMMIT_HARD_RATIO:
+                self._shed_commit(commit)
 
     # ── RAM 预警：轻量回收 ──────────────────────────────────────
     def _soft_collect(self) -> None:
@@ -223,6 +239,50 @@ class ResourceGuard:
                         f"显存占用超 {VRAM_HARD_RATIO*100:.0f}% 限制，"
                         f"已释放 {freed} 个空闲模型", warning=True)
         _log_event("vram_shed", detail, level="warning")
+
+    # ── 提交内存动作线：与 RAM 动作线同一卸载链 ─────────────────
+    def _shed_commit(self, ratio: float) -> None:
+        """提交内存越线：卸空闲模型 + 工作集收缩 + 危急收缩一链到底。
+
+        与 RAM 危急线的语义差异：提交打顶（100%）即 WER 原生硬死，
+        没有第二档余地——动作线触发时直接并入危急收缩（shed_memory）。
+        独立事件名（commit_shed）进心跳历史，A3 压测按此取证。
+        """
+        now = time.monotonic()
+        if now - self._last_commit_shed < _RAM_SHED_COOLDOWN_S:
+            return
+        self._last_commit_shed = now
+
+        freed = self._evict_idle_models("commit")
+        gc.collect()
+        try:
+            import torch  # type: ignore
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+        self._shrink_working_set()
+        self._commit_shed_count += 1
+        detail = (f"提交内存 {ratio*100:.0f}% 越线（WER RADAR 同源口径），"
+                  f"卸载 {freed} 个空闲模型")
+        self._record_event("commit_shed", detail)
+        self._broadcast("resource_commit_high",
+                        f"提交内存占用 {ratio*100:.0f}% 超过 "
+                        f"{COMMIT_HARD_RATIO*100:.0f}% 限制，"
+                        + (f"已释放 {freed} 个空闲模型" if freed
+                           else "无可卸载的空闲模型"),
+                        warning=True)
+        _log_event("commit_shed", detail, level="warning")
+        try:
+            from .model_manager import get_model_manager
+            shed = get_model_manager().shed_memory()
+            msg = (f"提交内存越线已收缩可再生内存：权重缓存卸载 "
+                   f"{shed.get('cache_unloaded')} 条、磁盘扫描缓存丢弃 "
+                   f"{shed.get('scan_cache_dropped')} 条")
+            self._record_event("commit_critical_shed", msg)
+            _log_event("commit_critical_shed", msg, level="warning")
+        except Exception as exc:  # noqa: BLE001 - 收缩失败不影响守卫主链
+            log.warning("提交内存危急收缩失败: %s", exc)
 
     # ── 卸载候选筛选 ────────────────────────────────────────────
     def _evict_candidates(self) -> list[dict]:
@@ -373,12 +433,54 @@ class ResourceGuard:
                 "vram_limit_ratio": VRAM_HARD_RATIO,
                 "ram_used_percent": round(self._ram_percent, 1),
                 "vram_used_ratio": round(self._vram_ratio, 3),
+                "commit_used_ratio": round(self._commit_ratio, 3),
+                "commit_limit_percent": round(COMMIT_HARD_RATIO * 100, 1),
                 "last_event": self._last_event,
                 "last_event_at": self._last_event_at,
                 "last_detail": self._last_detail,
                 "session_ram_shed_count": self._ram_shed_count,
                 "session_vram_shed_count": self._vram_shed_count,
+                "session_commit_shed_count": self._commit_shed_count,
             }
+
+
+def _commit_charge_ratio() -> float | None:
+    """Windows 提交内存占比（CommitTotal/CommitLimit，WER RADAR 同源）。
+
+    非 Windows / 调用失败 / 上限为 0 返回 None——守卫跳过该维度，
+    不阻断 RAM/VRAM 主链。
+    """
+    try:
+        import ctypes
+
+        class _PERF_INFO(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.c_ulong),
+                ("CommitTotal", ctypes.c_size_t),
+                ("CommitLimit", ctypes.c_size_t),
+                ("CommitPeak", ctypes.c_size_t),
+                ("PhysicalTotal", ctypes.c_size_t),
+                ("PhysicalAvailable", ctypes.c_size_t),
+                ("SystemCache", ctypes.c_size_t),
+                ("KernelTotal", ctypes.c_size_t),
+                ("KernelPaged", ctypes.c_size_t),
+                ("KernelNonpaged", ctypes.c_size_t),
+                ("PageSize", ctypes.c_size_t),
+                ("HandleCount", ctypes.c_ulong),
+                ("ProcessCount", ctypes.c_ulong),
+                ("ThreadCount", ctypes.c_ulong),
+            ]
+
+        info = _PERF_INFO()
+        info.cb = ctypes.sizeof(info)
+        psapi = ctypes.windll.psapi      # type: ignore[attr-defined]
+        if not psapi.GetPerformanceInfo(ctypes.byref(info), info.cb):
+            return None
+        if not info.CommitLimit:
+            return None
+        return info.CommitTotal / info.CommitLimit
+    except Exception:  # noqa: BLE001 - 非 Windows/权限不足时跳过该维度
+        return None
 
 
 def _log_event(event: str, friendly: str, level: str = "info") -> None:

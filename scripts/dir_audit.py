@@ -41,13 +41,17 @@ ROOT_FILE_WHITELIST = {
     # 09-02 改名：开发版 exe 带「开发版」后缀，防与发行包入口点混（曾因此
     # 把开发环境误当发行包测）；包内交付名不变，见 make_dist COPY_FILES
     "启动OmniSpace-开发版.exe",
+    # 09-05 A5：打包台入口（7530 一条命）+ 控制台子进程调试遗留
+    # （console.log 由打包台 exe 运行可再生，登记免报）
+    "启动打包台.bat", "启动打包台.exe", "console.log",
 }
 
 # §1 顶层目录白名单
 DIR_WHITELIST = {
     # 源码与工具链（git）
     "backend", "frontend", "launcher", "scripts", "skills",
-    "license_console", "build_tools", "tests", "docs", "tools",
+    "license_console", "packaging_console", "build_tools", "tests",
+    "docs", "tools",
     # 资产与运行时（非 git）；根 ffmpeg/ 空壳已删（真身 runtime/ffmpeg，09-02）
     "models", "runtime", "pydeps", "keys", "data", "logs",
     # 09-02 规则：发行产物一律住 D:\ccd，开发目录出现 dist_out 即告警

@@ -159,6 +159,16 @@ gpu:
   primary_device: 0
   auxiliary_device: 1
   secondary_offload: false
+  # 功能→卡分配（批1 多卡地基，2026-09-05）：仅双卡及以上机器生效，
+  # 单卡机器强制全部走主卡（行为与历史完全一致）。缺项=主卡；指向
+  # 不存在的卡自动回落主卡并告警。paint/video_gen 共用同一 ComfyUI
+  # 实例必须同卡，异卡配置会被自动收敛到 paint 的卡。
+  # 例（对话占 0 卡、绘画/视频占 1 卡）：dialog: 0 / paint: 1 / video_gen: 1
+  feature_devices:
+    dialog: 0
+    paint: 0
+    video_gen: 0
+    training: 0
 
 logging:
   level: "INFO"

@@ -80,10 +80,13 @@ def _estimate_model_dir_gb(mdir: str) -> float:
     _DIR_SIZE_CACHE[mdir] = gb
     return gb
 
-# 默认服务模型：Qwen3-VL-8B AWQ int4（权重 ~6GB，16GB 卡可承载）
-DEFAULT_MODEL_REL = "qwen3-vl-8b-awq"
+# 默认服务模型：Qwen3.5-9B W4A16（2026-09-06 换代，compressed-tensors
+# int4 权重 ~11GB，16GB 卡压线承载；vLLM 0.26.0 registry 原生支持
+# Qwen3_5ForConditionalGeneration）。显存不足时由 dialog_engine
+# 候选链自动降级到 8b-awq/4b。
+DEFAULT_MODEL_REL = "qwen35-9b-w4a16"
 # served-model-name 默认值（实际随所载模型目录动态变化，多模型热切换）
-SERVED_NAME = "qwen3-vl-8b-awq"
+SERVED_NAME = "qwen35-9b-w4a16"
 
 VLLM_HOST = "127.0.0.1"
 VLLM_PORT = 8101
@@ -98,7 +101,7 @@ SLEEP_STATUS_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/is_sleeping"
 # P3 §3.2 收敛：超时 300s → 240s（低于 WARMUP_TIMEOUT 的预算值，
 # 去掉冗余余量），健康轮询 2s → 5s（冷启动期无意义高频探测省 I/O；
 # 取消自查最坏延迟仅增 3s，远低于 3s 模块切换预算的外部感知）。
-START_TIMEOUT_S = 240.0
+START_TIMEOUT_S = 420.0
 HEALTH_POLL_INTERVAL_S = 5.0
 # 单次 socket 读超时。2026-08-21 实测教训：首条带图请求触发视觉内核
 # Triton JIT 编译（_bilinear_pos_embed_kernel/rotary_kernel），编译期间
@@ -346,9 +349,16 @@ class VLLMService:
         try:
             import torch as _torch
             if _torch.cuda.is_available():
+                # 多卡绑卡（批1）：主进程可见全部卡，按对话资源域探测
+                # 指定卡（单卡恒 0，与历史一致）
+                try:
+                    from .gpu_domains import resolve_feature_device
+                    _dev_idx = resolve_feature_device("dialog")
+                except Exception:  # noqa: BLE001 - 分配失败回落主卡
+                    _dev_idx = 0
                 _need_b = 0
                 for _attempt in range(30):
-                    _free_b, _total_b = _torch.cuda.mem_get_info(0)
+                    _free_b, _total_b = _torch.cuda.mem_get_info(_dev_idx)
                     if _need_b == 0:
                         _need_b = int(_total_b * gpu_memory_utilization * 0.98)
                     if _free_b >= _need_b:
@@ -544,6 +554,12 @@ class VLLMService:
                 "--port", str(VLLM_PORT),
                 "--dtype", "float16",
                 "--max-model-len", str(max_model_len),
+                # 单用户桌面并发 32（2026-09-06 Qwen3.5-9B 冒烟实测）：
+                # vLLM 默认 max_num_seqs=256，Gated DeltaNet 系模型每个
+                # 解码序列占一格 Mamba state cache——16GB 卡只分得 70 格，
+                # 256>70 引擎启动直接失败。32 并发对本地单用户仍富余，
+                # 同时显著降低 KV/状态缓存压力。
+                "--max-num-seqs", "32",
                 "--gpu-memory-utilization", str(gpu_memory_utilization),
                 "--enable-prefix-caching",
                 # sleep mode 已回退（2026-08-27）：vLLM 0.26.0 Windows
@@ -562,6 +578,14 @@ class VLLMService:
             # 前端正文（parser 与模型架构无关，仅文本层解析 <think> 标签）
             if "deepseek-r1" in mdir.name.lower():
                 cmd += ["--reasoning-parser", "deepseek_r1"]
+            elif "qwen35" in mdir.name.lower():
+                # Qwen3.5 原生思考默认开启（2026-09-06 冒烟实测：无
+                # parser 时思考文本混入正文且无 <think> 标签，前端
+                # 思考展示链失效）。qwen3 parser（vLLM 0.26 注册名，
+                # qwen3_engine_reasoning_parser）把思考段剥离到
+                # delta.reasoning_content——与 deepseek_r1 同一消费
+                # 语义，chat_stream 只读 delta.content 保持正文干净。
+                cmd += ["--reasoning-parser", "qwen3"]
             env = os.environ.copy()
             # Windows 控制台默认 GBK，vLLM banner 含 unicode 块字符会
             # UnicodeEncodeError 丢日志（日志文件亦按此编码写）
@@ -588,6 +612,18 @@ class VLLMService:
             # 几十秒重编译）；需要缓存的开发机可显式置 0（launcher 白
             # 名单已放行本变量）
             env.setdefault("VLLM_DISABLE_COMPILE_CACHE", "1")
+            # 多卡绑卡（批1 多卡地基 2026-09-05）：对话引擎按资源域
+            # 分配固定到指定卡；单卡机器恒 0，与历史行为一致。子进程
+            # 只见这一张卡（进程内即 cuda:0）；主进程侧的准入/让档
+            # 闸门按同一索引探测（_vram_admission_wait / vllm_backend）。
+            try:
+                from .gpu_domains import resolve_feature_device
+                _bind_dev = resolve_feature_device("dialog")
+            except Exception:  # noqa: BLE001 - 分配失败回落主卡
+                _bind_dev = 0
+            env["CUDA_VISIBLE_DEVICES"] = str(_bind_dev)
+            log.info("vLLM 绑卡: CUDA_VISIBLE_DEVICES=%s（资源域分配）",
+                     _bind_dev)
 
             VLLM_LOG.parent.mkdir(parents=True, exist_ok=True)
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
@@ -988,6 +1024,7 @@ class VLLMService:
         temperature: float = 0.7,
         max_tokens: int = 1024,
         stop_check: Any = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> Iterator[str]:
         """流式对话：POST /v1/chat/completions(SSE) 逐 token 产出。
 
@@ -997,6 +1034,8 @@ class VLLMService:
             temperature / max_tokens: 采样参数
             stop_check: 中断回调（True 时提前断开，vLLM 服务端
                 abort 请求并释放该请求 KV）
+            extra_params: 采样扩展参数（原样并入请求体，如
+                repetition_penalty；2026-09-05 小说长文防复读接入）
 
         Yields:
             文本增量片段
@@ -1037,6 +1076,8 @@ class VLLMService:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if extra_params:
+            payload.update(extra_params)
         if payload["temperature"] is None:
             payload.pop("temperature")
 

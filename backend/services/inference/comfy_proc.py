@@ -261,6 +261,19 @@ class ComfyProcManager:
             ff_bin = ROOT_DIR / "runtime" / "ffmpeg" / "bin"
             if ff_bin.is_dir():
                 env["PATH"] = str(ff_bin) + os.pathsep + env.get("PATH", "")
+            # 多卡绑卡（批1 多卡地基 2026-09-05）：ComfyUI 按资源域分配
+            # 固定卡（paint/video_gen 同卡由 gpu_domains 归一化保证——
+            # 二者共用本实例）。显式设 CUDA_VISIBLE_DEVICES 即接管
+            # ComfyUI main.py 在 Windows 的「未指定强制 0」默认；子进程
+            # 内该卡就是 cuda:0，不再传 --cuda-device（避免双重映射错位）。
+            try:
+                from backend.engines.gpu_domains import resolve_feature_device
+                env["CUDA_VISIBLE_DEVICES"] = str(
+                    resolve_feature_device("paint"))
+                logger.info("ComfyUI 绑卡: CUDA_VISIBLE_DEVICES=%s",
+                            env["CUDA_VISIBLE_DEVICES"])
+            except Exception:  # noqa: BLE001 - 分配失败回落 ComfyUI 默认
+                pass
             proc = subprocess.Popen(
                 cmd, cwd=str(COMFY_DIR), stdout=self._log_fp,
                 stderr=subprocess.STDOUT,

@@ -91,6 +91,18 @@ GPU_PRIMARY_DEVICE = int(_cfg.get("gpu", {}).get("primary_device", 0))
 GPU_AUXILIARY_DEVICE = int(_cfg.get("gpu", {}).get("auxiliary_device", 1))
 GPU_SECONDARY_OFFLOAD = bool(_cfg.get("gpu", {}).get("secondary_offload", False))
 
+# 功能→卡分配（批1 多卡地基，2026-09-05）：缺项视为主卡=现状。
+# 仅多卡机器生效（单卡强制全主卡，裁决单源见 engines/gpu_domains.py
+# resolve_assignments：坏索引回落主卡、paint/video_gen 强制同卡收敛）。
+GPU_FEATURE_DEVICES: dict[str, int] = {}
+for _fname, _fdev in (_cfg.get("gpu", {}).get("feature_devices") or {}).items():
+    _fkey = str(_fname).strip().lower()
+    if _fkey in ("dialog", "paint", "video_gen", "training"):
+        try:
+            GPU_FEATURE_DEVICES[_fkey] = int(_fdev)
+        except (TypeError, ValueError):
+            pass
+
 # ── 模型缓存 ─────────────────────────────────────────────────────
 CACHE_COMPRESSION = _cfg["model_cache"]["compression"]
 CACHE_EVICTION = _cfg["model_cache"]["eviction_policy"]

@@ -855,6 +855,14 @@ class ModelManager:
             return False
 
         with self._loaded_lock:
+            # 归属卡（批1 多卡地基 2026-09-05）：按类别资源域记录；
+            # 未知类别（embedding/voice 等小模型）跟随主卡。单卡机器
+            # 恒 0，台账语义不变。
+            try:
+                from ...engines.gpu_domains import resolve_feature_device
+                _dev = resolve_feature_device(self._normalize_feature(cat))
+            except Exception:  # noqa: BLE001 - 分配失败按主卡
+                _dev = 0
             self._loaded[model_id] = {
                 "category": cat, "path": path, "vram_gb": required,
                 "priority": _EVICTION_PRIORITY.get(cat, 0),
@@ -862,13 +870,15 @@ class ModelManager:
                 "engine": type(engine).__name__,
                 "backend": backend_tag,
                 "load_seconds": round(time.time() - t0, 2),
+                "device": _dev,
             }
 
         # 审计 P0-2 接线 engines.vram_manager / memory_manager：
         # 真实跟踪显存分配 + 注册内存块（供 MEMORY_PRESSURE 策略压缩）。
         try:
             from ...engines.vram_manager import get_vram_manager
-            get_vram_manager().track_alloc(model_id, required * 1024.0)
+            get_vram_manager().track_alloc(model_id, required * 1024.0,
+                                           device=_dev)
         except Exception as exc:  # noqa: BLE001
             log.debug("vram_manager 跟踪跳过: %s", exc)
         try:
@@ -1104,6 +1114,14 @@ class ModelManager:
         keep_cats = set(_FEATURE_KEEP_CATEGORIES.get(target, set()))
         keep_cats |= _SHARED_KEEP_CATEGORIES
 
+        # 目标卡（批1 多卡地基 2026-09-05）：只腾目标卡的地方。
+        # 单卡机器全在 0 号卡，过滤与守卫全部退化为旧行为。
+        try:
+            from ...engines.gpu_domains import resolve_feature_device
+            target_device = resolve_feature_device(target)
+        except Exception:  # noqa: BLE001
+            target_device = 0
+
         # 功能锁持有中的类别不可卸（运行中任务的管线引用）
         locked_cats: set[str] = set()
         try:
@@ -1124,6 +1142,11 @@ class ModelManager:
             cat = (entry.get("category") or "").strip().lower()
             model_id = entry.get("model_id", "")
             if cat in keep_cats:
+                continue
+            # 异卡模型不占目标卡的地方（批1）：单卡下恒 0==0 不过此门，
+            # 行为与历史一致
+            entry_dev = entry.get("device")
+            if entry_dev is not None and int(entry_dev) != target_device:
                 continue
             if cat in locked_cats:
                 skipped.append(model_id)
@@ -1158,7 +1181,16 @@ class ModelManager:
         vllm_kept_hot = False
         if ("dialog" not in keep_cats
                 and "dialog" not in locked_cats):
-            if _VRAM_HEAVY_FEATURES.intersection({target}):
+            # 异卡不杀（批1）：vLLM 与目标不在同一张卡时互不抢地方
+            # （单卡下 dialog/target 恒同卡，与历史一致）
+            _vllm_same_card = True
+            try:
+                from ...engines.gpu_domains import resolve_feature_device
+                _vllm_same_card = (
+                    resolve_feature_device("dialog") == target_device)
+            except Exception:  # noqa: BLE001
+                pass
+            if _VRAM_HEAVY_FEATURES.intersection({target}) and _vllm_same_card:
                 try:
                     from ...engines.vllm_service import get_vllm_service
                     svc = get_vllm_service()
@@ -1204,17 +1236,27 @@ class ModelManager:
         # 目标为绘画/视频（本模块在用）→ 保留；轻量切换（设置/日志等）
         # → 保留热备，交给空闲自动关闭兜底（comfy_proc 默认 300s）。
         if target in ("dialog", "training"):
+            # 异卡不杀（批1）：ComfyUI 不在目标卡时无需终止
+            # （单卡下 paint/target 恒同卡，与历史一致）
+            _comfy_same_card = True
             try:
-                from ..inference.comfy_proc import get_comfy_proc
-                proc_mgr = get_comfy_proc()
-                if proc_mgr.poll() is None:
-                    t_comfy = time.monotonic()
-                    proc_mgr.shutdown()
-                    freed_models.append("comfyui-subprocess")
-                    log.info("ComfyUI 子进程按需终止(→%s)供显存: %dms",
-                             target, round((time.monotonic() - t_comfy) * 1000))
-            except Exception as exc:  # noqa: BLE001 - 释放失败不阻断
-                log.warning("ComfyUI 子进程释放异常: %s", exc)
+                from ...engines.gpu_domains import resolve_feature_device
+                _comfy_same_card = (
+                    resolve_feature_device("paint") == target_device)
+            except Exception:  # noqa: BLE001
+                pass
+            if _comfy_same_card:
+                try:
+                    from ..inference.comfy_proc import get_comfy_proc
+                    proc_mgr = get_comfy_proc()
+                    if proc_mgr.poll() is None:
+                        t_comfy = time.monotonic()
+                        proc_mgr.shutdown()
+                        freed_models.append("comfyui-subprocess")
+                        log.info("ComfyUI 子进程按需终止(→%s)供显存: %dms",
+                                 target, round((time.monotonic() - t_comfy) * 1000))
+                except Exception as exc:  # noqa: BLE001 - 释放失败不阻断
+                    log.warning("ComfyUI 子进程释放异常: %s", exc)
 
         duration_ms = round((time.monotonic() - t0) * 1000)
         if freed_models or not vllm_kept_hot:

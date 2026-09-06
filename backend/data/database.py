@@ -301,6 +301,84 @@ CREATE TABLE IF NOT EXISTS schedule_history (
     success       INTEGER NOT NULL DEFAULT 1  -- 策略执行是否成功（0/1）
 );
 CREATE INDEX IF NOT EXISTS idx_schedule_history_ts ON schedule_history(ts);
+
+-- ══ 小说模块（批2 MVP，2026-09-05；纯新表追加，不动 SCHEMA_VERSION）══
+
+-- 小说项目
+CREATE TABLE IF NOT EXISTS novel_projects (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL DEFAULT '未命名小说',
+    genre       TEXT DEFAULT '',        -- 题材（玄幻/都市/悬疑/科幻…自由文本）
+    description TEXT DEFAULT '',        -- 一句话灵感/简介
+    style_notes TEXT DEFAULT '',        -- 文风要求（视角/文风/禁则）
+    status      TEXT NOT NULL DEFAULT 'active',
+    meta        TEXT DEFAULT '{}',
+    created_at  REAL NOT NULL DEFAULT 0,
+    updated_at  REAL NOT NULL DEFAULT 0
+);
+
+-- 分层大纲树（book=作品大纲 → volume=卷 → chapter_outline=章细纲）
+CREATE TABLE IF NOT EXISTS novel_outlines (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL,
+    parent_id   TEXT DEFAULT '',
+    level       TEXT NOT NULL DEFAULT 'book',   -- book/volume/chapter_outline
+    sort_index  INTEGER NOT NULL DEFAULT 0,
+    title       TEXT DEFAULT '',
+    content     TEXT DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'draft',  -- draft/confirmed
+    meta        TEXT DEFAULT '{}',
+    created_at  REAL NOT NULL DEFAULT 0,
+    updated_at  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_novel_outlines_project ON novel_outlines(project_id);
+
+-- 小说章节（正文载体；状态机 pending→generating→done/error）
+CREATE TABLE IF NOT EXISTS novel_chapters (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL,
+    outline_id    TEXT DEFAULT '',
+    chapter_index INTEGER NOT NULL DEFAULT 0,
+    title         TEXT DEFAULT '',
+    content       TEXT DEFAULT '',
+    summary       TEXT DEFAULT '',      -- 前情摘要链（逐章滚动，供后续章注入）
+    word_count    INTEGER NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    progress      REAL DEFAULT 0.0,
+    error         TEXT DEFAULT '',
+    meta          TEXT DEFAULT '{}',
+    created_at    REAL NOT NULL DEFAULT 0,
+    updated_at    REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_novel_chapters_project ON novel_chapters(project_id);
+
+-- 小说角色卡
+CREATE TABLE IF NOT EXISTS novel_characters (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    role        TEXT DEFAULT '',        -- 主角/配角/反派/路人
+    summary     TEXT DEFAULT '',        -- 人设摘要（外貌/性格/动机/口癖）
+    meta        TEXT DEFAULT '{}',
+    created_at  REAL NOT NULL DEFAULT 0,
+    updated_at  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_novel_characters_project ON novel_characters(project_id);
+
+-- 伏笔账本
+CREATE TABLE IF NOT EXISTS novel_foreshadows (
+    id                  TEXT PRIMARY KEY,
+    project_id          TEXT NOT NULL,
+    description         TEXT NOT NULL DEFAULT '',
+    planted_chapter_id  TEXT DEFAULT '',
+    payoff_chapter_id   TEXT DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'planted',  -- planted/payoff/dropped
+    note                TEXT DEFAULT '',
+    meta                TEXT DEFAULT '{}',
+    created_at          REAL NOT NULL DEFAULT 0,
+    updated_at          REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_novel_foreshadows_project ON novel_foreshadows(project_id);
 """
 
 

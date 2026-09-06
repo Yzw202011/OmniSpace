@@ -237,6 +237,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.warning("视频任务遗留恢复: %d 条 generating → error", n)
     except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
         log.warning("视频任务遗留恢复失败（忽略）")
+    # 小说章节遗留恢复（批2 MVP 2026-09-05）：生成 worker 随进程消失，
+    # 遗留 generating 章节无人收尾 → 启动即改写 error（用户可重新生成）
+    try:
+        n = get_db().update(
+            "novel_chapters",
+            {"status": "error", "progress": 0.0,
+             "error": "后端重启中断，请重新生成"},
+            "status=?", ("generating",))
+        if n:
+            log.warning("小说章节遗留恢复: %d 条 generating → error", n)
+    except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
+        log.warning("小说章节遗留恢复失败（忽略）")
     yield
 
     # 关闭
@@ -299,6 +311,8 @@ _API_MODULES = [
     "system",    # §4.7 系统API
     "logs",      # 系统日志API（2026-08-21 日志可视化：事件查询/统计/清理）
     "license",   # 激活门禁API（P5：状态展示/激活提交，未激活态白名单）
+    "novel",     # 小说模块API（批2 MVP 2026-09-05：项目/大纲/章节/角色/伏笔/导出）
+    "cloud",     # 云端API服务商管理（批1 2026-09-06：Provider/绑定/测试，用户自带Key）
 ]
 
 

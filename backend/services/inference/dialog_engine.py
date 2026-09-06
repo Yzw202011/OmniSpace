@@ -36,6 +36,15 @@ from .base_engine import BaseEngine
 logger = logging.getLogger("omnispace.inference.dialog")
 
 
+def _remote_dialog_enabled() -> bool:
+    """远程对话模式是否启用（懒探测；配置读取失败按未启用走本地）。"""
+    try:
+        from .backends.remote_backend import is_remote_dialog_enabled
+        return bool(is_remote_dialog_enabled())
+    except Exception:  # noqa: BLE001 - 探测失败按未启用
+        return False
+
+
 def _try_import(name: str) -> Any:
     """容错导入可选依赖。"""
     try:
@@ -50,6 +59,16 @@ def _try_import(name: str) -> Any:
 # 子进程后端）纳入候选。自动选择默认仍 4b（保留知识 LoRA 能力），
 # 显式请求 8b-awq 时经 load_model 热切换（杀 vLLM 进程 → 换目录重启）。
 DIALOG_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
+    # Qwen3.5-9B W4A16（2026-09-06 接入，架构升级计划 B-阶段一「换脑子」）：
+    # RedHatAI compressed-tensors int4（10.95GB 权重 + 0.49GB MTP 投机
+    # 解码模块）；config 声明 quant_method=compressed-tensors → 经
+    # _detect_backend/_is_awq_model 自动路由 vLLM 子进程（py310 inproc
+    # transformers 4.57.6 不认 qwen3_5 架构，与 deepseek 同一条子进程
+    # 路）。原生多模态（vision_config）+ 原生 <think> 思考模式（现有
+    # _ThinkingStreamParser 标签链直接消费）；候选首位=自动选择默认，
+    # 显存不足时 _pick_model 自动跳过降级到后位旧模型（旧项全保留=
+    # 回退开关）。
+    ("qwen35-9b-w4a16", "qwen35-9b-w4a16", 11.0),
     ("qwen3-vl-4b", "qwen3-vl-4b", 9.0),
     ("qwen3-vl-8b-awq", "qwen3-vl-8b-awq", 7.5),
     # DeepSeek-R1-Distill-Qwen-14B W4A16（2026-08-25 接入）：
@@ -702,7 +721,7 @@ class DialogEngine(BaseEngine):
                 ids.append(mid)
         return ids
 
-    def _pick_model(self, model_id: str | None) -> tuple[str, Path, float, str] | None:
+    def _pick_model(self, model_id: str | None) -> tuple[str, Path | None, float, str] | None:
         """选择要加载的模型：指定优先，否则按候选顺序取第一个就绪的。
 
         物理显存硬闸门（2026-08-20 修复）：无论显式指定还是自动选择，
@@ -710,8 +729,39 @@ class DialogEngine(BaseEngine):
         会在推理时触发 CUDA 驱动级崩溃直接杀死后端进程。
 
         Returns:
-            (model_id, 路径, 预估显存GB, 后端类型 vl|text|gguf)；无可用返回 None
+            (model_id, 路径, 预估显存GB, 后端类型 vl|text|gguf|remote)；无可用返回 None
         """
+        # 云端API接入（批1 2026-09-06）：请求级云端虚拟模型
+        # cloud::prov_xxx::model-name 优先于槽位默认绑定——对话页下拉
+        # 直选某个云服务商的模型即走该连接；连接无效报带出路的错。
+        try:
+            from ..cloud_provider_service import parse_cloud_model_id, resolve_provider_endpoint
+            parsed = parse_cloud_model_id(model_id or "")
+        except Exception:  # noqa: BLE001 - 接线缺失按非云端请求
+            parsed = None
+        if parsed is not None:
+            ep = resolve_provider_endpoint(parsed[0])
+            if ep is None:
+                self._last_error = (
+                    f"云端服务商连接无效或已停用（{parsed[0]}）："
+                    "请到「设置 → 云端 API 服务」检查连接状态")
+                logger.warning("云端虚拟模型解析失败: %s", model_id)
+                return None
+            # 2026-09-06 实弹双连接错位修复：必须把完整 cloud:: 虚拟 id
+            # 传给 backend.load——返回裸模型名会让 load() 回落 dialog.text
+            # 槽位端点（对话=A 漫剧=B 时，切 B 实际连 A 的错位）
+            return (str(model_id), None, 0.0, "remote")
+        # 云端/远程模式（批3 D3 → 批1 泛化）：本地选型/显存闸门全部绕行，
+        # 模型名取 dialog.text 槽位绑定（未绑模型时透传请求的 model_id）
+        if _remote_dialog_enabled():
+            try:
+                from ..cloud_provider_service import get_dialog_text_endpoint
+                ep = get_dialog_text_endpoint()
+            except Exception:  # noqa: BLE001 - 配置读取失败按透传
+                ep = None
+            name = (ep.model if ep and ep.model else "") or model_id \
+                or "remote-model"
+            return (str(name), None, 0.0, "remote")
         total = _cuda_total_gb()
         for mid, rel, vram in _effective_candidates():
             if model_id and mid != model_id:
@@ -906,8 +956,39 @@ class DialogEngine(BaseEngine):
             _t0 = time.perf_counter()
             _prev_model = self._model_id
             if self._state == "ready":
-                if not model_id or model_id in (self._model_id,
-                                                Path(self._model_id).stem):
+                # 远程模式：后端已是 remote → 就绪即够（远端模型名由
+                # 设置页配置接管，本地下拉传来的 model_id 不触发热切换）。
+                # 批1 多连接：matches_target 校验目标端点身份，绑定切换/
+                # cloud:: 指定换目标时不短路，落到下方重载（仅健康探测）。
+                if self._backend is not None \
+                        and getattr(self._backend, "name", "") == "remote":
+                    matches = getattr(self._backend, "matches_target", None)
+                    if callable(matches) and matches(model_id):
+                        return True
+                    # 实弹 10:46 解绑事故修复：云端已解绑/换绑后旧 remote
+                    # 后端目标不再匹配——必须卸载切换，绝不落回下方
+                    # 「model_id 匹配即返回」（那会让已解绑的云端继续
+                    # 服役，解绑形同虚设）
+                    logger.info(
+                        "云端目标不再匹配（解绑/换绑），卸载 remote 后端"
+                        "回本地: 当前=%s", self._model_id)
+                    _old_cloud = self._model_id
+                    # 2026-09-06 实弹死锁修复：此处已持 self._lock，
+                    # 必须用锁内版 _unload_locked——unload_model 会重抢
+                    # 同一把非重入锁，云端 A→B 切换请求永挂
+                    self._unload_locked()
+                    try:
+                        from ..model_manager import get_model_manager
+                        get_model_manager().release_stale(_old_cloud)
+                    except Exception:  # noqa: BLE001 - 台账同步失败不阻断
+                        pass
+                # 实弹 21:16 事故修复：远程刚启用而引擎还挂着本地模型时，
+                # 旧的「model_id 匹配即返回」会让本地模型继续服役、远程
+                # 配置形同虚设——远程启用期间必须强制走 _pick_model 的
+                # remote 分支完成切换
+                if not _remote_dialog_enabled() and (
+                        not model_id or model_id in (self._model_id,
+                                                     Path(self._model_id).stem)):
                     return True
                 # 请求了不同模型：先卸载再切换（经 model_manager 显存记账
                 # 的场景由调用方保证先 unload_model 解除预留，这里处理
@@ -1138,6 +1219,24 @@ class DialogEngine(BaseEngine):
         不可用或返回 False 时走自身加载流程。
         """
         self._last_activity_ts = time.monotonic()  # 空闲看门狗活动戳
+        # 云端/远程模式（批3 D3 2026-09-05）：对话由远端/云端端点承载，
+        # 本地零显存——短路走 load_model 的 remote 分支，绝不进
+        # model_manager 本地装载/显存闸门；就绪即直接返回（远端模型名
+        # 与本地下拉选择无关，无需热切换）。
+        # 批1 多连接扩展（2026-09-06）：就绪不等于目标没变——绑定切换
+        # 或请求级 cloud:: 模型与当前端点身份不一致时轻量重载（remote
+        # 重载仅健康探测，零显存成本）。
+        if self._state == "ready" and self._backend is not None \
+                and getattr(self._backend, "name", "") == "remote":
+            matches = getattr(self._backend, "matches_target", None)
+            _m = matches(model_id) if callable(matches) else False
+            logger.info(
+                "ensure_loaded[remote分支]: 请求=%s matches=%s", model_id, _m)
+            if _m:
+                return True
+            return self.load_model(model_id)
+        if _remote_dialog_enabled():
+            return self.load_model(model_id)
         # 假 ready 防线（2026-09-05 实测）：引擎标志 ready 但 vLLM 子进程
         # 事实已消失（孤儿清扫/模块切换终止/异常退出）时，若直接信任标志
         # 会放行生成、撞上已死服务报「vLLM 服务未就绪」——先做子进程健康
@@ -1154,6 +1253,26 @@ class DialogEngine(BaseEngine):
             except Exception:  # noqa: BLE001 - 服务不可用时按原状态走
                 pass
         if self._state == "ready":
+            # 云端解绑/换绑兜底（实弹 11:14 定位）：引擎挂着 remote 后端
+            # 一直 ready，dialog.py 的发送路径见 ready 即跳过 ensure_loaded
+            # ——解绑后旧云端继续服役（卸载守卫放 load_model 永远走不到）。
+            # 此处对 remote 后端每次都复核目标身份，不匹配即卸载降级，
+            # 落到下方本地装载。
+            if self._backend is not None \
+                    and getattr(self._backend, "name", "") == "remote":
+                matches = getattr(self._backend, "matches_target", None)
+                if not (callable(matches) and matches(model_id)):
+                    logger.info(
+                        "ensure_loaded: 云端已解绑/换绑（目标不匹配），"
+                        "卸载 remote 后端回本地: 当前=%s", self._model_id)
+                    _old_cloud = self._model_id
+                    self.unload_model()
+                    try:
+                        from ..model_manager import get_model_manager
+                        get_model_manager().release_stale(_old_cloud)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return self.load_model(model_id)
             if not model_id or model_id in (self._model_id,
                                             Path(self._model_id).stem):
                 return True
@@ -1438,6 +1557,7 @@ class DialogEngine(BaseEngine):
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
         stop_check: Callable[[], bool] | None = None,
+        extra_params: dict | None = None,
     ) -> Iterator[str]:
         """流式推理：路由到当前后端，统一计时与中断检查。
 
@@ -1467,7 +1587,8 @@ class DialogEngine(BaseEngine):
             for text in backend.chat_stream(
                     messages, images=images,
                     temperature=temperature,
-                    max_new_tokens=max_new_tokens):
+                    max_new_tokens=max_new_tokens,
+                    extra_params=extra_params):
                 if stop_check is not None and stop_check():
                     break
                 if text:
@@ -1548,11 +1669,17 @@ class DialogEngine(BaseEngine):
         images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
     ) -> str:
-        """非流式推理：返回完整回复文本。"""
+        """非流式推理：返回完整回复文本。
+
+        extra_params: 采样扩展参数透传（如 repetition_penalty，
+        2026-09-05 小说长文防复读接入；对话页等既有调用方不传=行为不变）。
+        """
         return "".join(self.chat_stream(
             messages, images=images,
             temperature=temperature, max_new_tokens=max_new_tokens,
+            extra_params=extra_params,
         ))
 
     # ── 状态 ──────────────────────────────────────────────────────

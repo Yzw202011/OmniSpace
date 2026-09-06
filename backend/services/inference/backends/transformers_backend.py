@@ -74,13 +74,18 @@ class TransformersBackend(DialogBackend):
 
     # ── 加载 ────────────────────────────────────────────────────
 
-    def load(self, model_id: str, model_dir: Path,
+    def load(self, model_id: str, model_dir: Path | None,
              required_gb: float) -> bool:
         torch = _try_import("torch")
         transformers = _try_import("transformers")
         if torch is None or transformers is None:
             self._last_error = "torch/transformers 依赖不可用"
             logger.warning("transformers 后端不可用: %s", self._last_error)
+            return False
+        if model_dir is None:
+            # remote 后端场景外的防御：本地装载必须有真实模型目录
+            self._last_error = f"模型 {model_id} 缺少本地目录，无法本地加载"
+            logger.warning(self._last_error)
             return False
 
         try:
@@ -309,6 +314,7 @@ class TransformersBackend(DialogBackend):
         images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
     ) -> Iterator[str]:
         transformers = _try_import("transformers")
 

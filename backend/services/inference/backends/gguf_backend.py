@@ -28,7 +28,7 @@ class GGUFBackend(DialogBackend):
         # 叠加 KV 缓存显存；lock 在生成器生命周期内持有。
         self._infer_lock = __import__("threading").Lock()
 
-    def load(self, model_id: str, model_dir: Path,
+    def load(self, model_id: str, model_dir: Path | None,
              required_gb: float) -> bool:
         llama_cpp = _try_import("llama_cpp")
         if llama_cpp is None:
@@ -91,6 +91,7 @@ class GGUFBackend(DialogBackend):
         images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
     ) -> Iterator[str]:
         # images 由编排层已按 supports_images 放行/丢弃，此处不再处理
         with self._infer_lock:
@@ -103,6 +104,13 @@ class GGUFBackend(DialogBackend):
                 kwargs.update(temperature=temperature, top_p=0.9)
             else:
                 kwargs.update(temperature=0.0)
+            if extra_params:
+                # 采样扩展：repetition_penalty → llama.cpp repeat_penalty
+                # （2026-09-05 小说长文防复读；GGUF 无 frequency_penalty
+                # 对应通道，忽略）
+                if "repetition_penalty" in extra_params:
+                    kwargs["repeat_penalty"] = \
+                        extra_params["repetition_penalty"]
             for chunk in self._llm.create_chat_completion(**kwargs):
                 text = ""
                 try:

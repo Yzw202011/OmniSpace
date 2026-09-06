@@ -33,11 +33,16 @@ class VLLMBackend(DialogBackend):
         from ....engines.vllm_service import get_vllm_service
         return get_vllm_service()
 
-    def load(self, model_id: str, model_dir: Path,
+    def load(self, model_id: str, model_dir: Path | None,
              required_gb: float) -> bool:
         """启动 vLLM 子进程服务（阻塞至健康就绪，权重加载 + 图编译
         可达数分钟；调用方 API 线程应有超时保护）。"""
         svc = self._service()
+        if model_dir is None:
+            # remote 后端场景外的防御：vLLM 本地装载必须有真实模型目录
+            self._last_error = f"模型 {model_id} 缺少本地目录，无法启动 vLLM"
+            logger.warning(self._last_error)
+            return False
         if not svc.runtime_ready():
             self._last_error = (
                 f"模型 {model_id} 为 AWQ 量化格式，需要 vLLM 推理后端；"
@@ -68,7 +73,14 @@ class VLLMBackend(DialogBackend):
                 try:
                     import torch
                     if torch.cuda.is_available():
-                        _free_b, _total_b = torch.cuda.mem_get_info(0)
+                        # 多卡绑卡（批1 多卡地基 2026-09-05）：主进程
+                        # 可见全部卡，按对话资源域探测指定卡（单卡恒 0）
+                        try:
+                            from ....engines.gpu_domains import resolve_feature_device
+                            _dev_idx = resolve_feature_device("dialog")
+                        except Exception:  # noqa: BLE001
+                            _dev_idx = 0
+                        _free_b, _total_b = torch.cuda.mem_get_info(_dev_idx)
                         free_gb, total_gb = _free_b / 2**30, _total_b / 2**30
                         floor_budget = weight_gb + 4.2
                         if free_gb < util * total_gb:
@@ -159,6 +171,7 @@ class VLLMBackend(DialogBackend):
         images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
     ) -> Iterator[str]:
         from ....engines.vllm_service import pil_images_to_b64
         yield from self._service().chat_stream(
@@ -166,6 +179,7 @@ class VLLMBackend(DialogBackend):
             images_b64=pil_images_to_b64(images or []),
             temperature=temperature,
             max_tokens=max_new_tokens,
+            extra_params=extra_params,
         )
 
     def count_tokens(self, text: str) -> int:

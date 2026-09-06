@@ -135,10 +135,13 @@ class DialogBackend(ABC):
     # ── 生命周期 ────────────────────────────────────────────────
 
     @abstractmethod
-    def load(self, model_id: str, model_dir: Path,
+    def load(self, model_id: str, model_dir: Path | None,
              required_gb: float) -> bool:
         """加载模型。显存腾挪协调由编排层负责（load 前置闸门），
-        后端只关注自身介质的加载细节。失败时 last_error() 必有原因。"""
+        后端只关注自身介质的加载细节。失败时 last_error() 必有原因。
+
+        model_dir 可为 None（批3 remote 后端：远端服务器承载，无本地
+        目录）。"""
 
     @abstractmethod
     def unload(self) -> bool:
@@ -157,11 +160,15 @@ class DialogBackend(ABC):
         images: list | None = None,
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
     ) -> Iterator[str]:
         """流式推理：逐段产出文本片段。
 
         中断检查（stop_check）由编排层在外循环统一处理，后端无须关心；
         vLLM 子进程链路如需断连检测可自行实现。
+
+        extra_params: 采样扩展参数透传（如 repetition_penalty，2026-09-05
+        小说长文防复读接入）；不支持的后端可忽略。
         """
 
     @abstractmethod

@@ -251,6 +251,43 @@ def _fire_dialog_gap(sid: str, message: str, keywords: list[str]) -> None:
         log.debug("dialog_gap 触发器触发失败（忽略）: %s", exc)
 
 
+async def _web_search_augment(message: str,
+                              knowledge_text: str) -> tuple[str, list[dict]]:
+    """联网搜索 v1 编排（架构升级计划 B-阶段一，默认关；免费双通道）。
+
+    enabled 且意图判定命中（时效词/显式"搜索:"前缀）→ 线程池执行
+    级联搜索（主力 Provider 失败回退浏览器兜底）→【联网资料】块
+    追加到 knowledge_text。任何失败静默返回原值——搜索是增益能力，
+    绝不阻断对话主链。
+
+    Returns:
+        (新 knowledge_text, web_refs 字典列表——供来源卡片透出)。
+    """
+    try:
+        from ..services.web_search import (
+            build_web_block,
+            detect_web_needed,
+            get_web_search_settings,
+            run_web_search,
+        )
+        cfg = get_web_search_settings()
+        if not cfg.get("enabled") or not detect_web_needed(
+                message, str(cfg.get("trigger", "auto"))):
+            return knowledge_text, []
+        results = await run_blocking(run_web_search, message, cfg)
+        if not results:
+            return knowledge_text, []
+        block = build_web_block(results)
+        log.info("联网搜索命中 %d 条（注入资料块 %d 字）",
+                 len(results), len(block))
+        merged = (knowledge_text + "\n\n" + block) if knowledge_text \
+            else block
+        return merged, [r.to_dict() for r in results]
+    except Exception as exc:  # noqa: BLE001 - 搜索失败不阻断对话主链
+        log.warning("联网搜索编排失败（跳过）: %s", exc)
+        return knowledge_text, []
+
+
 @sync_core
 def _quick_search_supplement(keywords: list[str]) -> str:
     """快速搜索 1~3 页并截取正文（P1-06：自调度 async，直接 await）。
@@ -564,6 +601,8 @@ def dialog_list_models() -> dict[str, Any]:
 def _dialog_model_display_name(mid: str) -> str:
     """模型 id → 中文显示名（档位描述对齐规格 §6.2.1）。"""
     m = mid.lower()
+    if "qwen35-9b" in m:
+        return "Qwen3.5 9B · 旗舰"
     if "qwen3-vl-8b" in m:
         return "Qwen3-VL 8B · 旗舰"
     if "qwen3-vl-4b" in m:
@@ -643,10 +682,13 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
         # 生成被立即停止（0 token）。停止进行中的流不受影响——标记在
         # 本次 send 之后设置，生成循环正常感知。
         _stop_flags.discard(sid)
-        # 引擎未加载时尝试加载；失败 → 30xxx 段友好错误。
+        # 引擎未加载/目标变化时尝试装载；失败 → 30xxx 段友好错误。
         # 审计 R1-04：ensure_loaded 为 15s 级阻塞调用，经 run_blocking
-        # 卸载执行，避免卡住事件循环
-        if not engine.is_ready:
+        # 卸载执行，避免卡住事件循环。
+        # 云端解绑兜底（实弹 11:14 定位）：引擎 ready 时 dialog 曾直接
+        # 跳过 ensure_loaded——解绑 remote 后旧云端继续服役。ensure_loaded
+        # 内部对「ready 且目标匹配」是零成本直返，这里无条件过闸最安全。
+        if True:
             with flow.node("模型加载", input_summary=f"model={model_req or 'auto'}",
                            friendly="加载对话模型") as n:
                 if not await run_blocking(engine.ensure_loaded, model_req):
@@ -676,6 +718,9 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
         with flow.node("上下文组装", friendly="检索知识库并组装上下文") as n:
             # RAG 注入
             knowledge_text, refs = _rag_enhance(message)
+            # 联网搜索 v1（默认关；意图判定命中才搜，资料块并入上下文）
+            knowledge_text, web_refs = await _web_search_augment(
+                message, knowledge_text)
             # 组装上下文（系统 Prompt + 注入 + 历史 + 当前输入）；
             # 深度思考模式追加四步框架引导（THINKING_SYSTEM_SUFFIX）
             sys_prompt = (DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
@@ -698,7 +743,8 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
             resp = await _stream_response(
                 engine, lock, sid, message, history, knowledge_text,
                 messages, images, refs,
-                temperature, max_new_tokens, max_ctx, thinking, flow)
+                temperature, max_new_tokens, max_ctx, thinking, flow,
+                web_refs=web_refs)
             lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
             return resp
 
@@ -738,6 +784,7 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
             "session_id": sid,
             "message": msg,
             "knowledge_refs": refs,
+            "web_refs": web_refs,
             "passive_completion": passive,
             "first_token_ms": round(engine.last_first_token_ms, 1),
         })
@@ -776,7 +823,8 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                            images: list, refs: list,
                            temperature: float, max_new_tokens: int,
                            max_ctx: int, thinking: bool = False,
-                           flow: Flow | None = None) -> StreamingResponse:
+                           flow: Flow | None = None,
+                           web_refs: list | None = None) -> StreamingResponse:
     """构造 SSE 流式响应；生成结束后落库并释放功能锁。
 
     深度思考模式（2026-08-22）：思考段以 {"reasoning": str} 事件推送
@@ -839,6 +887,8 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
             yield _sse({"session_id": sid})
             if refs:
                 yield _sse({"knowledge_refs": refs})
+            if web_refs:
+                yield _sse({"web_refs": web_refs})
             while True:
                 kind, payload = await queue.get()
                 if kind == "token":
@@ -1687,6 +1737,10 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
 
         # RAG 注入 + 上下文组装（max_tokens=前端上下文长度选择，钳制后）
         knowledge_text, _refs = _rag_enhance(content)
+        # 联网搜索 v1（默认关；命中意图时资料块并入上下文，来源经
+        # web_refs 事件透出供前端来源卡片渲染）
+        knowledge_text, web_refs = await _web_search_augment(
+            content, knowledge_text)
         history = _load_history(sid)
         messages = engine.build_context(
             content, history=history, knowledge_text=knowledge_text,
@@ -1736,6 +1790,9 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
 
         producer = loop.run_in_executor(None, _produce)
         try:
+            if web_refs:
+                await websocket.send_json(
+                    {"type": "web_refs", "data": {"refs": web_refs}})
             while True:
                 kind, payload = await queue.get()
                 if kind == "token":

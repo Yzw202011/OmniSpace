@@ -1,0 +1,32 @@
+# OmniSpace 远程推理服务器（Linux + vLLM）
+# 用法：改下方模型路径/名称 → docker compose up -d
+# 验证：curl http://<本机IP>:8000/health
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: omnispace-vllm
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # ── 改这里：宿主机模型根目录 ──────────────────────────
+      - /data/models:/models
+    command: >
+      --model /models/Qwen3-32B-AWQ
+      --served-model-name qwen3-32b-awq
+      --host 0.0.0.0 --port 8000
+      --tensor-parallel-size 2
+      --dtype bfloat16
+      --max-model-len 16384
+      --gpu-memory-utilization 0.9
+    # 多卡张量并行/NCCL 三件套
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    shm_size: "16gb"
+    # 可选鉴权：command 追加 --api-key sk-your-secret

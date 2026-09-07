@@ -343,21 +343,31 @@ async def novel_chapter_generate(chapter_id: str) -> dict[str, Any]:
 
 @router.post("/novel/chapters/generate")
 async def novel_chapters_generate_batch(body: dict = Body(...)) -> dict[str, Any]:
-    """批量入队（按章序串行生成；单 worker 保证不并发）。"""
+    """批量入队（按章序串行生成；单 worker 保证不并发）。
+
+    skip_completed=True 时跳过已完成（done）章节，只生成未完成的
+    （用户迭代项 2026-09-07：之前 done 章也会被重做）；默认 False 保持
+    「全部重跑」兼容语义。
+    """
     db = _db()
     project = _require_project(db, str(body.get("project_id") or ""))
+    skip_completed = bool(body.get("skip_completed", False))
     rows = db.query(
         "SELECT id, status FROM novel_chapters WHERE project_id=? "
         "ORDER BY chapter_index", (project["id"],))
     if not rows:
         raise ApiError("NOVEL_NO_CHAPTERS", "项目还没有章节，先生成大纲")
     tasks: list[dict] = []
+    skipped = 0
     for r in rows:
         if r.get("status") == "generating":
             continue
+        if skip_completed and r.get("status") == "done":
+            skipped += 1
+            continue
         task_id = await _enqueue_chapter(db, project["id"], r["id"])
         tasks.append({"task_id": task_id, "chapter_id": r["id"]})
-    return ok({"tasks": tasks, "queued": len(tasks)})
+    return ok({"tasks": tasks, "queued": len(tasks), "skipped_completed": skipped})
 
 
 @router.get("/novel/generate/progress")

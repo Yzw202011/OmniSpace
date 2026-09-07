@@ -324,3 +324,42 @@ def test_novel_generate_progress_idle(client):
     r = client.get("/api/v1/novel/generate/progress")
     assert r.json()["success"]
     assert r.json()["data"]["active"] is False
+
+
+def test_novel_batch_skip_completed(client):
+    """批量生成 skip_completed（用户迭代项 2026-09-07）：done 章跳过、
+    pending/error 照常入队；缺省 False 保持全量重跑兼容语义。"""
+    r = client.post("/api/v1/novel/project/create", json={"name": "跳过测"})
+    pid = r.json()["data"]["project_id"]
+    # 建 3 章：第1章 done、第2章 pending、第3章 error
+    for title, content, status in [
+            ("一", "正文一", "done"), ("二", "", "pending"),
+            ("三", "", "error")]:
+        rc = client.post("/api/v1/novel/chapter/create",
+                         json={"project_id": pid, "title": title})
+        cid = rc.json()["data"]["chapter_id"]
+        if content or status != "pending":
+            client.put(f"/api/v1/novel/chapter/{cid}",
+                       json={"content": content, "status": status})
+    # 章节手工建时 status=pending；直接改库把三章状态摆对
+    from backend.data.database import get_db
+    db = get_db()
+    rows = db.query("SELECT id, chapter_index FROM novel_chapters "
+                    "WHERE project_id=? ORDER BY chapter_index", (pid,))
+    db.update("novel_chapters", {"status": "done"},
+              "id=?", (rows[0]["id"],))
+    db.update("novel_chapters", {"status": "error", "error": "旧错"},
+              "id=?", (rows[2]["id"],))
+    # ① skip_completed=True：只入队 pending+error 两章
+    r1 = client.post("/api/v1/novel/chapters/generate",
+                     json={"project_id": pid, "skip_completed": True})
+    d1 = r1.json()["data"]
+    assert d1["queued"] == 2 and d1["skipped_completed"] == 1
+    # 入队侧把两章置回 pending（worker 不在测试里跑）——复位后测全量语义
+    db.update("novel_chapters", {"status": "pending", "progress": 0.0, "error": ""},
+              "project_id=?", (pid,))
+    # ② 缺省：全量（3 章全部重做，兼容旧语义）
+    r2 = client.post("/api/v1/novel/chapters/generate",
+                     json={"project_id": pid})
+    d2 = r2.json()["data"]
+    assert d2["queued"] == 3 and d2["skipped_completed"] == 0

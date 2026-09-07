@@ -68,7 +68,7 @@ export interface NovelState {
   selectChapter: (cid: string) => Promise<void>;
   saveChapter: (body: { title?: string; content?: string }) => Promise<void>;
   generateChapter: (cid: string) => Promise<void>;
-  generateAllChapters: () => Promise<void>;
+  generateAllChapters: (skipCompleted?: boolean) => Promise<void>;
   removeChapter: (cid: string) => Promise<void>;
   cancelTask: (taskId: string) => Promise<void>;
   pollProgress: () => Promise<void>;
@@ -269,13 +269,16 @@ export const useNovelStore = create<NovelState>((set, get) => ({
     }
   },
 
-  generateAllChapters: async () => {
+  generateAllChapters: async (skipCompleted = true) => {
     const p = get().project;
     if (!p) return;
     try {
-      const { queued } = await api.generateChaptersBatch(p.id);
+      const { queued, skipped_completed } = await api.generateChaptersBatch(p.id, skipCompleted);
+      const skipNote = skipped_completed > 0 ? `（跳过已完成 ${skipped_completed} 章）` : '';
       set({
-        notice: queued > 0 ? `已排队 ${queued} 章，将按章序串行生成` : '没有可生成的章节',
+        notice: queued > 0
+          ? `已排队 ${queued} 章，将按章序串行生成${skipNote}`
+          : `没有需要生成的章节${skipNote}`,
       });
       get().pollProgress();
     } catch (e) {

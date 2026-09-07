@@ -271,9 +271,10 @@ const NovelWorkspace: React.FC = () => {
         <button
           className="btn btn-secondary btn-sm"
           disabled={chapters.length === 0}
-          onClick={() => void generateAllChapters()}
+          title="跳过已完成章节，只生成未完成的（想全部重做请点章节里的重新生成）"
+          onClick={() => void generateAllChapters(true)}
         >
-          <Play size={14} aria-hidden="true" /> 批量生成全部章节
+          <Play size={14} aria-hidden="true" /> 生成未完成章节
         </button>
         <button
           className="btn btn-ghost btn-sm"

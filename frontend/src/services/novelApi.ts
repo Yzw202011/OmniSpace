@@ -192,8 +192,11 @@ export function generateChapter(cid: string) {
   );
 }
 
-export function generateChaptersBatch(pid: string) {
-  return post<{ queued: number }>('/novel/chapters/generate', { project_id: pid });
+export function generateChaptersBatch(pid: string, skipCompleted = false) {
+  return post<{ queued: number; skipped_completed: number }>(
+    '/novel/chapters/generate',
+    { project_id: pid, skip_completed: skipCompleted },
+  );
 }
 
 export function fetchProgress(pid: string) {

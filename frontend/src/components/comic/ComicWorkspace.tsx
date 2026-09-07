@@ -416,11 +416,18 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const onBubblePointerMove = (e: React.PointerEvent) => {
     const rowId = bubbleDragRef.current;
     if (!rowId) return;
-    const host = (e.currentTarget as HTMLElement).parentElement;
+    const bubble = e.currentTarget as HTMLElement;
+    const host = bubble.parentElement;
     if (!host) return;
     const rect = host.getBoundingClientRect();
-    const x = Math.min(0.9, Math.max(0.02, (e.clientX - rect.left) / rect.width));
-    const y = Math.min(0.9, Math.max(0.02, (e.clientY - rect.top) / rect.height));
+    if (rect.width <= 0 || rect.height <= 0) return;
+    // 按气泡实际宽高钳制，保证整个气泡留在格内（拖到右/下缘不溢出）
+    const bwRatio = bubble.offsetWidth / rect.width;
+    const bhRatio = bubble.offsetHeight / rect.height;
+    const x = Math.min(Math.max(0.02, (e.clientX - rect.left) / rect.width),
+                       Math.max(0.04, 0.98 - bwRatio));
+    const y = Math.min(Math.max(0.02, (e.clientY - rect.top) / rect.height),
+                       Math.max(0.04, 0.98 - bhRatio));
     setRows((rs) => rs.map((r) => (
       r.id === rowId ? { ...r, bubble_x: x, bubble_y: y } : r)));
   };

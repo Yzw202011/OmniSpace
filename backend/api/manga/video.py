@@ -1456,6 +1456,7 @@ _MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".webp": "image/webp", ".gif": "image/gif",
     ".mp4": "video/mp4", ".zip": "application/zip",
+    ".pdf": "application/pdf",  # 漫画整页导出（C4，2026-09-08）
 }
 
 

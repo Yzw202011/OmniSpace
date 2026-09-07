@@ -2164,3 +2164,83 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-media-preview-ops { display: flex; gap: 10px; justify-content: flex-end; }
 .manga-media-preview-ops a, .manga-media-preview-ops button { padding: 5px 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-light); color: var(--color-text-primary); background: transparent; cursor: pointer; font-size: var(--font-size-xs); }
 .manga-media-preview-ops a:hover, .manga-media-preview-ops button:hover { border-color: var(--color-primary-200); }
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  AI漫画页（漫画模块 M1，2026-09-07）—— 替代原 AI 绘画页的产品面
+ *  库（comic-library）+ 工作台（comic-workspace：分格网格+角色栏）
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.comic-lib-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+.comic-lib-title { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+.comic-lib-sub { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+
+.comic-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+
+.comic-card { position: relative; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-secondary, #101c36); overflow: hidden; cursor: pointer; transition: transform .18s ease, border-color .18s ease; }
+.comic-card:hover { transform: translateY(-3px); border-color: var(--color-primary-200); }
+.comic-card-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 190px; border-style: dashed; color: var(--color-text-secondary); background: transparent; }
+.comic-card-new:hover { color: var(--color-primary); }
+.comic-card-cover { height: 120px; background: linear-gradient(135deg, rgba(244,114,182,.35), rgba(59,130,246,.35) 55%, rgba(16,185,129,.30)); display: flex; align-items: flex-end; padding: 8px; }
+.comic-card-cover[data-style=""] { background: linear-gradient(135deg, rgba(100,116,139,.30), rgba(51,65,85,.35)); }
+.comic-card-style { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); background: rgba(2,6,23,.55); color: #e2e8f0; }
+.comic-card-body { padding: 10px 12px 12px; }
+.comic-card-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comic-card-meta { margin-top: 4px; font-size: 11px; color: var(--color-text-secondary); }
+.comic-card-actions { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity .15s ease; }
+.comic-card:hover .comic-card-actions { opacity: 1; }
+
+.comic-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 20px; text-align: center; }
+.comic-empty-title { font-size: 16px; font-weight: 600; }
+.empty-hint { display: flex; align-items: center; gap: 10px; color: var(--color-text-secondary); padding: 18px 0; }
+
+/* ── 工作台 ── */
+.comic-workspace { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.comic-ws-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 4px 12px; flex-wrap: wrap; }
+.comic-ws-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.comic-ws-name { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.comic-ws-style { width: auto; padding: 4px 8px; font-size: var(--font-size-xs); }
+.comic-ws-ops { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.comic-ws-body { display: flex; gap: 14px; flex: 1; min-height: 0; }
+.comic-panel-grid { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; align-content: start; overflow-y: auto; padding: 2px 4px 20px 2px; }
+
+.comic-panel { display: flex; flex-direction: column; overflow: hidden; }
+.comic-panel-add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 220px; border: 1px dashed var(--color-border-light); border-radius: var(--radius-md); color: var(--color-text-secondary); background: transparent; cursor: pointer; }
+.comic-panel-add:hover { color: var(--color-primary); border-color: var(--color-primary-200); }
+.comic-panel-img { position: relative; aspect-ratio: 16 / 9; background: rgba(2,6,23,.45); display: flex; align-items: center; justify-content: center; }
+.comic-panel-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.comic-panel-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.comic-panel-badge { position: absolute; top: 8px; left: 8px; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); background: rgba(2,6,23,.62); color: #e2e8f0; }
+.comic-panel-gen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(2,6,23,.62); color: #e2e8f0; font-size: var(--font-size-xs); }
+.comic-panel-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.comic-panel-prompt { resize: vertical; font-size: 12px; line-height: 1.5; }
+.comic-panel-chars { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.comic-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 6px 2px 8px; border-radius: var(--radius-full); background: var(--color-primary-50, rgba(59,130,246,.12)); border: 1px solid var(--color-primary-100, rgba(59,130,246,.25)); color: var(--color-text-primary); }
+.comic-chip button { display: inline-flex; padding: 1px; border: none; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.comic-chip button:hover { color: var(--color-error); }
+.comic-chip-add { font-size: 11px; padding: 2px 6px; border-radius: var(--radius-full); background: transparent; border: 1px dashed var(--color-border-light); color: var(--color-text-secondary); cursor: pointer; }
+.comic-chip-add:hover { color: var(--color-primary); border-color: var(--color-primary-200); }
+.comic-panel-ops { display: flex; align-items: center; justify-content: space-between; }
+
+/* ── 角色栏 ── */
+.comic-rail { width: 218px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px 4px 20px 2px; }
+.comic-rail-title { font-size: 13px; font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+.comic-char-card { display: flex; flex-direction: column; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); overflow: hidden; background: var(--color-bg-secondary, #101c36); }
+.comic-char-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: rgba(2,6,23,.45); }
+.comic-char-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.comic-char-name { font-size: 13px; font-weight: 600; }
+.comic-char-prompt { font-size: 11px; color: var(--color-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.comic-char-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 10px; border: 1px dashed var(--color-border-light); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-size: var(--font-size-xs); }
+.comic-char-empty:hover { color: var(--color-primary); border-color: var(--color-primary-200); }
+
+/* ── C3/C4（2026-09-08）：台词气泡、导出菜单、角色上传/升级 ── */
+.comic-bubble { position: absolute; top: 10px; left: 12px; right: 12px; max-width: 78%; background: rgba(255,255,255,.94); color: #1a1a1a; border: 2px solid rgba(30,30,30,.85); border-radius: 12px; padding: 6px 12px; font-size: 12px; line-height: 1.5; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.comic-panel-dialogue { font-size: 12px; padding: 5px 8px; }
+.comic-export-wrap { position: relative; }
+.comic-export-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; min-width: 200px; background: var(--color-bg-secondary, #101c36); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(2,6,23,.45); padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.comic-export-menu button { text-align: left; padding: 7px 10px; border: none; background: transparent; color: var(--color-text-primary); border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
+.comic-export-menu button:hover { background: rgba(59,130,246,.14); }
+.comic-export-menu p { margin: 4px 6px 2px; font-size: 11px; }
+.comic-char-upgrade { margin-top: 4px; font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); border: 1px dashed var(--color-primary-200, rgba(59,130,246,.4)); background: transparent; color: var(--color-primary); cursor: pointer; }
+.comic-char-upgrade:hover:not(:disabled) { background: rgba(59,130,246,.10); }
+.comic-char-upgrade:disabled { opacity: .6; cursor: wait; }

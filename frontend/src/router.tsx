@@ -9,7 +9,7 @@
  *
  * 页面组件接入说明（页面实现由组B负责，此处仅挂载路由）：
  *   - chat       → components/dialog/DialogPage.tsx
- *   - paint      → components/paint/PaintPage.tsx
+ *   - paint      → components/comic/ComicPage.tsx（2026-09-07 漫画模块 M1：AI漫画替代AI绘画）
  *   - storyboard → components/manga/MangaPage.tsx
  *   - learning   → components/learning/LearningPage.tsx
  *   - models     → components/model/ModelManager.tsx
@@ -27,8 +27,9 @@ import {
 } from 'react-router-dom';
 import {
   MessageSquare,
-  Palette,
+  LayoutGrid,
   Clapperboard,
+  Feather,
   BookOpen,
   Package,
   Video,
@@ -57,8 +58,9 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat', element: lazyPage(() => import('@/components/dialog/DialogPage')) },
-      { path: 'paint', element: lazyPage(() => import('@/components/paint/PaintPage')) },
+      { path: 'paint', element: lazyPage(() => import('@/components/comic/ComicPage')) },
       { path: 'storyboard', element: lazyPage(() => import('@/components/manga/MangaPage')) },
+      { path: 'novel', element: lazyPage(() => import('@/components/novel/NovelPage')) },
       { path: 'learning', element: lazyPage(() => import('@/components/learning/LearningPage')) },
       { path: 'models', element: lazyPage(() => import('@/components/model/ModelManager')) },
       { path: 'style', element: lazyPage(() => import('@/components/style/StylePage')) },
@@ -91,8 +93,9 @@ export interface NavItemMeta {
 
 export const NAV_ITEMS: NavItemMeta[] = [
   { route: 'chat', path: '/chat', icon: MessageSquare, label: 'AI对话' },
-  { route: 'paint', path: '/paint', icon: Palette, label: 'AI绘画' },
+  { route: 'paint', path: '/paint', icon: LayoutGrid, label: 'AI漫画' },
   { route: 'storyboard', path: '/storyboard', icon: Clapperboard, label: '漫剧创作' },
+  { route: 'novel', path: '/novel', icon: Feather, label: '写作台' },
   { route: 'learning', path: '/learning', icon: BookOpen, label: '知识学习' },
   { route: 'models', path: '/models', icon: Package, label: '模型管理' },
   { route: 'style', path: '/style', icon: Video, label: '视频风格' },

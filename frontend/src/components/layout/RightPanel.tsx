@@ -3,7 +3,7 @@
  * --------------------------------------------------------------------------
  * 路由 → 面板映射（规格 §6.1.3）：
  *   /chat       → 对话设置 / 模型选择 / 温度调节（§6.2.1 参数控制，写回 useDialogStore）
- *   /paint      → 参数面板 / LoRA选择 / ControlNet（读写 usePaintStore.paintRequest）
+ *   /paint      → 无面板（2026-09-07 M1：AI漫画工作台自包含；旧绘画参数面板随绘画页退役）
  *   /storyboard → 分镜属性 / 角色设置 / 场景参数（读 useMangaStore 真实项目数据）
  *   /learning   → 学习进度 / 知识详情 / LoRA版本（learningApi + learnApi，5s 轮询）
  *   /models     → 模型详情 / 显存占用 / 加载状态（useModelStore + 硬件实时遥测）
@@ -17,7 +17,6 @@ import type { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   MessageSquare,
-  Palette,
   Clapperboard,
   BookOpen,
   Package,
@@ -34,15 +33,14 @@ import {
   TEMPERATURE_MIN,
   TEMPERATURE_MAX,
 } from '@/stores/useDialogStore';
-import { usePaintStore } from '@/stores/usePaintStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { useModelStore } from '@/stores/useModelStore';
 import { useStyleStore } from '@/stores/useStyleStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import DialogWarmupBar from '../common/DialogWarmupBar';
-import PaintWarmupBar from '../common/PaintWarmupBar';
 import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
+import { listCloudProviders } from '@/services/cloudApi';
 import { LEARN_SESSION_STATUS_LABELS, TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
 
 /** 面板折叠态本地持久化键 */
@@ -153,8 +151,39 @@ function ChatPanel() {
     void loadDialogModels();
   }, [loadDialogModels]);
 
+  // 云端模型选项（批1 云端API 2026-09-06）：启用中的连接 × 其模型列表，
+  // 选中后 model_id 以 cloud::prov::model 直传后端路由（本地清单失败不影响）
+  const [cloudOptions, setCloudOptions] = useState<Array<{ value: string; label: string }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listCloudProviders()
+      .then((r) => {
+        if (cancelled) return;
+        const opts: Array<{ value: string; label: string }> = [];
+        for (const p of r.providers ?? []) {
+          if (!p.enabled) continue;
+          const models = (p.models ?? []).length > 0 ? p.models : [''];
+          for (const m of models) {
+            opts.push({
+              value: `cloud::${p.id}::${m}`,
+              label: m ? `${p.name} · ${m}` : `${p.name} · 默认模型`,
+            });
+          }
+        }
+        setCloudOptions(opts);
+      })
+      .catch(() => {
+        /* 云端清单不可用：静默保留本地清单 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /** 当前选中模型的清单项（清单为空 = 后端未就绪，回退档位展示） */
   const current = modelOptions.find((m) => m.model_id === modelId);
+  const isCloudModel = (modelId || '').startsWith('cloud::');
+  const currentCloud = cloudOptions.find((o) => o.value === modelId);
 
   return (
     <>
@@ -167,21 +196,34 @@ function ChatPanel() {
           <select
             id="rp-chat-model"
             className="input"
-            value={modelOptions.length ? modelId : ''}
+            value={modelOptions.length || cloudOptions.length ? modelId : ''}
             onChange={(e) => setModelId(e.target.value)}
           >
-            {modelOptions.length === 0 ? (
+            {modelOptions.length === 0 && cloudOptions.length === 0 ? (
               <option value="">{model}（清单加载中…）</option>
-            ) : modelOptions.map((m) => (
-              <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
-                {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
-              </option>
-            ))}
+            ) : (
+              <>
+                {modelOptions.map((m) => (
+                  <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
+                    {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
+                  </option>
+                ))}
+                {cloudOptions.length > 0 && (
+                  <optgroup label="云端 API（本地显卡零占用）">
+                    {cloudOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </>
+            )}
           </select>
           <div className="form-hint">
-            {current
-              ? `${current.name} · 预估 ${current.est_vram_gb}GB${current.loaded ? ' · 已加载' : ' · 首次发送时加载/切换'}`
-              : '档位说明：8B 质量最佳 / 4B 均衡 / 2B 速度最快'}
+            {isCloudModel
+              ? `云端模型${currentCloud ? `：${currentCloud.label}` : ''} · 由服务商承载，本地显卡零占用`
+              : current
+                ? `${current.name} · 预估 ${current.est_vram_gb}GB${current.loaded ? ' · 已加载' : ' · 首次发送时加载/切换'}`
+                : '档位说明：8B 质量最佳 / 4B 均衡 / 2B 速度最快'}
           </div>
         </div>
         <div className="form-row">
@@ -273,51 +315,12 @@ function ChatPanel() {
   );
 }
 
-/* ============================== 2. AI 绘画面板（/paint） ============================== */
-function PaintPanel() {
-  const paintRequest = usePaintStore((s) => s.paintRequest);
-  const generating = usePaintStore((s) => s.generating);
-  const fetchModels = usePaintStore((s) => s.fetchModels);
-
-  // 进入面板时确保绘画模型路由表已加载（幂等：store 内部静默失败；
-  // 主面板模型下拉的数据源）
-  useEffect(() => {
-    if (usePaintStore.getState().models.length === 0) {
-      fetchModels();
-    }
-  }, [fetchModels]);
-
-  const loras = paintRequest.loras ?? [];
-
-  return (
-    <>
-      {/* 旧「参数面板」已于 2026-08-31 下线（用户裁定方案 A）：其中
-          模型/步数/CFG/种子/尺寸/采样器只写 store，与主面板（自管参数
-          + 共享模型偏好）双头不同步，右栏改动静默失效误导用户——
-          参数唯一入口 = 主面板。此处仅保留实时状态展示。 */}
-      <Section title="生成状态">
-        <Row label="状态" value={generating ? '生成中…' : '空闲'} />
-        <div className="rp-hint">绘画参数（模型 / 步数 / CFG / 种子 / 画面比例）请在左侧主面板设置，随生成请求直接生效。</div>
-      </Section>
-      <Section title="LoRA 选择">
-        {loras.length > 0 ? (
-          loras.map((l) => (
-            <Row key={l.name} label={l.name} value={`权重 ${l.weight}`} title={l.name} />
-          ))
-        ) : (
-          <div className="rp-hint">未挂载 LoRA。后端暂未提供 LoRA 清单端点，绘画参数区暂无添加入口；训练出的风格 LoRA 请在「视频风格」页管理。</div>
-        )}
-      </Section>
-      <Section title="ControlNet">
-        {/* 绘画模型冷启动进度条（2026-08-31 用户需求：绘画页右栏常驻可见，
-            预热弹窗被「后台继续」关掉后仍持续显示，就绪即自动收起） */}
-        <PaintWarmupBar />
-        <Row label="状态" value="未就绪" />
-        <div className="rp-hint">生成链路建设中，配置暂不生效，后续版本开放。</div>
-      </Section>
-    </>
-  );
-}
+/* ============================== 2. AI 漫画（/paint，2026-09-07 M1 替代绘画页） ==============================
+ * 漫画工作台自包含（分格/角色/画风都在主面板内），不设右侧参数面板；
+ * 绘画参数面板随 AI 绘画页退役（原 PaintPanel 只读 store 状态展示，
+ * 无可迁移的活参数）。AI绘画模型冷启动进度条（PaintWarmupBar）为全局
+ * 组件（App 根渲染），漫画页生图预热提示不受本面板移除影响。
+ * ============================================================================================== */
 
 /* ============================== 3. 漫剧创作面板（/storyboard） ============================== */
 
@@ -770,7 +773,6 @@ interface PanelMeta {
 /** 键为一级路由名；settings/help 故意缺席（无右侧面板） */
 const PANEL_BY_ROUTE: Record<string, PanelMeta> = {
   chat: { title: '对话设置', icon: MessageSquare, render: () => <ChatPanel /> },
-  paint: { title: '绘画参数', icon: Palette, render: () => <PaintPanel /> },
   storyboard: { title: '分镜属性', icon: Clapperboard, render: () => <StoryboardPanel /> },
   learning: { title: '学习状态', icon: BookOpen, render: () => <LearningPanel /> },
   models: { title: '模型状态', icon: Package, render: () => <ModelsPanel /> },

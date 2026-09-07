@@ -20,7 +20,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import comic, comic_asset, comic_gen, keyframe, storyboard, video, voice
+from . import (
+    comic,
+    comic_asset,
+    comic_export,
+    comic_gen,
+    comic_script,
+    keyframe,
+    storyboard,
+    video,
+    voice,
+)
 
 router = APIRouter()
 router.include_router(storyboard.router)
@@ -30,5 +40,7 @@ router.include_router(voice.router)
 router.include_router(comic.router)
 router.include_router(comic_asset.router)
 router.include_router(comic_gen.router)
+router.include_router(comic_script.router)
+router.include_router(comic_export.router)
 
 __all__ = ["router"]

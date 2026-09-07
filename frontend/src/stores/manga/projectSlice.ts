@@ -15,7 +15,8 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
   fetchProjects: async () => {
     set({ projectsLoading: true });
     try {
-      const projects = await mangaApi.listProjects();
+      // 漫剧库只看漫剧面项目（2026-09-07 漫画模块 M1：漫画页项目归 /paint 入口）
+      const projects = await mangaApi.listProjects('manga');
       set({ projects, projectsLoaded: true, projectsLoading: false });
     } catch (err) {
       set({ projectsLoading: false });
@@ -26,7 +27,7 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
   createProject: async (name, template, workMode, artStyle) => {
     const res = await mangaApi.createProject(name, template, workMode, artStyle);
     // 重新拉取列表（创建端点返回不含完整时间戳字段，以服务端为准）
-    const projects = await mangaApi.listProjects();
+    const projects = await mangaApi.listProjects('manga');
     set({ projects, projectsLoaded: true });
     return res.project_id;
   },

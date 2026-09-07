@@ -83,13 +83,15 @@ CREATE TABLE IF NOT EXISTS models (
     sha256              TEXT DEFAULT ''
 );
 
--- 漫剧项目
+-- 漫剧/漫画项目（2026-09-07 漫画模块 M1：project_type 区分产品面，
+-- 共用全部生成底座与分镜/资产/关键帧链）
 CREATE TABLE IF NOT EXISTS projects (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL DEFAULT '未命名项目',
     path        TEXT DEFAULT '',
     work_mode   TEXT NOT NULL DEFAULT 'regular',  -- regular(5步) | narrative(6步解说)
     art_style   TEXT DEFAULT '',                   -- 预置画风 key（anime/guofeng/real3d/manga/cyberpunk/cartoon）
+    project_type TEXT NOT NULL DEFAULT 'manga',    -- manga(漫剧) | comic(漫画页)
     created_at  REAL NOT NULL DEFAULT 0,
     updated_at  REAL NOT NULL DEFAULT 0
 );
@@ -474,7 +476,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 9
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -541,6 +543,12 @@ class Database:
             # 记录本次生成引用的知识条目（JSON 数组 [{id,topic}]），点踩
             # 时据此对相应知识降权（新库 _SCHEMA 已含，幂等跳过）
             ("dialog_messages", "rag_refs", "TEXT DEFAULT '[]'"),
+        )),
+        (9, (
+            # 漫画模块 M1（2026-09-07）：projects 加产品面类型，区分漫剧库
+            # 与漫画页两个前端入口（共用全部生成底座与分镜/资产/关键帧链，
+            # 存量项目归漫剧面）
+            ("projects", "project_type", "TEXT NOT NULL DEFAULT 'manga'"),
         )),
     )
 

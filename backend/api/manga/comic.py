@@ -62,6 +62,7 @@ def _project_row_to_dict(r: dict) -> dict:
     return {"project_id": r["id"], "name": r.get("name", ""),
             "work_mode": r.get("work_mode", "regular"),
             "art_style": r.get("art_style", ""),
+            "project_type": r.get("project_type", "manga"),
             "created_at": r.get("created_at", 0),
             "updated_at": r.get("updated_at", 0)}
 
@@ -158,10 +159,11 @@ def _cleanup_project_disk(project_id: str, row_ids: list[str],
 
 @router.post("/comic/project/create")
 def comic_project_create(req: ProjectCreate) -> dict[str, Any]:
-    """创建漫剧项目（COMIC-001/002/003）。
+    """创建漫剧/漫画项目（COMIC-001/002/003）。
 
     template=comic_drama 时预置 5 行模板分镜；项目重名 →
-    COMIC_PROJECT_NAME_DUPLICATED。
+    COMIC_PROJECT_NAME_DUPLICATED。project_type 区分产品面
+    （manga=漫剧库 / comic=漫画页），共用全部生成底座。
     """
     db = get_db_safe()
     if db is None:
@@ -175,6 +177,7 @@ def comic_project_create(req: ProjectCreate) -> dict[str, Any]:
     db.insert("projects", {"id": pid, "name": req.name, "path": "",
                            "work_mode": req.work_mode.value,
                            "art_style": (req.art_style or "").strip(),
+                           "project_type": req.project_type,
                            "created_at": now, "updated_at": now})
     rows: list[dict] = []
     if (req.template or "").strip() == "comic_drama":
@@ -189,18 +192,30 @@ def comic_project_create(req: ProjectCreate) -> dict[str, Any]:
     return ok({"project_id": pid, "name": req.name,
                "template": req.template or "", "rows": rows,
                "art_style": (req.art_style or "").strip(),
+               "project_type": req.project_type,
                "created_at": now})
 
 
 @router.get("/comic/project/list")
-def comic_project_list() -> dict[str, Any]:
-    """项目列表（COMIC-004），按更新时间倒序。"""
+def comic_project_list(type: str | None = None) -> dict[str, Any]:
+    """项目列表（COMIC-004），按更新时间倒序。
+
+    type 过滤产品面（manga/comic）：漫剧库与漫画页各自只看自己的项目；
+    缺省不过滤=全部（兼容旧调用）。
+    """
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法列出项目")
-    rows = db.query(
-        "SELECT id, name, work_mode, art_style, created_at, updated_at"
-        " FROM projects ORDER BY updated_at DESC, created_at DESC")
+    if type in ("manga", "comic"):
+        rows = db.query(
+            "SELECT id, name, work_mode, art_style, project_type,"
+            " created_at, updated_at FROM projects WHERE project_type=?"
+            " ORDER BY updated_at DESC, created_at DESC", (type,))
+    else:
+        rows = db.query(
+            "SELECT id, name, work_mode, art_style, project_type,"
+            " created_at, updated_at FROM projects"
+            " ORDER BY updated_at DESC, created_at DESC")
     items = [_project_row_to_dict(r) for r in rows]
     return ok({"items": items, "total": len(items)})
 
@@ -336,9 +351,14 @@ def comic_project_update(project_id: str, req: ProjectUpdate) -> dict[str, Any]:
     if dup is not None:
         raise ApiError("COMIC_PROJECT_NAME_DUPLICATED",
                        detail={"name": req.name})
-    db.update("projects", {"name": req.name, "updated_at": _now()},
-              "id=?", (project_id,))
-    return ok({"project_id": project_id, "name": req.name})
+    # art_style 可选随行更新（漫画页「换风格重生成」：关键帧生成时
+    # 经 _project_style_pack 实时读项目画风，改完对后续生成即生效）
+    patch: dict[str, Any] = {"name": req.name, "updated_at": _now()}
+    if req.art_style is not None:
+        patch["art_style"] = req.art_style.strip()
+    db.update("projects", patch, "id=?", (project_id,))
+    return ok({"project_id": project_id, "name": req.name,
+               "art_style": (req.art_style or "").strip() or None})
 
 
 def _delete_project_cascade(db: Database, project_id: str) -> bool:

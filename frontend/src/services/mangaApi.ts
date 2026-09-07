@@ -190,6 +190,58 @@ export async function importScript(
   return { rows: res.rows, total: res.total };
 }
 
+/** AI 写分格（POST /manga/comic/script-generate，2026-09-08 C2 本地路）：
+ *  故事梗概 → N 格画面描述落库为分镜行；replace=true 清空现有分格后填充 */
+export async function generateComicScript(
+  projectId: string,
+  story: string,
+  panels: number,
+  replace = false,
+): Promise<{ rows: StoryboardRow[]; requested: number; generated: number }> {
+  return post('/manga/comic/script-generate', {
+    project_id: projectId,
+    story,
+    panels,
+    replace,
+  });
+}
+
+/** 上传角色图（POST /comic/asset/upload multipart，2026-09-08 C3）：
+ *  本地图片登记为项目资产；描述词由后台 VLM 按图自动补写 */
+export async function uploadCharacterAsset(
+  projectId: string,
+  name: string,
+  file: File,
+): Promise<ComicAsset> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('project_id', projectId);
+  fd.append('kind', 'character');
+  fd.append('name', name);
+  const res = await upload<{ asset: ComicAsset }>('/comic/asset/upload', fd);
+  return res.asset;
+}
+
+/** 整页导出（POST /manga/comic/export-page，2026-09-08 C4）：
+ *  当前关键帧 → PNG 长图 / PDF 多页；withBubbles 把台词烘进气泡 */
+export async function exportComicPage(
+  projectId: string,
+  format: 'png' | 'pdf',
+  withBubbles = true,
+): Promise<{
+  file_path: string;
+  format: string;
+  pages: number;
+  baked_bubbles: boolean;
+  skipped_shots: number[];
+}> {
+  return post('/manga/comic/export-page', {
+    project_id: projectId,
+    format,
+    with_bubbles: withBubbles,
+  });
+}
+
 /** 导出分镜表（GET /manga/storyboard/{projectId}/export?format=csv|json） */
 export async function exportStoryboard(
   projectId: string,
@@ -349,24 +401,30 @@ export async function previewVoice(
  * 响应形状经 backend/api/manga/ 包端点逐一核对（信封内 data 直取）。
  * ============================================================================================== */
 
-/** 新建项目（POST /comic/project/create；template=comic_drama 预置 5 行漫剧分镜；workMode=narrative 解说漫剧；artStyle=预置画风 key） */
+/** 新建项目（POST /comic/project/create；template=comic_drama 预置 5 行漫剧分镜；workMode=narrative 解说漫剧；artStyle=预置画风 key；
+ *  projectType：manga=漫剧库 / comic=漫画页（2026-09-07 漫画模块 M1 产品面区分，共用生成底座） */
 export async function createProject(
   name: string,
   template?: string,
   workMode?: string,
   artStyle?: string,
+  projectType?: 'manga' | 'comic',
 ): Promise<{ project_id: string; name: string; rows: StoryboardRow[] }> {
   return post('/comic/project/create', {
     name,
     template: template || undefined,
     work_mode: workMode || 'regular',
     art_style: artStyle || '',
+    project_type: projectType || 'manga',
   });
 }
 
-/** 项目列表（GET /comic/project/list，按更新时间倒序） */
-export async function listProjects(): Promise<ComicProject[]> {
-  const res = await get<{ items: ComicProject[]; total: number }>('/comic/project/list');
+/** 项目列表（GET /comic/project/list，按更新时间倒序；type 过滤产品面：漫剧库/漫画页各见各的，缺省全量） */
+export async function listProjects(type?: 'manga' | 'comic'): Promise<ComicProject[]> {
+  const res = await get<{ items: ComicProject[]; total: number }>(
+    '/comic/project/list',
+    type ? { type } : undefined,
+  );
   return res.items ?? [];
 }
 
@@ -393,9 +451,17 @@ export async function deleteArtStyle(styleId: string): Promise<void> {
   await del(`/comic/art-style/${styleId}`);
 }
 
-/** 重命名项目（PUT /comic/project/{id}；重名 → COMIC_PROJECT_NAME_DUPLICATED） */
-export async function renameProject(projectId: string, name: string): Promise<void> {
-  await put(`/comic/project/${projectId}`, { name });
+/** 重命名项目（PUT /comic/project/{id}；重名 → COMIC_PROJECT_NAME_DUPLICATED；
+ *  artStyle 可选随行更新——漫画页「换风格重生成」：画风是项目级，关键帧生成实时读取 */
+export async function renameProject(
+  projectId: string,
+  name: string,
+  artStyle?: string,
+): Promise<void> {
+  await put(`/comic/project/${projectId}`, {
+    name,
+    art_style: artStyle ?? undefined,
+  });
 }
 
 /** 删除项目（DELETE /comic/project/{id}，级联删除分镜/资产/关键帧/场景对象） */

@@ -618,6 +618,7 @@ class ProjectCreate(BaseModel):
     project_id: str | None = None        # 指定 id（缺省自动生成）
     work_mode: WorkMode = Field(default=WorkMode.REGULAR)  # 作品类型
     art_style: str = Field(default="", max_length=40)      # 预置画风 key（空=未选择）
+    project_type: str = Field(default="manga", max_length=20)  # manga(漫剧) | comic(漫画页)
 
     @field_validator("project_id")
     @classmethod
@@ -625,9 +626,20 @@ class ProjectCreate(BaseModel):
         # 指定 id 会成为 comic_assets 落盘目录名——同样过路径安全校验
         return _check_safe_name(v) if v else v
 
+    @field_validator("project_type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        # 产品面类型白名单：漫剧库与漫画页共用生成底座，只区分前端入口
+        if v not in ("manga", "comic"):
+            raise ValueError("project_type 仅支持 manga/comic")
+        return v
+
 
 class ProjectUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    # 漫画页 M1「换风格重生成」：项目级画风可在运行中切换（关键帧生成
+    # 时经 _project_style_pack 实时读取，改完即对后续生成生效）
+    art_style: str | None = Field(default=None, max_length=40)
 
 
 class ProjectBatchDelete(BaseModel):
@@ -936,6 +948,21 @@ class SystemSettings(BaseModel):
     auto_model_select: bool = True
     default_video_codec: str = "h264"
     default_resolution: str = "1080p"
+    # 界面打开方式（2026-09-08 桌面壳接线）：shell=原生桌面窗口
+    # （pywebview，默认）/ browser=系统浏览器。boot 启动链读取决定
+    # 拉壳还是开浏览器；本次会话不热切，下次启动生效。
+    launch_mode: str = "shell"
+    # 界面效果（2026-09-08 UI 降载方案②）：full=完整动效（默认）/
+    # lite=性能模式（关动态粒子/流光/模糊，AI 生成期间更稳）。
+    # 前端 html.ui-lite 全局类驱动，即时生效。
+    ui_performance: str = "full"
+    # 远程推理服务器（批3 D3 2026-09-05）：对话由远端专业卡服务器
+    # （Linux vLLM，OpenAI 兼容 API）承载，本地零显存。api_key 可选。
+    remote_dialog_enabled: bool = False
+    remote_dialog_base_url: str = ""
+    remote_dialog_api_key: str = ""
+    remote_dialog_model: str = ""
+    remote_dialog_timeout_s: float = 300.0
 
 
 class ProjectExport(BaseModel):

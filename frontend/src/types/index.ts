@@ -486,6 +486,9 @@ export interface ComicProject {
   /** 作品画风 key（预置 11 种见 ART_STYLES；custom:{id}=自定义风格；空=未选择；
    * 已下线预设（healing/manga/vintage/live/cartoon）的历史项目仍可正常回显） */
   art_style?: string;
+  /** 产品面（2026-09-07 漫画模块 M1）：manga=漫剧库 / comic=漫画页；
+   * 旧数据缺省按 manga 回显（后端列默认值同口径） */
+  project_type?: 'manga' | 'comic';
 }
 
 /** 预置作品画风（新建弹窗选择，key 落库 art_style）

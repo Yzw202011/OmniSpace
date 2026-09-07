@@ -78,7 +78,7 @@ const ROUTE_FEATURE: Record<string, Exclude<ActiveFeature, null>> = {
 /** 功能名 → 中文模块名（Toast 展示用） */
 const MODULE_LABELS: Record<string, string> = {
   dialog: 'AI对话',
-  paint: 'AI绘画',
+  paint: 'AI漫画',
   video_gen: '漫剧创作',
   training: '知识学习',
 };

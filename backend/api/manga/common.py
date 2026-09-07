@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from PIL import Image
 
     from ...data.database import Database
+    from ...services.cloud_provider_service import CloudEndpoint
     from ...services.inference.video_engine import VideoEngine
     from ...services.inference.voice_engine import VoiceEngine
 
@@ -77,19 +78,20 @@ async def unload_paint_pipeline() -> None:
 
 
 def manga_dialog_model_id() -> str:
-    """漫剧·文字槽默认模型 id（module_config 管控，未配置回落 DeepSeek）。
+    """漫剧·文字槽默认模型 id（module_config 管控，未配置回落 Qwen3.5）。
 
-    2026-08-29 模型裁剪（用户裁定）：漫剧文字底座 = DeepSeek-R1-
-    Distill-14B（manga-dialog 槽唯一白名单模型）；分镜生词
-    （storyboard/ai-describe）与视频生词（video/narrative）的按需
-    自动加载统一经此取值，不再硬编码 qwen3-vl-4b。
+    2026-09-06 换代（架构升级计划 B-阶段一，kv 槽默认同步换新）：
+    漫剧文字底座 = Qwen3.5-9B W4A16（与对话主模型共用权重，零额外
+    磁盘）；deepseek-r1-14b 保留在槽白名单内=点名即回退开关。
+    分镜生词（storyboard/ai-describe）与视频生词（video/narrative）
+    的按需自动加载统一经此取值。
     """
     try:
         from ..models import module_default_model
         return module_default_model("manga-dialog") \
-            or "deepseek-r1-14b-w4a16"
+            or "qwen35-9b-w4a16"
     except Exception:  # noqa: BLE001 - 配置读取失败不阻断生词链路
-        return "deepseek-r1-14b-w4a16"
+        return "qwen35-9b-w4a16"
 
 # ── WS 进度广播注入点（2026-08-27 按钮实时进度条）──────────────────────
 # 模式对齐 api.draw：main 启动时注入 hub.broadcast（线程安全，任意
@@ -164,7 +166,7 @@ _SB_ROW_COLS = ("id, storyboard_id, shot_number, original_dialogue, description,
                 " director_stage_done, generation_status, is_ai_generated,"
                 " sort_index, camera_type, camera_angle, camera_movement,"
                 " duration, transition, speed, volume, music_path, asset_id,"
-                " asset_ids, is_locked")
+                " asset_ids, is_locked, bubble_x, bubble_y")
 
 # 批 1.3 导演字段枚举（非法值 → SYSTEM_PARAM_INVALID）
 CAMERA_TYPES = ("特写", "近景", "中景", "全景", "远景", "俯拍", "仰拍", "主观镜头")
@@ -240,6 +242,8 @@ def _make_row(shot_number: int, **kw: Any) -> dict:
         "asset_id": kw.get("asset_id", ""),
         "asset_ids": kw.get("asset_ids", []),
         "is_locked": kw.get("is_locked", False),
+        "bubble_x": kw.get("bubble_x"),
+        "bubble_y": kw.get("bubble_y"),
     }
 
 
@@ -285,6 +289,8 @@ def _row_to_storyboard_row(r: dict) -> dict:
         "asset_id": asset_ids[0] if asset_ids else legacy_asset_id,
         "asset_ids": asset_ids,
         "is_locked": bool(r.get("is_locked", 0)),
+        "bubble_x": (float(r["bubble_x"]) if r.get("bubble_x") is not None else None),
+        "bubble_y": (float(r["bubble_y"]) if r.get("bubble_y") is not None else None),
     }
 
 
@@ -1059,6 +1065,8 @@ def _public_row_to_db(row: dict, storyboard_id: str, sort_index: int) -> dict:
         "asset_id": row.get("asset_id", "") or (asset_ids[0] if asset_ids else ""),
         "asset_ids": asset_ids,
         "is_locked": int(bool(row.get("is_locked", False))),
+        "bubble_x": row.get("bubble_x"),
+        "bubble_y": row.get("bubble_y"),
     }
 
 
@@ -1318,7 +1326,8 @@ def _flux_asset_gen_params(req: AssetGenerateRequest, kind: str) -> dict:
 
 
 def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
-                         prompt_en_override: str | None = None) -> dict:
+                         prompt_en_override: str | None = None,
+                         cloud_endpoint: CloudEndpoint | None = None) -> dict:
     """同步执行一个资产生成 → 落盘 → 登记 comic_assets 表。
 
     由线程池调用（端点为 async，避免阻塞事件循环）。
@@ -1329,18 +1338,35 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
     双路径（2026-08-24）：FLUX.2 中文直入优先（512 token 全量设定 +
     原生分辨率，无翻译/无影棚光污染）；不可用时回退 SDXL 老链路
     （中译英 + 半分辨率 + 上采样），meta.engine 如实标注。
+    cloud_endpoint（批2 云端API 2026-09-06）：资产工位绑定云端连接时
+    由提交点传入——本地引擎装载/翻译全部跳过，云端适配器出图，
+    meta.engine 标注 cloud。
     """
     conf = _ASSET_KIND_CONF[kind]
     engine = get_paint_engine()
     image = None
-    result = None
+    result: dict[str, Any] | None = None
     flux_used = False
     gen_w = gen_h = 0
     prompt_en = ""
 
+    # ⓪ 云端出图（批2）：提示词原样直送（云端多语言模型原生理解
+    # 中文）；落盘/透明抠图/DB 登记走共用尾链
+    if cloud_endpoint is not None:
+        from ...services.inference.cloud_image_client import generate_image as _cloud_generate
+        image = _cloud_generate(
+            cloud_endpoint, req.prompt,
+            width=int(req.width), height=int(req.height),
+            negative=_STYLE_NEGATIVE
+            if kind in ("character", "prop") else "",
+            slot="asset.image")
+        gen_w, gen_h = int(req.width), int(req.height)
+        result = {"seed": -1,
+                  "model": f"cloud:{cloud_endpoint.provider_name}"}
+
     # ① FLUX.2 中文直入（主路径）：中文描述词全文直送，无需翻译——
     # 免掉对话引擎换载与 ≤40 词翻译压缩，设定四层信息全量保留
-    if engine.ensure_loaded("flux2-klein-4b"):
+    elif engine.ensure_loaded("flux2-klein-4b"):
         params = _flux_asset_gen_params(req, kind)
         result = engine.generate(params)
         image = result["images"][0]
@@ -1353,7 +1379,7 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
     # ② SDXL 回退（FLUX.2 不可用）：中文描述词先译英（SDXL CLIP 不理
     # 解中文）；必须在 paint ensure_loaded 之前翻译的历史约束已由路径
     # ①规避——走到此处说明 FLUX 加载失败，SDXL 即将占用绘画位。
-    if image is None:
+    if image is None and cloud_endpoint is None:
         prompt_en = prompt_en_override or translate_prompt_zh2en(req.prompt)
         if not engine.is_ready and not engine.ensure_loaded(None):
             status = engine.get_status()
@@ -1371,6 +1397,7 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
         result = engine.generate(params)
         image = _upscale_to(result["images"][0], req.width, req.height)
 
+    assert image is not None and result is not None,         "资产生成管线未产出图像（三条路径都应赋值）"
     if kind == "prop" and req.transparent:
         # 道具透明背景（PIL 经典阈值抠图；SAM 未接 /art/segment 前的降级）
         image = _remove_background(image)
@@ -1383,7 +1410,8 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
     meta = {"width": req.width, "height": req.height,
             "gen_width": gen_w, "gen_height": gen_h,
             "seed": result.get("seed", -1), "model": result.get("model", ""),
-            "engine": "flux2" if flux_used else "sdxl",
+            "engine": "cloud" if cloud_endpoint is not None
+            else ("flux2" if flux_used else "sdxl"),
             "transparent": bool(req.transparent and kind == "prop"),
             "prompt_en": prompt_en}
     db = get_db_safe()

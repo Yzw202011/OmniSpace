@@ -46,12 +46,22 @@ def test_pdf_writer_structure():
 
 
 def test_compose_png_stacks_panels():
-    panels = [(Image.new("RGB", (1280, 720)), "台词甲"),
-              (Image.new("RGB", (640, 360)), "")]
+    panels = [(Image.new("RGB", (1280, 720)), "台词甲", 0.05, 0.06),
+              (Image.new("RGB", (640, 360)), "", 0.05, 0.06)]
     canvas = ce.compose_png(panels, None)  # 无字体=跳过气泡
     # 全部面板等宽 1280：640×360 面板按比例拉到 1280×720
     expect_h = 720 + 720 + ce._GUTTER * 1 + ce._MARGIN * 2
     assert canvas.height == expect_h and canvas.width == 1280 + ce._MARGIN * 2
+
+
+def test_compose_grid2_pages():
+    panels = [(Image.new("RGB", (1280, 720), (i * 40, 90, 120)), f"台{i}", 0.05, 0.06)
+              for i in range(5)]
+    pages = ce.compose_grid2_pages(panels, None)
+    assert len(pages) == 2, "5 格 → 2 页（4+1）"
+    pw = 1280 * 2 + ce._GUTTER + ce._MARGIN * 2
+    ph = 720 * 2 + ce._GUTTER + ce._MARGIN * 2
+    assert pages[0].size == (pw, ph)
 
 
 def test_draw_bubble_needs_font():
@@ -63,10 +73,13 @@ def test_draw_bubble_needs_font():
 
 @pytest.mark.skipif(not pathlib.Path(ce._BUBBLE_FONT_CANDIDATES[0]).is_file(),
                     reason="本机无微软雅黑（CI 环境）")
-def test_draw_bubble_bakes_text():
-    im = Image.new("RGB", (640, 360), (10, 20, 30))
-    ce.draw_bubble(im, "你好漫画", ce._BUBBLE_FONT_CANDIDATES[0])
-    assert im.getpixel((40, 40)) != (10, 20, 30), "气泡区域应被覆盖"
+def test_draw_bubble_bakes_text_at_position():
+    base = (10, 20, 30)
+    im = Image.new("RGB", (640, 360), base)
+    ce.draw_bubble(im, "你好漫画", ce._BUBBLE_FONT_CANDIDATES[0], x=0.6, y=0.7)
+    assert im.getpixel((int(640 * 0.6) + 24, int(360 * 0.7) + 20)) != base, \
+        "指定位置应被气泡覆盖"
+    assert im.getpixel((30, 24)) == base, "默认左上位置不应再被覆盖"
 
 
 # ── API 冒烟（tmp 库 + tmp DATA_DIR）───────────────────────────
@@ -128,9 +141,40 @@ def test_export_png_and_pdf(field):
     r2 = field.client.post("/api/v1/manga/comic/export-page",
                            json={"project_id": pid, "format": "pdf"})
     d2 = r2.json()["data"]
-    assert d2["pages"] == 2
+    assert d2["pages"] == 2 and d2["layout"] == "page"
     pdf = (field.data_dir / d2["file_path"]).read_bytes()
     assert pdf.startswith(b"%PDF") and b"/Count 2" in pdf
+
+
+def test_export_pdf_grid2_layout(field):
+    """grid2 排版：每页 2×2 格（3 格含 1 跳过 → 1 页）。"""
+    pid = _seed_project_with_keyframes(field, 2)
+    r = field.client.post("/api/v1/manga/comic/export-page",
+                          json={"project_id": pid, "format": "pdf",
+                                "layout": "grid2"})
+    assert r.json()["success"], r.text
+    d = r.json()["data"]
+    assert d["pages"] == 1, "2 画面 → 1 页 2×2"
+    pdf = (field.data_dir / d["file_path"]).read_bytes()
+    assert pdf.startswith(b"%PDF") and b"/Count 1" in pdf
+
+
+def test_bubble_position_roundtrip(field):
+    """气泡拖拽坐标：PUT 行更新 bubble_x/y → 导出读取同位置。"""
+    pid = _seed_project_with_keyframes(field, 1)
+    rows = field.client.get(f"/api/v1/manga/storyboard/list?project_id={pid}") \
+        .json()["data"]["rows"]
+    row_id = rows[0]["id"]
+    ru = field.client.put(
+        f"/api/v1/manga/storyboard/{pid}/rows/{row_id}",
+        json={"bubble_x": 0.55, "bubble_y": 0.7})
+    assert ru.json()["success"]
+    assert ru.json()["data"]["row"]["bubble_x"] == 0.55
+    assert ru.json()["data"]["row"]["bubble_y"] == 0.7
+    # 迁移 v10 列存在（直查库）
+    row = field.db.query_one(
+        "SELECT bubble_x, bubble_y FROM storyboard_rows WHERE id=?", (row_id,))
+    assert row["bubble_x"] == 0.55 and row["bubble_y"] == 0.7
 
 
 def test_export_empty_project_honest_error(field):

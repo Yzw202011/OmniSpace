@@ -10,7 +10,7 @@
  *   - 画风 = 项目级 art_style，切换后重新生成分格即按新画风出图
  * ========================================================================== */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, BookOpenText, Download, Loader2, Plus, Sparkles, Trash2, Upload, UserPlus, Wand2, X,
 } from 'lucide-react';
@@ -85,6 +85,11 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   // 整页导出（C4）：PNG 长图 / PDF 多页
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+
+  // 阅读预览（完整显示 contain + 预览中重新生成）
+  const [previewOpen, setPreviewOpen] = useState(false);
+  // 气泡拖拽中行 id（拖拽中不落库，抬手才存）
+  const bubbleDragRef = useRef<string | null>(null);
 
   const loadAll = () => {
     setLoading(true);
@@ -363,12 +368,12 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   /* ---------------- 整页导出（C4） ---------------- */
 
-  const exportPage = async (format: 'png' | 'pdf') => {
+  const exportPage = async (format: 'png' | 'pdf', layout: 'page' | 'grid2' = 'page') => {
     if (exporting) return;
     setExportMenuOpen(false);
-    setExporting(format);
+    setExporting(format === 'pdf' ? (layout === 'grid2' ? 'PDF·2×2' : 'PDF') : 'PNG');
     try {
-      const res = await mangaApi.exportComicPage(pid, format, true);
+      const res = await mangaApi.exportComicPage(pid, format, true, layout);
       setExporting(null);
       // 浏览器直下（媒体白名单目录经 /manga/media 回读）
       const a = document.createElement('a');
@@ -378,7 +383,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
       a.click();
       a.remove();
       showToast(
-        `已导出 ${res.pages} 格（${format === 'png' ? 'PNG 长图' : 'PDF'}）`
+        `已导出 ${res.pages} ${format === 'png' ? '格拼接' : '页'}`
+        + (layout === 'grid2' ? '（每页 2×2 格）' : '')
         + (res.skipped_shots.length ? `，跳过 ${res.skipped_shots.length} 格未生成画面` : '')
         + (!res.baked_bubbles ? '（未找到中文字体，气泡未烘焙）' : ''),
         res.skipped_shots.length ? 'warning' : 'success',
@@ -387,6 +393,47 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
       setExporting(null);
       showToast(getErrorMessage(err, '导出失败'), 'error');
     }
+  };
+
+  /* ---------------- 气泡拖拽定位（C4 尾巴） ---------------- */
+
+  const bubblePos = (row: StoryboardRow): { x: number; y: number } => ({
+    x: row.bubble_x ?? 0.05,
+    y: row.bubble_y ?? 0.06,
+  });
+
+  const onBubblePointerDown = (e: React.PointerEvent, rowId: string) => {
+    e.preventDefault();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // 指针已失活/合成事件时无法捕获——退化为全局 move 监听语义，
+      // 拖拽仍由 pointermove/up 驱动（capture 只是防丢事件的增强）
+    }
+    bubbleDragRef.current = rowId;
+  };
+
+  const onBubblePointerMove = (e: React.PointerEvent) => {
+    const rowId = bubbleDragRef.current;
+    if (!rowId) return;
+    const host = (e.currentTarget as HTMLElement).parentElement;
+    if (!host) return;
+    const rect = host.getBoundingClientRect();
+    const x = Math.min(0.9, Math.max(0.02, (e.clientX - rect.left) / rect.width));
+    const y = Math.min(0.9, Math.max(0.02, (e.clientY - rect.top) / rect.height));
+    setRows((rs) => rs.map((r) => (
+      r.id === rowId ? { ...r, bubble_x: x, bubble_y: y } : r)));
+  };
+
+  const onBubblePointerUp = () => {
+    const rowId = bubbleDragRef.current;
+    bubbleDragRef.current = null;
+    if (!rowId) return;
+    const row = rows.find((r) => r.id === rowId);
+    if (!row || row.bubble_x == null || row.bubble_y == null) return;
+    mangaApi.updateStoryboardRow(pid, rowId, {
+      bubble_x: row.bubble_x, bubble_y: row.bubble_y,
+    }).catch((err) => showToast(getErrorMessage(err, '气泡位置保存失败'), 'error'));
   };
 
   /* ---------------- 画风切换 ---------------- */
@@ -438,6 +485,15 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             <button
               type="button"
               className="btn"
+              onClick={() => setPreviewOpen(true)}
+              disabled={rows.length === 0}
+              title="阅读预览：完整画面连续浏览，可逐格重新生成"
+            >
+              <BookOpenText size={15} /> 预览
+            </button>
+            <button
+              type="button"
+              className="btn"
               onClick={() => setExportMenuOpen((o) => !o)}
               disabled={exporting !== null || rows.length === 0}
               title="把已生成分格导出成成品"
@@ -447,11 +503,14 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             </button>
             {exportMenuOpen && (
               <div className="comic-export-menu" role="menu">
-                <button type="button" role="menuitem" onClick={() => void exportPage('png')}>
+                <button type="button" role="menuitem" onClick={() => void exportPage('png', 'page')}>
                   PNG 长图（单列拼接）
                 </button>
-                <button type="button" role="menuitem" onClick={() => void exportPage('pdf')}>
-                  PDF 多页（每格一页）
+                <button type="button" role="menuitem" onClick={() => void exportPage('pdf', 'page')}>
+                  PDF · 每格一页
+                </button>
+                <button type="button" role="menuitem" onClick={() => void exportPage('pdf', 'grid2')}>
+                  PDF · 每页 2×2 格
                 </button>
                 <p className="text-secondary">台词气泡一并烘入</p>
               </div>
@@ -495,7 +554,19 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                     )}
                     <span className="comic-panel-badge">第 {idx + 1} 格{kf ? ` · v${kf.version}` : ''}</span>
                     {(dialogueDraft[row.id] ?? '').trim() && (
-                      <div className="comic-bubble">{(dialogueDraft[row.id] ?? '').trim()}</div>
+                      <div
+                        className="comic-bubble"
+                        style={{
+                          left: `${bubblePos(row).x * 100}%`,
+                          top: `${bubblePos(row).y * 100}%`,
+                        }}
+                        title="拖动调整气泡位置"
+                        onPointerDown={(e) => onBubblePointerDown(e, row.id)}
+                        onPointerMove={onBubblePointerMove}
+                        onPointerUp={onBubblePointerUp}
+                      >
+                        {(dialogueDraft[row.id] ?? '').trim()}
+                      </div>
                     )}
                     {generating && (
                       <div className="comic-panel-gen">
@@ -645,6 +716,77 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
               </>
             )}
           </aside>
+        </div>
+      )}
+
+      {/* 阅读预览（完整显示 contain + 预览中重新生成，C4 用户需求 2026-09-08） */}
+      {previewOpen && (
+        <div
+          className="comic-preview"
+          role="dialog"
+          aria-label="漫画阅读预览"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPreviewOpen(false);
+          }}
+        >
+          <button
+            type="button"
+            className="comic-preview-close"
+            aria-label="关闭预览"
+            onClick={() => setPreviewOpen(false)}
+          >
+            <X size={20} />
+          </button>
+          <div className="comic-preview-body">
+            {rows.map((row, idx) => {
+              const kf = kfByRow[row.id];
+              const generating = genRows.has(row.id);
+              const pos = bubblePos(row);
+              return (
+                <div className="comic-preview-panel" key={row.id}>
+                  <div className="comic-preview-imgwrap">
+                    {kf ? (
+                      <img
+                        src={mangaApi.getMediaUrl(kf.file_path, kf.version)}
+                        alt={`第${idx + 1}格`}
+                      />
+                    ) : (
+                      <div className="comic-panel-placeholder">
+                        <Wand2 size={26} style={{ opacity: 0.35 }} />
+                        <span>{(row.description ?? '').trim() ? '待生成' : '填写描述后生成'}</span>
+                      </div>
+                    )}
+                    {(row.original_dialogue ?? '').trim() && (
+                      <div
+                        className="comic-bubble"
+                        style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%` }}
+                      >
+                        {(row.original_dialogue ?? '').trim()}
+                      </div>
+                    )}
+                    {generating && (
+                      <div className="comic-panel-gen">
+                        <Loader2 size={22} className="spin" />
+                        <span>生成中…（约 1~2 分钟）</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="comic-preview-ops">
+                    <span className="comic-preview-no">第 {idx + 1} 格{kf ? ` · v${kf.version}` : ''}</span>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => void genPanel(row)}
+                      disabled={generating || batchRunning}
+                    >
+                      {generating || batchRunning ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />}
+                      {kf ? '重新生成' : '生成画面'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

@@ -134,6 +134,8 @@ CREATE TABLE IF NOT EXISTS storyboard_rows (
     asset_id            TEXT DEFAULT '',     -- 绑定资产 id（comic_assets，旧列单值）
     asset_ids           TEXT DEFAULT '[]',   -- JSON 数组：多资产绑定（竞品对齐）
     is_locked           INTEGER NOT NULL DEFAULT 0, -- 行锁定：批量操作跳过
+    bubble_x            REAL,                -- 台词气泡横向位置（0~1 相对格宽，NULL=默认左上；C4 2026-09-08）
+    bubble_y            REAL,                -- 台词气泡纵向位置（0~1 相对格高，NULL=默认左上）
     FOREIGN KEY (storyboard_id) REFERENCES storyboards(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_storyboard_rows_sb ON storyboard_rows(storyboard_id);
@@ -476,7 +478,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -549,6 +551,12 @@ class Database:
             # 与漫画页两个前端入口（共用全部生成底座与分镜/资产/关键帧链，
             # 存量项目归漫剧面）
             ("projects", "project_type", "TEXT NOT NULL DEFAULT 'manga'"),
+        )),
+        (10, (
+            # 漫画模块 C4 尾巴（2026-09-08）：分格台词气泡可拖拽定位——
+            # 行级相对坐标（0~1），NULL=默认左上（前端覆盖层/导出烘焙/预览同源）
+            ("storyboard_rows", "bubble_x", "REAL"),
+            ("storyboard_rows", "bubble_y", "REAL"),
         )),
     )
 

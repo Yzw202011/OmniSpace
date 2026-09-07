@@ -2,10 +2,11 @@
 
 把漫画项目的当前关键帧按分格顺序拼成成品：
 - PNG：单列长图（面板等宽 1280，白底+间距），可选烘焙台词气泡；
-- PDF：每格一页（零依赖极简 PDF 1.4 写入器，内嵌 JPEG/DCTDecode——
-  离线产品不引入 reportlab/fpdf 等新包）；
-- 台词气泡： storyboard_rows.original_dialogue（与前端覆盖层同源），
-  PIL 绘制（微软雅黑等系统 CJK 字体，缺字体则跳过气泡并如实标注）。
+- PDF：page=每格一页 / grid2=每页 2×2 格（零依赖极简 PDF 1.4 写入器，
+  内嵌 JPEG/DCTDecode——离线产品不引入 reportlab/fpdf 等新包）；
+- 台词气泡：storyboard_rows.original_dialogue + bubble_x/bubble_y
+  （与前端覆盖层/拖拽定位同源，2026-09-08 迁移 v10），PIL 绘制
+  （微软雅黑等系统 CJK 字体，缺字体则跳过气泡并如实标注）。
 
 落盘 DATA_DIR/generated/exports/（媒体白名单目录，/manga/media 可回读）。
 诚实约束：无关键帧的分格跳过并在响应中列明（不伪造占位画面）。
@@ -30,7 +31,7 @@ logger = logging.getLogger("omnispace.api.manga.comic_export")
 
 router = APIRouter()
 
-_PANEL_W = 1280          # 长图面板宽（16:9 面板 → 高 720）
+_PANEL_W = 1280          # 长图/排版页面板宽（16:9 面板 → 高 720）
 _GUTTER = 24              # 面板间距
 _MARGIN = 24              # 长图左右留白
 _BUBBLE_FONT_CANDIDATES = (
@@ -38,6 +39,9 @@ _BUBBLE_FONT_CANDIDATES = (
     r"C:\Windows\Fonts\simhei.ttf",   # 黑体
     r"C:\Windows\Fonts\simsun.ttc",   # 宋体
 )
+# 气泡默认锚点（相对格宽高；与前端覆盖层缺省一致）
+_BUBBLE_DEFAULT_X = 0.05
+_BUBBLE_DEFAULT_Y = 0.06
 
 
 class ComicExportRequest(BaseModel):
@@ -46,6 +50,8 @@ class ComicExportRequest(BaseModel):
     format: str = Field(default="png", pattern="^(png|pdf)$")
     # 是否把台词气泡烘焙进图（前端覆盖层的导出镜像）
     with_bubbles: bool = True
+    # PDF 排版：page=每格一页（缺省）；grid2=每页 2×2 格（PNG 恒为单列长图）
+    layout: str = Field(default="page", pattern="^(page|grid2)$")
 
 
 def _find_cjk_font() -> str | None:
@@ -56,10 +62,12 @@ def _find_cjk_font() -> str | None:
     return None
 
 
-def draw_bubble(img: Any, text: str, font_path: str | None) -> None:
-    """在面板顶部绘制台词气泡（原地修改，PIL Image）。
+def draw_bubble(img: Any, text: str, font_path: str | None,
+                x: float = _BUBBLE_DEFAULT_X,
+                y: float = _BUBBLE_DEFAULT_Y) -> None:
+    """在面板上绘制台词气泡（原地修改，PIL Image）。
 
-    气泡=左上白色圆角矩形+黑字，与前端覆盖层同位置口径（面板顶部）。
+    x/y=气泡左上角相对格宽高（0~1，与前端拖拽存储同源）；缺省左上。
     字体缺失时静默跳过（调用方以 baked 标记如实上报）。
     """
     if not text.strip() or not font_path:
@@ -78,7 +86,8 @@ def draw_bubble(img: Any, text: str, font_path: str | None) -> None:
     lh = int(fs * 1.45)
     bw = min(img.width - 48, max_chars * fs + 36)
     bh = len(lines) * lh + 22
-    x0, y0 = 20, 16
+    x0 = max(8, min(int(x * img.width), img.width - bw - 8))
+    y0 = max(8, min(int(y * img.height), img.height - bh - 8))
     draw.rounded_rectangle(
         [x0, y0, x0 + bw, y0 + bh], radius=14,
         fill=(255, 255, 255, 235), outline=(30, 30, 30, 200), width=2)
@@ -87,18 +96,24 @@ def draw_bubble(img: Any, text: str, font_path: str | None) -> None:
                   fill=(20, 20, 20, 255))
 
 
-def _load_panels(project_id: str) -> tuple[list[tuple[Any, str]], list[int]]:
-    """取项目分格的当前关键帧图（PIL），返回 ((图, 台词), ...) 与跳过镜号表。"""
+def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float]],
+                                            list[int]]:
+    """取项目分格的当前关键帧图。
+
+    返回 ((图, 台词, bubble_x, bubble_y), ...) 与跳过镜号表；
+    气泡坐标 NULL 时取缺省左上。
+    """
     from PIL import Image
 
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法导出")
     rows = db.query(
-        "SELECT id, shot_number, original_dialogue FROM storyboard_rows"
+        "SELECT id, shot_number, original_dialogue, bubble_x, bubble_y"
+        " FROM storyboard_rows"
         " WHERE storyboard_id=(SELECT id FROM storyboards WHERE project_id=?)"
         " ORDER BY sort_index ASC, shot_number ASC", (project_id,))
-    panels: list[tuple[Any, str]] = []
+    panels: list[tuple[Any, str, float, float]] = []
     skipped: list[int] = []
     for r in rows:
         kf = db.query_one(
@@ -117,22 +132,25 @@ def _load_panels(project_id: str) -> tuple[list[tuple[Any, str]], list[int]]:
         except OSError:
             skipped.append(int(r.get("shot_number") or 0))
             continue
-        panels.append((im, str(r.get("original_dialogue") or "")))
+        bx = float(r["bubble_x"]) if r.get("bubble_x") is not None else _BUBBLE_DEFAULT_X
+        by = float(r["bubble_y"]) if r.get("bubble_y") is not None else _BUBBLE_DEFAULT_Y
+        panels.append((im, str(r.get("original_dialogue") or ""), bx, by))
     return panels, skipped
 
 
-def compose_png(panels: list[tuple[Any, str]], font_path: str | None) -> Any:
+def compose_png(panels: list[tuple[Any, str, float, float]],
+                font_path: str | None) -> Any:
     """单列长图合成（面板等宽 1280，白底，可选烘焙气泡）。"""
     from PIL import Image
 
     if not panels:
         raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
     resized = []
-    for im, dialogue in panels:
+    for im, dialogue, bx, by in panels:
         h = int(im.height * _PANEL_W / im.width)
         panel = im.resize((_PANEL_W, h))
         if dialogue:
-            draw_bubble(panel, dialogue, font_path)
+            draw_bubble(panel, dialogue, font_path, bx, by)
         resized.append(panel)
     total_h = sum(p.height for p in resized) + _GUTTER * (len(resized) - 1) + _MARGIN * 2
     canvas = Image.new("RGB", (_PANEL_W + _MARGIN * 2, total_h), (250, 250, 250))
@@ -141,6 +159,32 @@ def compose_png(panels: list[tuple[Any, str]], font_path: str | None) -> Any:
         canvas.paste(panel, (_MARGIN, y))
         y += panel.height + _GUTTER
     return canvas
+
+
+def compose_grid2_pages(panels: list[tuple[Any, str, float, float]],
+                        font_path: str | None) -> list[Any]:
+    """每页 2×2 格排版（面板统一 1280×720，页 2636×1516 含边距间距）。"""
+    from PIL import Image
+
+    if not panels:
+        raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
+    fitted = []
+    for im, dialogue, bx, by in panels:
+        panel = im.resize((_PANEL_W, int(_PANEL_W * 9 / 16)))
+        if dialogue:
+            draw_bubble(panel, dialogue, font_path, bx, by)
+        fitted.append(panel)
+    page_w = _PANEL_W * 2 + _GUTTER + _MARGIN * 2
+    page_h = int(_PANEL_W * 9 / 16) * 2 + _GUTTER + _MARGIN * 2
+    pages: list[Any] = []
+    for start in range(0, len(fitted), 4):
+        page = Image.new("RGB", (page_w, page_h), (250, 250, 250))
+        for k, panel in enumerate(fitted[start:start + 4]):
+            page.paste(panel, (
+                _MARGIN + (k % 2) * (_PANEL_W + _GUTTER),
+                _MARGIN + (k // 2) * (panel.height + _GUTTER)))
+        pages.append(page)
+    return pages
 
 
 def _img_to_jpeg(im: Any, quality: int = 88) -> bytes:
@@ -220,23 +264,32 @@ def comic_export_page(body: dict = Body(default_factory=dict)) -> dict[str, Any]
         out_path = out_dir / f"comic_{req.project_id[:8]}_{ts}.png"
         canvas.save(out_path, format="PNG")
         pages = len(panels)
+    elif req.layout == "grid2":
+        page_imgs = compose_grid2_pages(panels, font_path)
+        pdf_bytes = jpegs_to_pdf(
+            [(_img_to_jpeg(p), p.width, p.height) for p in page_imgs])
+        out_path = out_dir / f"comic_{req.project_id[:8]}_{ts}.pdf"
+        out_path.write_bytes(pdf_bytes)
+        pages = len(page_imgs)
     else:
         pages_list = []
-        for im, dialogue in panels:
+        for im, dialogue, bx, by in panels:
             if dialogue and font_path:
-                draw_bubble(im, dialogue, font_path)
+                draw_bubble(im, dialogue, font_path, bx, by)
             pages_list.append((_img_to_jpeg(im), im.width, im.height))
         pdf_bytes = jpegs_to_pdf(pages_list)
         out_path = out_dir / f"comic_{req.project_id[:8]}_{ts}.pdf"
         out_path.write_bytes(pdf_bytes)
         pages = len(pages_list)
     rel = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
-    logger.info("漫画整页导出: project=%s format=%s pages=%d skipped=%d bubble_font=%s",
-                req.project_id, req.format, pages, len(skipped),
+    logger.info("漫画整页导出: project=%s format=%s layout=%s pages=%d"
+                " skipped=%d bubble_font=%s",
+                req.project_id, req.format, req.layout, pages, len(skipped),
                 bool(font_path))
     return ok({
         "file_path": rel,
         "format": req.format,
+        "layout": req.layout,
         "pages": pages,
         "baked_bubbles": bool(font_path),
         "skipped_shots": skipped,

@@ -2244,3 +2244,18 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .comic-char-upgrade { margin-top: 4px; font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); border: 1px dashed var(--color-primary-200, rgba(59,130,246,.4)); background: transparent; color: var(--color-primary); cursor: pointer; }
 .comic-char-upgrade:hover:not(:disabled) { background: rgba(59,130,246,.10); }
 .comic-char-upgrade:disabled { opacity: .6; cursor: wait; }
+
+/* ── 阅读预览 + 气泡拖拽（2026-09-08 C4 尾巴）── */
+.comic-bubble { pointer-events: auto; cursor: grab; user-select: none; touch-action: none; }
+.comic-bubble:active { cursor: grabbing; }
+.comic-preview { position: fixed; inset: 0; z-index: 500; background: rgba(2, 6, 23, .92); overflow-y: auto; padding: 48px 16px 32px; }
+.comic-preview-close { position: fixed; top: 14px; right: 18px; z-index: 510; width: 40px; height: 40px; border-radius: var(--radius-full); border: 1px solid var(--color-border-light); background: rgba(15, 23, 42, .8); color: var(--color-text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.comic-preview-close:hover { border-color: var(--color-primary-200); }
+.comic-preview-body { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+.comic-preview-panel { display: flex; flex-direction: column; gap: 8px; }
+.comic-preview-imgwrap { position: relative; background: rgba(255, 255, 255, .04); border: 1px solid var(--color-border-light); border-radius: var(--radius-md); overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 200px; }
+/* 完整显示：contain 不裁切（用户需求 2026-09-08） */
+.comic-preview-imgwrap img { max-width: 100%; max-height: 82vh; width: auto; height: auto; object-fit: contain; display: block; }
+.comic-preview-imgwrap .comic-bubble { pointer-events: none; cursor: default; }
+.comic-preview-ops { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+.comic-preview-no { font-size: 13px; color: var(--color-text-secondary); }

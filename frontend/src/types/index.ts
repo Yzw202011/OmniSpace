@@ -461,6 +461,10 @@ export interface StoryboardRow {
   asset_ids?: string[];
   /** 行锁定（锁定后批量操作自动跳过此行） */
   is_locked?: boolean;
+  /** 台词气泡横向位置（0~1 相对格宽，null=默认左上；拖拽定位 C4 尾巴 2026-09-08） */
+  bubble_x?: number | null;
+  /** 台词气泡纵向位置（0~1 相对格高，null=默认左上） */
+  bubble_y?: number | null;
   /** 排序索引（/storyboard/reorder 持久化） */
   sort_index?: number;
   /** 镜头类型/角度/运镜（导演台字段） */

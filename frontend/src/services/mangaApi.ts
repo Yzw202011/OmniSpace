@@ -223,14 +223,17 @@ export async function uploadCharacterAsset(
 }
 
 /** 整页导出（POST /manga/comic/export-page，2026-09-08 C4）：
- *  当前关键帧 → PNG 长图 / PDF 多页；withBubbles 把台词烘进气泡 */
+ *  当前关键帧 → PNG 长图 / PDF 多页；withBubbles 把台词烘进气泡；
+ *  layout：pdf 排版 page=每格一页（缺省）/ grid2=每页 2×2 格 */
 export async function exportComicPage(
   projectId: string,
   format: 'png' | 'pdf',
   withBubbles = true,
+  layout: 'page' | 'grid2' = 'page',
 ): Promise<{
   file_path: string;
   format: string;
+  layout: string;
   pages: number;
   baked_bubbles: boolean;
   skipped_shots: number[];
@@ -239,6 +242,7 @@ export async function exportComicPage(
     project_id: projectId,
     format,
     with_bubbles: withBubbles,
+    layout,
   });
 }
 

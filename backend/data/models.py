@@ -590,6 +590,10 @@ class StoryboardRowUpdate(BaseModel):
     # 竞品对齐改造：多资产绑定 + 行锁定
     asset_ids: list[str] | None = None  # 多资产 id 列表（写库序列化为 JSON）
     is_locked: bool | None = None       # 行锁定：批量操作跳过
+    # 漫画 C4 尾巴（2026-09-08）：台词气泡拖拽定位（0~1 相对格宽高，
+    # 与既有字段同口径：None=不更新）
+    bubble_x: float | None = Field(default=None, ge=0.0, le=1.0)
+    bubble_y: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class AiDescribeRequest(BaseModel):

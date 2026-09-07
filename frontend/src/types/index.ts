@@ -465,6 +465,8 @@ export interface StoryboardRow {
   bubble_x?: number | null;
   /** 台词气泡纵向位置（0~1 相对格高，null=默认左上） */
   bubble_y?: number | null;
+  /** 台词气泡宽度（0~1 相对格宽，null=自动贴合内容；拉伸把手 2026-09-08 */
+  bubble_w?: number | null;
   /** 排序索引（/storyboard/reorder 持久化） */
   sort_index?: number;
   /** 镜头类型/角度/运镜（导演台字段） */

@@ -166,7 +166,7 @@ _SB_ROW_COLS = ("id, storyboard_id, shot_number, original_dialogue, description,
                 " director_stage_done, generation_status, is_ai_generated,"
                 " sort_index, camera_type, camera_angle, camera_movement,"
                 " duration, transition, speed, volume, music_path, asset_id,"
-                " asset_ids, is_locked, bubble_x, bubble_y")
+                " asset_ids, is_locked, bubble_x, bubble_y, bubble_w")
 
 # 批 1.3 导演字段枚举（非法值 → SYSTEM_PARAM_INVALID）
 CAMERA_TYPES = ("特写", "近景", "中景", "全景", "远景", "俯拍", "仰拍", "主观镜头")
@@ -244,6 +244,7 @@ def _make_row(shot_number: int, **kw: Any) -> dict:
         "is_locked": kw.get("is_locked", False),
         "bubble_x": kw.get("bubble_x"),
         "bubble_y": kw.get("bubble_y"),
+        "bubble_w": kw.get("bubble_w"),
     }
 
 
@@ -291,6 +292,7 @@ def _row_to_storyboard_row(r: dict) -> dict:
         "is_locked": bool(r.get("is_locked", 0)),
         "bubble_x": (float(r["bubble_x"]) if r.get("bubble_x") is not None else None),
         "bubble_y": (float(r["bubble_y"]) if r.get("bubble_y") is not None else None),
+        "bubble_w": (float(r["bubble_w"]) if r.get("bubble_w") is not None else None),
     }
 
 
@@ -1067,6 +1069,7 @@ def _public_row_to_db(row: dict, storyboard_id: str, sort_index: int) -> dict:
         "is_locked": int(bool(row.get("is_locked", False))),
         "bubble_x": row.get("bubble_x"),
         "bubble_y": row.get("bubble_y"),
+        "bubble_w": row.get("bubble_w"),
     }
 
 

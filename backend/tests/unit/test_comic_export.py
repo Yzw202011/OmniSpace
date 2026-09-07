@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import pathlib
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,8 +47,9 @@ def test_pdf_writer_structure():
 
 
 def test_compose_png_stacks_panels():
-    panels = [(Image.new("RGB", (1280, 720)), "台词甲", 0.05, 0.06),
-              (Image.new("RGB", (640, 360)), "", 0.05, 0.06)]
+    panels: list[tuple[Any, str, float, float, float | None]] = [
+        (Image.new("RGB", (1280, 720)), "台词甲", 0.05, 0.06, None),
+              (Image.new("RGB", (640, 360)), "", 0.05, 0.06, None)]
     canvas = ce.compose_png(panels, None)  # 无字体=跳过气泡
     # 全部面板等宽 1280：640×360 面板按比例拉到 1280×720
     expect_h = 720 + 720 + ce._GUTTER * 1 + ce._MARGIN * 2
@@ -55,9 +57,10 @@ def test_compose_png_stacks_panels():
 
 
 def test_compose_grid2_pages():
-    panels = [(Image.new("RGB", (1280, 720), (i * 40, 90, 120)), f"台{i}", 0.05, 0.06)
-              for i in range(5)]
-    pages = ce.compose_grid2_pages(panels, None)
+    typed: list[tuple[Any, str, float, float, float | None]] = [
+        (Image.new("RGB", (1280, 720), (i * 40, 90, 120)), f"台{i}", 0.05, 0.06, None)
+        for i in range(5)]
+    pages = ce.compose_grid2_pages(typed, None)
     assert len(pages) == 2, "5 格 → 2 页（4+1）"
     pw = 1280 * 2 + ce._GUTTER + ce._MARGIN * 2
     ph = 720 * 2 + ce._GUTTER + ce._MARGIN * 2
@@ -167,14 +170,35 @@ def test_bubble_position_roundtrip(field):
     row_id = rows[0]["id"]
     ru = field.client.put(
         f"/api/v1/manga/storyboard/{pid}/rows/{row_id}",
-        json={"bubble_x": 0.55, "bubble_y": 0.7})
+        json={"bubble_x": 0.55, "bubble_y": 0.7, "bubble_w": 0.4})
     assert ru.json()["success"]
     assert ru.json()["data"]["row"]["bubble_x"] == 0.55
     assert ru.json()["data"]["row"]["bubble_y"] == 0.7
-    # 迁移 v10 列存在（直查库）
+    assert ru.json()["data"]["row"]["bubble_w"] == 0.4
+    # 迁移 v10/v11 列存在（直查库）
     row = field.db.query_one(
-        "SELECT bubble_x, bubble_y FROM storyboard_rows WHERE id=?", (row_id,))
+        "SELECT bubble_x, bubble_y, bubble_w FROM storyboard_rows WHERE id=?",
+        (row_id,))
     assert row["bubble_x"] == 0.55 and row["bubble_y"] == 0.7
+    assert row["bubble_w"] == 0.4
+
+
+def test_draw_bubble_fixed_width_wraps_narrower():
+    """固定宽度（拉伸把手语义）：w 越小折行越窄。"""
+    import pathlib as _pl
+    font = ce._BUBBLE_FONT_CANDIDATES[0]
+    if not _pl.Path(font).is_file():
+        pytest.skip("本机无 CJK 字体")
+    wide = Image.new("RGB", (1280, 720), (0, 0, 0))
+    narrow = Image.new("RGB", (1280, 720), (0, 0, 0))
+    ce.draw_bubble(wide, "同样二十个字的台词内容看看宽窄差异哦", font, 0.05, 0.05, 0.6)
+    ce.draw_bubble(narrow, "同样二十个字的台词内容看看宽窄差异哦", font, 0.05, 0.05, 0.25)
+    # 白色像素行数近似高度：窄版折行多→更高
+    def white_rows(im):
+        # 探针列取气泡内部（x0≈0.05*1280=64，取样 90）
+        return sum(1 for yy in range(im.height)
+                   if im.getpixel((90, yy))[0] > 200)
+    assert white_rows(narrow) > white_rows(wide), "窄宽版应折更多行（更高）"
 
 
 def test_export_empty_project_honest_error(field):

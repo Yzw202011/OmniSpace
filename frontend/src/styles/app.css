@@ -2259,3 +2259,8 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .comic-preview-imgwrap .comic-bubble { pointer-events: none; cursor: default; }
 .comic-preview-ops { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
 .comic-preview-no { font-size: 13px; color: var(--color-text-secondary); }
+
+/* 气泡拉伸把手（右下角，悬停显形；2026-09-08 用户令「既要能拖也要能拉伸」） */
+.comic-bubble-resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: ew-resize; touch-action: none; opacity: .25; transition: opacity .15s ease; background: linear-gradient(135deg, transparent 50%, rgba(30,30,30,.9) 50%); border-bottom-right-radius: 10px; }
+.comic-bubble:hover .comic-bubble-resize { opacity: .85; }
+.comic-bubble-resize:hover { opacity: 1; }

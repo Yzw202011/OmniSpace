@@ -64,11 +64,13 @@ def _find_cjk_font() -> str | None:
 
 def draw_bubble(img: Any, text: str, font_path: str | None,
                 x: float = _BUBBLE_DEFAULT_X,
-                y: float = _BUBBLE_DEFAULT_Y) -> None:
+                y: float = _BUBBLE_DEFAULT_Y,
+                w: float | None = None) -> None:
     """在面板上绘制台词气泡（原地修改，PIL Image）。
 
     x/y=气泡左上角相对格宽高（0~1，与前端拖拽存储同源）；缺省左上。
-    字体缺失时静默跳过（调用方以 baked 标记如实上报）。
+    w=固定宽度相对格宽（0~1，与前端拉伸把手存储同源）；None=自适应
+    （按文本长度估宽，上限约 72%）。字体缺失时静默跳过。
     """
     if not text.strip() or not font_path:
         return
@@ -80,11 +82,15 @@ def draw_bubble(img: Any, text: str, font_path: str | None,
         font = ImageFont.truetype(font_path, fs)
     except OSError:
         return
-    # CJK 简单折行：约每行 (面板宽-边距)/字宽 个字符
-    max_chars = max(8, int((img.width - 80) / fs))
+    if w is not None:
+        bw = max(60, int(w * img.width) - 8)
+        max_chars = max(4, int((bw - 36) / fs))
+    else:
+        # CJK 简单折行：约每行 (面板宽-边距)/字宽 个字符
+        max_chars = max(8, int((img.width - 80) / fs))
+        bw = min(img.width - 48, max_chars * fs + 36)
     lines = [text[i:i + max_chars] for i in range(0, len(text), max_chars)]
     lh = int(fs * 1.45)
-    bw = min(img.width - 48, max_chars * fs + 36)
     bh = len(lines) * lh + 22
     x0 = max(8, min(int(x * img.width), img.width - bw - 8))
     y0 = max(8, min(int(y * img.height), img.height - bh - 8))
@@ -96,7 +102,7 @@ def draw_bubble(img: Any, text: str, font_path: str | None,
                   fill=(20, 20, 20, 255))
 
 
-def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float]],
+def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float, float | None]],
                                             list[int]]:
     """取项目分格的当前关键帧图。
 
@@ -109,11 +115,11 @@ def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float]],
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法导出")
     rows = db.query(
-        "SELECT id, shot_number, original_dialogue, bubble_x, bubble_y"
+        "SELECT id, shot_number, original_dialogue, bubble_x, bubble_y, bubble_w"
         " FROM storyboard_rows"
         " WHERE storyboard_id=(SELECT id FROM storyboards WHERE project_id=?)"
         " ORDER BY sort_index ASC, shot_number ASC", (project_id,))
-    panels: list[tuple[Any, str, float, float]] = []
+    panels: list[tuple[Any, str, float, float, float | None]] = []
     skipped: list[int] = []
     for r in rows:
         kf = db.query_one(
@@ -134,11 +140,12 @@ def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float]],
             continue
         bx = float(r["bubble_x"]) if r.get("bubble_x") is not None else _BUBBLE_DEFAULT_X
         by = float(r["bubble_y"]) if r.get("bubble_y") is not None else _BUBBLE_DEFAULT_Y
-        panels.append((im, str(r.get("original_dialogue") or ""), bx, by))
+        bwv = float(r["bubble_w"]) if r.get("bubble_w") is not None else None
+        panels.append((im, str(r.get("original_dialogue") or ""), bx, by, bwv))
     return panels, skipped
 
 
-def compose_png(panels: list[tuple[Any, str, float, float]],
+def compose_png(panels: list[tuple[Any, str, float, float, float | None]],
                 font_path: str | None) -> Any:
     """单列长图合成（面板等宽 1280，白底，可选烘焙气泡）。"""
     from PIL import Image
@@ -146,11 +153,11 @@ def compose_png(panels: list[tuple[Any, str, float, float]],
     if not panels:
         raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
     resized = []
-    for im, dialogue, bx, by in panels:
+    for im, dialogue, bx, by, bwv in panels:
         h = int(im.height * _PANEL_W / im.width)
         panel = im.resize((_PANEL_W, h))
         if dialogue:
-            draw_bubble(panel, dialogue, font_path, bx, by)
+            draw_bubble(panel, dialogue, font_path, bx, by, bwv)
         resized.append(panel)
     total_h = sum(p.height for p in resized) + _GUTTER * (len(resized) - 1) + _MARGIN * 2
     canvas = Image.new("RGB", (_PANEL_W + _MARGIN * 2, total_h), (250, 250, 250))
@@ -161,7 +168,7 @@ def compose_png(panels: list[tuple[Any, str, float, float]],
     return canvas
 
 
-def compose_grid2_pages(panels: list[tuple[Any, str, float, float]],
+def compose_grid2_pages(panels: list[tuple[Any, str, float, float, float | None]],
                         font_path: str | None) -> list[Any]:
     """每页 2×2 格排版（面板统一 1280×720，页 2636×1516 含边距间距）。"""
     from PIL import Image
@@ -169,10 +176,10 @@ def compose_grid2_pages(panels: list[tuple[Any, str, float, float]],
     if not panels:
         raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
     fitted = []
-    for im, dialogue, bx, by in panels:
+    for im, dialogue, bx, by, bwv in panels:
         panel = im.resize((_PANEL_W, int(_PANEL_W * 9 / 16)))
         if dialogue:
-            draw_bubble(panel, dialogue, font_path, bx, by)
+            draw_bubble(panel, dialogue, font_path, bx, by, bwv)
         fitted.append(panel)
     page_w = _PANEL_W * 2 + _GUTTER + _MARGIN * 2
     page_h = int(_PANEL_W * 9 / 16) * 2 + _GUTTER + _MARGIN * 2
@@ -273,9 +280,9 @@ def comic_export_page(body: dict = Body(default_factory=dict)) -> dict[str, Any]
         pages = len(page_imgs)
     else:
         pages_list = []
-        for im, dialogue, bx, by in panels:
+        for im, dialogue, bx, by, bwv in panels:
             if dialogue and font_path:
-                draw_bubble(im, dialogue, font_path, bx, by)
+                draw_bubble(im, dialogue, font_path, bx, by, bwv)
             pages_list.append((_img_to_jpeg(im), im.width, im.height))
         pdf_bytes = jpegs_to_pdf(pages_list)
         out_path = out_dir / f"comic_{req.project_id[:8]}_{ts}.pdf"

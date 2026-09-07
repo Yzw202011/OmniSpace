@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS storyboard_rows (
     is_locked           INTEGER NOT NULL DEFAULT 0, -- 行锁定：批量操作跳过
     bubble_x            REAL,                -- 台词气泡横向位置（0~1 相对格宽，NULL=默认左上；C4 2026-09-08）
     bubble_y            REAL,                -- 台词气泡纵向位置（0~1 相对格高，NULL=默认左上）
+    bubble_w            REAL,                -- 台词气泡宽度（0~1 相对格宽，NULL=自动贴合内容；拖拽拉伸 2026-09-08）
     FOREIGN KEY (storyboard_id) REFERENCES storyboards(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_storyboard_rows_sb ON storyboard_rows(storyboard_id);
@@ -478,7 +479,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 10
+    SCHEMA_VERSION = 11
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -557,6 +558,11 @@ class Database:
             # 行级相对坐标（0~1），NULL=默认左上（前端覆盖层/导出烘焙/预览同源）
             ("storyboard_rows", "bubble_x", "REAL"),
             ("storyboard_rows", "bubble_y", "REAL"),
+        )),
+        (11, (
+            # 气泡可拉伸（2026-09-08 用户令「既要能拖动也要能拉伸」）：
+            # 行级相对宽度（0~1），NULL=自动贴合内容宽
+            ("storyboard_rows", "bubble_w", "REAL"),
         )),
     )
 

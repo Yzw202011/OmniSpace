@@ -88,8 +88,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   // 阅读预览（完整显示 contain + 预览中重新生成）
   const [previewOpen, setPreviewOpen] = useState(false);
-  // 气泡拖拽中行 id（拖拽中不落库，抬手才存）
+  // 气泡拖拽中行 id（拖拽中不落库，抬手才存）；「resize」=拉伸宽度模式
   const bubbleDragRef = useRef<string | null>(null);
+  const bubbleResizeRef = useRef<string | null>(null);
 
   const loadAll = () => {
     setLoading(true);
@@ -414,13 +415,25 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   };
 
   const onBubblePointerMove = (e: React.PointerEvent) => {
-    const rowId = bubbleDragRef.current;
-    if (!rowId) return;
     const bubble = e.currentTarget as HTMLElement;
     const host = bubble.parentElement;
     if (!host) return;
     const rect = host.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
+    const resizeId = bubbleResizeRef.current;
+    if (resizeId) {
+      // 拉伸模式：宽度=指针横坐标相对格宽，左不越过气泡起点、右不出格
+      const row = rows.find((r) => r.id === resizeId);
+      if (!row) return;
+      const x = row.bubble_x ?? 0.05;
+      const w = Math.min(
+        Math.max(0.15, (e.clientX - rect.left) / rect.width - x),
+        1 - x - 0.02);
+      setRows((rs) => rs.map((r) => (r.id === resizeId ? { ...r, bubble_w: w } : r)));
+      return;
+    }
+    const rowId = bubbleDragRef.current;
+    if (!rowId) return;
     // 按气泡实际宽高钳制，保证整个气泡留在格内（拖到右/下缘不溢出）
     const bwRatio = bubble.offsetWidth / rect.width;
     const bhRatio = bubble.offsetHeight / rect.height;
@@ -433,14 +446,34 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   };
 
   const onBubblePointerUp = () => {
-    const rowId = bubbleDragRef.current;
+    const rowId = bubbleDragRef.current ?? bubbleResizeRef.current;
     bubbleDragRef.current = null;
+    bubbleResizeRef.current = null;
     if (!rowId) return;
     const row = rows.find((r) => r.id === rowId);
-    if (!row || row.bubble_x == null || row.bubble_y == null) return;
-    mangaApi.updateStoryboardRow(pid, rowId, {
-      bubble_x: row.bubble_x, bubble_y: row.bubble_y,
-    }).catch((err) => showToast(getErrorMessage(err, '气泡位置保存失败'), 'error'));
+    if (!row) return;
+    const patch: { bubble_x?: number; bubble_y?: number; bubble_w?: number } = {};
+    if (row.bubble_x != null && row.bubble_y != null) {
+      patch.bubble_x = row.bubble_x;
+      patch.bubble_y = row.bubble_y;
+    }
+    if (row.bubble_w != null) patch.bubble_w = row.bubble_w;
+    if (!Object.keys(patch).length) return;
+    mangaApi.updateStoryboardRow(pid, rowId, patch)
+      .catch((err) => showToast(getErrorMessage(err, '气泡位置保存失败'), 'error'));
+  };
+
+  /* ---- 气泡拉伸（右下把手改宽度，高度随文字折行自适应） ---- */
+
+  const onResizePointerDown = (e: React.PointerEvent, rowId: string) => {
+    e.stopPropagation();  // 不触发气泡移动拖拽
+    e.preventDefault();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // 合成/失活指针无法捕获——move/up 经气泡本体的共享通道驱动
+    }
+    bubbleResizeRef.current = rowId;
   };
 
   /* ---------------- 画风切换 ---------------- */
@@ -566,13 +599,22 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                         style={{
                           left: `${bubblePos(row).x * 100}%`,
                           top: `${bubblePos(row).y * 100}%`,
+                          ...(row.bubble_w != null
+                            ? { width: `${Math.round(row.bubble_w * 100)}%` }
+                            : null),
                         }}
-                        title="拖动调整气泡位置"
+                        title="拖动移动位置；右下角把手拉伸宽度"
                         onPointerDown={(e) => onBubblePointerDown(e, row.id)}
                         onPointerMove={onBubblePointerMove}
                         onPointerUp={onBubblePointerUp}
                       >
                         {(dialogueDraft[row.id] ?? '').trim()}
+                        <span
+                          className="comic-bubble-resize"
+                          aria-label="拉伸气泡宽度"
+                          title="拖动拉伸宽度"
+                          onPointerDown={(e) => onResizePointerDown(e, row.id)}
+                        />
                       </div>
                     )}
                     {generating && (
@@ -766,7 +808,13 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                     {(row.original_dialogue ?? '').trim() && (
                       <div
                         className="comic-bubble"
-                        style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%` }}
+                        style={{
+                          left: `${pos.x * 100}%`,
+                          top: `${pos.y * 100}%`,
+                          ...(row.bubble_w != null
+                            ? { width: `${Math.round(row.bubble_w * 100)}%` }
+                            : null),
+                        }}
                       >
                         {(row.original_dialogue ?? '').trim()}
                       </div>

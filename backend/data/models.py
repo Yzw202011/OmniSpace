@@ -594,6 +594,8 @@ class StoryboardRowUpdate(BaseModel):
     # 与既有字段同口径：None=不更新）
     bubble_x: float | None = Field(default=None, ge=0.0, le=1.0)
     bubble_y: float | None = Field(default=None, ge=0.0, le=1.0)
+    # 气泡宽度（0~1 相对格宽；None=不更新；NULL 语义在行=自动贴合内容）
+    bubble_w: float | None = Field(default=None, ge=0.1, le=1.0)
 
 
 class AiDescribeRequest(BaseModel):

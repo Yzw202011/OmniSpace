@@ -54,7 +54,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<StoryboardRow[]>([]);
-  const [chars, setChars] = useState<ComicAsset[]>([]);
+  const [assets, setAssets] = useState<ComicAsset[]>([]);
   const [kfByRow, setKfByRow] = useState<Record<string, KeyframeItem>>({});
   const [genRows, setGenRows] = useState<Set<string>>(new Set());
   const [promptDraft, setPromptDraft] = useState<Record<string, string>>({});
@@ -101,12 +101,12 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     setLoading(true);
     void (async () => {
       try {
-        const [rs, assets] = await Promise.all([
+        const [rs, allAssets] = await Promise.all([
           mangaApi.getStoryboardRows(pid),
-          mangaApi.listAssets(pid, 'character'),
+          mangaApi.listAssets(pid),
         ]);
         setRows(rs);
-        setChars(assets);
+        setAssets(allAssets);
         const drafts: Record<string, string> = {};
         const kfMap: Record<string, KeyframeItem> = {};
         await Promise.all(rs.map(async (r) => {
@@ -320,8 +320,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     setCharCreating(true);
     try {
       await mangaApi.generateTurnaround({ project_id: pid, name, prompt });
-      const assets = await mangaApi.listAssets(pid, 'character');
-      setChars(assets);
+      setAssets(await mangaApi.listAssets(pid));
       setCharCreating(false);
       setCharFormOpen(false);
       setCharName('');
@@ -360,11 +359,113 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   /* ---------------- 上传角色（C3）与四视图升级 ---------------- */
 
-  const refreshChars = async () => {
+  const refreshAssets = async () => {
     try {
-      setChars(await mangaApi.listAssets(pid, 'character'));
+      setAssets(await mangaApi.listAssets(pid));
     } catch {
       /* 刷新失败静默，下次加载恢复 */
+    }
+  };
+  const chars = useMemo(
+    () => assets.filter((a) => a.kind === 'character'),
+    [assets],
+  );
+
+  /* ---------------- 资产库（2026-09-08 用户令：完整显示+漫画模块资产库） ---------------- */
+
+  const [assetLibOpen, setAssetLibOpen] = useState(false);
+  const [libKind, setLibKind] = useState<'character' | 'scene' | 'prop'>('character');
+  const [libScope, setLibScope] = useState<'project' | 'global'>('project');
+  const [libAssets, setLibAssets] = useState<ComicAsset[]>([]);
+  const [libLoading, setLibLoading] = useState(false);
+  const [libDeleting, setLibDeleting] = useState<string | null>(null);
+  // 库内 AI 生成表单（角色走四视图链，场景/道具走单图）
+  const [libGenOpen, setLibGenOpen] = useState(false);
+  const [libGenName, setLibGenName] = useState('');
+  const [libGenPrompt, setLibGenPrompt] = useState('');
+  const [libGenBusy, setLibGenBusy] = useState(false);
+  // 库内上传（名称+文件，kind 跟随当前页签）
+  const [libUpName, setLibUpName] = useState('');
+  const [libUpFile, setLibUpFile] = useState<File | null>(null);
+  const [libUpBusy, setLibUpBusy] = useState(false);
+
+  const libKindLabel = libKind === 'character' ? '角色' : libKind === 'scene' ? '场景' : '道具';
+
+  const loadLib = async () => {
+    setLibLoading(true);
+    try {
+      setLibAssets(await mangaApi.listAssets(pid, libKind, libScope));
+    } catch (err) {
+      showToast(getErrorMessage(err, '资产库加载失败'), 'error');
+    } finally {
+      setLibLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (assetLibOpen) void loadLib();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetLibOpen, libKind, libScope]);
+
+  const libDelete = async (assetId: string, name: string) => {
+    if (libDeleting) return;
+    setLibDeleting(assetId);
+    try {
+      await mangaApi.deleteAsset(assetId);
+      setLibDeleting(null);
+      setLibAssets((ls) => ls.filter((a) => a.asset_id !== assetId));
+      await refreshAssets();
+      showToast(`资产「${name}」已删除`, 'success');
+    } catch (err) {
+      setLibDeleting(null);
+      showToast(getErrorMessage(err, '删除失败'), 'error');
+    }
+  };
+
+  const libUpload = async () => {
+    if (!libUpFile) {
+      showToast('请选择图片（png/jpg/webp，≤10MB）', 'warning');
+      return;
+    }
+    setLibUpBusy(true);
+    try {
+      await mangaApi.uploadAsset(pid, libUpName.trim() || '未命名资产', libUpFile, libKind);
+      setLibUpBusy(false);
+      setLibUpName('');
+      setLibUpFile(null);
+      await loadLib();
+      await refreshAssets();
+      showToast(`${libKindLabel}已上传`, 'success');
+    } catch (err) {
+      setLibUpBusy(false);
+      showToast(getErrorMessage(err, '上传失败'), 'error');
+    }
+  };
+
+  const libGenerate = async () => {
+    const name = libGenName.trim();
+    const prompt = libGenPrompt.trim();
+    if (!name || !prompt) {
+      showToast('名称与形象描述都要填写', 'warning');
+      return;
+    }
+    setLibGenBusy(true);
+    try {
+      if (libKind === 'character') {
+        await mangaApi.generateTurnaround({ project_id: pid, name, prompt });
+      } else {
+        await mangaApi.generateAsset({ project_id: pid, kind: libKind, name, prompt });
+      }
+      setLibGenBusy(false);
+      setLibGenOpen(false);
+      setLibGenName('');
+      setLibGenPrompt('');
+      await loadLib();
+      await refreshAssets();
+      showToast(`${libKindLabel}「${name}」已生成`, 'success');
+    } catch (err) {
+      setLibGenBusy(false);
+      showToast(getErrorMessage(err, `${libKindLabel}生成失败`), 'error');
     }
   };
 
@@ -375,8 +476,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     }
     setUploading(true);
     try {
-      await mangaApi.uploadCharacterAsset(pid, uploadName.trim() || '未命名角色', uploadFile);
-      await refreshChars();
+      await mangaApi.uploadAsset(pid, uploadName.trim() || '未命名角色', uploadFile, 'character');
+      await refreshAssets();
       setUploading(false);
       setUploadFormOpen(false);
       setUploadName('');
@@ -393,7 +494,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     setUpgradingId(assetId);
     try {
       await mangaApi.regenerateAsset(assetId, { mode: 'four_views' });
-      await refreshChars();
+      await refreshAssets();
       setUpgradingId(null);
       showToast(`「${name}」四视图已生成，人脸锁已就位`, 'success');
     } catch (err) {
@@ -762,20 +863,23 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                           </span>
                         );
                       })}
-                      {chars.length > 0 && (
+                      {assets.length > 0 && (
                         <select
                           className="comic-chip-add"
                           value=""
                           onChange={(e) => {
                             if (e.target.value) void bindChar(e.target.value, row.id);
                           }}
-                          title="引用角色（生成时作一致性锚）"
+                          title="引用资产（角色作一致性锚，场景/道具作画面参考）"
                         >
-                          <option value="">＋ 引用角色</option>
-                          {chars
-                            .filter((c) => !boundIds.includes(c.asset_id))
-                            .map((c) => (
-                              <option key={c.asset_id} value={c.asset_id}>{c.name}</option>
+                          <option value="">＋ 引用资产</option>
+                          {assets
+                            .filter((a) => !boundIds.includes(a.asset_id))
+                            .map((a) => (
+                              <option key={a.asset_id} value={a.asset_id}>
+                                {a.kind === 'character' ? '' : a.kind === 'scene' ? '［场景］' : '［道具］'}
+                                {a.name}
+                              </option>
                             ))}
                         </select>
                       )}
@@ -817,8 +921,16 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           {/* 角色栏 */}
           <aside className="comic-rail">
             <div className="comic-rail-title">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 角色（{chars.length}）
+                <button
+                  type="button"
+                  className="comic-chip-add"
+                  onClick={() => setAssetLibOpen(true)}
+                  title="打开资产库：角色/场景/道具大图管理（项目+全局）"
+                >
+                  资产库
+                </button>
                 <button
                   type="button"
                   className="comic-chip-add"
@@ -870,6 +982,185 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             )}
           </aside>
         </div>
+      )}
+
+      {/* 资产库（2026-09-08 用户令）：角色/场景/道具大图完整显示+项目/全局+上传/AI生成/删除 */}
+      {assetLibOpen && (
+        <Modal title="资产库" onClose={() => setAssetLibOpen(false)} width={860}>
+          <div className="comic-asset-lib">
+            <div className="comic-lib-toolbar">
+              <div className="comic-lib-tabs">
+                {([['character', '角色'], ['scene', '场景'], ['prop', '道具']] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={libKind === k ? 'active' : ''}
+                    onClick={() => setLibKind(k)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="comic-lib-scope">
+                {(['project', 'global'] as const).map((sc) => (
+                  <button
+                    key={sc}
+                    type="button"
+                    className={libScope === sc ? 'active' : ''}
+                    onClick={() => setLibScope(sc)}
+                    title={sc === 'global' ? '全局资产跨项目复用（删除项目时自动转入）' : '本项目资产'}
+                  >
+                    {sc === 'project' ? '本项目' : '全局'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {(libKind !== 'character' || libScope === 'global') && (
+              <div className="comic-lib-addrow">
+                <input
+                  className="input"
+                  style={{ maxWidth: 160 }}
+                  placeholder={`${libKindLabel}名称`}
+                  value={libUpName}
+                  maxLength={100}
+                  onChange={(e) => setLibUpName(e.target.value)}
+                />
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => setLibUpFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={libUpBusy || !libUpFile}
+                  onClick={() => void libUpload()}
+                >
+                  {libUpBusy ? '上传中…' : `上传${libKindLabel}图`}
+                </button>
+                <button type="button" className="btn btn-sm" onClick={() => setLibGenOpen(true)}>
+                  AI 生成{libKindLabel}
+                </button>
+              </div>
+            )}
+            {libKind === 'character' && libScope === 'project' && (
+              <div className="comic-lib-addrow">
+                <span className="text-secondary" style={{ fontSize: 11 }}>
+                  角色 AI 生成走四视图（人脸锁），请用工作台「新建角色」；此处可上传手画/外部角色图
+                </span>
+                <input
+                  className="input"
+                  style={{ maxWidth: 160 }}
+                  placeholder="角色名称"
+                  value={libUpName}
+                  maxLength={100}
+                  onChange={(e) => setLibUpName(e.target.value)}
+                />
+                <input
+                  className="input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => setLibUpFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={libUpBusy || !libUpFile}
+                  onClick={() => void libUpload()}
+                >
+                  {libUpBusy ? '上传中…' : '上传角色图'}
+                </button>
+              </div>
+            )}
+
+            {libLoading ? (
+              <div className="loading-block"><div className="spinner" /><div>资产加载中…</div></div>
+            ) : libAssets.length === 0 ? (
+              <div className="comic-lib-empty text-secondary">
+                {libScope === 'global' ? '全局库还没有此类资产（删除项目时项目资产会自动转入）' : `还没有${libKindLabel}资产`}
+              </div>
+            ) : (
+              <div className="comic-lib-grid">
+                {libAssets.map((a) => {
+                  const hasTurnaround = Boolean(
+                    (a.meta as { turnaround?: unknown } | null)?.turnaround);
+                  return (
+                    <div key={a.asset_id} className="comic-lib-card">
+                      <div className="comic-lib-imgwrap">
+                        <img
+                          src={mangaApi.getMediaUrl(a.file_path, a.created_at)}
+                          alt={a.name}
+                          loading="lazy"
+                        />
+                        {a.kind === 'character' && (
+                          <span className={`comic-lib-badge${hasTurnaround ? ' ok' : ''}`}>
+                            {hasTurnaround ? '四视图 ✓' : '单图'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="comic-lib-meta">
+                        <div className="comic-lib-name" title={a.name}>{a.name}</div>
+                        <div className="comic-char-prompt" title={a.prompt}>{a.prompt || '（描述词由 AI 自动补写中）'}</div>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={libDeleting === a.asset_id}
+                          onClick={() => void libDelete(a.asset_id, a.name)}
+                        >
+                          <Trash2 size={13} />
+                          {libDeleting === a.asset_id ? '删除中…' : '删除'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-secondary" style={{ fontSize: 11, marginTop: 8 }}>
+              图片完整显示不裁切。在分格的「＋ 引用资产」里引用：角色作一致性锚，场景/道具作画面参考。
+            </p>
+          </div>
+        </Modal>
+      )}
+
+      {/* 资产库 AI 生成（场景/道具单图；角色提示走四视图入口） */}
+      {libGenOpen && (
+        <Modal title={`AI 生成${libKindLabel}`} onClose={() => !libGenBusy && setLibGenOpen(false)} width={460}>
+          <div className="flex flex-col gap-3">
+            <input
+              className="input"
+              placeholder={`${libKindLabel}名称`}
+              value={libGenName}
+              maxLength={100}
+              onChange={(e) => setLibGenName(e.target.value)}
+            />
+            <textarea
+              className="input"
+              rows={4}
+              maxLength={2000}
+              placeholder={libKind === 'scene'
+                ? '场景描述，如：黄昏的天台，铁丝网围栏，远处城市天际线，暖色天空'
+                : '道具描述，如：一本泛黄的旧日记本，封面有铜锁，微微发光'}
+              value={libGenPrompt}
+              onChange={(e) => setLibGenPrompt(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn" onClick={() => setLibGenOpen(false)} disabled={libGenBusy}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void libGenerate()}
+                disabled={libGenBusy || !libGenName.trim() || !libGenPrompt.trim()}
+              >
+                {libGenBusy ? '生成中…（约1~3分钟）' : '生成'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* 全部重新生成确认（换画风统一/角色重抽，旧版保留） */}

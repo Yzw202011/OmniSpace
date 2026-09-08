@@ -206,17 +206,18 @@ export async function generateComicScript(
   });
 }
 
-/** 上传角色图（POST /comic/asset/upload multipart，2026-09-08 C3）：
- *  本地图片登记为项目资产；描述词由后台 VLM 按图自动补写 */
-export async function uploadCharacterAsset(
+/** 上传资产图（POST /comic/asset/upload multipart，2026-09-08 C3→资产库泛化）：
+ *  本地图片登记为项目资产（角色/场景/道具）；描述词由后台 VLM 按图自动补写 */
+export async function uploadAsset(
   projectId: string,
   name: string,
   file: File,
+  kind: ComicAssetKind = 'character',
 ): Promise<ComicAsset> {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('project_id', projectId);
-  fd.append('kind', 'character');
+  fd.append('kind', kind);
   fd.append('name', name);
   const res = await upload<{ asset: ComicAsset }>('/comic/asset/upload', fd);
   return res.asset;

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import io
 import pathlib
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,9 +46,10 @@ def test_pdf_writer_structure():
 
 
 def test_compose_png_stacks_panels():
-    panels: list[tuple[Any, str, float, float, float | None]] = [
-        (Image.new("RGB", (1280, 720)), "台词甲", 0.05, 0.06, None),
-              (Image.new("RGB", (640, 360)), "", 0.05, 0.06, None)]
+    panels = [
+        {"img": Image.new("RGB", (1280, 720)),
+         "bubbles": [{"text": "台词甲", "x": 0.05, "y": 0.06, "w": None}]},
+        {"img": Image.new("RGB", (640, 360)), "bubbles": []}]
     canvas = ce.compose_png(panels, None)  # 无字体=跳过气泡
     # 全部面板等宽 1280：640×360 面板按比例拉到 1280×720
     expect_h = 720 + 720 + ce._GUTTER * 1 + ce._MARGIN * 2
@@ -57,8 +57,9 @@ def test_compose_png_stacks_panels():
 
 
 def test_compose_grid2_pages():
-    typed: list[tuple[Any, str, float, float, float | None]] = [
-        (Image.new("RGB", (1280, 720), (i * 40, 90, 120)), f"台{i}", 0.05, 0.06, None)
+    typed = [
+        {"img": Image.new("RGB", (1280, 720), (i * 40, 90, 120)),
+         "bubbles": [{"text": f"台{i}", "x": 0.05, "y": 0.06, "w": None}]}
         for i in range(5)]
     pages = ce.compose_grid2_pages(typed, None)
     assert len(pages) == 2, "5 格 → 2 页（4+1）"
@@ -209,3 +210,27 @@ def test_export_empty_project_honest_error(field):
                            json={"project_id": pid, "format": "png"})
     body = r2.json()
     assert body["success"] is False and "没有已生成分格画面" in str(body.get("error"))
+
+
+def test_export_multi_bubble_roundtrip(field):
+    """多角色台词：PUT bubbles 数组 → 行回读 → 导出烘焙不炸。"""
+    pid = _seed_project_with_keyframes(field, 1)
+    rows = field.client.get(f"/api/v1/manga/storyboard/list?project_id={pid}")         .json()["data"]["rows"]
+    row_id = rows[0]["id"]
+    lines = [
+        {"text": "小漫：今天的日记写好了！", "x": 0.05, "y": 0.06, "w": None,
+         "asset_id": "a111"},
+        {"text": "旁白：黄昏的天台很安静", "x": 0.5, "y": 0.6, "w": 0.3,
+         "asset_id": None},
+    ]
+    ru = field.client.put(f"/api/v1/manga/storyboard/{pid}/rows/{row_id}",
+                          json={"bubbles": lines})
+    assert ru.json()["success"], ru.text
+    got = ru.json()["data"]["row"]["bubbles"]
+    assert len(got) == 2 and got[0]["asset_id"] == "a111" and got[1]["w"] == 0.3
+
+    r = field.client.post("/api/v1/manga/comic/export-page",
+                          json={"project_id": pid, "format": "png"})
+    assert r.json()["success"]
+    out = field.data_dir / r.json()["data"]["file_path"]
+    assert out.is_file() and out.stat().st_size > 1000

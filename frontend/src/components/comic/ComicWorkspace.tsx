@@ -17,7 +17,8 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import * as mangaApi from '@/services/mangaApi';
 import {
-  ART_STYLES, type ComicAsset, type ComicProject, type KeyframeItem, type StoryboardRow,
+  ART_STYLES, type ComicAsset, type ComicProject, type KeyframeItem,
+  type PanelBubble, type StoryboardRow,
 } from '@/types';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { Modal } from '../common/Modal';
@@ -57,7 +58,6 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const [kfByRow, setKfByRow] = useState<Record<string, KeyframeItem>>({});
   const [genRows, setGenRows] = useState<Set<string>>(new Set());
   const [promptDraft, setPromptDraft] = useState<Record<string, string>>({});
-  const [dialogueDraft, setDialogueDraft] = useState<Record<string, string>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState(false);
@@ -88,9 +88,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   // 阅读预览（完整显示 contain + 预览中重新生成）
   const [previewOpen, setPreviewOpen] = useState(false);
-  // 气泡拖拽中行 id（拖拽中不落库，抬手才存）；「resize」=拉伸宽度模式
-  const bubbleDragRef = useRef<string | null>(null);
-  const bubbleResizeRef = useRef<string | null>(null);
+  // 气泡拖拽/拉伸目标（rowId+bubbles 数组下标；拖拽中不落库，抬手才存）
+  const bubbleDragRef = useRef<{ rowId: string; idx: number } | null>(null);
+  const bubbleResizeRef = useRef<{ rowId: string; idx: number } | null>(null);
 
   // 批量菜单（2026-09-08 用户画风混用之惑）：生成未完成 / 全部重新生成
   const [batchMenuOpen, setBatchMenuOpen] = useState(false);
@@ -108,11 +108,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
         setRows(rs);
         setChars(assets);
         const drafts: Record<string, string> = {};
-        const dialogues: Record<string, string> = {};
         const kfMap: Record<string, KeyframeItem> = {};
         await Promise.all(rs.map(async (r) => {
           drafts[r.id] = r.description ?? '';
-          dialogues[r.id] = r.original_dialogue ?? '';
           try {
             const kfs = await mangaApi.listKeyframes(r.id);
             const cur = kfs.find((k) => k.is_current) ?? kfs[0];
@@ -122,7 +120,21 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           }
         }));
         setPromptDraft(drafts);
-        setDialogueDraft(dialogues);
+        // 多气泡就位：bubbles 空+有旧单台词 → 种子一条旁白气泡（首次编辑时升级落库）
+        setRows(rs.map((r) => {
+          const bubbles = (r.bubbles ?? []).filter((b) => b && typeof b.text === 'string');
+          if (bubbles.length === 0 && (r.original_dialogue ?? '').trim()) {
+            return {
+              ...r,
+              bubbles: [{
+                text: r.original_dialogue ?? '',
+                x: r.bubble_x ?? null, y: r.bubble_y ?? null, w: r.bubble_w ?? null,
+                asset_id: null,
+              }],
+            };
+          }
+          return { ...r, bubbles };
+        }));
         setKfByRow(kfMap);
         setLoading(false);
       } catch (err) {
@@ -136,11 +148,6 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
-
-  const charById = useMemo(
-    () => new Map(chars.map((c) => [c.asset_id, c])),
-    [chars],
-  );
 
   const styleKey = project.art_style ?? '';
 
@@ -189,17 +196,6 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
       setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, description: text } : r)));
     } catch (err) {
       showToast(getErrorMessage(err, '画面描述保存失败'), 'error');
-    }
-  };
-
-  const saveDialogue = async (row: StoryboardRow) => {
-    const text = dialogueDraft[row.id] ?? '';
-    if (text === (row.original_dialogue ?? '')) return;
-    try {
-      await mangaApi.updateStoryboardRow(pid, row.id, { original_dialogue: text });
-      setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, original_dialogue: text } : r)));
-    } catch (err) {
-      showToast(getErrorMessage(err, '台词保存失败'), 'error');
     }
   };
 
@@ -435,22 +431,55 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     }
   };
 
-  /* ---------------- 气泡拖拽定位（C4 尾巴） ---------------- */
+  /* ---------------- 多角色台词气泡（拖动+拉伸，逐条独立） ---------------- */
 
-  const bubblePos = (row: StoryboardRow): { x: number; y: number } => ({
-    x: row.bubble_x ?? 0.05,
-    y: row.bubble_y ?? 0.06,
-  });
+  const charById = useMemo(
+    () => new Map(chars.map((c) => [c.asset_id, c])),
+    [chars],
+  );
 
-  const onBubblePointerDown = (e: React.PointerEvent, rowId: string) => {
+  /** 行气泡就位：旁白一条 + 每个绑定角色一条（保已有文本/位置，缺的补位） */
+  const ensureBubbles = (row: StoryboardRow): PanelBubble[] => {
+    const existing = (row.bubbles ?? []).filter((b) => b && typeof b.text === 'string');
+    const byAsset = new Map(existing.map((b) => [b.asset_id ?? '', b]));
+    const out: PanelBubble[] = [];
+    // 旁白（asset_id 空）恒在首位
+    out.push(byAsset.get('') ?? { text: '', x: null, y: null, w: null, asset_id: null });
+    (row.asset_ids ?? []).forEach((aid, i) => {
+      out.push(byAsset.get(aid) ?? {
+        text: '',
+        // 新气泡错位排布防重叠：横 5%起每条 +28%，纵 6%/45% 交替
+        x: Math.min(0.6, 0.05 + i * 0.28),
+        y: i % 2 === 0 ? 0.06 : 0.45,
+        w: null,
+        asset_id: aid,
+      });
+    });
+    return out;
+  };
+
+  const patchBubble = (rowId: string, idx: number, patch: Partial<PanelBubble>) => {
+    setRows((rs) => rs.map((r) => {
+      if (r.id !== rowId) return r;
+      const bubbles = ensureBubbles(r).map((b, i) => (i === idx ? { ...b, ...patch } : b));
+      return { ...r, bubbles };
+    }));
+  };
+
+  const saveBubbles = (row: StoryboardRow) => {
+    const bubbles = ensureBubbles(row);
+    mangaApi.updateStoryboardRow(pid, row.id, { bubbles })
+      .catch((err) => showToast(getErrorMessage(err, '台词保存失败'), 'error'));
+  };
+
+  const onBubblePointerDown = (e: React.PointerEvent, rowId: string, idx: number) => {
     e.preventDefault();
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
-      // 指针已失活/合成事件时无法捕获——退化为全局 move 监听语义，
-      // 拖拽仍由 pointermove/up 驱动（capture 只是防丢事件的增强）
+      // 指针已失活/合成事件时无法捕获——退化为 move/up 事件驱动
     }
-    bubbleDragRef.current = rowId;
+    bubbleDragRef.current = { rowId, idx };
   };
 
   const onBubblePointerMove = (e: React.PointerEvent) => {
@@ -459,20 +488,21 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     if (!host) return;
     const rect = host.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    const resizeId = bubbleResizeRef.current;
-    if (resizeId) {
+    const resize = bubbleResizeRef.current;
+    if (resize) {
       // 拉伸模式：宽度=指针横坐标相对格宽，左不越过气泡起点、右不出格
-      const row = rows.find((r) => r.id === resizeId);
-      if (!row) return;
-      const x = row.bubble_x ?? 0.05;
+      const row = rows.find((r) => r.id === resize.rowId);
+      const cur = row?.bubbles?.[resize.idx];
+      if (!row || !cur) return;
+      const x = cur.x ?? 0.05;
       const w = Math.min(
         Math.max(0.15, (e.clientX - rect.left) / rect.width - x),
         1 - x - 0.02);
-      setRows((rs) => rs.map((r) => (r.id === resizeId ? { ...r, bubble_w: w } : r)));
+      patchBubble(resize.rowId, resize.idx, { w });
       return;
     }
-    const rowId = bubbleDragRef.current;
-    if (!rowId) return;
+    const drag = bubbleDragRef.current;
+    if (!drag) return;
     // 按气泡实际宽高钳制，保证整个气泡留在格内（拖到右/下缘不溢出）
     const bwRatio = bubble.offsetWidth / rect.width;
     const bhRatio = bubble.offsetHeight / rect.height;
@@ -480,31 +510,23 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                        Math.max(0.04, 0.98 - bwRatio));
     const y = Math.min(Math.max(0.02, (e.clientY - rect.top) / rect.height),
                        Math.max(0.04, 0.98 - bhRatio));
-    setRows((rs) => rs.map((r) => (
-      r.id === rowId ? { ...r, bubble_x: x, bubble_y: y } : r)));
+    patchBubble(drag.rowId, drag.idx, { x, y });
   };
 
   const onBubblePointerUp = () => {
-    const rowId = bubbleDragRef.current ?? bubbleResizeRef.current;
+    const target = bubbleDragRef.current ?? bubbleResizeRef.current;
     bubbleDragRef.current = null;
     bubbleResizeRef.current = null;
-    if (!rowId) return;
-    const row = rows.find((r) => r.id === rowId);
-    if (!row) return;
-    const patch: { bubble_x?: number; bubble_y?: number; bubble_w?: number } = {};
-    if (row.bubble_x != null && row.bubble_y != null) {
-      patch.bubble_x = row.bubble_x;
-      patch.bubble_y = row.bubble_y;
+    if (!target) return;
+    const row = rows.find((r) => r.id === target.rowId);
+    if (row && (row.bubbles ?? []).some((b) => (b.text ?? '').trim())) {
+      saveBubbles(row);
     }
-    if (row.bubble_w != null) patch.bubble_w = row.bubble_w;
-    if (!Object.keys(patch).length) return;
-    mangaApi.updateStoryboardRow(pid, rowId, patch)
-      .catch((err) => showToast(getErrorMessage(err, '气泡位置保存失败'), 'error'));
   };
 
   /* ---- 气泡拉伸（右下把手改宽度，高度随文字折行自适应） ---- */
 
-  const onResizePointerDown = (e: React.PointerEvent, rowId: string) => {
+  const onResizePointerDown = (e: React.PointerEvent, rowId: string, idx: number) => {
     e.stopPropagation();  // 不触发气泡移动拖拽
     e.preventDefault();
     try {
@@ -512,7 +534,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     } catch {
       // 合成/失活指针无法捕获——move/up 经气泡本体的共享通道驱动
     }
-    bubbleResizeRef.current = rowId;
+    bubbleResizeRef.current = { rowId, idx };
   };
 
   /* ---------------- 画风切换 ---------------- */
@@ -663,30 +685,34 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       </div>
                     )}
                     <span className="comic-panel-badge">第 {idx + 1} 格{kf ? ` · v${kf.version}` : ''}</span>
-                    {(dialogueDraft[row.id] ?? '').trim() && (
-                      <div
-                        className="comic-bubble"
-                        style={{
-                          left: `${bubblePos(row).x * 100}%`,
-                          top: `${bubblePos(row).y * 100}%`,
-                          ...(row.bubble_w != null
-                            ? { width: `${Math.round(row.bubble_w * 100)}%` }
-                            : null),
-                        }}
-                        title="拖动移动位置；右下角把手拉伸宽度"
-                        onPointerDown={(e) => onBubblePointerDown(e, row.id)}
-                        onPointerMove={onBubblePointerMove}
-                        onPointerUp={onBubblePointerUp}
-                      >
-                        {(dialogueDraft[row.id] ?? '').trim()}
-                        <span
-                          className="comic-bubble-resize"
-                          aria-label="拉伸气泡宽度"
-                          title="拖动拉伸宽度"
-                          onPointerDown={(e) => onResizePointerDown(e, row.id)}
-                        />
-                      </div>
-                    )}
+                    {ensureBubbles(row).map((b, bi) => {
+                      if (!(b.text ?? '').trim()) return null;
+                      const speaker = b.asset_id ? charById.get(b.asset_id)?.name : null;
+                      return (
+                        <div
+                          key={b.asset_id ?? `nar-${bi}`}
+                          className={`comic-bubble${b.asset_id ? '' : ' narration'}`}
+                          style={{
+                            left: `${(b.x ?? 0.05) * 100}%`,
+                            top: `${(b.y ?? 0.06) * 100}%`,
+                            ...(b.w != null ? { width: `${Math.round(b.w * 100)}%` } : null),
+                          }}
+                          title="拖动移动位置；右下角把手拉伸宽度"
+                          onPointerDown={(e) => onBubblePointerDown(e, row.id, bi)}
+                          onPointerMove={onBubblePointerMove}
+                          onPointerUp={onBubblePointerUp}
+                        >
+                          {speaker && <i className="comic-bubble-name">{speaker}</i>}
+                          {b.text}
+                          <span
+                            className="comic-bubble-resize"
+                            aria-label="拉伸气泡宽度"
+                            title="拖动拉伸宽度"
+                            onPointerDown={(e) => onResizePointerDown(e, row.id, bi)}
+                          />
+                        </div>
+                      );
+                    })}
                     {generating && (
                       <div className="comic-panel-gen">
                         <Loader2 size={22} className="spin" />
@@ -704,14 +730,22 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       onChange={(e) => setPromptDraft((d) => ({ ...d, [row.id]: e.target.value }))}
                       onBlur={() => void savePrompt(row)}
                     />
-                    <input
-                      className="input comic-panel-dialogue"
-                      maxLength={200}
-                      placeholder="台词 / 旁白（显示为气泡，导出时烘入）"
-                      value={dialogueDraft[row.id] ?? ''}
-                      onChange={(e) => setDialogueDraft((d) => ({ ...d, [row.id]: e.target.value }))}
-                      onBlur={() => void saveDialogue(row)}
-                    />
+                    <div className="comic-panel-lines">
+                      {ensureBubbles(row).map((b, bi) => {
+                        const speaker = b.asset_id ? charById.get(b.asset_id)?.name : '旁白';
+                        return (
+                          <input
+                            key={b.asset_id ?? `nar-${bi}`}
+                            className={`input comic-panel-dialogue${b.asset_id ? '' : ' narration-line'}`}
+                            maxLength={200}
+                            placeholder={`${speaker}的台词（空=不显示气泡）`}
+                            value={b.text ?? ''}
+                            onChange={(e) => patchBubble(row.id, bi, { text: e.target.value })}
+                            onBlur={() => saveBubbles(row)}
+                          />
+                        );
+                      })}
+                    </div>
                     <div className="comic-panel-chars">
                       {boundIds.map((aid) => {
                         const c = charById.get(aid);
@@ -881,7 +915,6 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             {rows.map((row, idx) => {
               const kf = kfByRow[row.id];
               const generating = genRows.has(row.id);
-              const pos = bubblePos(row);
               return (
                 <div className="comic-preview-panel" key={row.id}>
                   <div className="comic-preview-imgwrap">
@@ -896,20 +929,24 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                         <span>{(row.description ?? '').trim() ? '待生成' : '填写描述后生成'}</span>
                       </div>
                     )}
-                    {(row.original_dialogue ?? '').trim() && (
-                      <div
-                        className="comic-bubble"
-                        style={{
-                          left: `${pos.x * 100}%`,
-                          top: `${pos.y * 100}%`,
-                          ...(row.bubble_w != null
-                            ? { width: `${Math.round(row.bubble_w * 100)}%` }
-                            : null),
-                        }}
-                      >
-                        {(row.original_dialogue ?? '').trim()}
-                      </div>
-                    )}
+                    {ensureBubbles(row).map((b, bi) => {
+                      if (!(b.text ?? '').trim()) return null;
+                      const speaker = b.asset_id ? charById.get(b.asset_id)?.name : null;
+                      return (
+                        <div
+                          key={b.asset_id ?? `nar-${bi}`}
+                          className={`comic-bubble${b.asset_id ? '' : ' narration'}`}
+                          style={{
+                            left: `${(b.x ?? 0.05) * 100}%`,
+                            top: `${(b.y ?? 0.06) * 100}%`,
+                            ...(b.w != null ? { width: `${Math.round(b.w * 100)}%` } : null),
+                          }}
+                        >
+                          {speaker && <i className="comic-bubble-name">{speaker}</i>}
+                          {b.text}
+                        </div>
+                      );
+                    })}
                     {generating && (
                       <div className="comic-panel-gen">
                         <Loader2 size={22} className="spin" />

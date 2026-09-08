@@ -422,6 +422,20 @@ export interface PaintResult {
 /** 分镜行生成状态（对齐后端 _row_to_storyboard_row） */
 export type StoryboardGenerationStatus = 'pending' | 'generating' | 'done' | 'error' | 'skipped';
 
+/** 单条台词气泡（多角色场景，2026-09-08）：每角色一条+旁白（asset_id 空） */
+export interface PanelBubble {
+  /** 台词文本 */
+  text: string;
+  /** 左上角横坐标（0~1 相对格宽；缺省=默认左上） */
+  x?: number | null;
+  /** 左上角纵坐标（0~1 相对格高） */
+  y?: number | null;
+  /** 宽度（0~1 相对格宽；null=自动贴合内容） */
+  w?: number | null;
+  /** 关联角色资产 id（空=旁白） */
+  asset_id?: string | null;
+}
+
 /** 保存状态（顶栏状态点；前端本地状态机，无后端对应） */
 export type ShotSaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -467,6 +481,9 @@ export interface StoryboardRow {
   bubble_y?: number | null;
   /** 台词气泡宽度（0~1 相对格宽，null=自动贴合内容；拉伸把手 2026-09-08 */
   bubble_w?: number | null;
+  /** 多角色台词气泡（2026-09-08）：每角色一条+旁白，各带独立位置/宽度；
+   *  空数组=回退旧单气泡字段（original_dialogue+bubble_x/y/w） */
+  bubbles?: PanelBubble[];
   /** 排序索引（/storyboard/reorder 持久化） */
   sort_index?: number;
   /** 镜头类型/角度/运镜（导演台字段） */

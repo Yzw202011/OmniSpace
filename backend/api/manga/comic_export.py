@@ -23,7 +23,7 @@ from fastapi import APIRouter, Body
 from pydantic import BaseModel, Field, ValidationError
 
 from ...config import DATA_DIR
-from ...data.database import get_db_safe
+from ...data.database import get_db_safe, parse_json
 from ...middleware.error_handler import ApiError, ok
 from .common import _now
 
@@ -102,12 +102,12 @@ def draw_bubble(img: Any, text: str, font_path: str | None,
                   fill=(20, 20, 20, 255))
 
 
-def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float, float | None]],
-                                            list[int]]:
+def _load_panels(project_id: str) -> tuple[list[dict], list[int]]:
     """取项目分格的当前关键帧图。
 
-    返回 ((图, 台词, bubble_x, bubble_y), ...) 与跳过镜号表；
-    气泡坐标 NULL 时取缺省左上。
+    返回 ([{img, bubbles: [{text,x,y,w}]}, ...], 跳过镜号表)。
+    bubbles 取行级多气泡 JSON；为空时回退 legacy 单气泡
+    （original_dialogue + bubble_x/y/w）——漫剧旧数据无感兼容。
     """
     from PIL import Image
 
@@ -115,11 +115,11 @@ def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float, fl
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法导出")
     rows = db.query(
-        "SELECT id, shot_number, original_dialogue, bubble_x, bubble_y, bubble_w"
-        " FROM storyboard_rows"
+        "SELECT id, shot_number, original_dialogue, bubble_x, bubble_y,"
+        " bubble_w, bubbles FROM storyboard_rows"
         " WHERE storyboard_id=(SELECT id FROM storyboards WHERE project_id=?)"
         " ORDER BY sort_index ASC, shot_number ASC", (project_id,))
-    panels: list[tuple[Any, str, float, float, float | None]] = []
+    panels: list[dict] = []
     skipped: list[int] = []
     for r in rows:
         kf = db.query_one(
@@ -138,26 +138,46 @@ def _load_panels(project_id: str) -> tuple[list[tuple[Any, str, float, float, fl
         except OSError:
             skipped.append(int(r.get("shot_number") or 0))
             continue
-        bx = float(r["bubble_x"]) if r.get("bubble_x") is not None else _BUBBLE_DEFAULT_X
-        by = float(r["bubble_y"]) if r.get("bubble_y") is not None else _BUBBLE_DEFAULT_Y
-        bwv = float(r["bubble_w"]) if r.get("bubble_w") is not None else None
-        panels.append((im, str(r.get("original_dialogue") or ""), bx, by, bwv))
+        bubbles = parse_json(r.get("bubbles"), [])
+        if not (isinstance(bubbles, list) and bubbles
+                and all(isinstance(b, dict) for b in bubbles)):
+            # legacy 单气泡回退
+            text = str(r.get("original_dialogue") or "")
+            bubbles = [{
+                "text": text,
+                "x": float(r["bubble_x"]) if r.get("bubble_x") is not None else None,
+                "y": float(r["bubble_y"]) if r.get("bubble_y") is not None else None,
+                "w": float(r["bubble_w"]) if r.get("bubble_w") is not None else None,
+            }] if text.strip() else []
+        panels.append({"img": im, "bubbles": bubbles})
     return panels, skipped
 
 
-def compose_png(panels: list[tuple[Any, str, float, float, float | None]],
-                font_path: str | None) -> Any:
-    """单列长图合成（面板等宽 1280，白底，可选烘焙气泡）。"""
+def draw_all_bubbles(img: Any, bubbles: list[dict],
+                     font_path: str | None) -> None:
+    """按行级多气泡逐条烘焙（x/y/w 缺省走 draw_bubble 默认）。"""
+    for b in bubbles:
+        text = str(b.get("text") or "")
+        if not text.strip():
+            continue
+        raw_x, raw_y, raw_w = b.get("x"), b.get("y"), b.get("w")
+        bx = float(raw_x) if isinstance(raw_x, (int, float)) else _BUBBLE_DEFAULT_X
+        by = float(raw_y) if isinstance(raw_y, (int, float)) else _BUBBLE_DEFAULT_Y
+        bwv = float(raw_w) if isinstance(raw_w, (int, float)) else None
+        draw_bubble(img, text, font_path, bx, by, bwv)
+
+
+def compose_png(panels: list[dict], font_path: str | None) -> Any:
+    """单列长图合成（面板等宽 1280，白底，可选烘焙多气泡）。"""
     from PIL import Image
 
     if not panels:
         raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
     resized = []
-    for im, dialogue, bx, by, bwv in panels:
-        h = int(im.height * _PANEL_W / im.width)
-        panel = im.resize((_PANEL_W, h))
-        if dialogue:
-            draw_bubble(panel, dialogue, font_path, bx, by, bwv)
+    for p in panels:
+        panel = p["img"].resize(
+            (_PANEL_W, int(p["img"].height * _PANEL_W / p["img"].width)))
+        draw_all_bubbles(panel, p["bubbles"], font_path)
         resized.append(panel)
     total_h = sum(p.height for p in resized) + _GUTTER * (len(resized) - 1) + _MARGIN * 2
     canvas = Image.new("RGB", (_PANEL_W + _MARGIN * 2, total_h), (250, 250, 250))
@@ -168,7 +188,7 @@ def compose_png(panels: list[tuple[Any, str, float, float, float | None]],
     return canvas
 
 
-def compose_grid2_pages(panels: list[tuple[Any, str, float, float, float | None]],
+def compose_grid2_pages(panels: list[dict],
                         font_path: str | None) -> list[Any]:
     """每页 2×2 格排版（面板统一 1280×720，页 2636×1516 含边距间距）。"""
     from PIL import Image
@@ -176,10 +196,9 @@ def compose_grid2_pages(panels: list[tuple[Any, str, float, float, float | None]
     if not panels:
         raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
     fitted = []
-    for im, dialogue, bx, by, bwv in panels:
-        panel = im.resize((_PANEL_W, int(_PANEL_W * 9 / 16)))
-        if dialogue:
-            draw_bubble(panel, dialogue, font_path, bx, by, bwv)
+    for p in panels:
+        panel = p["img"].resize((_PANEL_W, int(_PANEL_W * 9 / 16)))
+        draw_all_bubbles(panel, p["bubbles"], font_path)
         fitted.append(panel)
     page_w = _PANEL_W * 2 + _GUTTER + _MARGIN * 2
     page_h = int(_PANEL_W * 9 / 16) * 2 + _GUTTER + _MARGIN * 2
@@ -280,9 +299,10 @@ def comic_export_page(body: dict = Body(default_factory=dict)) -> dict[str, Any]
         pages = len(page_imgs)
     else:
         pages_list = []
-        for im, dialogue, bx, by, bwv in panels:
-            if dialogue and font_path:
-                draw_bubble(im, dialogue, font_path, bx, by, bwv)
+        for p in panels:
+            im = p["img"]
+            if font_path:
+                draw_all_bubbles(im, p["bubbles"], font_path)
             pages_list.append((_img_to_jpeg(im), im.width, im.height))
         pdf_bytes = jpegs_to_pdf(pages_list)
         out_path = out_dir / f"comic_{req.project_id[:8]}_{ts}.pdf"

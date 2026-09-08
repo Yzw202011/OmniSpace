@@ -567,6 +567,16 @@ class StoryboardCreate(BaseModel):
     project_id: str
 
 
+class BubbleLine(BaseModel):
+    """单条台词气泡（多角色场景，2026-09-08）。"""
+    text: str = Field(default="", max_length=200)
+    x: float | None = Field(default=None, ge=0.0, le=1.0)
+    y: float | None = Field(default=None, ge=0.0, le=1.0)
+    w: float | None = Field(default=None, ge=0.1, le=1.0)
+    # 关联角色资产（空=旁白）；名字由前端按资产解析展示
+    asset_id: str | None = Field(default=None, max_length=64)
+
+
 class StoryboardRowUpdate(BaseModel):
     original_dialogue: str | None = None
     description: str | None = None
@@ -596,6 +606,8 @@ class StoryboardRowUpdate(BaseModel):
     bubble_y: float | None = Field(default=None, ge=0.0, le=1.0)
     # 气泡宽度（0~1 相对格宽；None=不更新；NULL 语义在行=自动贴合内容）
     bubble_w: float | None = Field(default=None, ge=0.1, le=1.0)
+    # 多角色台词（2026-09-08）：每格多气泡，每角色一条+旁白（asset_id 空）
+    bubbles: list[BubbleLine] | None = None
 
 
 class AiDescribeRequest(BaseModel):

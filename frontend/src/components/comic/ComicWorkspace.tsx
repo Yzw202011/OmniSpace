@@ -92,6 +92,11 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const bubbleDragRef = useRef<string | null>(null);
   const bubbleResizeRef = useRef<string | null>(null);
 
+  // 批量菜单（2026-09-08 用户画风混用之惑）：生成未完成 / 全部重新生成
+  const [batchMenuOpen, setBatchMenuOpen] = useState(false);
+  const [regenAllConfirm, setRegenAllConfirm] = useState(false);
+  const [regenAllRunning, setRegenAllRunning] = useState(false);
+
   const loadAll = () => {
     setLoading(true);
     void (async () => {
@@ -244,7 +249,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     if (batchRunning) return;
     const pending = rows.filter((r) => !kfByRow[r.id]);
     if (pending.length === 0) {
-      showToast('所有分格都已有画面；需要换风格请逐格点「重新生成」', 'info');
+      showToast('所有分格都已有画面；需要换风格请用「全部重新生成」', 'info');
       return;
     }
     setBatchRunning(true);
@@ -269,6 +274,40 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     setBatchRunning(false);
     showToast(
       fail ? `批量完成：成功 ${ok} 格、失败 ${fail} 格（可单格重试）` : `批量完成：${ok} 格全部生成`,
+      fail ? 'warning' : 'success',
+    );
+  };
+
+  /** 全部重新生成（当前画风）：换画风后一键统一全部格（旧版保留可回退） */
+  const regenerateAll = async () => {
+    if (regenAllRunning || batchRunning || rows.length === 0) return;
+    setRegenAllConfirm(false);
+    setRegenAllRunning(true);
+    let ok = 0;
+    let fail = 0;
+    for (const r of rows) {
+      if (!(promptDraft[r.id] ?? '').trim() && !(r.description ?? '').trim()) {
+        continue;  // 无描述的空格跳过（诚实不硬造）
+      }
+      setGenRows((s) => new Set(s).add(r.id));
+      try {
+        const kf = await mangaApi.regenerateKeyframe({ row_id: r.id, project_id: pid });
+        setKfByRow((m) => ({ ...m, [r.id]: kf }));
+        ok += 1;
+      } catch {
+        fail += 1;
+      } finally {
+        setGenRows((s) => {
+          const n = new Set(s);
+          n.delete(r.id);
+          return n;
+        });
+      }
+    }
+    setRegenAllRunning(false);
+    showToast(
+      fail ? `全部重生完成：成功 ${ok} 格、失败 ${fail} 格（可单格重试）`
+           : `全部重生完成：${ok} 格已按当前画风统一`,
       fail ? 'warning' : 'success',
     );
   };
@@ -559,15 +598,46 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           <button type="button" className="btn" onClick={() => void addPanel()} disabled={rowBusy}>
             <Plus size={15} /> 添加分格
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void batchGenerate()}
-            disabled={batchRunning || rowBusy || rows.length === 0}
-          >
-            {batchRunning ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
-            {batchRunning ? '生成中…' : `生成未完成分格${pendingCount > 0 ? `（${pendingCount}）` : ''}`}
-          </button>
+          <div className="comic-export-wrap">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setBatchMenuOpen((o) => !o)}
+              disabled={batchRunning || regenAllRunning || rowBusy || rows.length === 0}
+            >
+              {(batchRunning || regenAllRunning)
+                ? <Loader2 size={15} className="spin" />
+                : <Sparkles size={15} />}
+              {regenAllRunning ? '全部重生中…'
+                : batchRunning ? '生成中…'
+                : `批量生成${pendingCount > 0 ? `（未完成 ${pendingCount}）` : ''}`}
+            </button>
+            {batchMenuOpen && (
+              <div className="comic-export-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setBatchMenuOpen(false);
+                    void batchGenerate();
+                  }}
+                >
+                  生成未完成分格（{pendingCount}）
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setBatchMenuOpen(false);
+                    setRegenAllConfirm(true);
+                  }}
+                >
+                  全部重新生成（按当前画风统一）
+                </button>
+                <p className="text-secondary">全部重生约每格 1~2 分钟，旧版保留可回退</p>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -766,6 +836,27 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             )}
           </aside>
         </div>
+      )}
+
+      {/* 全部重新生成确认（换画风统一/角色重抽，旧版保留） */}
+      {regenAllConfirm && (
+        <Modal title="全部重新生成" onClose={() => setRegenAllConfirm(false)} width={440}>
+          <div className="flex flex-col gap-3">
+            <p>
+              将按<b>当前画风</b>重新生成全部 {rows.length} 格画面（无描述的空格自动跳过）。
+              适合换画风后统一风格、或对角色一致性整体不满意时重抽。
+              旧版本全部保留，可逐格回退。预计每格 1~2 分钟。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn" onClick={() => setRegenAllConfirm(false)}>
+                取消
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void regenerateAll()}>
+                <Sparkles size={14} /> 开始重生（{rows.length} 格）
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* 阅读预览（完整显示 contain + 预览中重新生成，C4 用户需求 2026-09-08） */}

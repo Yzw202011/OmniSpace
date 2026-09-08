@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS comic_assets (
     prompt      TEXT DEFAULT '',
     meta        TEXT DEFAULT '{}',   -- JSON（尺寸/种子/子视图等）
     created_at  REAL NOT NULL DEFAULT 0,
-    scope       TEXT NOT NULL DEFAULT 'project'    -- project=项目资产 / global=全局资产（跨项目）
+    scope       TEXT NOT NULL DEFAULT 'project',   -- project=项目资产 / global=全局资产（跨项目）
+    face        TEXT NOT NULL DEFAULT 'manga'      -- 全局资产归属面：manga(漫剧) | comic(漫画)，2026-09-08 两产品面全局池隔离
 );
 CREATE INDEX IF NOT EXISTS idx_comic_assets_project ON comic_assets(project_id);
 
@@ -480,7 +481,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 12
+    SCHEMA_VERSION = 13
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -570,6 +571,11 @@ class Database:
             # 每格多气泡 JSON——每角色一条+旁白，各带独立位置宽度；
             # 单气泡旧列（original_dialogue+bubble_x/y/w）保留兼容漫剧
             ("storyboard_rows", "bubbles", "TEXT DEFAULT '[]'"),
+        )),
+        (13, (
+            # 全局资产域按产品面隔离（2026-09-08 用户令）：漫画/漫剧
+            # 全局池分家；存量全局资产默认归漫剧（此前只有漫剧在用）
+            ("comic_assets", "face", "TEXT NOT NULL DEFAULT 'manga'"),
         )),
     )
 

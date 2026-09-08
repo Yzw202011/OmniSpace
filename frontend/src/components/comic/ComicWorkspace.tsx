@@ -394,7 +394,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const loadLib = async () => {
     setLibLoading(true);
     try {
-      setLibAssets(await mangaApi.listAssets(pid, libKind, libScope));
+      // 全局域按产品面隔离（2026-09-08 用户令）：漫画页只见 face=comic 全局资产
+      setLibAssets(await mangaApi.listAssets(
+        pid, libKind, libScope, libScope === 'global' ? 'comic' : undefined));
     } catch (err) {
       showToast(getErrorMessage(err, '资产库加载失败'), 'error');
     } finally {
@@ -1079,7 +1081,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
               <div className="loading-block"><div className="spinner" /><div>资产加载中…</div></div>
             ) : libAssets.length === 0 ? (
               <div className="comic-lib-empty text-secondary">
-                {libScope === 'global' ? '全局库还没有此类资产（删除项目时项目资产会自动转入）' : `还没有${libKindLabel}资产`}
+                {libScope === 'global' ? '全局库（漫画页）还没有资产——删除漫画项目时其资产自动转入此处；与漫剧全局库互不可见' : `还没有${libKindLabel}资产`}
               </div>
             ) : (
               <div className="comic-lib-grid">

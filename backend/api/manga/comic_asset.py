@@ -98,7 +98,8 @@ def _asset_row_to_dict(r: dict) -> dict:
             "file_path": r.get("file_path", ""), "prompt": r.get("prompt", ""),
             "meta": parse_json(r.get("meta"), {}),
             "created_at": r.get("created_at", 0),
-            "scope": r.get("scope") or "project"}
+            "scope": r.get("scope") or "project",
+            "face": r.get("face") or "manga"}
 
 
 def _asset_kind_endpoint(kind: str) -> Callable[[AssetGenerateRequest], Awaitable[dict[str, Any]]]:
@@ -117,16 +118,27 @@ def _asset_kind_endpoint(kind: str) -> Callable[[AssetGenerateRequest], Awaitabl
             f"资产生成：{(req.name or '')[:20]}",
             input_summary=f"{req.width}x{req.height} "
                           f"{(req.prompt or '')[:60]}")
+        # 云端路由（批2 云端API 2026-09-06）：资产工位绑定云端连接时
+        # 任务走云端道（队列跳过本地锁）、生成核心换云端适配器；
+        # 解析失败按本地（不阻断生成）
+        try:
+            from ...services.cloud_provider_service import get_image_endpoint
+            _cloud_ep = get_image_endpoint("asset.image")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("资产云端路由解析失败（按本地引擎）: %s", exc)
+            _cloud_ep = None
 
         def _runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
-            return _generate_asset_sync(req, kind)
+            return _generate_asset_sync(req, kind,
+                                        cloud_endpoint=_cloud_ep)
 
         try:
             data = await get_image_queue().submit_and_wait({
                 "task_id": f"asset:{kind[:4]}:{req.name[:8]}:"
                            f"{time.time_ns():x}",
                 "kind": "comic_asset", "runner": _runner,
-                "loop": asyncio.get_running_loop()})
+                "loop": asyncio.get_running_loop(),
+                "cloud": _cloud_ep is not None})
         except ApiError as exc:
             _end_asset_flow(flow, "error", error_code=str(exc.code),
                             error_detail=str(exc.message)[:300])
@@ -220,6 +232,13 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
         f"漫剧·批量{kind}资产生成（{len(req.items)} 项）",
         input_summary=", ".join(
             str(item.get("name") or "")[:12] for item in req.items[:8]))
+    # 云端路由（批2）：整批共用一次绑定解析
+    try:
+        from ...services.cloud_provider_service import get_image_endpoint
+        _cloud_ep = get_image_endpoint("asset.image")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("资产云端路由解析失败（按本地引擎）: %s", exc)
+        _cloud_ep = None
 
     def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         results: list[dict] = []
@@ -234,7 +253,8 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
                 height=int(item.get("height", IMG_TARGET_H)),
                 transparent=bool(item.get("transparent", False)))
             try:
-                data = _generate_asset_sync(sub, kind, None)
+                data = _generate_asset_sync(sub, kind, None,
+                                            cloud_endpoint=_cloud_ep)
                 results.append(data)
             except ApiError as exc:
                 failed.append({"name": sub.name, "code": exc.code,
@@ -250,7 +270,8 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
     data = await get_image_queue().submit_and_wait({
         "task_id": f"assetbatch:{req.project_id[:10]}:{time.time_ns():x}",
         "kind": "comic_asset", "runner": _batch_runner,
-        "loop": asyncio.get_running_loop()})
+        "loop": asyncio.get_running_loop(),
+        "cloud": _cloud_ep is not None})
     _end_asset_flow(
         flow, "success" if not data["failed"] else "error",
         error_code="BATCH_PARTIAL_FAILED" if data["failed"] else "",
@@ -266,6 +287,10 @@ def comic_asset_library(project_id: str | None = Query(None),
                         scope: str | None = Query(
                             None, description="project=项目资产（默认）；"
                             "global=全局资产库（跨项目，忽略 project_id）"),
+                        face: str | None = Query(
+                            "manga", description="全局资产归属面："
+                            "manga(漫剧，缺省向后兼容) | comic(漫画页)"
+                            "——2026-09-08 两产品面全局池隔离"),
                         limit: int = Query(100, ge=1, le=500,
                                            description="返回条数上限"),
                         offset: int = Query(0, ge=0,
@@ -282,6 +307,9 @@ def comic_asset_library(project_id: str | None = Query(None),
     cond, params = [], []
     if scope == "global":
         cond.append("scope='global'")
+        if face in ("manga", "comic"):
+            cond.append("face=?")
+            params.append(face)
     elif project_id:
         cond.append("project_id=?")
         params.append(project_id)
@@ -489,6 +517,16 @@ def _asset_move_to_global(asset: dict, project_id: str) -> tuple[str, dict]:
     return new_rel, meta
 
 
+def _face_of_project(db: Database, project_id: str) -> str:
+    """全局资产归属面：取项目 product_type（漫画项目→comic，其余→manga）。
+
+    项目不存在（历史脏数据）时回落 manga（此前全局池只有漫剧在用）。
+    """
+    row = db.query_one(
+        "SELECT project_type FROM projects WHERE id=?", (project_id,))
+    return "comic" if row and row.get("project_type") == "comic" else "manga"
+
+
 def assets_to_global(db: Database, project_id: str) -> int:
     """项目资产整体转全局域（删除项目时调用，用户裁定：不删除生成资产）。
 
@@ -501,11 +539,12 @@ def assets_to_global(db: Database, project_id: str) -> int:
 
     rows = db.query(f"SELECT {_ASSET_COLS} FROM comic_assets"
                     " WHERE project_id=?", (project_id,))
+    face = _face_of_project(db, project_id)
     for r in rows:
         asset = _asset_row_to_dict(r)
         new_rel, meta = _asset_move_to_global(asset, project_id)
         db.update("comic_assets",
-                  {"project_id": "", "scope": "global",
+                  {"project_id": "", "scope": "global", "face": face,
                    "file_path": new_rel, "meta": meta},
                   "id=?", (asset["asset_id"],))
     if rows:
@@ -535,8 +574,9 @@ def comic_asset_to_global(asset_id: str) -> dict[str, Any]:
         return ok({"asset": asset, "already_global": True})
     pid = asset.get("project_id", "")
     new_rel, meta = _asset_move_to_global(asset, pid)
+    face = _face_of_project(db, pid)
     db.update("comic_assets",
-              {"project_id": "", "scope": "global",
+              {"project_id": "", "scope": "global", "face": face,
                "file_path": new_rel, "meta": meta},
               "id=?", (asset_id,))
     row = db.query_one(

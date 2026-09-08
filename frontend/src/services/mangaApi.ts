@@ -566,11 +566,13 @@ export async function listAssets(
   projectId: string,
   kind?: ComicAssetKind,
   scope?: 'project' | 'global',
+  face?: 'manga' | 'comic',
 ): Promise<ComicAsset[]> {
   const res = await get<{ items: ComicAsset[]; total: number }>('/comic/asset/library', {
     project_id: projectId,
     kind,
     scope,
+    face,
   });
   return res.items ?? [];
 }

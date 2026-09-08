@@ -1183,7 +1183,7 @@ _KEYFRAME_DIR = DATA_DIR / "keyframes"
 #  批 1.4 资产图链路（COMIC-025~037、138）
 # ═══════════════════════════════════════════════════════════════════
 
-_ASSET_COLS = "id, project_id, kind, name, file_path, prompt, meta, created_at, scope"
+_ASSET_COLS = "id, project_id, kind, name, file_path, prompt, meta, created_at, scope, face"
 
 # ── 出图统一规格与参考图风格对齐（2026-08-14 用户铁律）──────────────
 # 资产图/分镜图统一出图 2560×1440（16:9）。SDXL 直出 2560×1440 构图

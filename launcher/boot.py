@@ -363,7 +363,7 @@ def make_splash_handler(boot: BootOrchestrator) -> type[BaseHTTPRequestHandler]:
             if self.path == '/api/open':
                 url = boot.state.backend.get('url')
                 if url:
-                    webbrowser.open(url)
+                    _open_ui(url, boot.opts)  # type: ignore[arg-type]
                     self._json({'ok': True, 'url': url})
                 else:
                     self._json({'ok': False, 'message': '后端尚未就绪'}, 409)
@@ -419,9 +419,156 @@ class BootOptions:
     no_browser: bool = False
     comfy: bool = False
     warmup: bool = True
+    # 强制系统浏览器（开发调试）：覆盖设置页 launch_mode 的桌面壳选择
+    force_browser: bool = False
     # 通道 A（拖入）：把 models 文件夹拖到启动 exe/快捷方式上，Windows
     # 以该路径为命令行参数拉起 exe，桩（omnispace_exe.c）原样透传到这
     dropped: list = field(default_factory=list)
+
+
+def _read_launch_mode() -> str:
+    """读设置页的界面打开方式（shell/browser，2026-09-08 壳接线）。
+
+    直接只读 SQLite（boot 阶段后端可能未起，不走 HTTP）；读取失败/
+    无记录按默认 shell。key 与 api/system.py._SETTINGS_KEY 对齐。
+    """
+    try:
+        import sqlite3
+        db_path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), 'data', 'omnispace.db')
+        if not os.path.isfile(db_path):
+            return 'shell'
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=2)
+        try:
+            row = conn.execute(
+                "SELECT value FROM system_settings WHERE key='system.settings'"
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return 'shell'
+        mode = (json.loads(row[0]) or {}).get('launch_mode', 'shell')
+        return 'browser' if mode == 'browser' else 'shell'
+    except Exception:  # noqa: BLE001 - 读取失败按默认壳
+        return 'shell'
+
+
+def _has_integrated_gpu() -> bool:
+    """是否存在核显（钉卡前提，2026-09-08 UI 降载方案①）。
+
+    双卡机（核显+独显）才把 WebView2 钉到核显省独显；单卡机（无
+    核显，如 Intel F 系列/独立显卡台式老平台）不动图形偏好——把
+    WebView2 钉到不存在的卡会导致回退行为不可控。
+
+    判定口径（2026-09-08 实测校准）：显示类注册表里存在「非独显、
+    非虚拟驱动」的适配器即视为核显席位——含核显驱动未装全时显示
+    为 "Microsoft Basic Display Adapter" 的情况（本机实况：核显以
+    Basic 驱动在跑合成，正则匹配 Intel 型号会漏判）。虚拟驱动
+    （远程 Idd 等）与 Microsoft 基本驱动本身不构成席位，但 Basic
+    适配器 + 独显并存 = 双卡拓扑成立。
+    """
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r'SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-'
+            r'bfc1-08002be10318}')
+        for i in range(16):
+            try:
+                sub = winreg.OpenKey(key, f'{i:04d}')
+            except OSError:
+                break
+            try:
+                desc = str(winreg.QueryValueEx(sub, 'DriverDesc')[0] or '')
+                name = desc.lower()
+                # 虚拟显示驱动不算（向日葵/Parsec/ToDesk 等 Idd）
+                if 'idd' in name or 'virtual' in name or 'parsec' in name:
+                    continue
+                # 独显不算
+                if 'nvidia' in name or 'amd' in name or 'radeon' in name:
+                    continue
+                # 剩余候选：Intel 系（xe/uhd/iris/arc）、或核显驱动
+                # 未装时的 Microsoft Basic（双卡拓扑下的核显席位）
+                if 'microsoft basic display adapter' in name \
+                        or 'intel' in name or 'iris' in name \
+                        or 'uhd' in name or 'arc' in name \
+                        or name.strip().endswith('xe'):
+                    return True
+            except OSError:
+                pass
+        return False
+    except Exception:  # noqa: BLE001 - 检测失败按无核显（不动偏好）
+        return False
+
+
+def _reg_has_value(key, name: str) -> bool:
+    import winreg
+    try:
+        winreg.QueryValueEx(key, name)
+        return True
+    except OSError:
+        return False
+
+
+def _ensure_webview_gpu_preference() -> None:
+    """WebView2 图形偏好自适应钉卡（2026-09-08 UI 降载方案①）。
+
+    双卡机把 msedgewebview2.exe 钉到「省电」（核显）——壳的渲染
+    永不抢占独显；幂等（已写且值正确跳过）；无核显机器零动作。
+    失败静默（不影响启动链，Windows 自行调度兜底）。
+    """
+    if not _has_integrated_gpu():
+        return
+    try:
+        import winreg
+        path = r'Software\Microsoft\DirectX\UserGpuPreferences'
+        want = 'msedgewebview2.exe=GpuPreference=1;'
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0,
+                             winreg.KEY_READ)
+        existing = ''
+        try:
+            existing = winreg.QueryValueEx(key, 'msedgewebview2.exe')[0]
+        except OSError:
+            pass
+        finally:
+            winreg.CloseKey(key)
+        if existing == 'GpuPreference=1;':
+            return
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0,
+                             winreg.KEY_SET_VALUE)
+        try:
+            winreg.SetValueEx(key, 'msedgewebview2.exe', 0,
+                              winreg.REG_SZ, 'GpuPreference=1;')
+        finally:
+            winreg.CloseKey(key)
+        print(f'[壳] 双卡机检测到核显：WebView2 已钉省电核显（{want}）')
+    except Exception as exc:  # noqa: BLE001 - 注册表失败静默
+        print(f'[壳] 图形偏好设置跳过：{exc}')
+
+
+def _open_ui(url: str, opts: BootOptions) -> None:
+    """统一界面入口（2026-09-08 壳接线）：按设置拉桌面壳或开浏览器。
+
+    壳失败（依赖缺失等）自动回退系统浏览器——绝不让用户黑屏。
+    """
+    _ensure_webview_gpu_preference()
+    if opts.force_browser or _read_launch_mode() == 'browser':
+        webbrowser.open(url)
+        return
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        shell_exe = os.path.join(root, 'runtime', 'py310', 'OmniSpace-Shell.exe')
+        pythonw = os.path.join(root, 'runtime', 'py310', 'pythonw.exe')
+        runner = shell_exe if os.path.isfile(shell_exe) else pythonw
+        cmd = [runner, os.path.join(root, 'launcher', 'shell.py'),
+               '--url', url]
+        subprocess.Popen(cmd, cwd=root,
+                         creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0)
+                         | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+        print(f'[壳] 已拉起桌面窗口装载 {url}')
+    except Exception as exc:  # noqa: BLE001 - 壳失败回退浏览器
+        print(f'[壳] 拉起失败回退浏览器：{exc}')
+        webbrowser.open(url)
 
 
 class BootOrchestrator:
@@ -501,7 +648,7 @@ class BootOrchestrator:
             print(f'检测到已在运行的启动页 {url}，复用并退出本实例（单实例守卫）')
             self._deferred_to_existing = True
             if not self.opts.no_browser:
-                webbrowser.open(url)
+                _open_ui(url, self.opts)
             return False
         self.state.set_phase('splash', 'running')
         handler = make_splash_handler(self)
@@ -521,7 +668,7 @@ class BootOrchestrator:
         self.state.set_phase('splash', 'done', url)
         self.state.log(f'启动页就绪 {url}')
         if not self.opts.no_browser:
-            webbrowser.open(url)
+            _open_ui(url, self.opts)
         return True
 
     # ── 阶段②：环境自检 ──
@@ -1036,7 +1183,9 @@ class BootOrchestrator:
 def main() -> int:
     parser = argparse.ArgumentParser(description='OmniSpace AI 启动主程序')
     parser.add_argument('--port', type=int, default=5800, help='后端端口')
-    parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器')
+    parser.add_argument('--no-browser', action='store_true', help='不自动打开界面')
+    parser.add_argument('--browser', action='store_true',
+                        help='强制系统浏览器打开（覆盖设置页的桌面窗口选择）')
     parser.add_argument('--comfy', action='store_true', help='启动时预热 ComfyUI')
     parser.add_argument('--no-warmup', action='store_true', help='跳过对话模型预热')
     # 位置参数＝拖入透传（通道 A）：拖文件夹到 exe 上，Windows 以路径为
@@ -1047,6 +1196,7 @@ def main() -> int:
 
     opts = BootOptions(port=args.port, no_browser=args.no_browser,
                        comfy=args.comfy, warmup=not args.no_warmup,
+                       force_browser=args.browser,
                        dropped=list(args.dropped or []))
     return BootOrchestrator(opts).run()
 

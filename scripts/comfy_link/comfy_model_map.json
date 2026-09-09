@@ -17,6 +17,11 @@
   "text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors": "video_gen/h3/text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
   "vae/flux2-vae.safetensors": "paint/flux2-klein-9b/vae/diffusion_pytorch_model.safetensors",
   "vae/minimax_h3_audio_vae_fp32.safetensors": "video_gen/h3/vae/minimax_h3_audio_vae_fp32.safetensors",
-  "vae/minimax_h3_video_vae_fp16.safetensors": "video_gen/h3/vae/minimax_h3_video_vae_fp16.safetensors"
+  "vae/minimax_h3_video_vae_fp16.safetensors": "video_gen/h3/vae/minimax_h3_video_vae_fp16.safetensors",
+  "diffusion_models/qwen-image-edit-2511-Q4_K_M.gguf": "paint/qwen-edit-2511/qwen-image-edit-2511-Q4_K_M.gguf",
+  "text_encoders/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf": "paint/qwen-edit-2511/text_encoder/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+  "vae/qwen_image_vae.safetensors": "paint/qwen-edit-2511/vae/qwen_image_vae_comfy.safetensors",
+  "text_encoders/Qwen2.5-VL-7B-Instruct-mmproj-BF16.gguf": "paint/qwen-edit-2511/text_encoder/mmproj-BF16.gguf",
+  "loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors": "paint/qwen-edit-2511/lora/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
  }
 }

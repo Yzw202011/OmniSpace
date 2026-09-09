@@ -32,6 +32,8 @@ import threading
 import time
 from pathlib import Path
 
+from ..vram_policy import COMFY_IDLE_SHUTDOWN_S
+
 logger = logging.getLogger("omnispace.inference.comfy_proc")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -53,7 +55,8 @@ COMFY_USER_DIR = COMFY_DATA_DIR / "user"
 _COMFY_BRAND_EXE = COMFY_DIR / "python_embeded" / "OmniSpace-Engine.exe"
 
 # 空闲关闭默认值（秒）；config.yaml comfyui.idle_shutdown_seconds 可覆盖
-DEFAULT_IDLE_SHUTDOWN_S = 300.0
+# （2026-09-10 批1 搬家 vram_policy 单源，本地名保留为别名）
+DEFAULT_IDLE_SHUTDOWN_S = COMFY_IDLE_SHUTDOWN_S
 # 空闲巡检间隔
 _IDLE_CHECK_INTERVAL_S = 15.0
 
@@ -368,6 +371,29 @@ class ComfyProcManager:
         except Exception:  # noqa: BLE001 - 探测失败视为无任务
             return False
 
+    def _generation_active(self) -> bool:
+        """本地重型生成是否活跃（批3 空闲豁免，2026-09-10）。
+
+        判据：功能锁持有 paint/video_gen，或忙碌登记簿有本地
+        paint/video_gen 任务（两条队列批2 起在准入后登记）。活跃时
+        空闲计时冻结——任务间隙 >idle 上限时不再把热引擎杀掉吃
+        ~40s 冷启动（keep_loaded 接力的保护网）。
+        """
+        try:
+            from ...middleware.feature_lock import get_feature_lock
+
+            if get_feature_lock().active_feature in ("paint", "video_gen"):
+                return True
+        except Exception:  # noqa: BLE001 - 锁查询失败交由登记簿判定
+            pass
+        try:
+            from .gpu_budget import get_busy_registry
+
+            registry = get_busy_registry()
+            return registry.is_busy("paint") or registry.is_busy("video_gen")
+        except Exception:  # noqa: BLE001 - 登记簿不可用按不活跃（原行为）
+            return False
+
     def _idle_loop(self) -> None:
         """空闲巡检：无任务且超时 → 杀进程（释放 CUDA context + RAM）。"""
         while not self._exited:
@@ -377,6 +403,12 @@ class ComfyProcManager:
             limit = _idle_shutdown_seconds()
             if limit <= 0:
                 continue  # 配置禁用（常驻热启动）
+            if self._generation_active():
+                # 批3 空闲豁免：重型生成活跃（锁/登记簿）→ 冻结计时，
+                # 下一轮再看（不影响原 busy_count 判定语义）
+                with self._lock:
+                    self._last_activity = time.monotonic()
+                continue
             with self._lock:
                 idle_for = time.monotonic() - self._last_activity
                 busy = self._busy_count > 0

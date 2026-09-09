@@ -790,10 +790,39 @@ def models_list_alias() -> dict[str, Any]:
 
 @router.get("/models/vram")
 def models_vram() -> dict[str, Any]:
-    """规格 §7.1 契约端点：显存全景（GPU 状态 + 逻辑预留 + 已加载占用）。"""
+    """规格 §7.1 契约端点：显存全景（GPU 状态 + 逻辑预留 + 已加载占用）。
+
+    批5（2026-09-10）：并入统一账本供需全景（budget=可批额度、
+    external=账外占用对账口径）与忙碌登记簿（本地/云任务上榜）——
+    前端状态栏从此可见「系统真实在忙什么」（云任务此前隐身）。
+    """
     mgr = get_model_manager()
     gpu = mgr.get_gpu_status()
     loaded = mgr.get_loaded_models()
+    # 统一账本供需快照（账本失明/异常降级为空对象，不阻断端点）
+    budget: dict[str, Any] = {}
+    busy_list: list[dict[str, Any]] = []
+    try:
+        from ..services.inference.gpu_budget import (
+            get_busy_registry,
+            get_gpu_budget,
+        )
+
+        snap = get_gpu_budget().snapshot(int(gpu.get("device", 0) or 0))
+        budget = {
+            "available": snap.available,
+            "free_gb": snap.free_gb,
+            "budget_gb": snap.budget_gb,
+            "ledger_gb": snap.ledger_gb,
+            "reserved_gb": snap.reserved_gb,
+            "external_gb": snap.external_gb,
+        }
+        busy_list = [
+            {"feature": e.feature, "kind": e.kind, "note": e.note}
+            for e in get_busy_registry().entries()
+        ]
+    except Exception:  # noqa: BLE001 - 账本不可用保持旧契约字段
+        pass
     return ok({
         "gpu": gpu,
         "reserved_vram_gb": gpu.get("reserved_vram_gb", 0.0),
@@ -804,6 +833,8 @@ def models_vram() -> dict[str, Any]:
              "category": m.get("category", "")}
             for m in loaded
         ],
+        "budget": budget,
+        "busy_registry": busy_list,
     })
 
 
@@ -1370,11 +1401,14 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
         engine = get_paint_engine()
         status = engine.get_status()
         want_model = (req.model_id or "").strip() or None
-        if (status.get("loaded")
-                and (want_model is None or status.get("model") == want_model)):
+        if status.get("loaded"):
+            # 已就绪即达标，不按目标匹配热切换拆台（2026-09-09 反向
+            # 互踩根修，与 /dialog/prewarm 同语义：换模型=显式动作）
             _warmup_inflight.discard("paint")
             return ok({"feature": "paint", "started": False,
-                       "reason": "already_ready"}, message="绘画模型已就绪")
+                       "reason": "already_ready",
+                       "model": status.get("model", "")},
+                      message="绘画模型已就绪")
         if "paint" in _warmup_inflight:
             return ok({"feature": "paint", "started": False,
                        "reason": "inflight"}, message="绘画模型预热中")
@@ -1403,13 +1437,15 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
     from ..services.inference.dialog_engine import get_dialog_engine
     engine = get_dialog_engine()
     status = engine.get_status()
-    # 已就绪判定按目标模型：ready 且（未指定模型 或 已加载即目标）
+    # 已就绪即达标：不按目标匹配热切换拆台（2026-09-09 反向互踩
+    # 根修——换模型走 /models/load 或发送带 model 的显式动作）
     want_model = (req.model_id or "").strip() or None
-    if (status.get("state") == "ready"
-            and (want_model is None or status.get("model") == want_model)):
+    if status.get("state") == "ready":
         _warmup_inflight.discard("dialog")
         return ok({"feature": "dialog", "started": False,
-                   "reason": "already_ready"}, message="对话模型已就绪")
+                   "reason": "already_ready",
+                   "model": status.get("model", "")},
+                  message="对话模型已就绪")
     if "dialog" in _warmup_inflight:
         return ok({"feature": "dialog", "started": False,
                    "reason": "inflight"}, message="对话模型预热中")

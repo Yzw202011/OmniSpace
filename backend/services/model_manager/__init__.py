@@ -326,10 +326,17 @@ class ModelManager:
             self._nvml_ready = False
         return self._nvml_ready
 
-    def get_gpu_status(self) -> dict:
-        """返回 GPU 状态：已用/总量/利用率（无 GPU 时降级为 zeros + available=False）。"""
+    def get_gpu_status(self, device: int | None = None) -> dict:
+        """返回 GPU 状态：已用/总量/利用率（无 GPU 时降级为 zeros + available=False）。
+
+        device=None 取主卡（0 号，历史口径）；多卡机器按 gpu_domains
+        分域时传目标卡号——此前硬编码 0 号卡，1 号卡判定失明（显存
+        调度机制批1，2026-09-10）。返回带 device 字段标明读数来源卡。
+        """
+        _dev = 0 if device is None else int(device)
         status = {
             "available": False, "gpu_name": "", "vendor": "none",
+            "device": _dev,
             "vram_total_mb": 0, "vram_used_mb": 0, "vram_free_mb": 0,
             "vram_total_gb": 0.0, "vram_used_gb": 0.0, "vram_free_gb": 0.0,
             "util_percent": 0.0, "temp_celsius": 0.0,
@@ -337,7 +344,7 @@ class ModelManager:
         }
         if self._ensure_nvml():
             try:
-                handle = _pynvml.nvmlDeviceGetHandleByIndex(0)
+                handle = _pynvml.nvmlDeviceGetHandleByIndex(_dev)
                 mem = _pynvml.nvmlDeviceGetMemoryInfo(handle)
                 util = _pynvml.nvmlDeviceGetUtilizationRates(handle)
                 name = _pynvml.nvmlDeviceGetName(handle)
@@ -361,11 +368,11 @@ class ModelManager:
             # 降级：torch 仅能取显存，无法取利用率
             try:
                 if _torch.cuda.is_available():
-                    total = _torch.cuda.get_device_properties(0).total_memory
-                    used = _torch.cuda.memory_allocated(0)
+                    total = _torch.cuda.get_device_properties(_dev).total_memory
+                    used = _torch.cuda.memory_allocated(_dev)
                     status.update({
                         "available": True,
-                        "gpu_name": _torch.cuda.get_device_name(0),
+                        "gpu_name": _torch.cuda.get_device_name(_dev),
                         "vendor": "nvidia",
                         "vram_total_mb": int(total // (1024 * 1024)),
                         "vram_used_mb": int(used // (1024 * 1024)),
@@ -678,6 +685,22 @@ class ModelManager:
                     break
                 gpu = self.get_gpu_status()
 
+            # V9-α（2026-09-09）：账本外 vLLM 孤儿对账——live e2e 测试
+            # 退出等遗留的孤儿进程占着显存但不在 _loaded（无可驱逐），
+            # 预检闸会拒绝、而清孤儿的逻辑原本在 start() 里（闸后）永远
+            # 跑不到（2026-09-08 15:26 实测死锁：孤儿占 15GB →
+            # MODEL_NO_EVICTABLE）。清完复测空闲再判；清扫尽力而为，
+            # 失败/无孤儿均不影响原判定路径。
+            if _free_logical() < required_gb:
+                try:
+                    from ...engines.vllm_service import get_vllm_service
+                    reaped = get_vllm_service().reap_orphans()
+                except Exception as exc:  # noqa: BLE001 - 对账失败按原判定
+                    log.debug("vLLM 孤儿对账通道异常（按原判定）: %s", exc)
+                    reaped = 0
+                if reaped:
+                    gpu = self.get_gpu_status()
+
             if _free_logical() >= required_gb:
                 self._reserved_vram_gb += required_gb
                 return True
@@ -727,21 +750,49 @@ class ModelManager:
         with self._policy_lock:
             return self._precision_policy
 
+    def _active_feature_keep_categories(self) -> set[str]:
+        """持锁活跃功能所需类别（驱逐统一语言，批3 2026-09-10）。
+
+        与 resource_guard/_release_for_module 用同一张
+        _FEATURE_KEEP_CATEGORIES 表——驱逐不再只按类别优先级盲选
+        （此前两套语言并存：evict 不看锁、守卫看锁，同一模型在不同
+        路径「可不可卸」判定不一致；VACE 误卸事故即两套语言打架）。
+        共享小模型（embedding/voice/auxiliary）语义不变仍可被驱逐
+        （60s 表层回收本就是它们的归宿）。
+        """
+        try:
+            from ...middleware.feature_lock import get_feature_lock
+
+            holder = get_feature_lock().active_feature
+        except Exception:  # noqa: BLE001 - 锁查询失败不拦截驱逐
+            return set()
+        if not holder:
+            return set()
+        return set(_FEATURE_KEEP_CATEGORIES.get(holder, set()))
+
     def evict_lowest_priority(self) -> bool:
         """驱逐已加载模型中优先级最低者（平级取最久未用）。
+
+        批3（2026-09-10）：候选先剔除持锁活跃功能所需类别（驱逐
+        统一语言）；无候选（全被活跃功能保护）返回 False，由调用方
+        的引擎降级链兜底。
 
         Returns:
             True 表示成功驱逐一个模型
         """
+        keep_cats = self._active_feature_keep_categories()
         with self._loaded_lock:
-            if not self._loaded:
+            candidates = {
+                mid: e for mid, e in self._loaded.items()
+                if str(e.get("category", "")) not in keep_cats}
+            if not candidates:
                 return False
             victim_id, victim = min(
-                self._loaded.items(),
+                candidates.items(),
                 key=lambda kv: (kv[1].get("priority", 0), kv[1].get("loaded_at", 0.0)),
             )
-        log.info("驱逐最低优先级模型: %s (priority=%s)",
-                 victim_id, victim.get("priority"))
+        log.info("驱逐最低优先级模型: %s (priority=%s, keep=%s)",
+                 victim_id, victim.get("priority"), sorted(keep_cats) or "无锁保护")
         return self.unload_model(victim_id)
 
     # ═══════════════════════════════════════════════════════════════
@@ -770,6 +821,38 @@ class ModelManager:
     #  加载 / 卸载主流程
     # ═══════════════════════════════════════════════════════════════
 
+    def note_external_load(self, model_id: str, category: str) -> bool:
+        """引擎经外部通道（V9-γ 唤醒收养等）完成装载后的台账补记。
+
+        幂等：已登记直接 True。补记后分配器不再因台账盲区拒绝
+        「装载一个已装好的模型」（2026-09-09 04:00 卡 90% 事故
+        根因②）；显存为服务已消耗的事实占用，不进 _reserved_vram_gb
+        （该值只跟踪 ensure 流程的在途预留）。
+        """
+        cat = (category or "").strip().lower()
+        with self._loaded_lock:
+            if model_id in self._loaded:
+                return True
+            path = self.resolve_model_path(model_id)
+            if path is None:
+                return False
+            required = self.estimate_vram_gb(model_id, cat)
+            try:
+                from ...engines.gpu_domains import resolve_feature_device
+                _dev = resolve_feature_device(self._normalize_feature(cat))
+            except Exception:  # noqa: BLE001 - 分配失败按主卡
+                _dev = 0
+            self._loaded[model_id] = {
+                "category": cat, "path": path,
+                "vram_gb": required,
+                "priority": _EVICTION_PRIORITY.get(cat, 0),
+                "loaded_at": time.time(),
+                "engine": "external_adopt",
+                "device": _dev,
+            }
+        log.info("台账补记（外部通道装载收养，V9-γ）: %s", model_id)
+        return True
+
     def ensure_loaded(self, category: str, model_id: str) -> bool:
         """确保模型加载到 GPU（其他服务依赖的稳定契约）。
 
@@ -797,6 +880,27 @@ class ModelManager:
             self.last_error = f"模型未下载: {model_id}"
             log.warning("ensure_loaded 失败: %s", self.last_error)
             return False
+
+        # V9-γ 收养旁路（2026-09-09）：目标模型已由外部通道健康服务中
+        #（绘画让渡后 wake 后台重启的产物：后端亲儿子、服务健康，但
+        # 唤醒线程不经过本函数，台账无记录）——先问引擎能否零成本收养，
+        # 能则跳过显存分配直接入账。防「装载已装好的模型被盲区拒绝」
+        #（04:00 卡 90% 事故根因②）。
+        try:
+            engine = self._get_engine(cat)
+        except Exception:  # noqa: BLE001
+            engine = None
+        if engine is not None:
+            try:
+                adopt_fn = getattr(engine, "try_adopt", None)
+                if callable(adopt_fn) and bool(adopt_fn(model_id)):
+                    self.note_external_load(model_id, cat)
+                    self.last_error = ""
+                    log.info("收养旁路命中（已健康服务，零显存装载）: %s",
+                             model_id)
+                    return True
+            except Exception as exc:  # noqa: BLE001 - 收养失败走原路径
+                log.debug("收养旁路探测失败: %s", exc)
 
         # 显存检查与分配
         required = self.estimate_vram_gb(model_id, cat)
@@ -850,8 +954,19 @@ class ModelManager:
             with self._vram_lock:
                 self._reserved_vram_gb = max(
                     0.0, self._reserved_vram_gb - required)
-            self.last_error = f"引擎加载失败: {model_id}"
-            log.warning("ensure_loaded 引擎加载失败: %s", model_id)
+            # 2026-09-07 降级链回归修复：只写「引擎加载失败: id」会吞掉
+            # 引擎详细原因（显存不足等），下游 dialog_engine 的降级判定
+            # （按「显存」关键字识别可降级失败）随之失明——9B 装不下时
+            # 不再自动降级 4b、消息直接报错。此处透传引擎 last_error。
+            _detail = ""
+            try:
+                _detail = str(engine.last_error() or "").strip()
+            except Exception:  # noqa: BLE001 - 访问器失败不影响主流程
+                pass
+            self.last_error = (
+                f"引擎加载失败: {model_id}" + (f" {_detail}" if _detail else ""))
+            log.warning("ensure_loaded 引擎加载失败: %s（%s）",
+                        model_id, _detail[:120] or "无详细原因")
             return False
 
         with self._loaded_lock:
@@ -1200,7 +1315,13 @@ class ModelManager:
                         _served = svc.served_name
                         vllm_stopped = svc.stop(timeout_s=2.0)
                         if vllm_stopped:
-                            freed_models.append("qwen3-vl-8b-awq(vllm)")
+                            # 台账记真实服务名（批1 修复 2026-09-10）：
+                            # 原硬编码旧默认模型名 qwen3-vl-8b-awq(vllm)，
+                            # 默认模型已换代 qwen35-9b-w4a16，事件日志/
+                            # 统计口径失真
+                            freed_models.append(
+                                f"{_served}(vllm)" if _served
+                                else "vllm-subprocess")
                             log.info("vLLM 子进程按需终止(→%s)供显存: %dms",
                                      target,
                                      round((time.monotonic() - t_vllm) * 1000))
@@ -1226,7 +1347,18 @@ class ModelManager:
                 except Exception:  # noqa: BLE001
                     pass
         elif "dialog" in locked_cats:
-            skipped.append("qwen3-vl-8b-awq(vllm)")
+            # 同上：跳过释放记账也用真实服务名（批1 修复 2026-09-10）
+            _skip_name = "vllm-subprocess"
+            try:
+                from ...engines.vllm_service import (
+                    get_vllm_service as _get_vllm_svc,
+                )
+                _svc = _get_vllm_svc()
+                if _svc.served_name:
+                    _skip_name = f"{_svc.served_name}(vllm)"
+            except Exception:  # noqa: BLE001 - 查询失败用中性名
+                pass
+            skipped.append(_skip_name)
             log.info("vLLM 子进程跳过释放（dialog 功能锁持有中）")
 
         # ComfyUI 子进程（H3 视频 + ComfyUI 绘画共用，2026-08-31 治理）：
@@ -1246,17 +1378,34 @@ class ModelManager:
             except Exception:  # noqa: BLE001
                 pass
             if _comfy_same_card:
+                # 视频任务进行中绝不杀 ComfyUI（2026-09-06 颗粒级实测
+                # 事故：training 切换在 H3 任务运行中杀掉其执行引擎，
+                # 任务悬挂 5 分钟靠手动取消才解锁；对话/小说路径已有
+                # 「视频生成中」拒绝，此处补齐同款守卫——跳过并在
+                # skipped 里如实记账，训练侧由显存准入闸诚实拒绝）
+                _video_running = False
                 try:
-                    from ..inference.comfy_proc import get_comfy_proc
-                    proc_mgr = get_comfy_proc()
-                    if proc_mgr.poll() is None:
-                        t_comfy = time.monotonic()
-                        proc_mgr.shutdown()
-                        freed_models.append("comfyui-subprocess")
-                        log.info("ComfyUI 子进程按需终止(→%s)供显存: %dms",
-                                 target, round((time.monotonic() - t_comfy) * 1000))
-                except Exception as exc:  # noqa: BLE001 - 释放失败不阻断
-                    log.warning("ComfyUI 子进程释放异常: %s", exc)
+                    from ...middleware.feature_lock import get_feature_lock
+                    _video_running = (
+                        get_feature_lock().active_feature == "video_gen")
+                except Exception:  # noqa: BLE001 - 锁查询失败不阻断释放
+                    pass
+                if _video_running:
+                    skipped.append("comfyui-subprocess(video_gen 运行中)")
+                    log.info("ComfyUI 子进程跳过释放（video_gen 功能锁持有"
+                             "中，运行中视频任务的执行引擎）")
+                else:
+                    try:
+                        from ..inference.comfy_proc import get_comfy_proc
+                        proc_mgr = get_comfy_proc()
+                        if proc_mgr.poll() is None:
+                            t_comfy = time.monotonic()
+                            proc_mgr.shutdown()
+                            freed_models.append("comfyui-subprocess")
+                            log.info("ComfyUI 子进程按需终止(→%s)供显存: %dms",
+                                     target, round((time.monotonic() - t_comfy) * 1000))
+                    except Exception as exc:  # noqa: BLE001 - 释放失败不阻断
+                        log.warning("ComfyUI 子进程释放异常: %s", exc)
 
         duration_ms = round((time.monotonic() - t0) * 1000)
         if freed_models or not vllm_kept_hot:
@@ -1359,6 +1508,28 @@ _manager_instance: ModelManager | None = None
 _singleton_lock = threading.Lock()
 
 
+def _wire_gpu_budget_ledger(mgr: ModelManager) -> None:
+    """台账源注入显存统一账本（显存调度机制批2，2026-09-10）。
+
+    gpu_budget 不反向依赖本模块（避免循环导入与冷启动开销），
+    由本侧注入回调：device → 该卡在载模型显存合计（GB）——
+    账本的 ledger_gb/external_gb 对账口径由此而来。
+    """
+
+    def _ledger(device: int) -> float:
+        with mgr._loaded_lock:
+            return sum(
+                float(e.get("vram_gb", 0.0))
+                for e in mgr._loaded.values()
+                if int(e.get("device", 0)) == int(device))
+
+    try:
+        from ..inference.gpu_budget import get_gpu_budget
+        get_gpu_budget().set_ledger_source(_ledger)
+    except Exception as exc:  # noqa: BLE001 - 注入失败账本按无台账降级
+        log.debug("gpu_budget 台账源注入跳过: %s", exc)
+
+
 def get_model_manager() -> ModelManager:
     """获取 ModelManager 全局单例。"""
     global _manager_instance
@@ -1366,4 +1537,5 @@ def get_model_manager() -> ModelManager:
         with _singleton_lock:
             if _manager_instance is None:
                 _manager_instance = ModelManager()
+                _wire_gpu_budget_ledger(_manager_instance)
     return _manager_instance

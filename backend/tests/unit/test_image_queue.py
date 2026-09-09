@@ -37,6 +37,7 @@ class Harness:
         self.events: list[str] = []
         self.q = ImageTaskQueue()
         monkeypatch.setattr(self.q, "_thermal_paused", lambda: False)
+        monkeypatch.setattr(self.q, "_wake_debounce_s", 0.05)  # V9-β 去抖窗（单测缩短）
         monkeypatch.setattr(self.q, "_acquire_paint_lock", self._acquire)
         monkeypatch.setattr(self.q, "_release_paint_lock",
                             lambda loop: self.events.append("release"))

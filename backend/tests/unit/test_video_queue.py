@@ -49,6 +49,9 @@ class Harness:
                             lambda: self.events.append("unload_paint"))
         monkeypatch.setattr(self.q, "_wake_vllm_after_generation",
                             lambda: self.events.append("vllm_wake"))
+        # 批3（2026-09-10）：排空即唤醒 → 去抖唤醒（对齐 image 队列
+        # V9-β）；单测缩短去抖窗（默认 10s 会超 8s 等待上限）
+        monkeypatch.setattr(self.q, "_wake_debounce_s", 0.05)
         monkeypatch.setattr(self.q, "_reconcile_orphan_tasks",
                             lambda task: None)
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from .base import DialogBackend
 from .gguf_backend import GGUFBackend
+from .llama_backend import LlamaServerBackend
 from .remote_backend import RemoteDialogBackend
 from .transformers_backend import TransformersBackend
 from .vllm_backend import VLLMBackend
@@ -26,6 +27,10 @@ def create_backend(kind: str) -> DialogBackend:
         return VLLMBackend()
     if kind == "gguf":
         return GGUFBackend()
+    if kind == "llama":
+        # GGUF 共存档（批4 2026-09-10）：qwen3.5 系 GGUF 走官方
+        # llama-server 子进程（llama-cpp-python 不认该架构）
+        return LlamaServerBackend()
     if kind in ("vl", "text"):
         return TransformersBackend(kind)
     if kind == "remote":
@@ -39,6 +44,7 @@ __all__ = [
     "DialogBackend",
     "TransformersBackend",
     "GGUFBackend",
+    "LlamaServerBackend",
     "VLLMBackend",
     "RemoteDialogBackend",
     "create_backend",

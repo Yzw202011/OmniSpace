@@ -151,9 +151,39 @@ class DecisionEngine:
         dispatcher.preload(["dialog", "paint"])
 
     def _strategy_cpu_assist(self, dispatcher: TaskDispatcher) -> None:
-        """CPU 辅助：将 GPU 部分层迁移到 CPU。"""
+        """CPU 辅助：将 GPU 部分层迁移到 CPU。
+
+        80% 档两态（显存调度机制批2，2026-09-10，方案 §3.4）：
+          - 生成期（功能锁持有）：migrate_to_cpu 因 2026-08-22 事故
+            保护被整体跳过（dispatcher 持锁即 return）——此前
+            0.80~0.90 区间在生成期是「空调区」（唯一配置动作被跳
+            过，只剩 90% 守卫兜底）。现在至少做零成本动作：大白话
+            事件 + 账本供需帧 + 日志升级，在途任务工作集绝不动
+            （90% resource_guard 与 ALL_TENSE 兜底不变）。
+          - 非生成期：维持原行为（offload 标记 + 缓存释放）。
+        """
         logger.info("策略[CPU_ASSIST]: 迁移部分层到 CPU")
-        # 迁移推理管线的后处理层到 CPU
+        if dispatcher._feature_lock_active():
+            logger.warning(
+                "显存预警（≥80%%）生成期：在途任务不动，仅记录供需帧"
+                "（90%% 守卫与 ALL_TENSE 兜底不变）")
+            try:
+                from ..event_log import log_event
+                from ..inference.gpu_budget import get_gpu_budget
+
+                snap = get_gpu_budget().snapshot(0)
+                log_event(
+                    "system", "gpu_vram_warning_active",
+                    f"显存占用超八成（空闲 {snap.free_gb:.1f}GB / "
+                    f"共 {snap.total_gb:.1f}GB），正在跑的任务不受影响，"
+                    "系统持续盯着，快满时会自动腾地方",
+                    level="warning",
+                    detail=(f"snapshot={snap!r}（生成期零成本动作："
+                            "不 offload 不卸载，仅记录）"))
+            except Exception as exc:  # noqa: BLE001 - 记录失败不影响调度
+                logger.debug("生成期供需帧记录跳过: %s", exc)
+            return
+        # 迁移推理管线的后处理层到 CPU（原行为）
         dispatcher.migrate_to_cpu(layers=["vae_decode", "postprocess"])
 
     def _strategy_gpu_assist_cpu(self, dispatcher: TaskDispatcher) -> None:
@@ -180,7 +210,20 @@ class DecisionEngine:
         不再盲预加载全部功能（16GB 显卡上 8B 对话模型一载即占满显存，
         闲置时形同泄漏）。仅在预测概率超过阈值时预加载单一功能；
         无使用历史（冷启动）时不预加载，保持显存空闲。
+
+        批5 登记簿联动（方案 §3.6）：云任务不占本地 GPU 利用率但系统
+        非空闲——云任务在跑时跳过预加载（用户正用云端，预判抢装本地
+        大模型只会挤占云任务完成后的本地接力窗口）。
         """
+        try:
+            from ..inference.gpu_budget import get_busy_registry
+
+            if get_busy_registry().is_busy():
+                logger.info(
+                    "策略[ALL_IDLE]: 有任务登记在跑（含云端），跳过预加载")
+                return
+        except Exception as exc:  # noqa: BLE001 - 登记簿不可用按原策略
+            logger.debug("忙碌登记簿检查跳过: %s", exc)
         try:
             from ..model_manager import get_model_manager
             pred = get_model_manager().predictor.predict_next()

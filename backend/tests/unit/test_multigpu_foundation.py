@@ -245,7 +245,11 @@ def test_vram_gates_not_hardcoded_device_zero() -> None:
     src = (_ROOT / "backend" / "engines" / "vllm_service.py").read_text(
         encoding="utf-8")
     assert "mem_get_info(0)" not in src, "vLLM 准入闸门仍锚死 0 号卡"
-    assert "mem_get_info(_dev_idx)" in src
+    # 批2（2026-09-10）：读数统一走 gpu_budget.read_physical_bytes
+    # （torch-only 通道），仍以 _dev_idx 传域卡号——两种形态均认
+    assert ("mem_get_info(_dev_idx)" in src
+            or "read_physical_bytes(" in src), \
+        "vLLM 准入闸门读数未按域卡号"
     src2 = (_ROOT / "backend" / "engines" / "vram_manager.py").read_text(
         encoding="utf-8")
     assert "memory_allocated(0)" not in src2, "显存账本仍锚死 0 号卡"

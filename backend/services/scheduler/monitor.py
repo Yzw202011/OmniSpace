@@ -85,7 +85,13 @@ class HardwareMonitor:
         return self._cached("gpu", GPU_SAMPLE_INTERVAL_S, self._sample_gpu)
 
     def _sample_gpu(self) -> dict:
-        result = {
+        # 多卡枚举（显存调度机制批1，2026-09-10）：顶层字段保持主卡
+        # （0 号）口径与历史完全一致（analyzer/decision 等下游零波及），
+        # 新增 devices 数组 + device_count 供 per-card 消费。此前硬编码
+        # 0 号卡——gpu_domains 把 paint/dialog 域分到 1 号卡时，该卡的
+        # 温度/显存在调度视野中不存在（方案 §1.2 病灶⑥）。
+        # 值类型混合（int/float/None/list[dict]），显式 Any 装载
+        result: dict[str, Any] = {
             "vram_used_mb": 0,
             "vram_total_mb": 0,
             "util_percent": 0.0,
@@ -98,37 +104,15 @@ class HardwareMonitor:
         }
 
         # 优先使用 pynvml
-        if self._ensure_nvml():
-            try:
-                handle = _pynvml.nvmlDeviceGetHandleByIndex(0)
-                mem = _pynvml.nvmlDeviceGetMemoryInfo(handle)
-                result["vram_total_mb"] = int(mem.total // (1024 * 1024))
-                result["vram_used_mb"] = int(mem.used // (1024 * 1024))
+        devices = self._sample_all_gpu_devices()
+        if devices:
+            devices.sort(key=lambda d: d.get("device", 0))
+            result.update(devices[0])
+            result["device_count"] = len(devices)
+            result["devices"] = devices
+            return result
 
-                util = _pynvml.nvmlDeviceGetUtilizationRates(handle)
-                result["util_percent"] = float(util.gpu)
-
-                # S5 进程级归因：自身生成跑满 GPU（own≈95%）属正常工
-                # 况，不应被质量总督判为"高负载"自伤降步；仅外部进程
-                # 争抢算力才驱动降参（analyzer 消费 external 字段）。
-                own = self._sum_own_process_util(handle)
-                if own is not None:
-                    result["own_util_percent"] = round(own, 1)
-                    result["external_util_percent"] = round(
-                        max(0.0, result["util_percent"] - own), 1)
-
-                try:
-                    temp = _pynvml.nvmlDeviceGetTemperature(
-                        handle, _pynvml.NVML_TEMPERATURE_GPU
-                    )
-                    result["temp_celsius"] = float(temp)
-                except Exception:
-                    pass
-                return result
-            except Exception:
-                pass
-
-        # 降级：使用 torch
+        # 降级：使用 torch（主卡）
         if _torch is not None and _torch.cuda.is_available():
             try:
                 result["vram_total_mb"] = int(
@@ -143,6 +127,63 @@ class HardwareMonitor:
                 pass
 
         return result
+
+    def _sample_all_gpu_devices(self) -> list[dict]:
+        """逐卡 NVML 采集（返回非空列表；NVML 不可用/全失败返回空）。"""
+        if not self._ensure_nvml():
+            return []
+        count = 1
+        try:
+            count = max(1, int(_pynvml.nvmlDeviceGetCount()))
+        except Exception:  # noqa: BLE001 - 枚举失败按单卡（历史行为）
+            count = 1
+        devices: list[dict] = []
+        for idx in range(count):
+            per = self._sample_gpu_nvml(idx)
+            if per is not None:
+                devices.append(per)
+        return devices
+
+    def _sample_gpu_nvml(self, idx: int) -> dict | None:
+        """单卡 NVML 采集；任何失败返回 None（调用方降级）。"""
+        try:
+            handle = _pynvml.nvmlDeviceGetHandleByIndex(idx)
+            # 值类型混合（int/float/None），显式 Any 装载
+            per: dict[str, Any] = {
+                "device": idx,
+                "vram_total_mb": 0,
+                "vram_used_mb": 0,
+                "util_percent": 0.0,
+                "temp_celsius": 0.0,
+                "own_util_percent": None,
+                "external_util_percent": None,
+            }
+            mem = _pynvml.nvmlDeviceGetMemoryInfo(handle)
+            per["vram_total_mb"] = int(mem.total // (1024 * 1024))
+            per["vram_used_mb"] = int(mem.used // (1024 * 1024))
+
+            util = _pynvml.nvmlDeviceGetUtilizationRates(handle)
+            per["util_percent"] = float(util.gpu)
+
+            # S5 进程级归因：自身生成跑满 GPU（own≈95%）属正常工
+            # 况，不应被质量总督判为"高负载"自伤降步；仅外部进程
+            # 争抢算力才驱动降参（analyzer 消费 external 字段）。
+            own = self._sum_own_process_util(handle)
+            if own is not None:
+                per["own_util_percent"] = round(own, 1)
+                per["external_util_percent"] = round(
+                    max(0.0, per["util_percent"] - own), 1)
+
+            try:
+                temp = _pynvml.nvmlDeviceGetTemperature(
+                    handle, _pynvml.NVML_TEMPERATURE_GPU
+                )
+                per["temp_celsius"] = float(temp)
+            except Exception:
+                pass
+            return per
+        except Exception:  # noqa: BLE001 - 单卡失败不拖垮其余卡
+            return None
 
     @staticmethod
     def _sum_own_process_util(handle: Any) -> float | None:

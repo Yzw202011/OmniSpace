@@ -243,6 +243,17 @@ class SchedulerEngine:
             self._last_shallow_reclaim_at = 0.0
             self._last_deep_reclaim_at = 0.0
             return
+        # 批5 登记簿联动（方案 §3.6）：云任务不取本地锁也不占本地显存，
+        # 但系统非空闲——云任务期间冻结回收基准（防「云任务完成即本地
+        # 接力」被回收动作拆台），本地队列任务经功能锁先行拦截（双保险）
+        try:
+            from ..inference.gpu_budget import get_busy_registry
+            if get_busy_registry().is_busy():
+                self._last_shallow_reclaim_at = 0.0
+                self._last_deep_reclaim_at = 0.0
+                return
+        except Exception as exc:  # noqa: BLE001 - 登记簿不可用按原判定
+            log.debug("忙碌登记簿检查跳过: %s", exc)
         idle_s = lock.idle_seconds
         now = time.time()
         # 跨模块共享小模型类别（embedding 检索 / voice 语音 / auxiliary

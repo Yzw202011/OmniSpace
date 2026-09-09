@@ -257,3 +257,157 @@ def test_release_for_module_vllm_booting_no_bookkeeping_side_effect(
     assert svc.stop_calls == 1
     assert "qwen3-vl-8b-awq(vllm)" in result["freed_models"]
     assert mgr.get_loaded_models() == []
+
+
+# ── ⑤ ComfyUI 终止的 video_gen 锁守卫（2026-09-06 实测事故哨兵）────
+# 事故：training 切换在 H3 视频任务运行中按需终止 ComfyUI（执行引擎
+# 被杀 → 任务悬挂 5 分钟靠手动取消）。守卫：video_gen 功能锁持有中
+# 跳过终止、skipped 如实记账。
+
+def test_release_for_module_spares_comfyui_while_video_running(
+        monkeypatch) -> None:
+    """video_gen 锁持有中，target=training 不得杀 ComfyUI 子进程。"""
+    from backend.middleware import feature_lock as flmod
+    from backend.services.inference import comfy_proc as cmod
+
+    class _FakeLock:
+        active_feature = "video_gen"
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.shutdown_calls = 0
+
+        def poll(self):  # noqa: D102 - None = 进程活着
+            return None
+
+        def shutdown(self) -> None:
+            self.shutdown_calls += 1
+
+    proc = _FakeProc()
+    monkeypatch.setattr(flmod, "get_feature_lock", lambda: _FakeLock())
+    monkeypatch.setattr(cmod, "get_comfy_proc", lambda: proc)
+
+    mgr = _bare_manager()
+    result = mgr.release_for_module("training")
+
+    assert proc.shutdown_calls == 0
+    assert "comfyui-subprocess" not in result["freed_models"]
+    assert any("video_gen" in s for s in result["skipped"])
+
+
+def test_release_for_module_kills_comfyui_when_video_idle(
+        monkeypatch) -> None:
+    """无视频任务时 target=training 照旧按需终止（原行为不回退）。"""
+    from backend.middleware import feature_lock as flmod
+    from backend.services.inference import comfy_proc as cmod
+
+    class _NoLock:
+        active_feature = None
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.shutdown_calls = 0
+
+        def poll(self):  # noqa: D102
+            return None
+
+        def shutdown(self) -> None:
+            self.shutdown_calls += 1
+
+    proc = _FakeProc()
+    monkeypatch.setattr(flmod, "get_feature_lock", lambda: _NoLock())
+    monkeypatch.setattr(cmod, "get_comfy_proc", lambda: proc)
+
+    mgr = _bare_manager()
+    result = mgr.release_for_module("training")
+
+    assert proc.shutdown_calls == 1
+    assert "comfyui-subprocess" in result["freed_models"]
+
+
+# ── ⑥ mgr 错误包装保留引擎详细原因（2026-09-07 降级链回归修复）────
+# 回归：mgr.ensure_loaded 失败时只写「引擎加载失败: id」，吞掉引擎的
+# 「设备空闲显存…装不下」详细原因 → dialog_engine 降级判定（按
+# 「显存」关键字）失明 → 9B 装不下时不自动降级 4b、消息直接报错。
+
+def test_ensure_loaded_wraps_engine_error_detail(monkeypatch) -> None:
+    """引擎失败原因（含显存字样）必须透传进 mgr.last_error。"""
+    from backend.services.model_manager import ModelManager
+
+    class _Engine:
+        def load_model(self, model_id):  # noqa: D102 - 测试桩
+            return False
+
+        def last_error(self) -> str:  # noqa: D102 - 测试桩
+            return "设备空闲显存 13.4GB 低于该模型可行下限 ~14.9GB"
+
+    # 注意：ModelManager.__new__ 是单例返回（cls._instance）——裸赋值
+    # 会污染全局单例泄漏给后续测试（_initialized=True 还会短路真实
+    # __init__）。全部经 monkeypatch 打桩，测试结束自动还原。
+    from types import SimpleNamespace
+    mgr = ModelManager.__new__(ModelManager)
+    _stub = {
+        "_initialized": True,
+        "importer": SimpleNamespace(), "validator": SimpleNamespace(),
+        "classifier": SimpleNamespace(), "selector": SimpleNamespace(),
+        "cache": SimpleNamespace(), "predictor": SimpleNamespace(),
+        # 指向本测试文件（存在即可）
+        "_models": {"qwen35-9b-w4a16": SimpleNamespace(file_path=__file__)},
+        "_loaded": {}, "_loaded_lock": threading.Lock(),
+        "_user_load_pins": {}, "_reserved_vram_gb": 0.0,
+        "_vram_lock": threading.RLock(),
+        "_engines": {"dialog": _Engine()},
+        "_cpu_offload_enabled": False, "_cpu_offload_layers": [],
+        "_precision_policy": "fp16", "_policy_lock": threading.Lock(),
+        "last_error": "", "_nvml_ready": False,
+        "_disk_scan_ts": 0.0, "_disk_scan_cache": {},
+    }
+    for k, v in _stub.items():
+        monkeypatch.setattr(mgr, k, v, raising=False)
+
+    ok = mgr.ensure_loaded("dialog", "qwen35-9b-w4a16")
+
+    assert ok is False
+    assert "引擎加载失败: qwen35-9b-w4a16" in mgr.last_error
+    assert "显存" in mgr.last_error  # 详细原因透传（降级判定的钥匙）
+
+
+def test_ensure_loaded_error_without_engine_detail(monkeypatch) -> None:
+    """引擎无详细错误时包装串保持原样（不拼空串、不抛错）。"""
+    from backend.services.model_manager import ModelManager
+
+    class _Engine:
+        def load_model(self, model_id):  # noqa: D102 - 测试桩
+            return False
+
+        def last_error(self) -> str:  # noqa: D102 - 测试桩
+            return ""
+
+    # 注意：ModelManager.__new__ 是单例返回（cls._instance）——裸赋值
+    # 会污染全局单例泄漏给后续测试（_initialized=True 还会短路真实
+    # __init__）。全部经 monkeypatch 打桩，测试结束自动还原。
+    from types import SimpleNamespace
+    mgr = ModelManager.__new__(ModelManager)
+    _stub = {
+        "_initialized": True,
+        "importer": SimpleNamespace(), "validator": SimpleNamespace(),
+        "classifier": SimpleNamespace(), "selector": SimpleNamespace(),
+        "cache": SimpleNamespace(), "predictor": SimpleNamespace(),
+        # 指向本测试文件（存在即可）
+        "_models": {"qwen35-9b-w4a16": SimpleNamespace(file_path=__file__)},
+        "_loaded": {}, "_loaded_lock": threading.Lock(),
+        "_user_load_pins": {}, "_reserved_vram_gb": 0.0,
+        "_vram_lock": threading.RLock(),
+        "_engines": {"dialog": _Engine()},
+        "_cpu_offload_enabled": False, "_cpu_offload_layers": [],
+        "_precision_policy": "fp16", "_policy_lock": threading.Lock(),
+        "last_error": "", "_nvml_ready": False,
+        "_disk_scan_ts": 0.0, "_disk_scan_cache": {},
+    }
+    for k, v in _stub.items():
+        monkeypatch.setattr(mgr, k, v, raising=False)
+
+    ok = mgr.ensure_loaded("dialog", "qwen35-9b-w4a16")
+
+    assert ok is False
+    assert mgr.last_error == "引擎加载失败: qwen35-9b-w4a16"

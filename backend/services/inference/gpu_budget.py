@@ -45,30 +45,21 @@ log = logging.getLogger("omnispace.gpu_budget")
 EXTERNAL_ANOMALY_GB = 2.0
 
 
-def read_physical_bytes(
-    device: int = 0, *, torch_only: bool = False
-) -> tuple[bool, int, int]:
-    """物理读数（字节）→ (ok, free_b, total_b)。
-
-    torch 通道优先（CUDA 上下文可见口径，与 vLLM 准入闸历史口径
-    逐比特一致）；torch 失败且 torch_only=False 时回落 pynvml。
-    双通道均失败返回 (False, 0, 0)，不抛异常。
-
-    torch_only=True 供 vllm_service 准入闸使用——WDDM 下 NVML 的
-    used 含系统驻留（同刻实测差可达数 GB），回落会改变历史判定
-    行为，故该调用方禁用回落（读数失明=按通过，与旧 torch 异常
-    路径等价）。
-    """
+def _read_torch(device: int) -> tuple[bool, int, int]:
+    """torch 通道（CUDA 可分配口径，WDDM 承诺制——子进程持有量不全可见）。"""
     try:
         import torch
 
         if torch.cuda.is_available():
             free_b, total_b = torch.cuda.mem_get_info(device)
             return True, int(free_b), int(total_b)
-    except Exception:  # noqa: BLE001 - 读数失败换通道/按失明，不抛
+    except Exception:  # noqa: BLE001 - 通道失败由调用方降级
         pass
-    if torch_only:
-        return False, 0, 0
+    return False, 0, 0
+
+
+def _read_nvml(device: int) -> tuple[bool, int, int]:
+    """NVML 通道（驱动驻留口径——WDDM 全部驻留含子进程）。"""
     try:
         import pynvml
 
@@ -76,9 +67,32 @@ def read_physical_bytes(
         handle = pynvml.nvmlDeviceGetHandleByIndex(device)
         mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
         return True, int(mem.free), int(mem.total)
-    except Exception:  # noqa: BLE001 - 双通道均失败 = 账本失明
+    except Exception:  # noqa: BLE001 - 通道失败由调用方降级
         pass
     return False, 0, 0
+
+
+def read_physical_bytes(
+    device: int = 0, *, torch_only: bool = False
+) -> tuple[bool, int, int]:
+    """物理读数（字节）→ (ok, free_b, total_b)——**保守双口径**（F-4 修复，
+    2026-09-10 严格测试实证：GGUF 子进程在跑时 torch 口径 free=13.4GB
+    而 NVML 实际 7.2GB，高估 6.18GB——乐观口径下 12GB 级装载需求会误
+    放行致 OOM，故默认取 free=min(torch, nvml)、total=max）。
+
+    torch_only=True 保持历史 torch 纯口径——vllm_service 准入闸专用
+    （行为等价性要求；该闸自身体量 vLLM 装载语义）。双通道均失败返回
+    (False, 0, 0)，不抛异常。
+    """
+    t_ok, t_free, t_total = _read_torch(device)
+    if torch_only:
+        return t_ok, t_free, t_total
+    n_ok, n_free, n_total = _read_nvml(device)
+    if t_ok and n_ok:
+        return True, min(t_free, n_free), max(t_total, n_total)
+    if t_ok:
+        return t_ok, t_free, t_total
+    return n_ok, n_free, n_total
 
 
 @dataclass(frozen=True)

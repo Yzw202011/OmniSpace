@@ -533,6 +533,64 @@ class TestIdleConsumerWiring:
             assert '"cloud"' in src
 
 
+class TestDualChannelConservative:
+    """F-4 修复：默认口径取 min(torch, nvml) 保守值（测试实证差 6.18GB）。"""
+
+    @staticmethod
+    def _mock_channels(
+        monkeypatch: MonkeyPatch, t: tuple[bool, int, int],
+        n: tuple[bool, int, int],
+    ) -> None:
+        monkeypatch.setattr(gpu_budget, "_read_torch", lambda device: t)
+        monkeypatch.setattr(gpu_budget, "_read_nvml", lambda device: n)
+
+    def test_min_of_channels_when_both_ok(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        GB = 1024 ** 3
+        self._mock_channels(
+            monkeypatch,
+            (True, 14 * GB, 16 * GB),    # torch 乐观（承诺制）
+            (True, 7 * GB, 16 * GB),     # nvml 驻留口径
+        )
+        ok, free_b, total_b = gpu_budget.read_physical_bytes(0)
+        assert ok is True
+        assert free_b == 7 * GB          # 保守取小
+        assert total_b == 16 * GB
+
+    def test_torch_only_keeps_legacy_semantics(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        GB = 1024 ** 3
+        self._mock_channels(
+            monkeypatch,
+            (True, 14 * GB, 16 * GB),
+            (True, 7 * GB, 16 * GB),
+        )
+        ok, free_b, _ = gpu_budget.read_physical_bytes(0, torch_only=True)
+        assert ok is True and free_b == 14 * GB  # vLLM 准入闸历史口径不动
+
+    def test_single_channel_fallback(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        GB = 1024 ** 3
+        self._mock_channels(
+            monkeypatch, (False, 0, 0), (True, 9 * GB, 16 * GB))
+        ok, free_b, _ = gpu_budget.read_physical_bytes(0)
+        assert ok is True and free_b == 9 * GB
+        self._mock_channels(
+            monkeypatch, (True, 10 * GB, 16 * GB), (False, 0, 0))
+        ok, free_b, _ = gpu_budget.read_physical_bytes(0)
+        assert ok is True and free_b == 10 * GB
+
+    def test_blind_when_both_fail(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        self._mock_channels(
+            monkeypatch, (False, 0, 0), (False, 0, 0))
+        assert gpu_budget.read_physical_bytes(0) == (False, 0, 0)
+
+
 def test_singletons_are_single() -> None:
     assert get_gpu_budget() is get_gpu_budget()
     assert get_busy_registry() is get_busy_registry()

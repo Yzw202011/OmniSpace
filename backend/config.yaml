@@ -185,3 +185,21 @@ ui:
   font_size_small: 12
   ai_generated_bg: "#E3F2FD"
   zoom_levels: [1.0, 1.5, 2.0, 3.0, 4.0]
+
+# vLLM 推理底座（V3 显存分档 2026-09-08）：
+vllm:
+  # KV cache 量化档：""=关（默认，历史行为不变）/"auto"=FP8 能力卡
+  # （计算能力≥8.9，如 5070 Ti sm_120）自动开/"fp8"=强制开。
+  # FP8 KV 显存约减半（vLLM 官方 2026-04 production-ready 定调，
+  # 精度损失 <1% 为外部数字，本项目以 A/B 基准把关）。
+  kv_cache_dtype: "auto"
+  # 对话最大上下文档位：0=默认（小权重 8K/大权重 4K 让档）；
+  # 可设 16384/32768——仅对非大权重模型生效（大权重 4K 是显存
+  # 安全钳制，FP8 KV 实测数据齐后再评估放开）。
+  max_model_len: 16384
+  # MTP 投机解码（V6 2026-09-09，D6-bis=A 拍板）：true=开（轻载窗口
+  # 手动开，9B 实测解码 +40%、输出无损）；false=关（默认）。硬约束：
+  # 16GB 卡 + 9B 时 MTP+前缀缓存同开需近乎空卡（util≥0.92）；显存
+  # 不足时装载会被准入线诚实拒绝。仅对带 model_mtp.safetensors 的
+  # 模型生效（当前=qwen35-9b-w4a16）。
+  mtp_speculative: false

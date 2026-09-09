@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2].parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2].parent / "pydeps"))
 
 from backend.engines.vllm_service import _estimate_model_dir_gb  # noqa: E402
+from backend.services.vram_policy import VLLM_RAM_HEADROOM_GB  # noqa: E402
 
 VLLM_PY = (Path(__file__).resolve().parents[2]
            / "engines" / "vllm_service.py")
@@ -49,7 +50,11 @@ def test_start_has_ram_gate_block() -> None:
     assert "RAM 提交余量闸门" in src, "start() 的 RAM 闸门块被移除"
     assert "RADAR_PRE_LEAK_64" in src, "取证注释被删（事故史锚点）"
     assert "_estimate_model_dir_gb" in src
-    assert "+ 3.0" in src, "RAM 需求 = 权重 + 3GB 开销语义不得改"
+    # 2026-09-09 V9 尾款①：+3.0 字面量随阈值搬至 services/vram_policy.py
+    # （对拍锁定见 test_vram_policy.py），此处改锚调用点+单源值双保险
+    assert "vllm_ram_needed_gb(_w_gb)" in src, (
+        "RAM 需求 = 权重 + 3GB 余量（vram_policy.vllm_ram_needed_gb）语义不得改")
+    assert VLLM_RAM_HEADROOM_GB == 3.0, "余量 3GB 单源值被改"
     assert "virtual_memory().available" in src, "必须量 available（非 total）"
     # 闸门必须先 RAM 后显存（RAM 检查更便宜，先拒先省）。2026-09-02
     # 热切换时序修复：显存闸门抽取为 _vram_admission_wait 复用（helper
@@ -58,3 +63,31 @@ def test_start_has_ram_gate_block() -> None:
     assert "_vram_admission_wait" in src, "显存准入复测 helper 被删"
     assert (src.index("RAM 提交余量闸门")
             < src.index("self._vram_admission_wait(gpu_memory_utilization)"))
+
+
+# ── 收养态口径（2026-09-07 is_running/_kill_locked 修复哨兵）──────
+
+def test_adopted_state_is_running_and_stop_safe():
+    """收养态（_state=ready 懒创建、_proc=None）：is_running=True；
+    stop 不因 _state 缺失炸 AttributeError（未收养实例同样安全）。"""
+    import threading
+
+    from backend.engines.vllm_service import VLLMService
+
+    def bare_svc():
+        s = VLLMService.__new__(VLLMService)  # 裸实例：无懒创建属性
+        s._proc = None
+        s._lock = threading.Lock()
+        s._cancel_requested = False
+        s._log_fh = None
+        return s
+
+    svc = bare_svc()
+    # 未收养（无 _state）：is_running=False，stop 安全
+    assert svc.is_running() is False
+    assert svc.stop(timeout_s=0.5) is True  # 不抛 AttributeError
+
+    # 收养态：懒创建 _state=ready → is_running=True
+    svc2 = bare_svc()
+    svc2._state = "ready"
+    assert svc2.is_running() is True

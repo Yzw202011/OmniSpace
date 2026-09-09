@@ -39,6 +39,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from ..services.vram_policy import VLLM_ADMISSION_FACTOR, vllm_ram_needed_gb
+
 log = logging.getLogger("omnispace.vllm")
 
 # ── 路径常量（项目根 = backend/ 上级） ───────────────────────────
@@ -97,6 +99,72 @@ SLEEP_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/sleep"
 WAKE_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/wake_up"
 SLEEP_STATUS_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/is_sleeping"
 
+
+def resolve_kv_cache_dtype(device_idx: int) -> str | None:
+    """KV cache 量化档（V3 显存分档 2026-09-08）。
+
+    config.yaml ``vllm.kv_cache_dtype``：
+    - ""（默认）= 关，行为与历史逐比特一致；
+    - "auto" = 仅 FP8 能力卡（计算能力 ≥8.9，Ada/Hopper/Blackwell，
+      如 5070 Ti sm_120）自动开；
+    - "fp8" = 强制开（能力不足时降级为关并告警）。
+
+    FP8 KV 显存约减半（vLLM 官方 2026-04 定调 production-ready；
+    精度损失 <1% 为外部数字 ⚠️，本项目以 vllm_bench A/B 基准把关）。
+    探测失败一律按关（保守：宁可少省不可错崩）。
+    """
+    try:
+        from backend.config import get_config
+        raw = str((get_config().get("vllm") or {}).get(
+            "kv_cache_dtype", "") or "").strip().lower()
+    except Exception:  # noqa: BLE001 - 配置异常保持关
+        return None
+    if raw not in ("auto", "fp8"):
+        return None
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return None
+        major, minor = torch.cuda.get_device_capability(device_idx)
+        if (major, minor) < (8, 9):
+            if raw == "fp8":
+                log.warning(
+                    "FP8 KV cache 配置被忽略：设备 %d 计算能力 %d.%d < 8.9"
+                    "（3060 基线档不支持 FP8，属设计内路由）",
+                    device_idx, major, minor)
+            return None
+        return "fp8"
+    except Exception as exc:  # noqa: BLE001 - 探测失败保持关（保守）
+        log.warning("FP8 KV cache 能力探测失败（按关）: %s", exc)
+        return None
+
+
+def mtp_spec_enabled(model_dir: Path) -> bool:
+    """MTP 投机解码开关（V6 2026-09-09，D6-bis=A 拍板：轻载窗口 opt-in）。
+
+    config.yaml ``vllm.mtp_speculative``（默认 false=关）且模型目录实有
+    model_mtp.safetensors 时生效——``--speculative-config`` method=mtp、
+    c=3（2026-09-09 四格矩阵冒烟：9B 解码 +39~40%、TTFT 无劣化、
+    #53912 未踩雷〔vLLM 0.26 实测；升 0.27/0.28 须重验危险格〕）。
+    显存硬约束：16GB 卡 + 9B 需近乎空卡（MTP+前缀缓存同开 util≥0.92、
+    MTP 无缓存预算 13.7GB>白天常态空闲 13.4GB），显存不足装载被
+    vllm_backend 准入线抬高 1.3GB 后诚实拒绝——故默认关、轻载窗口开。
+    """
+    try:
+        from backend.config import get_config
+        raw = (get_config().get("vllm") or {}).get(
+            "mtp_speculative", False)
+        on = bool(raw) and str(raw).strip().lower() not in ("false", "0", "")
+    except Exception:  # noqa: BLE001 - 配置异常保持关
+        return False
+    if not on:
+        return False
+    if not (model_dir / "model_mtp.safetensors").is_file():
+        log.warning("MTP 配置被忽略：%s 无 model_mtp.safetensors 权重",
+                    model_dir.name)
+        return False
+    return True
+
 # 启动健康轮询：模型加载 + CUDA 图编译可能耗时，预算放宽
 # P3 §3.2 收敛：超时 300s → 240s（低于 WARMUP_TIMEOUT 的预算值，
 # 去掉冗余余量），健康轮询 2s → 5s（冷启动期无意义高频探测省 I/O；
@@ -146,8 +214,16 @@ class VLLMService:
         return PY313_EXE.is_file()
 
     def is_running(self) -> bool:
-        """子进程是否存活（不保证 health 就绪）。"""
-        return self._proc is not None and self._proc.poll() is None
+        """服务是否在运行（不保证 health 就绪）。
+
+        2026-09-07 收养态口径修复：孤儿收养（_adopt_if_healthy）置
+        ready 但 _proc 保持 None——旧口径恒 False，导致 dialog 引擎
+        假 ready 防线每秒把状态降级 unloaded 刷屏（收养→降级→再收养
+        死循环）。收养态以服务态为准；正常态以子进程句柄为准。
+        """
+        if self._proc is not None:
+            return self._proc.poll() is None
+        return getattr(self, "_state", "") == "ready"
 
     def is_booting(self) -> bool:
         """是否正在后台无阻塞启动（P3 常驻热备：前端"模型加载中"）。"""
@@ -345,39 +421,47 @@ class VLLMService:
         的 state=error 卡死自愈；采样常撞「已记账未卸完」窗口）。
         空闲 < 预分配量 → 诚实拒绝（写 _last_error）。无 CUDA 环境按
         通过（探测失败保持旧行为）。
+
+        批2（2026-09-10）：读数统一走 gpu_budget.read_physical_bytes
+        （torch_only=True——保持历史 torch-only 口径逐比特等价，
+        WDDM 下不回落 NVML；账本读数失明=按通过=旧 torch 异常路径）。
         """
         try:
-            import torch as _torch
-            if _torch.cuda.is_available():
-                # 多卡绑卡（批1）：主进程可见全部卡，按对话资源域探测
-                # 指定卡（单卡恒 0，与历史一致）
-                try:
-                    from .gpu_domains import resolve_feature_device
-                    _dev_idx = resolve_feature_device("dialog")
-                except Exception:  # noqa: BLE001 - 分配失败回落主卡
-                    _dev_idx = 0
-                _need_b = 0
-                for _attempt in range(30):
-                    _free_b, _total_b = _torch.cuda.mem_get_info(_dev_idx)
-                    if _need_b == 0:
-                        _need_b = int(_total_b * gpu_memory_utilization * 0.98)
-                    if _free_b >= _need_b:
-                        break
-                    if _attempt == 0:
-                        log.info(
-                            "vLLM 准入等待：空闲 %.1fGB < 需预分配 %.1fGB，"
-                            "等待在途生成释放（最长 60s）",
-                            _free_b / 2 ** 30, _need_b / 2 ** 30)
-                    time.sleep(2.0)
-                else:
-                    self._last_error = (
-                        f"设备空闲显存 {_free_b / 2 ** 30:.1f}GB 不足以"
-                        f"安全启动 vLLM（需预分配 {_need_b / 2 ** 30:.1f}GB，"
-                        f"util={gpu_memory_utilization}，已等待 60s）；请"
-                        "等待在途生成结束或卸载驻留模型后重试")
-                    log.warning("vLLM 启动被显存准入闸门拒绝: %s",
-                                self._last_error)
-                    return False
+            from ..services.inference.gpu_budget import read_physical_bytes
+            # 多卡绑卡（批1）：主进程可见全部卡，按对话资源域探测
+            # 指定卡（单卡恒 0，与历史一致）
+            try:
+                from .gpu_domains import resolve_feature_device
+                _dev_idx = resolve_feature_device("dialog")
+            except Exception:  # noqa: BLE001 - 分配失败回落主卡
+                _dev_idx = 0
+            _need_b = 0
+            for _attempt in range(30):
+                _ok, _free_b, _total_b = read_physical_bytes(
+                    _dev_idx, torch_only=True)
+                if not _ok:
+                    break  # 读数失明 → 放行（= 旧 torch 异常路径）
+                if _need_b == 0:
+                    _need_b = int(
+                        _total_b * gpu_memory_utilization
+                        * VLLM_ADMISSION_FACTOR)
+                if _free_b >= _need_b:
+                    break
+                if _attempt == 0:
+                    log.info(
+                        "vLLM 准入等待：空闲 %.1fGB < 需预分配 %.1fGB，"
+                        "等待在途生成释放（最长 60s）",
+                        _free_b / 2 ** 30, _need_b / 2 ** 30)
+                time.sleep(2.0)
+            else:
+                self._last_error = (
+                    f"设备空闲显存 {_free_b / 2 ** 30:.1f}GB 不足以"
+                    f"安全启动 vLLM（需预分配 {_need_b / 2 ** 30:.1f}GB，"
+                    f"util={gpu_memory_utilization}，已等待 60s）；请"
+                    "等待在途生成结束或卸载驻留模型后重试")
+                log.warning("vLLM 启动被显存准入闸门拒绝: %s",
+                            self._last_error)
+                return False
         except Exception:  # noqa: BLE001 - 探测失败保持旧行为
             pass
         return True
@@ -445,7 +529,8 @@ class VLLMService:
             _w_gb = _estimate_model_dir_gb(
                 str(Path(model_dir) if model_dir
                     else MODELS_DIR / DEFAULT_MODEL_REL))
-            _need_ram = _w_gb + 3.0
+            # V9 尾款①（2026-09-09）：+3.0 余量搬至 services/vram_policy
+            _need_ram = vllm_ram_needed_gb(_w_gb)
             _avail = _ps.virtual_memory().available / 2 ** 30
             for _attempt in range(30):
                 if _avail >= _need_ram:
@@ -624,6 +709,20 @@ class VLLMService:
             env["CUDA_VISIBLE_DEVICES"] = str(_bind_dev)
             log.info("vLLM 绑卡: CUDA_VISIBLE_DEVICES=%s（资源域分配）",
                      _bind_dev)
+            # KV cache 量化档（V3 显存分档 2026-09-08）：FP8 能力卡按
+            # config.yaml vllm.kv_cache_dtype 启用（默认关=历史行为）
+            kv_dtype = resolve_kv_cache_dtype(_bind_dev)
+            if kv_dtype:
+                cmd += ["--kv-cache-dtype", kv_dtype]
+                log.info("vLLM KV cache 量化: %s（KV 显存预算约减半）",
+                         kv_dtype)
+            # MTP 投机解码（V6 2026-09-09，D6-bis=A）：默认关，轻载窗口
+            # opt-in（9B 冒烟 +40%；显存不足由 vllm_backend 准入线诚实拒）
+            if mtp_spec_enabled(mdir):
+                cmd += [
+                    "--speculative-config",
+                    '{"method": "mtp", "num_speculative_tokens": 3}']
+                log.info("vLLM MTP 投机解码: 开（c=3，实测解码 +40%）")
 
             VLLM_LOG.parent.mkdir(parents=True, exist_ok=True)
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
@@ -829,7 +928,22 @@ class VLLMService:
 
     def _kill_locked(self, timeout_s: float = 5.0) -> bool:
         proc = self._proc
-        if proc is None or proc.poll() is not None:
+        if proc is None:
+            # 收养态（_proc=None 但 state=ready，2026-09-07 is_running
+            # 口径修复后此分支可触达）：终止收养关系并按孤儿清扫口径
+            # 停掉端口服务（否则服务继续占显存，stop 形同虚设）。
+            # 注：_state 为收养路径懒创建属性（__init__ 无此字段），
+            # 未收养过的服务到这里读不到——getattr 防御。
+            if getattr(self, "_state", "") == "ready":
+                self._state = "stopped"
+                self._transition("stopped", "release adopted service")
+                try:
+                    self._reap_orphans()
+                except Exception as exc:  # noqa: BLE001 - 清扫尽力而为
+                    log.debug("收养态停止清扫跳过: %s", exc)
+            self._close_log()
+            return True
+        if proc.poll() is not None:
             self._proc = None
             self._close_log()
             return True
@@ -915,7 +1029,7 @@ class VLLMService:
                  self._served_name)
         return True
 
-    def _reap_orphans(self) -> None:
+    def _reap_orphans(self) -> int:
         """清扫上次会话遗留的 py313 vLLM 孤儿进程（尽力而为，不抛错）。
 
         判据 = exe ∈ {runtime/py313/python.exe, OmniSpace-LLM.exe（品牌化
@@ -930,7 +1044,7 @@ class VLLMService:
         try:
             import psutil
         except ImportError:  # py310 无 psutil 时跳过（依赖交付清单含 psutil）
-            return
+            return 0
         # 品牌化后 vLLM 主进程跑在 OmniSpace-LLM.exe 上，两个名字都要认
         # （旧版孤儿仍是 python.exe；多进程 EngineCore 孙进程经 spawn
         # 继承 sys.executable=品牌 exe）
@@ -940,6 +1054,7 @@ class VLLMService:
             protected = {me_proc.pid} | {pp.pid for pp in me_proc.parents()}
         except Exception:  # noqa: BLE001 - 保底仅排除自身
             protected = {os.getpid()}
+        killed = 0
         for p in psutil.process_iter(["pid", "exe", "cmdline"]):
             try:
                 exe = (p.info["exe"] or "").lower()
@@ -952,8 +1067,26 @@ class VLLMService:
                         capture_output=True,
                         creationflags=subprocess.CREATE_NO_WINDOW
                         if os.name == "nt" else 0)
+                    killed += 1
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
+        return killed
+
+    def reap_orphans(self) -> int:
+        """公开清扫入口（V9-α 2026-09-09）：返回清扫的进程数（0=无孤儿）。
+
+        供 model_manager 在显存准入将被拒绝前对账——账本外的 vLLM 孤儿
+        （如 live e2e 测试退出遗留，2026-09-08 15:26 实测占 15GB）会让
+        「驱逐全部可卸模型后仍不足」直接拒绝，而能清孤儿的本函数原本
+        只在 start() 内部（预检闸之后）才跑——先有鸡还是先有蛋的死锁。
+        判据/保护与 _reap_orphans 一致（exe+命令行双匹配、排除自身
+        与祖先），清扫尽力而为不抛错。
+        """
+        try:
+            return self._reap_orphans()
+        except Exception as exc:  # noqa: BLE001 - 对账失败按无孤儿
+            log.debug("vLLM 孤儿对账失败: %s", exc)
+            return 0
 
     def _close_log(self) -> None:
         if self._log_fh is not None:

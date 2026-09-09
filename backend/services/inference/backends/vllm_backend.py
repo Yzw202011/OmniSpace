@@ -18,6 +18,13 @@ import logging
 from collections.abc import Iterator
 from pathlib import Path
 
+from ...vram_policy import (
+    VLLM_FLOOR_OVERHEAD_GB,
+    VLLM_MTP_EXTRA_GB,
+    VLLM_UTIL_DEFAULT,
+    VLLM_UTIL_LARGE_WEIGHTS,
+    VLLM_UTIL_MTP,
+)
 from .base import DialogBackend, estimate_tokens
 
 logger = logging.getLogger("omnispace.inference.backends.vllm")
@@ -28,6 +35,22 @@ class VLLMBackend(DialogBackend):
 
     name = "vllm"
     supports_images = True  # Qwen3-VL 经 image_url base64 透传
+
+    @classmethod
+    def reattach(cls, model_id: str,
+                 model_dir: Path | None) -> VLLMBackend:
+        """为已健康运行的 vLLM 服务重挂零成本客户端壳（V9-γ 2026-09-09）。
+
+        绘画让渡后的 wake 后台重启只复活服务（vllm_service 内部线程），
+        引擎/台账不知情——本方法不发装载请求、以服务事实为准直接绑定
+        （卡 90% 事故根治件：引擎重挂后状态回 ready、台账由
+        note_external_load 补记）。
+        """
+        b = cls()
+        b.model_id = model_id
+        b.model_dir = model_dir
+        b._ready = True
+        return b
 
     def _service(self) -> VLLMService:
         from ....engines.vllm_service import get_vllm_service
@@ -61,7 +84,31 @@ class VLLMBackend(DialogBackend):
             weight_gb = self._weights_size_gb(model_dir)
             big = weight_gb >= 8.0
             max_len = 4096 if big else 8192
-            util = 0.87 if big else 0.85
+            # 长上下文档位（V3 2026-09-08）：config.yaml vllm.max_model_len
+            # （0=默认；16384/32768 仅对非大权重模型生效——大权重 4K
+            # 让档是显存安全钳制，FP8 KV 实测数据齐后再评估放开）。
+            if not big:
+                try:
+                    from backend.config import get_config as _get_cfg
+                    _cfg_len = int((_get_cfg().get("vllm") or {}).get(
+                        "max_model_len", 0) or 0)
+                    if _cfg_len >= 1024:
+                        max_len = _cfg_len
+                except Exception:  # noqa: BLE001 - 配置异常保持默认档
+                    pass
+            util = VLLM_UTIL_LARGE_WEIGHTS if big else VLLM_UTIL_DEFAULT
+            # MTP 开启时大权重 util 提至 0.92（V6 2026-09-09 冒烟实测：
+            # 9B+MTP+前缀缓存 util 0.86 时 KV=-0.81 起不来、0.92 过线）
+            _mtp_on = False
+            try:
+                from ....engines.vllm_service import mtp_spec_enabled
+                _mtp_on = mtp_spec_enabled(Path(model_dir))
+            except Exception:  # noqa: BLE001 - 探测失败按 MTP 关
+                pass
+            if _mtp_on and big:
+                util = max(util, VLLM_UTIL_MTP)
+                logger.info("MTP 开启：大权重 util 提至 %.2f（轻载窗口档）",
+                            util)
             # 显存自适应让档（2026-09-02 漫剧描述词自动加载实测）：静态
             # util 按「模块释放后的空卡」标定，桌面/浏览器常态占 2GB+
             # 时 0.2GB 级差距即被准入闸门拒绝（16GB 卡：需 13.6 空闲
@@ -82,7 +129,16 @@ class VLLMBackend(DialogBackend):
                             _dev_idx = 0
                         _free_b, _total_b = torch.cuda.mem_get_info(_dev_idx)
                         free_gb, total_gb = _free_b / 2**30, _total_b / 2**30
-                        floor_budget = weight_gb + 4.2
+                        floor_budget = weight_gb + VLLM_FLOOR_OVERHEAD_GB
+                        # MTP 开启时草稿层+图画像多占 ~1.3GB（V6 冒烟
+                        # 实测 9B+MTP util 0.86 时 KV=-0.81 起不来）——
+                        # 准入线同步抬高，宁可早拒不让 vLLM 装到一半才死
+                        try:
+                            from ....engines.vllm_service import mtp_spec_enabled
+                            if mtp_spec_enabled(Path(model_dir)):
+                                floor_budget += VLLM_MTP_EXTRA_GB
+                        except Exception:  # noqa: BLE001 - 探测失败按原线
+                            pass
                         if free_gb < util * total_gb:
                             fit_util = (free_gb - 0.2) / total_gb
                             if fit_util >= floor_budget / total_gb:

@@ -51,6 +51,7 @@ function mapMessage(m: DialogMessage, isStreaming: boolean): ChatMessage {
     reasoning: m.reasoning,
     reasoningMs: m.reasoning_ms,
     images: m.images,
+    web_refs: m.web_refs,
   };
 }
 
@@ -71,6 +72,12 @@ export default function DialogPage() {
   const showToast = useAppStore((s) => s.showToast);
   // 用户持久化的模型选择（预热目标，与 /models/warmup 口径一致）
   const modelId = useDialogStore((s) => s.modelId);
+  // 2026-09-07 按模型能力开放附件：选中模型是否支持图片理解
+  // （清单未加载/旧后端无 vision 字段 → 缺省 true 兼容存量行为）
+  const modelOptions = useDialogStore((s) => s.modelOptions);
+  const modelSupportsVision = modelOptions.find(
+    (m) => m.model_id === modelId,
+  )?.vision ?? true;
 
   /** 引用请求（seq 递增驱动 DialogView 输入框回填） */
   const [quoteRequest, setQuoteRequest] = useState<{ seq: number; message: ChatMessage } | null>(null);
@@ -96,8 +103,11 @@ export default function DialogPage() {
     // 算力）。同步延迟 3s（离开页面清理）+ 重量级功能持锁跳过。
     let cancelled = false;
     const heavy = useAppStore.getState().activeFeature;
+    // 云端模型（cloud:: 前缀）无本地预热概念：跳过点火，避免预热线程
+    // 对服务商端点做无谓健康轮询（批1 云端API 2026-09-06）
+    const cloudTarget = (modelId || '').startsWith('cloud::');
     const timer =
-      heavy === 'paint' || heavy === 'video_gen' || heavy === 'training'
+      heavy === 'paint' || heavy === 'video_gen' || heavy === 'training' || cloudTarget
         ? null
         : window.setTimeout(() => {
             if (!cancelled) prewarmModel(modelId || undefined);
@@ -177,8 +187,15 @@ export default function DialogPage() {
 
   const handleSend = useCallback(
     (text: string, attachments?: Attachment[]) => {
-      const images = attachments?.map((a) => a.dataUrl);
-      sendMessage(text, images && images.length > 0 ? images : undefined);
+      // 2026-09-07 附件分型：仅图片类走 images 多模态通道；
+      // 文档类已在 DialogView.send 拼进 text（📎 标记块）。
+      // 返回值透传（false=同步拒绝，DialogView 保留输入与附件）
+      const images = attachments
+        ?.filter((a) => (a.kind ?? 'image') === 'image')
+        .map((a) => a.dataUrl)
+        .filter((d): d is string => Boolean(d));
+      return sendMessage(
+        text, images && images.length > 0 ? images : undefined);
     },
     [sendMessage],
   );
@@ -295,6 +312,7 @@ export default function DialogPage() {
       onQuote={handleQuoteMessage}
       onRegenerate={handleRegenerate}
       onRate={handleRateMessage}
+      modelSupportsVision={modelSupportsVision}
     />
   );
 }

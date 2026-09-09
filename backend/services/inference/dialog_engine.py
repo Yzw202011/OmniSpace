@@ -69,6 +69,15 @@ DIALOG_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     # 显存不足时 _pick_model 自动跳过降级到后位旧模型（旧项全保留=
     # 回退开关）。
     ("qwen35-9b-w4a16", "qwen35-9b-w4a16", 11.0),
+    # Qwen3.5-9B GGUF Q4_K_M 共存档（显存调度机制批4 2026-09-10，
+    # D2=A）：实测 5.7GB / 114 tok/s（POC 实证 runtime/llama-poc/
+    # llama_poc.log），16GB 常态空闲（~13.4GB）装不下 14.9GB 的
+    # W4A16 时自动落此档（与绘画等共存），亦是 12GB 基线机唯一 9B
+    # 解。llama-cpp-python 不认 qwen3.5 架构 → llama-server 子进程
+    # （kind=llama，engines/llama_service）。纯文本（带图请求按
+    # build_context 既有语义诚实丢弃图片）。候选表序=自动选择序，
+    # 置于 4b 前（同为 9B，质量优先于 4B 兜底）。
+    ("qwen35-9b-gguf-q4km", "qwen35-9b-gguf-q4km", 6.0),
     ("qwen3-vl-4b", "qwen3-vl-4b", 9.0),
     ("qwen3-vl-8b-awq", "qwen3-vl-8b-awq", 7.5),
     # DeepSeek-R1-Distill-Qwen-14B W4A16（2026-08-25 接入）：
@@ -143,7 +152,13 @@ def _detect_backend(model_dir: Path) -> str:
     compressed-tensors）——py310 主进程无 autoawq / compressed_tensors
     包，transformers 加载不了，必须走 vllm_service 独立子进程
     （runtime/py313）推理。
+    llama（批4 2026-09-10）：GGUF 文件布局（无 config.json）——
+    llama-server 官方子进程（llama-cpp-python 不认 qwen3.5）；候选
+    链 GGUF 档统一走路，动态发现路径的 backend 判定不受影响。
     """
+    # GGUF 布局优先判定（目录下有 .gguf 即子进程路，无需 config）
+    if any(model_dir.glob("*.gguf")):
+        return "llama"
     model_type, archs = _read_config_model_type(model_dir)
     if model_type in _NON_DIALOG_MODEL_TYPES:
         return ""
@@ -209,7 +224,7 @@ def _estimate_vram_gb(path: Path, backend: str) -> float:
     - transformers：权重字节 × dtype 系数（fp32 存盘加载 bf16 约 0.55；
       fp16/bf16/量化存盘约 1.15）× 1.10 KV 余量
     """
-    if backend == "gguf":
+    if backend in ("gguf", "llama"):
         size = path.stat().st_size if path.is_file() else _dir_weight_bytes(path)
         return round(size / (1024 ** 3) * 1.10, 2)
     weight_bytes = _dir_weight_bytes(path)
@@ -497,7 +512,13 @@ def _find_weight_file(model_dir: Path) -> bool:
 
 
 def model_dir_ready(model_dir: Path) -> bool:
-    """模型目录是否可用于加载（config.json + 权重文件齐全）。"""
+    """模型目录是否可用于加载。
+
+    两种布局（批4 2026-09-10）：GGUF 文件布局（目录含 .gguf 即就绪，
+    llama-server 子进程路）；transformers 布局（config.json + 权重齐全）。
+    """
+    if any(model_dir.glob("*.gguf")):
+        return True
     return (model_dir / "config.json").is_file() and _find_weight_file(model_dir)
 
 
@@ -638,7 +659,8 @@ def _estimated_load_gb(path: Path, backend: str) -> float:
     bitsandbytes 缺失时量化不可用，保持 bf16 估算（诚实不低估）。
     """
     est = _estimate_vram_gb(path, backend)
-    if backend != "gguf" and _try_import("bitsandbytes") is not None:
+    if backend not in ("gguf", "llama") \
+            and _try_import("bitsandbytes") is not None:
         prec = _precision_pref()
         if prec == "int8":
             est *= 0.5
@@ -797,6 +819,24 @@ class DialogEngine(BaseEngine):
                         "自动选择跳过 %s：预估加载 %.1fGB > 空闲 %.1fGB",
                         mid, est, free)
                     continue
+                # 自动选档可见性（批4 2026-09-10）：未点名请求而默认档
+                # 装不下自动落后续档时记大白话事件（与 load_model 的
+                # model_fallback 装载失败回退广播互补——这是选档阶段
+                # 前移判定，气泡模型名可见之外的第二通道）
+                try:
+                    _first_id = _effective_candidates()[0][0]
+                    if mid != _first_id:
+                        from ..event_log import log_event
+                        log_event(
+                            "dialog", "model_tier_autoselect",
+                            f"默认对话模型「{_first_id}」当前显存装不下，"
+                            f"已自动选用「{mid}」档继续（关闭占显存的"
+                            "应用后重新加载默认档即可换回）",
+                            level="info",
+                            detail=f"from={_first_id} to={mid} "
+                                   f"free={free:.1f}GB est={est:.1f}GB")
+                except Exception:  # noqa: BLE001 - 事件失败不影响选档
+                    pass
             return mid, path, vram, kind
         # 动态发现（导入 models/ 即可用）
         discovered = discover_dialog_models()
@@ -1018,6 +1058,11 @@ class DialogEngine(BaseEngine):
                 except Exception:  # noqa: BLE001 - 台账同步失败不阻断加载
                     pass
 
+            # 2026-09-08：装载全程如实报 loading。vl/text/gguf 后端此前
+            # 装载期停在 unavailable/unloaded——右栏冷启动进度条
+            # （DialogWarmupBar 认 loading/booting）在模型切换装载时
+            # 从不出现，用户只能干等；先短路的 ready 路径不受影响
+            self._state = "loading"
             pick = self._pick_model(model_id)
             if pick is None:
                 # 物理闸门拒绝时 _last_error 已有详细原因，优先保留
@@ -1235,6 +1280,18 @@ class DialogEngine(BaseEngine):
             if _m:
                 return True
             return self.load_model(model_id)
+        # 请求级云端虚拟模型直通（2026-09-06 写作台实弹修复）：对话本地
+        # +漫剧文字/写作台云端组合下 _remote_dialog_enabled() 为 False，
+        # cloud:: 请求若继续走下方 model_manager 协调会被「模型未下载」
+        # 拒绝（云端模型无本地目录）——直通 load_model（其 _pick_model
+        # 的 cloud 分支正确解析 provider）。
+        try:
+            from ..cloud_provider_service import parse_cloud_model_id
+            _cloud_req = parse_cloud_model_id(model_id or "")
+        except Exception:  # noqa: BLE001 - 接线缺失按非云端
+            _cloud_req = None
+        if _cloud_req is not None:
+            return self.load_model(model_id)
         if _remote_dialog_enabled():
             return self.load_model(model_id)
         # 假 ready 防线（2026-09-05 实测）：引擎标志 ready 但 vLLM 子进程
@@ -1356,14 +1413,16 @@ class DialogEngine(BaseEngine):
                 str(getattr(mgr, "last_error", "") or ""),
                 self._last_error or "")))
             _want_id = (model_id or self._default_model_id()).strip()
-            _fallback_id = self._default_model_id()
-            if ("显存" in _reason and _fallback_id
-                    and _fallback_id != _want_id):
+            # 2026-09-08：回退目标=装得下的候选（默认==请求时旧逻辑
+            # 无回退目标直接拒绝——9B 默认机常态碰壁），见方法注释
+            _fallback_id = self._vram_fallback_model(_want_id)
+            if "显存" in _reason and _fallback_id:
                 logger.warning(
                     "对话模型 %s 显存装不下，自动降级 %s 继续并通知用户"
                     "（原因: %s）", _want_id, _fallback_id,
                     _reason.strip()[:80])
-                try:  # 大白话事件：降级通知（WS 广播前端可见）
+                try:  # 大白话事件：降级通知（事件日志；用户当场可见
+                      # 的告知走 dialog.py 流末 meta 帧的 degraded_from）
                     from ..event_log import log_event
                     log_event(
                         "dialog", "model_fallback",
@@ -1428,6 +1487,38 @@ class DialogEngine(BaseEngine):
     def _default_model_id(self) -> str:
         pick = self._pick_model(None)
         return pick[0] if pick else _effective_candidates()[0][0]
+
+    def _vram_fallback_model(self, want_id: str) -> str:
+        """显存不足时的回退模型（2026-09-08 排队超时事故收口）。
+
+        旧逻辑回退目标恒=默认候选——9B 为默认首位的机器上「默认=
+        请求」时无回退目标，直接诚实拒绝（本机 13.3GB 空闲装不下
+        14.9GB 的 9B 是常态，页面记住 9B 的用户每条消息都碰壁、
+        排队 300s 后仍超时）。改为：默认装得下且≠请求 → 回默认；
+        否则按候选优先级回第一个显存装得下的其他候选（质量优先，
+        9B → 8B-awq → 4B 逐级让档）。找不到装得下的返回空（走原
+        诚实报错）。
+        """
+        try:
+            free = _cuda_free_gb()
+        except Exception:  # noqa: BLE001 - 探测失败按无回退
+            return ""
+        candidates = _effective_candidates()
+        default = self._default_model_id()
+        if default and default != want_id:
+            for mid, rel, vram in candidates:
+                if mid == default and vram <= free + 0.5 \
+                        and _resolve_candidate_dir(rel) is not None:
+                    return default
+                    # 默认装不下/不在盘：落下去找其他装得下的
+        for mid, rel, vram in candidates:
+            # 磁盘就绪校验（2026-09-08 实测教训：高档位候选
+            # qwen3-vl-8b 物理闸门可过但本机磁盘没有该目录——
+            # 选它做回退只会再失败一次）
+            if mid != want_id and vram <= free + 0.5 \
+                    and _resolve_candidate_dir(rel) is not None:
+                return mid
+        return ""
 
     # ── 上下文组装 ────────────────────────────────────────────────
 
@@ -1692,6 +1783,92 @@ class DialogEngine(BaseEngine):
     def is_ready(self) -> bool:
         return self._state == "ready"
 
+    # ── V9-γ（2026-09-09 卡 90% 事故根治）：唤醒产物收养重挂 ──────
+
+    _last_reattach_ts: float = 0.0   # 限频（避免状态查询高频触发）
+
+    def _maybe_reattach(self, min_interval_s: float = 5.0) -> bool:
+        """限频包装的状态查询侧自愈入口（_unified_state 调用）。"""
+        now = time.time()
+        if now - self._last_reattach_ts < min_interval_s:
+            return self._state == "ready" and self._backend is not None
+        self._last_reattach_ts = now
+        return self._reattach_vllm_backend()
+
+    def _reattach_vllm_backend(self, target: str | None = None) -> bool:
+        """服务健康在跑但引擎未持有时，重挂 vllm 客户端壳。
+
+        场景：绘画让渡后 wake 后台线程重启了服务（vllm_service 内部），
+        引擎的 backend 在驱逐时已清空——_unified_state 永远报 booting、
+        ensure_loaded 又因台账盲区拒绝「装载已装好的模型」。重挂零成本
+        客户端（不发装载请求）+ 台账补记，一条龙自愈。
+        target 给定时要求服务所载模型与之相符（try_adopt 用）。
+        """
+        try:
+            from ...engines.vllm_service import get_vllm_service
+            svc = get_vllm_service()
+        except Exception:  # noqa: BLE001 - 服务不可达即无从重挂
+            return False
+        if not (svc.is_running() and svc.is_healthy()):
+            return False
+        served = svc.served_name or ""
+        if not served:
+            return False
+        if target and served != target:
+            return False
+        model_dir: Path | None = None
+        try:
+            from ..model_manager import get_model_manager
+            _resolved = get_model_manager().resolve_model_path(served)
+            model_dir = Path(_resolved) if _resolved else None
+        except Exception:  # noqa: BLE001 - 路径解析失败不阻断重挂
+            model_dir = None
+        from .backends.vllm_backend import VLLMBackend
+        self._backend = VLLMBackend.reattach(served, model_dir)
+        self._backend_name = "vllm"
+        self._model_id = served
+        self._model_dir = model_dir
+        self._state = "ready"
+        self._last_error = ""
+        logger.info("vLLM 唤醒产物收养重挂（V9-γ）: %s（服务已在跑，"
+                    "零装载成本）", served)
+        try:  # 台账补记（防分配器再以盲区拒绝）
+            from ..model_manager import get_model_manager
+            get_model_manager().note_external_load(served, "dialog")
+        except Exception as exc:  # noqa: BLE001 - 补记失败只留痕
+            logger.debug("收养台账补记失败（下次 ensure 会再补）: %s", exc)
+        return True
+
+    def try_adopt(self, model_id: str, wait_s: float = 150.0) -> bool:
+        """mgr.ensure_loaded 收养旁路（V9-γ）+ 启动中等待（互踩收编）。
+
+        ①目标已健康服务 → 重挂即真（原 V9-γ 语义）；
+        ②外部通道（P3 常驻热备后台启动 / 唤醒线程）正启动**同目标** →
+        等它就绪再收养——防「热备正在装 X、手动装 X 反被台账盲区以
+        显存不足拒绝」的实测互踩（2026-09-09 07:46：热备装 8B 占显存
+        → 手动 8B 任务 duration=0s 冤败）。等待期间健康→True；启动
+        结束仍不健康 / 在装别的模型 / 超时 → False 走原装载路径。
+        """
+        target = (model_id or "").strip() or None
+        if self._reattach_vllm_backend(target=target):
+            return True
+        deadline = time.time() + max(0.0, wait_s)
+        while time.time() < deadline:
+            try:
+                from ...engines.vllm_service import get_vllm_service
+                svc = get_vllm_service()
+                if not svc.is_booting():
+                    return False  # 无在飞启动且未健康 → 原路径
+                served = svc.served_name or ""
+                if target and served and served != target:
+                    return False  # 外部通道在装别的模型 → 不等
+            except Exception:  # noqa: BLE001 - 服务不可达走原路径
+                return False
+            time.sleep(2.0)
+            if self._reattach_vllm_backend(target=target):
+                return True
+        return False
+
     @property
     def model_name(self) -> str:
         return self._model_id or "none"
@@ -1722,6 +1899,12 @@ class DialogEngine(BaseEngine):
             # load_model 收尾窗口——两者都如实报 booting
             if svc.is_healthy() and backend is not None:
                 return "ready"
+            if svc.is_healthy():
+                # V9-γ（2026-09-09）：健康但未持有 backend = 唤醒后台
+                # 重启产物——重挂自愈（限频）；挂上即 ready，不再永久
+                # 卡 booting（04:00 卡 90% 事故根因③）
+                if self._maybe_reattach():
+                    return "ready"
             return "booting"
         if getattr(svc, "stopped_for_paint", False):
             return "sleeping"
@@ -1756,6 +1939,15 @@ class DialogEngine(BaseEngine):
         消灭「判定时空闲、卸载瞬间用户刚好发消息」的竞态——若用户已
         回来（活动戳刷新），本次放弃，下个巡检周期再看。
         """
+        # 批5 登记簿联动（D4=A，方案 §3.6）：云任务在跑=系统非空闲——
+        # 用户云绘画/云视频中可能马上需要对话（总结/解说），不卸对话
+        # 模型；本地任务跑时功能锁先行拦截（下方 holder 判定）
+        try:
+            from ..inference.gpu_budget import get_busy_registry
+            if get_busy_registry().is_busy(kind="cloud"):
+                return
+        except Exception:  # noqa: BLE001 - 登记簿不可用按原判定
+            pass
         holder = self._active_feature_snapshot()
         with self._lock:
             idle_seconds = time.monotonic() - self._last_activity_ts

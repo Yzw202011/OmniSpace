@@ -16,21 +16,30 @@ import type {
 } from 'react';
 import { Button } from '../common/Button';
 import { VirtualList } from '../common/VirtualList';
-import { Paperclip, X, MessageSquare, Flower2 } from 'lucide-react';
+import { Paperclip, X, MessageSquare, Flower2, FileText, Loader2 } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from './MessageBubble';
 import { SessionList } from './SessionList';
 import type { ChatSession } from './SessionList';
 import { useAppStore } from '@/stores/useAppStore';
+import dialogApi from '@/services/dialogApi';
 
-/** 图片附件 */
+/** 附件（图片 = 多模态理解；文档 = 解析成文本随消息注入） */
 export interface Attachment {
   id: string;
   name: string;
-  /** 预览用 blob: 对象 URL */
-  url: string;
+  /** 附件类型：image（默认，兼容存量）/ document（2026-09-07 按模型能力开放） */
+  kind?: 'image' | 'document';
+  /** 预览用 blob: 对象 URL（图片附件） */
+  url?: string;
   /** 发送用 data:base64 字符串（后端多模态推理需要真实图片数据） */
-  dataUrl: string;
+  dataUrl?: string;
+  /** 文档附件解析出的纯文本（后端 /dialog/parse-document 返回） */
+  text?: string;
+  /** 文档字符数（chip 展示） */
+  chars?: number;
+  /** 解析进行中占位标记（chip 渲染加载态，2026-09-08 反馈闭环） */
+  parsing?: boolean;
   size?: number;
 }
 
@@ -70,7 +79,16 @@ export interface DialogViewProps {
   /** 引用请求（父级点击消息「引用」时下发，seq 递增触发输入框回填） */
   quoteRequest?: { seq: number; message: ChatMessage } | null;
   /** 发送消息（父级据此发起流式请求并更新 messages） */
-  onSend: (text: string, attachments?: Attachment[]) => void;
+  /**
+   * 发送消息（父级据此发起流式请求并更新 messages）。
+   * 返回 false = 同步拒绝（互斥/无会话）——输入与附件保留待重发
+   * （2026-09-07 二测缺陷修复：此前附件随发送即清空，被拒后重发
+   * 不带附件，AI 只能瞎猜）。void/true 视为已受理。
+   */
+  onSend: (
+    text: string,
+    attachments?: Attachment[],
+  ) => void | boolean | Promise<void | boolean>;
   /** 停止生成 */
   onStop?: () => void;
   /** 引用消息 */
@@ -81,6 +99,12 @@ export interface DialogViewProps {
   onRegenerate?: (message: ChatMessage) => void;
   /** 评分（批5 反馈闭环：踩→引用知识降权） */
   onRate?: (message: ChatMessage, rating: number) => void;
+  /**
+   * 当前选中模型是否支持图片理解（2026-09-07 按模型能力开放附件）：
+   * false = 纯文本模型，图片上传按钮/拖拽/粘贴彻底关闭，仅开放文档。
+   * 缺省 true（模型清单未加载完成前兼容存量行为）。
+   */
+  modelSupportsVision?: boolean;
 }
 
 /** 输入字数上限（对齐 DIALOG-016） */
@@ -112,6 +136,7 @@ export function DialogView({
   onCopy,
   onRegenerate,
   onRate,
+  modelSupportsVision = true,
 }: DialogViewProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -189,6 +214,14 @@ export function DialogView({
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     if (generating) return;
+    // 2026-09-08 反馈闭环：文档解析中禁止发送——占位附件无 text，
+    // 发送会被 docs 过滤静默丢掉（用户以为带了文档实际没带）
+    const parsingDoc = attachments.find((a) => a.parsing);
+    if (parsingDoc) {
+      useAppStore.getState().showToast(
+        `文档「${parsingDoc.name}」还在解析中，稍等 1 秒再发送`, 'warning');
+      return;
+    }
     // P2-2 修复（2026-09-02 实测复现）：浮层被 Esc 关闭/输入法组合态
     // 键序跳过 applyCommand 时，回车会把命令原文当消息发给模型
     // （「/清空输入不生效」观感来源）。全文等值命令键 → 直接执行。
@@ -206,7 +239,35 @@ export function DialogView({
       const sid = await ensureSessionRef.current?.();
       if (!sid) return; // 创建失败已 toast，保留输入待重试
     }
-    onSend(text, attachments.length > 0 ? attachments : undefined);
+    // 2026-09-07 文档附件：解析文本以标记块拼进消息正文（图片走
+    // images 通道，文档走文本通道——纯文本模型同样可读，气泡侧对
+    // 📎 块折叠渲染不刷屏）。单条上限对齐后端 DIALOG_MAX_INPUT_CHARS
+    // （32768）：文档块按预算截断（超限整条消息会被后端拒绝）
+    const DOC_PAYLOAD_BUDGET = 32000;
+    const docs = attachments.filter((a) => a.kind === 'document' && a.text);
+    let payload = text;
+    if (docs.length > 0) {
+      const perDoc = Math.max(
+        1000, Math.floor((DOC_PAYLOAD_BUDGET - text.length) / docs.length));
+      const docBlocks = docs
+        .map((d) => {
+          const clipped = d.text!.length > perDoc
+            ? `${d.text!.slice(0, perDoc)}\n…（文档过长已截断，全文 ${d.chars ?? d.text!.length} 字）`
+            : d.text!;
+          return `[📎 文档 ${d.name}]\n${clipped}\n[/📎 文档 ${d.name}]`;
+        })
+        .join('\n\n');
+      payload = text
+        ? `${docBlocks}\n\n${text}`
+        : `${docBlocks}\n\n请阅读以上文档内容。`;
+    }
+    const accepted = await onSend(
+      payload, attachments.length > 0 ? attachments : undefined);
+    // 同步拒绝（互斥/无会话等）：输入与附件全保留，用户处理后重发
+    // 即可——不吞附件（2026-09-07 二测缺陷：被拒后重发不带附件）
+    if (accepted === false) {
+      return;
+    }
     // 审计 R3-FE4：发送后释放附件 blob: 预览 URL，避免内存泄漏
     attachments.forEach((a) => {
       if (a.url?.startsWith('blob:')) {
@@ -307,13 +368,33 @@ export function DialogView({
 
   // 共享图片入列（文件选择 / 拖拽 / 粘贴三通道同一校验漏斗，CHAT-008/009/012）
   function addImageFiles(files: File[]) {
+    const toast = useAppStore.getState().showToast;
+    // 2026-09-07 按模型能力开放附件：纯文本模型彻底关闭图片通道
+    // （按钮不渲染，拖拽/粘贴在此守卫拒绝——不给出「能传却被吞」的误导）
+    if (!modelSupportsVision) {
+      if (files.some((f) => f.type.startsWith('image/'))) {
+        toast('当前模型不支持图片理解，请上传文档（txt/md/docx/pdf）或切换多模态模型', 'warning');
+      }
+      return;
+    }
     // 输入即自动创建：图片入列也是输入行为（选文件/拖拽/粘贴图片）
     if (files.some((f) => f.type.startsWith('image/'))) {
       autoEnsureSession();
     }
-    const toast = useAppStore.getState().showToast;
+    // 2026-09-08 txt 吞文件修复：非图片文件不再静默 continue（此前
+    // 用户从回形针选 txt 被无声丢弃=「无法发送」的根因）——文档类
+    // 自动路由到文档解析通道，未知类型如实提示带出路
+    const docRouted: File[] = [];
+    let docQuotaExceeded = false;
     for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
+      if (!file.type.startsWith('image/')) {
+        if (attachmentsRef.current.length + docRouted.length >= MAX_ATTACHMENTS) {
+          docQuotaExceeded = true;
+          continue;
+        }
+        docRouted.push(file);
+        continue;
+      }
       // CHAT-012：超大图片拒绝 + 如实提示（此前无限制，13MB+ 图片直接入列）
       if (file.size > MAX_IMAGE_BYTES) {
         toast(
@@ -332,6 +413,7 @@ export function DialogView({
         const att: Attachment = {
           id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           name: file.name,
+          kind: 'image',
           url: URL.createObjectURL(file),
           dataUrl: String(reader.result || ''),
           size: file.size,
@@ -340,6 +422,13 @@ export function DialogView({
       };
       reader.readAsDataURL(file);
     }
+    if (docRouted.length > 0) {
+      autoEnsureSession();
+      void processDocFiles(docRouted);
+    }
+    if (docQuotaExceeded) {
+      toast(`附件总数上限 ${MAX_ATTACHMENTS} 个：文档已超配额，请先移除部分附件`, 'warning');
+    }
   }
 
   function onFilesChange(e: ChangeEvent<HTMLInputElement>) {
@@ -347,6 +436,77 @@ export function DialogView({
     if (!files) return;
     addImageFiles(Array.from(files));
     e.target.value = '';
+  }
+
+  // ---- 2026-09-07 文档附件（所有模型开放；纯文本模型的主要资料通道）----
+  const docFileRef = useRef<HTMLInputElement>(null);
+  /** 文档解析进行中（防重复点选；chip 区显示加载态） */
+  const [docParsing, setDocParsing] = useState(false);
+
+  async function onDocFilesChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    // e.target.files 是活 FileList：先清 value 会把它原地清空（2026-09-08
+    // 实弹抓出——按钮选文件零反应零报错的真凶），必须先快照再清
+    const list = Array.from(files);
+    e.target.value = '';
+    await processDocFiles(list);
+  }
+
+  /** 文档附件处理核（2026-09-08 从 onDocFilesChange 抽出）：图片通道
+   * 收到文档类文件时自动路由到此——用户不应需要分辨两个上传按钮。 */
+  async function processDocFiles(docList: File[]) {
+    const toast = useAppStore.getState().showToast;
+    // 上限收纳（2026-09-07 二测反馈：整批全拒太生硬）：按剩余配额
+    // 收前 N 个、多余的如实提示——而非一个都不收
+    const list = docList;
+    const quota = MAX_ATTACHMENTS - attachmentsRef.current.length;
+    if (quota <= 0) {
+      toast(`附件总数上限 ${MAX_ATTACHMENTS} 个，请先移除部分附件`, 'warning');
+      return;
+    }
+    const accepted = list.slice(0, quota);
+    const skipped = list.slice(quota);
+    if (skipped.length > 0) {
+      toast(`附件上限 ${MAX_ATTACHMENTS} 个：已收 ${accepted.length} 个，跳过 ${skipped.length} 个（${skipped.map((f) => f.name).join('、')}）`, 'warning');
+    }
+    autoEnsureSession();
+    setDocParsing(true);
+    for (const file of accepted) {
+      // 2026-09-08 反馈闭环（用户实测「不知道有没有上传成功」）：
+      // ①解析期间先挂「解析中…」占位 chip（docx/pdf 解析数秒，此前
+      //   零反馈=用户以为点了没反应）；②成功弹 toast 确认（此前只有
+      //   截断/失败才有提示，成功是静默的）；③失败移除占位+带出路
+      //   toast。占位以 parsing 标记渲染，完成/失败原地替换/移除。
+      const phId = `doc-ph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setAttachments((prev) => [...prev, {
+        id: phId, name: file.name, kind: 'document',
+        text: '', size: file.size, parsing: true,
+      }]);
+      try {
+        const res = await dialogApi.parseDocument(file);
+        setAttachments((prev) => prev.map((a) => a.id === phId ? {
+          ...a, name: res.name, text: res.text, chars: res.chars,
+          size: file.size, parsing: false,
+        } : a));
+        toast(`文档「${res.name}」已附加（${res.chars} 字）${res.truncated ? '，过长已截断' : ''}`, res.truncated ? 'warning' : 'success');
+      } catch (err) {
+        setAttachments((prev) => prev.filter((a) => a.id !== phId));
+          // api 层抛 ApiError 普通对象（非 Error 实例，含 message/
+          // suggestion）——instanceof 恒 false 会吞掉后端出路提示
+          //（二测实测：.doc 拒绝只显「文档解析失败」）。此处兼容
+          // 两种形状并把 suggestion（如「请另存为 .docx」）带出来
+          const e2 = err as { message?: unknown; suggestion?: unknown } | null;
+          const msg = e2 && typeof e2 === 'object' && e2.message
+            ? String(e2.message)
+            : err instanceof Error ? err.message : '文档解析失败';
+          const sug = e2 && typeof e2 === 'object' && e2.suggestion
+            ? String(e2.suggestion)
+            : '';
+          toast(`「${file.name}」：${msg}${sug ? `（${sug}）` : ''}`, 'error');
+      }
+    }
+    setDocParsing(false);
   }
 
   // ---- CHAT-008：拖拽图片上传 ----
@@ -369,7 +529,21 @@ export function DialogView({
     if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     setDragOver(false);
-    addImageFiles(Array.from(e.dataTransfer.files));
+    const files = Array.from(e.dataTransfer.files);
+    // 2026-09-07 拖拽分流：文档扩展名走文档解析通道，其余走图片漏斗
+    const DOC_EXTS = ['.txt', '.md', '.docx', '.pdf', '.doc'];
+    const docFiles = files.filter((f) =>
+      DOC_EXTS.some((ext) => f.name.toLowerCase().endsWith(ext)));
+    const imgFiles = files.filter((f) => !docFiles.includes(f));
+    if (docFiles.length > 0) {
+      const dt = new DataTransfer();
+      docFiles.forEach((f) => dt.items.add(f));
+      const evt = { target: { files: dt.files, value: '' } } as unknown as ChangeEvent<HTMLInputElement>;
+      void onDocFilesChange(evt);
+    }
+    if (imgFiles.length > 0) {
+      addImageFiles(imgFiles);
+    }
   }
 
   // ---- CHAT-009：粘贴剪贴板图片 ----
@@ -386,7 +560,7 @@ export function DialogView({
   function removeAttachment(id: string) {
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id);
-      if (target?.url.startsWith('blob:')) URL.revokeObjectURL(target.url);
+      if (target?.url?.startsWith('blob:')) URL.revokeObjectURL(target.url);
       return prev.filter((a) => a.id !== id);
     });
   }
@@ -468,10 +642,11 @@ export function DialogView({
           onDragLeave={onDragLeave}
           onDrop={onDrop}
         >
-          {/* 附件预览 */}
+          {/* 附件预览（图片=缩略图方块；文档=文件名+字数 chip） */}
           {attachments.length > 0 ? (
             <div className="flex flex-wrap gap-2 mb-2">
-              {attachments.map((a) => (
+              {attachments.map((a) =>
+                (a.kind ?? 'image') === 'image' ? (
                 <div
                   key={a.id}
                   className="relative w-16 h-16 rounded-lg overflow-hidden border border-[var(--color-input-border)]"
@@ -486,7 +661,35 @@ export function DialogView({
                     <X className="w-3 h-3" />
                   </button>
                 </div>
-              ))}
+                ) : (
+                <div
+                  key={a.id}
+                  className="relative flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-xs text-[var(--color-text-secondary)]"
+                >
+                  {a.parsing ? (
+                    <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-sakura-500" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 shrink-0 text-sakura-500" />
+                  )}
+                  <span className="max-w-40 truncate font-medium">{a.name}</span>
+                  {a.parsing ? (
+                    <span className="text-[10px] text-[var(--color-text-tertiary)]">解析中…</span>
+                  ) : typeof a.chars === 'number' && (
+                    <span className="text-[10px] text-[var(--color-text-tertiary)]">
+                      {a.chars >= 1000 ? `${(a.chars / 1000).toFixed(1)}k` : a.chars}字
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.id)}
+                    aria-label={`移除文档 ${a.name}`}
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-red-500"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                ),
+              )}
             </div>
           ) : null}
 
@@ -521,16 +724,19 @@ export function DialogView({
           )}
 
           <div className="flex items-end gap-2">
-            {/* 附件上传按钮 */}
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              aria-label="上传图片附件"
-              title="上传图片"
-              className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-sakura-50 hover:text-sakura-600 transition-colors"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
+            {/* 图片上传按钮（2026-09-07 按模型能力开放：纯文本模型
+                彻底不渲染，与拖拽/粘贴守卫同口径） */}
+            {modelSupportsVision && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                aria-label="上传图片附件"
+                title="上传图片"
+                className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-sakura-50 hover:text-sakura-600 transition-colors"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+            )}
             <input
               ref={fileRef}
               type="file"
@@ -538,6 +744,27 @@ export function DialogView({
               multiple
               className="hidden"
               onChange={onFilesChange}
+            />
+
+            {/* 文档上传按钮（2026-09-07：所有模型开放——txt/md/docx/pdf
+                解析成文本随消息注入，纯文本模型的主要资料通道） */}
+            <button
+              type="button"
+              onClick={() => docFileRef.current?.click()}
+              aria-label="上传文档附件"
+              title="上传文档（txt / md / docx / pdf）"
+              disabled={docParsing}
+              className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-sakura-50 hover:text-sakura-600 transition-colors disabled:opacity-50"
+            >
+              <FileText className={`w-4 h-4 ${docParsing ? 'animate-pulse' : ''}`} />
+            </button>
+            <input
+              ref={docFileRef}
+              type="file"
+              accept=".txt,.md,.docx,.pdf"
+              multiple
+              className="hidden"
+              onChange={(e) => void onDocFilesChange(e)}
             />
 
             {/* 输入框（输入即自动创建会话：无会话时不再禁用，
@@ -572,9 +799,15 @@ export function DialogView({
             )}
           </div>
 
-          {/* 输入元信息 */}
+          {/* 输入元信息（按模型能力提示：纯文本模型只提文档通道） */}
           <div className="flex items-center justify-between mt-1.5 text-xs text-[var(--color-text-tertiary)]">
-            <span>{generating ? '助手正在思考中…' : '支持上传图片进行理解'}</span>
+            <span>
+              {generating
+                ? '助手正在思考中…'
+                : modelSupportsVision
+                  ? '支持上传图片（多模态理解）与文档（txt/md/docx/pdf）'
+                  : '当前模型为纯文本：支持上传文档（txt / md / docx / pdf）'}
+            </span>
             <span className={input.length >= MAX_INPUT ? 'text-[var(--color-error)]' : ''}>
               {input.length}/{MAX_INPUT}
             </span>

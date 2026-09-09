@@ -36,7 +36,16 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Body, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Body,
+    File,
+    Query,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import StreamingResponse
 
 from ..config import DIALOG_MAX_INPUT_CHARS
@@ -191,6 +200,11 @@ _PASSIVE_MAX_PAGES = 3          # 快速搜索页数上限（文档：1~3 页）
 _PASSIVE_PAGE_CHARS = 1500      # 每页截取正文字符数
 _PASSIVE_TOTAL_CHARS = 3000     # 补充上下文总字符上限
 _PASSIVE_SEARCH_BUDGET_S = 25.0  # 快速搜索总时间预算（秒）
+
+# 对话排队等待上限（2026-09-08 落地）：绘画/视频/训练持锁时对话
+# 消息排队等锁（覆盖单镜关键帧 ~100s 与多数绘画/视频批次；超时
+# 如实报错建议稍后再试）
+_DIALOG_QUEUE_WAIT_S = 300.0
 
 # 轻量关键词提取的停用片段（无 jieba 依赖，面向疑问句去噪）
 _STOP_PHRASES = (
@@ -563,6 +577,7 @@ def dialog_list_models() -> dict[str, Any]:
                 "est_vram_gb": round(est, 1),
                 "fits_local": fits,
                 "loaded": engine.is_ready and engine.model_name == mid,
+                "vision": _dialog_model_supports_vision(mid),
             })
         # 用户导入的外部路径对话模型（登记表兜底，2026-09-01 完整接入）：
         # 类别已过 dialog/language/omni 闸门，不重复套 tts/voice 关键词过滤
@@ -579,6 +594,8 @@ def dialog_list_models() -> dict[str, Any]:
                 "est_vram_gb": round(est, 1),
                 "fits_local": fits,
                 "loaded": engine.is_ready and engine.model_name == mid,
+                "vision": _dialog_model_supports_vision(
+                    mid, backend=info.get("backend", "")),
             })
         items.sort(key=lambda x: (not x["fits_local"],))
         # 模块级选型配置（模型管理 → 功能模块模型配置）：
@@ -621,6 +638,86 @@ def _dialog_model_size_label(mid: str) -> str:
     import re as _re
     m = _re.search(r"(\d+(?:\.\d+)?)\s*b\b", mid.lower())
     return f"{m.group(1).upper()}B" if m else ""
+
+
+def _dialog_model_supports_vision(mid: str, backend: str = "") -> bool:
+    """模型是否支持图片理解（多模态）。
+
+    2026-09-07 按模型能力开放对话附件：纯文本模型（如 qwen35-9b）
+    前端彻底隐藏图片上传；判定源 = id 含 vl 系列（qwen3-vl/qwen2-vl）
+    或导入模型 backend 为 vl（多模态 transformers 路径）。
+    """
+    m = (mid or "").lower()
+    if "vl" in m:  # qwen3-vl-* / qwen2-vl-* / *-vl-*
+        return True
+    return (backend or "").lower() == "vl"
+
+
+# 对话文档附件解析上限：20MB（对话场景小于知识库导入 50MB）；
+# 解析文本截断 200k 字符（防超长文档撑爆 token 窗口，前端拼装时
+# 还有 DIALOG_MAX_INPUT_CHARS 单条钳制兜底）
+_DIALOG_DOC_MAX_BYTES = 20 * 1024 * 1024
+_DIALOG_DOC_MAX_CHARS = 200_000
+
+
+@router.post("/dialog/parse-document")
+async def dialog_parse_document(
+        file: UploadFile = File(...)) -> dict[str, Any]:
+    """对话文档附件解析（2026-09-07 按模型能力开放附件）。
+
+    txt/md → 多编码直读；docx → python-docx；pdf → pymupdf。
+    解析复用知识库导入的同一条管线（knowledge._parse_document，
+    含魔数嗅验），.doc 老格式无解析库支撑 → 诚实拒绝并建议转存
+    docx（静默乱码比明确报错更伤用户）。
+
+    Returns:
+        {name, text, chars, kind}
+    """
+    if not file or not file.filename:
+        raise ApiError("SYSTEM_PARAM_INVALID", "未提供上传文件")
+    ext = ("." + file.filename.rsplit(".", 1)[-1].lower()) \
+        if "." in file.filename else ""
+    if ext == ".doc":
+        raise ApiError(
+            "UNSUPPORTED_FORMAT",
+            "暂不支持 .doc 老格式（Word 97-2003）",
+            detail={"filename": file.filename},
+            suggestion="请在 Word/WPS 中另存为 .docx 后再上传")
+    data = await file.read(_DIALOG_DOC_MAX_BYTES + 1)
+    if not data:
+        raise ApiError("SYSTEM_PARAM_INVALID", "上传文件内容为空")
+    if len(data) > _DIALOG_DOC_MAX_BYTES:
+        raise ApiError(
+            "OPERATION_LIMIT_EXCEEDED", "文档超过 20MB 上限",
+            detail={"size_bytes": len(data),
+                    "limit_bytes": _DIALOG_DOC_MAX_BYTES},
+            suggestion="请拆分文档后分批上传")
+    # 复用知识库导入的解析管线与上传守卫（白名单+魔数嗅验）
+    from .knowledge import _parse_document, upload_guard
+    try:
+        upload_guard.validate(file.filename, data,
+                              upload_guard.DOCUMENT_TABLE)
+    except upload_guard.UploadRejected as exc:
+        raise ApiError("UNSUPPORTED_FORMAT", str(exc),
+                       detail={"filename": file.filename}) from exc
+    try:
+        text = await run_blocking(_parse_document, file.filename, data)
+    except ApiError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "文档解析失败",
+                       detail={"filename": file.filename,
+                               "error": str(exc)}) from exc
+    if not text.strip():
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "文档中未提取到可用文本",
+                       detail={"filename": file.filename})
+    truncated = len(text) > _DIALOG_DOC_MAX_CHARS
+    if truncated:
+        text = text[:_DIALOG_DOC_MAX_CHARS]
+    return ok({"name": file.filename, "text": text, "chars": len(text),
+               "kind": ext.lstrip("."), "truncated": truncated},
+              message="文档解析成功")
 
 
 @router.post("/dialog/send")
@@ -948,6 +1045,10 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                 "model": engine.model_name,
                 "first_token_ms": round(engine.last_first_token_ms, 1),
             }
+            # 与 WS meta 帧同源：降级时带 degraded_from（SSE 通道对齐）
+            _degraded_from = getattr(engine, "_degraded_from", "") or ""
+            if _degraded_from:
+                meta["degraded_from"] = _degraded_from
             if thinking:
                 meta["thinking_used"] = True
                 meta["first_content_ms"] = round(
@@ -1207,9 +1308,14 @@ async def dialog_prewarm(request: Request) -> dict[str, Any]:
 
     engine = get_dialog_engine()
     status = engine.get_status()
-    if (status.get("state") == "ready"
-            and (want_model is None or status.get("model") == want_model)):
-        return ok({"state": "ready", "prewarmed": False})
+    if status.get("state") == "ready":
+        # 预热语义=「确保有模型可用」——引擎已就绪即达标，绝不为换成
+        # 目标模型而热切换拆台（2026-09-09 02:39 反向互踩根修：用户刚
+        # 手动装好 8B，进对话页预热默认 9B 把 8B 顶掉、9B 又装不下 →
+        # 引擎变空卡死）。真要换模型走 /models/load 或发送带 model
+        # （显式意图才允许热切换）。
+        return ok({"state": "ready", "prewarmed": False,
+                   "model": status.get("model", "")})
 
     # 与 /models/warmup 共享 inflight（同目标去重；inflight 中预热
     # 仍在跑时短路，避免双线程排队引擎锁引发目标错乱）
@@ -1649,12 +1755,61 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
     images = _decode_images(data.get("images"))
     engine = get_dialog_engine()
 
-    # 功能互斥锁（规格 §6.1）：被占用时如实返回 40007
+    # 功能互斥锁（规格 §6.1）＋ 对话排队（2026-09-08 落地）：
+    # 被绘画/视频/训练持锁时不再秒拒「绘画进行中，其他AI功能暂不可用」
+    # ——消息进入排队等待（上限 _DIALOG_QUEUE_WAIT_S），期间每 2s 推
+    # queued 状态（前端气泡显示「排队中…结束后自动继续」），锁释放后
+    # 自动继续生成。WS 断开（用户点停止/关页）即退出排队；超时如实
+    # 报错。热保护（20004）与未知互斥方照旧秒拒（等待无意义）。
+    lock = None
     try:
         lock = await acquire_or_raise("dialog", task_id=sid)
     except ApiError as exc:
-        await _ws_send_error(websocket, exc.code, exc.message)
-        return
+        from ..middleware.feature_lock import get_feature_lock
+        _blocker = get_feature_lock().active_feature
+        _blocker_zh = {"paint": "AI绘画", "video_gen": "视频生成",
+                       "training": "训练"}.get(_blocker or "", "其他AI功能")
+        log.info("对话锁被占：code=%s blocker=%s sid=%s",
+                 exc.code, _blocker, sid)
+        # ApiError 构造时把 int 码转成语义串（error_handler._to_semantic
+        # ：40007 → "FEATURE_MUTEX_LOCKED"）——两种形态都认
+        if exc.code not in (40007, "FEATURE_MUTEX_LOCKED") \
+                or _blocker not in ("paint", "video_gen", "training"):
+            log.warning("对话秒拒（不可排队）：code=%s blocker=%s",
+                        exc.code, _blocker)
+            await _ws_send_error(websocket, exc.code, exc.message)
+            return
+        log.info("对话进入排队等待：blocker=%s sid=%s", _blocker, sid)
+        _deadline = time.monotonic() + _DIALOG_QUEUE_WAIT_S
+        _waited = 0
+        while True:
+            _waited = int(_DIALOG_QUEUE_WAIT_S - (_deadline - time.monotonic()))
+            try:
+                await websocket.send_json({
+                    "type": "status",
+                    "data": {
+                        "phase": "queued",
+                        "blocking": _blocker,
+                        "waited_s": max(0, _waited),
+                        "message": f"排队中：{_blocker_zh}进行中，"
+                                   f"结束后自动继续"
+                                   f"（已等待 {max(0, _waited)} 秒，"
+                                   "可点停止退出排队）",
+                    },
+                })
+            except Exception:  # noqa: BLE001 - WS 断开即退出排队
+                return
+            try:
+                lock = await acquire_or_raise("dialog", task_id=sid)
+                break
+            except ApiError as retry_exc:
+                if time.monotonic() >= _deadline:
+                    await _ws_send_error(
+                        websocket, retry_exc.code,
+                        f"排队超时（{_DIALOG_QUEUE_WAIT_S:.0f} 秒）："
+                        f"{retry_exc.message}")
+                    return
+            await asyncio.sleep(2.0)
 
     try:
         # 模型选择接线（2026-08-20）：前端 model 参数（旧档位标签或完整
@@ -1667,7 +1822,12 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         try:
             from .models import get_module_model_scope as _dlg_scope
             _allowed, _default = _dlg_scope("dialog")
-            if model_req and _allowed is not None \
+            # cloud:: 虚拟模型（批1 云端API）绕过白名单：云端模型来自
+            # 设置页用户显式配置的服务商连接，不属本地模型注册表，
+            # 白名单（本地模型精细化管控语义）不适用——2026-09-06
+            # 真浏览器走查抓出的拦截 bug（进程内直调不经过此层）
+            if model_req and not str(model_req).startswith("cloud::") \
+                    and _allowed is not None \
                     and model_req not in _allowed:
                 await _ws_send_error(
                     websocket, 40004,
@@ -1837,6 +1997,12 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                 "message_id": saved["id"] if saved else "",
                 "first_token_ms": round(engine.last_first_token_ms, 1),
             }
+            # 降级真身标注（2026-09-08 用户报「AI 跟选择的不符」零感知）：
+            # 引擎显存装不下被自动降级时，meta 帧带降级来源供前端当场
+            # 提示；未降级不带该字段
+            _degraded_from = getattr(engine, "_degraded_from", "") or ""
+            if _degraded_from:
+                meta["degraded_from"] = _degraded_from
             if thinking:
                 meta["thinking_used"] = True
                 meta["first_content_ms"] = round(

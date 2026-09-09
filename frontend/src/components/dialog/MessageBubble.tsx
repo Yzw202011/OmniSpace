@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Database,
   FileSearch,
+  Globe,
   Lightbulb,
   Scale,
   type LucideIcon,
@@ -27,6 +28,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { Modal } from '../common/Modal';
+import type { WebRef } from '../../types';
+import { useDialogStore } from '../../stores/useDialogStore';
 
 /** 消息角色 */
 export type MessageRole = 'user' | 'assistant' | 'system';
@@ -57,6 +60,8 @@ export interface ChatMessage {
   quote?: { id: string; content: string } | null;
   /** 用户消息附带图片（多模态，dataUrl 格式） */
   images?: string[];
+  /** 联网搜索来源（web_refs 事件；回答带【n】引用标注，架构升级计划 B-阶段一） */
+  web_refs?: WebRef[];
 }
 
 export interface MessageBubbleProps {
@@ -285,6 +290,24 @@ function ThinkingPanel({ reasoning, streaming, hasContent, reasoningMs }: {
  * 自定义比较：message 按字段值比较（流式 token 仅触发内容变化的那条重渲染），
  * 回调按引用比较（父级须以 useCallback 稳定传入，见 DialogPage）。
  */
+
+/** 2026-09-07 文档附件标记块：[📎 文档 x]…[/📎 文档 x]（DialogView.send 拼装） */
+const DOC_BLOCK_RE = /\[📎 文档 (.+?)\]\n([\s\S]*?)\[\/📎 文档 \1\]/g;
+
+/** 提取用户消息里的文档块（name + 内容） */
+function extractDocBlocks(content: string): Array<{ name: string; text: string }> {
+  const out: Array<{ name: string; text: string }> = [];
+  for (const m of content.matchAll(DOC_BLOCK_RE)) {
+    out.push({ name: m[1], text: m[2] });
+  }
+  return out;
+}
+
+/** 剥掉文档块后的正文（无块时原样返回） */
+function stripDocBlocks(content: string): string {
+  return content.replace(DOC_BLOCK_RE, '').trim();
+}
+
 export const MessageBubble = memo(function MessageBubble({
   message,
   onQuote,
@@ -296,8 +319,21 @@ export const MessageBubble = memo(function MessageBubble({
   const isError = !!message.errorText;
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
   const images = isUser ? message.images ?? [] : [];
+  // 2026-09-07 文档附件：用户消息中的 📎 标记块折叠展示（正文剥离后渲染）
+  const docBlocks = isUser ? extractDocBlocks(message.content) : [];
+  const bubbleContent = docBlocks.length > 0 ? stripDocBlocks(message.content) : message.content;
   // 批5 反馈闭环：本消息评分（1 赞 / -1 踩 / 0 未评），本地视觉态
   const [myRating, setMyRating] = useState<number>(message.rating ?? 0);
+  // 2026-09-08 用户报「对话的 AI 跟模型选择的不符」：根因=选的模型
+  // 显存装不下被自动降级，但只有气泡上一行灰色技术 id、零解释。
+  // 模型真身（流内 meta.engine / 历史 model_used）改用友好名展示，
+  // 与当前所选不一致时给警示色+降级说明——不让大家猜
+  const selectedModelId = useDialogStore((s) => s.modelId);
+  const modelOptions = useDialogStore((s) => s.modelOptions);
+  const displayModel = !isUser && message.model
+    ? modelOptions.find((o) => o.model_id === message.model)?.name ?? message.model
+    : '';
+  const modelMismatch = !isUser && !!message.model && message.model !== selectedModelId;
 
   const handleRate = (rating: number) => {
     const next = myRating === rating ? 0 : rating; // 重复点击=取消评分
@@ -324,9 +360,18 @@ export const MessageBubble = memo(function MessageBubble({
 
       {/* 气泡主体 */}
       <div className={['flex flex-col max-w-[80%]', isUser ? 'items-end' : 'items-start'].join(' ')}>
-        {/* 模型名 / 时间 */}
+        {/* 模型名 / 时间（助手侧=实际答复模型真身；降级=警示色标注） */}
         <div className="flex items-center gap-2 mb-1 text-xs text-[var(--color-text-tertiary)]">
-          {!isUser && message.model ? <span className="font-medium">{message.model}</span> : null}
+          {!isUser && displayModel ? (
+            <span
+              className={`font-medium max-w-64 truncate ${modelMismatch ? 'text-[var(--color-warning)]' : ''}`}
+              title={modelMismatch
+                ? `本条由「${displayModel}」答复：您选的模型在当前显存余量下装不下，已自动降级。关闭占用显存的应用后重新选择即可换回`
+                : `答复模型：${displayModel}`}
+            >
+              {displayModel}{modelMismatch ? '（自动降级）' : ''}
+            </span>
+          ) : null}
           <span>{formatTime(message.timestamp)}</span>
         </div>
 
@@ -370,9 +415,32 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         ) : null}
 
+        {/* 文档附件折叠块（2026-09-07：📎 标记块折叠展示，点开看全文） */}
+        {docBlocks.length > 0 ? (
+          <div className="flex flex-col gap-1.5 mb-1 max-w-full items-end">
+            {docBlocks.map((d, i) => (
+              <details
+                key={i}
+                className="group w-full rounded-xl border border-sakura-300 bg-sakura-50/60 text-xs"
+              >
+                <summary className="flex items-center gap-1.5 px-2.5 py-1.5 cursor-pointer select-none text-[var(--color-text-secondary)]">
+                  <span aria-hidden="true">📎</span>
+                  <span className="font-medium truncate max-w-52">{d.name}</span>
+                  <span className="text-[10px] text-[var(--color-text-tertiary)] shrink-0">
+                    {d.text.length >= 1000 ? `${(d.text.length / 1000).toFixed(1)}k` : d.text.length}字文档
+                  </span>
+                  <span className="ml-auto text-[10px] text-sakura-500 shrink-0 group-open:hidden">展开</span>
+                  <span className="ml-auto hidden text-[10px] text-sakura-500 shrink-0 group-open:inline">收起</span>
+                </summary>
+                <pre className="px-3 pb-2 pt-0.5 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-[var(--color-text-secondary)]">{d.text}</pre>
+              </details>
+            ))}
+          </div>
+        ) : null}
+
         {/* 气泡（纯图片消息不渲染空气泡；深度思考进行中由思考面板承担状态展示，
             不再渲染重复的"思考中"占位气泡） */}
-        {message.content || (message.streaming && !message.reasoning) || isError ? (
+        {bubbleContent || (message.streaming && !message.reasoning) || isError ? (
         <div
           className={[
             'px-4 py-2.5 rounded-2xl text-sm text-[var(--color-text-primary)] break-words',
@@ -385,18 +453,18 @@ export const MessageBubble = memo(function MessageBubble({
         >
           {isError ? (
             <span className="inline-flex items-center gap-1.5"><AlertCircle size={14} aria-hidden="true" /> {message.errorText}</span>
-          ) : message.content ? (
+          ) : bubbleContent ? (
             message.streaming ? (
               /* 流式期间：纯文本 + 光标，避免逐 token 全量 Markdown 解析 */
               <span className="leading-relaxed whitespace-pre-wrap break-words">
-                {message.content}
+                {bubbleContent}
                 <span className="inline-block w-1.5 h-4 ml-0.5 bg-[var(--color-primary)] animate-pulse align-middle" />
               </span>
             ) : (
               /* 完成态：完整 Markdown（GFM 表格/删除线/任务列表 + 代码高亮） */
               <div className="md-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {message.content}
+                  {bubbleContent}
                 </ReactMarkdown>
               </div>
             )
@@ -420,6 +488,31 @@ export const MessageBubble = memo(function MessageBubble({
             </span>
           ) : null}
         </div>
+        ) : null}
+
+        {/* 联网来源卡片（web_refs 事件；仅助手消息，与回答中的【n】引用
+            标注对应——点击打开原文，架构升级计划 B-阶段一） */}
+        {!isUser && message.web_refs && message.web_refs.length > 0 ? (
+          <div className="mt-1 w-full">
+            <div className="flex items-center gap-1 mb-1 text-xs text-[var(--color-text-tertiary)]">
+              <Globe size={12} aria-hidden="true" />
+              联网来源（{message.web_refs.length}）
+            </div>
+            <div className="flex flex-col gap-1">
+              {message.web_refs.slice(0, 5).map((r, i) => (
+                <a
+                  key={`${r.url}-${i}`}
+                  href={r.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-2 py-1 rounded bg-[var(--color-bg-alt,var(--color-card))] border border-[var(--color-border-light)] hover:border-sakura-300 text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] transition-colors truncate"
+                  title={r.title || r.url}
+                >
+                  【{i + 1}】{r.title || r.url}
+                </a>
+              ))}
+            </div>
+          </div>
         ) : null}
 
         {/* 操作按钮 */}

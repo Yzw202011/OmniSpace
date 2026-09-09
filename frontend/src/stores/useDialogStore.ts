@@ -35,6 +35,9 @@ export const TEMPERATURE_MAX = 2;
 /** 对话参数本地持久化键（localStorage） */
 const DIALOG_PARAMS_STORAGE_KEY = 'omnispace.dialog.params';
 
+/** 最近一次已提醒的降级组合（from>engine）——同一降级只 toast 一次 */
+let _lastDegradedKey = '';
+
 /** 需持久化的对话参数 */
 interface DialogParamsSnapshot {
   model: DialogModelSize;
@@ -317,11 +320,26 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       return false;
     }
 
-    // 功能互斥前置检查（规格 §6.1）
+    // 功能互斥前置检查（规格 §6.1）＋ 排队放行（2026-09-08 对话排队）：
+    // 本页发起的绘画/视频/训练进行中时不再前端秒拒——放行走 WS，
+    // 由后端功能锁排队（锁释放后自动继续，气泡显示「排队中」）。
+    // 对话以外的互斥（如 training 之外的本地态）维持原拒绝语义。
     const appStore = useAppStore.getState();
     if (!appStore.setActiveFeature('dialog')) {
-      return false; // 被阻断，已自动 toast
+      const active = useAppStore.getState().activeFeature;
+      if (active !== 'paint' && active !== 'video_gen'
+          && active !== 'training') {
+        return false; // 被阻断，已自动 toast
+      }
+      // 排队放行：不抢 activeFeature（真实持锁方保持），消息交后端排队
     }
+    // 排队放行的对称收尾：仅在 activeFeature 仍是 dialog（本功能真实
+    // 持有）时释放——排队场景（paint 等持锁）绝不误清真实持锁方
+    const releaseDialogFeature = (): void => {
+      if (useAppStore.getState().activeFeature === 'dialog') {
+        appStore.releaseActiveFeature();
+      }
+    };
 
     const sessionId = currentSession.id;
 
@@ -419,8 +437,29 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       }));
     });
 
+    // web_refs 事件（联网搜索 v1：来源列表，供消息下方来源卡片渲染；
+    // 事件在 token 流开始前一次性下发）
+    const offWebRefs = conn.on<{ refs?: Array<import('../types').WebRef> }>(
+      'web_refs',
+      (data) => {
+        const refs = data?.refs;
+        if (!refs || refs.length === 0) {
+          return;
+        }
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === assistantId ? { ...m, web_refs: refs } : m,
+          ),
+        }));
+      },
+    );
+
     // meta 事件（引擎来源标注）
-    const offMeta = conn.on<{ engine?: string; message_id?: string }>(
+    const offMeta = conn.on<{
+      engine?: string;
+      message_id?: string;
+      degraded_from?: string;
+    }>(
       'meta',
       (data) => {
         if (data?.message_id) {
@@ -440,6 +479,26 @@ export const useDialogStore = create<DialogState>((set, get) => ({
                 : m,
             ),
           }));
+          // 2026-09-08 用户报「对话的 AI 跟模型选择的不符」却无任何
+          // 提示：降级只写了事件日志（前端零感知）。实际引擎与所选
+          // 不一致（或后端 meta 明示 degraded_from，需后端重启后才有）
+          // 时当场 toast 说明+出路；同一降级只提醒一次防刷屏
+          const sel = get().modelId;
+          const from = data.degraded_from
+            || (sel && data.engine !== sel ? sel : '');
+          if (from && from !== data.engine) {
+            const key = `${from}>${data.engine}`;
+            if (_lastDegradedKey !== key) {
+              _lastDegradedKey = key;
+              const friendly = (id: string) =>
+                get().modelOptions.find((o) => o.model_id === id)?.name ?? id;
+              useAppStore.getState().showToast(
+                `您选的「${friendly(from)}」在当前显存余量下装不下，`
+                + `本条已自动改用「${friendly(data.engine)}」回答`
+                + '（消息上方有标注）。关闭占用显存的应用后'
+                + '重新选择即可换回', 'warning');
+            }
+          }
         }
       },
     );
@@ -465,7 +524,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
           generating: false,
         }));
         cleanup();
-        appStore.releaseActiveFeature();
+        releaseDialogFeature();
       },
     );
 
@@ -473,20 +532,23 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     const offDone = conn.on('done', () => {
       set({ generating: false });
       cleanup();
-      appStore.releaseActiveFeature();
+      releaseDialogFeature();
     });
 
     // status 事件（模型冷启动等阶段提示，2026-08-22 思考过长事故）：
-    // 写入占位消息——首个 token 到达前用户能看到加载阶段而非空白"思考中"
+    // 写入占位消息——首个 token 到达前用户能看到加载阶段而非空白"思考中"。
+    // queued（2026-09-08 对话排队）持续推送每 2s 刷新等待秒数——精确
+    // 匹配旧 hint 覆盖（content 非空也允许更新，仅限自家占位文案）
     let loadingHint = '';
     const offStatus = conn.on<{ phase?: string; message?: string }>(
       'status',
       (data) => {
         if (!data?.message) return;
+        const prevHint = loadingHint;
         loadingHint = `[${data.message}]`;
         set((state) => ({
           messages: state.messages.map((m) =>
-            m.id === assistantId && !m.content
+            m.id === assistantId && (!m.content || m.content === prevHint)
               ? { ...m, content: loadingHint }
               : m,
           ),
@@ -504,6 +566,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     function cleanup() {
       offToken();
       offReasoning();
+      offWebRefs();
       offMeta();
       offError();
       offDone();

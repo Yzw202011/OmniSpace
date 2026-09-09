@@ -17,7 +17,7 @@
  * 诚实门控：SSE 流内 meta/error 如实返回，未就绪返回 40002，绝不伪造 AI 回复。
  * ========================================================================== */
 
-import { get, post, put, del } from './api';
+import { get, post, put, del, upload } from './api';
 import type { QueryParams } from './api';
 import { parseWith, DialogSessionListRespSchema } from './schema';
 import type {
@@ -121,6 +121,8 @@ export interface DialogModelInfo {
   est_vram_gb: number;
   fits_local: boolean;
   loaded: boolean;
+  /** 是否支持图片理解（多模态）；缺省 true 兼容旧后端（2026-09-07） */
+  vision?: boolean;
 }
 
 /** 拉取对话可用模型清单（含可承载判定与已加载标记） */
@@ -196,6 +198,21 @@ export function stopGenerate(sessionId: string) {
   return post<void>('/chat/stop', { session_id: sessionId });
 }
 
+/* ------------------------- 文档附件解析（2026-09-07） ------------------------- */
+
+/**
+ * 上传文档解析为纯文本（txt/md/docx/pdf；.doc 老格式后端诚实拒绝）。
+ * 后端复用知识库导入的解析管线（python-docx / pymupdf + 魔数嗅验）。
+ */
+export function parseDocument(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return upload<{ name: string; text: string; chars: number; kind: string; truncated: boolean }>(
+    '/dialog/parse-document',
+    formData,
+  );
+}
+
 /* ------------------------------ 纠正/导出 ------------------------------ */
 
 /**
@@ -239,6 +256,7 @@ export default {
   listFavorites,
   sendMessage,
   stopGenerate,
+  parseDocument,
   submitCorrection,
   exportSession,
 };

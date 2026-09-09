@@ -191,13 +191,29 @@ function ChatPanel() {
         <div className="form-row">
           <label className="form-label" htmlFor="rp-chat-model">
             模型选择
-            <span className="form-value">{model}</span>
+            {/* 2026-09-08 用户报「选择失效」：旧档位标签（8B/4B/2B）对
+                清外模型（如 9B）错显「4B」，与下拉值互相矛盾=看着像没
+                切上。改显所选模型真名；清单未加载时回退旧档位 */}
+            <span className="form-value">
+              {isCloudModel
+                ? (currentCloud?.label ?? '云端')
+                : (current?.name.split(' · ')[0] ?? model)}
+            </span>
           </label>
           <select
             id="rp-chat-model"
             className="input"
             value={modelOptions.length || cloudOptions.length ? modelId : ''}
             onChange={(e) => setModelId(e.target.value)}
+            onBlur={(e) => {
+              // 2026-09-08 用户两报「切换无反应」但干净环境（含
+              // WebView2 同引擎+真实鼠标）全路径无法复现：兜底防个别
+              // 环境 change 事件丢失——失焦时按 DOM 真值对齐 store，
+              // 保证「视觉已选」绝不落后于「实际生效」
+              if (e.target.value && e.target.value !== modelId) {
+                setModelId(e.target.value);
+              }
+            }}
           >
             {modelOptions.length === 0 && cloudOptions.length === 0 ? (
               <option value="">{model}（清单加载中…）</option>
@@ -250,6 +266,12 @@ function ChatPanel() {
             className="input"
             value={contextTokens}
             onChange={(e) => setContextTokens(parseInt(e.target.value, 10))}
+            onBlur={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (Number.isFinite(v) && v !== contextTokens) {
+                setContextTokens(v);
+              }
+            }}
           >
             {CONTEXT_TOKEN_OPTIONS.map((n) => (
               <option key={n} value={n}>{n} tokens</option>

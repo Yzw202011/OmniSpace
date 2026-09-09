@@ -658,11 +658,10 @@ class StyleLoraService:
                     return bool(fut.result(timeout=10))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("经事件循环获取 training 锁失败，走同步降级: %s", exc)
-        if mgr.active_feature not in (None, "training"):
+        # 同步降级：经 acquire_sync 与异步路径共享同一份按域状态
+        # （批1 多卡地基 2026-09-05，不再直写 _holder 私有字段）。
+        if not mgr.acquire_sync("training", task_id=task_id):
             return False
-        mgr._holder = "training"  # noqa: SLF001 - 降级路径
-        mgr._acquired_at = time.time()  # noqa: SLF001
-        mgr._holder_task_id = task_id  # noqa: SLF001
         self._lock_via_fallback = True
         return True
 
@@ -678,9 +677,7 @@ class StyleLoraService:
                     return
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("经事件循环释放 training 锁失败: %s", exc)
-        if mgr.active_feature == "training":
-            mgr._holder = None  # noqa: SLF001 - 降级路径
-            mgr._holder_task_id = None  # noqa: SLF001
+        mgr.release_sync("training")
 
     # ═══════════════════════════════════════════════════════════
     #  训练执行（真实 QLoRA 管线钩子，诚实门控）

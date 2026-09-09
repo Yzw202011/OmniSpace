@@ -14,8 +14,11 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { useAppStore, type FontSize, type Theme } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
+import CloudApiSettings from '@/components/CloudApiSettings';
+import WebSearchSettings from '@/components/WebSearchSettings';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
+import * as systemApi from '@/services/systemApi';
 
 /** 主题四态配置（双主题体系 × 亮暗双模式，2026-08-20 用户裁定脱离 COM-009） */
 const THEME_OPTIONS: Array<{
@@ -73,6 +76,19 @@ export default function Settings() {
   const profileLoaded = useHardwareStore((s) => s.profileLoaded);
   const refreshProfile = useHardwareStore((s) => s.refreshProfile);
 
+  // 本地算力 · 省钱账本（2026-09-08 用户拍板：保守口径只算 AI 输出侧）
+  const [savings, setSavings] = useState<systemApi.LocalSavings | null>(null);
+  const [savingsLoaded, setSavingsLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    systemApi.getLocalSavings()
+      .then((res) => { if (alive) setSavings(res); })
+      .catch(() => { /* 后端旧版本无此端点：账本区显示待更新提示 */ })
+      .finally(() => { if (alive) setSavingsLoaded(true); });
+    return () => { alive = false; };
+  }, []);
+
   // 本地编辑态：允许用户修改文本类设置项后再保存
   const [editableSettings, setEditableSettings] = useState<Record<string, unknown>>({});
 
@@ -99,8 +115,16 @@ export default function Settings() {
     showToast('已重置为服务端值', 'info');
   }
 
-  // 将设置对象转为可展示的键值对
-  const settingEntries = Object.entries(editableSettings);
+  // 将设置对象转为可展示的键值对（远程推理旧键已迁入「云端 API 服务」卡片，不进通用表）
+  const REMOTE_SETTING_KEYS = new Set([
+    'remote_dialog_enabled',
+    'remote_dialog_base_url',
+    'remote_dialog_api_key',
+    'remote_dialog_model',
+    'remote_dialog_timeout_s',
+  ]);
+  const settingEntries = Object.entries(editableSettings)
+    .filter(([key]) => !REMOTE_SETTING_KEYS.has(key));
   const knownKeys = new Set(['language', 'auto_save_interval', 'default_model', 'ws_reconnect_interval']);
 
   return (
@@ -200,7 +224,72 @@ export default function Settings() {
                   {name !== key && <span className="settings-row-desc">{key}</span>}
                 </div>
                 <div className="settings-row-control">
-                  {knownKeys.has(key) ? (
+                  {key === 'ui_performance' ? (
+                    /* 界面效果（2026-09-08 UI 降载方案②）：性能模式关
+                       动态粒子/流光/毛玻璃，即时生效（AI 生成期间更稳） */
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="ui_performance"
+                          checked={String(value ?? 'full') === 'full'}
+                          onChange={() =>
+                            setEditableSettings((prev) => ({
+                              ...prev,
+                              ui_performance: 'full',
+                            }))}
+                        />
+                        完整效果
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="ui_performance"
+                          checked={String(value ?? '') === 'lite'}
+                          onChange={() =>
+                            setEditableSettings((prev) => ({
+                              ...prev,
+                              ui_performance: 'lite',
+                            }))}
+                        />
+                        性能模式（关动态特效）
+                      </label>
+                    </div>
+                  ) : key === 'launch_mode' ? (
+                    /* 界面打开方式（2026-09-08 桌面壳接线）：专用单选，
+                       下次启动生效（本次会话窗口不热切） */
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="launch_mode"
+                          checked={String(value ?? 'shell') === 'shell'}
+                          onChange={() =>
+                            setEditableSettings((prev) => ({
+                              ...prev,
+                              launch_mode: 'shell',
+                            }))}
+                        />
+                        桌面窗口（推荐）
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="launch_mode"
+                          checked={String(value ?? '') === 'browser'}
+                          onChange={() =>
+                            setEditableSettings((prev) => ({
+                              ...prev,
+                              launch_mode: 'browser',
+                            }))}
+                        />
+                        系统浏览器
+                      </label>
+                      <span className="text-xs text-[var(--color-text-tertiary)]">
+                        下次启动生效
+                      </span>
+                    </div>
+                  ) : knownKeys.has(key) ? (
                     <input
                       className="input settings-input"
                       value={String(value ?? '')}
@@ -224,6 +313,12 @@ export default function Settings() {
         )}
       </div>
 
+      {/* ============ 云端 API 服务（批1：用户自带 Key，多服务商） ============ */}
+      <CloudApiSettings />
+
+      {/* ============ 联网搜索（架构升级计划 B-阶段一，默认关） ============ */}
+      <WebSearchSettings />
+
       {/* ============ 功能互斥规则（规格 §6.1） ============ */}
       <div className="settings-section card">
         <h2 className="settings-section-title">功能互斥规则</h2>
@@ -245,6 +340,64 @@ export default function Settings() {
             );
           })}
         </div>
+      </div>
+
+      {/* ============ 本地算力 · 省钱账本 ============ */}
+      <div className="settings-section card">
+        <div className="settings-section-header">
+          <h2 className="settings-section-title">本地算力 · 省钱账本</h2>
+        </div>
+        <p className="settings-section-desc">
+          使用本地 GPU 生成 = 不消耗云端 token = 直接省钱。
+          以下为本地产出统计，金额按云端参考价估算（保守口径，宁少报不多报）。
+        </p>
+        {!savingsLoaded ? (
+          <div className="settings-loading">统计中…</div>
+        ) : !savings ? (
+          <div className="settings-empty">
+            <p>账本数据暂不可用：重启后端后此处会显示本地算力统计。</p>
+          </div>
+        ) : (
+          <>
+            <div className="settings-hardware-grid">
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">本地生成文本</span>
+                <span className="settings-hw-value">
+                  {savings.text.tokens_est >= 10000
+                    ? `${(savings.text.tokens_est / 10000).toFixed(1)} 万 tokens`
+                    : `${savings.text.tokens_est} tokens`}
+                </span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">文本回复</span>
+                <span className="settings-hw-value">{savings.text.messages} 条</span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">本地生图</span>
+                <span className="settings-hw-value">
+                  {savings.images.count} 张
+                  <span className="text-xs text-[var(--color-text-tertiary)]">
+                    （关键帧 {savings.images.keyframes} / 漫画资产 {savings.images.comic_assets} / 绘画 {savings.images.paint}）
+                  </span>
+                </span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">本地视频</span>
+                <span className="settings-hw-value">{savings.videos.count} 条</span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">累计省约</span>
+                <span className="settings-hw-value" style={{ color: 'var(--color-success)' }}>
+                  ¥{savings.money.cny_est.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-[var(--color-text-tertiary)] mt-2">
+              {savings.scope_note}；参考价：文本 ¥{savings.money.prices.text_cny_per_mtok}/百万 tokens、
+              图 ¥{savings.money.prices.image_cny_each}/张、视频 ¥{savings.money.prices.video_cny_each}/条。
+            </p>
+          </>
+        )}
       </div>
 
       {/* ============ 硬件信息 ============ */}
@@ -328,6 +481,8 @@ const SETTING_KEY_LABELS: Record<string, string> = {
   auto_save_interval: '自动保存间隔',
   default_model: '默认模型',
   ws_reconnect_interval: 'WS 重连间隔',
+  launch_mode: '界面打开方式',
+  ui_performance: '界面效果',
 };
 
 function formatSettingKey(key: string): string {

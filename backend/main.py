@@ -7,7 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import time
+
+# V8 回归修复（2026-09-09 14:30）：tqdm 进度条写 stderr 时，后端以
+# Hidden Window + 重定向 stderr 启动长时间后句柄会失效（OSError
+# [Errno 22] Invalid argument，实锤栈 tqdm/std.py:446 flush）。
+# 禁用 tqdm/hf 进度条 = 服务端进程本就不需要可视化进度。
+os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any

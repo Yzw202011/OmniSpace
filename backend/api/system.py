@@ -145,7 +145,41 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     global _settings
     _settings = req.model_dump()
     _kv_set(_SETTINGS_KEY, _settings)
+    # 远程对话配置热生效（批3 D3）：清 5s TTL 缓存，下一跳即用新值
+    try:
+        from ..services.inference.backends.remote_backend import invalidate_remote_config_cache
+        invalidate_remote_config_cache()
+    except Exception:  # noqa: BLE001 - 缓存清理失败下个 TTL 自愈
+        pass
     return ok(_settings, message="设置已更新")
+
+
+@router.get("/system/web_search")
+def web_search_settings_get() -> dict[str, Any]:
+    """联网搜索 v1 配置读取（架构升级计划 B-阶段一；默认关）。"""
+    from ..services.web_search import get_web_search_settings
+    return ok(get_web_search_settings())
+
+
+@router.put("/system/web_search")
+def web_search_settings_update(req: dict = Body(...)) -> dict[str, Any]:
+    """联网搜索 v1 配置更新（enabled/provider/trigger 等服务端校验）。"""
+    from ..services.web_search import update_web_search_settings
+    return ok(update_web_search_settings(req), message="联网搜索配置已更新")
+
+
+@router.post("/system/dialog-remote/test")
+def system_dialog_remote_test(req: dict = Body(...)) -> dict[str, Any]:
+    """测试远程推理服务器连通性（批3 D3 设置页「测试连接」按钮）。
+
+    探测 {base_url}/health（404 回退 /v1/models），任一 2xx 即可达。
+    """
+    from ..services.inference.backends.remote_backend import probe_remote_health
+    base_url = str(req.get("base_url") or "").strip()
+    api_key = str(req.get("api_key") or "").strip()
+    reachable, detail = probe_remote_health(base_url, api_key, timeout_s=5.0)
+    return ok({"reachable": reachable, "detail": detail,
+               "base_url": base_url.rstrip("/")})
 
 
 @router.post("/system/backup")
@@ -394,6 +428,35 @@ def _probe_resume_scan() -> tuple[str, str]:
 
 
 # 26 项诊断注册表（名称 + 真实探测函数）
+def _probe_cloud_api() -> tuple[str, str]:
+    """云端 API 配置诊断（2026-09-06 系统日志升级）：连接/绑定概览。
+
+    未配置=pass（云端是可选增量，未配置并非故障）；配置了则汇报
+    连接数与生效绑定（Key 一律打码）。
+    """
+    try:
+        from ..services.cloud_provider_service import (
+            ALL_SLOTS,
+            ensure_legacy_remote_migrated,
+            get_bindings,
+            list_providers,
+        )
+        ensure_legacy_remote_migrated()
+        provs = list_providers(mask=True)
+        bindings = get_bindings(mask=True)
+        if not provs:
+            return ("pass", "未配置云端连接（可选功能；添加后可把各工位"
+                            "切到云端模型，本地行为不变）")
+        enabled = sum(1 for p in provs if p.get("enabled"))
+        bound = [f"{ALL_SLOTS.get(slot, slot)}→{b.get('provider_name', '')}"
+                 for slot, b in bindings.items()]
+        detail = (f"连接 {len(provs)} 条（启用 {enabled}），"
+                  f"绑定 {len(bindings)} 项：{'；'.join(bound) or '无'}")
+        return ("pass", detail)
+    except Exception as exc:  # noqa: BLE001 - 探测异常如实上报
+        return ("warn", f"云端配置读取异常: {exc}")
+
+
 _DIAG_PROBES = [
     ("GPU 可用性", lambda: _from_startup(startup_check._check_gpu_detection)),
     ("GPU 驱动版本", lambda: _from_startup(startup_check._check_gpu_driver)),
@@ -422,6 +485,7 @@ _DIAG_PROBES = [
     ("调度引擎运行", _probe_scheduler),
     ("功能互斥锁", _probe_feature_lock),
     ("断点续传扫描", _probe_resume_scan),
+    ("云端 API 配置", _probe_cloud_api),
 ]
 
 
@@ -1485,3 +1549,84 @@ def system_disk(top: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
                "data_dir": str(DATA_DIR),
                "data_usage_mb": data_dirs,
                "top_files": top_list})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 本地算力 · 省钱账本（2026-09-08 用户拍板：保守口径，只算 AI 输出侧）
+# ═══════════════════════════════════════════════════════════════════
+
+# 字数→tokens 折算系数（Qwen 系中英混合文本经验值；UI 明标「估算」）
+_CHARS_TO_TOKENS = 0.75
+# 云端参考价（国内主流牌价档，集中一处便于拍板调整；UI 明标「参考价」）
+_SAVINGS_PRICES = {
+    "text_cny_per_mtok": 8.0,   # 文本输出（对齐 DeepSeek-V3 输出档）
+    "image_cny_each": 0.2,      # 文生图 1024 档（万相 t2i 牌价区间）
+    "video_cny_each": 1.5,      # 5s 图生视频（H3 同类云端档）
+}
+
+
+@router.get("/system/local-savings")
+def get_local_savings() -> dict[str, Any]:
+    """本地 GPU 产出统计与云端等价省钱估算（只读聚合，无迁移无缓存）。
+
+    口径（保守，宁少报不多报；前端卡片须明标「估算 / 参考价」）：
+    - 文本 tokens：dialog_messages 本地助手输出（content+reasoning）字数
+      ×系数；输入侧不计；云端回复（model_used 以 cloud:: 开头）排除——
+      绑云端的部分是真实开销，不算省钱
+    - 生图张数：keyframes+comic_assets+paint_history 有产物路径的行；
+      comic_assets 的 meta 标 engine=cloud 扣除。已知边界：keyframes
+      云端分支无引擎标记暂计入本地（少数场景）；paint_history 云端
+      分支不落表=天然只含本地
+    - 视频条数：video_tasks 有产物且 model_used 非 cloud: 前缀
+    - 写作台/漫剧文字链路：无「谁生成的」归因字段，v1 不计（防虚报）
+    """
+    db = get_db_safe()
+    if db is None:
+        raise ApiError(50001, "数据库不可用")
+
+    def _count(sql: str) -> int:
+        try:
+            r = db.query_one(sql)
+        except Exception:  # noqa: BLE001 - 懒建表（如 paint_history）在
+            # 全新装机上要到该功能首次使用才创建：没建过=没用过，计 0
+            return 0
+        return int(list(r.values())[0]) if r else 0
+
+    msg = db.query_one(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(content)"
+        " + COALESCE(LENGTH(reasoning), 0)), 0) AS chars"
+        " FROM dialog_messages WHERE role='assistant'"
+        " AND (model_used IS NULL OR model_used = ''"
+        " OR model_used NOT LIKE 'cloud::%')") or {"n": 0, "chars": 0}
+    msg_n = int(msg["n"] or 0)
+    msg_chars = int(msg["chars"] or 0)
+    tokens = int(msg_chars * _CHARS_TO_TOKENS)
+
+    kf = _count("SELECT COUNT(*) AS n FROM keyframes"
+                " WHERE COALESCE(file_path, '') != ''")
+    ca = _count("SELECT COUNT(*) AS n FROM comic_assets"
+                " WHERE COALESCE(file_path, '') != ''"
+                " AND COALESCE(meta, '') NOT LIKE '%cloud%'")
+    ph = _count("SELECT COUNT(*) AS n FROM paint_history"
+                " WHERE COALESCE(file_path, '') != ''")
+    images = kf + ca + ph
+    videos = _count(
+        "SELECT COUNT(*) AS n FROM video_tasks"
+        " WHERE COALESCE(file_path, '') != ''"
+        " AND (model_used IS NULL OR model_used = ''"
+        " OR model_used NOT LIKE 'cloud:%')")
+
+    money = (tokens / 1_000_000.0 * _SAVINGS_PRICES["text_cny_per_mtok"]
+             + images * _SAVINGS_PRICES["image_cny_each"]
+             + videos * _SAVINGS_PRICES["video_cny_each"])
+
+    return ok({
+        "text": {"messages": msg_n, "chars": msg_chars,
+                 "tokens_est": tokens},
+        "images": {"count": images,
+                   "keyframes": kf, "comic_assets": ca, "paint": ph},
+        "videos": {"count": videos},
+        "money": {"cny_est": round(money, 2), "prices": _SAVINGS_PRICES},
+        "scope_note": "保守口径：仅统计 AI 输出侧（输入/文档未计），"
+                      "写作台与漫剧文字链路未纳入；金额按云端参考价估算",
+    })

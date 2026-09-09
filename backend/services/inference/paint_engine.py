@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config import MODELS_DIR
+from ..vram_policy import PAINT_LOW_VRAM_FALLBACK_GB as LOW_VRAM_FALLBACK_GB
 from .base_engine import BaseEngine
 
 logger = logging.getLogger("omnispace.inference.paint")
@@ -176,7 +177,8 @@ _MAX_SEED = 2 ** 31 - 1
 
 # 低显存降级阈值（GB）：空闲显存低于理想需求但 ≥ 此值时，
 # 使用 sequential_cpu_offload 加载（速度换可用性）。
-LOW_VRAM_FALLBACK_GB = 4.0
+# 2026-09-09 V9 尾款①：值 4.0 搬至 services/vram_policy.py（对拍
+# 锁定），此处别名 import 保持既有符号名。
 
 # paint_history 建表 DDL（自建表，CREATE IF NOT EXISTS 幂等）
 _PAINT_HISTORY_DDL = """

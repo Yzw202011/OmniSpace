@@ -67,6 +67,7 @@ from .common import (
 if TYPE_CHECKING:
     from PIL import Image
 
+    from ...services.cloud_provider_service import CloudEndpoint
     from ...services.encoder_service import EncoderService
     from ...services.flow_trace import Flow
 
@@ -964,6 +965,115 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
     return runner
 
 
+def _resolve_video_cloud_endpoint():
+    """解析视频工位云端端点（未绑定/连接停用返回 None=本地旧行为）。"""
+    try:
+        from ...services.cloud_provider_service import get_video_endpoint
+        return get_video_endpoint("manga.video")
+    except Exception as exc:  # noqa: BLE001 - 解析失败按本地（不阻断）
+        log.warning("视频云端路由解析失败（按本地引擎）: %s", exc)
+        return None
+
+
+def _load_first_frame_for_row(row_id: str):
+    """取分镜行当前关键帧首帧（云端图生视频的输入图）。
+
+    网格行 → 逐镜 _shot1.png（命名约定）；单帧行 → 拼图整体；
+    无当前关键帧返回 None（提交点拒绝并带出路）。
+    """
+    db = get_db_safe()
+    if db is None:
+        return None
+    kf = db.query_one(
+        "SELECT prompt, file_path FROM keyframes WHERE row_id=? "
+        "AND is_current=1", (row_id,))
+    if not kf or not kf.get("file_path"):
+        return None
+    from PIL import Image
+    base = Path(kf["file_path"]).with_suffix("")
+    shot1 = DATA_DIR / f"{base}_shot1.png"
+    target = shot1 if shot1.is_file() else DATA_DIR / kf["file_path"]
+    if not target.is_file():
+        return None
+    try:
+        return Image.open(target).convert("RGB")
+    except Exception as exc:  # noqa: BLE001 - 关键帧文件损坏
+        log.warning("关键帧首帧读取失败: %s: %s", target, exc)
+        return None
+
+
+def _make_cloud_video_runner(req: VideoGenerateRequest,
+                             ep: CloudEndpoint, first_frame,
+                             aspect: str, flow):
+    """云端图生视频 runner 工厂（批3 云端API 2026-09-06）。
+
+    提交→轮询→下载→落 VIDEO_OUT_DIR→终态回写，契约与 H3/本地 runner
+    同构（update_status/_set_rows/flow/check_cancel）；进度经轮询
+    周期映射为 0~1 粗粒度回写。
+    """
+
+    def runner(task: dict, check_cancel: Callable[[], None]) -> None:
+        task_id = str(task["task_id"])
+        t0 = time.time()
+        from ...services.flow_trace import NULL_FLOW
+        _flow = flow or NULL_FLOW
+
+        def _set_rows(status: str) -> None:
+            d = get_db_safe()
+            if d is None:
+                return
+            try:
+                d.update("storyboard_rows",
+                         {"generation_status": status},
+                         "id=?", (req.storyboard_row_id,))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("行状态回写失败（不阻断）: %s", exc)
+
+        def _prog(pct: int) -> None:
+            _video_update_task(
+                task_id, {"progress": round(max(0.0, min(99.0, pct)) / 100, 3)},
+                guard_cancelled=True)
+
+        try:
+            from ...services.inference.cloud_video_client import generate_video
+            VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+            mp4 = generate_video(
+                ep, req.description or "", first_frame,
+                duration_seconds=float(req.duration_seconds or 5.0),
+                aspect=aspect, check_cancel=check_cancel,
+                on_progress=_prog, slot="manga.video")
+            out_path = VIDEO_OUT_DIR / f"{task_id}.mp4"
+            out_path.write_bytes(mp4)
+            rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
+            _video_update_task(task_id, {
+                "status": "done", "progress": 1.0,
+                "file_path": rel_path,
+                "model_used": f"cloud:{ep.provider_name}:{ep.model or '默认'}",
+                "duration_seconds": float(req.duration_seconds or 5.0),
+                "generation_time_ms": int((time.time() - t0) * 1000)})
+            _set_rows("done")
+            _flow.end("success", output_summary=rel_path)
+        except VideoTaskCancelled:
+            log.info("云端视频任务取消: %s", task_id)
+            _video_update_task(task_id, {"status": "cancelled"})
+            _set_rows("error")
+            _flow.end("cancelled", error_detail="用户取消")
+        except Exception as exc:  # noqa: BLE001
+            log.error("云端视频生成失败: %s", exc)
+            _video_update_task(task_id, {
+                "status": "error", "progress": 1.0,
+                "generation_time_ms": int((time.time() - t0) * 1000),
+                "error": str(exc)[:500]})
+            mirror = _video_tasks.setdefault(task_id,
+                                             {"id": task_id, "progress": 0.0})
+            mirror.update({"status": "error", "error": str(exc)[:500]})
+            _set_rows("error")
+            _flow.end("error", error_code="CLOUD_VIDEO_FAILED",
+                      error_detail=str(exc)[:300])
+
+    return runner
+
+
 @router.post("/manga/video/generate")
 @router.post("/video/generate")  # 顶层别名（文档 §7.1.4 /v1/video）
 async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
@@ -1113,8 +1223,31 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     # 关键帧前置校验见函数入口（须先于任务落库）。
     # paint_ 合成行（绘画模块）同样回落本地 I2V：内容源是
     # screenshot_4in1 初始图而非分镜行/绑定资产，与 H3 链路语义不合。
+    # 批3 云端API（2026-09-06）：「漫剧镜头视频」工位绑定云端连接时
+    # 优先走云端图生视频（本地显卡零占用，与本地生成天然并行）；
+    # model_override="local" 恒尊重（回归口）。
     resp = {"task_id": task_id, "status": "pending"}
-    if use_h3_chain:
+    _cloud_ep = None if str(req.model_override or "") == "local" \
+        else _resolve_video_cloud_endpoint()
+    _aspect_any = "16:9"
+    try:
+        _w, _, _h = str(req.resolution or "").partition("x")
+        if _w and _h and int(_h) > int(_w):
+            _aspect_any = "9:16"
+    except ValueError:
+        pass
+    if _cloud_ep is not None:
+        _first_frame = _load_first_frame_for_row(req.storyboard_row_id)
+        if _first_frame is None:
+            raise ApiError(
+                60001,
+                "该分镜行还没有当前关键帧，无法云端图生视频",
+                suggestion="请先在故事板生成该行关键帧（云端视频以关键帧"
+                           "为首帧），或点生成时选择本地引擎")
+        runner = _make_cloud_video_runner(req, _cloud_ep, _first_frame,
+                                          _aspect_any, flow)
+        resp["engine"] = f"cloud:{_cloud_ep.provider_name}"
+    elif use_h3_chain:
         seconds = min(max(float(req.duration_seconds or 10), 3.0), 15.0)
         # 画质/画幅（2026-08-31 模型配置接线）：720p 的 16G 实测约束
         # 本就是「单镜 ≤8s」——此前按 resolution 前缀判定，前端传宽高
@@ -1135,9 +1268,12 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
         runner = _make_local_runner(req, flow)
     position = get_video_queue().submit({
-        "task_id": task_id, "kind": "h3_chain" if use_h3_chain else "local",
+        "task_id": task_id,
+        "kind": "cloud_video" if _cloud_ep is not None
+        else ("h3_chain" if use_h3_chain else "local"),
         "runner": runner, "loop": asyncio.get_running_loop(),
         "update_status": _video_update_task,
+        "cloud": _cloud_ep is not None,
     })
     resp["queue_position"] = position
     # 审计修复：与 status 端点同一判定逻辑——仅当确认走 Ken Burns

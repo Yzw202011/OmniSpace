@@ -795,10 +795,24 @@ def _anchor_extract_shots(block: str, parsed: list[dict]) -> list[dict] | None:
 
 
 def _ai_split_block_sync(block: str, temperature: float = 0.3) -> str:
-    """单块 AI 分镜推理（线程池内同步执行）。模型不可用返回空串。"""
+    """单块 AI 分镜推理（线程池内同步执行）。模型不可用返回空串。
+
+    云端路由（2026-09-06 文本槽位拆分）：「漫剧文字」工位绑定云端连接
+    时走云端（ensure_loaded(cloud::…) 内部完成本地↔云端切换）；未绑定
+    保持本地 qwen3-vl-4b 旧行为。
+    """
     eng = get_dialog_engine()
-    if not eng.is_ready and not eng.ensure_loaded("qwen3-vl-4b"):
-        return ""
+    try:
+        from ...cloud_provider_service import resolve_slot_cloud_model
+        _cloud_model = resolve_slot_cloud_model("manga.text")
+    except Exception:  # noqa: BLE001 - 解析失败按本地
+        _cloud_model = None
+    target = _cloud_model or "qwen3-vl-4b"
+    # 云端绑定：ensure_loaded 幂等（已同目标=matches_target 短路；
+    # 本地就绪时调它=触发本地↔云端切换），失败按未就绪返回空串
+    if _cloud_model or not eng.is_ready:
+        if not eng.ensure_loaded(target):
+            return ""
     return eng.chat([{"role": "user", "content": _SPLIT_PROMPT + block}],
                     temperature=temperature, max_new_tokens=1200)
 
@@ -1406,14 +1420,17 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     engine = get_dialog_engine()
     lock = await acquire_or_raise("dialog", task_id=row_id or None)
     try:
-        if not engine.is_ready:
-            # 按需自动加载漫剧·文字槽默认模型（2026-08-29 模型裁剪：
-            # 底座 = DeepSeek-R1-14B，经 manga-dialog 槽 module_config
-            # 管控；对齐 auto-split 模式：2026-08-25 用户实测"对话模型
-            # 未加载"——后端重启后无预载，强制用户手动去对话模块加载
-            # 体验断裂）
-            if not await run_blocking(engine.ensure_loaded,
-                                      manga_dialog_model_id()):
+        # 云端路由（2026-09-06 文本槽位拆分）：「漫剧文字」工位绑定云端
+        # 时优先 ensure_loaded(cloud::…)（内部完成本地↔云端切换，就绪
+        # 同目标=短路）；未绑定保持 module_config 本地模型旧行为
+        try:
+            from ...cloud_provider_service import resolve_slot_cloud_model
+            _cloud_model = resolve_slot_cloud_model("manga.text")
+        except Exception:  # noqa: BLE001 - 解析失败按本地
+            _cloud_model = None
+        if not engine.is_ready or _cloud_model:
+            _target = _cloud_model or manga_dialog_model_id()
+            if not await run_blocking(engine.ensure_loaded, _target):
                 status = engine.get_status()
                 raise ApiError(
                     "DIALOG_NOT_READY",

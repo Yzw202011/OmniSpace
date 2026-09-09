@@ -48,19 +48,30 @@ async def sleep_vllm_for_generation() -> None:
 
     互斥矩阵（OmniChat ↔ OmniDraw）运行时落地：漫剧重型生成
     （关键帧/绘画/视频）持锁后调用；失败只记日志（引擎降级链兜底）。
+    批3（2026-09-10）起转调 gpu_budget 让渡协调器单源（sleep/wake
+    编排收敛，方案 §3.4），对外 API 不变。
     """
-    from ...engines.vllm_service import get_vllm_service
+    from ...services.inference.gpu_budget import get_yield_coordinator
     try:
-        await run_blocking(get_vllm_service().sleep_for_paint)
+        await run_blocking(
+            get_yield_coordinator().sleep_for_generation, "manga")
     except Exception as exc:  # noqa: BLE001
         log.warning("vLLM 睡眠协商失败（不阻断生成）: %s", exc)
 
 
 async def wake_vllm_after_generation() -> None:
-    """生成期显存协商收尾：唤醒 vLLM 恢复对话能力（best-effort）。"""
-    from ...engines.vllm_service import get_vllm_service
+    """生成期显存协商收尾：唤醒 vLLM 恢复对话能力（best-effort）。
+
+    注意（批3）：本函数为**立即唤醒**直通路径；生成收尾的常规路径
+    应走去抖唤醒（协调器 schedule_wake_if_idle / keyframe 侧
+    _schedule_debounced_wake）——立即唤醒会被紧邻的下一任务功能锁
+    门禁拒绝且无人重试（2026-09-08 实测撞锁）。保留本函数供需要
+    立即恢复对话的显式场景。
+    """
+    from ...services.inference.gpu_budget import get_yield_coordinator
     try:
-        await run_blocking(get_vllm_service().wake_from_paint)
+        await run_blocking(
+            get_yield_coordinator().wake_now, "manga")
     except Exception as exc:  # noqa: BLE001
         log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc)
 

@@ -239,6 +239,13 @@ export function AppShell() {
   // 侧栏自定义摆放（2026-09-05 用户需求）：拖拽重排 + localStorage 持久化
   const [navItems, setNavItems] = useState(() => arrangedNavItems());
   const navDragRouteRef = useRef<string | null>(null);
+  // 性能模式（2026-09-08 UI 降载方案②）：settings.ui_performance==='lite'
+  // → html.ui-lite 全局类（CSS 停动效/去毛玻璃）+ 粒子层不渲染，即时生效
+  const uiPerformance = useAppStore((s) => s.settings?.ui_performance);
+  const uiLite = uiPerformance === 'lite';
+  useEffect(() => {
+    document.documentElement.classList.toggle('ui-lite', uiLite);
+  }, [uiLite]);
   const isCustomNavOrder = navItems.some(
     (it, i) => it.route !== NAV_ITEMS[i]?.route,
   );
@@ -390,8 +397,9 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      {/* 星云粒子环境层（Nebula 主题专属：fixed z-index:-1，不占布局） */}
-      <TechParticles />
+      {/* 星云粒子环境层（Nebula 主题专属：fixed z-index:-1，不占布局）；
+          性能模式下不渲染（GPU/内存大户，2026-09-08 UI 降载方案②） */}
+      {!uiLite && <TechParticles />}
 
       {/* 顶层导航栏（48px 通栏，文档D §1.1.1） */}
       <TopBar />

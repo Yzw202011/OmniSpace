@@ -1096,3 +1096,18 @@
     overflow-x: auto;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   性能模式（2026-09-08 UI 降载方案②）：html.ui-lite 全局降载
+   设置页「界面效果 → 性能模式」开启后即时生效：
+   停极光/入场动画、去毛玻璃模糊、粒子层由 React 侧直接不渲染。
+   ══════════════════════════════════════════════════════════════ */
+html.ui-lite *,
+html.ui-lite *::before,
+html.ui-lite *::after {
+  animation-duration: 0.001s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001s !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

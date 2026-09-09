@@ -369,3 +369,58 @@ export const DialogSessionListRespSchema = z
     total: z.number(),
   })
   .passthrough();
+
+/* ============================== 小说：写作台（批2 MVP） ============================== */
+
+/** GET /novel/project/list 项目项 */
+export const NovelProjectSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    genre: z.string().default(''),
+    description: z.string().default(''),
+    style_notes: z.string().default(''),
+    chapter_total: z.number().default(0),
+    chapter_done: z.number().default(0),
+    total_words: z.number().default(0),
+  })
+  .passthrough();
+
+/** GET /novel/project/list 响应 */
+export const NovelProjectListRespSchema = z
+  .object({
+    items: z.array(NovelProjectSchema),
+    total: z.number(),
+  })
+  .passthrough();
+
+/** GET /novel/chapters/{pid} 章节轻行（不含正文） */
+export const NovelChapterSchema = z
+  .object({
+    id: z.string(),
+    project_id: z.string(),
+    outline_id: z.string().default(''),
+    chapter_index: z.number(),
+    title: z.string().default(''),
+    summary: z.string().default(''),
+    word_count: z.number().default(0),
+    status: z.enum(['pending', 'generating', 'done', 'error']).default('pending'),
+    progress: z.number().default(0),
+    error: z.string().default(''),
+    updated_at: z.number().optional(),
+  })
+  .passthrough();
+
+/** GET /novel/chapters/{pid} 响应 */
+export const NovelChapterListRespSchema = z
+  .object({
+    project_id: z.string(),
+    items: z.array(NovelChapterSchema),
+    total: z.number(),
+  })
+  .passthrough();
+
+/** GET /novel/chapter/{cid} 章节详情（含正文） */
+export const NovelChapterDetailSchema = NovelChapterSchema.extend({
+  content: z.string().default(''),
+}).passthrough();

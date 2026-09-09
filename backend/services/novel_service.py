@@ -238,7 +238,9 @@ def _ensure_engine_sync() -> str:
             raise NovelEngineNotReady(
                 "云端写作连接未就绪：" + (eng.last_error() or "请到"
                 "「设置 → 云端 API 服务」点「测试连接」排查"))
-        return f"cloud:{eng.model_name}"
+        # backend.model_id = 裸模型名（remote load 内已剥 cloud:: 前缀）；
+        # eng.model_name 是完整虚拟 id（含 cloud:: 前缀），直接拼会双前缀
+        return f"cloud:{getattr(eng._backend, 'model_id', '') or 'unknown'}"
     for mid in NOVEL_PREFERRED_MODELS:
         if (MODELS_DIR / mid).is_dir():
             if eng.is_ready and eng.model_name == mid:

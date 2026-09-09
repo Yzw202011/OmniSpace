@@ -101,6 +101,35 @@ export function updateSettings(body: Record<string, unknown>) {
   return put<Record<string, unknown>>('/system/settings', body);
 }
 
+/** 联网搜索 v1 配置（架构升级计划 B-阶段一，默认关） */
+export interface WebSearchSettings {
+  enabled: boolean;
+  provider: 'browser' | 'searxng' | 'bocha';
+  searxng_url: string;
+  bocha_key: string;
+  trigger: 'auto' | 'always' | 'off';
+  top_k: number;
+  timeout_s: number;
+}
+
+/** 读取联网搜索配置（GET /system/web_search） */
+export function getWebSearchSettings() {
+  return get<WebSearchSettings>('/system/web_search');
+}
+
+/** 更新联网搜索配置（PUT /system/web_search，服务端做键值校验） */
+export function updateWebSearchSettings(body: Partial<WebSearchSettings>) {
+  return put<WebSearchSettings>('/system/web_search', body);
+}
+
+/** 测试远程推理服务器连通性（批3 D3：POST /system/dialog-remote/test） */
+export function testDialogRemote(body: { base_url: string; api_key?: string }) {
+  return post<{ reachable: boolean; detail: string; base_url: string }>(
+    '/system/dialog-remote/test',
+    body,
+  );
+}
+
 /* ------------------------------ 诊断/备份 ------------------------------ */
 
 /** 运行 26 项诊断检测（POST /system/diagnose） */
@@ -158,3 +187,22 @@ export default {
   exportProject,
   importProject,
 };
+
+/** 本地算力 · 省钱账本（GET /system/local-savings，2026-09-08）
+ * 保守口径：仅统计 AI 输出侧（输入/文档未计），云端生成的不算省钱；
+ * 金额按云端参考价估算，具体口径见 scope_note。 */
+export interface LocalSavings {
+  text: { messages: number; chars: number; tokens_est: number };
+  images: { count: number; keyframes: number; comic_assets: number; paint: number };
+  videos: { count: number };
+  money: {
+    cny_est: number;
+    prices: { text_cny_per_mtok: number; image_cny_each: number; video_cny_each: number };
+  };
+  scope_note: string;
+}
+
+/** 拉取本地 GPU 产出统计与云端等价省钱估算 */
+export function getLocalSavings() {
+  return get<LocalSavings>('/system/local-savings');
+}

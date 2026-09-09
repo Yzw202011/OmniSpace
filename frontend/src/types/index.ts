@@ -312,6 +312,14 @@ export interface ModelInfo {
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 /** 对话消息 */
+/** 联网搜索来源条目（web_refs 事件，架构升级计划 B-阶段一） */
+export interface WebRef {
+  title: string;
+  url: string;
+  snippet?: string;
+  source?: string;
+}
+
 export interface DialogMessage {
   id: string;
   session_id: string;
@@ -335,6 +343,8 @@ export interface DialogMessage {
   images?: string[];
   /** 令牌数估算 */
   tokens?: number;
+  /** 联网搜索来源（web_refs 事件；仅实时流式消息携带，回答带【n】引用标注） */
+  web_refs?: WebRef[];
 }
 
 /** 对话会话 */
@@ -479,7 +489,7 @@ export interface StoryboardRow {
   bubble_x?: number | null;
   /** 台词气泡纵向位置（0~1 相对格高，null=默认左上） */
   bubble_y?: number | null;
-  /** 台词气泡宽度（0~1 相对格宽，null=自动贴合内容；拉伸把手 2026-09-08 */
+  /** 台词气泡宽度（0~1 相对格宽，null=自动贴合内容；拉伸把手 2026-09-08） */
   bubble_w?: number | null;
   /** 多角色台词气泡（2026-09-08）：每角色一条+旁白，各带独立位置/宽度；
    *  空数组=回退旧单气泡字段（original_dialogue+bubble_x/y/w） */
@@ -498,7 +508,7 @@ export interface StoryboardRow {
   music_path?: string;
 }
 
-/** 漫剧项目（/comic/project/list item） */
+/** 漫剧/漫画项目（/comic/project/list item；两产品面共用生成底座） */
 export interface ComicProject {
   project_id: string;
   name: string;

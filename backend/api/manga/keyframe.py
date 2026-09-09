@@ -68,12 +68,29 @@ from .common import (
 from .common import (
     unload_paint_pipeline as _unload_paint_after_gen,
 )
-from .common import (
-    wake_vllm_after_generation as _wake_vllm_after_vram,
-)
+
+
+def _schedule_debounced_wake(source: str) -> None:
+    """生成收尾的去抖唤醒（批3 2026-09-10，方案 §3.4）。
+
+    keyframe 重抽释锁后不再立即唤醒 vLLM——立即唤醒会被紧邻的下一
+    任务（绘画/视频队列）功能锁门禁拒绝且无人重试；经协调器去抖窗
+    到点且重型生成域全空闲才唤醒。非阻塞（协调器内部起定时线程）。
+    """
+    from ...services.inference.gpu_budget import (
+        get_yield_coordinator,
+        heavy_generation_idle,
+    )
+
+    get_yield_coordinator().schedule_wake_if_idle(
+        source, heavy_generation_idle)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from PIL import Image
+
+    from ...services.cloud_provider_service import CloudEndpoint
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.keyframe")
@@ -919,9 +936,29 @@ def _load_asset_references(db: Database, row: dict) -> list:
                 w, h = im.size
                 if w >= 2000 and 1.6 <= w / h <= 2.0:
                     im = im.crop((0, 0, w // 4, h))
+            if kind == "character":
+                w, h = im.size
+                if w >= 2000 and 1.6 <= w / h <= 2.0:
+                    im = im.crop((0, 0, w // 4, h))
             refs.append({"kind": kind,
                          "name": (a.get("name") or "").strip(),
                          "image": im})
+            # D-1（2026-09-10）：角色全身参考图自动附加——同目录
+            # fullbody.png 存在时作为额外 character 参考进
+            # ReferenceLatent（portrait 只锚脸，全身图锚身体/服装；
+            # PuLID 通道不受影响——继续吃 portrait 的 face 锁）
+            if kind == "character":
+                fb = p.parent / "fullbody.png"
+                if fb.is_file() and len(refs) < _MAX_REF_IMAGES:
+                    try:
+                        fb_im = Image.open(fb).convert("RGB")
+                        refs.append({"kind": "character",
+                                     "name": (a.get("name") or "").strip(),
+                                     "image": fb_im})
+                        log.info("D-1 全身参考附加: %s (%s)",
+                                 fb.name, a.get("name", "?"))
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("全身参考加载失败 %s: %s", fb, exc)
         if len(refs) >= _MAX_REF_IMAGES:
             break
     return refs
@@ -1032,7 +1069,9 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                             engine_backend: str = "auto",
                             only_shots: list[int] | None = None,
                             src_version: int = 0,
-                            text_priority: bool = False) -> dict:
+                            text_priority: bool = False,
+                            cloud_endpoint: CloudEndpoint | None = None,
+                            check_cancel: Callable[[], None] | None = None) -> dict:
     """同步生成一个关键帧版本（竞品协议对齐，2026-08-25）。
 
     底座 FLUX.2 Klein-9B（2026-08-27 用户裁定切换，quanto float8
@@ -1123,76 +1162,81 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                      "（二次元向），后处理档位 %s → stylized",
                      route.style_pack.post)
         break
-    # 推理后端选路（2026-08-27 双链路对比）：comfy=ComfyUI 子进程
-    # 工作流（Klein-9B fp8 硬链接权重，与 H3 共用 8189 实例）；
-    # diffusers=本地 paint_engine（默认）。显存互斥：两族权重
-    # （~10GB 级）不可同驻——切 comfy 前卸载本地管线，切回
-    # diffusers 时 /free ComfyUI 驻留权重（进程保活热启动）
-    # P0-1（2026-08-28）：PuLID 身份硬锁修复后恢复 auto comfy 选路。
-    # 前次剔除（同日早前裁定）的四条缺陷均已根治：①非确定性 →
-    # ComfyUI --deterministic + CUBLAS_WORKSPACE_CONFIG（R2 复测）；
-    # ②ReferenceLatent 正/负双侧注入稀释负向锚 → reflatent 模式化
-    # （PuLID 激活 auto→off，可选 pos/both）；③链式误差复利 → 链
-    # 仅自过门禁复用帧起（既有约束保留）；④fp8 质量差 → 身份由
-    # PuLID attention 硬锁承载，参考 latent 不再承担身份职责。
-    # auto 走 comfy 的条件（缺一回落 diffusers，诚实降级）：
-    # ①未被 OMNI_KEYFRAME_PULID_AUTO=0 关闭 ②comfy 管线就绪
-    # ③PuLID 就绪 ④恰好绑定一个角色资产（多角色行单 ID 通道会
-    # 错锁身份——多角色走 diffusers 参考拼图 + P0-3 锚协议兜底）
-    # ⑤该角色面部参考可加载（InsightFace 检测稳定的前提）
-    use_comfy = engine_backend == "comfy"
-    if engine_backend == "auto":
-        use_comfy = (os.environ.get("OMNI_KEYFRAME_PULID_AUTO", "1") != "0"
-                     and comfy_paint_available() and pulid_available()
-                     and len(char_assets) == 1
-                     and any(face_refs))
-        log.info("引擎自动选路: %s（P0-1 PuLID 身份硬锁条件：%s%s%s%s%s）",
-                 "comfy+PuLID" if use_comfy else "diffusers",
-                 f"env={'on' if os.environ.get('OMNI_KEYFRAME_PULID_AUTO', '1') != '0' else 'off'}",
-                 f" comfy={comfy_paint_available()}",
-                 f" pulid={pulid_available()}",
-                 f" chars={len(char_assets)}",
-                 f" face_ref={bool(any(face_refs))}")
-    flux = False
-    if use_comfy:
-        if not comfy_paint_available():
-            raise ApiError("PAINT_ENGINE_NOT_READY",
-                           "ComfyUI 绘画管线未就绪（便携版或权重缺失）",
-                           suggestion="检查 tools/ComfyUI_windows_portable 与权重目录；"
-                                      "或在「模型管理 → AI 绘画」改用本地绘画模型后重试")
-        # 冷启动可见性（2026-08-31 用户需求「加载要立刻、也要告知」）：
-        # ComfyUI 拉起 ~40s + 首图权重装载，期间按钮进度条明示正在加载
-        broadcast_gen_progress("keyframe", row_id, percent=1,
-                               label="ComfyUI 绘图引擎启动中（约 40-60s）")
-        engine.unload_model()  # 本地管线让位（幂等，未载时快速返回）
-        flux = True  # comfy 工作流锁 klein-9b fp8（family 协议一致）
-    else:
-        comfy = get_comfy_paint_engine()
-        if comfy.is_alive():
-            comfy.unload()  # 反向互斥：ComfyUI 驻留权重让位
-    if not use_comfy:
-        # 冷启动可见性：diffusers 权重装载 0.5-2 分钟，进度条明示
-        broadcast_gen_progress("keyframe", row_id, percent=1,
-                               label="绘画模型加载中（冷启动约 0.5-2 分钟，完成后自动出图）")
-        for mid in route.base_chain:
-            if "klein" not in mid:
-                break  # sdxl 兜底位——走既有降级分支
-            if engine.ensure_loaded(mid):
-                flux = True
-                break
-            log.warning("路由底座 %s 加载失败，依链降级: %s",
-                        mid, engine.get_status().get("last_error") or "")
-    if not flux:
-        # 降级链：FLUX.2 缺失/加载失败 → SDXL（中文走翻译兜底）
-        log.warning("klein 家族加载失败，关键帧降级 SDXL+翻译")
-        if not engine.ensure_loaded(None):
-            status = engine.get_status()
-            raise ApiError(
-                "PAINT_ENGINE_NOT_READY",
-                status.get("last_error") or "绘画模型未就绪",
-                suggestion="已在本次点击时自动尝试加载但失败。可到「模型管理 → "
-                           "AI 绘画」查看模型状态并手动加载（如 flux2-klein-4b），"
-                           "或稍后重试；确认 models/paint 下模型权重完整")
+    # 云端出图（批2 云端API 2026-09-06）：工位绑定云端连接时本地引擎
+    # 选路/装载/互斥让位/降级链全部跳过（本地显卡零占用）；推理在
+    # _gen_one 云端分支执行，参考图照常加载（云端图生图锚一致性）。
+    if cloud_endpoint is None:
+        # 推理后端选路（2026-08-27 双链路对比）：comfy=ComfyUI 子进程
+        # 工作流（Klein-9B fp8 硬链接权重，与 H3 共用 8189 实例）；
+        # diffusers=本地 paint_engine（默认）。显存互斥：两族权重
+        # （~10GB 级）不可同驻——切 comfy 前卸载本地管线，切回
+        # diffusers 时 /free ComfyUI 驻留权重（进程保活热启动）
+        # P0-1（2026-08-28）：PuLID 身份硬锁修复后恢复 auto comfy 选路。
+        # 前次剔除（同日早前裁定）的四条缺陷均已根治：①非确定性 →
+        # ComfyUI --deterministic + CUBLAS_WORKSPACE_CONFIG（R2 复测）；
+        # ②ReferenceLatent 正/负双侧注入稀释负向锚 → reflatent 模式化
+        # （PuLID 激活 auto→off，可选 pos/both）；③链式误差复利 → 链
+        # 仅自过门禁复用帧起（既有约束保留）；④fp8 质量差 → 身份由
+        # PuLID attention 硬锁承载，参考 latent 不再承担身份职责。
+        # auto 走 comfy 的条件（缺一回落 diffusers，诚实降级）：
+        # ①未被 OMNI_KEYFRAME_PULID_AUTO=0 关闭 ②comfy 管线就绪
+        # ③PuLID 就绪 ④恰好绑定一个角色资产（多角色行单 ID 通道会
+        # 错锁身份——多角色走 diffusers 参考拼图 + P0-3 锚协议兜底）
+        # ⑤该角色面部参考可加载（InsightFace 检测稳定的前提）
+        use_comfy = engine_backend == "comfy"
+        if engine_backend == "auto":
+            use_comfy = (os.environ.get("OMNI_KEYFRAME_PULID_AUTO", "1") != "0"
+                         and comfy_paint_available() and pulid_available()
+                         and len(char_assets) == 1
+                         and any(face_refs))
+            log.info("引擎自动选路: %s（P0-1 PuLID 身份硬锁条件：%s%s%s%s%s）",
+                     "comfy+PuLID" if use_comfy else "diffusers",
+                     f"env={'on' if os.environ.get('OMNI_KEYFRAME_PULID_AUTO', '1') != '0' else 'off'}",
+                     f" comfy={comfy_paint_available()}",
+                     f" pulid={pulid_available()}",
+                     f" chars={len(char_assets)}",
+                     f" face_ref={bool(any(face_refs))}")
+        flux = False
+        if use_comfy:
+            if not comfy_paint_available():
+                raise ApiError("PAINT_ENGINE_NOT_READY",
+                               "ComfyUI 绘画管线未就绪（便携版或权重缺失）",
+                               suggestion="检查 tools/ComfyUI_windows_portable 与权重目录；"
+                                          "或在「模型管理 → AI 绘画」改用本地绘画模型后重试")
+            # 冷启动可见性（2026-08-31 用户需求「加载要立刻、也要告知」）：
+            # ComfyUI 拉起 ~40s + 首图权重装载，期间按钮进度条明示正在加载
+            broadcast_gen_progress("keyframe", row_id, percent=1,
+                                   label="ComfyUI 绘图引擎启动中（约 40-60s）")
+            engine.unload_model()  # 本地管线让位（幂等，未载时快速返回）
+            flux = True  # comfy 工作流锁 klein-9b fp8（family 协议一致）
+        else:
+            comfy = get_comfy_paint_engine()
+            if comfy.is_alive():
+                comfy.unload()  # 反向互斥：ComfyUI 驻留权重让位
+        if not use_comfy:
+            # 冷启动可见性：diffusers 权重装载 0.5-2 分钟，进度条明示
+            broadcast_gen_progress("keyframe", row_id, percent=1,
+                                   label="绘画模型加载中（冷启动约 0.5-2 分钟，完成后自动出图）")
+            for mid in route.base_chain:
+                if "klein" not in mid:
+                    break  # sdxl 兜底位——走既有降级分支
+                if engine.ensure_loaded(mid):
+                    flux = True
+                    break
+                log.warning("路由底座 %s 加载失败，依链降级: %s",
+                            mid, engine.get_status().get("last_error") or "")
+        if not flux:
+            # 降级链：FLUX.2 缺失/加载失败 → SDXL（中文走翻译兜底）
+            log.warning("klein 家族加载失败，关键帧降级 SDXL+翻译")
+            if not engine.ensure_loaded(None):
+                status = engine.get_status()
+                raise ApiError(
+                    "PAINT_ENGINE_NOT_READY",
+                    status.get("last_error") or "绘画模型未就绪",
+                    suggestion="已在本次点击时自动尝试加载但失败。可到「模型管理 → "
+                               "AI 绘画」查看模型状态并手动加载（如 flux2-klein-4b），"
+                               "或稍后重试；确认 models/paint 下模型权重完整")
+
     # 新版本号 = 该分行当前最大版本 + 1
     vrow = db.query_one(
         "SELECT MAX(version) AS mv FROM keyframes WHERE row_id=?", (row_id,))
@@ -1207,14 +1251,15 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     # P1 多参考拆分（2026-08-28）：逐资产独立参考图（含 kind/name
     # 元数据）取代单张拼图作生成参考；_load_row_reference 拼图保留
     # 给一致性评分/VLM 评审上下文（_scoring_context 等）
-    asset_refs = _load_asset_references(db, row) if flux else []
+    asset_refs = _load_asset_references(db, row) \
+        if (flux or cloud_endpoint is not None) else []
     # 特写镜面部参考（v29 蜡像感攻关）：存在则 ECU/MCU 镜换用，
     # 面部 token 占比从 ~10% 提到满图——klein 特写先验（蜡像/
     # 红晕）被写实面部引导压制。P0-3：逐角色列表已预载，此处取
     # 首个可用（单角色语义不变）；PuLID 仅单角色行注入（多角色
-    # 单 ID 通道会错锁）
+    # 单 ID 通道会错锁）。云端模式同样取用（进参考图列表作锚）。
     face_ref = (next((im for im in face_refs if im is not None), None)
-                if flux else None)
+                if (flux or cloud_endpoint is not None) else None)
     pulid_ok = len(char_assets) <= 1
     out_dir = _KEYFRAME_DIR / row_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1248,7 +1293,35 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         状态做通道拆分，diffusers 链整列表直传管线（原生多参考）。
         char_negative：逐镜角色锚存在时注入的西化瞳色负面锚
         （_CHAR_NEGATIVE_ANCHOR，P1 起随锚逐镜化）。
+
+        云端分支（批2 云端API 2026-09-06）：cloud_endpoint 非 None 时
+        提示词/负面/参考图（含面部参考）直送云端适配器出图，尺寸契约
+        由适配器保证；seed 不参与云端采样（服务商不受理），原样回传
+        仅作台账记录。
         """
+        if cloud_endpoint is not None:
+            from ...services.inference.cloud_image_client import generate_image as _cloud_generate
+            ref_imgs = [e["image"] for e in (refs or [])
+                        if isinstance(e, dict)
+                        and e.get("image") is not None]
+            if face_ref is not None \
+                    and not any(isinstance(e, dict)
+                                and e.get("kind") == "face"
+                                for e in (refs or [])):
+                ref_imgs.append(face_ref)
+            if on_step:
+                on_step(5)
+            img = _cloud_generate(
+                cloud_endpoint, gen_prompt,
+                width=out_w, height=out_h,
+                negative=char_negative or "",
+                ref_images=ref_imgs,
+                check_cancel=check_cancel,
+                on_progress=(lambda p: on_step(p)) if on_step else None,
+                slot="keyframe.image")
+            if on_step:
+                on_step(100)
+            return img, seed
         step_cb = (lambda p, _s: on_step(p)) if on_step else None
         if flux:
             scale = min(1.0, _IMG_GEN_MAX / out_w, _IMG_GEN_MAX / out_h)
@@ -1301,14 +1374,25 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 if pulid_img:
                     if reflat_hint == "off":
                         comfy_refs: list = []
+                        comfy_mps: list = []
                     else:
                         comfy_refs = [e["image"] for e in shot_refs
                                       if e.get("kind") != "face"]
+                        # D-2（2026-09-10）：逐图分辨率预算——角色
+                        # 参考 1.0MP（一致性锚定主力，0.35MP 时全身
+                        # 图几乎无锚定力）；场景/道具走引擎均匀分档
+                        comfy_mps = [
+                            1.0 if e.get("kind") == "character" else None
+                            for e in shot_refs if e.get("kind") != "face"]
                 else:
                     comfy_refs = [e["image"] for e in shot_refs]
+                    comfy_mps = [
+                        1.0 if e.get("kind") == "character" else None
+                        for e in shot_refs]
                 if comfy_refs:
                     result = comfy.img2img(params, comfy_refs,
-                                           pulid_image=pulid_img)
+                                           pulid_image=pulid_img,
+                                           ref_megapixels=comfy_mps)
                 else:
                     result = comfy.generate(params,
                                             pulid_image=pulid_img)
@@ -2232,7 +2316,10 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
         # keyframe_generate 注释，两族权重不可同驻）
         await _unload_paint_after_gen()
         await lock.release("paint")
-        await _wake_vllm_after_vram()
+        # 批3（2026-09-10）：释锁后立即唤醒 → 去抖唤醒——立即唤醒
+        # 会被紧邻的下一任务（绘画/视频队列）功能锁门禁拒绝且无人
+        # 重试（2026-09-08 实测撞锁形态）；经协调器到点仍空闲才唤醒
+        _schedule_debounced_wake(f"keyframe:{row_id}")
     if new_data is None:
         _annotate_consistency(db, kf_id, {
             "shots": scores, "face_sims": face_sims,
@@ -2429,12 +2516,23 @@ async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
         log.info("逐镜重抽请求: row=%s shots=%s src=v%d",
                  req.row_id, req.only_shots, src_ver)
 
+    # 云端路由（批2 云端API 2026-09-06）：关键帧工位绑定云端连接时，
+    # 任务走云端道（队列跳过本地锁/热保护），生成核心换云端适配器。
+    # 绑定解析失败按本地（不阻断生成）。
+    try:
+        from ...services.cloud_provider_service import get_image_endpoint
+        _cloud_ep = get_image_endpoint("keyframe.image")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc)
+        _cloud_ep = None
+
     def _kf_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         return _generate_keyframe_sync(
             req.row_id, req.project_id or "",
             (req.prompt or "").strip(), req.width, req.height,
             req.seed, req.force_new_seed, engine_backend,
-            req.only_shots, src_ver, req.text_priority)
+            req.only_shots, src_ver, req.text_priority,
+            cloud_endpoint=_cloud_ep, check_cancel=check_cancel)
 
     def _wait_cb(_task_id: str, pos: int) -> None:
         broadcast_gen_progress(
@@ -2446,6 +2544,7 @@ async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
             "task_id": f"kf:{req.row_id[:12]}:{time.time_ns():x}",
             "kind": "keyframe", "runner": _kf_runner,
             "loop": asyncio.get_running_loop(),
+            "cloud": _cloud_ep is not None,
             "wait_progress_cb": _wait_cb})
     except ApiError as exc:
         broadcast_gen_progress("keyframe", req.row_id, percent=0,
@@ -2479,13 +2578,22 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
     if not req.row_ids:
         raise ApiError(40008, "缺少 row_ids 数组")
 
+    # 云端路由（批2）：整批共用一次绑定解析
+    try:
+        from ...services.cloud_provider_service import get_image_endpoint
+        _cloud_ep = get_image_endpoint("keyframe.image")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc)
+        _cloud_ep = None
+
     def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
         results, failed = [], []
         for row_id in req.row_ids:
             try:
                 data = _generate_keyframe_sync(
                     str(row_id), req.project_id or "",
-                    "", IMG_TARGET_W, IMG_TARGET_H)
+                    "", IMG_TARGET_W, IMG_TARGET_H,
+                    cloud_endpoint=_cloud_ep, check_cancel=check_cancel)
                 results.append(data)
             except ApiError as exc:
                 failed.append({"row_id": str(row_id), "code": exc.code,
@@ -2500,7 +2608,8 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
     data = await get_image_queue().submit_and_wait({
         "task_id": f"kfbatch:{req.project_id[:12]}:{time.time_ns():x}",
         "kind": "keyframe_batch", "runner": _batch_runner,
-        "loop": asyncio.get_running_loop()})
+        "loop": asyncio.get_running_loop(),
+        "cloud": _cloud_ep is not None})
     return ok(data)
 
 

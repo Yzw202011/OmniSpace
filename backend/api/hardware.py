@@ -314,6 +314,9 @@ def hardware_synergy() -> dict[str, Any]:
         "active_feature": lock.get("active_feature"),
         "holder_task_id": lock.get("task_id"),
         "idle_seconds": lock.get("idle_seconds", 0.0),
+        # 批1 多卡地基（2026-09-05）：多域并行持有全貌（单卡下至多
+        # 一个元素，前端无感）
+        "holders": lock.get("holders", []),
     }
 
     # 2. VRAM 实时状态（P1-05：_realtime_gpu 可能返回 None 未知标记，按 0 收敛）
@@ -328,6 +331,14 @@ def hardware_synergy() -> dict[str, Any]:
         "resident_models": [],
         "cached_models": [],
     }
+    # 每卡实时读数（批1 多卡地基；单卡机器恰一个元素）。失败降级为
+    # 空数组，不阻断聚合。
+    try:
+        from ..engines.vram_manager import get_vram_manager
+        vram["devices"] = get_vram_manager().get_usage().get("devices", [])
+    except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
+        log.debug("每卡显存读数跳过: %s", exc)
+        vram["devices"] = []
 
     # 3. 调度引擎快照
     scheduler: dict = {"current_mode": None, "running": False}

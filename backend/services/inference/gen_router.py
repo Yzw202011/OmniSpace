@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..event_log import log_event
+from ..vram_policy import QWEN_GGUF_RAM_FLOOR_GB as _QWEN_RAM_FLOOR_GB
 
 # ── 通用质量块（写实向，v22 定稿原文——default/cg3d 包沿用保行为）──
 _QUALITY_REALISTIC = (
@@ -704,8 +705,9 @@ class RouteDecision:
 
 
 # qwen-image-2512 GGUF 权重常驻 RAM ~12.31GB + 推理开销 ~3GB
-#（2026-08-23 OOM 死亡事故实测边界）——可用 RAM 低于此线跳过
-_QWEN_RAM_FLOOR_GB = 15.5
+#（2026-08-23 OOM 死亡事故实测边界）——可用 RAM 低于此线跳过。
+# 2026-09-09 V9 尾款①：值搬至 services/vram_policy.py（对拍锁定），
+# 此处以别名 import 保持既有符号名。
 
 
 def _ram_available_gb() -> float:

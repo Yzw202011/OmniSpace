@@ -68,6 +68,8 @@ from ..services.offload import run_blocking
 if TYPE_CHECKING:
     from PIL import Image
 
+    from ..services.cloud_provider_service import CloudEndpoint
+
 router = APIRouter()
 log = logging.getLogger("omnispace.api.draw")
 
@@ -119,6 +121,34 @@ _task_images: dict[str, tuple] = {}  # task_id -> (init_image, mask) 副作用�
 # 协作式取消信号（引擎层 PaintCancelledError 的 API 侧别名；
 # 进度回调抛出，引擎不吞、中断 diffusers 推理）
 _TaskCancelled = PaintCancelledError
+
+
+def _inject_style_pack(prompt: str, params: dict) -> tuple[str, str]:
+    """风格包提示词注入（绘画链与漫剧关键帧链对齐，2026-09-06）。
+
+    detect 对用户原文（中文风格词可嗅探），style_block/quality_block
+    为英文词块（对编码器权重更稳）以 ", " 拼接；negative 用户自带
+    优先、风格包 negative_hint 兜底（写入 params["negative"]）。
+
+    Returns:
+        (新 prompt, 注入说明——空串=无块可注入)。
+
+    Raises:
+        Exception: 上游嗅探异常（调用方兜底跳过，不阻断生成）。
+    """
+    from ..services.inference.gen_router import explain_style
+
+    pack, verdict = explain_style(params.get("prompt") or prompt)
+    if not (pack.style_block or pack.quality_block):
+        return prompt, ""
+    parts = [prompt.rstrip(" ,.。"), pack.style_block.strip(" ,.。"),
+             pack.quality_block.strip(" ,.。")]
+    new_prompt = ", ".join(p for p in parts if p)
+    note = f"风格包 {pack.sid}（{pack.label}，{verdict}）"
+    if not params.get("negative") and pack.negative_hint:
+        params["negative"] = pack.negative_hint
+        note += "，负面词兜底自风格包"
+    return new_prompt, note
 
 
 def _default_paint_model() -> str:
@@ -276,11 +306,14 @@ def _decode_b64_image(data: str) -> Image.Image | None:
 
 def _run_generate_task(task_id: str, params: dict,
                        init_image: Image.Image | None = None,
-                       mask: Image.Image | None = None) -> None:
+                       mask: Image.Image | None = None,
+                       cloud_endpoint: CloudEndpoint | None = None) -> None:
     """后台线程：加载引擎 → 推理 → 落盘 → 更新任务/广播。
 
     mask 非空时走局部重绘（inpaint）链路；协作式取消：进度回调发现
     取消旗标即抛 _TaskCancelled 中断推理。
+    cloud_endpoint（批2 云端API）：非 None 时跳过本地引擎链路，由云端
+    适配器出图（绘画工位绑定云端连接时经 _make_paint_queue_runner 传入）。
 
     执行流程追踪（2026-08-23）：Flow 从 task dict 显式跨线程传入，
     节点链 排队等待→模型加载→提示词优化→图像生成→结果落盘，
@@ -315,6 +348,75 @@ def _run_generate_task(task_id: str, params: dict,
                        input_summary=f"优先级 {params.get('priority', 5)}",
                        friendly="任务排队等待调度") as n:
             n.output(f"等待 {time.time() - flow.started_at:.1f} 秒后开始执行")
+
+        # ── 云端出图（批2 云端API 2026-09-06）────────────────────
+        # 绘画工位绑定云端连接：跳过本地选型/翻译/装载/优化（本地显卡
+        # 零占用），提示词原样直送云端（多语言模型原生理解中文），结果
+        # 契约与本地引擎对齐（images/seed/model/...）后走同一落盘链。
+        if cloud_endpoint is not None:
+            if mask is not None:
+                raise RuntimeError(
+                    "云端出图暂不支持局部重绘（蒙版）：请到设置解绑"
+                    "「绘画页出图」工位后重试")
+            _t0 = time.time()
+            from ..services.inference.cloud_image_client import generate_image as _cloud_generate
+
+            def _cloud_check() -> None:
+                if task_id in _cancel_flags:
+                    raise _TaskCancelled()
+
+            def _cloud_progress(pct: int) -> None:
+                _task_update(task_id, percent=max(1, min(99, pct)))
+                _broadcast_progress(task_id, max(1, min(99, pct)), 0,
+                                    status="running")
+
+            with flow.node(
+                    "云端出图",
+                    input_summary=f"{params.get('width', 1024)}x"
+                                  f"{params.get('height', 1024)} "
+                                  f"{cloud_endpoint.provider_name}",
+                    friendly=f"云端 API 出图（{cloud_endpoint.provider_name}"
+                             f" · {cloud_endpoint.model or '默认模型'}）") as cn:
+                cn.output("任务已提交云端，等待服务商出图…")
+                image = _cloud_generate(
+                    cloud_endpoint, params["prompt"],
+                    width=int(params.get("width", 1024)),
+                    height=int(params.get("height", 1024)),
+                    negative=str(params.get("negative") or ""),
+                    ref_images=[init_image] if init_image is not None
+                    else None,
+                    check_cancel=_cloud_check,
+                    on_progress=_cloud_progress,
+                    slot="paint.image")
+                cn.output(f"用时 {time.time() - _t0:.1f}s")
+            gen_node = None
+            result = {"images": [image],
+                      "seed": int(params.get("seed", -1)),
+                      "model": f"cloud:{cloud_endpoint.provider_name}",
+                      "sampler": params.get("sampler", ""),
+                      "elapsed_ms": int((time.time() - _t0) * 1000),
+                      "backend": "cloud", "actual_steps": 0}
+            # 云端专属落盘尾链（与本地 节点5 同构；提前 return 跳过本地
+            # 选型/翻译/装载/优化整段——本地链路代码零缩进改动）
+            with flow.node("结果落盘",
+                           friendly="保存图像并写入历史记录") as n:
+                rel_path = engine.save_result(
+                    image, task_id, params["prompt"],
+                    params.get("negative", ""),
+                    {k: v for k, v in params.items() if k != "optimize"},
+                    result["seed"])
+                image_b64 = engine.image_to_base64(image)
+                n.output(rel_path)
+            _task_update(task_id, status="done", percent=100,
+                         file_path=rel_path, image_b64=image_b64,
+                         seed=result["seed"], model=result["model"],
+                         sampler=result.get("sampler", ""),
+                         elapsed_ms=int(result["elapsed_ms"]),
+                         backend="cloud")
+            _broadcast_progress(task_id, 100,
+                                int(params.get("steps", 0)), status="done")
+            flow.end("success", output_summary=rel_path)
+            return
 
         prompt = params["prompt"]
         model_hint = params.get("model")
@@ -376,6 +478,7 @@ def _run_generate_task(task_id: str, params: dict,
                 if dual and not current:
                     try:
                         import psutil
+
                         # 22GB 门槛（2026-08-23 实测定界）：qwen GGUF
                         # 峰值需求 17.3GB（权重 12.31 + 开销 3 + 生成
                         # 2），但 pageable 权重换页边界效应显著——
@@ -386,8 +489,11 @@ def _run_generate_task(task_id: str, params: dict,
                         # 兜底 + 四轮对照实验定论的提示词工程（主体
                         # 前置/鞋类污染剔除/场景锚定/风格护栏负面词，
                         # 实测 3/3 命中目标构图）。
+                        # 2026-09-09 V9 尾款①：值搬至 services/
+                        # vram_policy.py（对拍锁定），此处改引常量。
+                        from ..services.vram_policy import PAINT_QWEN_RAM_FLOOR_GB
                         ram_ok = psutil.virtual_memory().available \
-                            >= 22 * 1024 ** 3
+                            >= PAINT_QWEN_RAM_FLOOR_GB * 1024 ** 3
                     except Exception:  # noqa: BLE001 - psutil 缺失保守放行
                         ram_ok = True
                 if dual and not current and ram_ok:
@@ -532,6 +638,29 @@ def _run_generate_task(task_id: str, params: dict,
             # （恶性循环，2026-08-23 实测根因）。
             shrink_working_set()
 
+        # 存量断链修复（2026-09-06 风格注入实现时发现）：翻译兜底与
+        # 提示词优化改写的都是局部 prompt，此前从未回写 params——
+        # engine.generate/img2img/inpaint 读 params["prompt"]，优化
+        # 结果只进落盘记录不进生成链。回写后三分支（t2i/i2i/inpaint）
+        # 统一生效。
+        params["prompt"] = prompt
+
+        # 节点2.5：风格包注入统一（2026-09-06 架构升级计划 B-阶段一，
+        # 《AI计划》§3.1「便宜大赢」）：绘画链此前只用风格包选模型
+        # （resolve_route）不注入提示词，与漫剧关键帧链（完整注入
+        # style_block+quality_block）不对齐。移植同款注入——detect
+        # 对用户原文（中文风格词可嗅探），注入块为英文（对编码器
+        # 权重更稳），负面词用户自带优先、风格包 negative_hint 兜底；
+        # explain_style 裁决凭据进 flow 可追溯。
+        try:
+            prompt, _style_note = _inject_style_pack(prompt, params)
+            if _style_note:
+                with flow.node("风格注入",
+                               friendly="按画风注入风格与质量词") as n:
+                    n.output(_style_note)
+        except Exception as exc:  # noqa: BLE001 - 注入失败不阻断生成
+            log.warning("风格包注入失败（跳过）: %s", exc)
+
         # 节点3：提示词优化（仅启用时）
         if params.get("optimize"):
             with flow.node("提示词优化", input_summary=f"prompt={prompt[:40]}",
@@ -641,12 +770,18 @@ def _submit_precheck() -> None:
         pass
 
 
-def _make_paint_queue_runner(task_id: str) -> Callable[[dict, Callable[[], None]], None]:
+def _make_paint_queue_runner(
+        task_id: str,
+        cloud_endpoint: CloudEndpoint | None = None,
+) -> Callable[[dict, Callable[[], None]], None]:
     """绘画任务的图像队列 runner（2026-09-02 迁移自 _dispatch_loop）。
 
     功能锁/vLLM 协商由队列统一编排；此处仅取副作用图 + 跑推理。
     运行中取消 = draw 自己的 _cancel_flags（progress 回调协作中断，
     引擎抛 PaintCancelledError，由 _run_generate_task 内部收敛终态）。
+    cloud_endpoint（批2 云端API 2026-09-06）：绘画工位绑定云端时由
+    提交点解析传入——任务走云端道（队列跳过本地准入），推理换云端
+    适配器（_run_generate_task 内分支）。
     """
 
     def runner(task: dict, check_cancel: Callable[[], None]) -> None:  # noqa: ARG001
@@ -654,23 +789,40 @@ def _make_paint_queue_runner(task_id: str) -> Callable[[dict, Callable[[], None]
         init_image = imgs[0] if imgs else None
         mask = imgs[1] if imgs and len(imgs) > 1 else None
         params = (_task_get(task_id) or {}).get("params", {})
-        _run_generate_task(task_id, params, init_image, mask)
+        _run_generate_task(task_id, params, init_image, mask,
+                           cloud_endpoint=cloud_endpoint)
 
     return runner
 
 
-def _submit_task(task: dict, init_image: Image.Image | None = None,
-                 mask: Image.Image | None = None) -> None:
-    """提交任务：预检 → 副作用登记 → 入统一图像队列。"""
-    _submit_precheck()
+def _resolve_paint_cloud_endpoint():
+    """解析绘画工位云端端点（未绑定/连接停用返回 None=本地旧行为）。"""
+    try:
+        from ..services.cloud_provider_service import get_image_endpoint
+        return get_image_endpoint("paint.image")
+    except Exception as exc:  # noqa: BLE001 - 解析失败按本地（不阻断生图）
+        log.warning("绘画云端路由解析失败（按本地引擎）: %s", exc)
+        return None
+
+
+def _submit_task(task: dict, init_image=None, mask=None) -> None:
+    """提交任务：预检 → 副作用登记 → 入统一图像队列。
+
+    云端绑定（批2）：跳过热保护预检（云任务不占本地 GPU 温度无关），
+    任务打 cloud 标记走云端道。
+    """
+    cloud_ep = _resolve_paint_cloud_endpoint()
+    if cloud_ep is None:
+        _submit_precheck()
     if init_image is not None or mask is not None:
         _task_images[task["task_id"]] = (init_image, mask)
     import asyncio as _asyncio
     get_image_queue().submit({
         "task_id": task["task_id"], "kind": "paint",
-        "runner": _make_paint_queue_runner(task["task_id"]),
+        "runner": _make_paint_queue_runner(task["task_id"], cloud_ep),
         "loop": _asyncio.get_running_loop(),
         "priority": task.get("priority", 5),
+        "cloud": cloud_ep is not None,
     })
 
 

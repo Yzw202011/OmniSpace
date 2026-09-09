@@ -260,7 +260,8 @@ class ComfyPaintEngine:
     def _build_workflow(self, params: dict,
                         ref_names: list[str] | None,
                         filename_prefix: str,
-                        pulid_image_name: str | None = None) -> dict:
+                        pulid_image_name: str | None = None,
+                        ref_megapixels: list[float] | None = None) -> dict:
         """API 格式工作流（官方 Image Edit Klein 蓝图节点级还原）。
 
         参考图注入链（P1 多参考）：每图 LoadImage →
@@ -355,8 +356,14 @@ class ComfyPaintEngine:
         reflatent = self._resolve_reflatent(params, pulid_image_name is not None)
         ref_names = ref_names or []
         if ref_names and reflatent != "off":
-            mp = _ref_megapixels(len(ref_names))
+            uniform_mp = _ref_megapixels(len(ref_names))
             for i, name in enumerate(ref_names):
+                # D-2（2026-09-10）：逐图分辨率——调用方按 kind 给角色
+                # 参考 1.0MP（一致性锚定主力），None 走均匀分档
+                mp = uniform_mp
+                if (ref_megapixels and i < len(ref_megapixels)
+                        and ref_megapixels[i] is not None):
+                    mp = ref_megapixels[i]
                 suffix = "" if i == 0 else str(i)
                 wf[f"load_img{suffix}"] = {"class_type": "LoadImage",
                                            "inputs": {"image": name}}
@@ -404,31 +411,39 @@ class ComfyPaintEngine:
 
     def img2img(self, params: dict,
                 ref_image: Image.Image | list[Image.Image],
-                pulid_image: Image.Image | None = None) -> dict:
+                pulid_image: Image.Image | None = None,
+                ref_megapixels: list[float] | None = None) -> dict:
         """参考条件生图（ReferenceLatent 注入，非像素初始化 img2img）。
 
         ref_image: 构图/环境参考图（P1 多参考：传 PIL 图列表即多图
         链式注入，≤_MAX_WF_REFS，列表序 = 重要性序，超限按序截断）。
         pulid_image: 身份参考图（恒建议面部特写资产——InsightFace
         检测稳定，与 ReferenceLatent 的构图参考职责互补）。
+        ref_megapixels: 逐图分辨率预算（D-2 2026-09-10：角色参考
+        1.0MP 保一致性锚定力、场景/道具低档控 token 总量；不传则
+        走 _ref_megapixels 均匀分档旧行为）。
         """
-        return self._run(params, ref_image, pulid_image)
+        return self._run(params, ref_image, pulid_image,
+                         ref_megapixels=ref_megapixels)
 
     def _run(self, params: dict,
              ref_image: Image.Image | None,
-             pulid_image: Image.Image | None = None) -> dict:
+             pulid_image: Image.Image | None = None,
+             ref_megapixels: list[float] | None = None) -> dict:
         # 生成期间标记忙碌：空闲自动关闭计时暂停（mark/mark_idle 配对）
         proc_mgr = get_comfy_proc()
         proc_mgr.mark_busy()
         try:
             with self._gen_lock:
-                return self._run_locked(params, ref_image, pulid_image)
+                return self._run_locked(params, ref_image, pulid_image,
+                                        ref_megapixels=ref_megapixels)
         finally:
             proc_mgr.mark_idle()
 
     def _run_locked(self, params: dict,
                     ref_image: Image.Image | None,
-                    pulid_image: Image.Image | None = None) -> dict:
+                    pulid_image: Image.Image | None = None,
+                    ref_megapixels: list[float] | None = None) -> dict:
         task_id = uuid.uuid4().hex[:12]
         t0 = time.perf_counter()
 
@@ -473,7 +488,8 @@ class ComfyPaintEngine:
             self._ensure_running()
             wf = self._build_workflow(params, ref_names,
                                       filename_prefix=f"paint/{task_id}",
-                                      pulid_image_name=pulid_name)
+                                      pulid_image_name=pulid_name,
+                                      ref_megapixels=ref_megapixels)
             resp = self._api("POST", "/prompt",
                              body={"prompt": wf,
                                    "client_id": f"omnispace-{task_id}"},

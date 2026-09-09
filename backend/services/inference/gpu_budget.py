@@ -111,7 +111,12 @@ class BudgetSnapshot:
     """已批准未落地的逻辑预留合计（request/release 记账）。"""
 
     external_gb: float
-    """used − ledger − reserved ≈ 账外占用（外部进程/孤儿/漂移）。"""
+    """used − ledger − reserved ≈ 账外占用（外部进程/孤儿/漂移，含
+    WDDM 系统驻留常态基线——判异常看 external_anomaly_gb）。"""
+
+    external_anomaly_gb: float
+    """账外异常余量 = external − 动态基线（F-4 次生修复）：>0 表示
+    超出该卡常态驻留的账外占用，孤儿/漂移对账判据。"""
 
     @property
     def budget_gb(self) -> float:
@@ -167,6 +172,12 @@ class GpuBudget:
         # 退化为 used − reserved，仍可用）。
         self._ledger_source: Callable[[int], float] | None = None
         self._reconcile_hooks: list[Callable[[BudgetSnapshot], None]] = []
+        # F-4 次生修复（2026-09-10）：保守口径下 external 含 WDDM
+        # 系统驻留常态基线（实测 ~4-5GB），固定 2.0GB 线常态越线、
+        # 判定语义失效——改为滑动基线：基线随外部占用的**下行**缓慢
+        # 跟随、上行立即跟随（孤儿出现立刻抬高基线不成灾），异常 =
+        # 超出基线 EXTERNAL_ANOMALY_GB 以上。
+        self._external_baseline: dict[int, float] = {}
 
     # ── 注入接口 ────────────────────────────────────────────────
 
@@ -229,6 +240,7 @@ class GpuBudget:
         reserved = self._reserved_gb(device)
         used_gb = max(0.0, total_gb - free_gb)
         external = max(0.0, used_gb - ledger - reserved) if ok else 0.0
+        anomaly_gb = self._external_anomaly_gb(device, external) if ok else 0.0
         return BudgetSnapshot(
             device=device,
             available=ok,
@@ -238,7 +250,31 @@ class GpuBudget:
             ledger_gb=round(ledger, 2),
             reserved_gb=round(reserved, 2),
             external_gb=round(external, 2),
+            external_anomaly_gb=round(anomaly_gb, 2),
         )
+
+    def _external_anomaly_gb(self, device: int, external: float) -> float:
+        """账外异常余量 = external − 动态基线（F-4 次生修复）。
+
+        基线规则：
+          - 冷启动基线钳常态线以下（重启时孤儿已在跑不得被"学会"）；
+          - 上行：**先判定后跟随**——超出基线 EXTERNAL_ANOMALY_GB 以上
+            的部分先作为异常余量返回（孤儿跳升报警），基线仍上移
+            （连续超线只报一次量级，不重复累积）；
+          - 下行每次调用至多回落 0.5GB（孤儿消失后缓慢回归）。
+        """
+        with self._lock:
+            base = self._external_baseline.get(device)
+            if base is None:
+                base = min(external, EXTERNAL_ANOMALY_GB)
+                self._external_baseline[device] = base
+            if external > base:
+                anomaly = external - base
+                self._external_baseline[device] = external
+                return anomaly
+            new_base = max(external, base - 0.5)
+            self._external_baseline[device] = new_base
+            return max(0.0, external - new_base)
 
     def reconcile(
         self, snap: BudgetSnapshot | None = None, device: int = 0
@@ -250,7 +286,8 @@ class GpuBudget:
         """
         if snap is None:
             snap = self.snapshot(device)
-        if not snap.available or snap.external_gb < EXTERNAL_ANOMALY_GB:
+        if not snap.available \
+                or snap.external_anomaly_gb < EXTERNAL_ANOMALY_GB:
             return False
         with self._lock:
             hooks = tuple(self._reconcile_hooks)
@@ -368,7 +405,7 @@ class GpuBudget:
         与方案 §3.3 阶梯一致；执行能力批3 接入。
         """
         parts: list[str] = []
-        if snap.external_gb >= EXTERNAL_ANOMALY_GB:
+        if snap.external_anomaly_gb >= EXTERNAL_ANOMALY_GB:
             parts.append(f"L0 先对账（账外 {snap.external_gb:.1f}GB 疑孤儿）")
         if snap.ledger_gb > 0:
             parts.append(f"L1 台账在载 {snap.ledger_gb:.1f}GB（空闲项可回收）")

@@ -138,18 +138,34 @@ class TestReserve:
 
 
 class TestReconcile:
-    def test_hook_fires_above_anomaly_line(
+    def test_hook_fires_on_baseline_jump(
         self, monkeypatch: MonkeyPatch
     ) -> None:
-        """账外占用超线（孤儿 vLLM 13.9GB 级形态）→ 钩子按注册序触发。"""
+        """孤儿出现（基线上跳）→ 钩子触发（F-4 次生修复后语义：
+        异常=超出已建立基线，孤儿 13.9GB 级形态）。"""
         b = GpuBudget()
-        # free=2.0 → used=14.0，无台账 → external=14.0 ≥ 2.0
+        # 建立常态基线（external=1.5，桌面驻留形态）
+        monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(14.5, 16.0))
+        b.snapshot(0)
+        # 孤儿出现：free 骤降 → external 跳升
         monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(2.0, 16.0))
         fired: list[gpu_budget.BudgetSnapshot] = []
         b.add_reconcile_hook(fired.append)
         assert b.reconcile(device=0) is True
         assert len(fired) == 1
-        assert fired[0].external_gb >= EXTERNAL_ANOMALY_GB
+        assert fired[0].external_anomaly_gb >= EXTERNAL_ANOMALY_GB
+
+    def test_steady_high_external_not_anomaly(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        """常态高驻留（F-4 次生场景：保守口径 external ~5GB）不误报。"""
+        b = GpuBudget()
+        monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(2.0, 16.0))
+        b.snapshot(0)  # 首帧建立基线（钳常态线 2.0 后上行跟随到 14）
+        fired: list[gpu_budget.BudgetSnapshot] = []
+        b.add_reconcile_hook(fired.append)
+        assert b.reconcile(device=0) is False  # 稳态不报警
+        assert fired == []
 
     def test_no_fire_below_line(self, monkeypatch: MonkeyPatch) -> None:
         """账外占用在常态波动内（桌面 ~2GB）→ 不触发。"""
@@ -165,6 +181,8 @@ class TestReconcile:
         self, monkeypatch: MonkeyPatch
     ) -> None:
         b = GpuBudget()
+        monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(14.5, 16.0))
+        b.snapshot(0)  # 建立常态基线
         monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(2.0, 16.0))
         calls: list[str] = []
 
@@ -208,12 +226,14 @@ class TestRequest:
         get_busy_registry().unregister(r.busy_token)
 
     def test_wait_suggests_ladder(self, monkeypatch: MonkeyPatch) -> None:
-        """额度不足 → WAIT + 建议阶梯（external 超线提示 L0 对账）。"""
+        """额度不足 → WAIT + 建议阶梯（异常余量超线提示 L0 对账）。"""
         b = GpuBudget()
+        monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(14.5, 16.0))
+        b.snapshot(0)  # 建立常态基线
         monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(2.0, 16.0))
         r = b.request("paint", 8.0, advisory=True)
         assert r.verdict is Verdict.WAIT
-        assert "L0" in r.reason  # used 14.0 无台账 → external 14 ≥ 线
+        assert "L0" in r.reason  # external 跳升超基线 ≥ 线
         assert not r.busy_token  # 未开跑不登记
         assert get_busy_registry().is_busy("paint") is False
 
@@ -350,7 +370,7 @@ class TestCpuAssistTwoState:
             lambda self, device=0: gpu_budget.BudgetSnapshot(
                 device=0, available=True, total_gb=16.0, free_gb=2.0,
                 used_gb=14.0, ledger_gb=0.0, reserved_gb=0.0,
-                external_gb=14.0))
+                external_gb=14.0, external_anomaly_gb=14.0))
         events: list[str] = []
         monkeypatch.setattr(
             "backend.services.event_log.log_event",

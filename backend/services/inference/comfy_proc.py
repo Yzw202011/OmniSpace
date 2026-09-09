@@ -222,6 +222,38 @@ class ComfyProcManager:
 
     # ── 进程生命周期 ──────────────────────────────────────────────
 
+    def _reap_orphans(self) -> int:
+        """清扫上次会话遗留的 ComfyUI 孤儿（F-5，2026-09-10 严格测试
+        实测：后端崩溃后 ComfyUI 残留占 8189 端口+数百 MB 显存，冷启动
+        收养探测失败后 spawn 端口冲突——对齐 vllm_service 双匹配防御：
+        exe ∈ 本仓 embeded python/品牌 exe 且命令行含 ComfyUI/main.py）。
+        返回清扫数；失败不阻断 spawn。
+        """
+        try:
+            import psutil
+        except ImportError:
+            return 0
+        raw_py = str(COMFY_DIR / "python_embeded" / "python.exe").lower()
+        targets = {raw_py, str(_COMFY_BRAND_EXE).lower()}
+        marker = "comfyui/main.py"
+        killed = 0
+        for p in psutil.process_iter(["pid", "exe", "cmdline"]):
+            try:
+                exe = (p.info["exe"] or "").lower()
+                cmdline = " ".join(p.info["cmdline"] or []).lower()
+                if (exe in targets and marker in cmdline
+                        and p.info["pid"] != os.getpid()):
+                    logger.warning("清扫 ComfyUI 孤儿进程 pid=%d", p.info["pid"])
+                    subprocess.run(
+                        ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
+                        capture_output=True, check=False,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                        if os.name == "nt" else 0)
+                    killed += 1
+            except Exception:  # noqa: BLE001 - 单进程探测失败继续
+                continue
+        return killed
+
     def spawn(self, log_name: str) -> subprocess.Popen:
         """冷启动 ComfyUI 子进程（幂等：已在运行直接返回现有 Popen）。
 
@@ -232,6 +264,13 @@ class ComfyProcManager:
             if self._proc is not None and self._proc.poll() is None:
                 self._last_activity = time.monotonic()
                 return self._proc
+            # 孤儿收账（F-5）：本管理器无在管进程但端口可能被上次会话
+            # 遗留占用——spawn 前清扫（在管进程存活时不进来，无误杀面）
+            try:
+                if self._reap_orphans():
+                    time.sleep(1.0)  # 端口释放窗口
+            except Exception as exc:  # noqa: BLE001 - 收账失败不阻断
+                logger.warning("ComfyUI 孤儿清扫异常（继续 spawn）: %s", exc)
             logs_dir = ROOT_DIR / "logs"
             logs_dir.mkdir(exist_ok=True)
             self._log_fp = open(logs_dir / log_name, "ab")

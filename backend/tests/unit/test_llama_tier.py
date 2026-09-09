@@ -130,10 +130,16 @@ class TestLlamaServiceGates:
     def test_admission_rejects_low_free(
         self, monkeypatch: MonkeyPatch
     ) -> None:
-        """软准入：空闲 3GB < 共存档 5.7GB → 诚实拒绝（不出路不明错误）。"""
+        """软准入：空闲 3GB < 共存档 5.7GB → 诚实拒绝（不出路不明错误）。
+
+        隔离：mock 幂等/收养前置（_http_get 恒 False=端口无健康服务），
+        否则前序用例/真机遗留的 llama-server 会让 start 走幂等快捷
+        路径绕过软准入（全量跑时序耦合，2026-09-10 补测发现）。
+        """
         from backend.engines import llama_service as ls
 
         gguf = next(_GGUF_DIR.glob("*.gguf"))
+        monkeypatch.setattr(ls, "_http_get", lambda url, timeout=2.0: False)
         monkeypatch.setattr(
             "backend.services.inference.gpu_budget.read_physical_bytes",
             lambda device=0, *, torch_only=False: (

@@ -441,6 +441,7 @@ class ImageTaskQueue:
             from .inference.gpu_budget import get_gpu_budget
             get_gpu_budget().release(
                 token=str(task.get("_budget_token") or ""),
+                feature="paint",
                 note=str(task.get("task_id")))
         except Exception as exc:  # noqa: BLE001 - 收尾失败不影响任务
             log.debug("gpu_budget 收尾跳过: %s", exc)

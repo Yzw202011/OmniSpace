@@ -868,6 +868,24 @@ class DialogEngine(BaseEngine):
         for mid, info in sorted(discovered.items(),
                                 key=lambda kv: kv[1]["vram_gb"]):
             if info["vram_gb"] <= max(free, 0.1):
+                # 自动选档可见性（测试发现 F-1 修复，2026-09-10）：动态
+                # 发现兜底分支同样发大白话事件——候选链分支 03:39 预热
+                # 实测走此路径却无通知（与候选链分支的事件对齐）
+                try:
+                    _first_id = _effective_candidates()[0][0]
+                    if mid != _first_id:
+                        from ..event_log import log_event
+                        log_event(
+                            "dialog", "model_tier_autoselect",
+                            f"默认对话模型「{_first_id}」当前显存装不下，"
+                            f"已自动选用「{mid}」档继续（关闭占显存的"
+                            "应用后重新加载默认档即可换回）",
+                            level="info",
+                            detail=f"from={_first_id} to={mid} "
+                                   f"free={free:.1f}GB "
+                                   f"est={info['vram_gb']:.1f}GB（发现兜底）")
+                except Exception:  # noqa: BLE001 - 事件失败不影响选档
+                    pass
                 return mid, Path(info["path"]), float(info["vram_gb"]), info["backend"]
         # 全部超过空闲显存时仍返回最小者（由 check_vram 腾挪/报错）；
         # 但最小者也超物理总量时拒绝（物理装不下腾挪无意义）
@@ -1669,6 +1687,30 @@ class DialogEngine(BaseEngine):
         backend = self._backend
         if self._state != "ready" or backend is None:
             raise RuntimeError(self._last_error or "对话模型未就绪")
+
+        # llama 后端失联自愈（测试发现 F-3 修复，2026-09-10）：子进程
+        # 崩溃/被杀后引擎态仍 ready 直接报错——UX 铁律要求自动重载续跑
+        # （vLLM 侧有 V9-γ 收养旁路，此处为 llama 对等能力）
+        if getattr(backend, "name", "") == "llama":
+            try:
+                from ...engines.llama_service import get_llama_service
+
+                if not get_llama_service().is_healthy():
+                    logger.warning("llama-server 失联，按 UX 铁律自动重载"
+                                   "（自愈，模型=%s）", self._model_id)
+                    _mid = self._model_id
+                    with self._lock:
+                        self._unload_locked()
+                    if _mid and self.load_model(_mid):
+                        backend = self._backend
+                    if backend is None:
+                        raise RuntimeError(
+                            "llama-server 自动重载失败: "
+                            + (self._last_error or "未知原因"))
+            except RuntimeError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 自愈异常收敛为引擎语义
+                raise RuntimeError(f"llama-server 自愈失败: {exc}") from exc
 
         start = time.perf_counter()
         self.last_first_token_ms = 0.0

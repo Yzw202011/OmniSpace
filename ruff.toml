@@ -11,6 +11,9 @@ target-version = "py310"
 line-length = 100
 extend-exclude = ["pydeps", "runtime", "models", "frontend", "omnipspace-demo",
                   "tools/ComfyUI_windows_portable", "tools/ComfyUI_windows_portable_old",
+                  # 第三方训练库（并发会话落地，1921 条第三方风格违规污染全仓闸门；
+                  # 与 ComfyUI 同一处置先例——第三方代码不归项目 lint 管，2026-09-10）
+                  "tools/musubi-tuner",
                   "cssc", "skills/_extracted"]
 
 [lint]

@@ -323,12 +323,14 @@ class GpuBudget:
         result: RequestResult | None = None,
         *,
         token: str = "",
+        feature: str = "",
         note: str = "",
     ) -> None:
         """归还：注销 busy +（非顾问）释放逻辑预留 + 结束帧日志。
 
         result 与 token 二选一传入（token 优先）；两者皆空为 no-op
-        （对未走 request 的任务安全）。
+        （对未走 request 的任务安全）。feature 供仅持 token 的调用方
+        （队列）标注帧日志归属（测试发现 F-2 修复，2026-09-10）。
         """
         _token = token or (result.busy_token if result else "")
         if _token:
@@ -336,11 +338,12 @@ class GpuBudget:
         if result is not None and not result.advisory:
             self.release_reservation(result.device, result.need_gb)
         device = result.device if result is not None else 0
+        _feature = (result.feature if result is not None else "") or feature
         snap = self.snapshot(device)
         log.info(
             "[gpu-budget] release %s 收尾帧: free=%.1fG budget=%.1fG "
             "external=%.1fG note=%s",
-            result.feature if result else "?", snap.free_gb, snap.budget_gb,
+            _feature or "?", snap.free_gb, snap.budget_gb,
             snap.external_gb, note)
 
     def _suggest_ladder(self, snap: BudgetSnapshot) -> str:

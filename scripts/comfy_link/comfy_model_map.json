@@ -22,6 +22,17 @@
   "text_encoders/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf": "paint/qwen-edit-2511/text_encoder/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
   "vae/qwen_image_vae.safetensors": "paint/qwen-edit-2511/vae/qwen_image_vae_comfy.safetensors",
   "text_encoders/Qwen2.5-VL-7B-Instruct-mmproj-BF16.gguf": "paint/qwen-edit-2511/text_encoder/mmproj-BF16.gguf",
-  "loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors": "paint/qwen-edit-2511/lora/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+  "loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors": "paint/qwen-edit-2511/lora/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+  "unet/flux1-dev-Q4_K_S.gguf": "uno/flux1-dev-Q4_K_S.gguf",
+  "vae/ae.safetensors": "uno/ae.safetensors",
+  "clip/t5-v1_1-xxl-encoder-Q5_K_M.gguf": "uno/t5-v1_1-xxl-encoder-Q5_K_M.gguf",
+  "clip/clip_l.safetensors": "uno/clip_l.safetensors",
+  "loras/uno_dit_lora.safetensors": "uno/dit_lora.safetensors",
+  "unet/flux1-dev-fp8-e4m3fn.safetensors": "uno/flux1-dev-fp8-e4m3fn.safetensors",
+  "clip/t5xxl_fp8_e4m3fn.safetensors": "uno/t5xxl_fp8_e4m3fn.safetensors",
+  "unet/flux-2-klein-4b.safetensors": "uno/flux-2-klein-4b.safetensors",
+  "text_encoders/qwen_3_4b.safetensors": "uno/qwen_3_4b.safetensors",
+  "vae/flux2_klein_ae.safetensors": "uno/flux2_ae.safetensors",
+  "loras/xia_mumu_v1.safetensors": "../data/lora_train/xia_mumu/output/xia_mumu_v1.safetensors"
  }
 }

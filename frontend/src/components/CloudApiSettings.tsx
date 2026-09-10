@@ -290,7 +290,7 @@ export default function CloudApiSettings() {
                     {p.enabled ? '已启用' : '已停用'}
                   </span>
                   {usedBy.length > 0 && (
-                    <span className="settings-row-desc" style={{ color: 'var(--color-primary, #FF6B9D)' }}>
+                    <span className="settings-row-desc" style={{ color: 'var(--color-primary, var(--color-primary-500))' }}>
                       使用中：{usedBy.join('、')}
                     </span>
                   )}

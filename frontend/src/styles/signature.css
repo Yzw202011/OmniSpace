@@ -54,7 +54,7 @@ input.omni-slider {
 }
 /* thumb：樱粉描边 + 双层辉光（悬浮环 + 按压扩散） */
 input.omni-slider::-webkit-slider-thumb {
-  background: linear-gradient(180deg, #1e2c52, #16213e);
+  background: linear-gradient(180deg, #1e2c52, var(--color-card));
   border: 2px solid var(--color-primary);
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.45),

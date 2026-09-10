@@ -5,7 +5,7 @@
  * 0~100 百分比进度条，颜色随进度变化（语义色令牌，§6.3.1）：
  *   成功绿 --color-success（<60%）/ 警告黄 --color-warning（60~85%）/
  *   错误红 --color-error（>85%）
- * 轨道底色沿用输入底 #0F3460（与 Slider 未填充段一致，§6.3.2）。
+ * 轨道底色沿用输入底 var(--color-input-bg)（与 Slider 未填充段一致，§6.3.2）。
  * 规格 §9 通用组件。
  */
 import { useMemo } from 'react';

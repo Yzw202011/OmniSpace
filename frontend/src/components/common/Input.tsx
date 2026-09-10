@@ -3,7 +3,7 @@
  * OmniSpace AI v2.3.1 — Sakura 暗色主题
  * --------------------------------------------------------------------------
  * 支持前缀 / 后缀图标节点与 error 错误状态（红色边框 + 提示文案）。
- * 规格 §6.3.2 输入框：背景 #0F3460 / 边框 #4ECDC4 30% / 圆角 6px。
+ * 规格 §6.3.2 输入框：背景 var(--color-input-bg) / 边框 var(--color-info) 30% / 圆角 6px。
  */
 import { forwardRef } from 'react';
 import type { InputHTMLAttributes, ReactNode } from 'react';
@@ -28,7 +28,7 @@ const BASE_CLASS = [
   'focus:outline-none focus:ring-2 focus:ring-sakura-300',
 ].join(' ');
 
-/** 错误/常规边框类名（常规边框 #4ECDC4 30%，规格值；focus 转薄荷绿实色） */
+/** 错误/常规边框类名（常规边框 var(--color-info) 30%，规格值；focus 转薄荷绿实色） */
 function borderClassOf(error: boolean, focusPrefix: 'focus' | 'focus-within'): string {
   if (error) {
     return 'border-[var(--color-error)]';

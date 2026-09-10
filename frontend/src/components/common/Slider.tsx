@@ -3,7 +3,7 @@
  * OmniSpace AI v2.3.1 — Sakura 暗色主题
  * --------------------------------------------------------------------------
  * 受控滑块，支持 min / max / step / value / onChange，
- * 轨道以 Sakura 主色（#FF6B9D）填充、底色 #0F3460，并在标签行展示当前数值。
+ * 轨道以 Sakura 主色（var(--color-primary-500)）填充、底色 var(--color-input-bg)，并在标签行展示当前数值。
  * 规格 §6.3.2 输入控件。底层样式见 styles/sakura-theme.css 的 .omni-slider。
  */
 import type { ChangeEvent } from 'react';
@@ -69,8 +69,8 @@ export function Slider({
         className="omni-slider w-full"
         style={{
           // 已填充百分比为数据驱动值（唯一样式内联点）；
-          // 填充色用主色 #FF6B9D，未填充轨道用专用令牌（暗底浅灰/亮底深灰，
-          // 与 --color-input-bg 解耦，避免 #0F3460 在深蓝卡片上辨识度不足）
+          // 填充色用主色 var(--color-primary-500)，未填充轨道用专用令牌（暗底浅灰/亮底深灰，
+          // 与 --color-input-bg 解耦，避免 var(--color-input-bg) 在深蓝卡片上辨识度不足）
           background: `linear-gradient(to right, var(--color-primary) ${percent}%, var(--color-slider-track) ${percent}%)`,
         }}
       />

@@ -74,7 +74,7 @@ body {
 
 /* Logo 文字：樱粉金渐变 + 柔光 */
 .topbar-logo .logo-text {
-  background: linear-gradient(120deg, #ff9bbe 0%, #ff6b9d 38%, #ffb3cd 68%, #ffd9e6 100%);
+  background: linear-gradient(120deg, var(--color-primary-300) 0%, var(--color-primary-500) 38%, #ffb3cd 68%, #ffd9e6 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: var(--color-primary);           /* 不支持 clip 时的兜底 */
@@ -245,7 +245,7 @@ body {
 /* ============================== 6. 按钮：渐变果冻质感 ============================== */
 /* 主按钮：樱粉渐变 + 顶部内高光 + 悬浮光晕 */
 .btn-primary {
-  background: linear-gradient(135deg, #ff7cab 0%, #ff6b9d 48%, #f5598c 100%);
+  background: linear-gradient(135deg, #ff7cab 0%, var(--color-primary-500) 48%, #f5598c 100%);
   color: #fff;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
@@ -260,7 +260,7 @@ body {
   transform: translateY(-1px);
 }
 .btn-primary:not(:disabled):active {
-  background: linear-gradient(135deg, #f0608f 0%, #e6608d 48%, #d64f7f 100%);
+  background: linear-gradient(135deg, #f0608f 0%, var(--color-primary-600) 48%, #d64f7f 100%);
   box-shadow:
     inset 0 2px 4px rgba(120, 20, 60, 0.3),
     0 1px 4px rgba(255, 107, 157, 0.3);
@@ -289,7 +289,7 @@ body {
 
 /* 危险按钮：红渐变 + 光晕 */
 .btn-danger {
-  background: linear-gradient(135deg, #ff7d7d 0%, #ff6b6b 52%, #f25454 100%);
+  background: linear-gradient(135deg, #ff7d7d 0%, var(--color-error) 52%, #f25454 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.24),
     0 2px 8px rgba(255, 107, 107, 0.26);
@@ -341,7 +341,7 @@ body {
 
 /* 滑块 thumb：樱粉光环 */
 input[type='range'].slider::-webkit-slider-thumb {
-  background: linear-gradient(180deg, #1e2c52, #16213e);
+  background: linear-gradient(180deg, #1e2c52, var(--color-card));
   border: 2px solid var(--color-primary);
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.4),
@@ -375,7 +375,7 @@ input[type='range'].slider::-webkit-slider-thumb:hover {
 
 /* ============================== 9. 进度条：流光扫过动画 ============================== */
 .progress-bar {
-  background: linear-gradient(90deg, var(--color-primary), #ff9bbe 55%, var(--color-accent));
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-300) 55%, var(--color-accent));
   box-shadow: 0 0 8px rgba(255, 107, 157, 0.3);
   position: relative;
   overflow: hidden;
@@ -509,7 +509,7 @@ input[type='range'].slider::-webkit-slider-thumb:hover {
  * hover/active 变体类需同步覆盖（否则变体失效回不到纯色）。
  * ============================================================== */
 .bg-sakura-500 {
-  background-image: linear-gradient(135deg, #ff7cab 0%, #ff6b9d 48%, #f5598c 100%);
+  background-image: linear-gradient(135deg, #ff7cab 0%, var(--color-primary-500) 48%, #f5598c 100%);
   background-color: var(--color-primary); /* 渐变不可用时的兜底 */
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.26),
@@ -524,7 +524,7 @@ input[type='range'].slider::-webkit-slider-thumb:hover {
     0 4px 16px rgba(255, 107, 157, 0.4);
 }
 .active\:bg-sakura-700:active {
-  background-image: linear-gradient(135deg, #f0608f 0%, #e6608d 48%, #d64f7f 100%);
+  background-image: linear-gradient(135deg, #f0608f 0%, var(--color-primary-600) 48%, #d64f7f 100%);
   background-color: var(--color-primary-700);
   box-shadow:
     inset 0 2px 4px rgba(120, 20, 60, 0.3),

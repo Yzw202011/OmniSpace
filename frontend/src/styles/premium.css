@@ -28,7 +28,7 @@
 button.bg-sakura-500:not(:disabled) {
   background-image: linear-gradient(165deg,
     #ff9bc0 0%,
-    #ff6b9d 42%,
+    var(--color-primary-500) 42%,
     #e8548a 100%);
   letter-spacing: 0.02em;
   text-shadow: 0 1px 1px rgba(140, 30, 70, 0.32);
@@ -67,7 +67,7 @@ button.bg-sakura-500:not(:disabled):active {
 [data-theme='light'] button.bg-sakura-500:not(:disabled) {
   background-image: linear-gradient(165deg,
     #ff8fb8 0%,
-    #ff6b9d 42%,
+    var(--color-primary-500) 42%,
     #ea578e 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.5),

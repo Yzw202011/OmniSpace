@@ -147,7 +147,7 @@ const ProjectLibrary: React.FC = () => {
         {projects.map((p) => (
           <div key={p.id} className="card hoverable flex flex-col gap-2">
             <div className="flex items-center gap-2">
-              <BookOpen size={16} className="text-[var(--color-primary,#FF6B9D)]" aria-hidden="true" />
+              <BookOpen size={16} className="text-[var(--color-primary,var(--color-primary-500))]" aria-hidden="true" />
               <span className="font-medium flex-1 truncate">{p.name}</span>
               <button
                 className="btn btn-ghost btn-sm text-rose-300"
@@ -359,7 +359,7 @@ const OutlinePanel: React.FC = () => {
             <span className="w-[13px]" />
           )}
           <button
-            className="flex-1 text-left text-xs truncate hover:text-[var(--color-primary,#FF6B9D)]"
+            className="flex-1 text-left text-xs truncate hover:text-[var(--color-primary,var(--color-primary-500))]"
             title={n.title}
             onClick={() => setCollapsed({ ...collapsed, [n.id]: !isOpen })}
           >

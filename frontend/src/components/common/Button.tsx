@@ -1,6 +1,6 @@
 /**
  * Button 通用按钮组件
- * OmniSpace AI v2.3.1 — Sakura 暗色主题（主色 #FF6B9D，规格 §6.3.1）
+ * OmniSpace AI v2.3.1 — Sakura 暗色主题（主色 var(--color-primary-500)，规格 §6.3.1）
  * --------------------------------------------------------------------------
  * 支持 4 种样式变体（primary / secondary / danger / ghost）、3 种尺寸
  * （sm / md / lg）以及 loading 加载态（显示旋转图标并禁用交互）。
@@ -31,12 +31,12 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * 语义色直接引用 tokens.css 的 CSS 变量。
  */
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  // 按钮-主要：背景 #FF6B9D，文字白色，hover 加深 10%
+  // 按钮-主要：背景 var(--color-primary-500)，文字白色，hover 加深 10%
   primary: 'bg-sakura-500 text-white hover:bg-sakura-600 active:bg-sakura-700 shadow-sm',
-  // 按钮-次要：背景透明，边框 #4ECDC4，文字 #4ECDC4
+  // 按钮-次要：背景透明，边框 var(--color-info)，文字 var(--color-info)
   secondary:
     'bg-transparent text-mint-500 border border-mint-500 hover:bg-mint-100 active:bg-mint-100',
-  // 按钮-危险：背景 #FF6B6B，文字白色
+  // 按钮-危险：背景 var(--color-error)，文字白色
   danger:
     'bg-[var(--color-error)] text-white hover:brightness-95 active:brightness-90 shadow-sm',
   // 幽灵按钮：透明底 + 浅樱粉文字（暗色底可读性，hover 樱粉 8% 铺底）

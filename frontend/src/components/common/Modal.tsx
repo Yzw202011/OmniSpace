@@ -3,7 +3,7 @@
  * OmniSpace AI v2.3.1 — Sakura 暗色主题
  * --------------------------------------------------------------------------
  * 支持 title / children / footer / onClose，遮罩层点击关闭、ESC 键关闭，
- * 并锁定背景滚动。规格 §6.3.2 弹窗：背景 #16213E / 圆角 16px / 阴影加深；
+ * 并锁定背景滚动。规格 §6.3.2 弹窗：背景 var(--color-card) / 圆角 16px / 阴影加深；
  * §6.3.3 动效：缩放 0.9→1 + 淡入 250ms（modalIn keyframes）。
  */
 import { useEffect } from 'react';

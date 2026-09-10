@@ -253,8 +253,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
                   >
                     <circle
                       r={r}
-                      fill={isSel ? 'var(--color-primary, #FF6B9D)' : 'var(--color-card, #16213E)'}
-                      stroke={isSel ? 'var(--color-primary, #FF6B9D)' : 'var(--color-border-light)'}
+                      fill={isSel ? 'var(--color-primary, var(--color-primary-500))' : 'var(--color-card)'}
+                      stroke={isSel ? 'var(--color-primary, var(--color-primary-500))' : 'var(--color-border-light)'}
                       strokeWidth={isSel ? 2.5 : 1.5}
                     />
                     <text

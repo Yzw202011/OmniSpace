@@ -819,9 +819,17 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
             knowledge_text, web_refs = await _web_search_augment(
                 message, knowledge_text)
             # 组装上下文（系统 Prompt + 注入 + 历史 + 当前输入）；
-            # 深度思考模式追加四步框架引导（THINKING_SYSTEM_SUFFIX）
-            sys_prompt = (DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
-                          if thinking else DEFAULT_SYSTEM_PROMPT)
+            # 深度思考模式追加四步框架引导（THINKING_SYSTEM_SUFFIX）。
+            # 2026-09-10 用户报「你好→一大段无关」根修：vLLM 后端
+            # （qwen3 reasoning parser）是原生思考模型——<think> 块由
+            # vLLM 剥离进 reasoning 通道，若再叠加「展示四步思考」指令
+            # 会双思考打架（模型把思考当正文二次输出+裸写 </think> 标签
+            # 泄漏进答案）。原生思考后端不再注入可见思考框架。
+            _backend_name = getattr(engine, "_backend_name", "") or ""
+            if thinking and _backend_name not in ("vllm", "gguf", "llama"):
+                sys_prompt = DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
+            else:
+                sys_prompt = DEFAULT_SYSTEM_PROMPT
             history = _load_history(sid)
             max_ctx = min(int(body.get("context_length", 8192) or 8192), 8192)
             messages = engine.build_context(
@@ -1839,10 +1847,15 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断对话
             log.warning("对话模块选型配置读取失败（跳过）: %s", exc)
         # 深度思考模式（2026-08-22 思考过程展示）：前端 thinking 参数
-        # 开启时 system prompt 追加四步框架引导，模型自输出 <think> 块
+        # 开启时 system prompt 追加四步框架引导，模型自输出 <think> 块。
+        # 2026-09-10 同 :822 根修——vLLM 原生思考后端不注入可见思考框架
+        # （防双思考打架 + </think> 标签泄漏进答案）
         thinking = bool(data.get("thinking"))
-        sys_prompt = (DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
-                      if thinking else DEFAULT_SYSTEM_PROMPT)
+        _backend_name = getattr(engine, "_backend_name", "") or ""
+        if thinking and _backend_name not in ("vllm", "gguf", "llama"):
+            sys_prompt = DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
+        else:
+            sys_prompt = DEFAULT_SYSTEM_PROMPT
         # 思考通道有独立 token 预算需求（思考 500-2000 token 常态）
         max_new_tokens = 2048 if thinking else 1024
         # 温度 / 上下文长度接线（2026-08-31 补全）：前端早已随消息下发

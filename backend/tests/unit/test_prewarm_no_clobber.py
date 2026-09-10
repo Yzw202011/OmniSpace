@@ -71,3 +71,38 @@ def test_warmup_ready_engine_not_clobbered(
     assert body["data"]["started"] is False
     assert body["data"]["reason"] == "already_ready"
     assert engine.ensure_calls == []
+
+
+class _ColdEngine:
+    """冷引擎替身：记录 ensure_loaded 调用（云端绑定下不得被点火）。"""
+
+    def __init__(self) -> None:
+        self.ensure_calls: list[str | None] = []
+
+    def get_status(self) -> dict[str, str]:
+        return {"state": "unloaded", "model": ""}
+
+    def ensure_loaded(self, model_id: str | None = None) -> bool:
+        self.ensure_calls.append(model_id)
+        return True
+
+
+def test_warmup_cloud_bound_skips_local(
+        client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """dialog.text 云端绑定期预热直接短路（2026-09-10 竞态根修）：
+    预热线程曾跨越大显存等待窗口，在用户绑定云端后走完本地降级链
+    （误导横幅+空拉 vLLM）。绑定生效时根本不该点火本地装载。"""
+    import backend.services.inference.backends.remote_backend as rb
+    import backend.services.inference.dialog_engine as de_mod
+
+    engine = _ColdEngine()
+    monkeypatch.setattr(rb, "is_remote_dialog_enabled", lambda: True)
+    monkeypatch.setattr(de_mod, "get_dialog_engine", lambda: engine)
+    r = client.post("/api/v1/models/warmup",
+                    json={"feature": "dialog",
+                          "model_id": "qwen35-9b-gguf-q4km"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"]["started"] is False
+    assert body["data"]["reason"] == "cloud_bound"
+    assert engine.ensure_calls == [], "云端绑定期不得点火本地装载"

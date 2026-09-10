@@ -32,6 +32,7 @@ from ..cloud_provider_service import (
     PROTOCOL_OPENAI_IMAGE,
     PROTOCOL_TASK_IMAGE,
     CloudEndpoint,
+    looks_like_dashscope_task_404,
 )
 
 logger = logging.getLogger("omnispace.inference.cloud_image")
@@ -323,6 +324,9 @@ def probe_image_provider(ep: CloudEndpoint,
     openai_image：GET /v1/models（200=通；401/403=Key 问题）；
     task_image（dashscope）：GET /api/v1/tasks/__probe__（不存在任务
     404=可达且鉴权通过——未授权会是 401；401/403=Key 问题）。
+    task_image 的 404 双义甄别（2026-09-10 MiniMax 实测根修）：仅
+    DashScope 任务查询形态的 JSON（含 request_id）算通过；协议不匹配
+    服务商的网关 HTML 404 只证明服务器存在，不得假报「连接成功」。
 
     Returns:
         (可达, 说明)；可达时说明为空串。
@@ -345,9 +349,14 @@ def probe_image_provider(ep: CloudEndpoint,
         return False, (f"已连上服务商，但 API Key 被拒绝"
                        f"（HTTP {resp.status_code}）：请到服务商后台核对"
                        "Key 与开通的模型服务")
+    if (resp.status_code == 404 and ep.protocol == PROTOCOL_TASK_IMAGE
+            and not looks_like_dashscope_task_404(resp)):
+        return False, ("已连上服务器，但任务端点不存在（HTTP 404，非"
+                       "DashScope 任务协议形态）：请核对服务地址与连接"
+                       "类型是否匹配该服务商")
     if 200 <= resp.status_code < 500:
-        # 200（models 列表）或 404（探测任务不存在）都证明：地址可达
-        # 且 Key 通过鉴权
+        # 200（models 列表）或 404（DashScope 探测任务不存在）都证明：
+        # 地址可达且 Key 通过鉴权
         return True, ""
     return False, f"HTTP {resp.status_code}：{(resp.text or '')[:120]}"
 

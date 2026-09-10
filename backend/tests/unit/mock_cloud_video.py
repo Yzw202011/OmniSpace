@@ -75,8 +75,13 @@ class MockCloudVideo:
                     with srv._lock:
                         info = srv._tasks.get(task_id)
                         if info is None:
-                            self._json({"output": {"task_status": "FAILED",
-                                                   "message": "task 不存在"}}, 404)
+                            # 仿真保真（2026-09-10 对照实测定准）：真
+                            # DashScope 对不存在任务返回含 request_id 的
+                            # 结构化 JSON、task_status=UNKNOWN——探测
+                            # 404 甄别靠该形态区分协议不匹配的网关 404
+                            self._json({"request_id": "mock-404",
+                                        "output": {"task_id": task_id,
+                                                   "task_status": "UNKNOWN"}}, 404)
                             return
                         info["polls"] += 1
                         polls = info["polls"]

@@ -28,6 +28,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger("omnispace.services.cloud_provider")
 
@@ -82,6 +83,24 @@ PROTOCOL_TASK_IMAGE = "task_image"
 PROTOCOL_TASK_VIDEO = "task_video"
 VALID_PROTOCOLS = (PROTOCOL_OPENAI_TEXT, PROTOCOL_OPENAI_IMAGE,
                    PROTOCOL_TASK_IMAGE, PROTOCOL_TASK_VIDEO)
+
+
+def looks_like_dashscope_task_404(resp: Any) -> bool:
+    """404 返回体是否为 DashScope 任务查询形态（甄别协议不匹配的网关 404）。
+
+    实测（2026-09-10 双厂商对照）：DashScope 有效 Key 查不存在任务返回
+    结构化 JSON（{"request_id": ..., "output": {...}}）；MiniMax 等无此
+    路径的服务商返回 nginx HTML——后者只证明服务器存在，鉴权未被验证，
+    连通性测试不得假报「连接成功」。判据=JSON 对象且含 request_id。
+    """
+    try:
+        body = (str(getattr(resp, "text", "") or ""))[:500].lstrip()
+        if not body.startswith("{"):
+            return False
+        parsed = json.loads(body)
+    except Exception:  # noqa: BLE001 - 非 JSON 按非 DashScope 形态
+        return False
+    return isinstance(parsed, dict) and "request_id" in parsed
 
 # 绑定读取 TTL 缓存（写路径主动失效；读路径 5s 自愈，与 remote 配置同口径）
 _TTL_S = 5.0

@@ -502,6 +502,14 @@ select.input {
   padding-right: 28px;
 }
 select.input option { background: var(--color-card); color: var(--color-text-primary); }
+/* 2026-09-10 用户报「白底白字」：optgroup 透明背景致 Windows Chromium
+   弹层透出系统白底（选项浅字不可读）——分组与其内选项显式深色 */
+select.input optgroup {
+  background: var(--color-card);
+  color: var(--color-text-tertiary);
+  font-style: normal;
+}
+select.input optgroup option { background: var(--color-card); color: var(--color-text-primary); }
 
 /* 滑块（主色→辅助色渐变填充由组件内联 background 驱动，轨道底色见下） */
 input[type="range"].slider { -webkit-appearance: none; width: 100%; height: 4px; border-radius: var(--radius-full); background: var(--color-input-bg); cursor: pointer; }

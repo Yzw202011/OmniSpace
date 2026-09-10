@@ -191,6 +191,38 @@ def test_probe_image_provider_protocol_aware(mock_img) -> None:
     assert ok2 is False and "Key" in detail2, f"401 应报 Key 被拒: {detail2}"
 
 
+def test_probe_image_provider_404_discrimination() -> None:
+    """task_image 404 双义甄别（2026-09-10 MiniMax 实测根修）：DashScope
+    任务形态 JSON=通过；网关 HTML=拒并带出路指引。openai_image 的
+    /v1/models 404 语义维持既有（本修不扩范围）。"""
+    import requests as _requests
+    orig = _requests.get
+    ep = CloudEndpoint(base_url="https://vendor.example",
+                       api_key="sk-k", protocol="task_image")
+
+    def _fake(status: int, text: str):
+        return lambda *a, **k: type("R", (), {
+            "status_code": status, "text": text})()
+
+    _requests.get = _fake(
+        404, '{"request_id":"e7a","output":{"task_id":"__probe__",'
+             '"task_status":"UNKNOWN"}}')
+    try:
+        ok, detail = cic.probe_image_provider(ep)
+    finally:
+        _requests.get = orig
+    assert ok and detail == "", f"DashScope 形 404 应通过: {detail}"
+
+    _requests.get = _fake(
+        404, "<html><head><title>404 Not Found</title></head></html>")
+    try:
+        ok2, detail2 = cic.probe_image_provider(ep)
+    finally:
+        _requests.get = orig
+    assert ok2 is False, "网关 HTML 404 不得假报连接成功"
+    assert "任务端点" in detail2, f"应带协议不匹配出路指引: {detail2}"
+
+
 # ── Provider 协议闸与图片槽位路由 ────────────────────────────────
 
 def test_image_protocol_gate(mem_kv) -> None:

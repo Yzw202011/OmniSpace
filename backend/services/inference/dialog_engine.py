@@ -70,14 +70,11 @@ DIALOG_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     # 回退开关）。
     ("qwen35-9b-w4a16", "qwen35-9b-w4a16", 11.0),
     # Qwen3.5-9B GGUF Q4_K_M 共存档（显存调度机制批4 2026-09-10，
-    # D2=A）：实测 5.7GB / 114 tok/s（POC 实证 runtime/llama-poc/
-    # llama_poc.log），16GB 常态空闲（~13.4GB）装不下 14.9GB 的
-    # W4A16 时自动落此档（与绘画等共存），亦是 12GB 基线机唯一 9B
-    # 解。llama-cpp-python 不认 qwen3.5 架构 → llama-server 子进程
-    # （kind=llama，engines/llama_service）。纯文本（带图请求按
-    # build_context 既有语义诚实丢弃图片）。候选表序=自动选择序，
-    # 置于 4b 前（同为 9B，质量优先于 4B 兜底）。
-    ("qwen35-9b-gguf-q4km", "qwen35-9b-gguf-q4km", 6.0),
+    # D2=A）：实测 5.7GB / 114 tok/s——**2026-09-10 用户令删除**：
+    # Q4 量化思考退化（「你好」也英文自纠结 12 秒+，泄漏事故两轮），
+    # 权重已清（5.5G）。如需恢复：ModelScope 重下 Q4_K_M gguf 至
+    # models/qwen35-9b-gguf-q4km/ + 恢复本行 + vram_policy DIALOG_TIERS
+    # 对应档。llama_server 后端（kind=llama）代码保留未删。
     ("qwen3-vl-4b", "qwen3-vl-4b", 9.0),
     ("qwen3-vl-8b-awq", "qwen3-vl-8b-awq", 7.5),
     # DeepSeek-R1-Distill-Qwen-14B W4A16（2026-08-25 接入）：
@@ -1434,6 +1431,16 @@ class DialogEngine(BaseEngine):
             # 2026-09-08：回退目标=装得下的候选（默认==请求时旧逻辑
             # 无回退目标直接拒绝——9B 默认机常态碰壁），见方法注释
             _fallback_id = self._vram_fallback_model(_want_id)
+            # 云端复核（2026-09-10 竞态根修）：本地装载线程可能跨越大显存
+            # 等待窗口——期间用户绑定 dialog.text 切云端，此后的降级广播
+            # 与本地 vLLM 启动均属误动作（误导横幅挂上云端答复气泡 +
+            # 空拉本地模型）。降级决策前按当前状态复核，云端已承载即
+            # 放弃本地降级（返回 False=未就绪；发送路径按云端路由自愈）。
+            if _fallback_id and _remote_dialog_enabled():
+                logger.info(
+                    "对话已切云端承载，放弃本地降级（原目标 %s，"
+                    "本地等待期间绑定发生变化）", _want_id)
+                return False
             if "显存" in _reason and _fallback_id:
                 logger.warning(
                     "对话模型 %s 显存装不下，自动降级 %s 继续并通知用户"
@@ -1604,6 +1611,31 @@ class DialogEngine(BaseEngine):
         """
         history = list(history or [])
 
+        # 历史净化（2026-09-10 用户二次报「你好→大段思考」）：会话历史里的
+        # 旧答案若带 <think> 块/四步思考框架/【最终回答】标记，会成少样本
+        # 样板——模型照历史模仿，新提示词也挡不住（in-context 模仿优先）。
+        # 规则：assistant 历史剥 <think> 块与裸标签；含【最终回答】的旧协
+        # 议答案只保留标记之后正文（真答案）。
+        import re as _re
+        sanitized: list[dict] = []
+        for m in history:
+            if (m.get("role") == "assistant"
+                    and isinstance(m.get("content"), str)
+                    and ("<think>" in m["content"] or "</think>" in m["content"]
+                         or "【最终回答】" in m["content"]
+                         or "【问题分析】" in m["content"])):
+                c = m["content"]
+                c = _re.sub(r"<think>.*?</think>", "", c, flags=_re.DOTALL)
+                c = c.replace("<think>", "").replace("</think>", "")
+                if "【最终回答】" in c:
+                    c = c.rsplit("【最终回答】", 1)[1]
+                c = c.strip()
+                if not c:
+                    continue  # 净化后为空（纯思考旧答案）→ 整条剔除
+                m = {**m, "content": c}
+            sanitized.append(m)
+        history = sanitized
+
         sys_content = system_prompt.strip()
         if knowledge_text:
             sys_content = f"{sys_content}\n\n【参考资料】\n{knowledge_text.strip()}"
@@ -1759,7 +1791,61 @@ class DialogEngine(BaseEngine):
         Yields:
             {"type": "reasoning" | "content", "text": str}；
             enable_thinking=False 时全部为 content（调用方无需分支）。
+
+        2026-09-10 根修（用户报「你好→一大段无关」）：vLLM / GGUF 后端
+        均为原生思考模型——<think> 块由引擎层负责剥离（vLLM 用
+        reasoning parser；GGUF 流里带原生标签按下文切分），若再走
+        【最终回答】标记解析器会双思考打架：模型会在思考里「引用标记
+        本身」，解析器在首次出现处（思考中段）就切换 → 思考大段泄漏
+        进正文 + 裸 </think> 标签。故原生思考后端旁路标记解析器。
+        GGUF：按原生 </think> 切分 reasoning / content（<think> 开头
+        剥除）；vLLM：引擎已剥离，全部按 content 直通。
         """
+        _bn = self._backend_name or ""
+        if enable_thinking and _bn == "vllm":
+            enable_thinking = False
+        if _bn in ("gguf", "llama"):
+            # GGUF（qwen35-9b-gguf-q4km 实测）：模型流内反复开关
+            # <think>…</think> 块（Q4 量化思考退化冗长）——in_think
+            # 翻转态全程处理：块内=reasoning（思考开才展示，关=吞掉），
+            # 块外=content。标签可能跨 chunk 分割 → 保留 7 字尾部缓冲
+            # （最长标签 "</think>" 前缀）至下一 chunk 再判定。
+            _OPEN, _CLOSE = "<think>", "</think>"
+            _HOLDBACK = len(_CLOSE) - 1
+            in_think = False
+            buffer = ""
+            for text in self.chat_stream(
+                    messages, images=images, temperature=temperature,
+                    max_new_tokens=max_new_tokens, stop_check=stop_check):
+                buffer += text
+                while True:
+                    idx_open = buffer.find(_OPEN)
+                    idx_close = buffer.find(_CLOSE)
+                    # 取最早出现的标签
+                    if idx_open == -1 and idx_close == -1:
+                        break
+                    if idx_close == -1 or (idx_open != -1
+                                           and idx_open < idx_close):
+                        idx, tag = idx_open, _OPEN
+                    else:
+                        idx, tag = idx_close, _CLOSE
+                    before = buffer[:idx]
+                    if before:
+                        yield {"type": "reasoning" if in_think else "content",
+                               "text": before}
+                    buffer = buffer[idx + len(tag):]
+                    in_think = tag == _OPEN
+                # 尾部缓冲：防标签跨 chunk 被当正文漏出
+                if len(buffer) > _HOLDBACK:
+                    emit = buffer[:-_HOLDBACK]
+                    buffer = buffer[-_HOLDBACK:]
+                    if emit:
+                        yield {"type": "reasoning" if in_think else "content",
+                               "text": emit}
+            if buffer:
+                yield {"type": "reasoning" if in_think else "content",
+                       "text": buffer}
+            return
         if not enable_thinking:
             for text in self.chat_stream(
                     messages, images=images, temperature=temperature,

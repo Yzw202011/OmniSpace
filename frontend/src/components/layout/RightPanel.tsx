@@ -153,6 +153,9 @@ function ChatPanel() {
 
   // 云端模型选项（批1 云端API 2026-09-06）：启用中的连接 × 其模型列表，
   // 选中后 model_id 以 cloud::prov::model 直传后端路由（本地清单失败不影响）
+  // 2026-09-10 用户令「对话不应出现视频/图像模型」：按 protocol 过滤——
+  // 仅收文本协议（openai_text 等），openai_image/task_image/task_video
+  // 的图像/视频模型无法对话，剔除；分组标注「文本对话」
   const [cloudOptions, setCloudOptions] = useState<Array<{ value: string; label: string }>>([]);
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +165,7 @@ function ChatPanel() {
         const opts: Array<{ value: string; label: string }> = [];
         for (const p of r.providers ?? []) {
           if (!p.enabled) continue;
+          if (!(p.protocol ?? '').toLowerCase().includes('text')) continue;
           const models = (p.models ?? []).length > 0 ? p.models : [''];
           for (const m of models) {
             opts.push({
@@ -219,13 +223,17 @@ function ChatPanel() {
               <option value="">{model}（清单加载中…）</option>
             ) : (
               <>
-                {modelOptions.map((m) => (
-                  <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
-                    {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
-                  </option>
-                ))}
+                {modelOptions.length > 0 && (
+                  <optgroup label="本地模型（本机显卡承载）">
+                    {modelOptions.map((m) => (
+                      <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
+                        {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
                 {cloudOptions.length > 0 && (
-                  <optgroup label="云端 API（本地显卡零占用）">
+                  <optgroup label="云端 API · 文本对话（零显存占用）">
                     {cloudOptions.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}

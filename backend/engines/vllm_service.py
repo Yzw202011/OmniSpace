@@ -1250,6 +1250,14 @@ class VLLMService:
                     text = delta.get("content")
                     if text:
                         got_content = True
+                        # 2026-09-10 防泄漏：模型偶发在正文里裸写
+                        # <think>/</think> 标签（深度思考双协议打架
+                        # 遗留场景）——正文流一律剥除
+                        if "<think>" in text or "</think>" in text:
+                            text = text.replace("<think>", "").replace(
+                                "</think>", "")
+                            if not text:
+                                continue
                         yield text
                     else:
                         rc = delta.get("reasoning_content")

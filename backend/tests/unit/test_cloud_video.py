@@ -149,6 +149,41 @@ def test_probe_video_provider(mock_vid) -> None:
     assert ok2 is False and "Key" in detail2
 
 
+def test_probe_video_provider_404_discrimination() -> None:
+    """404 双义甄别（2026-09-10 MiniMax 实测根修）：DashScope 任务形态
+    JSON（含 request_id）=可达且鉴权通过；网关 HTML 404（协议不匹配，
+    鉴权未被验证）=不得假报「连接成功」。"""
+    import requests as _requests
+    orig = _requests.get
+    ep = CloudEndpoint(base_url="https://vendor.example",
+                       api_key="sk-k", protocol="task_video")
+
+    def _fake(status: int, text: str):
+        return lambda *a, **k: type("R", (), {
+            "status_code": status, "text": text})()
+
+    # DashScope 形态：结构化 JSON（实测样本）
+    _requests.get = _fake(
+        404, '{"request_id":"e7a","output":{"task_id":"__probe__",'
+             '"task_status":"UNKNOWN"}}')
+    try:
+        ok, detail = cvc.probe_video_provider(ep)
+    finally:
+        _requests.get = orig
+    assert ok and detail == "", f"DashScope 形 404 应通过: {detail}"
+
+    # MiniMax 实测形态：nginx HTML
+    _requests.get = _fake(
+        404, "<html><head><title>404 Not Found</title></head>"
+             "<body><center><h1>404 Not Found</h1></center></body></html>")
+    try:
+        ok2, detail2 = cvc.probe_video_provider(ep)
+    finally:
+        _requests.get = orig
+    assert ok2 is False, "网关 HTML 404 不得假报连接成功"
+    assert "任务端点" in detail2, f"应带协议不匹配出路指引: {detail2}"
+
+
 # ── Provider 协议闸与视频槽位路由 ────────────────────────────────
 
 def test_video_protocol_gate(mem_kv) -> None:

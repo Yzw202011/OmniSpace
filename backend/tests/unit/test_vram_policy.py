@@ -69,14 +69,14 @@ def test_consumers_alias_single_source() -> None:
 
 
 def test_dialog_tiers_locked_to_evidence() -> None:
-    """对话档位表=实测口径（批4 D2=A；依据见 vram_policy 注释与方案 §1.3）。"""
+    """对话档位表=实测口径（批4 D2=A；依据见 vram_policy 注释与方案 §1.3）。
+
+    2026-09-10 更新：用户令删除 qwen35-9b-gguf-q4km（Q4 量化思考退化，
+    权重已清 5.5G）——llama 共存档随之移除，12GB 基线机 9B 解暂缺
+    （回退链 4B 兜底）。"""
     from backend.services import vram_policy as vp
 
     assert [t.model_id for t in vp.DIALOG_TIERS] == [
-        "qwen35-9b-w4a16", "qwen35-9b-gguf-q4km",
-        "qwen3-vl-8b-awq", "qwen3-vl-4b"]
-    assert [t.vram_gb for t in vp.DIALOG_TIERS] == [14.9, 5.7, 14.8, 9.0]
-    assert [t.mode for t in vp.DIALOG_TIERS] == [
-        "vllm", "llama", "vllm", "inproc"]
-    # 共存档必在表内（12GB 基线机唯一 9B 解的守护锚）
-    assert any(t.mode == "llama" for t in vp.DIALOG_TIERS)
+        "qwen35-9b-w4a16", "qwen3-vl-8b-awq", "qwen3-vl-4b"]
+    assert [t.vram_gb for t in vp.DIALOG_TIERS] == [14.9, 14.8, 9.0]
+    assert [t.mode for t in vp.DIALOG_TIERS] == ["vllm", "vllm", "inproc"]

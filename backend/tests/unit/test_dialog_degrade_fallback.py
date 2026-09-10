@@ -35,3 +35,21 @@ def test_degrade_registers_ledger() -> None:
     """降级装载成功必须补登记台账（08-23 显存锚定事故根修同源）。"""
     assert "降级加载台账补登记" in SRC
     assert "register_external_load" in SRC
+
+
+def test_degrade_rechecks_cloud_before_fallback() -> None:
+    """2026-09-10 竞态根修哨兵：降级决策前必须复核云端承载。
+
+    事故链：对话页预热线程进本地装载线等显存 60s → 期间用户绑定
+    dialog.text 切云端（发送路径正确走 remote 出答）→ 降级决策点未
+    复核，照样广播 model_fallback（误导横幅挂上云端答复气泡）+ 空拉
+    本地 vLLM。守卫（_remote_dialog_enabled 复核）必须位于降级广播
+    与降级装载之前。
+    """
+    assert "放弃本地降级" in SRC, "云端复核守卫被删"
+    guard_pos = SRC.index("放弃本地降级")
+    notify_pos = SRC.index('"model_fallback"')
+    assert guard_pos < notify_pos, "云端复核必须在降级广播之前"
+    load_pos = SRC.index("self.load_model(_fallback_id)")
+    # 守卫在广播前，广播在装载前——守卫必然先于降级装载
+    assert guard_pos < load_pos, "云端复核必须在降级装载之前"

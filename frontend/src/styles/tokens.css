@@ -22,9 +22,13 @@
   --color-input-bg: #0F3460;             /* 输入框背景 */
   --color-slider-track: rgba(255, 255, 255, 0.14); /* 滑块未填充轨道（暗底浅灰，与 #0F3460 输入底解耦） */
 
-  /* 派生文字色（暗色底上的次级/三级文字，规格未单列，按可读性推导） */
+  /* 派生文字色（暗色底上的次级/三级文字，规格未单列，按可读性推导）
+     三级文字 2026-09-10 并入 refinement.css R2 对比度调整值（原 #6E7789，
+     #0F172A 底上仅 ~3.5:1 → 提至 #9BA3B5 ≈5:1），第二令牌源就此收敛 */
   --color-text-secondary: #A6AEC2;       /* 二级文字 */
-  --color-text-tertiary: #6E7789;        /* 三级文字 */
+  --color-text-tertiary: #9BA3B5;        /* 三级文字（R2 对比度调整并入值） */
+  /* 品牌面反白文字：樱粉/品牌渐变底、选中染色上的固定白字（主题不变） */
+  --color-text-on-brand: #FFFFFF;
 
   /* 主色衍生刻度（暗色底上的浅底徽章/hover/激活态以半透明粉呈现） */
   --color-primary-50: rgba(255, 107, 157, 0.08);
@@ -171,10 +175,11 @@
   --color-input-bg: #F0F2F7;
   --color-slider-track: rgba(26, 26, 46, 0.14); /* 滑块未填充轨道（亮底深灰） */
 
-  /* 文字（文档D 亮色：#1A1A2E / #5A6070 / #8A90A0） */
+  /* 文字（文档D 亮色：#1A1A2E / #5A6070 / #8A90A0）
+     三级文字 2026-09-10 并入 refinement.css 亮色对比度调整值（原 #8A90A0） */
   --color-text-primary: #1A1A2E;
   --color-text-secondary: #5A6070;
-  --color-text-tertiary: #8A90A0;
+  --color-text-tertiary: #6F7686;
 
   /* 边框/分隔/遮罩（文档D 亮色：border #E2E5ED / hover #C8CDD8） */
   --color-border: #E2E5ED;

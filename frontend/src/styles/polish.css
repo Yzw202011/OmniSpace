@@ -33,7 +33,7 @@ body {
 /* 文本选中态：樱粉染色 */
 ::selection {
   background: rgba(255, 107, 157, 0.38);
-  color: #fff;
+  color: var(--color-text-on-brand);
 }
 [data-theme='light'] ::selection {
   background: rgba(255, 107, 157, 0.25);
@@ -246,7 +246,7 @@ body {
 /* 主按钮：樱粉渐变 + 顶部内高光 + 悬浮光晕 */
 .btn-primary {
   background: linear-gradient(135deg, #ff7cab 0%, var(--color-primary-500) 48%, #f5598c 100%);
-  color: #fff;
+  color: var(--color-text-on-brand);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     0 2px 8px rgba(255, 107, 157, 0.28);
@@ -514,7 +514,7 @@ input[type='range'].slider::-webkit-slider-thumb:hover {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.26),
     0 2px 8px rgba(255, 107, 157, 0.26);
-  color: #fff;
+  color: var(--color-text-on-brand);
 }
 .hover\:bg-sakura-600:hover {
   background-image: linear-gradient(135deg, #ff8fb8 0%, #ff76a7 48%, #fb64a0 100%);

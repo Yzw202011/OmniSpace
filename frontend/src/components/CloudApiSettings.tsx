@@ -285,7 +285,7 @@ export default function CloudApiSettings() {
                   {p.api_key_masked ? <span className="settings-row-desc">Key {p.api_key_masked}</span> : <span className="settings-row-desc">未填 Key</span>}
                   <span
                     className="settings-row-desc"
-                    style={{ color: p.enabled ? 'var(--color-success, #4ade80)' : '#f87171' }}
+                    style={{ color: p.enabled ? 'var(--color-success, #4ade80)' : 'var(--color-error)' }}
                   >
                     {p.enabled ? '已启用' : '已停用'}
                   </span>
@@ -309,12 +309,12 @@ export default function CloudApiSettings() {
                   <button className="btn btn-ghost btn-sm" onClick={() => void handleToggle(p)}>
                     {p.enabled ? '停用' : '启用'}
                   </button>
-                  <button className="btn btn-ghost btn-sm" style={{ color: '#f87171' }} onClick={() => void handleDelete(p)}>
+                  <button className="btn btn-ghost btn-sm" style={{ color: 'var(--color-error)' }} onClick={() => void handleDelete(p)}>
                     删除
                   </button>
                 </div>
                 {tr && (
-                  <div role="status" className="settings-row-desc" style={{ color: tr.ok ? 'var(--color-success, #4ade80)' : '#f87171' }}>
+                  <div role="status" className="settings-row-desc" style={{ color: tr.ok ? 'var(--color-success, #4ade80)' : 'var(--color-error)' }}>
                     {tr.text}
                   </div>
                 )}

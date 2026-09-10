@@ -15,16 +15,10 @@
    ========================================================================== */
 
 /* ============================== R2. 全局文字对比度（评审最高频问题） ==============================
- * 暗色为默认主题（无 data-theme 属性，仅亮色才设置）——用 :root 命中默认暗色。
- * 暗色三级文字 var(--color-text-tertiary) 在 #0F172A 底上对比度仅 ~3.5:1 → 提至 #9BA3B5（≈5:1）
- * 一次性覆盖：导航搜索占位、ControlNet 说明、模型状态、更新时间等全部弱文案。
+ * 已并入 tokens.css（2026-09-10 P2-8 收敛第二令牌源）：:root 三级文字
+ * #9BA3B5 / 亮色 #6F7686 即本节原覆盖值，级联结果零变化。背景知识：
+ * 暗色三级文字原 #6E7789 在 #0F172A 底上对比度仅 ~3.5:1 → 提至 #9BA3B5（≈5:1）。
  * ============================================================== */
-:root {
-  --color-text-tertiary: #9ba3b5;
-}
-[data-theme='light'] {
-  --color-text-tertiary: #6f7686;
-}
 
 /* ============================== R3. 主按钮禁用态：中性灰 ==============================
  * 原 rgba(255,107,157,0.32) 粉底在暗色下呈"鲑鱼红"，视觉重心错误
@@ -168,7 +162,7 @@ details summary:hover {
   justify-content: center;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  color: #fff;
+  color: var(--color-text-on-brand);
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-600));
   box-shadow: 0 2px 8px rgba(255, 107, 157, 0.3);
 }

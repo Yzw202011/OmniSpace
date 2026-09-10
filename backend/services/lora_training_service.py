@@ -1316,7 +1316,11 @@ class LoRATrainingService:
         torch = _try_import("torch")
         transformers = _try_import("transformers")
         peft = _try_import("peft")
-        data = self._dataset or self._last_train_data or {}
+        # 审计 09-10 P1-14 残留：优先级倒置修正——_last_train_data 是
+        # train() 记录的「本次训练实际使用的数据集」（外部 JSONL 场景的
+        # 唯一正确来源），必须优先于 _dataset（知识库自动构建缓存，
+        # 可能属于完全无关的语料）；此前外部训练版本被旧自动集顶掉
+        data = self._last_train_data or self._dataset or {}
         valid = data.get("valid", [])
         base_dir = meta.get("base_model") or str(DEFAULT_BASE_MODEL)
         if (torch is None or transformers is None or peft is None
@@ -1490,9 +1494,16 @@ class LoRATrainingService:
         return registered[-1] if registered else ""
 
     def rollback(self, version: str) -> bool:
-        """回滚到指定版本（置 current 指针）。版本不存在返回 False。"""
-        if not (LORA_DIR / version).is_dir():
-            logger.warning("回滚目标版本不存在: %s", version)
+        """回滚到指定版本（置 current 指针）。版本不存在返回 False。
+
+        审计 09-10 P1-5 残留收口：current 指针只允许指向**本服务注册过
+        的版本白名单**——此前仅查目录存在，`../` 或手建目录名可直接写进
+        指针，下游按 current 拼路径即越出 LORA_DIR（与 delete_version
+        白名单同规矩，无 rmtree 危害但同样拒绝指针污染）。
+        """
+        known = {v["version"] for v in self.list_versions()}
+        if version not in known or not (LORA_DIR / version).is_dir():
+            logger.warning("回滚目标版本不在注册白名单: %s", version)
             return False
         self._set_current(version)
         _broadcast("lora_rollback", {"version": version})

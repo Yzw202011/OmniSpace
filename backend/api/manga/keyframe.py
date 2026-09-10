@@ -1048,6 +1048,20 @@ def _shot_char_protocol(char_assets: list,
             "除这些角色外不得出现任何其他人物", chosen)
 
 
+def _dual_pulid_faces(char_count: int,
+                      face_refs: list) -> tuple | None:
+    """chars=2 双身份锁方案（UAT 2026-09-10 Step B 转正）。
+
+    双角色面部参考齐备 → 返回 (faceA, faceB)（序=绑定序；face_refs 与
+    char_assets 同源同序，P0-3 协议保证映射，错锁防护的依据）。
+    任一缺失/数量不符 → None（回落多参考软锁，诚实降级）。
+    """
+    if (char_count == 2 and len(face_refs) >= 2
+            and face_refs[0] is not None and face_refs[1] is not None):
+        return (face_refs[0], face_refs[1])
+    return None
+
+
 def _comfy_ref_entries(shot_refs: list, pulid_img: bool,
                        reflat_hint: str,
                        multi_anchor: bool) -> tuple[list, list]:
@@ -1185,6 +1199,10 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     bound_assets = _fetch_bound_assets(db, row.get("asset_ids") or [])
     char_assets = [a for a in bound_assets if a.get("kind") == "character"]
     face_refs = _load_face_references(db, row)
+    # 双身份锁方案（UAT 2026-09-10 Step B 转正）：chars=2 且双 face
+    # 齐备 → (faceA, faceB)；否则 None（回落多参考软锁）。face_refs 与
+    # char_assets 同源同序（P0-3），映射错位风险已在协议层封死
+    dual_faces = _dual_pulid_faces(len(char_assets), face_refs)
     # 后处理档位资产仲裁（2026-08-27 V32 人脸事故）：A 段风格词判
     # 的是画面风格（cg3d），但角色资产可能由 klein-4b（二次元先验）
     # 生成——立绘的粉腮红/光滑肤/饱满苹果肌是设定的一部分，
@@ -1220,9 +1238,8 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         # auto 走 comfy 的条件（缺一回落 diffusers，诚实降级）：
         # ①未被 OMNI_KEYFRAME_PULID_AUTO=0 关闭 ②comfy 管线就绪
         # ③PuLID 就绪 ④绑定 1~2 个角色资产（UAT 2026-09-10 多角色扩展：
-        #   chars=2 走 comfy 多参考软锁——双角色立绘锚全量入 ReferenceLatent
-        #   + P0-3 锚协议，单 ID PuLID 仍仅单角色（错锁防护不变）；
-        #   chars≥3 参考稀释风险维持 diffusers）
+        #   chars=2 双 face 齐备走双 PuLID 硬锁（Step B 转正）；单/缺
+        #   face 回落多参考软锁；chars≥3 参考稀释风险维持 diffusers）
         # ⑤该角色面部参考可加载（InsightFace 检测稳定的前提）
         use_comfy = engine_backend == "comfy"
         if engine_backend == "auto":
@@ -1230,7 +1247,8 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                          and comfy_paint_available() and pulid_available()
                          and 1 <= len(char_assets) <= 2
                          and any(face_refs))
-            route_label = ("comfy+PuLID" if use_comfy and len(char_assets) == 1
+            route_label = ("comfy+双PuLID" if use_comfy and dual_faces
+                           else "comfy+PuLID" if use_comfy and len(char_assets) == 1
                            else "comfy+多参考" if use_comfy else "diffusers")
             log.info("引擎自动选路: %s（P0-1 PuLID 身份硬锁条件：%s%s%s%s%s）",
                      route_label,
@@ -1401,6 +1419,16 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 #   auto→both 旧行为（参考图是唯一一致性通道）
                 pulid_img = (face_ref if face_ref is not None
                              and pulid_available() and pulid_ok else None)
+                # 双 PuLID 转正（Step B，UAT 2026-09-10）：chars=2 双
+                # face 齐备 → A/B 双身份 attention 硬锁（强度 0.9/0.8
+                # = PoC 验证值），reflatent 强制 both（PoC 同配置：双
+                # 立绘锚保留在 latent）。单/缺 face 走软锁不变。
+                pulid_img_b: Image.Image | None = None
+                if dual_faces and pulid_available():
+                    pulid_img = dual_faces[0]
+                    pulid_img_b = dual_faces[1]
+                    params["pulid_strength_b"] = 0.8
+                    reflat_hint = "both"
                 params["pulid_strength"] = (
                     _PULID_STRENGTH if pulid_img else 0.0)
                 if pulid_img and reflat_hint:
@@ -1443,15 +1471,18 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     params["lora_name"] = dst.name
                     params["lora_scale"] = 1.0
                     params["lora_base"] = "4b"
-                    if pulid_img:
+                    if pulid_img or pulid_img_b:
                         pulid_img = None
+                        pulid_img_b = None
                         params["pulid_strength"] = 0.0
+                        params["pulid_strength_b"] = 0.0
                     log.info("D-LoRA 挂载: %s（底座切 klein-4b，PuLID 关）",
                              dst.name)
                 if comfy_refs:
                     result = comfy.img2img(params, comfy_refs,
                                            pulid_image=pulid_img,
-                                           ref_megapixels=comfy_mps)
+                                           ref_megapixels=comfy_mps,
+                                           pulid_image_b=pulid_img_b)
                 else:
                     result = comfy.generate(params,
                                             pulid_image=pulid_img)

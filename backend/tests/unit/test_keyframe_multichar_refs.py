@@ -10,11 +10,15 @@ _comfy_ref_entries 对既有三条路径（PuLID off/pos、无 PuLID 单角色�
 """
 from __future__ import annotations
 
-from backend.api.manga.keyframe import _comfy_ref_entries
+from backend.api.manga.keyframe import (
+    _comfy_ref_entries,
+    _dual_pulid_faces,
+)
 
 A_PORTRAIT = "lin_portrait.png"
 A_FACE = "lin_face.png"
 B_PORTRAIT = "chen_portrait.png"
+B_FACE = "chen_face.png"
 SCENE = "corridor.png"
 
 REFS = [
@@ -60,3 +64,23 @@ def test_lora_never_enters_latent() -> None:
         [{"kind": "lora", "name": "x", "image": "l.safetensors"}],
         pulid_img=False, reflat_hint="", multi_anchor=False)
     assert refs == []
+
+
+# ── 双 PuLID 转正（Step B）：双 face 齐备才上双锁，否则回落软锁 ──────
+
+def test_dual_pulid_faces_both_present() -> None:
+    """chars=2 且双 face 齐备 → (faceA, faceB)，序=绑定序（P0-3 对齐）。"""
+    assert _dual_pulid_faces(2, [A_FACE, B_FACE]) == (A_FACE, B_FACE)
+
+
+def test_dual_pulid_faces_missing_face_falls_back() -> None:
+    """任一 face 缺失 → None（回落多参考软锁，诚实降级）。"""
+    assert _dual_pulid_faces(2, [A_FACE, None]) is None
+    assert _dual_pulid_faces(2, [None, B_FACE]) is None
+    assert _dual_pulid_faces(2, []) is None
+
+
+def test_dual_pulid_faces_count_guard() -> None:
+    """非 chars=2（单角色/三角色）一律不启用双锁。"""
+    assert _dual_pulid_faces(1, [A_FACE]) is None
+    assert _dual_pulid_faces(3, [A_FACE, B_FACE, "c_face"]) is None

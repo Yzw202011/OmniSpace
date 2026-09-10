@@ -20,6 +20,7 @@ from fastapi import APIRouter, Body, Query
 
 from ...config import (
     DATA_DIR,
+    ROOT_DIR,
 )
 from ...data.database import Database, get_db_safe
 from ...data.models import (
@@ -936,10 +937,6 @@ def _load_asset_references(db: Database, row: dict) -> list:
                 w, h = im.size
                 if w >= 2000 and 1.6 <= w / h <= 2.0:
                     im = im.crop((0, 0, w // 4, h))
-            if kind == "character":
-                w, h = im.size
-                if w >= 2000 and 1.6 <= w / h <= 2.0:
-                    im = im.crop((0, 0, w // 4, h))
             refs.append({"kind": kind,
                          "name": (a.get("name") or "").strip(),
                          "image": im})
@@ -959,6 +956,17 @@ def _load_asset_references(db: Database, row: dict) -> list:
                                  fb.name, a.get("name", "?"))
                     except Exception as exc:  # noqa: BLE001
                         log.warning("全身参考加载失败 %s: %s", fb, exc)
+                # D-LoRA（2026-09-10）：角色 LoRA 自动附加——同目录
+                # lora.safetensors 存在时登记为 "lora" 条目（不进
+                # ReferenceLatent），由 _gen_one 挂载为工作流 LoRA
+                # 并切 klein-4b 底座（身份权重级硬锁）
+                lora_p = p.parent / "lora.safetensors"
+                if lora_p.is_file():
+                    refs.append({"kind": "lora",
+                                 "name": (a.get("name") or "").strip(),
+                                 "path": str(lora_p)})
+                    log.info("D-LoRA 角色 LoRA 检测: %s (%s)",
+                             lora_p.name, a.get("name", "?"))
         if len(refs) >= _MAX_REF_IMAGES:
             break
     return refs
@@ -986,8 +994,11 @@ def _select_shot_references(refs: list, shot_text: str,
     picked: list = []
     if chain_frame is not None:
         # 链帧整帧替换（v58/v61/v62 校准语义：链源=过门禁帧单独注入
-        # 即全版本最高 0.888；资产图并列属未标定组合，不混注）
-        return [{"kind": "chain", "name": "", "image": chain_frame}]
+        # 即全版本最高 0.888；资产图并列属未标定组合，不混注）。
+        # D-LoRA：链帧在场时 LoRA 条目仍保留（身份硬锁与链帧正交）。
+        lora_meta = [r for r in refs if r.get("kind") == "lora"]
+        chain_pick = [{"kind": "chain", "name": "", "image": chain_frame}]
+        return chain_pick + lora_meta
     for im in (face_imgs or []):
         if im is not None:
             picked.append({"kind": "face", "name": "", "image": im})
@@ -995,7 +1006,8 @@ def _select_shot_references(refs: list, shot_text: str,
     for r in refs:
         tier = 0 if (r.get("name") and r["name"] in text) else 1
         tiered.setdefault((r["kind"], tier), []).append(r)
-    for key in (("character", 0), ("character", 1),
+    for key in (("lora", 0), ("lora", 1),
+                ("character", 0), ("character", 1),
                 ("scene", 0), ("scene", 1),
                 ("prop", 0), ("prop", 1)):
         picked.extend(tiered.get(key, []))
@@ -1377,18 +1389,50 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                         comfy_mps: list = []
                     else:
                         comfy_refs = [e["image"] for e in shot_refs
-                                      if e.get("kind") != "face"]
+                                      if e.get("kind") not in ("face", "lora")]
                         # D-2（2026-09-10）：逐图分辨率预算——角色
                         # 参考 1.0MP（一致性锚定主力，0.35MP 时全身
                         # 图几乎无锚定力）；场景/道具走引擎均匀分档
                         comfy_mps = [
                             1.0 if e.get("kind") == "character" else None
-                            for e in shot_refs if e.get("kind") != "face"]
+                            for e in shot_refs
+                            if e.get("kind") not in ("face", "lora")]
                 else:
-                    comfy_refs = [e["image"] for e in shot_refs]
+                    comfy_refs = [e["image"] for e in shot_refs
+                                  if e.get("kind") != "lora"]
                     comfy_mps = [
                         1.0 if e.get("kind") == "character" else None
-                        for e in shot_refs]
+                        for e in shot_refs if e.get("kind") != "lora"]
+                # D-LoRA（2026-09-10）：角色 LoRA 在场 → 权重级身份硬锁，
+                # 底座切 klein-4b + 挂载工作流 LoRA；PuLID 置零（4B 上
+                # 未验证且身份已由 LoRA 承担）。LoRA 文件挂入 ComfyUI
+                # loras 目录（同卷硬链接优先）。
+                lora_entries = [e for e in shot_refs if e.get("kind") == "lora"]
+                if lora_entries:
+                    import hashlib
+                    import os
+
+                    loras_dir = (ROOT_DIR / "tools" / "ComfyUI_windows_portable"
+                                 / "ComfyUI" / "models" / "loras")
+                    loras_dir.mkdir(parents=True, exist_ok=True)
+                    first = lora_entries[0]
+                    lp = Path(first["path"])
+                    tag = hashlib.md5(str(lp).encode()).hexdigest()[:8]
+                    dst = loras_dir / f"char_{tag}.safetensors"
+                    if not dst.is_file():
+                        try:
+                            os.link(lp, dst)
+                        except OSError:  # noqa: PERF203 - 跨卷退回复制
+                            import shutil
+                            shutil.copy(lp, dst)
+                    params["lora_name"] = dst.name
+                    params["lora_scale"] = 1.0
+                    params["lora_base"] = "4b"
+                    if pulid_img:
+                        pulid_img = None
+                        params["pulid_strength"] = 0.0
+                    log.info("D-LoRA 挂载: %s（底座切 klein-4b，PuLID 关）",
+                             dst.name)
                 if comfy_refs:
                     result = comfy.img2img(params, comfy_refs,
                                            pulid_image=pulid_img,

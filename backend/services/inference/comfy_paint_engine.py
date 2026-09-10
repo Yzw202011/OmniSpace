@@ -283,12 +283,23 @@ class ComfyPaintEngine:
         lora_name = str(params.get("lora_name") or "")
         lora_scale = float(params.get("lora_scale") or 1.0)
 
+        # D-LoRA（2026-09-10）：角色 LoRA（klein-4b 架构训练）在场时
+        # 底座自动切 klein-4b（unet+TE 同切——4B 的 TE 是 Qwen3-4B 而非
+        # 9B 的 Qwen3-8B；LoRA 跨底座挂载会键不匹配静默失效）。身份改由
+        # LoRA 权重硬锁，PuLID 链保持原逻辑（调用方在 LoRA 在场时应置
+        # pulid_strength=0，避免 4B 上未验证的 PuLID patch）。
+        unet_name = _PAINT_FILES["unet"]
+        clip_name = _PAINT_FILES["clip"]
+        if lora_name and str(params.get("lora_base") or "") == "4b":
+            unet_name = "flux-2-klein-4b.safetensors"
+            clip_name = "qwen_3_4b.safetensors"
+
         wf: dict[str, dict] = {
             "unet": {"class_type": "UNETLoader", "inputs": {
-                "unet_name": _PAINT_FILES["unet"],
+                "unet_name": unet_name,
                 "weight_dtype": "default"}},
             "clip": {"class_type": "CLIPLoader", "inputs": {
-                "clip_name": _PAINT_FILES["clip"],
+                "clip_name": clip_name,
                 "type": "flux2", "device": "default"}},
             "vae": {"class_type": "VAELoader", "inputs": {
                 "vae_name": _PAINT_FILES["vae"]}},

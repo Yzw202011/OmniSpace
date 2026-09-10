@@ -14,6 +14,29 @@
 引擎单例（dialog_engine/paint_engine/video_engine）一律 try import 容错：
 引擎不可用/模型未下载/显存不足时 ensure_loaded 返回 False 并写 last_error，
 绝不抛出未捕获异常导致调用方崩溃。
+
+## 全局锁序宣言（审计 09-10 P1-3，2026-09-10）
+
+跨层获取锁必须单向，禁止成环。层级自高到低：
+
+    mgr 层（_lock/_loaded_lock/_vram_lock/_policy_lock）
+      > 引擎层（dialog._lock / paint._lock / video instance lock）
+        > 引擎内部（paint._infer_lock 等运行锁；paint 内部约定
+          「先 _infer_lock 后 _lock」）
+
+已核对的跨层链（2026-09-10 取证）：
+- ✅ mgr.unload_model 在 _loaded_lock **外**回调 engine.unload_model
+  （:1052-1082）——mgr→引擎方向无持锁回调；
+- ⚠️ paint.load_model 持 paint._lock 经 check_vram→_try_free_vram 走
+  mgr 卸载 dialog（paint_engine.py:586→:638→:575→dialog.unload_model），
+  即 paint._lock → dialog._lock 链；
+- ⚠️ dialog.load_model 持 dialog._lock 走 mgr.ensure_loaded/evict 链
+  （dialog_engine.py:1010→:1373+），即 dialog._lock → paint._lock 链。
+  两条 ⚠️ 相向即成环（现网未复现死锁，窗口=两侧同时热切换/腾挪）。
+
+**破环方向**：把腾挪/协调挪到引擎锁外（paint 侧外提 check_vram 链为
+首选外科手术）。改造涉及装载热路径，须在 GPU 实弹窗口逐引擎做并实弹
+（见 docs/锁语义五连专项方案-2026-09-10.md §2.4），本宣言先固化约定。
 """
 from __future__ import annotations
 

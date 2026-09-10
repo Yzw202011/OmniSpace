@@ -87,6 +87,48 @@ def registry_ids() -> set[str]:
     return set((load_manifest().get("models") or {}).keys())
 
 
+def remove_manifest_entry(model_id: str) -> bool:
+    """从 manifest v3 移除登记条目并落盘（UAT 2026-09-10 缺陷⑨根修）。
+
+    背景：当日三次「raw rm 删权重/正规入口删库表」都不同步 manifest →
+    幽灵条目（登记有、磁盘无）连坏三回，靠提交闸兜底。本函数让删除
+    正规通道具备登记簿同步能力：删盘（purge）必调；纯除名（权重仍在
+    盘）不调（否则制造孤儿目录告警）。
+
+    命中并移除返回 True；条目不存在/清单缺失损坏返回 False（损坏时
+    不覆写原文件，对齐本模块「损坏按缺失降级」的诚实边界）。
+    """
+    with _cache_lock:
+        try:
+            raw = (MANIFEST_PATH.read_text(encoding="utf-8")
+                   if MANIFEST_PATH.is_file() else None)
+        except OSError:
+            raw = None
+    if raw is None:
+        return False
+    try:
+        data = json.loads(raw)
+        models = data.get("models")
+        if not isinstance(models, dict) or model_id not in models:
+            return False
+        models.pop(model_id)
+        data["models"] = models
+    except Exception as exc:  # noqa: BLE001 - 损坏清单不覆写
+        logger.warning("登记表移除失败（清单损坏，保留原文件）: %s", exc)
+        return False
+    try:
+        MANIFEST_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=1) + "\n",
+            encoding="utf-8")
+    except OSError as exc:
+        logger.warning("登记表写盘失败: %s", exc)
+        return False
+    with _cache_lock:
+        _cache.update({"mtime": -1.0, "data": None})  # 下次读取强制重载
+    logger.info("登记表条目已移除: %s", model_id)
+    return True
+
+
 def _dir_has_signature(p: Path) -> bool:
     """目录（或其直接子目录）是否含模型特征文件。"""
     if any((p / f).is_file() for f in _DIR_SIGNATURES):

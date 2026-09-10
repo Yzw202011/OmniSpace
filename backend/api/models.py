@@ -1434,6 +1434,16 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
                    "reason": "unsupported"},
                   message="该模块无需预热")
 
+    # 云端对话无需本地预热（2026-09-10 竞态根修）：dialog.text 槽位绑定
+    # /旧远程配置生效时，本地 vLLM 预热纯属空拉显存——预热线程还可能
+    # 跨越显存等待窗口，在用户绑定云端后走完本地降级链（误导横幅 +
+    # 无谓 vLLM 启动）。云端就绪由发送路径的健康探测自证，这里直接短路。
+    from ..services.inference.backends.remote_backend import is_remote_dialog_enabled
+    if is_remote_dialog_enabled():
+        return ok({"feature": "dialog", "started": False,
+                   "reason": "cloud_bound"},
+                  message="对话已由云端承载，无需本地预热")
+
     from ..services.inference.dialog_engine import get_dialog_engine
     engine = get_dialog_engine()
     status = engine.get_status()
@@ -1587,15 +1597,25 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
     """彻底删除模型磁盘文件（2026-08-20 卸载按钮升级：卸载+删盘）。
 
     流程：已加载先卸载 → 删除磁盘权重（目录 rmtree / 文件 unlink）→
-    移除注册表记录 → 清理功能选择引用。返回删除的路径与释放体积。
+    移除注册表记录（DB + **manifest v3 同步**，UAT 2026-09-10 缺陷⑨
+    根修）→ 清理功能选择引用。返回删除的路径与释放体积。
     安全约束：解析后路径必须位于 models/ 目录内（防路径穿越误删任意
-    目录）；models/ 根目录本身与过浅路径（直接等于 models/）拒绝。
+    目录）；models/ 根目录本身与过浅路径（直接等于 models/）拒绝；
+    manifest required=true（随包/常驻）模型拒绝删盘。
     """
     import shutil as _shutil
+
+    from ..data import model_registry as _registry
 
     model = _find_model(model_id)
     if model is None:
         raise ApiError(30001, "模型不存在", detail={"model_id": model_id})
+    # 随包/常驻模型护栏（UAT 2026-09-10 一天三犯幽灵条目的根治护栏）：
+    # required=true 是启动依赖，删盘必造成启动期登记表对账红
+    _m_entry = _registry.load_manifest().get("models", {}).get(model_id) or {}
+    if _m_entry.get("required"):
+        raise ApiError(40003, "随包/常驻模型禁止删盘（required=true）",
+                       detail={"model_id": model_id})
     raw_path = (model.get("file_path") or "").strip()
     if not raw_path or not model.get("downloaded"):
         raise ApiError(30002, "模型文件不在本地磁盘，无需删除",
@@ -1650,7 +1670,16 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
         if mid == model_id:
             _selections.pop(feat, None)
 
-    # 5. 强制失效磁盘扫描缓存（2026-08-20 幽灵卡片修复）：扫描器带
+    # 5. manifest v3 同步（UAT 2026-09-10 缺陷⑨根修：删盘必除名，
+    #    幽灵条目「登记有磁盘无」从源头封死；写失败仅告警不回滚
+    #    删盘动作，登记表由提交闸对账兜底）
+    try:
+        if _registry.remove_manifest_entry(model_id):
+            log.info("manifest 登记条目已同步移除: %s", model_id)
+    except Exception as exc:  # noqa: BLE001 - 同步失败不阻断删盘结果
+        log.warning("manifest 同步失败（提交闸将对账兜底）: %s", exc)
+
+    # 6. 强制失效磁盘扫描缓存（2026-08-20 幽灵卡片修复）：扫描器带
     # 30s 缓存，purge 后若不失效，前端紧接着拉 /models 会从缓存读到
     # 已删条目——磁盘已无文件但卡片仍显示"就绪+体积"定格在页面
     try:

@@ -984,31 +984,38 @@ class PaintEngine(BaseEngine):
                 return False
 
     def unload_model(self) -> bool:
-        """卸载绘画管线并释放显存。返回是否有模型被卸载。"""
-        with self._lock:
-            had = self._pipe is not None
-            if had and self._model_id.startswith("qwen-image"):
-                # 恢复 GGUFLinear 原生 forward + 释放流式 buffer，
-                # 防止类级替换泄漏到后续加载的 GGUF 模型
-                try:
-                    from .qwen_gguf_stream import uninstall_streaming
+        """卸载绘画管线并释放显存。返回是否有模型被卸载。
 
-                    uninstall_streaming()
-                except Exception:
-                    pass
-            self._pipe = None
-            self._pipe_i2i = None
-            self._model_id = ""
-            self._model_alias = ""
-            self._model_dir = None
-            self._reset_lora_state()
-            if had:
-                self._state = "unloaded"
-            _release_cuda_memory()
-            if had:
-                logger.info("绘画模型已卸载，显存已释放（空闲 %.1fGB）",
-                            _cuda_free_gb())
-            return had
+        审计 09-10 P1-2：先取 `_infer_lock` 等在途推理收尾再卸——此前只取
+        `_lock`，采样进行中管线引用被抽走（中途崩/黑图）。锁序全局约定
+        「先 _infer_lock 后 _lock」（见 model_manager 模块头锁序宣言）；
+        RLock 可重入，unload 自身不会再触发推理。
+        """
+        with self._infer_lock:
+            with self._lock:
+                had = self._pipe is not None
+                if had and self._model_id.startswith("qwen-image"):
+                    # 恢复 GGUFLinear 原生 forward + 释放流式 buffer，
+                    # 防止类级替换泄漏到后续加载的 GGUF 模型
+                    try:
+                        from .qwen_gguf_stream import uninstall_streaming
+
+                        uninstall_streaming()
+                    except Exception:
+                        pass
+                self._pipe = None
+                self._pipe_i2i = None
+                self._model_id = ""
+                self._model_alias = ""
+                self._model_dir = None
+                self._reset_lora_state()
+                if had:
+                    self._state = "unloaded"
+                _release_cuda_memory()
+                if had:
+                    logger.info("绘画模型已卸载，显存已释放（空闲 %.1fGB）",
+                                _cuda_free_gb())
+                return had
 
     def ensure_loaded(self, model_id: str | None = None) -> bool:
         """确保绘画模型已加载（先走 model_manager 契约协调）。

@@ -37,6 +37,8 @@ ENGINE_WRITABLE_NAMES = ("output", "input", "temp", "user")
 ROOT_FILE_WHITELIST = {
     "CLAUDE.md", "README.md", "requirements.txt", "requirements-lock.txt",
     "pytest.ini", ".gitignore", "ruff.toml",
+    # 09-08 AI 规矩门卫（纯指针文件，真源唯一=CLAUDE.md 防双源漂移）
+    "AGENTS.md",
     "启动OmniSpace.bat", "停止OmniSpace.bat",
     # 09-02 改名：开发版 exe 带「开发版」后缀，防与发行包入口点混（曾因此
     # 把开发环境误当发行包测）；包内交付名不变，见 make_dist COPY_FILES
@@ -67,6 +69,10 @@ DIR_WHITELIST = {
 
 # 重复副本扫描门槛
 MIN_DUP_BYTES = 1024 ** 3
+# HF 缓存通用文件名：两侧树上同名不同物是常态（09-10 实录：ComfyUI 侧
+# CLIP-ViT-L 快照 1.59G vs 项目侧 Qwen9B 主权重 10.2G 同名「版本冲突」
+# 误报），不参与裸名比对
+_GENERIC_HF_NAMES = {"model.safetensors", "pytorch_model.bin"}
 # logs 单文件报警线（轮转 10M×5 之外的大文件）
 LOG_BIG_BYTES = 200 * 1024 * 1024
 
@@ -126,6 +132,8 @@ def audit_model_dups(report: dict) -> None:
     ours = _index_tree(ROOT / "models")
     linked, mergeable, conflict = [], [], []
     for fn, c in comfy.items():
+        if fn in _GENERIC_HF_NAMES:
+            continue  # 通用名同物率低，比对只会产伪冲突
         o = ours.get(fn)
         if o is None:
             continue  # 仅 ComfyUI 侧（例外登记或工具文件），不在本审计口径

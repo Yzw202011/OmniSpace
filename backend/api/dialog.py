@@ -722,7 +722,8 @@ async def dialog_parse_document(
 
 @router.post("/dialog/send")
 @router.post("/chat/send")
-async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
+async def dialog_send(request: Request,
+                      body: dict = Body(default_factory=dict)) -> Any:
     """发送对话消息（真实推理）。
 
     请求: {"message"|"content": str, "images"?: [base64], "model"?: str,
@@ -849,7 +850,9 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
                 engine, lock, sid, message, history, knowledge_text,
                 messages, images, refs,
                 temperature, max_new_tokens, max_ctx, thinking, flow,
-                web_refs=web_refs)
+                web_refs=web_refs, request=request)
+            lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
+            return resp
             lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
             return resp
 
@@ -907,7 +910,8 @@ async def dialog_send(body: dict = Body(default_factory=dict)) -> Any:
 
 
 @router.post("/chat/stream")
-async def chat_stream(body: dict = Body(default_factory=dict)) -> Any:
+async def chat_stream(request: Request,
+                      body: dict = Body(default_factory=dict)) -> Any:
     """SSE 流式对话（F-011 / 文档 §7.1.4 /v1/chat → /stream）。
 
     等价于 POST /dialog/send 且强制 stream=true：
@@ -918,7 +922,7 @@ async def chat_stream(body: dict = Body(default_factory=dict)) -> Any:
     中断：POST /chat/stop {"session_id"} 置停止标记。
     """
     forced = {**(body or {}), "stream": True}
-    return await dialog_send(forced)
+    return await dialog_send(body=forced, request=request)
 
 
 async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
@@ -929,7 +933,8 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                            temperature: float, max_new_tokens: int,
                            max_ctx: int, thinking: bool = False,
                            flow: Flow | None = None,
-                           web_refs: list | None = None) -> StreamingResponse:
+                           web_refs: list | None = None,
+                           request: Request | None = None) -> StreamingResponse:
     """构造 SSE 流式响应；生成结束后落库并释放功能锁。
 
     深度思考模式（2026-08-22）：思考段以 {"reasoning": str} 事件推送
@@ -988,6 +993,25 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                     loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
         producer = loop.run_in_executor(None, _produce)
+
+        # 客户端断连监视（UAT 2026-09-10 P1-18）：断开即入队哨兵事件，
+        # 消费循环借此停止推理线程（经既有 stop_check 旗标），不再为
+        # 已离开的用户烧完剩余 token（此前断连后生成照跑至自然结束）
+        client_gone = False
+        watcher: asyncio.Task | None = None
+        if request is not None:
+            async def _watch_disconnect() -> None:
+                while True:
+                    try:
+                        if await request.is_disconnected():
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, ("_client_gone", None))
+                            return
+                    except Exception:  # noqa: BLE001 - 探测失败按在连
+                        return
+                    await asyncio.sleep(1.0)
+            watcher = asyncio.create_task(_watch_disconnect())
+
         try:
             yield _sse({"session_id": sid})
             if refs:
@@ -1000,15 +1024,22 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                     yield _sse({"token": payload})
                 elif kind == "reasoning":
                     yield _sse({"reasoning": payload})
+                elif kind == "_client_gone":
+                    # P1-18：断连即停推理（经既有停止旗标→stop_check），
+                    # 部分回复照常落库（finally 段），不再继续烧 GPU
+                    client_gone = True
+                    _stop_flags.add(sid)
+                    log.warning("SSE 客户端断开，停止生成本会话剩余回复: %s", sid)
+                    break
                 elif kind == "error":
                     yield _sse({"error": payload, "code": 30004})
                 elif kind == "done":
                     break
             await producer
             # 被动补全（R2-B01）：首轮回复含不确定性标记时，快速搜索
-            # 重推理一次，改进回复作为追加 token 继续推送（[DONE] 之前）；
-            # 检测只作用于 content 段（思考文本天然含不确定性措辞）
-            if collected and not error_holder:
+            # 重推理一次，改进回复作为追加 token 继续推送（[DONE] 之前）。
+            # 客户端断开（P1-18）则跳过——人已走，不再烧推理
+            if collected and not error_holder and not client_gone:
                 reply0 = "".join(collected)
                 new_reply, passive = await _maybe_passive_completion(
                     engine, message, reply0, history, knowledge_text, sid,
@@ -1021,6 +1052,8 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                     collected.append(new_reply)
                     yield _sse({"token": "\n\n" + new_reply})
         finally:
+            if watcher is not None:
+                watcher.cancel()
             _stop_flags.discard(sid)
             reply = "".join(collected)
             reasoning_full = "".join(reasoning_parts)

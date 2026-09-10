@@ -53,3 +53,24 @@ def test_degrade_rechecks_cloud_before_fallback() -> None:
     load_pos = SRC.index("self.load_model(_fallback_id)")
     # 守卫在广播前，广播在装载前——守卫必然先于降级装载
     assert guard_pos < load_pos, "云端复核必须在降级装载之前"
+
+
+# ── UAT 2026-09-10 缺陷补哨兵（F2/F3/P1-23）──────────────────────────
+
+def test_fallback_fit_uses_mgr_estimate() -> None:
+    """F2：回退拟合判据须用 mgr.estimate_vram_gb 权威口径——候选表
+    静态 vram 偏低曾致 8B 失败后反向回落更大的 9B（白跑一趟）。"""
+    assert 'mgr.estimate_vram_gb(mid, "dialog")' in SRC, (
+        "回退拟合失去权威估值判据")
+
+
+def test_degrade_racing_guard_ready_wins() -> None:
+    """F3：降级决策前须有竞态守卫——ready 即可用，严禁杀刚就绪引擎。"""
+    assert "跳过降级卸载" in SRC, "竞态守卫日志被删"
+    assert 'self._state == "ready" and self._backend is not None' in SRC, (
+        "竞态守卫条件被删")
+
+
+def test_watchdog_release_stale_sync() -> None:
+    """P1-23：看门狗卸载后须 release_stale 同步台账。"""
+    assert "release_stale(name)" in SRC, "看门狗台账同步被删"

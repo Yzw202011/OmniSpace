@@ -1441,6 +1441,15 @@ class DialogEngine(BaseEngine):
                     "对话已切云端承载，放弃本地降级（原目标 %s，"
                     "本地等待期间绑定发生变化）", _want_id)
                 return False
+            # 竞态守卫（UAT 2026-09-10 F3）：决策/等待期间，vLLM 自动
+            # 重试或 V9-γ 收养可能已把引擎弄 ready——ready 即可用，
+            # 严禁为降级把刚就绪的引擎再卸载（实测自伤：8B ready 1 秒
+            # 后被降级链杀掉，用户收到张冠李戴的 9B 错误）。
+            if self._state == "ready" and self._backend is not None:
+                logger.info(
+                    "引擎已被自动重试/收养弄就绪（%s），跳过降级卸载",
+                    self._model_id)
+                return True
             if "显存" in _reason and _fallback_id:
                 logger.warning(
                     "对话模型 %s 显存装不下，自动降级 %s 继续并通知用户"
@@ -1523,6 +1532,11 @@ class DialogEngine(BaseEngine):
         否则按候选优先级回第一个显存装得下的其他候选（质量优先，
         9B → 8B-awq → 4B 逐级让档）。找不到装得下的返回空（走原
         诚实报错）。
+
+        UAT 2026-09-10 F2 根修：拟合判据从候选表静态 vram 改为
+        mgr.estimate_vram_gb 权威口径（ADR-003 注记的运行时显存权威），
+        并做下限复核——此前 9B 候选表值偏低导致 8B 失败后反向回落
+        更大的 9B（又立即被 14.9GB 下限拒绝，白跑一趟）。
         """
         try:
             free = _cuda_free_gb()
@@ -1530,9 +1544,26 @@ class DialogEngine(BaseEngine):
             return ""
         candidates = _effective_candidates()
         default = self._default_model_id()
+        mgr = None
+        try:
+            from ..model_manager import get_model_manager as _gmm
+            mgr = _gmm()
+        except Exception:  # noqa: BLE001 - mgr 不可用退回候选表口径
+            mgr = None
+
+        def _fits(mid: str, vram: float) -> bool:
+            """拟合判据：优先 mgr 权威估值（含可行下限），失败退表值。"""
+            if mgr is not None:
+                try:
+                    return float(mgr.estimate_vram_gb(mid, "dialog")) \
+                        <= free + 0.5
+                except Exception:  # noqa: BLE001 - 估值失败退表值
+                    pass
+            return vram <= free + 0.5
+
         if default and default != want_id:
             for mid, rel, vram in candidates:
-                if mid == default and vram <= free + 0.5 \
+                if mid == default and _fits(mid, vram) \
                         and _resolve_candidate_dir(rel) is not None:
                     return default
                     # 默认装不下/不在盘：落下去找其他装得下的
@@ -1540,7 +1571,7 @@ class DialogEngine(BaseEngine):
             # 磁盘就绪校验（2026-09-08 实测教训：高档位候选
             # qwen3-vl-8b 物理闸门可过但本机磁盘没有该目录——
             # 选它做回退只会再失败一次）
-            if mid != want_id and vram <= free + 0.5 \
+            if mid != want_id and _fits(mid, vram) \
                     and _resolve_candidate_dir(rel) is not None:
                 return mid
         return ""
@@ -2089,6 +2120,13 @@ class DialogEngine(BaseEngine):
                         idle_seconds / 60.0, name)
             had = self._unload_locked()
         if had:
+            # 审计 P1-23 残留收口：台账同步与热切换路径同规——卸载后
+            # release_stale 清 mgr 台账，防残留导致后续显存/就绪误判
+            try:
+                from ..model_manager import get_model_manager
+                get_model_manager().release_stale(name)
+            except Exception:  # noqa: BLE001 - 台账同步失败不影响卸载
+                pass
             try:  # 大白话事件：解释「模型怎么没了」，下次对话自动加载
                 from ..event_log import log_event
                 log_event(

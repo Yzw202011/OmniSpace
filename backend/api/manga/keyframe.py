@@ -2122,8 +2122,9 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
     ref_vecs: list = []
     if face_sim.face_sim_available():
         try:
-            for rim in (_load_face_reference(db, row),
-                        _load_row_reference(db, row)):
+            # 参考图加载含 DB 查询+PIL 解码，同卸载约定（审计 09-10 P2-3）
+            for rim in (await run_blocking(_load_face_reference, db, row),
+                        await run_blocking(_load_row_reference, db, row)):
                 if rim is None:
                     continue
                 v = await run_blocking(face_sim.embed_face, rim)

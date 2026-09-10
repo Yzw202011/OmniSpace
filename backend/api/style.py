@@ -26,10 +26,12 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, File, UploadFile
 
+from ..config import DATA_DIR
 from ..middleware import upload_guard
 from ..middleware.error_handler import ApiError, ok
 from ..services.style_lora_service import (
@@ -311,8 +313,23 @@ def style_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         raise ApiError(40008, "strength 必须在 0~1 之间",
                        detail={"min": 0.0, "max": 1.0, "given": strength})
 
+    # 审计 09-10 P2-10：image_path 会直喂 Image.open，限制在产品数据
+    # 目录内，防任意本机路径/UNC 外带
+    image_path = body.get("image_path")
+    if image_path:
+        try:
+            preview_src = Path(image_path).resolve()
+        except OSError:
+            raise ApiError(40010, "image_path 不合法") from None
+        if not preview_src.is_relative_to(DATA_DIR.resolve()):
+            raise ApiError(40010, "image_path 必须在产品数据目录内",
+                           detail={"data_dir": str(DATA_DIR)})
+        if not preview_src.is_file():
+            raise ApiError(40005, "预览图文件不存在",
+                           detail={"image_path": image_path})
+
     try:
-        result = svc.preview(version, image_path=body.get("image_path"),
+        result = svc.preview(version, image_path=image_path,
                              max_frames=max_frames, strength=strength)
     except StylePreviewUnavailable as exc:
         raise ApiError(80013, "风格预览不可用（推理引擎或版本未就绪）",

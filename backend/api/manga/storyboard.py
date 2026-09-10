@@ -1135,6 +1135,13 @@ async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str
                "total": len(existing_rows) + len(parsed)})
 
 
+def _csv_safe_cell(value: str) -> str:
+    """CSV 公式注入中和（审计 09-10 P2-12）：= + - @ 或制表/回车开头的
+    单元格前置单引号，Excel/WPS 打开导出文件不再当公式执行。"""
+    s = str(value)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
 @router.get("/manga/storyboard/{project_id}/export")
 @router.get("/storyboard/{project_id}/export")  # 顶层别名
 def storyboard_export(project_id: str,
@@ -1168,11 +1175,12 @@ def storyboard_export(project_id: str,
         writer.writerow(["shot_number", "scene", "characters", "description",
                          "original_dialogue", "voice_emotion"])
         for r in rows:
-            writer.writerow([r.get("shot_number", 0), r.get("scene", ""),
-                             "|".join(r.get("characters", [])),
-                             r.get("description", ""),
-                             r.get("original_dialogue", ""),
-                             r.get("voice_emotion", "默认")])
+            writer.writerow([r.get("shot_number", 0),
+                             _csv_safe_cell(r.get("scene", "")),
+                             _csv_safe_cell("|".join(r.get("characters", []))),
+                             _csv_safe_cell(r.get("description", "")),
+                             _csv_safe_cell(r.get("original_dialogue", "")),
+                             _csv_safe_cell(r.get("voice_emotion", "默认"))])
         return ok({"project_id": project_id, "format": "csv",
                    "content": buf.getvalue(), "total": len(rows)})
     if fmt == "json":

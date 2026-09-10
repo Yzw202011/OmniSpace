@@ -39,7 +39,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT_DIR
+from ..config import DATA_DIR, ROOT_DIR
 
 logger = logging.getLogger("omnispace.encoder")
 
@@ -425,6 +425,14 @@ class EncoderService:
 
         def on_progress(fraction: float, msg: str) -> None:
             self._safe_progress(progress_cb, fraction, msg)
+
+        # 审计 09-10 P2-11：audio_path 直喂 ffmpeg——限制在产品数据目录
+        # 内（语音/TTS 产物均在 data/ 下），拒任意本机/UNC 路径外带
+        if audio_path:
+            audio_resolved = Path(audio_path).resolve()
+            if not audio_resolved.is_relative_to(DATA_DIR.resolve()):
+                raise EncodeError(
+                    f"audio_path 越界（须在数据目录内）: {audio_path}")
 
         t0 = time.time()
         errors: list[str] = []

@@ -56,7 +56,13 @@ class MemoryCache:
         self._misses = 0
 
     def _serialize(self, value: Any) -> bytes:
-        """序列化 + 可选压缩。"""
+        """序列化 + 可选压缩。
+
+        信任边界（审计 09-10 P2-4）：pickle 仅用于**进程内自写自读**的
+        缓存值（任意 Python 对象，含 bytes/对象，故不用 JSON）；缓存
+        数据源全部是本机服务自身产出，不接受外部输入作为缓存键值，
+        不存在反序列化不可信数据的通路。
+        """
         raw = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
         if self._compress:
             try:
@@ -66,7 +72,7 @@ class MemoryCache:
         return raw
 
     def _deserialize(self, data: bytes) -> Any:
-        """反序列化 + 可选解压。"""
+        """反序列化 + 可选解压（信任边界见 _serialize，审计 09-10 P2-4）。"""
         if self._compress:
             try:
                 data = lz4_frame.decompress(data)
@@ -174,6 +180,8 @@ class RedisCache:
         return raw
 
     def _unwrap(self, data: bytes) -> Any:
+        """信任边界（审计 09-10 P2-4）：pickle 只解**本机 Redis 自写**
+        的缓存值（本机回环、单用户），不接受外部输入作为缓存内容。"""
         if self._compress:
             try:
                 data = lz4_frame.decompress(data)

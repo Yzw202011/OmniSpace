@@ -270,7 +270,11 @@ class ModelCache:
             return data
 
     def _decompress(self, data: Any) -> Any:
-        """使用 LZ4 解压数据。"""
+        """使用 LZ4 解压数据。
+
+        信任边界（审计 09-10 P2-4）：pickle 只解**本进程 _compress 自写**
+        的状态条目（模型管理器内部数据），无外部输入进入缓存的通路。
+        """
         if not self._compression_enabled or data is None:
             return data
         try:

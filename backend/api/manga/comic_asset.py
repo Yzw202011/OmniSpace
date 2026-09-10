@@ -818,10 +818,15 @@ async def comic_asset_reference_upload(asset_id: str,
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "reference.png"
     try:
-        # 统一转 PNG（jpg/webp 归一化，后续 img2img 直接 Image.open）
+        # 统一转 PNG（jpg/webp 归一化，后续 img2img 直接 Image.open）；
+        # 同步解码按 F-008 约定经 run_blocking 卸载（审计 09-10 P2-3）
         from PIL import Image
-        with Image.open(io.BytesIO(raw)) as im:
-            im.convert("RGB").save(out_path, "PNG")
+
+        def _normalize_png() -> None:
+            with Image.open(io.BytesIO(raw)) as im:
+                im.convert("RGB").save(out_path, "PNG")
+
+        await run_blocking(_normalize_png)
     except Exception as exc:  # noqa: BLE001 - 解码失败即非法图片
         raise ApiError(40010, "参考图解码失败，请上传有效图片文件",
                        detail={"error": str(exc)[:200]}) from exc
@@ -1110,12 +1115,10 @@ async def comic_asset_image_replace(asset_id: str,
         meta.pop(k, None)
     meta["source"] = "upload_replace"
     meta["orig_filename"] = file.filename or ""
-    try:
-        from PIL import Image
-        with Image.open(out_path) as im:
-            meta["width"], meta["height"] = im.size
-    except Exception:  # noqa: BLE001 - 尺寸读取失败不阻断替换
-        pass
+    # 尺寸读取经 run_blocking 卸载（审计 09-10 P2-3）；失败不阻断替换
+    size = await run_blocking(_probe_image_size, out_path)
+    if size:
+        meta["width"], meta["height"] = size
     if kind == "character":
         # P0 数据修复：图已换、词仍旧 → 立 stale 标记（前端门控），
         # 后台 VLM 按新图重写描述词后解除（vLLM 未热备则保持 stale，
@@ -1190,12 +1193,10 @@ async def comic_asset_upload(project_id: str = Form(...),
     out_path.write_bytes(raw)
     rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     meta: dict = {"source": "upload", "orig_filename": file.filename or ""}
-    try:
-        from PIL import Image
-        with Image.open(out_path) as im:
-            meta["width"], meta["height"] = im.size
-    except Exception:  # noqa: BLE001 - 尺寸读取失败不阻断登记
-        pass
+    # 尺寸读取经 run_blocking 卸载（审计 09-10 P2-3）；失败不阻断登记
+    size = await run_blocking(_probe_image_size, out_path)
+    if size:
+        meta["width"], meta["height"] = size
     if kind == "character":
         # P0 数据修复：新上传角色描述词为空 → stale 标记 + 后台 VLM
         # 按图生词（未就绪保持 stale，交由显式触发/手动编辑解除）
@@ -1661,6 +1662,17 @@ def _safe_entity_name(nm: str) -> str:
     不炸整次推理）。"""
     cleaned = _UNSAFE_NAME_PAT.sub("", str(nm or "").strip()[:100])
     return "" if not cleaned or ".." in cleaned else cleaned
+
+
+def _probe_image_size(path: Path) -> tuple[int, int] | None:
+    """读图片宽高（失败返回 None 不抛）；同步 PIL 活，供 run_blocking
+    卸载（审计 09-10 P2-3）。"""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return im.size
+    except Exception:  # noqa: BLE001 - 尺寸读取失败不阻断登记
+        return None
 
 
 def _infer_entities_sync(project_id: str) -> dict:

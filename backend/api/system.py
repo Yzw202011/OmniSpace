@@ -195,14 +195,33 @@ async def system_backup() -> dict[str, Any]:
         "created_at": time.time(),
         "settings": _settings,
     }
-    file_path = ""
-    db_path = ""
-    try:
+
+    def _write_settings_backup() -> str:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         path = BACKUP_DIR / f"backup_{_now_ts()}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                         encoding="utf-8")
-        file_path = str(path)
+        return str(path)
+
+    def _backup_db() -> str:
+        import sqlite3
+        dest = BACKUP_DIR / f"omnispace_{_now_ts()}.db"
+        src_conn = sqlite3.connect(str(DB_PATH))
+        try:
+            dst_conn = sqlite3.connect(str(dest))
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
+        finally:
+            src_conn.close()
+        return str(dest)
+
+    # 写盘/热备属磁盘 IO，经 run_blocking 卸载（审计 09-10 P2-3）
+    file_path = ""
+    db_path = ""
+    try:
+        file_path = await run_blocking(_write_settings_backup)
     except Exception as exc:  # noqa: BLE001
         log.warning("备份写盘失败，仅返回内存副本：%s", exc)
 
@@ -210,18 +229,7 @@ async def system_backup() -> dict[str, Any]:
     db = get_db_safe()
     if db is not None and DB_PATH.is_file():
         try:
-            import sqlite3
-            dest = BACKUP_DIR / f"omnispace_{_now_ts()}.db"
-            src_conn = sqlite3.connect(str(DB_PATH))
-            try:
-                dst_conn = sqlite3.connect(str(dest))
-                try:
-                    src_conn.backup(dst_conn)
-                finally:
-                    dst_conn.close()
-            finally:
-                src_conn.close()
-            db_path = str(dest)
+            db_path = await run_blocking(_backup_db)
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库热备失败：%s", exc)
 

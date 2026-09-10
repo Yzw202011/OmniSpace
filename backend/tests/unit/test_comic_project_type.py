@@ -2,7 +2,8 @@
 
 漫剧库与漫画页共用全部生成底座（分镜/资产/关键帧链），只靠
 project_type 区分前端入口。契约四条：
-- create 踹 project_type（白名单 manga/comic；缺省 manga 兼容旧调用）；
+- create 必传 project_type（白名单 manga/comic；缺省拒绝——2026-09-10 收口，
+  此前缺省默认 manga 曾致漫画项目静默落漫剧面）；
 - list ?type= 按产品面过滤，缺省不过滤（兼容漫剧库旧调用）；
 - 旧库迁移：v8 库打开后自动补列，存量项目归漫剧面；
 - update 可随行更新 art_style（漫画页「换风格重生成」的数据面，
@@ -27,11 +28,13 @@ def client(tmp_path, monkeypatch):
     return TestClient(app, base_url="http://127.0.0.1")
 
 
-def test_create_defaults_to_manga(client):
-    """缺省 project_type=manga：漫剧库旧调用行为逐比特不变。"""
-    r = client.post("/api/v1/comic/project/create", json={"name": "旧式漫剧"})
-    assert r.status_code == 200 and r.json()["success"]
-    assert r.json()["data"]["project_type"] == "manga"
+def test_create_missing_type_rejected(client):
+    """缺省 project_type 拒绝：不再静默落漫剧面（2026-09-10 收口）。"""
+    r = client.post("/api/v1/comic/project/create", json={"name": "缺类型"})
+    assert r.status_code == 422 or r.json().get("success") is False
+    # 确认未落库（拒绝而非默认建库）
+    items = client.get("/api/v1/comic/project/list").json()["data"]["items"]
+    assert items == [], f"缺类型不应创建项目: {items}"
 
 
 def test_comic_type_filter(client):

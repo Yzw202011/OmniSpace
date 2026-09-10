@@ -80,7 +80,7 @@ export default function ComicLibrary({ onOpen }: Props) {
     }
     setCreating(true);
     try {
-      const res = await mangaApi.createProject(name, undefined, 'regular', artStyle, 'comic');
+      const res = await mangaApi.createProject(name, 'comic', undefined, 'regular', artStyle);
       setCreating(false);
       setCreateOpen(false);
       setNewName('');

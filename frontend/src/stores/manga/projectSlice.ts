@@ -24,8 +24,8 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
     }
   },
 
-  createProject: async (name, template, workMode, artStyle) => {
-    const res = await mangaApi.createProject(name, template, workMode, artStyle);
+  createProject: async (name, projectType, template, workMode, artStyle) => {
+    const res = await mangaApi.createProject(name, projectType, template, workMode, artStyle);
     // 重新拉取列表（创建端点返回不含完整时间戳字段，以服务端为准）
     const projects = await mangaApi.listProjects('manga');
     set({ projects, projectsLoaded: true });

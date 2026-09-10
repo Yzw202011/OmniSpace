@@ -85,8 +85,8 @@ export interface ProjectSlice {
 
   /** 拉取项目列表 */
   fetchProjects: () => Promise<void>;
-  /** 新建项目（template=comic_drama 预置 5 行分镜；artStyle=预置画风 key），返回 project_id */
-  createProject: (name: string, template?: string, workMode?: string, artStyle?: string) => Promise<string>;
+  /** 新建项目（template=comic_drama 预置 5 行分镜；artStyle=预置画风 key；projectType 必传防落错产品面），返回 project_id */
+  createProject: (name: string, projectType: 'manga' | 'comic', template?: string, workMode?: string, artStyle?: string) => Promise<string>;
   /** 重命名项目 */
   renameProject: (projectId: string, name: string) => Promise<void>;
   /** 删除项目（级联；删除当前项目时回项目库） */

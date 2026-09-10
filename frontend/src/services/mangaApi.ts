@@ -407,20 +407,20 @@ export async function previewVoice(
  * ============================================================================================== */
 
 /** 新建项目（POST /comic/project/create；template=comic_drama 预置 5 行漫剧分镜；workMode=narrative 解说漫剧；artStyle=预置画风 key；
- *  projectType：manga=漫剧库 / comic=漫画页（2026-09-07 漫画模块 M1 产品面区分，共用生成底座） */
+ *  projectType（必传）：manga=漫剧库 / comic=漫画页——漏传会落错产品面（曾致漫画 POC 项目混入漫剧库），2026-09-10 改必传 */
 export async function createProject(
   name: string,
+  projectType: 'manga' | 'comic',
   template?: string,
   workMode?: string,
   artStyle?: string,
-  projectType?: 'manga' | 'comic',
 ): Promise<{ project_id: string; name: string; rows: StoryboardRow[] }> {
   return post('/comic/project/create', {
     name,
     template: template || undefined,
     work_mode: workMode || 'regular',
     art_style: artStyle || '',
-    project_type: projectType || 'manga',
+    project_type: projectType,
   });
 }
 

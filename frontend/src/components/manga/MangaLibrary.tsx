@@ -171,8 +171,8 @@ export default function MangaLibrary() {
       return;
     }
     setCreating(true);
-    createProject(name, useTemplate ? 'comic_drama' : undefined, workMode, artStyle)
-      .then(() => {
+    createProject(name, 'manga', useTemplate ? 'comic_drama' : undefined, workMode, artStyle)
+      .then((projectId) => {
         showToast('项目已创建', 'success');
         setCreateOpen(false);
         setNewName('');
@@ -182,6 +182,21 @@ export default function MangaLibrary() {
         setStyleFormOpen(false);
         setStyleName('');
         setStylePrompt('');
+        // 审计 09-10 P1-F：按钮文案「创建并进入」——此前丢弃返回的
+        // project_id 停留库页，现带新项目直入工作区（对齐 ComicLibrary）
+        setOpeningId(projectId);
+        return openProject({
+          project_id: projectId,
+          name,
+          created_at: Date.now() / 1000,
+          updated_at: Date.now() / 1000,
+          work_mode: workMode,
+          art_style: artStyle,
+          project_type: 'manga',
+        }).catch((err: unknown) => {
+          showToast(getErrorMessage(err, '项目打开失败，可从库页手动进入'), 'error');
+          setOpeningId(null);
+        });
       })
       .catch((err: unknown) => showToast(getErrorMessage(err, '项目创建失败'), 'error'))
       .finally(() => setCreating(false));

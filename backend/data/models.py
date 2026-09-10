@@ -636,7 +636,7 @@ class ProjectCreate(BaseModel):
     project_id: str | None = None        # 指定 id（缺省自动生成）
     work_mode: WorkMode = Field(default=WorkMode.REGULAR)  # 作品类型
     art_style: str = Field(default="", max_length=40)      # 预置画风 key（空=未选择）
-    project_type: str = Field(default="manga", max_length=20)  # manga(漫剧) | comic(漫画页)
+    project_type: str = Field(max_length=20)  # manga(漫剧) | comic(漫画页)——必传，缺省拒绝（2026-09-10 收口：默认 manga 曾致漫画项目静默落漫剧面）
 
     @field_validator("project_id")
     @classmethod
@@ -744,6 +744,13 @@ class AssetTurnaroundRequest(BaseModel):
     seed: int = -1
     transparent: bool = False               # 四视图一键去背（PIL 降级）
 
+    @field_validator("name", "project_id")
+    @classmethod
+    def _safe_name(cls, v: str) -> str:
+        # 审计 09-10 P1-B：name/project_id 均直拼落盘目录，对齐姊妹
+        # AssetGenerateRequest 双校验（此前本模型零校验器）
+        return _check_safe_name(v)
+
 
 class AssetRegenerateViewRequest(BaseModel):
     """四视图资产单视图重生请求（竞品对齐：每张视图可单独重生）。
@@ -764,11 +771,25 @@ class AssetAdoptRequest(BaseModel):
     asset_id: str                           # 资产库中的源资产 id
     project_id: str                         # 引入的目标项目 id
 
+    @field_validator("project_id")
+    @classmethod
+    def _safe_pid(cls, v: str) -> str:
+        # 审计 09-10 P1-C：project_id 拼目标目录且 copytree 复制、
+        # 删除流程 rmtree，必须过路径安全校验（asset_id 仅作 DB 查询键）
+        return _check_safe_name(v)
+
 
 class AssetUpdateRequest(BaseModel):
     """资产元信息更新（竞品对齐）：仅更新非 None 字段。"""
     name: str | None = Field(default=None, max_length=100)
     prompt: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("name")
+    @classmethod
+    def _safe_name(cls, v: str | None) -> str | None:
+        # 审计 09-10 P2-2：改名后的 name 会经 _asset_dir_for/图替换/
+        # copytree 拼进磁盘路径，与生成请求同规矩（None=不改名放行）
+        return _check_safe_name(v) if v is not None else v
 
 
 class AssetInferRequest(BaseModel):

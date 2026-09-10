@@ -50,7 +50,7 @@ def test_to_global_stamps_face_by_project_type(client):
     client.app.post("/api/v1/comic/project/create",
                 json={"name": "漫画面A", "project_type": "comic"})
     client.app.post("/api/v1/comic/project/create",
-                json={"name": "漫剧面B"})
+                json={"name": "漫剧面B", "project_type": "manga"})
     rows = db.query("SELECT id, project_type FROM projects")
     comic_pid = next(r["id"] for r in rows if r["project_type"] == "comic")
     manga_pid = next(r["id"] for r in rows if r["project_type"] == "manga")

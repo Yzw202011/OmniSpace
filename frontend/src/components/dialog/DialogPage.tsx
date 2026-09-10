@@ -75,8 +75,14 @@ export default function DialogPage() {
   // 2026-09-07 按模型能力开放附件：选中模型是否支持图片理解
   // （清单未加载/旧后端无 vision 字段 → 缺省 true 兼容存量行为）
   const modelOptions = useDialogStore((s) => s.modelOptions);
+  // UAT 2026-09-10 缺陷④：能力跟随「实际答复模型」——降级场景
+  // （9B 纯文本→4B 视觉）此前按所选模型误判为纯文本、误隐藏图片
+  // 上传；取最后一条带 engine 标注的答复模型，无标注回退所选模型
+  const lastAnswerModel = [...messages]
+    .reverse()
+    .find((m) => m.engine)?.engine;
   const modelSupportsVision = modelOptions.find(
-    (m) => m.model_id === modelId,
+    (m) => m.model_id === (lastAnswerModel ?? modelId),
   )?.vision ?? true;
 
   /** 引用请求（seq 递增驱动 DialogView 输入框回填） */

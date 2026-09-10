@@ -329,6 +329,11 @@ export const useNovelStore = create<NovelState>((set, get) => ({
       if (prog.active || prev?.active) {
         const { items } = await api.fetchChapters(p.id);
         set({ chapters: items });
+        // 任务收尾拍（active→idle）：回刷项目卡（完成数/字数）——
+        // UAT 2026-09-10 缺陷⑤：此前书架停留「正在执行」须手动刷新
+        if (prev?.active && !prog.active) {
+          void get().fetchProjects();
+        }
         // 当前编辑章状态翻终态 → 重取详情（正文写回编辑器）
         const cur = get().chapter;
         if (cur) {

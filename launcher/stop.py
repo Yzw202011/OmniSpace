@@ -139,6 +139,28 @@ def _find_comfy_leftover() -> psutil.Process | None:
     return None
 
 
+def _llama_leftovers() -> list[psutil.Process]:
+    """llama-server / vLLM 推理子进程孤儿（UAT 2026-09-10 发现：优雅退出后
+    llama-server 持 8.6GB 显存残留——它们由后端派生但可能逃逸 Job Object）。
+
+    匹配口径：exe/cmdline 含 llama-poc（llama.cpp 运行时目录），或进程名
+    OmniSpace-LLM.exe（vLLM py313 专属运行时，命名唯一不误伤）。"""
+    found: list[psutil.Process] = []
+    me = psutil.Process().pid
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+        try:
+            if proc.info['pid'] == me:
+                continue
+            exe = proc.info['exe'] or ''
+            name = proc.info['name'] or ''
+            cmd = ' '.join(proc.info['cmdline'] or [])
+            if 'llama-poc' in f'{exe} {name} {cmd}' or name == 'OmniSpace-LLM.exe':
+                found.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return found
+
+
 def _graceful_quit(port: int) -> None:
     conn = http.client.HTTPConnection(LOOPBACK_HOST, port, timeout=3)
     try:
@@ -226,6 +248,11 @@ def main() -> int:
         while time.time() < deadline:
             if _stack_cleared():
                 print('✓ 已优雅退出，收尾完成。')
+                # 推理子进程孤儿兜底（llama-server/vLLM 可能逃逸 Job Object，
+                # UAT 2026-09-10 实测残留 8.6GB 显存）
+                leftovers = _llama_leftovers()
+                if leftovers:
+                    _terminate(leftovers, ' 推理子进程孤儿(llama/vLLM)')
                 _report_others(others)
                 return 0
             time.sleep(1.0)
@@ -245,8 +272,10 @@ def main() -> int:
             print(f'  已清理 ComfyUI 残留 (PID {comfy.pid})')
         except psutil.NoSuchProcess:
             pass
+    llama = _llama_leftovers()
+    _terminate(llama, ' 推理子进程孤儿(llama/vLLM)')
 
-    ok = _stack_cleared() and _find_comfy_leftover() is None
+    ok = _stack_cleared() and _find_comfy_leftover() is None and not _llama_leftovers()
     print('✓ 兜底清理完成。' if ok else '✗ 清理后仍有残留，请检查任务管理器。')
     _report_others(others)
     return 0 if ok else 1

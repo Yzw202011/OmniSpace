@@ -79,7 +79,7 @@ def _online(r: Recorder, tc_id: str, name: str, prio: str, env: dict,
 def comic_001(c: Client, r: Recorder) -> None:
     env = c.post(f"{API}/comic/project/create",
                  {"name": f"测试项目_{uid()}", "template": "空白",
-                  "description": "x"})
+                  "description": "x", "project_type": "comic"})
     d = ok_data(env)
     assert d and d.get("project_id"), f"项目创建失败: {env}"
     lst = ok_data(c.get(f"{API}/comic/project/list"))
@@ -93,7 +93,8 @@ def comic_001(c: Client, r: Recorder) -> None:
 @case(MOD, "TC-FLOW-COMIC-002", "选择漫剧模板创建项目验证", "P1")
 def comic_002(c: Client, r: Recorder) -> None:
     env = c.post(f"{API}/comic/project/create",
-                 {"name": f"模板项目_{uid()}", "template": "comic_drama"})
+                 {"name": f"模板项目_{uid()}", "template": "comic_drama",
+                  "project_type": "comic"})
     d = ok_data(env)
     assert d and d.get("project_id"), f"模板创建失败: {env}"
     rows_env = c.get(f"{API}/manga/storyboard/{d['project_id']}")
@@ -105,9 +106,11 @@ def comic_002(c: Client, r: Recorder) -> None:
 @case(MOD, "TC-FLOW-COMIC-003", "项目名称重复异常处理验证", "P2")
 def comic_003(c: Client, r: Recorder) -> None:
     name = f"重名探测_{uid()}"
-    env1 = c.post(f"{API}/comic/project/create", {"name": name})
+    env1 = c.post(f"{API}/comic/project/create",
+                  {"name": name, "project_type": "comic"})
     assert env1.get("success"), f"首次创建失败: {env1}"
-    env2 = c.post(f"{API}/comic/project/create", {"name": name})
+    env2 = c.post(f"{API}/comic/project/create",
+                  {"name": name, "project_type": "comic"})
     if env2.get("success"):
         r.record("TC-FLOW-COMIC-003", "项目名称重复异常处理验证", "PASS", "P2",
                  "行为记录：同名项目允许创建（本地单用户场景项目以 id 区分，"
@@ -119,7 +122,8 @@ def comic_003(c: Client, r: Recorder) -> None:
 
 @case(MOD, "TC-FLOW-COMIC-004", "项目编辑/删除/切换管理验证", "P1")
 def comic_004(c: Client, r: Recorder) -> None:
-    env = c.post(f"{API}/comic/project/create", {"name": f"编辑探测_{uid()}"})
+    env = c.post(f"{API}/comic/project/create",
+                 {"name": f"编辑探测_{uid()}", "project_type": "comic"})
     pid = ok_data(env)["project_id"]
     new_name = f"已改名_{uid()}"
     env = c.put(f"{API}/comic/project/{pid}", {"name": new_name})

@@ -21,6 +21,7 @@ from ...config import (
 )
 from ...data.database import Database, get_db_safe, parse_json
 from ...data.models import (
+    _UNSAFE_NAME_PAT,
     AssetAdoptRequest,
     AssetBatchGenerateRequest,
     AssetBindRequest,
@@ -1144,6 +1145,14 @@ async def comic_asset_upload(project_id: str = Form(...),
     pid = (project_id or "").strip()
     if not pid:
         raise ApiError(40008, "缺少 project_id")
+    # 路径安全（审计 09-10 P1-A）：pid 直拼落盘目录且会经 _ensure_project
+    # 建项目行，与下方 name 同规矩拒路径元字符（另两处 pid 仅作 DB
+    # 查询键，不碰文件系统，无需消毒）
+    from ...data.models import _check_safe_name
+    try:
+        pid = _check_safe_name(pid)
+    except ValueError as exc:
+        raise ApiError(40010, f"project_id 不合法：{exc}") from None
     kind = (kind or "character").strip()
     if kind not in _ASSET_KIND_CONF:
         raise ApiError(40008, "kind 必须是 character/scene/prop",
@@ -1168,7 +1177,6 @@ async def comic_asset_upload(project_id: str = Form(...),
     asset_name = ((name or "").strip()[:100]
                   or Path(filename).stem[:100] or "未命名资产")
     # 路径安全（审计 P1-1 修复）：name 直拼落盘目录，拒路径元字符
-    from ...data.models import _check_safe_name
     try:
         asset_name = _check_safe_name(asset_name)
     except ValueError as exc:
@@ -1646,6 +1654,15 @@ def _infer_prog_finish(project_id: str, success: bool,
         st["percent"] = 100.0
 
 
+def _safe_entity_name(nm: str) -> str:
+    """实体名消毒（审计 09-10 P2-2）：分镜列/LLM 提取的实体名事后会
+    拼进落盘路径（_asset_dir_for/图替换/adopt copytree），与资产名同
+    规矩剔路径元字符；剔后为空或含「..」返回空串（调用方丢弃该实体，
+    不炸整次推理）。"""
+    cleaned = _UNSAFE_NAME_PAT.sub("", str(nm or "").strip()[:100])
+    return "" if not cleaned or ".." in cleaned else cleaned
+
+
 def _infer_entities_sync(project_id: str) -> dict:
     """infer-entities 同步主体（在线程池执行，持 dialog 锁期间调用）。
 
@@ -1710,6 +1727,13 @@ def _infer_entities_sync(project_id: str) -> dict:
             if any(names.values()):
                 _backfill_row_entities(db, rows, names)
                 wanted = {k: set(v) for k, v in names.items()}
+    # 审计 09-10 P2-2：两类来源（分镜列/LLM 提取）统一在此消毒，
+    # 下游 settings 字典键与入库名全部以消毒后为准；消毒后为空的
+    # 实体直接丢弃
+    for _kind in wanted:
+        wanted[_kind] = {
+            safe for raw_nm in wanted[_kind]
+            if (safe := _safe_entity_name(raw_nm))}
     existing = db.query(
         "SELECT kind, name FROM comic_assets WHERE project_id=?",
         (project_id,))

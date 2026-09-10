@@ -54,14 +54,16 @@ def check(case_id, resp, expect_success=True, expect_code=None):
 
 # 1.1 项目 CRUD
 r = call("POST", "/comic/project/create",
-         {"name": NAME_A, "template": "comic_drama"})
+         {"name": NAME_A, "template": "comic_drama",
+          "project_type": "comic"})
 check("COMIC-001/002 create+template", r)
 pid = (r.get("data") or {}).get("project_id", "")
 tpl_rows = len((r.get("data") or {}).get("rows", []))
 results.append(("COMIC-002 模板5行", "PASS" if tpl_rows == 5 else "FAIL",
                 f"rows={tpl_rows}"))
 
-r = call("POST", "/comic/project/create", {"name": NAME_A})
+r = call("POST", "/comic/project/create",
+         {"name": NAME_A, "project_type": "comic"})
 check("COMIC-003 重名", r, expect_code="COMIC_PROJECT_NAME_DUPLICATED")
 
 r = call("GET", "/comic/project/list")

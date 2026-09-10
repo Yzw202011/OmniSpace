@@ -66,7 +66,8 @@ def setup_data():
         info["project_id"] = hit["project_id"]
     else:
         r = api("POST", "/comic/project/create",
-                {"name": PROJECT_NAME, "template": "comic_drama"})
+                {"name": PROJECT_NAME, "template": "comic_drama",
+                 "project_type": "comic"})
         info["project_id"] = (r.get("data") or {}).get("project_id", "")
     rows = [dict(r) for r in SEED_ROWS]
     r = api("PUT", "/manga/storyboard/default", {"rows": rows})

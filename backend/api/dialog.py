@@ -1001,16 +1001,21 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
         watcher: asyncio.Task | None = None
         if request is not None:
             async def _watch_disconnect() -> None:
+                log.info("[P1-18] 断连监视器启动: %s", sid)
                 while True:
                     try:
-                        if await request.is_disconnected():
-                            loop.call_soon_threadsafe(
-                                queue.put_nowait, ("_client_gone", None))
-                            return
-                    except Exception:  # noqa: BLE001 - 探测失败按在连
+                        gone = await request.is_disconnected()
+                    except Exception as exc:  # noqa: BLE001 - 探测异常退出
+                        log.warning("[P1-18] 断连探测异常 %s: %s", sid, exc)
+                        return
+                    if gone:
+                        log.warning("[P1-18] 断连确认，停止推理: %s", sid)
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, ("_client_gone", None))
                         return
                     await asyncio.sleep(1.0)
             watcher = asyncio.create_task(_watch_disconnect())
+            log.debug("[P1-18] 监视任务已建: %s", sid)
 
         try:
             yield _sse({"session_id": sid})

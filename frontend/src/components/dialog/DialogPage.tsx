@@ -95,6 +95,26 @@ export default function DialogPage() {
   const generatingRef = useRef(generating);
   generatingRef.current = generating;
 
+  // UAT 2026-09-10 P1-18 前端兜底：uvicorn h11 下客户端 FIN 对服务端
+  // 不可探测（is_disconnected 轮询无效），页面关闭/隐藏时主动置停止
+  // 旗标（keepalive fetch 保证卸载期送达），后端 stop_check 即停推理
+  useEffect(() => {
+    const onHide = () => {
+      const st = useDialogStore.getState();
+      const sid = st.currentSession?.id;
+      if (sid && st.generating) {
+        void fetch('/api/v1/chat/stop', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sid }),
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  }, []);
+
   // 挂载时拉取会话列表
   useEffect(() => {
     if (!sessionsLoaded) {

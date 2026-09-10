@@ -46,10 +46,10 @@ export interface SessionListProps {
   loading?: boolean;
 }
 
-/** 格式化日期 M/D */
+/** 格式化日期 M/D（后端秒级时间戳，防秒被当毫秒——UAT 2026-09-10 1/22 日期 bug） */
 function formatDate(ts?: number): string {
   if (!ts) return '';
-  const d = new Date(ts);
+  const d = new Date(ts > 1e12 ? ts : ts * 1000);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 

@@ -107,6 +107,18 @@ class VramManager:
         """
         dev = GPU_PRIMARY_DEVICE if device is None else int(device)
         with self._lock:
+            # 审计 09-10 P1-20：同 key 重复登记按「替换」语义先扣旧值——
+            # 此前直接覆盖条目但总额照加，旧 size 永久泄漏在账本里
+            old = self._allocations.get(key)
+            if old is not None:
+                self._total_allocated_mb -= old.size_mb
+                self._device_allocated_mb[old.device] = max(
+                    0.0,
+                    self._device_allocated_mb.get(old.device, 0.0)
+                    - old.size_mb)
+                logger.warning(
+                    "VRAM 分配重复登记（按替换扣旧值）: %s 旧=%.1fMB 新=%.1fMB",
+                    key, old.size_mb, size_mb)
             self._allocations[key] = VramAllocation(
                 key=key, size_mb=size_mb, temporary=temporary, device=dev
             )

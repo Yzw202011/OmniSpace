@@ -265,3 +265,24 @@ def test_release_for_module_device_guard_sentinel() -> None:
     assert "target_device" in src, "release_for_module 未按卡释放"
     assert "_vllm_same_card" in src, "vLLM 按需终止缺异卡守卫"
     assert "_comfy_same_card" in src, "ComfyUI 按需终止缺异卡守卫"
+
+
+# ── 审计 09-10 P1-20：同 key 重复登记按替换语义净增减 ────────────────
+
+def test_vram_track_alloc_same_key_replaces_net() -> None:
+    """同 key 二次 track_alloc 先扣旧值再记新值——总额不虚增、释放归零。
+
+    旧病：覆盖条目但总额照加，track_free 只扣新值，旧 size 永久泄漏。
+    """
+    vm = VramManager()
+    vm._cuda_available = False
+    vm._vram_totals = {0: 16000.0}
+    vm._vram_total_mb = 16000.0
+    vm._device_allocated_mb = {}
+
+    vm.track_alloc("model_a", 5000.0, device=0)
+    assert vm.get_device_usage(0)["used_mb"] == pytest.approx(5000.0)
+    vm.track_alloc("model_a", 3000.0, device=0)  # 模型重载场景
+    assert vm.get_device_usage(0)["used_mb"] == pytest.approx(3000.0)
+    vm.track_free("model_a")
+    assert vm.get_device_usage(0)["used_mb"] == pytest.approx(0.0)

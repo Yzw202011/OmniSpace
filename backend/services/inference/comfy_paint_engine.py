@@ -261,7 +261,9 @@ class ComfyPaintEngine:
                         ref_names: list[str] | None,
                         filename_prefix: str,
                         pulid_image_name: str | None = None,
-                        ref_megapixels: list[float] | None = None) -> dict:
+                        ref_megapixels: list[float] | None = None,
+                        pulid_image_b_name: str | None = None,
+                        pulid_strength_b: float = 0.0) -> dict:
         """API 格式工作流（官方 Image Edit Klein 蓝图节点级还原）。
 
         参考图注入链（P1 多参考）：每图 LoadImage →
@@ -356,6 +358,27 @@ class ComfyPaintEngine:
                                      "face_analysis": ["pulid_face", 0],
                                      "image": ["pulid_scale", 0]}}
             model_src = ["pulid_apply", 0]
+        # 双 PuLID 级联（Step B PoC 2026-09-10）：第二身份 attention
+        # 注入——多人镜头 B 角色身份硬锁实验；链式 patch 语义未官方
+        # 背书，PoC 验证后决定是否转正（方案 docs/多角色一致性路由方案）
+        if pulid_image_b_name and pulid_strength_b > 0:
+            wf["pulid_load_b"] = {"class_type": "LoadImage", "inputs": {
+                "image": pulid_image_b_name}}
+            wf["pulid_scale_b"] = {"class_type": "ImageScaleToTotalPixels",
+                                   "inputs": {
+                                       "image": ["pulid_load_b", 0],
+                                       "upscale_method": "lanczos",
+                                       "megapixels": 0.26,
+                                       "resolution_steps": 1}}
+            wf["pulid_apply_b"] = {"class_type": "ApplyPuLIDFlux2",
+                                   "inputs": {
+                                       "model": model_src,
+                                       "pulid_model": ["pulid_model", 0],
+                                       "strength": pulid_strength_b,
+                                       "eva_clip": ["pulid_eva", 0],
+                                       "face_analysis": ["pulid_face", 0],
+                                       "image": ["pulid_scale_b", 0]}}
+            model_src = ["pulid_apply_b", 0]
 
         wf["pos"] = {"class_type": "CLIPTextEncode", "inputs": {
             "clip": clip_src, "text": prompt}}
@@ -423,7 +446,8 @@ class ComfyPaintEngine:
     def img2img(self, params: dict,
                 ref_image: Image.Image | list[Image.Image],
                 pulid_image: Image.Image | None = None,
-                ref_megapixels: list[float] | None = None) -> dict:
+                ref_megapixels: list[float] | None = None,
+                pulid_image_b: Image.Image | None = None) -> dict:
         """参考条件生图（ReferenceLatent 注入，非像素初始化 img2img）。
 
         ref_image: 构图/环境参考图（P1 多参考：传 PIL 图列表即多图
@@ -433,28 +457,34 @@ class ComfyPaintEngine:
         ref_megapixels: 逐图分辨率预算（D-2 2026-09-10：角色参考
         1.0MP 保一致性锚定力、场景/道具低档控 token 总量；不传则
         走 _ref_megapixels 均匀分档旧行为）。
+        pulid_image_b: 第二身份图（Step B PoC 2026-09-10 多角色双硬
+        锁实验，配合 params["pulid_strength_b"]）。
         """
         return self._run(params, ref_image, pulid_image,
-                         ref_megapixels=ref_megapixels)
+                         ref_megapixels=ref_megapixels,
+                         pulid_image_b=pulid_image_b)
 
     def _run(self, params: dict,
              ref_image: Image.Image | None,
              pulid_image: Image.Image | None = None,
-             ref_megapixels: list[float] | None = None) -> dict:
+             ref_megapixels: list[float] | None = None,
+             pulid_image_b: Image.Image | None = None) -> dict:
         # 生成期间标记忙碌：空闲自动关闭计时暂停（mark/mark_idle 配对）
         proc_mgr = get_comfy_proc()
         proc_mgr.mark_busy()
         try:
             with self._gen_lock:
                 return self._run_locked(params, ref_image, pulid_image,
-                                        ref_megapixels=ref_megapixels)
+                                        ref_megapixels=ref_megapixels,
+                                        pulid_image_b=pulid_image_b)
         finally:
             proc_mgr.mark_idle()
 
     def _run_locked(self, params: dict,
                     ref_image: Image.Image | None,
                     pulid_image: Image.Image | None = None,
-                    ref_megapixels: list[float] | None = None) -> dict:
+                    ref_megapixels: list[float] | None = None,
+                    pulid_image_b: Image.Image | None = None) -> dict:
         task_id = uuid.uuid4().hex[:12]
         t0 = time.perf_counter()
 
@@ -494,13 +524,28 @@ class ComfyPaintEngine:
             pulid_name = f"paint_pulid_{task_id}.png"
             _COMFY_INPUT.mkdir(parents=True, exist_ok=True)
             pulid_image.save(_COMFY_INPUT / pulid_name, format="PNG")
+        # 双 PuLID PoC（Step B）：第二身份图落盘
+        pulid_b_name: str | None = None
+        pulid_strength_b = float(params.get("pulid_strength_b") or 0.0)
+        if pulid_image_b is not None and pulid_strength_b > 0:
+            if not pulid_available():
+                raise ApiError(
+                    code=60003,
+                    message="PuLID 管线未就绪（节点/权重/antelopev2 缺失）",
+                    suggestion="确认 custom_nodes/ComfyUI-PuLID-Flux2 与 "
+                               "models/pulid、models/insightface 挂载完整")
+            pulid_b_name = f"paint_pulid_b_{task_id}.png"
+            _COMFY_INPUT.mkdir(parents=True, exist_ok=True)
+            pulid_image_b.save(_COMFY_INPUT / pulid_b_name, format="PNG")
 
         try:
             self._ensure_running()
             wf = self._build_workflow(params, ref_names,
                                       filename_prefix=f"paint/{task_id}",
                                       pulid_image_name=pulid_name,
-                                      ref_megapixels=ref_megapixels)
+                                      ref_megapixels=ref_megapixels,
+                                      pulid_image_b_name=pulid_b_name,
+                                      pulid_strength_b=pulid_strength_b)
             resp = self._api("POST", "/prompt",
                              body={"prompt": wf,
                                    "client_id": f"omnispace-{task_id}"},

@@ -1048,6 +1048,33 @@ def _shot_char_protocol(char_assets: list,
             "除这些角色外不得出现任何其他人物", chosen)
 
 
+def _comfy_ref_entries(shot_refs: list, pulid_img: bool,
+                       reflat_hint: str,
+                       multi_anchor: bool) -> tuple[list, list]:
+    """ComfyUI ReferenceLatent 参考装配（UAT 2026-09-10 多角色扩展）。
+
+    返回 (comfy_refs, comfy_mps)。规则：
+    - PuLID 激活 + reflat=off：全裸（身份归 PuLID attention，R2 裁定）；
+    - PuLID 激活（其余）：face 恒不入 latent（R5 面部复制病理：身份
+      归 PuLID 后 face 图再入 latent 致 2 脸复制/无人脸），character/
+      scene/prop 保留（角色 1.0MP=一致性锚定主力，D-2 逐图预算）；
+    - 无 PuLID + 多角色锚定（chars=2）：face 同样不入（单人 ECU 面部
+      图在多人镜头诱发复制病理），双角色立绘锚全保留进 latent 软锁；
+    - 无 PuLID 单角色：旧行为全量（face 入 latent 作唯一一致性通道）。
+    """
+    if pulid_img and reflat_hint == "off":
+        return [], []
+    drop_face = pulid_img or multi_anchor
+    entries = [e for e in shot_refs
+               if e.get("kind") != "lora"
+               and not (drop_face and e.get("kind") == "face")]
+    refs = [e["image"] for e in entries]
+    # D-2（2026-09-10）：逐图分辨率预算——角色参考 1.0MP（一致性
+    # 锚定主力，0.35MP 时全身图几乎无锚定力）；场景/道具走引擎均匀分档
+    mps = [1.0 if e.get("kind") == "character" else None for e in entries]
+    return refs, mps
+
+
 def _resolve_base_seed(db: Database, row_id: str, seed: int | None,
                        force_new_seed: bool) -> tuple[int, str]:
     """V37 seed 解析（方案A 固定兜底）：显式 seed > 沿用最近版本已存
@@ -1192,17 +1219,21 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         # PuLID attention 硬锁承载，参考 latent 不再承担身份职责。
         # auto 走 comfy 的条件（缺一回落 diffusers，诚实降级）：
         # ①未被 OMNI_KEYFRAME_PULID_AUTO=0 关闭 ②comfy 管线就绪
-        # ③PuLID 就绪 ④恰好绑定一个角色资产（多角色行单 ID 通道会
-        # 错锁身份——多角色走 diffusers 参考拼图 + P0-3 锚协议兜底）
+        # ③PuLID 就绪 ④绑定 1~2 个角色资产（UAT 2026-09-10 多角色扩展：
+        #   chars=2 走 comfy 多参考软锁——双角色立绘锚全量入 ReferenceLatent
+        #   + P0-3 锚协议，单 ID PuLID 仍仅单角色（错锁防护不变）；
+        #   chars≥3 参考稀释风险维持 diffusers）
         # ⑤该角色面部参考可加载（InsightFace 检测稳定的前提）
         use_comfy = engine_backend == "comfy"
         if engine_backend == "auto":
             use_comfy = (os.environ.get("OMNI_KEYFRAME_PULID_AUTO", "1") != "0"
                          and comfy_paint_available() and pulid_available()
-                         and len(char_assets) == 1
+                         and 1 <= len(char_assets) <= 2
                          and any(face_refs))
+            route_label = ("comfy+PuLID" if use_comfy and len(char_assets) == 1
+                           else "comfy+多参考" if use_comfy else "diffusers")
             log.info("引擎自动选路: %s（P0-1 PuLID 身份硬锁条件：%s%s%s%s%s）",
-                     "comfy+PuLID" if use_comfy else "diffusers",
+                     route_label,
                      f"env={'on' if os.environ.get('OMNI_KEYFRAME_PULID_AUTO', '1') != '0' else 'off'}",
                      f" comfy={comfy_paint_available()}",
                      f" pulid={pulid_available()}",
@@ -1383,26 +1414,10 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 # 描述词文本成唯一事实源（v82 shot4 商业街背景、
                 # R3 shot3 室内走廊两度复现，跨镜场景断裂）。off 仅
                 # 作显式回归口（全关）
-                if pulid_img:
-                    if reflat_hint == "off":
-                        comfy_refs: list = []
-                        comfy_mps: list = []
-                    else:
-                        comfy_refs = [e["image"] for e in shot_refs
-                                      if e.get("kind") not in ("face", "lora")]
-                        # D-2（2026-09-10）：逐图分辨率预算——角色
-                        # 参考 1.0MP（一致性锚定主力，0.35MP 时全身
-                        # 图几乎无锚定力）；场景/道具走引擎均匀分档
-                        comfy_mps = [
-                            1.0 if e.get("kind") == "character" else None
-                            for e in shot_refs
-                            if e.get("kind") not in ("face", "lora")]
-                else:
-                    comfy_refs = [e["image"] for e in shot_refs
-                                  if e.get("kind") != "lora"]
-                    comfy_mps = [
-                        1.0 if e.get("kind") == "character" else None
-                        for e in shot_refs if e.get("kind") != "lora"]
+                comfy_refs, comfy_mps = _comfy_ref_entries(
+                    shot_refs, pulid_img=bool(pulid_img),
+                    reflat_hint=reflat_hint,
+                    multi_anchor=len(char_assets) == 2)
                 # D-LoRA（2026-09-10）：角色 LoRA 在场 → 权重级身份硬锁，
                 # 底座切 klein-4b + 挂载工作流 LoRA；PuLID 置零（4B 上
                 # 未验证且身份已由 LoRA 承担）。LoRA 文件挂入 ComfyUI

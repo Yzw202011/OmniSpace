@@ -257,3 +257,27 @@ describe('getVideoDownloadUrl —— 下载地址拼装（纯函数）', () => {
     expect(url).toBe('/api/v1/manga/video/abc/download');
   });
 });
+
+describe('createProject —— project_type 必传回归（审计 09-10 P1-E/P2-9）', () => {
+  it('project_type 随请求体下发（comic 面）', async () => {
+    mockedPost.mockResolvedValue({ project_id: 'p1', name: 'n', rows: [] });
+
+    await mangaApi.createProject('n', 'comic');
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      '/comic/project/create',
+      expect.objectContaining({ project_type: 'comic' }),
+    );
+  });
+
+  it('project_type 随请求体下发（manga 面）', async () => {
+    mockedPost.mockResolvedValue({ project_id: 'p2', name: 'm', rows: [] });
+
+    await mangaApi.createProject('m', 'manga', 'comic_drama');
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      '/comic/project/create',
+      expect.objectContaining({ project_type: 'manga', template: 'comic_drama' }),
+    );
+  });
+});

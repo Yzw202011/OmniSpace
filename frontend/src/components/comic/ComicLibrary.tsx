@@ -6,7 +6,7 @@
  * 漫画页的分格由工作台「添加分格」自由创建（漫剧模板分镜不适用）。
  * ========================================================================== */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BookOpenText, Check, Palette, Plus, Trash2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import * as mangaApi from '@/services/mangaApi';
@@ -43,18 +43,23 @@ export default function ComicLibrary({ onOpen }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<ComicProject | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // 卸载防护（审计 09-10 P2-9）：卸载后不再 setState/toast
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   const loadProjects = () => {
     setLoadError(false);
     setLoading(true);
     mangaApi.listProjects('comic')
       .then((items) => {
+        if (!mountedRef.current) return;
         setProjects(items);
         setLoading(false);
       })
       .catch(() => {
         setLoading(false);
         setLoadError(true);
-        showToast('漫画作品列表加载失败', 'error');
+        if (mountedRef.current) showToast('漫画作品列表加载失败', 'error');
       });
   };
 

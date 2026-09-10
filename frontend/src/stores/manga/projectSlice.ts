@@ -26,8 +26,9 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
 
   createProject: async (name, projectType, template, workMode, artStyle) => {
     const res = await mangaApi.createProject(name, projectType, template, workMode, artStyle);
-    // 重新拉取列表（创建端点返回不含完整时间戳字段，以服务端为准）
-    const projects = await mangaApi.listProjects('manga');
+    // 重新拉取列表（创建端点返回不含完整时间戳字段，以服务端为准）；
+    // 按创建面拉取（审计 09-10 P2-6：曾硬编码 'manga'，comic 面创建会刷新错域）
+    const projects = await mangaApi.listProjects(projectType);
     set({ projects, projectsLoaded: true });
     return res.project_id;
   },

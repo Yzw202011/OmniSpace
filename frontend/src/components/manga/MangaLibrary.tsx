@@ -9,7 +9,7 @@
  * 契约：GET/POST /manga/projects、PUT rename、DELETE 删除（真实端点）
  * ========================================================================== */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Clapperboard, Film, FolderPlus, ListChecks, Palette, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -68,11 +68,15 @@ export default function MangaLibrary() {
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
 
+  // 卸载防护（审计 09-10 P2-9）：卸载后不再 toast
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   const loadProjects = () => {
     setLoadError(false);
     fetchProjects().catch(() => {
       setLoadError(true);
-      showToast('项目列表加载失败', 'error');
+      if (mountedRef.current) showToast('项目列表加载失败', 'error');
     });
   };
 
@@ -409,7 +413,9 @@ export default function MangaLibrary() {
                 className={`manga-cover-card${batchMode && checked ? ' selected' : ''}`}
                 onClick={() => (batchMode ? toggleSelect(p.project_id) : handleOpen(p))}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  // Space 与 Enter 同权（审计 09-10 P2-9，对齐 ComicLibrary）
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
                     if (batchMode) toggleSelect(p.project_id);
                     else handleOpen(p);
                   }
@@ -489,7 +495,7 @@ export default function MangaLibrary() {
                 placeholder="如：樱花学园 · 第一话"
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate();
+                  if (e.key === 'Enter') void handleCreate();
                 }}
               />
             </div>
@@ -666,7 +672,7 @@ export default function MangaLibrary() {
               <button type="button" className="btn btn-ghost" disabled={creating} onClick={() => setCreateOpen(false)}>
                 取消
               </button>
-              <button type="button" className="btn btn-primary" disabled={creating || !newName.trim()} onClick={handleCreate}>
+              <button type="button" className="btn btn-primary" disabled={creating || !newName.trim()} onClick={() => void handleCreate()}>
                 {creating ? '创建中…' : '创建并进入'}
               </button>
             </div>

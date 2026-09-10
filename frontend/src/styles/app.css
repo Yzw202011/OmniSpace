@@ -447,18 +447,18 @@ a:hover { text-decoration: underline; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn:not(:disabled):active { transform: scale(0.95); transition-duration: var(--duration-press); } /* 按钮点击缩放 0.95 / 100ms（§6.3.3） */
 
-/* 按钮-主要：背景 #FF6B9D，文字白色，圆角 8px，hover 加深 10% */
+/* 按钮-主要：背景 var(--color-primary-500)，文字白色，圆角 8px，hover 加深 10% */
 .btn-primary { background: var(--color-primary); color: #fff; border-radius: var(--radius-md); }
 .btn-primary:not(:disabled):hover { background: var(--color-primary-600); box-shadow: 0 4px 14px rgba(255, 107, 157, 0.35); }
 
-/* 按钮-次要：背景透明，边框 #4ECDC4，文字 #4ECDC4 */
+/* 按钮-次要：背景透明，边框 var(--color-info)，文字 var(--color-info) */
 .btn-secondary { background: transparent; color: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-md); }
 .btn-secondary:not(:disabled):hover { background: var(--color-accent-100); }
 
 .btn-ghost { background: transparent; color: var(--color-text-secondary); }
 .btn-ghost:not(:disabled):hover { background: var(--color-primary-50); color: var(--color-primary-300); }
 
-/* 按钮-危险：背景 #FF6B6B，文字白色 */
+/* 按钮-危险：背景 var(--color-error)，文字白色 */
 .btn-danger { background: var(--color-error); color: #fff; }
 .btn-danger:not(:disabled):hover { opacity: 0.88; }
 
@@ -476,7 +476,7 @@ a:hover { text-decoration: underline; }
 .icon-btn:hover { background: var(--color-primary-50); color: var(--color-primary); }
 .icon-btn.active { color: var(--color-primary); background: var(--color-primary-100); }
 
-/* ============================== 6. 输入控件（§6.3.2：背景 #0F3460 / 边框 #4ECDC4 30% / 圆角 6px） ============================== */
+/* ============================== 6. 输入控件（§6.3.2：背景 var(--color-input-bg) / 边框 var(--color-info) 30% / 圆角 6px） ============================== */
 .input {
   width: 100%;
   padding: var(--space-2) var(--space-4);
@@ -526,7 +526,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .form-label .form-value { font-family: var(--font-family-mono); font-size: var(--font-size-xs); color: var(--color-primary); }
 .form-hint { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-top: var(--space-1); }
 
-/* ============================== 7. 卡片（§6.3.2：背景 #16213E / 圆角 12px / 内边距 16px） ============================== */
+/* ============================== 7. 卡片（§6.3.2：背景 var(--color-card) / 圆角 12px / 内边距 16px） ============================== */
 .card {
   background: var(--color-card);
   border: 1px solid var(--color-border-light);
@@ -539,7 +539,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .card.hoverable:hover { transform: translateY(-2px); box-shadow: var(--shadow-card-hover); }
 .card-title { font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); margin-bottom: var(--space-3); }
 
-/* ============================== 8. 进度条（§6.3.2：背景 #0F3460，填充渐变 #FF6B9D→#4ECDC4） ============================== */
+/* ============================== 8. 进度条（§6.3.2：背景 var(--color-input-bg)，填充渐变 var(--color-primary-500)→var(--color-info)） ============================== */
 .progress { width: 100%; height: 8px; border-radius: var(--radius-full); background: var(--color-input-bg); overflow: hidden; }
 .progress-bar {
   height: 100%; border-radius: var(--radius-full);
@@ -573,7 +573,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .triposr-btn { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border: none; border-radius: var(--radius-md); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); cursor: pointer; transition: all var(--duration-hover) var(--ease-out); }
 .triposr-btn.is-available { background: var(--color-primary); color: #fff; }
 .triposr-btn.is-available:hover { background: var(--color-primary-600); }
-.triposr-btn.is-degraded { background: var(--color-warning); color: #1a1a2e; }
+.triposr-btn.is-degraded { background: var(--color-warning); color: var(--color-bg); }
 .triposr-btn.is-locked { background: var(--color-divider); color: var(--color-text-tertiary); cursor: not-allowed; }
 /* tooltip：锁定/降级原因提示 */
 .triposr-btn[data-tip]::after {
@@ -604,7 +604,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .toast.leaving { animation: toast-out var(--duration-modal-out) var(--ease-in) forwards; }
 @keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
 @keyframes toast-out { to { opacity: 0; transform: translateX(40px); } }
-/* level 着色：成功 #6BCB77 / 警告 #FFD93D / 错误 #FF6B6B / 信息 #4ECDC4 */
+/* level 着色：成功 var(--color-success) / 警告 var(--color-warning) / 错误 var(--color-error) / 信息 var(--color-info) */
 .toast.success { border-left-color: var(--color-success); }
 .toast.warning { border-left-color: var(--color-warning); }
 .toast.error { border-left-color: var(--color-error); }
@@ -615,7 +615,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .toast.error .toast-icon { color: var(--color-error); }
 .toast.info .toast-icon { color: var(--color-info); }
 
-/* ============================== 11. Modal 弹窗（背景 #16213E / 圆角 16px；缩放 0.9→1 + 淡入 250ms） ============================== */
+/* ============================== 11. Modal 弹窗（背景 var(--color-card) / 圆角 16px；缩放 0.9→1 + 淡入 250ms） ============================== */
 .modal-overlay {
   position: fixed; inset: 0; z-index: var(--z-modal);
   background: var(--color-overlay);
@@ -1788,7 +1788,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   position: absolute; top: 6px; left: 6px;
   padding: 1px 6px; border-radius: 999px;
   font-size: 10px; line-height: 1.4; color: #fff;
-  background: linear-gradient(135deg, #ff6b9d, #ff9e6d);
+  background: linear-gradient(135deg, var(--color-primary-500), #ff9e6d);
 }
 .manga-style-card .style-del {
   position: absolute; top: 6px; right: 32px;

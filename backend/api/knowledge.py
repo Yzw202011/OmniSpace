@@ -248,13 +248,16 @@ async def knowledge_import_document(file: UploadFile = File(...),
     try:
         items = svc.process_page(text, topic.strip(),
                                  source_url=source_url or file.filename)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ApiError("KNOWLEDGE_PROCESS_FAILED", "知识处理失败",
                        detail={"error": str(exc)}) from exc
+    _msg = (f"已提取 {len(items)} 个知识点" if items else
+            "已提取 0 个知识点（可能原因：对话模型未就绪导致提取为空，"
+            "或内容被入库质检过滤；请确认对话模型已加载后重试）")
     return ok({"filename": file.filename, "topic": topic.strip(),
                "extracted": len(items),
                "items": [k.to_dict() for k in items]},
-              message=f"已提取 {len(items)} 个知识点")
+              message=_msg)
 
 
 @router.post("/knowledge/process-text")
@@ -268,12 +271,15 @@ def knowledge_process_text(req: ProcessTextRequest) -> dict[str, Any]:
     try:
         items = svc.process_page(req.content, req.topic.strip(),
                                  source_url=req.source_url or None)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ApiError("KNOWLEDGE_PROCESS_FAILED", "知识处理失败",
                        detail={"error": str(exc)}) from exc
+    _msg = (f"已提取 {len(items)} 个知识点" if items else
+            "已提取 0 个知识点（可能原因：对话模型未就绪导致提取为空，"
+            "或内容被入库质检过滤；请确认对话模型已加载后重试）")
     return ok({"topic": req.topic.strip(), "extracted": len(items),
                "items": [k.to_dict() for k in items]},
-              message=f"已提取 {len(items)} 个知识点")
+              message=_msg)
 
 
 # ═══════════════════════════════════════════════════════════════════

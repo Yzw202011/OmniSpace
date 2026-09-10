@@ -100,16 +100,26 @@ src/stores/：
 
 **已整链路移除（2026-08-29 用户裁定）**：`src/three/` 六件套、`components/manga/DirectorStage.tsx`、3D 路由与后端 director 路由均不存在；前端零 three import（package.json/vite.config 的 three 残留已于 2026-09-03 清除）。未来若重启 3D 能力，属技术栈变更，须先立 ADR 再动工。
 
-### 2.5 CSS 变量体系（已落地，权威源 tokens.css）
+### 2.5 CSS 变量体系（已落地；2026-09-10 修订：承认主题族定义点）
 
 ```css
-/* 禁止硬编码，MUST使用变量 —— frontend/src/styles/tokens.css 为唯一权威 */
+/* 禁止硬编码，MUST使用变量 */
+/* 令牌「名字」与缺省族（Sakura）「值」的权威源 = frontend/src/styles/tokens.css */
 --color-primary: #FF6B9D;      /* Sakura 樱花粉主色 */
 --color-accent: #4ECDC4;       /* 薄荷绿 */
 --color-bg: #1A1A2E;  --color-card: #16213E;  --color-input-bg: #0F3460;
 --color-success: #6BCB77;  --color-warning: #FFD93D;  --color-error: #FF6B6B;
 /* 亮色主题经 [data-theme="light"] 切换；sakura-*/mint-* 色阶见 sakura-theme.css @theme */
 ```
+
+**主题族定义点豁免（2026-09-10 用户拍板，P2-7 裁定）**：产品支持多主题族
+（`<html data-family="tech|sakura">`，useAppStore 写入）——各主题族文件
+（tech-theme.css / sakura.css / noir.css / dazzle.css / tech-fx.css 等）
+**允许在自己的 `data-family` 作用域选择器下重定义 `--color-*` 的值**
+（同名令牌换值=CSS 主题标准机制）；令牌**命名**仍以 tokens.css 为准，
+新增令牌必须登记在 tokens.css。豁免仅限上述主题族定义文件——其余任何
+文件（组件 tsx 内联、app.css、工具样式）硬编码 hex/rgb 仍然违规
+（P2-8 存量清理中）。
 
 ### 2.6 前端禁止项（保留有效）
 

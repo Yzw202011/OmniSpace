@@ -583,6 +583,57 @@ class PaintEngine(BaseEngine):
         流程: 选模型 → 显存预检（不足尝试腾挪）→ diffusers 加载 →
         cpu offload / vae slicing 显存保护。失败收敛为状态，不抛异常。
         """
+        # —— 引擎锁外段（审计 P1-3 腾挪外提）：依赖探测/选模型/显存
+        # 腾挪。check_vram 腾挪会经 mgr 卸载对话引擎（要 dialog._lock），
+        # 持本引擎锁跨引擎等锁是互卸 ABBA 环的画侧一边（锁序宣言见
+        # model_manager 模块头）。锁内只做二次复核/状态交换/真装载。
+        torch = _try_import("torch")
+        diffusers = _try_import("diffusers")
+        if torch is None or diffusers is None:
+            with self._lock:
+                self._last_error = "torch/diffusers 依赖不可用"
+                self._state = "unavailable"
+            logger.warning("绘画引擎不可用: %s", self._last_error)
+            return False
+
+        pick = self._pick_model(model_id)
+        if pick is None:
+            with self._lock:
+                self._last_error = (f"绘画模型未找到: {model_id or 'sdxl-base-1.0'}"
+                                    "（models/paint/），请先下载模型")
+                self._state = "unavailable"
+            logger.warning(self._last_error)
+            return False
+        mid, path, required_gb = pick
+
+        if not torch.cuda.is_available():
+            with self._lock:
+                self._last_error = "未检测到 CUDA GPU，无法加载绘画模型"
+                self._state = "error"
+            logger.warning(self._last_error)
+            return False
+
+        ok_vram, free_gb = self.check_vram(required_gb)
+        low_vram_mode = False
+        if not ok_vram:
+            # 显存不满足理想值时，若仍有 ≥4GB 空闲，允许以
+            # sequential_cpu_offload 降级加载（速度换可用性）。
+            if free_gb >= LOW_VRAM_FALLBACK_GB:
+                low_vram_mode = True
+                logger.info(
+                    "显存偏紧（空闲 %.1fGB < 理想 %.0fGB），"
+                    "使用 sequential_cpu_offload 低显存模式加载",
+                    free_gb, required_gb)
+            else:
+                with self._lock:
+                    self._last_error = (
+                        f"显存不足：空闲 {free_gb:.1f}GB，需求约 {required_gb:.0f}GB"
+                    )
+                    self._state = "error"
+                logger.warning(self._last_error)
+                return False
+
+        # —— 引擎锁内段：二次复核 + 底座切换复位 + 真装载 ————
         with self._lock:
             if self._state == "ready":
                 target = self._pick_model(model_id)
@@ -594,8 +645,9 @@ class PaintEngine(BaseEngine):
                     return True
                 if target[0] == self._model_id:
                     return True
-                # 底座切换（sdxl ↔ flux2-klein-4b）：先释放当前管线腾显存
-                # （单管线引擎无法双底座驻留；重入锁内就地卸载，不再取锁）
+                # 锁外窗口期目标可能被并发 load_model 改动 → 以锁内
+                # 重选为准（二次复核），换底座仍需先复位旧管线
+                mid, path, required_gb = target
                 logger.info("绘画底座切换: %s -> %s", self._model_id, target[0])
                 self._pipe = None
                 self._pipe_i2i = None
@@ -605,49 +657,6 @@ class PaintEngine(BaseEngine):
                 self._state = "unloaded"
                 self._reset_lora_state()
                 _release_cuda_memory()
-
-            torch = _try_import("torch")
-            diffusers = _try_import("diffusers")
-            if torch is None or diffusers is None:
-                self._last_error = "torch/diffusers 依赖不可用"
-                self._state = "unavailable"
-                logger.warning("绘画引擎不可用: %s", self._last_error)
-                return False
-
-            pick = self._pick_model(model_id)
-            if pick is None:
-                self._last_error = (f"绘画模型未找到: {model_id or 'sdxl-base-1.0'}"
-                                    "（models/paint/），请先下载模型")
-                self._state = "unavailable"
-                logger.warning(self._last_error)
-                return False
-
-            mid, path, required_gb = pick
-
-            if not torch.cuda.is_available():
-                self._last_error = "未检测到 CUDA GPU，无法加载绘画模型"
-                self._state = "error"
-                logger.warning(self._last_error)
-                return False
-
-            ok_vram, free_gb = self.check_vram(required_gb)
-            low_vram_mode = False
-            if not ok_vram:
-                # 显存不满足理想值时，若仍有 ≥4GB 空闲，允许以
-                # sequential_cpu_offload 降级加载（速度换可用性）。
-                if free_gb >= LOW_VRAM_FALLBACK_GB:
-                    low_vram_mode = True
-                    logger.info(
-                        "显存偏紧（空闲 %.1fGB < 理想 %.0fGB），"
-                        "使用 sequential_cpu_offload 低显存模式加载",
-                        free_gb, required_gb)
-                else:
-                    self._last_error = (
-                        f"显存不足：空闲 {free_gb:.1f}GB，需求约 {required_gb:.0f}GB"
-                    )
-                    self._state = "error"
-                    logger.warning(self._last_error)
-                    return False
 
             try:
                 logger.info("开始加载绘画模型 %s <- %s", mid, path)

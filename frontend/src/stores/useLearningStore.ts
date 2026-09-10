@@ -107,6 +107,7 @@ export interface LearningState {
   fetchKnowledgeStats: () => Promise<void>;
   fetchKnowledge: (page?: number, query?: string) => Promise<void>;
   deleteKnowledge: (id: string) => Promise<void>;
+  batchDeleteKnowledge: (ids: string[]) => Promise<{ deleted: number; missing: string[] }>;
   importDocument: (file: File) => Promise<boolean>;
   fetchKnowledgeGraph: (kid?: string) => Promise<void>;
 
@@ -321,6 +322,20 @@ export const useLearningStore = create<LearningState>((set, get) => ({
       await Promise.all([get().fetchKnowledge(), get().fetchKnowledgeStats()]);
     } catch {
       useAppStore.getState().showToast('删除失败', 'error');
+    }
+  },
+
+  batchDeleteKnowledge: async (ids) => {
+    try {
+      const res = await learningApi.batchDeleteKnowledge(ids);
+      useAppStore.getState().showToast(
+        `已删除 ${res.deleted} 条知识${res.missing.length ? `（${res.missing.length} 条不存在）` : ''}`,
+        'success');
+      await Promise.all([get().fetchKnowledge(), get().fetchKnowledgeStats()]);
+      return res;
+    } catch {
+      useAppStore.getState().showToast('批量删除失败', 'error');
+      return { deleted: 0, missing: ids };
     }
   },
 

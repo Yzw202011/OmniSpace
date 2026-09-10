@@ -345,6 +345,14 @@ export function deleteKnowledge(id: string) {
   return del<void>(`/knowledge/${id}`);
 }
 
+/** 批量删除知识条目（UAT 2026-09-10 4-6 缺口补齐；契约端点单次上限 500） */
+export function batchDeleteKnowledge(ids: string[]) {
+  return request<{ deleted: number; missing: string[] }>(
+    '/learn/knowledge/delete',
+    { method: 'DELETE', body: { ids } },
+  );
+}
+
 /** 知识图谱（TASK-055）：kid 为空返回全局图谱 */
 export function getKnowledgeGraph(kid?: string, maxNodes?: number) {
   return get<KnowledgeGraph>('/knowledge/graph', {
@@ -420,6 +428,7 @@ export default {
   listKnowledge,
   getKnowledge,
   deleteKnowledge,
+  batchDeleteKnowledge,
   getKnowledgeGraph,
   importDocument,
   postBehaviorEvent,

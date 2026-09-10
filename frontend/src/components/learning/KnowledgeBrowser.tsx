@@ -26,6 +26,7 @@ export const KnowledgeBrowser: React.FC = () => {
   const fetchKnowledgeStats = useLearningStore((s) => s.fetchKnowledgeStats);
   const fetchKnowledge = useLearningStore((s) => s.fetchKnowledge);
   const deleteKnowledge = useLearningStore((s) => s.deleteKnowledge);
+  const batchDeleteKnowledge = useLearningStore((s) => s.batchDeleteKnowledge);
   const fetchKnowledgeGraph = useLearningStore((s) => s.fetchKnowledgeGraph);
 
   const [keyword, setKeyword] = useState('');
@@ -33,6 +34,11 @@ export const KnowledgeBrowser: React.FC = () => {
   /** 待二次确认删除的条目 id（首次点击进入确认态，超时自动恢复） */
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const confirmTimer = useRef<number | null>(null);
+  // 批量管理（UAT 2026-09-10 4-6 缺口补齐）：勾选集 + 两段式确认
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBatch, setConfirmBatch] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -68,6 +74,34 @@ export const KnowledgeBrowser: React.FC = () => {
     }
     setConfirmDeleteId(id);
     confirmTimer.current = window.setTimeout(() => setConfirmDeleteId(null), CONFIRM_TIMEOUT);
+  };
+
+  /** 批量管理（UAT 2026-09-10 4-6）：勾选→删除选中（两段确认） */
+  const toggleBatch = () => {
+    setBatchMode((v) => !v);
+    setSelectedIds(new Set());
+    setConfirmBatch(false);
+  };
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
+  const handleBatchDelete = async () => {
+    if (!confirmBatch) { setConfirmBatch(true); return; }
+    if (selectedIds.size === 0 || batchDeleting) return;
+    setBatchDeleting(true);
+    try {
+      await batchDeleteKnowledge([...selectedIds]);
+      setSelectedIds(new Set());
+      setConfirmBatch(false);
+      if (selectedIds.size >= items.length) setBatchMode(false);
+    } finally {
+      setBatchDeleting(false);
+    }
   };
 
   return (
@@ -115,7 +149,44 @@ export const KnowledgeBrowser: React.FC = () => {
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
             />
             <button className="btn btn-secondary btn-sm" onClick={handleSearch}><Search size={14} aria-hidden="true" /> 搜索</button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => toggleBatch()}
+            >
+              {batchMode ? '退出批量管理' : '批量管理'}
+            </button>
           </div>
+
+          {/* 批量管理工具条（UAT 2026-09-10 4-6） */}
+          {batchMode && (
+            <div className="flex items-center justify-between mb-3" style={{
+              padding: 'var(--space-2) var(--space-3)',
+              border: '1px solid var(--color-border-light)',
+              borderRadius: 'var(--radius-lg)',
+            }}>
+              <span className="text-secondary text-sm">
+                已选 {selectedIds.size} / {items.length} 条（勾选仅作用当前页）
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setSelectedIds(new Set(items.map((it) => it.id)))}
+                >
+                  全选本页
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>
+                  清空选择
+                </button>
+                <button
+                  className={`btn btn-sm ${confirmBatch ? 'btn-secondary' : 'btn-primary'}`}
+                  disabled={selectedIds.size === 0 || batchDeleting}
+                  onClick={() => void handleBatchDelete()}
+                >
+                  {batchDeleting ? '删除中…' : confirmBatch ? `确认删除 ${selectedIds.size} 条` : '删除选中'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 列表 */}
           {items.length === 0 ? (
@@ -134,6 +205,15 @@ export const KnowledgeBrowser: React.FC = () => {
                     borderRadius: 'var(--radius-lg)',
                   }}
                 >
+                  {/* 批量勾选（UAT 2026-09-10 4-6） */}
+                  {batchMode && (
+                    <input
+                      type="checkbox"
+                      aria-label={`选中 ${item.title || truncate(item.content, 20)}`}
+                      checked={selectedIds.has(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                    />
+                  )}
                   <div className="flex-1" style={{ minWidth: 0 }}>
                     <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>
                       {item.title || truncate(item.content, 40) || '（无标题）'}

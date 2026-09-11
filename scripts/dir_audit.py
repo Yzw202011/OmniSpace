@@ -58,6 +58,9 @@ DIR_WHITELIST = {
     # 09-08 升级机制批1：升级独立执行器（stdlib-only，随包出厂，
     # 方案=docs/升级机制方案-2026-09-08.md）
     "updater",
+    # 09-11 升级机制批2：用户拖升级包的指定目录（运行时生成，payload
+    # 禁触区=升级自愈工作区；方案 §2.1）
+    "updates",
     # 资产与运行时（非 git）；根 ffmpeg/ 空壳已删（真身 runtime/ffmpeg，09-02）
     "models", "runtime", "pydeps", "keys", "data", "logs",
     # 09-02 规则：发行产物一律住 D:\ccd，开发目录出现 dist_out 即告警

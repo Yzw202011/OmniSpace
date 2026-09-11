@@ -527,8 +527,17 @@ export const LogsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 事件列表 */}
-          <div className="mt-3">
+          {/* 事件列表（限高+竖向滚动条：200 条卡片全铺开曾把页面撑到
+              近 2 万像素，统计/筛选区被推离视野——2026-09-12 用户反馈） */}
+          <div
+            className="mt-3"
+            style={{
+              maxHeight: '68vh',
+              overflowY: 'auto',
+              paddingRight: 4,
+              scrollbarGutter: 'stable',
+            }}
+          >
             <div className="text-tertiary mb-2" style={{ fontSize: 'var(--font-size-xs)' }}>
               共 {total} 条事件（新 → 旧，最多展示 200 条）
             </div>

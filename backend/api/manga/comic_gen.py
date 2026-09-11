@@ -1228,7 +1228,7 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
             "kind": "character", "name": req.name, "file_path": rel_path,
             "views": views,
             "consistency": gen["consistency"],
-            "view_errors": gen["view_errors"] or None,
+            "view_errors": gen.get("view_errors") or None,
             "pipeline": gen["pipeline"],
             "onepass": gen["pipeline"] == "onepass",
             "degraded": gen["pipeline"] != "onepass",

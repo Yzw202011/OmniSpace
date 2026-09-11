@@ -207,6 +207,29 @@ _PASSIVE_SEARCH_BUDGET_S = 25.0  # 快速搜索总时间预算（秒）
 # 如实报错建议稍后再试）
 _DIALOG_QUEUE_WAIT_S = 300.0
 
+# 排队位次登记表（A6 决策#8 位次广播，2026-09-12）：sid → 进入排队
+# monotonic。位次 = 1 + 更早等待者数（信息性；锁释放由 asyncio 竞争决定）。
+_DIALOG_LOCK_WAITERS: dict[str, float] = {}
+_QUEUEABLE_BLOCKERS = ("paint", "video_gen", "training")
+_BLOCKER_ZH = {"paint": "AI绘画", "video_gen": "视频生成", "training": "训练"}
+
+
+def _dialog_queue_position(sid: str) -> int:
+    mine = _DIALOG_LOCK_WAITERS.get(sid)
+    if mine is None:
+        return 1
+    return 1 + sum(1 for t in _DIALOG_LOCK_WAITERS.values() if t < mine)
+
+
+def _dialog_queue_enter(sid: str) -> int:
+    now = time.monotonic()
+    _DIALOG_LOCK_WAITERS[sid] = now
+    return _dialog_queue_position(sid)
+
+
+def _dialog_queue_exit(sid: str) -> None:
+    _DIALOG_LOCK_WAITERS.pop(sid, None)
+
 # 轻量关键词提取的停用片段（无 jieba 依赖，面向疑问句去噪）
 _STOP_PHRASES = (
     "请问", "告诉我", "帮我", "我想知道", "你知道吗", "是什么", "什么是",
@@ -761,7 +784,46 @@ async def dialog_send(request: Request,
     images = _decode_images(body.get("images") or body.get("attachments"))
 
     engine = get_dialog_engine()
-    lock = await acquire_or_raise("dialog", task_id=sid)
+    lock = None
+    try:
+        lock = await acquire_or_raise("dialog", task_id=sid)
+    except ApiError as exc:
+        # A6 对话排队（决策#8=A）：主路径（SSE/REST）与 WS 路径同款
+        # 有界排队——被绘画/视频/训练持锁时不再秒拒。排队阶段发生在
+        # SSE 响应头之前，客户端表现为连接等待（前端 loading 占位）。
+        from ..middleware.feature_lock import get_feature_lock
+        blocker = get_feature_lock().active_feature
+        if exc.code not in (40007, "FEATURE_MUTEX_LOCKED") \
+                or blocker not in _QUEUEABLE_BLOCKERS:
+            raise  # 热保护/未知互斥方：秒拒（等待无意义）
+        blocker_zh = _BLOCKER_ZH.get(blocker, "其他AI功能")
+        pos = _dialog_queue_enter(sid)
+        log.info("对话进入排队等待：blocker=%s sid=%s 位次=%s",
+                 blocker, sid, pos)
+        _deadline = time.monotonic() + _DIALOG_QUEUE_WAIT_S
+        try:
+            while True:
+                if request is not None:
+                    try:
+                        if await request.is_disconnected():
+                            raise ApiError("FRONTEND_REQUEST_ABORTED",
+                                           "请求已取消（页面关闭或停止）")
+                    except Exception:  # noqa: BLE001 - 探测失败不放弃排队
+                        pass
+                try:
+                    lock = await acquire_or_raise("dialog", task_id=sid)
+                    break
+                except ApiError:
+                    if time.monotonic() >= _deadline:
+                        raise ApiError(
+                            "FEATURE_MUTEX_LOCKED",
+                            f"排队超时（{_DIALOG_QUEUE_WAIT_S:.0f} 秒）："
+                            f"{blocker_zh} 仍在进行中",
+                            suggestion=f"等 {blocker_zh} 结束后再发消息，"
+                                       "或先停止它") from None
+                    await asyncio.sleep(2.0)
+        finally:
+            _dialog_queue_exit(sid)
     lock_handed_off = False  # 流式路径下锁移交给 SSE 生成器
     # 执行流程追踪（2026-08-23）：触发=用户发送消息，节点链
     # 模型加载→上下文组装→流式/一次性生成→消息落库
@@ -852,8 +914,6 @@ async def dialog_send(request: Request,
                 messages, images, refs,
                 temperature, max_new_tokens, max_ctx, thinking, flow,
                 web_refs=web_refs, request=request)
-            lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
-            return resp
             lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
             return resp
 
@@ -1827,30 +1887,37 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             await _ws_send_error(websocket, exc.code, exc.message)
             return
         log.info("对话进入排队等待：blocker=%s sid=%s", _blocker, sid)
+        _pos = _dialog_queue_enter(sid)
         _deadline = time.monotonic() + _DIALOG_QUEUE_WAIT_S
         _waited = 0
         while True:
             _waited = int(_DIALOG_QUEUE_WAIT_S - (_deadline - time.monotonic()))
+            _pos = _dialog_queue_position(sid)
             try:
                 await websocket.send_json({
                     "type": "status",
                     "data": {
                         "phase": "queued",
                         "blocking": _blocker,
+                        "position": _pos,
                         "waited_s": max(0, _waited),
                         "message": f"排队中：{_blocker_zh}进行中，"
+                                   f"你排在第 {_pos} 位，"
                                    f"结束后自动继续"
                                    f"（已等待 {max(0, _waited)} 秒，"
                                    "可点停止退出排队）",
                     },
                 })
             except Exception:  # noqa: BLE001 - WS 断开即退出排队
+                _dialog_queue_exit(sid)
                 return
             try:
                 lock = await acquire_or_raise("dialog", task_id=sid)
+                _dialog_queue_exit(sid)
                 break
             except ApiError as retry_exc:
                 if time.monotonic() >= _deadline:
+                    _dialog_queue_exit(sid)
                     await _ws_send_error(
                         websocket, retry_exc.code,
                         f"排队超时（{_DIALOG_QUEUE_WAIT_S:.0f} 秒）："

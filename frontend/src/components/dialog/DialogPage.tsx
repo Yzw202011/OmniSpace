@@ -17,6 +17,7 @@ import type { ChatSession } from './SessionList';
 import type { ChatMessage } from './MessageBubble';
 import { useDialogStore } from '@/stores/useDialogStore';
 import { useAppStore } from '@/stores/useAppStore';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { prewarmModel, rateMessage } from '@/services/dialogApi';
 import type { DialogSession, DialogMessage } from '@/types';
@@ -317,28 +318,31 @@ export default function DialogPage() {
   );
 
   return (
-    <DialogView
-      sessions={mappedSessions}
-      activeSessionId={currentSession?.id ?? null}
-      messages={mappedMessages}
-      generating={generating}
-      sessionsLoading={!sessionsLoaded}
-      onSelectSession={handleSelectSession}
-      onCreateSession={handleCreateSession}
-      onEnsureSession={handleEnsureSession}
-      onDeleteSession={handleDeleteSession}
-      onBatchDeleteSessions={handleBatchDeleteSessions}
-      onRenameSession={handleRenameSession}
-      onTogglePinSession={handleTogglePinSession}
-      onSearchSessions={handleSearchSessions}
-      quoteRequest={quoteRequest}
-      onSend={handleSend}
-      onStop={handleStop}
-      onCopy={handleCopyMessage}
-      onQuote={handleQuoteMessage}
-      onRegenerate={handleRegenerate}
-      onRate={handleRateMessage}
-      modelSupportsVision={modelSupportsVision}
-    />
+    <>
+      <ModuleGuide moduleKey="chat" />
+      <DialogView
+        sessions={mappedSessions}
+        activeSessionId={currentSession?.id ?? null}
+        messages={mappedMessages}
+        generating={generating}
+        sessionsLoading={!sessionsLoaded}
+        onSelectSession={handleSelectSession}
+        onCreateSession={handleCreateSession}
+        onEnsureSession={handleEnsureSession}
+        onDeleteSession={handleDeleteSession}
+        onBatchDeleteSessions={handleBatchDeleteSessions}
+        onRenameSession={handleRenameSession}
+        onTogglePinSession={handleTogglePinSession}
+        onSearchSessions={handleSearchSessions}
+        quoteRequest={quoteRequest}
+        onSend={handleSend}
+        onStop={handleStop}
+        onCopy={handleCopyMessage}
+        onQuote={handleQuoteMessage}
+        onRegenerate={handleRegenerate}
+        onRate={handleRateMessage}
+        modelSupportsVision={modelSupportsVision}
+      />
+    </>
   );
 }

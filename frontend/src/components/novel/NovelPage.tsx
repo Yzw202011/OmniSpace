@@ -34,6 +34,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useNovelStore } from '@/stores/useNovelStore';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import type {
   NovelChapter,
   NovelForeshadow,
@@ -90,7 +91,9 @@ export const NovelPage: React.FC = () => {
   }, [fetchProjects]);
 
   return (
-    <div className="page">
+    <>
+      <ModuleGuide moduleKey="novel" />
+      <div className="page">
       <h1 className="page-title">
         <Feather size={20} aria-hidden="true" /> 写作台
       </h1>
@@ -116,7 +119,8 @@ export const NovelPage: React.FC = () => {
       )}
 
       {project ? <NovelWorkspace /> : <ProjectLibrary />}
-    </div>
+      </div>
+    </>
   );
 };
 

@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 import type { ComicProject } from '@/types';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import ComicLibrary from './ComicLibrary';
 import ComicWorkspace from './ComicWorkspace';
 
@@ -28,8 +29,11 @@ export default function ComicPage() {
     );
   }
   return (
-    <ComicLibrary
-      onOpen={(p) => setProject(p)}
-    />
+    <>
+      <ModuleGuide moduleKey="comic" />
+      <ComicLibrary
+        onOpen={(p) => setProject(p)}
+      />
+    </>
   );
 }

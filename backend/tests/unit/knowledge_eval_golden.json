@@ -1,0 +1,26 @@
+{
+  "desc": "检索质量评测金标集（知识学习升级方案 批4；2026-09-11 由真实库行为推导并逐条目验）",
+  "notes": "expect=命中条目内容须含的标记词；null=负例（库外/离题 query，期望零命中）",
+  "cases": [
+    {"query": "短剧一集要写多少字", "expect": "300-800"},
+    {"query": "怎么写短剧剧本", "expect": "短剧"},
+    {"query": "什么是反转设计", "expect": "反转"},
+    {"query": "台词怎么写才有张力", "expect": "台词"},
+    {"query": "女主角人设怎么立", "expect": ["女主", "女性", "角色"]},
+    {"query": "如何设计打脸情节", "expect": "打脸"},
+    {"query": "剧本格式是什么样的", "expect": "格式"},
+    {"query": "短剧选题怎么选", "expect": "题材"},
+    {"query": "霸总剧怎么写出新意", "expect": "霸总"},
+    {"query": "分集大纲怎么拆", "expect": "大纲"},
+    {"query": "付费卡点放在第几集", "expect": "卡点"},
+    {"query": "短剧行业门槛高吗", "expect": "门槛"},
+    {"query": "穿越剧情怎么写", "expect": "穿越"},
+    {"query": "甜宠剧女主角设定", "expect": "女主"},
+    {"query": "10个月宝宝喝多少奶粉", "expect": null},
+    {"query": "眼镜王蛇有多大", "expect": null},
+    {"query": "减肥进ICU的案例", "expect": null},
+    {"query": "黄金三秒原则", "expect": null},
+    {"query": "伏笔怎么埋", "expect": null},
+    {"query": "今天天气怎么样", "expect": null}
+  ]
+}

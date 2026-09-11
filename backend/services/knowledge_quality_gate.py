@@ -17,20 +17,30 @@ from __future__ import annotations
 import re
 
 _NAV_RESIDUE_RE = re.compile(
-    r"播放正片|滑动查看更多|提示：\s*\d+\s*号|红果短剧官方|全\d+集",
+    r"播放正片|滑动查看更多|提示：\s*\d+\s*号|红果短剧官方|全\d+集"
+    r"|跳转到主要内容|数字版权由|剧迷留言|发布留言|随机文章",
     re.IGNORECASE)
 _PAGE_NUMBER_LINE_RE = re.compile(r"^(?:\d{1,3}\s*号?[\s,，、]*){3,}$")
+#: 图书/商品页元数据残渣：上架时间+出版社 同现才判（单现不判，防误杀）
+_PRODUCT_META_RE = re.compile(r"上架时间[\s\S]{0,40}出版社")
 _QUESTION_TAIL = ("？", "?")
 _QUESTION_WORDS = ("是什么", "为什么", "如何", "哪些", "什么样", "谁", "吗",
                    "多少", "怎么")
 
 
 def is_crawler_noise(content: str) -> bool:
-    """爬虫导航残渣/页码列表。"""
+    """爬虫导航残渣/页码列表。
+
+    2026-09-11 批1 存量清洗实证反哺（14 条实锤脏数据的特征回流）：
+    跳转到主要内容/数字版权由/剧迷留言/发布留言/随机文章。
+    「立即播放」**不**入册——真实语料中存在含播放页残留片段的
+    有效剧情概要（误杀风险），靠入库侧来源清洗而非整条拒绝。"""
     c = (content or "").strip()
     if not c:
         return False
     if _NAV_RESIDUE_RE.search(c):
+        return True
+    if _PRODUCT_META_RE.search(c):
         return True
     return bool(_PAGE_NUMBER_LINE_RE.match(c))
 

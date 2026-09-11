@@ -219,6 +219,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         flow_trace.start_cleanup_task()
     except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
         log.warning("流程追踪初始化异常（降级运行）")
+    # ── 知识库体检周报（知识学习升级批4）：启动即查 + 每 7 天巡检 ──
+    try:
+        from .services.knowledge_checkup import start_checkup_task
+        start_checkup_task()
+    except Exception:  # noqa: BLE001 - 体检失败不阻断启动
+        log.warning("知识库体检任务启动异常（降级运行）")
     # ── 崩溃取证心跳（2026-09-01 日志机制方案 C）：上次异常退出检测 ──
     try:
         from .services import heartbeat

@@ -383,6 +383,11 @@ def create_app() -> FastAPI:
     # 使限流/CORS 拒绝的响应也带 X-Request-ID
     from .middleware.request_context import RequestContextMiddleware
     app.add_middleware(RequestContextMiddleware)
+    # 自愈批2（2026-09-11）：API 事件日志自动兜底——变更类请求/失败信封/慢
+    # 请求自动进用户时间线（docs/自愈与横切内建方案-2026-09-10.md §批2）。
+    # 注册在 RequestContext 之后 = 其外层，响应流完成时读到最终信封再落档。
+    from .middleware.event_log_auto import EventLogAutoMiddleware
+    app.add_middleware(EventLogAutoMiddleware)
     # 审计 R3-SEC：Host 头校验（防 DNS 重绑定攻击）。最后注册 = 最外层
     # 用户中间件，非法 Host 在路由/其他中间件之前即被 400 拦截。
     # 已核实 Starlette 1.3.1 实现：仅取 Host 头 hostname 部分比对
@@ -541,3 +546,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

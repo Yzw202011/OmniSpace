@@ -2,6 +2,7 @@
 
 从 config.yaml 加载配置，并提供 Python 常量供各模块引用。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,6 +31,9 @@ with open(_yaml_path, encoding="utf-8") as _f:
 # ── 服务 ─────────────────────────────────────────────────────────
 HOST = _cfg["server"]["host"]  # 127.0.0.1，§14约束2
 PORT = _cfg["server"]["port"]  # 5800
+
+# ── API 事件日志（自愈批2：慢请求阈值，单一来源 config.yaml `event_log` 节）──
+EVENT_LOG_SLOW_MS = int(_cfg.get("event_log", {}).get("slow_request_ms", 3000))
 
 # ── 回环绑定闸门（TASK-P0-05，规格 §14 约束2）────────────────────
 # API 无认证体系，非回环绑定 = 局域网数据裸奔。原 main.py lifespan 告警

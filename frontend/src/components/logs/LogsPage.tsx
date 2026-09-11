@@ -66,6 +66,19 @@ const MODULE_NAMES: Record<string, string> = {
   training: '知识训练',
   paint: 'AI 绘画',
   learn: '知识学习',
+  // 自愈批2：API 事件日志自动兜底新增模块标签的中文名（与后端
+  // event_log_auto._MODULE_ZH 镜像；缺失时页面回退显示原始标签）
+  manga: '漫剧',
+  knowledge: '知识库',
+  browser: '浏览器',
+  voice: '语音',
+  style: '风格',
+  vision: '视觉工具',
+  hardware: '硬件',
+  license: '激活',
+  novel: '小说',
+  cloud: '云端',
+  frontend: '前端',
 };
 
 /** 自动刷新间隔（毫秒） */
@@ -627,3 +640,4 @@ export const LogsPage: React.FC = () => {
 };
 
 export default LogsPage;
+// 本项目仅供学习使用，商业授权请+Q 3559331368

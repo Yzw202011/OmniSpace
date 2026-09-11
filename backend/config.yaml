@@ -176,6 +176,11 @@ logging:
   max_files: 5
   sensitive_fields: ["api_key", "password"]  # 脱敏
 
+# API 事件日志自动兜底（自愈批2，docs/自愈与横切内建方案-2026-09-10.md §批2）
+# 变更类请求/失败信封自动进用户时间线；超过 slow_request_ms 的慢请求额外记一笔
+event_log:
+  slow_request_ms: 3000
+
 ui:
   # 《OmniSpace AI v2.3.1中文版》§6.3.1 Sakura 暗色主题（权威色板）
   theme: "sakura"

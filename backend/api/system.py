@@ -497,6 +497,50 @@ _DIAG_PROBES = [
 ]
 
 
+@router.get("/system/health-check")
+def system_health_check() -> dict[str, Any]:
+    """一键体检（自愈批4，docs/自愈与横切内建方案-2026-09-10.md §批4）。
+
+    运行时健康只读体检（显存余量/内存/磁盘/孤儿推理进程/模型对账/
+    生成队列/日志保留/激活状态），与 POST /system/diagnose（环境级 26 项）
+    互补。同步 def 走线程池执行，psutil/torch 扫描不堵事件循环。
+    """
+    from ..services import health_check
+    report = health_check.run_health_check()
+    try:
+        from ..services.event_log import log_event
+        warn = report["counts"]["warn"]
+        log_event("system", "health_check",
+                  f"一键体检完成：{report['summary']}",
+                  level="info" if not warn else "warning",
+                  detail=json.dumps(report["counts"], ensure_ascii=False))
+    except Exception:  # noqa: BLE001 - 落档失败不影响体检
+        pass
+    return ok(report)
+
+
+@router.post("/system/health-repair")
+async def system_health_repair(
+    body: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """一键修复（自愈批4）：白名单制，只做零数据风险动作。
+
+    支持 action：clean_logs（清过期日志）/ rebuild_dirs（重建缺失系统
+    目录）/ kill_orphans（清确认孤儿推理进程，守卫=绝不碰后端本体）。
+    """
+    from ..services import health_check
+    action = str(body.get("action") or "").strip()
+    result = health_check.repair(action)
+    try:
+        from ..services.event_log import log_event
+        log_event("system", "health_repair",
+                  f"一键修复（{action}）：{result.get('friendly', '')}",
+                  level="success")
+    except Exception:  # noqa: BLE001
+        pass
+    return ok(result)
+
+
 @router.post("/system/diagnose")
 async def system_diagnose() -> dict[str, Any]:
     """运行 26 项检测（规格 §4.7，审计 BK-002 真实探测版）。

@@ -17,6 +17,7 @@
 | 文档 | 主题 | 说明 |
 | --- | --- | --- |
 | `../README.md` | 项目入口 | 是什么/怎么启动/目录结构/开发工作流 |
+| `开发者快速上手指南.md` | **协作者上手（现行）** | 从 GitHub 克隆到联调/测试/提交全流程；开发环境逐步搭建（venv/锁定依赖/torch CUDA 源/钩子四闸），按「仓库不含 runtime/pydeps/models」现实书写（2026-09-11 建立） |
 | `requirements-baseline.md` | **需求基线** | 从外部文档E/B抽取的仍有效需求（RTM 附录 A），需求-矩阵对应关系的仓库内真源 |
 | `requirements-traceability.md` | **需求追踪矩阵** | 44 条 F/M/A/E 需求状态唯一真源；「来源§」指向基线章节 |
 | `design/architecture-overview.md` | 架构现状 | 分层结构/中间件链/推理引擎/数据流 |

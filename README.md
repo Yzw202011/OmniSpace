@@ -242,6 +242,7 @@ pnpm dev
 | 文档 | 内容 | 何时看 |
 |------|------|--------|
 | [部署手册](docs/deployment-manual.md) | 硬件要求、环境装配、模型配置 | 第一次部署 |
+| [开发者快速上手指南](docs/开发者快速上手指南.md) | **从克隆到联调/测试/提交的开发环境逐步搭建** | 第一次参与开发 |
 | [架构总览](docs/design/architecture-overview.md) | 分层结构、中间件链、数据流 | 理解系统设计 |
 | [API 端点总表](docs/design/api-endpoints.md) | HTTP / WS 端点文档（快照，增量以代码为准） | 开发对接 |
 | [数据库 ER](docs/design/database-er.md) | 数据库表结构与迁移说明 | 数据库相关 |

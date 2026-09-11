@@ -102,3 +102,8 @@ packaging_console/config.json
 # ===== 发码台/打包台（用户令 2026-09-11：整体不入仓库，含内置密码，仅本机保留） =====
 license_console/
 packaging_console/
+
+# ===== 打包台/发码台遗留启动器与方案文档（用户令 09-11：整体不入仓库；第二Round根修 09-11） =====
+启动打包台.bat
+启动打包台.exe
+/docs/封装打包台方案.md

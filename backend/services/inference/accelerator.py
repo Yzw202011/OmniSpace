@@ -314,3 +314,4 @@ def safe_load_model(
     except Exception as e:
         logger.warning("所有加载方式均失败: %s", e)
         return None
+# 本项目仅供学习使用，商业授权请+Q 3559331368

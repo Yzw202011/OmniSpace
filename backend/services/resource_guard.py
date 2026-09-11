@@ -496,3 +496,4 @@ def _log_event(event: str, friendly: str, level: str = "info") -> None:
 def get_resource_guard() -> ResourceGuard:
     """获取 ResourceGuard 全局单例。"""
     return ResourceGuard.instance()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

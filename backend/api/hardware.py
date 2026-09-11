@@ -8,6 +8,7 @@
 
 约定：router 不带 prefix；成功 ok(data)；错误抛 ApiError。服务层不可用时返回模拟数据。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

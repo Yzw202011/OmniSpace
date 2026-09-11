@@ -386,3 +386,4 @@ def test_video_wiring_sentinels() -> None:
         encoding="utf-8")
     assert "_pop_lane_locked" in queue_src
     assert "_cloud_dispatcher_loop" in queue_src
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -1,3 +1,4 @@
+// 本项目仅供学习使用，商业授权请+Q 3559331368
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post } from '../../services/api';
 import type { ApiError } from '../../types';

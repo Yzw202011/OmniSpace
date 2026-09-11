@@ -116,3 +116,4 @@ def test_sync_existing_seed_row_keeps_identity(tmp_path):
     assert db.updated == ["qwen3-vl-4b"]
     # 身份字段未被外部行覆盖（update 只送物理字段）
     assert db.rows["qwen3-vl-4b"]["purpose"] == "路由表预置"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

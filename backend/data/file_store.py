@@ -8,6 +8,7 @@
   - §14 约束1：所有生成内容本地存储
   - §3.2 VideoGenResult.file_path / DrawResponse.images
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

@@ -145,3 +145,4 @@ async def voice_synthesize(req: VoicePreviewRequest) -> dict[str, Any]:
         data["degraded"] = True
         data["fallback_backend"] = engine.fallback_backend
     return ok(data)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -3,6 +3,7 @@
 根据文件特征和元数据自动识别模型类型（ModelCategory）。
 支持 GGUF、Safetensors、ONNX、Diffusers 目录等格式。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

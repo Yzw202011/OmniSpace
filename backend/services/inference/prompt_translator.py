@@ -13,6 +13,7 @@
 
 仅含 CJK 字符的输入才触发翻译，纯英文直通零开销。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

@@ -10,6 +10,7 @@
 前置纪律：GPU 活动门；ComfyUI 冷启动 ~40s + 模型装载数分钟。
 用法：runtime/py310/python.exe backend/tests/eval/qwen_edit_smoke.py
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

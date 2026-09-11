@@ -15,6 +15,7 @@
     from backend.services.inference.segment_engine import get_segment_engine
     engine = get_segment_engine()
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

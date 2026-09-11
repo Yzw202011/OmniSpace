@@ -4,6 +4,7 @@
 非回环 host 未豁免必须抛 RuntimeError；OMNISPACE_ALLOW_LAN=1 豁免放行。
 闸门在 config.py 导入期生效，早于 uvicorn socket 绑定。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

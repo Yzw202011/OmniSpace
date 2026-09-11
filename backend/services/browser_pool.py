@@ -24,6 +24,7 @@
 降级：playwright 不可用或预热失败时，acquire 退化为懒初始化
 （与 v2.3 原行为一致），不崩溃。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

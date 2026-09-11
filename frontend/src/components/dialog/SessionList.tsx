@@ -1,3 +1,4 @@
+// 本项目仅供学习使用，商业授权请+Q 3559331368
 /**
  * SessionList 会话列表
  * OmniSpace AI v2.1 — Sakura 主题

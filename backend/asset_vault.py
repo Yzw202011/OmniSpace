@@ -54,3 +54,4 @@ def read_asset(filename: str) -> bytes | None:
         return decrypt_bytes(path.read_bytes())
     except Exception:  # noqa: BLE001 - 密钥不符/损坏：按缺失处理走明文回退
         return None
+# 本项目仅供学习使用，商业授权请+Q 3559331368

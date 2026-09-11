@@ -58,3 +58,4 @@ def test_head_equals_sentence_rejected() -> None:
     # 主语截断后等于整句（无有效主语）→ 不产自指兜底边
     t = extract_triples_rule("十四个字以内全为名词短语", topic="t", title="x")
     assert all(not (e1 == e2) for e1, rel, e2 in t), "不得产生自指边"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

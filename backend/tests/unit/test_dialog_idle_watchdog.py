@@ -81,3 +81,4 @@ def test_feature_lock_snapshot_guard() -> None:
         "功能锁快照被删")
     assert "except Exception:  # noqa: BLE001 - 锁不可用时按系统空闲处理" in SRC, (
         "锁不可用降级语义被改")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

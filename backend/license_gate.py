@@ -211,3 +211,4 @@ def status() -> dict:
             "fingerprints": collect_fingerprints(),
             "license": _cache.get("info"),
             "license_file": str(_LICENSE_FILE)}
+# 本项目仅供学习使用，商业授权请+Q 3559331368

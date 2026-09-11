@@ -15,6 +15,7 @@ docs/新模块与多显卡实施计划-2026-09-05.md）：
 vllm_service / comfy_proc（子进程绑卡 CUDA_VISIBLE_DEVICES）、
 model_manager.release_for_module（按卡释放）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

@@ -236,3 +236,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+# 本项目仅供学习使用，商业授权请+Q 3559331368

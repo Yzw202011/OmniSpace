@@ -210,3 +210,4 @@ def test_self_verify_catches_tamper(tmp_path: Path) -> None:
             dst.writestr(info, data)
     problems = tool.self_verify(tam, sk.public_key())
     assert problems and any("哈希" in p or "大小" in p for p in problems)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

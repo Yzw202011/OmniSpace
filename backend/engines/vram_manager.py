@@ -356,3 +356,4 @@ def get_vram_manager() -> VramManager:
     if _vram_manager is None:
         _vram_manager = VramManager()
     return _vram_manager
+# 本项目仅供学习使用，商业授权请+Q 3559331368

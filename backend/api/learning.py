@@ -843,3 +843,4 @@ def session_log_alias(session_id: str = Query(default=""),
                       limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
     """契约别名：= GET /learn/session/logs。"""
     return session_logs(session_id=session_id, limit=limit)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

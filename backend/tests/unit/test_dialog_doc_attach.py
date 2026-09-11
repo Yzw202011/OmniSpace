@@ -166,3 +166,4 @@ def test_dialog_models_shape_has_vision(client, monkeypatch):
     for m in models:
         assert "vision" in m, f"缺 vision 字段: {m.get('model_id')}"
         assert isinstance(m["vision"], bool)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

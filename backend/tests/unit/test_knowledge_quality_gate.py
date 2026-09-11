@@ -3,6 +3,7 @@
 纯函数直测（模块零重依赖）。判定教训锁定：
 「以？结尾」不能单独判垃圾——短剧剧情悬念问句（type=fact）是有效知识。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from backend.services.knowledge_quality_gate import (

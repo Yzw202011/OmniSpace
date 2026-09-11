@@ -1,4 +1,5 @@
 """pytest 全局配置：保证项目根在 sys.path，提供通用 fixture。"""
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import sys

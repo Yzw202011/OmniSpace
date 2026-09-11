@@ -5,6 +5,7 @@ _generate_turnaround_sync 只广播进度、从不广播 status=done，前端
 任务条等不到终态（useTaskStore 以 task_progress 驱动，done 事件
 收敛任务）。本测试锁定：成功路径必发 done、失败路径必发 error。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

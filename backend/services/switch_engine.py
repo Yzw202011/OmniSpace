@@ -43,6 +43,7 @@ P2 增强（2026-08-25）：
 - 加载耗时历史持久化：system_settings kv（每模型最近 5 次），
   重启自动恢复（P1 进程内存态的延续）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

@@ -18,6 +18,7 @@
 MVP 明确不做：无人值守自动成书、多模型混排、富文本排版、整卷续写
 （「一个一个来」：先跑通章粒度人在回路）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

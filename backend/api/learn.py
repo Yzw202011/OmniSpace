@@ -448,3 +448,4 @@ def learn_lora_versions_compare(a: str = Query(..., min_length=1),
     return ok({"a": a, "b": b, "fields": fields,
                "quality_better": better,
                "current": svc.get_current()})
+# 本项目仅供学习使用，商业授权请+Q 3559331368

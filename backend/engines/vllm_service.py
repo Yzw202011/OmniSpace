@@ -23,6 +23,7 @@
     首个对话/视觉请求经 start_async()/warmup 后台无阻塞预冷
   - 健康轮询 5s、启动超时 240s（本项目收敛值）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

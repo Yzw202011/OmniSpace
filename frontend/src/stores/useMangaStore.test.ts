@@ -390,3 +390,4 @@ describe('useMangaStore 视频生成状态流转', () => {
     expect(useAppStore.getState().activeFeature).toBeNull();
   });
 });
+// 本项目仅供学习使用，商业授权请+Q 3559331368

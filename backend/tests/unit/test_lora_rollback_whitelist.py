@@ -59,3 +59,4 @@ def test_eval_data_priority_last_train_first(tmp_path, monkeypatch) -> None:
     # 复现 evaluate 的取数表达式（与源码同序断言）
     data = svc._last_train_data or svc._dataset or {}
     assert data["valid"] == ["external"]
+# 本项目仅供学习使用，商业授权请+Q 3559331368

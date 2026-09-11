@@ -11,6 +11,7 @@ OmniSpace AI Launcher 守护进程
 - 首次安装引导（动画/轮播/偏好问卷）
 - Launcher与主程序WebSocket双向通信
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 import io
 import json

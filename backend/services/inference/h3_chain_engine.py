@@ -14,6 +14,7 @@
   - 质量档位：480p(864×480, 每镜≤15s) / 720p(1344×768, 每镜≤8s)
     ——16G 显存实测矩阵（2026-08-30）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from collections.abc import Callable

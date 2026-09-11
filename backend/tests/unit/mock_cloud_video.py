@@ -156,3 +156,4 @@ def main() -> None:  # pragma: no cover - 手动验收进程
 
 if __name__ == "__main__":
     main()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

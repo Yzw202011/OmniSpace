@@ -1,4 +1,5 @@
 """激活 API（P5）：状态展示与激活提交（未激活态下的白名单端点）。"""
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from typing import Any

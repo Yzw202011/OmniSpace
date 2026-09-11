@@ -1,3 +1,4 @@
+// 本项目仅供学习使用，商业授权请+Q 3559331368
 /**
  * Progress 进度条组件
  * OmniSpace AI v2.3.1 — Sakura 暗色主题

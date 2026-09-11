@@ -17,6 +17,7 @@
 
 注意：预热中的模型加载不算"忙"（warmup 非用户工作，中途退出无害）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

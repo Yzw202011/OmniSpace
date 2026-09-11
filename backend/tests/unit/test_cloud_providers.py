@@ -15,6 +15,7 @@
   无效 cloud:: 连接 False；
 - 资源域：绑定生效 dialog→remote 伪域，解绑回本地卡号。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

@@ -4,6 +4,7 @@
 （assets_enc/art_styles_seed.json.enc）存在，客户第一次启动时自动
 解密导入空库——包里翻不到一句明文提示词。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

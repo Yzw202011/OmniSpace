@@ -7,6 +7,7 @@
   4. 提取元信息（大小、参数量等）
   5. 返回 ImportResult
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

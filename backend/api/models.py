@@ -2026,3 +2026,4 @@ def models_download(req: ModelDownloadRequest) -> dict[str, Any]:
                 "requested": req.model_id or req.url or ""},
         suggestion="模型放入 models/ 目录后重启或调用 /models 列表即可见")
 
+# 本项目仅供学习使用，商业授权请+Q 3559331368

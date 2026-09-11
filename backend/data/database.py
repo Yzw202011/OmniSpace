@@ -873,3 +873,4 @@ def parse_json(value: Any, default: Any) -> Any:
 def utcnow() -> float:
     """当前 Unix 时间戳（秒，浮点），供 created_at / updated_at 使用。"""
     return time.time()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

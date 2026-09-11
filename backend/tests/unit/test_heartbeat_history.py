@@ -64,3 +64,4 @@ def test_rotation_keeps_tail(monkeypatch, tmp_path) -> None:
     seqs = [json.loads(x).get("seq") for x in lines]
     assert seqs == sorted(seqs)[-len(seqs):], "轮转必须保留时间顺序末段"
     assert seqs[-1] == 119, "最新一跳必须在"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

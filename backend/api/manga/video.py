@@ -2007,3 +2007,4 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
 
     return ok({"task_id": task_id, "status": "pending",
                "queue_position": position, "engine": "h3_chain"})
+# 本项目仅供学习使用，商业授权请+Q 3559331368

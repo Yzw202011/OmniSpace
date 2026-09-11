@@ -175,3 +175,4 @@ def art_tools_status() -> dict[str, Any]:
         "engines": {name: e.get_status() for name, e in engines.items()},
         "query_ms": round((time.time() - t0) * 1000, 1),
     })
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -124,3 +124,4 @@ class GGUFBackend(DialogBackend):
     def count_tokens(self, text: str) -> int:
         # llama.cpp 分词经 C API 逐次调用有锁开销；粗估满足预算截断需求
         return estimate_tokens(text)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

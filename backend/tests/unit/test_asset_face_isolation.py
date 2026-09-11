@@ -114,3 +114,4 @@ def test_project_scope_already_isolated(client):
     assert names == ["只属于漫画"], "项目资产只按 project_id 隔离"
     row = db.query_one("SELECT face FROM comic_assets WHERE id='只属于漫画'")
     assert row["face"] == "manga", "新建项目资产 face 默认 manga（占位，转全局时按项目面重盖）"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

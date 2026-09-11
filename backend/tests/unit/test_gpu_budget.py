@@ -614,3 +614,4 @@ class TestDualChannelConservative:
 def test_singletons_are_single() -> None:
     assert get_gpu_budget() is get_gpu_budget()
     assert get_busy_registry() is get_busy_registry()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

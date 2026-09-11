@@ -57,3 +57,4 @@ def test_console_tools_spawn_without_window_flag() -> None:
         "发现控制台工具裸拉起（会闪黑窗）——请挂 "
         "creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0：\n"
         + "\n".join(offenders))
+# 本项目仅供学习使用，商业授权请+Q 3559331368

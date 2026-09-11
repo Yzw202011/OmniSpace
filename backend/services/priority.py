@@ -37,3 +37,4 @@ _LABELS: dict[Priority, str] = {
     Priority.P4_BEHAVIOR: "行为学习记录",
     Priority.P5_CLEANUP: "知识库清理",
 }
+# 本项目仅供学习使用，商业授权请+Q 3559331368

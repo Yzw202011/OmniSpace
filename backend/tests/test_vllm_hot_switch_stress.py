@@ -423,3 +423,4 @@ def test_concurrent_load_race():
     finally:
         assert eng.unload_model(), "竞态测试收尾卸载失败"
         assert not svc.is_running(), "竞态测试收尾后 vllm 进程应终止"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

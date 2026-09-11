@@ -212,3 +212,4 @@ def crypto_status() -> dict:
         "key_protection": _protection,
         "scope": "dialog_messages.content, behavior_logs.{content,context,before,after}",
     }
+# 本项目仅供学习使用，商业授权请+Q 3559331368

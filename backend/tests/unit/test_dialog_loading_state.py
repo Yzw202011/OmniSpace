@@ -6,6 +6,7 @@ get_status().state 停在 unavailable/unloaded，右栏 DialogWarmupBar
 即置 _state="loading"。本测试用假后端挂住装载窗口，断言装载期间
 对外状态为 loading、完成后 ready——零 GPU、时序可控。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import threading

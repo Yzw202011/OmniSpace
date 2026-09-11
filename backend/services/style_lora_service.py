@@ -1375,3 +1375,4 @@ class StyleLoraService:
 def get_style_lora_service() -> StyleLoraService:
     """获取视频风格 LoRA 服务单例。"""
     return StyleLoraService.instance()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -138,3 +138,4 @@ def compute_readiness(models_root: Path, manifest_path: Path) -> dict:
         len(missing_by_type.get(t, [])) for t in consumed_types)
     result["all_ready"] = all(m["ready"] for m in result["modules"])
     return result
+# 本项目仅供学习使用，商业授权请+Q 3559331368

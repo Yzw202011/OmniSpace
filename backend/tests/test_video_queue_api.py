@@ -158,3 +158,4 @@ def test_h3_chain_endpoint_enqueues_pending(env) -> None:
     assert data["status"] == "pending"
     assert data["engine"] == "h3_chain"
     assert fake.tasks and fake.tasks[-1]["kind"] == "h3_chain"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -6,6 +6,7 @@
 直提 ComfyUI /prompt（UNOModelLoader + UNOGenerate 双节点）。
 判定：产物真实落盘 + 目检脸/服装/风格三轴。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

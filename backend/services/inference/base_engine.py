@@ -256,3 +256,4 @@ class BaseEngine(ABC):
             "ready": False,
             "last_error": self._last_error,
         }
+# 本项目仅供学习使用，商业授权请+Q 3559331368

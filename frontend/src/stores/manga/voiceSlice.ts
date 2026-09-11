@@ -1,3 +1,4 @@
+// 本项目仅供学习使用，商业授权请+Q 3559331368
 /* 漫剧音色切片（TASK-P2-01）：音色列表 / 角色绑定 / 情感 / 试听 */
 
 import type { StateCreator } from 'zustand';

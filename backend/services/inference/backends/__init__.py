@@ -11,6 +11,7 @@ kind 命名（历史兼容，get_status().backend 字段对外稳定）：
   vllm       → VLLMBackend
   remote     → RemoteDialogBackend（批3 D3：远端专业卡服务器，零本地显存）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from .base import DialogBackend

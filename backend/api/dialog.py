@@ -22,6 +22,7 @@
   - 40002 输入过长；40005 会话不存在；40007 功能互斥
 流式期间持有 "dialog" 功能锁（规格 §6.1）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

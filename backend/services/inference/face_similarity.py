@@ -14,6 +14,7 @@
 
 显存纪律：全程 CPU，不与 vLLM/ComfyUI/diffusers 争显存。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

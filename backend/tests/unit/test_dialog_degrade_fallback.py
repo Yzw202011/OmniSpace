@@ -74,3 +74,4 @@ def test_degrade_racing_guard_ready_wins() -> None:
 def test_watchdog_release_stale_sync() -> None:
     """P1-23：看门狗卸载后须 release_stale 同步台账。"""
     assert "release_stale(name)" in SRC, "看门狗台账同步被删"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

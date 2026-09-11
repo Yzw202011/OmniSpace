@@ -275,3 +275,4 @@ def test_is_vllm_model_external_awq(isolated_db, tmp_path):
     from backend.services.switch_engine import _is_vllm_model
     assert _is_vllm_model("dialog_ext_awq") is True
     assert _is_vllm_model("plain-nonexistent-id") is False
+# 本项目仅供学习使用，商业授权请+Q 3559331368

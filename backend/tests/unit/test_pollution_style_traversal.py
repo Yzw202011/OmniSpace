@@ -84,3 +84,4 @@ def test_legitimate_ids_pass(svc, tmp_path, monkeypatch) -> None:
     # 合法 dataset id 形态放行（目录不存在=0 样本，非拒绝）
     stats = svc.dataset_stats("a" * 32)
     assert stats["total"] == 0
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -504,3 +504,4 @@ class VideoTaskQueue:
 def get_video_queue() -> VideoTaskQueue:
     """获取视频任务队列单例。"""
     return VideoTaskQueue.instance()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

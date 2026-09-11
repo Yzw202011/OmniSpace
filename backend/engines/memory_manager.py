@@ -249,3 +249,4 @@ def get_memory_manager() -> MemoryManager:
     if _memory_manager is None:
         _memory_manager = MemoryManager()
     return _memory_manager
+# 本项目仅供学习使用，商业授权请+Q 3559331368

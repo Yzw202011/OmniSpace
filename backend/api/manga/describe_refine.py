@@ -16,6 +16,7 @@
 资产冲突检测：评审只读资产 name/kind 元数据（V49 协议合规，keyframe
 侧禁读资产描述词的裁定不受影响——本模块在描述词生成侧，非生图侧）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

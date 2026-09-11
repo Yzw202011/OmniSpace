@@ -6,6 +6,7 @@
 - API 冒烟（tmp 库隔离 + mock 引擎，不触 GPU）：追加/清空重填双语义、
   锁释放、ensure_loaded 自动装载路径。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from types import SimpleNamespace

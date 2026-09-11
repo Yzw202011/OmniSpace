@@ -525,3 +525,4 @@ class ImageTaskQueue:
 def get_image_queue() -> ImageTaskQueue:
     """获取图像任务队列单例。"""
     return ImageTaskQueue.instance()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

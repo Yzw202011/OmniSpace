@@ -2,6 +2,7 @@
 
 TASK-P2-01 自 manga.py 按路由域拆出（原文件 4521 行 → 包）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import csv

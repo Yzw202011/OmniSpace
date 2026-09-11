@@ -411,3 +411,4 @@ def test_ensure_loaded_error_without_engine_detail(monkeypatch) -> None:
 
     assert ok is False
     assert mgr.last_error == "引擎加载失败: qwen35-9b-w4a16"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -393,3 +393,4 @@ def test_paint_candidate_table_wellformed():
     for _mid, rel, vram in PAINT_MODEL_CANDIDATES:
         assert rel, f"{_mid} 缺目录映射"
         assert vram > 0, f"{_mid} 显存需求必须为正"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

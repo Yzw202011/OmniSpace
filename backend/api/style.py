@@ -489,3 +489,4 @@ def style_template_save(body: dict = Body(default_factory=dict)) -> dict[str, An
     svc = get_style_lora_service()
     tpl = svc.save_template(body)
     return ok(tpl, message=f"模板已保存: {tpl['name']}")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

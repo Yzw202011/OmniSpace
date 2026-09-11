@@ -5,6 +5,7 @@
 新增 ≥90% 危急线，调用 ModelManager.shed_memory() 吐出可再生内存
 （权重缓存全量卸载 + 磁盘扫描缓存丢弃），不碰已加载模型与功能锁。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import sys

@@ -359,3 +359,4 @@ class TransformersBackend(DialogBackend):
             finally:
                 # 等待生成线程结束，避免后台残留写 streamer
                 thread.join(timeout=5.0)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -649,3 +649,4 @@ def get_yield_coordinator() -> VramYieldCoordinator:
             if _yield_coordinator is None:
                 _yield_coordinator = VramYieldCoordinator()
     return _yield_coordinator
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -16,6 +16,7 @@
 - DELETE /cloud/bindings/{slot}      解绑（该工位回本地引擎）
 - GET    /cloud/status               文本引擎当前承载（对话页横幅用）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

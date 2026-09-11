@@ -455,3 +455,4 @@ def get_vector_db() -> VectorDB:
             if _vdb_instance is None:
                 _vdb_instance = VectorDB()
     return _vdb_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

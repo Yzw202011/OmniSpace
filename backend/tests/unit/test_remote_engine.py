@@ -200,3 +200,4 @@ def test_remote_wiring_sentinels():
     sysapi = (_ROOT_DIR / "backend" / "api" / "system.py").read_text(
         encoding="utf-8")
     assert "dialog-remote/test" in sysapi, "测试连接端点被删"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

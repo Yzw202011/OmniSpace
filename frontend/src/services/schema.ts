@@ -424,3 +424,4 @@ export const NovelChapterListRespSchema = z
 export const NovelChapterDetailSchema = NovelChapterSchema.extend({
   content: z.string().default(''),
 }).passthrough();
+// 本项目仅供学习使用，商业授权请+Q 3559331368

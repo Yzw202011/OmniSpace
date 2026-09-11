@@ -218,3 +218,4 @@ def test_runner_cancelled_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     proceed.set()
     _wait_until(lambda: "cancelled" in seen, what="检查点命中")
     _wait_until(lambda: "vllm_wake" in h.events, what="取消后排空收尾")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

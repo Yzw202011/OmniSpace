@@ -173,3 +173,4 @@ def test_regenerate_view_enqueued(env2) -> None:
     assert r.status_code == 200, r.text
     assert r.json()["data"]["file_path"] == "v.png"
     assert len(fake.tasks) == 1
+# 本项目仅供学习使用，商业授权请+Q 3559331368

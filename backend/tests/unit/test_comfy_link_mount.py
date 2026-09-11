@@ -4,6 +4,7 @@
 跳过、跨卷检测（winerror 17 模拟）、缺源计数与拖入根识别。全部在
 tmp_path 内做真实硬链接（NTFS 同卷），不触真实引擎目录。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import importlib.util

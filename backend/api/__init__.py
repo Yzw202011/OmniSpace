@@ -12,3 +12,4 @@ main.py 统一以 ``config.API_PREFIX``（/v1）前缀挂载，故各模块 rout
     hardware  —— 硬件 API（§4.6）
     system    —— 系统 API（§4.7）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368

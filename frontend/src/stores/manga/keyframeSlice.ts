@@ -1,3 +1,4 @@
+// 本项目仅供学习使用，商业授权请+Q 3559331368
 /* 漫剧关键帧切片（TASK-P2-01）：版本缓存拉取与失效 */
 
 import type { StateCreator } from 'zustand';

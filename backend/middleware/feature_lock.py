@@ -19,6 +19,7 @@
 的同步降级路径改走 acquire_sync / release_sync（与异步路径共享同一
 份按域状态），不再直写 _holder 私有字段。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

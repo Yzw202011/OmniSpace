@@ -20,6 +20,7 @@ ADR 决策：使用 Playwright 托管 Chromium 替代 CEF（cefpython3 内核过
   - 弹窗自动关闭 / 同源重定向>3 次停止 / WebGL 禁用（TC-S-006）
   - 输入仅限搜索框（TC-S-001 辅助约束）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

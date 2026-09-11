@@ -20,3 +20,4 @@ def test_normal_text_untouched() -> None:
 
 def test_non_string_coerced() -> None:
     assert _csv_safe_cell(12) == "12"          # type: ignore[arg-type]
+# 本项目仅供学习使用，商业授权请+Q 3559331368

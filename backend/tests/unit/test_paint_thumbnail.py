@@ -73,3 +73,4 @@ def test_endpoint_and_delete_wired() -> None:
     # 历史删除必须同步清缩略图
     assert src.count("_THUMB_DIR_NAME") >= 2, "删除链须引用缩略图目录"
     assert 'f"{target.stem}_{_THUMB_SIZE}.jpg"' in src
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -17,6 +17,7 @@ task_video 协议适配（方案 §5.3，docs/云端API接入方案-2026-09-06.m
 
 隐私提示（方案 §11）：首帧图会上传给服务商，由 UI 层提示，本层不重复。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import base64

@@ -250,3 +250,4 @@ def test_upload_normal_jsonl_still_works(client, tmp_path, monkeypatch):
     body = resp.json()
     assert body["success"] is True, f"正常数据集被误拦: {body}"
     assert body["data"]["size_bytes"] == len(payload)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

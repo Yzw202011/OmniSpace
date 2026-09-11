@@ -13,6 +13,7 @@
 
 退出码：0 干净 / 1 有违规。只读不写，不做任何删除。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import argparse

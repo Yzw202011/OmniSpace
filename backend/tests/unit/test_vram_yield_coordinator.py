@@ -5,6 +5,7 @@
 豁免（批2 登记簿首次被消费）、evict 驱逐统一语言（活跃功能保护）。
 全部 mock，不触真 GPU（GPU 测试活动门铁律）。方案 §3.4。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import threading

@@ -13,6 +13,7 @@
 成功 ok(data)；浏览器域错误码 7xxxx 段（72001-72008）经 ApiError 抛出；
 playwright 缺失/浏览器未运行时返回友好错误而非崩溃。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import base64

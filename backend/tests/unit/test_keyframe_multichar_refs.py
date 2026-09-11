@@ -84,3 +84,4 @@ def test_dual_pulid_faces_count_guard() -> None:
     """非 chars=2（单角色/三角色）一律不启用双锁。"""
     assert _dual_pulid_faces(1, [A_FACE]) is None
     assert _dual_pulid_faces(3, [A_FACE, B_FACE, "c_face"]) is None
+# 本项目仅供学习使用，商业授权请+Q 3559331368

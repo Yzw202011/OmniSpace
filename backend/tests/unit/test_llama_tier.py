@@ -6,6 +6,7 @@ llama_service 门控（权重缺失拒绝、软准入拒绝）/ backend 转调�
 全部 mock 或轻量路径——**不真起 llama-server 子进程**（实弹需 GPU
 活动门检查，见 e2e 窗口）。方案 §3.5。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from pathlib import Path

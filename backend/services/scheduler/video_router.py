@@ -3,6 +3,7 @@
 根据可用显存从 VIDEO_ROUTING_TABLE 中选择最合适的视频模型，
 并返回该模型的生成参数。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

@@ -798,3 +798,4 @@ def fetch_openai_models(base_url: str, api_key: str,
         return sorted(set(ids)), ""
     except Exception as exc:  # noqa: BLE001 - 响应体非 OpenAI 格式
         return [], f"响应解析失败：{exc}"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

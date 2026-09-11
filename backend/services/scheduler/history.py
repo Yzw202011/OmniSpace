@@ -188,3 +188,4 @@ def get_schedule_history() -> ScheduleHistory:
             if _history_instance is None:
                 _history_instance = ScheduleHistory()
     return _history_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

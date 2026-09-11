@@ -185,3 +185,4 @@ class BottleneckAnalyzer:
 
         # ── 场景 1: GPU_PRIMARY — 默认 GPU 主力 ──────────────────
         return SynergyMode.GPU_PRIMARY
+# 本项目仅供学习使用，商业授权请+Q 3559331368

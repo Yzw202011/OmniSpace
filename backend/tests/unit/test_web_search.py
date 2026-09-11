@@ -161,3 +161,4 @@ def test_dialog_augment_injects_block(monkeypatch) -> None:
     kt, refs = asyncio.run(_web_search_augment("今天有什么新闻", ""))
     assert "【联网资料】" in kt and "新闻A" in kt
     assert refs and refs[0]["url"] == "http://a"
+# 本项目仅供学习使用，商业授权请+Q 3559331368

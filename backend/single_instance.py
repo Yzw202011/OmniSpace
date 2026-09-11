@@ -16,6 +16,7 @@
 豁免：pytest 运行态（TestClient 会触发 lifespan，不能与真实实例互斥）
 与显式 OMNISPACE_ALLOW_MULTI=1（调试双开自担风险）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import ctypes

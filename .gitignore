@@ -57,6 +57,9 @@ tools/ComfyUI_windows_portable/
 tools/ComfyUI_windows_portable_old/
 tools/dlfw/
 
+# ===== 第三方 LoRA 训练工具（Musubi Tuner，含 venv，体积 3.6GB，不入库） =====
+tools/musubi-tuner/
+
 # ===== 数据库文件（运行时生成，严禁入库） =====
 *.db
 *.sqlite3

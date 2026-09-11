@@ -6,6 +6,7 @@
   3. HARDWARE_TIER_TABLE（除 cpu 虚拟变体档）models 全部 ∈ 注册表
   4. gen_router 风格包底座偏好链全部 ∈ 注册表
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

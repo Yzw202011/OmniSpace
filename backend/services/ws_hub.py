@@ -20,6 +20,7 @@ WsHub.broadcast(payload)（线程安全，可从任意工作线程调用），hu
     hub.start_telemetry()                        # 启动遥测推送
     draw.set_ws_broadcaster(hub.broadcast)       # 注入各服务广播器
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

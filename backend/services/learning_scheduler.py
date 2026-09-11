@@ -916,3 +916,4 @@ def get_learning_scheduler() -> LearningScheduler:
             if _scheduler is None:
                 _scheduler = LearningScheduler()
     return _scheduler
+# 本项目仅供学习使用，商业授权请+Q 3559331368

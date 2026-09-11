@@ -1562,3 +1562,4 @@ def get_model_manager() -> ModelManager:
                 _manager_instance = ModelManager()
                 _wire_gpu_budget_ledger(_manager_instance)
     return _manager_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

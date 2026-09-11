@@ -15,6 +15,7 @@ style_routing_golden.json 是「首序匹配时代」真实行为的实测快照
      循环（嗅探/预置定族/族回填）收口到 detect_style；
   ④ 可解释=explain_style（裁决凭据：命中词/遮蔽关系）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

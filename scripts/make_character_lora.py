@@ -16,6 +16,7 @@
 底座三件在 models/uno/（flux-2-klein-4b / flux2_ae / qwen_3_4b）。
 纪律：GPU 活动门——训练占 GPU 约 20 分钟，跑前核查后端无在飞任务。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

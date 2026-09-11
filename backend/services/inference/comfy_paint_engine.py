@@ -636,3 +636,4 @@ _ENGINE: ComfyPaintEngine | None = None
 
 def get_comfy_paint_engine() -> ComfyPaintEngine:
     return ComfyPaintEngine.get()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

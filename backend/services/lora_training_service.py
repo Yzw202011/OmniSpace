@@ -53,6 +53,7 @@
     if svc.should_trigger_finetune():
         svc.trigger_finetune(priority="low")
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

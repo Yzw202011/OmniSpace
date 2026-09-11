@@ -293,3 +293,4 @@ def uninstall_streaming() -> None:
         _STATE["buf"] = None
         torch.cuda.empty_cache()
     _KERNELS = None
+# 本项目仅供学习使用，商业授权请+Q 3559331368

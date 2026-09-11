@@ -23,6 +23,7 @@
 帧数网格：24fps 下 17k+5（n%17==5）对齐，训练范围 124~362 帧
 （约 5~15 秒）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

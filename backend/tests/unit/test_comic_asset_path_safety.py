@@ -117,3 +117,4 @@ def test_safe_entity_name_drops_unsalvageable() -> None:
     assert _safe_entity_name(r"\\/:*?") == ""
     assert _safe_entity_name("") == ""
     assert len(_safe_entity_name("名" * 300)) == 100
+# 本项目仅供学习使用，商业授权请+Q 3559331368

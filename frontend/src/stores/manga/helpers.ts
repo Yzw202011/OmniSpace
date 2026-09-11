@@ -5,3 +5,4 @@ import type { MangaState } from './types';
 /** 当前项目 ID（未设置时回退默认项目，与 MangaPage DEFAULT_PROJECT_ID 一致） */
 export const currentPid = (get: () => MangaState): string =>
   get().currentProject?.id ?? 'default';
+// 本项目仅供学习使用，商业授权请+Q 3559331368

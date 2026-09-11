@@ -242,3 +242,4 @@ class VLLMBackend(DialogBackend):
         # 子进程持有 tokenizer，主进程 HTTP 计数代价不值；粗估即可
         # （build_context 预算截断本就以保守为准）。
         return estimate_tokens(text)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

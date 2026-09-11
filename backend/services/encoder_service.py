@@ -24,6 +24,7 @@
     if enc.available:
         enc.encode_frames_to_video(frame_dir, out_path, fps=24, resolution="1080p")
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

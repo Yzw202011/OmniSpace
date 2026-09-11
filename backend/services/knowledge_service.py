@@ -14,6 +14,7 @@ SimHash（TASK-045）：自实现 64 位（字符级 3-gram + md5 权重），�
 
 知识生命周期：青年(<7天) / 成熟(<30天) / 沉淀(<90天) / 淘汰(≥90天或长期低质)。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import hashlib

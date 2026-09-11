@@ -86,3 +86,4 @@ def current_duration_ms() -> int:
 def utc_now_iso() -> str:
     """ISO 8601 UTC 时间戳（文档D：meta.timestamp 格式，如 2026-08-07T00:45:00Z）。"""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

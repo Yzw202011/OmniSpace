@@ -258,3 +258,4 @@ def setup_rate_limit(app: FastAPI, max_requests: int = RATE_LIMIT,
 
     log.info("限流中间件已配置: %d req/%ds per endpoint", max_requests, window_seconds)
     return limiter
+# 本项目仅供学习使用，商业授权请+Q 3559331368

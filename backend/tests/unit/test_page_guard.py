@@ -7,6 +7,7 @@
   - 倒计时到点：忙 → abort 且重新武装（任务跑完自动续），闲 → fire；
   - 未启用：永不 fire（saw_pages 保留，重新启用后无需再开页面）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from backend.services.page_guard import GuardState, step

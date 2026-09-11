@@ -187,3 +187,4 @@ def get_resource_sampler() -> ResourceSampler:
             _sampler = ResourceSampler()
             _sampler.start()
         return _sampler
+# 本项目仅供学习使用，商业授权请+Q 3559331368

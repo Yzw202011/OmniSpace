@@ -285,3 +285,4 @@ def read_state() -> dict[str, Any]:
 
 def write_state(state: dict[str, Any]) -> None:
     core().write_state(install_root(), state)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

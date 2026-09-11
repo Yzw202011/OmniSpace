@@ -7,6 +7,7 @@
   - hardware.py 探测失败回填 35.0%/8192MB/52°C/"Mock CPU" 等编造数据
   - vram_manager 四处 except Exception: pass——探测失败完全不可观测
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

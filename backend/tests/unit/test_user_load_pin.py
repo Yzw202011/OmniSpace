@@ -81,3 +81,4 @@ def test_api_and_scheduler_wired() -> None:
     assert "is_user_pinned" in sched_src, (
         "深层回收必须过滤用户装载钉")
     assert "深层回收跳过用户装载钉" in sched_src
+# 本项目仅供学习使用，商业授权请+Q 3559331368

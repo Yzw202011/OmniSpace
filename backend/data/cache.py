@@ -9,6 +9,7 @@
   - §5.1 智能调度：模型缓存 L2 管理
   - §14 约束2：仅本地，Redis 绑定 127.0.0.1
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

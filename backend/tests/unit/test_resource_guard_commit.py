@@ -5,6 +5,7 @@
 （卸空闲模型 → gc → 工作集收缩 → shed_memory 危急收缩）；采样失败 /
 非 Windows（None）静默跳过不阻断主链；冷却期内不重复触发。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from backend.services import resource_guard as rg

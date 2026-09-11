@@ -88,3 +88,4 @@ class LlamaServerBackend(DialogBackend):
     def count_tokens(self, text: str) -> int:
         # 子进程持有 tokenizer，主进程粗估（与 vllm_backend 同策略）
         return estimate_tokens(text)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

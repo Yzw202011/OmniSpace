@@ -298,3 +298,4 @@ def get_depth_engine() -> DepthEngine:
             if _engine_instance is None:
                 _engine_instance = DepthEngine()
     return _engine_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

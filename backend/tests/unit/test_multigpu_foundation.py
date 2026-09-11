@@ -286,3 +286,4 @@ def test_vram_track_alloc_same_key_replaces_net() -> None:
     assert vm.get_device_usage(0)["used_mb"] == pytest.approx(3000.0)
     vm.track_free("model_a")
     assert vm.get_device_usage(0)["used_mb"] == pytest.approx(0.0)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

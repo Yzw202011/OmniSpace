@@ -7,6 +7,7 @@
     模块级单例 getter 兼容（与 _get_engine 解析结果同一实例）；
   ③ 未注册/损坏品类容错降级 None（与迁移前 if/elif 语义对齐）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

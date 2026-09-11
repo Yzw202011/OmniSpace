@@ -14,6 +14,7 @@ models_manifest.json 把外部绝对路径幂等回填进 models 表——激活
   - 盘上不存在的外部条目跳过（与 registry_entry「条目失效返回
     None」语义一致，不写死路径）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

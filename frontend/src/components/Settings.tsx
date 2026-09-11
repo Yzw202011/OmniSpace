@@ -17,6 +17,7 @@ import { useAppStore, type FontSize, type Theme } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import CloudApiSettings from '@/components/CloudApiSettings';
 import WebSearchSettings from '@/components/WebSearchSettings';
+import HealthCheckCard from '@/components/HealthCheckCard';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
@@ -412,6 +413,9 @@ export default function Settings() {
           </>
         )}
       </div>
+
+      {/* ============ 体检与修复（自愈批4） ============ */}
+      <HealthCheckCard />
 
       {/* ============ 硬件信息 ============ */}
       <div className="settings-section card">

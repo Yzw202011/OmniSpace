@@ -234,3 +234,4 @@ def test_admission_cancel_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert h.q.cancel("t1") == "running"
     _wait_until(lambda: "status:t1:cancelled" in h.events, what="等锁取消终态")
     assert "runner_started" not in h.statuses("t1")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

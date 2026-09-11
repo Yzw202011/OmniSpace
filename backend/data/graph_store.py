@@ -345,3 +345,4 @@ def reset_graph_store() -> None:
     global _gs_instance
     with _gs_lock:
         _gs_instance = None
+# 本项目仅供学习使用，商业授权请+Q 3559331368

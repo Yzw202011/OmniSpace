@@ -109,3 +109,4 @@ class ModelValidator:
         if expected_sha256 is None:
             return True, actual_hash
         return actual_hash == expected_sha256, actual_hash
+# 本项目仅供学习使用，商业授权请+Q 3559331368

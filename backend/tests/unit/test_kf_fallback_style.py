@@ -12,6 +12,7 @@ _STYLE_PHOTO（08-14 写真人设参考图时代的写实助推遗留）——�
   2. keyframe 模块不再导入/引用 _STYLE_PHOTO（防复发）；
   3. _project_style_line 空 db / 空风格均回退 _INFER_STYLE_LINE（非空）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import ast

@@ -12,6 +12,7 @@
   runtime/py310/python.exe launcher/shell_poc.py                 # 附加到 5800
   runtime/py310/python.exe launcher/shell_poc.py --port 5801
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import argparse

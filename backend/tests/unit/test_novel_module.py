@@ -363,3 +363,4 @@ def test_novel_batch_skip_completed(client):
                      json={"project_id": pid})
     d2 = r2.json()["data"]
     assert d2["queued"] == 3 and d2["skipped_completed"] == 0
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -11,6 +11,7 @@ project_type 区分前端入口。契约四条：
 
 tmp 库隔离，不触发 lifespan，绝不触碰 data/omnispace.db。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

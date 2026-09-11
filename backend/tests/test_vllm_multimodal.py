@@ -13,6 +13,7 @@ e2e 运行方式（需 GPU + 模型 + py313 运行时）:
   runtime\\py310\\python.exe -m pytest backend/tests/test_vllm_multimodal.py -v
 默认套件（tools/run_tests.py）自动跳过 e2e，不装载 GPU 模型。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

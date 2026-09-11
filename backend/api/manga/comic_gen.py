@@ -1557,3 +1557,4 @@ def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
                   (asset["asset_id"],))
     asset = {**asset, "meta": meta}
     return {"asset": asset, "view": view, "file_path": view_rel}
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -9,6 +9,7 @@
   - §9 安装器：26 项系统自检
   - §14 约束：最低硬件要求
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import concurrent.futures

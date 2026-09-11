@@ -187,3 +187,4 @@ class DialogBackend(ABC):
     def lora_version(self) -> str:
         """当前挂载的知识 LoRA 版本（"" 表示基座推理；仅 transformers 支持）。"""
         return ""
+# 本项目仅供学习使用，商业授权请+Q 3559331368

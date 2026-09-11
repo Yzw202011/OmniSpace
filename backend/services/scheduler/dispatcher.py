@@ -16,6 +16,7 @@
 直接调用 ModelManager 契约；ModelManager 内部做显存检查与驱逐，
 任何失败仅记录日志，不向调度循环抛异常。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

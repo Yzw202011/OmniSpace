@@ -14,6 +14,7 @@
 拒绝方式：抛 UploadRejected(ValueError 子类)，由端点转 ApiError 走统一信封。
 本模块不依赖 FastAPI，可独立单测。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from collections.abc import Callable

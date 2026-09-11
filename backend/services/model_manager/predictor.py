@@ -373,3 +373,4 @@ class FeaturePredictor:
             return []           # 无使用统计 → 不判定冷门
         return sorted(f for f in historical
                       if recent.get(f, 0) < COLD_FEATURE_MAX_USES)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

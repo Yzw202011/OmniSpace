@@ -16,6 +16,8 @@
  *   /system/resume-scan、/system/restore
  * ========================================================================== */
 
+import { z } from 'zod';
+
 import { get, post, put } from './api';
 import { parseWith, SystemVersionRespSchema } from './schema';
 
@@ -206,3 +208,51 @@ export interface LocalSavings {
 export function getLocalSavings() {
   return get<LocalSavings>('/system/local-savings');
 }
+
+/* ------------------------------ 一键体检与修复（自愈批4） ------------------------------ */
+
+/** 单项体检结果（对齐 backend/services/health_check.py 输出） */
+export const HealthCheckItemSchema = z.object({
+  key: z.string(),
+  level: z.enum(['ok', 'warn', 'fail', 'unknown']),
+  friendly: z.string(),
+  fixable: z.boolean().optional(),
+  fix_action: z.string().optional(),
+  detail: z.unknown().optional(),
+});
+export type HealthCheckItem = z.infer<typeof HealthCheckItemSchema>;
+
+/** 体检报告（宁松勿严：detail 结构各检查项不同，不校验内部形状） */
+export const HealthCheckReportSchema = z.object({
+  items: z.array(HealthCheckItemSchema),
+  summary: z.string(),
+  counts: z.object({ warn: z.number(), fail: z.number(), total: z.number() }),
+  checked_at: z.string(),
+});
+export type HealthCheckReport = z.infer<typeof HealthCheckReportSchema>;
+
+/** 一键体检（只读）：显存/内存/磁盘/孤儿进程/模型对账/队列/日志保留/激活 */
+export async function runHealthCheck(): Promise<HealthCheckReport> {
+  const res = parseWith(
+    HealthCheckReportSchema,
+    await get<unknown>('/system/health-check'),
+    '一键体检',
+  );
+  return res as HealthCheckReport;
+}
+
+/** 修复动作结果（friendly 必需，其余随动作各异） */
+export const HealthRepairResultSchema = z
+  .object({ action: z.string(), friendly: z.string() })
+  .passthrough();
+
+/** 一键修复（白名单制）：clean_logs / rebuild_dirs / kill_orphans */
+export async function runHealthRepair(action: string): Promise<{ action: string; friendly: string }> {
+  const res = parseWith(
+    HealthRepairResultSchema,
+    await post<unknown>('/system/health-repair', { action }),
+    '一键修复',
+  );
+  return res as { action: string; friendly: string };
+}
+// 本项目仅供学习使用，商业授权请+Q 3559331368

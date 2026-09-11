@@ -11,6 +11,7 @@ RAM 余量闸门（60s 短等重试，仍不足诚实拒绝）。
   2. start() 源内存在 RAM 闸门块（防回退），且语义要点齐备
      （psutil.available、+3.0GB 开销、60s 短等、诚实拒绝 return False）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import sys

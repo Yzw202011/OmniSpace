@@ -11,6 +11,7 @@
 落盘 DATA_DIR/generated/exports/（媒体白名单目录，/manga/media 可回读）。
 诚实约束：无关键帧的分格跳过并在响应中列明（不伪造占位画面）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import io

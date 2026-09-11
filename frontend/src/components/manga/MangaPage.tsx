@@ -18,3 +18,4 @@ export default function MangaPage() {
   const currentProject = useMangaStore((s) => s.currentProject);
   return currentProject ? <MangaWorkspace /> : <MangaLibrary />;
 }
+// 本项目仅供学习使用，商业授权请+Q 3559331368

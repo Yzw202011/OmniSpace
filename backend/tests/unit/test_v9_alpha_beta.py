@@ -159,3 +159,4 @@ def test_beta_new_drain_supersedes_older_timer(
 
 def _unused(_: Any) -> None:  # pragma: no cover - 占位保持导入整洁
     return None
+# 本项目仅供学习使用，商业授权请+Q 3559331368

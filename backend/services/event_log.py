@@ -488,3 +488,4 @@ def start_cleanup_task() -> None:
                          daemon=True)
     t.start()
     logger.info("日志 30 天自动清除任务已启动（每 24h 巡检）")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -25,6 +25,7 @@
   - 绝不点击下载（拦截层强制）
   - 导航前黑名单检查；操作间隔 ≥1s（browser_service 节流）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import base64

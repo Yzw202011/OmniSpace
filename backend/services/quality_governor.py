@@ -92,3 +92,4 @@ def get_quality_governor() -> QualityGovernor:
             if _governor_instance is None:
                 _governor_instance = QualityGovernor()
     return _governor_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

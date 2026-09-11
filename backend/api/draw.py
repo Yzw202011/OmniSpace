@@ -1522,3 +1522,4 @@ async def controlnet_preview(body: dict = Body(default_factory=dict)) -> dict[st
         "degraded": True,
         "degrade_reason": "ControlNet 预处理管线尚未接入（后续版本能力），预览暂不可用",
     })
+# 本项目仅供学习使用，商业授权请+Q 3559331368

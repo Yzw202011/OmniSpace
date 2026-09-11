@@ -240,3 +240,4 @@ class DecisionEngine:
             dispatcher.preload([nxt])
         else:
             logger.info("策略[ALL_IDLE]: 无可靠预测，保持显存空闲（不预加载）")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

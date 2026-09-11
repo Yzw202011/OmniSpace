@@ -15,6 +15,7 @@ TTFT（首字延迟）/ 总耗时 / 输出 token 数 / 解码速度 tokens/s，
   2. vLLM 未在跑时先由产品链路拉起（未加载必须全自动），
      或 --skip-health 跳过健康检查（仅调试脚本本身用）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

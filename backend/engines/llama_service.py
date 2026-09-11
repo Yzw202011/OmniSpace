@@ -328,3 +328,4 @@ def get_llama_service() -> LlamaService:
             if _service is None:
                 _service = LlamaService()
     return _service
+# 本项目仅供学习使用，商业授权请+Q 3559331368

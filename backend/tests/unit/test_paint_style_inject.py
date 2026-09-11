@@ -4,6 +4,7 @@
 关键帧链不对齐。本文件锁定 _inject_style_pack：块拼接格式、negative
 用户自带优先/风格包兜底、无块透传、真实嗅探中文风格词不抛异常。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from backend.api.draw import _inject_style_pack

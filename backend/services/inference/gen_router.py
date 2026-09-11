@@ -27,6 +27,7 @@
 ——系统日志模块三视图（事件时间线/执行流程）即时可见，切换流程
 带 trace_id 可串联同一次生成的完整决策链。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

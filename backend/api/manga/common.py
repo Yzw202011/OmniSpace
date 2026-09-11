@@ -1482,3 +1482,4 @@ def _load_project_rows(project_id: str) -> tuple[Database, dict, list[dict]]:
         raise ApiError(40005, "项目不存在", detail={"project_id": project_id})
     rows = _load_rows(db, sb["id"])
     return db, sb, rows
+# 本项目仅供学习使用，商业授权请+Q 3559331368

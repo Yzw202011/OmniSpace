@@ -9,6 +9,7 @@
   4. sync_core 装饰器把同步核心变成自调度 async 函数（漏 await
      只得到 coroutine，不会同步阻塞，误用面结构性消失）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

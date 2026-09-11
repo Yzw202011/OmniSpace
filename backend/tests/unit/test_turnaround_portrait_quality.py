@@ -8,6 +8,7 @@
   3. 纯白背景校验按格判定（整图边框采样对「部分格有背景」的
      四视图拼图失效——右两格背景在图内部，边框被白区拉白误判）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from backend.api.manga.comic_gen import (

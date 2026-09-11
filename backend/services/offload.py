@@ -16,6 +16,7 @@ COM 调用 / 大文件哈希）必须经 ``run_blocking``——这是唯一入�
   - 轻量文件 IO / 遥测读取（毫秒级）可直接 asyncio.to_thread，不
     强制走本入口；秒级以上一律走本入口。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

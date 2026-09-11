@@ -5,6 +5,7 @@ db.insert/update/delete → ok() 信封）；生成类端点只做校验 + 落�
 入队即返回，实际执行在 novel_service.NovelJobQueue（单 worker 串行，
 dialog 功能锁由 worker 统一编排）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

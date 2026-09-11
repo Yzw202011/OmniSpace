@@ -7,6 +7,7 @@
 
 TestClient + 队列替身（不触 GPU），约定同 test_image_queue_api。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

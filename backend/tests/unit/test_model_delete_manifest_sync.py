@@ -7,6 +7,7 @@ remove_manifest_entry 让删除正规通道具备登记簿同步能力：
 - 条目不存在 → False 且不写文件；
 - 清单损坏 → False 且**不覆写原文件**（对齐模块「损坏按缺失降级」边界）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

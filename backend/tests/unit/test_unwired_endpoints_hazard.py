@@ -102,3 +102,4 @@ def test_turnaround_endpoints_wired_and_runners_lock_free() -> None:
     # runner 层：不再自取功能锁（双取会造成计数失配）
     assert "acquire_or_raise" not in sync_src
     assert "acquire_or_raise" not in ep_src
+# 本项目仅供学习使用，商业授权请+Q 3559331368

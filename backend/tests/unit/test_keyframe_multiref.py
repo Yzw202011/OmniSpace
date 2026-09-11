@@ -11,6 +11,7 @@ gen_router 重型导入。
   - comfy_paint_engine._build_workflow：多图 ReferenceLatent 链式
     级联 / pos 模式负侧不注入 / off 无 ref 节点 / 分档分辨率预算
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import ast

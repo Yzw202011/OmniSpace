@@ -13,6 +13,7 @@ gen_router/torch/FastAPI 重型导入。
   - 无角色绑定行：不注入 char 锚
   - 默认参数（char_count=0）与单角色行为一致（向后兼容）
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import ast

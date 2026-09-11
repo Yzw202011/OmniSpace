@@ -135,3 +135,4 @@ def setup_cors(app: FastAPI, extra_origins: list[str] | None = None) -> None:
         return await call_next(request)
 
     log.info("CORS 中间件已配置（允许来源: %s）", origins)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

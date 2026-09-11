@@ -19,6 +19,7 @@
     ~40s，空闲期驻留 GB 级内存不值；
   - atexit 注册兜底（正常解释器退出路径）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import atexit

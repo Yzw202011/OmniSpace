@@ -187,3 +187,4 @@ def http_json(url: str, payload: dict[str, Any] | None = None,
             return exc.code, json.loads(body) if body else None
         except json.JSONDecodeError:
             return exc.code, body
+# 本项目仅供学习使用，商业授权请+Q 3559331368

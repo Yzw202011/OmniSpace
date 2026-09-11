@@ -88,3 +88,4 @@ def test_all_three_upload_sites_guarded() -> None:
     src = ASSET_PY.read_text(encoding="utf-8")
     assert src.count("_assert_image_magic(raw, file.filename)") >= 3, (
         "三个上传位（reference/upload/replace）必须全部前置魔数校验")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -214,3 +214,4 @@ def test_note_external_load_idempotent(monkeypatch) -> None:
     mgr._loaded["m1"]["loaded_at"] = 111.0  # type: ignore[index]
     assert mgr.note_external_load("m1", "dialog") is True
     assert mgr._loaded["m1"]["loaded_at"] == 111.0  # 幂等不覆盖
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -11,6 +11,7 @@
 降级策略：向量库内部自动降级（ChromaDB → 内存 TF-IDF）；
          FTS 索引内部自动降级（FTS5 → LIKE）；单路故障时另一路独立可用。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

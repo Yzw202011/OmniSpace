@@ -7,6 +7,7 @@ LRU 淘汰 + LZ4 压缩策略，三种缓存状态:
 
 当 lz4 不可用时降级为不压缩。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

@@ -234,3 +234,4 @@ def test_export_multi_bubble_roundtrip(field):
     assert r.json()["success"]
     out = field.data_dir / r.json()["data"]["file_path"]
     assert out.is_file() and out.stat().st_size > 1000
+# 本项目仅供学习使用，商业授权请+Q 3559331368

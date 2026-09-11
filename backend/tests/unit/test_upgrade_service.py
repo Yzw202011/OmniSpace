@@ -7,6 +7,7 @@ updates 目录扫描与升级状态读写。
 
 隔离纪律：临时密钥每次现生成，绝不触碰 keys/ 真实密钥与 data/ 用户库。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import hashlib

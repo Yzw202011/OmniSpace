@@ -3,6 +3,7 @@
 沙盘 manifest + tmp 目录验证：模块归并、权重文件判据（≥100MB 才算
 在位，防空壳目录）、内置件缺件不翻灰只记 notes、非内置缺件计数。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import importlib.util

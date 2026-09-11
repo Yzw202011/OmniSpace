@@ -2722,3 +2722,4 @@ def get_video_engine() -> VideoEngine:
             if _video_engine_instance is None:
                 _video_engine_instance = VideoEngine()
     return _video_engine_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

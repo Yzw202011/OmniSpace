@@ -4,6 +4,7 @@
 切换/漫剧让渡触发卸载时，采样中管线引用被抽走（中途崩/黑图）。
 修法：unload 先取 `_infer_lock`（锁序全局约定：先 _infer_lock 后 _lock）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import threading

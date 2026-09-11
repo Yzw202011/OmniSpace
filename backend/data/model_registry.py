@@ -14,6 +14,7 @@ startup_check / api/models / 测试锁定共同消费。
   - manifest 不可用（缺失/损坏）时全部查询回退为空，调用方自行降级，
     绝不阻断启动（对齐 startup_check 既有第 25 项 warning 语义）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import json

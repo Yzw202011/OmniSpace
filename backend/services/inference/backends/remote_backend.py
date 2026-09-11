@@ -346,3 +346,4 @@ def get_remote_backend() -> RemoteDialogBackend:
     if _remote_backend is None:
         _remote_backend = RemoteDialogBackend()
     return _remote_backend
+# 本项目仅供学习使用，商业授权请+Q 3559331368

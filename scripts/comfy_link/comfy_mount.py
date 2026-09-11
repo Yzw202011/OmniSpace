@@ -21,6 +21,7 @@ comfy_model_map.json 把中央 models 的权重硬链接进 ComfyUI 分类目录
 纯 stdlib；本目录仓库真源 scripts/comfy_link/，包内落 modelxiazai/
 （make_dist.py COPY_DIRS 映射），两处布局下 REPO 推导一致。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import ctypes

@@ -9,6 +9,7 @@
   2. v1 单行格式回归不破（续行合并幂等）；
   3. _merge_multiline_shot_blocks 幂等（合并后的单行不再二次变化）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import re

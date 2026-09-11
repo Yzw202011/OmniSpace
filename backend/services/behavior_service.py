@@ -542,3 +542,4 @@ def get_behavior_service() -> BehaviorLearningService:
             if _behavior_instance is None:
                 _behavior_instance = BehaviorLearningService()
     return _behavior_instance
+# 本项目仅供学习使用，商业授权请+Q 3559331368

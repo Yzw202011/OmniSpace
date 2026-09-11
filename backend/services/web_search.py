@@ -364,3 +364,4 @@ def build_web_block(results: list[SearchResult]) -> str:
             line += f"：{r.snippet}"
         lines.append(line)
     return "\n".join(lines)
+# 本项目仅供学习使用，商业授权请+Q 3559331368

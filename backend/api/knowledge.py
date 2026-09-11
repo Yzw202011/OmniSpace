@@ -910,3 +910,4 @@ def behavior_clear() -> dict[str, Any]:
         raise ApiError("LEARN_BEHAVIOR_CLEAR_FAILED", "行为数据清理失败",
                        detail={"error": str(exc)}) from exc
     return ok({"deleted": deleted}, message="行为学习数据已清空")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

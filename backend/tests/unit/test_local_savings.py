@@ -14,6 +14,7 @@
 
 全部 TestClient 离线跑（tmp 库隔离，不触发 lifespan/GPU）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 from typing import Any

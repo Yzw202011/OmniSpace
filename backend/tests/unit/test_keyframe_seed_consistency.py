@@ -104,3 +104,4 @@ def test_resolve_seed_random_when_no_history():
 def test_resolve_seed_explicit_zero_is_valid():
     f = _load_funcs("_resolve_base_seed")["_resolve_base_seed"]
     assert f(_FakeDB(None), "row1", 0, False) == (0, "explicit")
+# 本项目仅供学习使用，商业授权请+Q 3559331368

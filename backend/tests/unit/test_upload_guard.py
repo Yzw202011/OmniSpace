@@ -3,6 +3,7 @@
 直接测 upload_guard.validate 纯函数：后缀白名单、可执行体黑名单、
 魔数嗅验三层。不依赖 FastAPI/网络/磁盘。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import pytest

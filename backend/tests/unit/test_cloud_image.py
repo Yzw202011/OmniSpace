@@ -456,3 +456,4 @@ def test_image_wiring_sentinels() -> None:
         encoding="utf-8")
     assert "cloud_endpoint is not None" in common_src
     assert '"engine": "cloud"' in common_src
+# 本项目仅供学习使用，商业授权请+Q 3559331368

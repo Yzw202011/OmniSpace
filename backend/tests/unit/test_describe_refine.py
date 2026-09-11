@@ -4,6 +4,7 @@
 覆盖：开关默认关零行为、评分解析容忍围栏、低分触发重写、
 重写稿结构非法放行原稿、评审异常放行。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import asyncio

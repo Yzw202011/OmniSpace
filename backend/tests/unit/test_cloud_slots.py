@@ -302,3 +302,4 @@ def test_dialog_ws_whitelist_passes_cloud_model() -> None:
     rejected2 = (local_req and not str(local_req).startswith("cloud::")
                  and allowed is not None and local_req not in allowed)
     assert rejected2 is True  # 本地未登记模型仍被拦（旧行为不变）
+# 本项目仅供学习使用，商业授权请+Q 3559331368

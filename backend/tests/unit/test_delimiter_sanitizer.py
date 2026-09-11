@@ -9,6 +9,7 @@
 AST 沙箱提取 _build_abc_prompt + _sanitize_delimiters + 依赖
 （_derive_shot_plan/_ABC_MARK/_ASSET_KIND_ZH/_ABC_PROMPT_TEMPLATE）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import ast

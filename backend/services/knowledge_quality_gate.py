@@ -11,6 +11,7 @@
 剧情简介常以悬念问句收尾（type=fact，含类型/主题/剧情，是有效知识）；
 无答案判定必须同时看 type 与「答：」段。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import re

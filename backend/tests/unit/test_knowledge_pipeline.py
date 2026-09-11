@@ -168,3 +168,4 @@ def test_tc_u_008_quality_filter(service):
     score = service.evaluate_quality(k, "短剧编剧技巧")
     assert score.relevance < 0.5
     assert score.passed is False
+# 本项目仅供学习使用，商业授权请+Q 3559331368

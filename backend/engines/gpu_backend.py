@@ -434,3 +434,4 @@ def resolve_device_plan(gpu_info: dict | None = None) -> dict:
         "secondary_offload": GPU_SECONDARY_OFFLOAD,
         "secondary_active": secondary_active,
     }
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -3,6 +3,7 @@
 覆盖 mtp_spec_enabled 三轴：默认关 / config 真+权重在盘才开 / 缺权重
 或配置异常一律降级关（诚实告警不硬上）。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

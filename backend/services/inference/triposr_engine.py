@@ -427,3 +427,4 @@ def get_triposr_engine() -> TripoSREngine:
             if _engine is None:
                 _engine = TripoSREngine()
     return _engine
+# 本项目仅供学习使用，商业授权请+Q 3559331368

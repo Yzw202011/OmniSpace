@@ -9,6 +9,7 @@
 降级：FTS5 不可用（编译缺失）时整张表退化为普通表 + LIKE 检索，
 保证关键词路始终可用；所有异常吞掉并记日志，绝不影响主链路。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
 import logging

@@ -9,6 +9,7 @@ GPU 2s / CPU 5s / 磁盘 10s 内直接返回缓存值，降低 psutil/NVML 开�
 （psutil.cpu_percent 带 100ms 阻塞探测，1s 全量采集浪费约 10% 单核）。
 内存/电源为纳秒级读数，保持每 tick 实时采集。
 """
+# 本项目仅供学习使用，商业授权请+Q 3559331368
 
 from __future__ import annotations
 

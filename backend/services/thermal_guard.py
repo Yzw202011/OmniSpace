@@ -233,3 +233,4 @@ class ThermalGuard:
 def get_thermal_guard() -> ThermalGuard:
     """获取 ThermalGuard 全局单例。"""
     return ThermalGuard.instance()
+# 本项目仅供学习使用，商业授权请+Q 3559331368

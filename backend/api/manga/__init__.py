@@ -44,3 +44,4 @@ router.include_router(comic_script.router)
 router.include_router(comic_export.router)
 
 __all__ = ["router"]
+# 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -107,3 +107,6 @@ packaging_console/
 启动打包台.bat
 启动打包台.exe
 /docs/封装打包台方案.md
+
+# ===== 前端公共静态资源例外（风格缩略图被全局 *.png 误伤，types/index.ts 引用，2026-09-11 补录） =====
+!frontend/public/style-thumbs/*

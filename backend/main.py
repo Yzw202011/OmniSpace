@@ -210,8 +210,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             f"监听地址 {config.HOST}:{config.PORT}",
             level="success",
             detail=f"db={config.DB_PATH}, api_prefix={config.API_PREFIX}")
-    except Exception:  # noqa: BLE001 - 事件日志失败不阻断启动
-        log.warning("事件日志初始化异常（可视化降级）")
+    except Exception:  # noqa: BLE001 - 事件系统故障不阻断启动
+        log.exception("事件日志初始化失败")
+    # ── 升级包启动扫描（升级机制批2）：有可升级包则 WS 广播 ──
+    try:
+        from .services.upgrade_service import scan_updates
+        compatible = [p for p in scan_updates() if p.get("compatible")]
+        if compatible:
+            from .services.ws_hub import get_ws_hub
+            get_ws_hub().broadcast({
+                "type": "update_available",
+                "data": {"count": len(compatible),
+                         "to_version": compatible[0].get("manifest", {})
+                         .get("to_version", "")},
+            })
+    except Exception:  # noqa: BLE001 - 升级扫描失败不阻断启动
+        log.warning("升级包启动扫描失败（忽略）")
     # ── 执行流程追踪（2026-08-23 流程记录机制优化）─────────
     try:
         from .services import flow_trace
@@ -327,6 +341,7 @@ _API_MODULES = [
     "license",   # 激活门禁API（P5：状态展示/激活提交，未激活态白名单）
     "novel",     # 小说模块API（批2 MVP 2026-09-05：项目/大纲/章节/角色/伏笔/导出）
     "cloud",     # 云端API服务商管理（批1 2026-09-06：Provider/绑定/测试，用户自带Key）
+    "upgrade",   # 应用内升级API（升级机制批2 2026-09-11：包导入/扫描/开始升级）
 ]
 
 

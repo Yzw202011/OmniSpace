@@ -91,6 +91,8 @@ def _comfy_filter(parts: tuple[str, ...]) -> bool:
 COPY_DIRS: list[tuple[str, str, object]] = [
     ("backend", "backend", _backend_filter),
     ("launcher", "launcher", _plain_filter),
+    # 升级小医生（升级机制批3 2026-09-11）：独立进程换文件，随包出厂
+    ("updater", "updater", _plain_filter),
     ("skills", "skills", _plain_filter),
     # ComfyUI 模型挂接工具：仓库真源在 scripts/comfy_link/（目录规范
     # §2.3），包内仍落 modelxiazai/——交付物与说明书路径不变
@@ -139,6 +141,7 @@ BLACKLIST_RES = [
         r"[/\\]omnispace\.db-(wal|shm)$", r"art_styles_backup.*\.json$",
         r"art_styles_removed.*\.json$", r"^(_|tmp_)[^/\\]+\.(py|txt)$",
         r"[/\\](_tmp_|tmp_)[^/\\]*\.py$", r"\.log$", r"\.whl$",
+        r"upgrade_signing\.key$",
         r"e2e_state\.json$", r"^\.mimosa", r"[/\\]\.mimosa", r"debug_archive",
         r"[/\\]backups?[/\\]", r"^\.git",
         r"\.(png|jpg|jpeg)\.jpg$",                                  # 截图双后缀残渣
@@ -149,6 +152,7 @@ BLACKLIST_RES = [
 
 ESSENTIALS = [
     "启动OmniSpace.exe", "启动OmniSpace.bat", "launcher/boot.py", "launcher/splash.html",
+    "updater/updater.py",
     "launcher/omnispace.ico", "backend/main.py", "backend/config.yaml",
     "backend/build_info.py", "frontend/dist/index.html",
     "pydeps/fastapi/__init__.py", "pydeps/uvicorn/__init__.py",

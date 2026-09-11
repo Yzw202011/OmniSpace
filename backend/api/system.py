@@ -938,18 +938,29 @@ def system_version() -> dict[str, Any]:
 
 @router.get("/system/update")
 def system_update() -> dict[str, Any]:
-    """软件更新（文档B §7.1.4，审计 R2-B09 / F-09 契约对齐）。
+    """软件更新状态（升级机制批2 语义激活：原 supported:false 占位退役）。
 
-    RC 为免安装整体替换形态，软件更新经"整体替换目录"完成，
-    有意不提供在线更新端点。契约上保留端点并如实返回
-    supported:false（比 404 语义更明确），前端据此隐藏更新入口。
+    联动 upgrade_service 摘要：本构建带应用内升级机制（updates/ 目录 +
+    设置页「软件升级」），在线检查更新仍不做（D3=纯离线，另立项）。
     """
-    return ok({
-        "supported": False,
-        "reason": "免安装 RC 形态，软件更新通过整体替换目录完成，"
-                  "不提供在线更新端点",
-        "channel": "manual-replace",
-    })
+    try:
+        from ..services.upgrade_service import current_info, scan_updates
+        compatible = [p for p in scan_updates() if p.get("compatible")]
+        return ok({
+            "supported": True,
+            "channel": "offline-package",
+            "current": current_info(),
+            "compatible_updates": len(compatible),
+            "latest": (compatible[0].get("manifest") if compatible else None),
+        })
+    except Exception:  # noqa: BLE001 - 升级层故障按降级语义返回
+        return ok({
+            "supported": True,
+            "channel": "offline-package",
+            "current": {"version": APP_VERSION},
+            "compatible_updates": 0,
+            "latest": None,
+        })
 
 
 @router.get("/system/info")

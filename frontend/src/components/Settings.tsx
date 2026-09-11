@@ -18,6 +18,7 @@ import { useHardwareStore } from '@/stores/useHardwareStore';
 import CloudApiSettings from '@/components/CloudApiSettings';
 import WebSearchSettings from '@/components/WebSearchSettings';
 import HealthCheckCard from '@/components/HealthCheckCard';
+import UpgradeSection from '@/components/UpgradeSection';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
@@ -413,6 +414,9 @@ export default function Settings() {
           </>
         )}
       </div>
+
+      {/* ============ 软件升级（升级机制批2） ============ */}
+      <UpgradeSection />
 
       {/* ============ 体检与修复（自愈批4） ============ */}
       <HealthCheckCard />

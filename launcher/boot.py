@@ -1155,11 +1155,79 @@ class BootOrchestrator:
 
     # ── 主流程 ──
 
+    def _recover_interrupted_upgrade(self) -> None:
+        """升级中断自愈（升级机制批3，docs/升级机制方案-2026-09-08.md §2.4）。
+
+        读 updates/state.json：phase 处于中断态（backing_up/applying/
+        verifying_start）说明上次升级被打断——从最近一次备份还原旧版
+        文件（含 DB 快照），启动页日志说明后照常启动旧版。
+        正常路径只读一个 json，零开销。
+        """
+        import importlib.util
+        root = BOOT_DIR.parent
+        state_file = root / 'updates' / 'state.json'
+        if not state_file.is_file():
+            return
+        try:
+            state = json.loads(state_file.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return
+        phase = str(state.get('phase') or '')
+        if phase not in ('backing_up', 'applying', 'verifying_start'):
+            return
+        backup_root = root / 'updates' / 'backup'
+        stamps = sorted((d for d in backup_root.iterdir() if d.is_dir()),
+                        key=lambda d: d.name, reverse=True) \
+            if backup_root.is_dir() else []
+        if not stamps:
+            self.state.log('检测到上次升级中断，但找不到备份目录——'
+                           '按原样继续启动（如异常请查 updates/logs）', 'error')
+            return
+        # 动态加载 updater/restore.py（stdlib-only；先例=comfy_mount 挂接器）
+        restore_py = root / 'updater' / 'restore.py'
+        if not restore_py.is_file():
+            self.state.log('检测到上次升级中断，但 updater/restore.py 缺失，'
+                           '无法自动还原——按原样继续启动', 'error')
+            return
+        spec = importlib.util.spec_from_file_location(
+            '_omnispace_upgrade_restore', restore_py)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        restored, errs = mod.restore_backup(root, stamps[0])
+        to_version = str(state.get('to_version') or '?')
+        if errs:
+            self.state.log(f'升级中断还原完成但有 {len(errs)} 个文件失败'
+                           f'（还原 {restored} 个）——详见 updates/logs', 'error')
+        else:
+            self.state.log(f'检测到上次升级中断，已自动还原为 v{to_version}'
+                           f'（还原 {restored} 个文件），照常启动旧版', 'warn')
+        # 状态机落定：还原完成，不再是中断态
+        state['phase'] = 'rolled_back'
+        state['reason'] = f'boot 恢复钩子还原（{restored} 文件, 错误 {len(errs)}）'
+        state['updated_at'] = time.time()
+        try:
+            state_file.write_text(json.dumps(state, ensure_ascii=False,
+                                             indent=1), encoding='utf-8')
+        except OSError:
+            pass
+
     def run(self) -> int:
         print('=' * 60)
         print('OmniSpace AI · 启动主程序 (Boot)')
         print('=' * 60)
         _boot_log_write('========== OmniSpace Boot 会话开始 ==========')
+        # ── 升级中断自愈钩子（升级机制批3，2026-09-11）──────────
+        # 上次升级若被打断（backing_up/applying/verifying_start），
+        # 先从 updates/backup 还原旧版再照常启动（方案 §2.4 断电自愈）。
+        try:
+            self._recover_interrupted_upgrade()
+        except Exception as _recover_exc:
+            try:
+                self.state.log(f'升级恢复检查异常（忽略继续启动）: {_recover_exc}',
+                               'error')
+            except Exception:  # noqa: BLE001
+                pass
 
         if not self._start_splash():
             return 0 if self._deferred_to_existing else 1

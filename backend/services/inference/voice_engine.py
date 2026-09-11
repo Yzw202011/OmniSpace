@@ -569,7 +569,9 @@ class VoiceEngine(BaseEngine):
                 gen_kwargs["language"] = language
             result = self._asr_pipe(
                 audio, chunk_length_s=30, stride_length_s=5,
-                generate_kwargs=gen_kwargs or None,
+                # 空字典也要传 dict：None 会炸 transformers 的
+                # generate_kwargs.pop（auto 语言模式，2026-09-11 实弹揪出）
+                **({"generate_kwargs": gen_kwargs} if gen_kwargs else {}),
                 return_timestamps=False,
             )
             text = str(result.get("text") or "").strip()

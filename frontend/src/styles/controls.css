@@ -37,15 +37,15 @@ button.bg-sakura-500:disabled {
   cursor: not-allowed;
 }
 @keyframes primary-waiting {
-  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 rgba(255, 107, 157, 0); }
-  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 16px rgba(255, 107, 157, 0.22); }
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 rgba(var(--color-primary-rgb), 0); }
+  50% { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 16px rgba(var(--color-primary-rgb), 0.22); }
 }
 
 /* ============================== 2. 次级按钮（bg-card 载具）：玻璃底 + 薄荷光晕 ============================== */
 button[class*='bg-[var(--color-card)]'] {
   background:
     linear-gradient(rgba(22, 33, 62, 0.88), rgba(22, 33, 62, 0.88)) padding-box,
-    linear-gradient(135deg, rgba(78, 205, 196, 0.3), rgba(255, 107, 157, 0.14)) border-box;
+    linear-gradient(135deg, rgba(var(--color-accent-rgb), 0.3), rgba(var(--color-primary-rgb), 0.14)) border-box;
   border: 1px solid transparent;
   transition: transform 160ms var(--ease-out), box-shadow 200ms var(--ease-out),
     background 200ms var(--ease-out);
@@ -54,8 +54,8 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):hover {
   transform: translateY(-1px);
   background:
     linear-gradient(rgba(26, 40, 74, 0.92), rgba(24, 36, 68, 0.92)) padding-box,
-    linear-gradient(135deg, rgba(78, 205, 196, 0.52), rgba(255, 107, 157, 0.3)) border-box;
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3), 0 0 14px rgba(78, 205, 196, 0.14);
+    linear-gradient(135deg, rgba(var(--color-accent-rgb), 0.52), rgba(var(--color-primary-rgb), 0.3)) border-box;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3), 0 0 14px rgba(var(--color-accent-rgb), 0.14);
 }
 button[class*='bg-[var(--color-card)]']:not(:disabled):active {
   transform: translateY(0) scale(0.97);
@@ -63,7 +63,7 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
 [data-theme='light'] button[class*='bg-[var(--color-card)]'] {
   background:
     linear-gradient(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.92)) padding-box,
-    linear-gradient(135deg, rgba(78, 205, 196, 0.26), rgba(255, 107, 157, 0.14)) border-box;
+    linear-gradient(135deg, rgba(var(--color-accent-rgb), 0.26), rgba(var(--color-primary-rgb), 0.14)) border-box;
 }
 
 /* ============================== 3. 幽灵/图标按钮（hover:bg-sakura-50 载具）：粉玻璃 + 弹跳 ============================== */
@@ -72,8 +72,8 @@ button[class*='hover:bg-sakura-50'] {
     box-shadow 160ms var(--ease-out), transform 160ms var(--ease-out);
 }
 button[class*='hover:bg-sakura-50']:not(:disabled):hover {
-  background: linear-gradient(135deg, rgba(255, 107, 157, 0.16), rgba(255, 107, 157, 0.08));
-  box-shadow: inset 0 0 0 1px rgba(255, 107, 157, 0.2), 0 0 10px rgba(255, 107, 157, 0.1);
+  background: linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.16), rgba(var(--color-primary-rgb), 0.08));
+  box-shadow: inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.2), 0 0 10px rgba(var(--color-primary-rgb), 0.1);
   transform: translateY(-1px);
 }
 button[class*='hover:bg-sakura-50']:not(:disabled):active {
@@ -86,9 +86,9 @@ button[class*='border-[var(--color-input-border)]'] {
     transform 160ms var(--ease-out), color 160ms var(--ease-out);
 }
 button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
-  border-color: rgba(255, 107, 157, 0.55);
+  border-color: rgba(var(--color-primary-rgb), 0.55);
   color: var(--color-primary-300);
-  box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.18), 0 0 12px rgba(255, 107, 157, 0.12);
+  box-shadow: 0 0 0 1px rgba(var(--color-primary-rgb), 0.18), 0 0 12px rgba(var(--color-primary-rgb), 0.12);
   transform: translateY(-1px);
 }
 button[class*='border-[var(--color-input-border)]']:not(:disabled):active {
@@ -103,8 +103,8 @@ textarea[class*='bg-[var(--color-input-bg)]'] {
 /* hover：薄荷描边预告可交互 */
 input[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
 textarea[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover {
-  border-color: rgba(78, 205, 196, 0.5);
-  box-shadow: 0 0 0 1px rgba(78, 205, 196, 0.1);
+  border-color: rgba(var(--color-accent-rgb), 0.5);
+  box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.1);
 }
 /* focus：樱粉呼吸光环（复用 signature.css 的 focus-breathe 关键帧，
    与 .input 类控件同频；覆盖 Tailwind focus:ring 的静态 ring） */

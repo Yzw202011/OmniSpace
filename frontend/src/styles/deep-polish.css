@@ -40,8 +40,8 @@ body::before {
   max-width: 980px;
   max-height: 980px;
   background: radial-gradient(circle at center,
-    rgba(255, 107, 157, 0.26) 0%,
-    rgba(255, 107, 157, 0.12) 36%,
+    rgba(var(--color-primary-rgb), 0.26) 0%,
+    rgba(var(--color-primary-rgb), 0.12) 36%,
     transparent 70%);
   animation: aurora-pink 38s ease-in-out infinite alternate;
 }
@@ -54,8 +54,8 @@ body::after {
   max-width: 920px;
   max-height: 920px;
   background: radial-gradient(circle at center,
-    rgba(78, 205, 196, 0.2) 0%,
-    rgba(78, 205, 196, 0.08) 38%,
+    rgba(var(--color-accent-rgb), 0.2) 0%,
+    rgba(var(--color-accent-rgb), 0.08) 38%,
     transparent 72%);
   animation: aurora-mint 46s ease-in-out infinite alternate;
 }
@@ -97,10 +97,10 @@ body::after {
   background:
     linear-gradient(rgba(22, 33, 62, 0.72), rgba(22, 33, 62, 0.72)) padding-box,
     linear-gradient(135deg,
-      rgba(255, 107, 157, 0.38) 0%,
+      rgba(var(--color-primary-rgb), 0.38) 0%,
       rgba(255, 155, 190, 0.18) 30%,
-      rgba(78, 205, 196, 0.24) 68%,
-      rgba(255, 107, 157, 0.16) 100%) border-box;
+      rgba(var(--color-accent-rgb), 0.24) 68%,
+      rgba(var(--color-primary-rgb), 0.16) 100%) border-box;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     var(--shadow-md);
@@ -109,10 +109,10 @@ body::after {
   background:
     linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)) padding-box,
     linear-gradient(135deg,
-      rgba(255, 107, 157, 0.3) 0%,
+      rgba(var(--color-primary-rgb), 0.3) 0%,
       rgba(255, 155, 190, 0.14) 30%,
-      rgba(78, 205, 196, 0.2) 68%,
-      rgba(255, 107, 157, 0.12) 100%) border-box;
+      rgba(var(--color-accent-rgb), 0.2) 68%,
+      rgba(var(--color-primary-rgb), 0.12) 100%) border-box;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     var(--shadow-md);
@@ -129,27 +129,27 @@ body::after {
   background:
     linear-gradient(rgba(24, 36, 68, 0.78), rgba(22, 33, 62, 0.78)) padding-box,
     linear-gradient(135deg,
-      rgba(255, 107, 157, 0.6) 0%,
+      rgba(var(--color-primary-rgb), 0.6) 0%,
       rgba(255, 155, 190, 0.3) 30%,
-      rgba(78, 205, 196, 0.4) 68%,
-      rgba(255, 107, 157, 0.26) 100%) border-box;
+      rgba(var(--color-accent-rgb), 0.4) 68%,
+      rgba(var(--color-primary-rgb), 0.26) 100%) border-box;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     var(--shadow-card-hover),
-    0 0 28px rgba(255, 107, 157, 0.12);
+    0 0 28px rgba(var(--color-primary-rgb), 0.12);
 }
 [data-theme='light'] .card.hoverable:hover {
   background:
     linear-gradient(rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.92)) padding-box,
     linear-gradient(135deg,
-      rgba(255, 107, 157, 0.48) 0%,
+      rgba(var(--color-primary-rgb), 0.48) 0%,
       rgba(255, 155, 190, 0.24) 30%,
-      rgba(78, 205, 196, 0.32) 68%,
-      rgba(255, 107, 157, 0.2) 100%) border-box;
+      rgba(var(--color-accent-rgb), 0.32) 68%,
+      rgba(var(--color-primary-rgb), 0.2) 100%) border-box;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     var(--shadow-card-hover),
-    0 0 24px rgba(255, 107, 157, 0.1);
+    0 0 24px rgba(var(--color-primary-rgb), 0.1);
 }
 
 /* 卡片标题：左侧渐变光条（竖条由樱粉渐隐至薄荷） */
@@ -166,7 +166,7 @@ body::after {
   width: 3px;
   border-radius: var(--radius-full);
   background: linear-gradient(180deg, var(--color-primary), var(--color-accent));
-  box-shadow: 0 0 8px rgba(255, 107, 157, 0.5);
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.5);
 }
 
 /* 模型管理卡片：同一玻璃渐变描边语言 */
@@ -174,7 +174,7 @@ body::after {
   border: 1px solid transparent;
   background:
     linear-gradient(rgba(22, 33, 62, 0.7), rgba(22, 33, 62, 0.7)) padding-box,
-    linear-gradient(135deg, rgba(255, 107, 157, 0.26), rgba(78, 205, 196, 0.2)) border-box;
+    linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.26), rgba(var(--color-accent-rgb), 0.2)) border-box;
   transition:
     transform var(--duration-hover) var(--ease-out),
     box-shadow var(--duration-hover) var(--ease-out),
@@ -184,31 +184,31 @@ body::after {
   transform: translateY(-2px);
   background:
     linear-gradient(rgba(24, 36, 68, 0.78), rgba(22, 33, 62, 0.78)) padding-box,
-    linear-gradient(135deg, rgba(255, 107, 157, 0.5), rgba(78, 205, 196, 0.34)) border-box;
-  box-shadow: var(--shadow-card-hover), 0 0 20px rgba(255, 107, 157, 0.1);
+    linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.5), rgba(var(--color-accent-rgb), 0.34)) border-box;
+  box-shadow: var(--shadow-card-hover), 0 0 20px rgba(var(--color-primary-rgb), 0.1);
 }
 .model-card.selected {
   background:
-    linear-gradient(rgba(255, 107, 157, 0.1), rgba(22, 33, 62, 0.74)) padding-box,
-    linear-gradient(135deg, rgba(255, 107, 157, 0.66), rgba(255, 155, 190, 0.4)) border-box;
-  box-shadow: var(--shadow-card-hover), 0 0 24px rgba(255, 107, 157, 0.16);
+    linear-gradient(rgba(var(--color-primary-rgb), 0.1), rgba(22, 33, 62, 0.74)) padding-box,
+    linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.66), rgba(255, 155, 190, 0.4)) border-box;
+  box-shadow: var(--shadow-card-hover), 0 0 24px rgba(var(--color-primary-rgb), 0.16);
 }
 [data-theme='light'] .model-card {
   background:
     linear-gradient(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)) padding-box,
-    linear-gradient(135deg, rgba(255, 107, 157, 0.24), rgba(78, 205, 196, 0.18)) border-box;
+    linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.24), rgba(var(--color-accent-rgb), 0.18)) border-box;
 }
 [data-theme='light'] .model-card.selected {
   background:
     linear-gradient(rgba(255, 240, 246, 0.9), rgba(255, 255, 255, 0.85)) padding-box,
-    linear-gradient(135deg, rgba(255, 107, 157, 0.56), rgba(255, 155, 190, 0.36)) border-box;
+    linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.56), rgba(255, 155, 190, 0.36)) border-box;
 }
 
 /* ============================== 4. 页面标题：渐变文字 + 光带 ============================== */
 .page-title {
   background: linear-gradient(105deg,
     var(--color-text-primary) 0%,
-    #ffd9e6 38%,
+    color-mix(in srgb, var(--color-sakura-300) 45%, #fff) 38%,
     var(--color-primary-300) 62%,
     var(--color-text-primary) 100%);
   -webkit-background-clip: text;
@@ -231,8 +231,8 @@ body::after {
   border-radius: var(--radius-full);
   background: linear-gradient(90deg,
     var(--color-primary) 0%,
-    rgba(255, 107, 157, 0.35) 42%,
-    rgba(78, 205, 196, 0.3) 74%,
+    rgba(var(--color-primary-rgb), 0.35) 42%,
+    rgba(var(--color-accent-rgb), 0.3) 74%,
     transparent 100%);
 }
 [data-theme='light'] .page-title {
@@ -259,27 +259,27 @@ body::after {
   width: 3px;
   border-radius: var(--radius-full);
   background: linear-gradient(180deg, var(--color-primary), var(--color-accent));
-  box-shadow: 0 0 8px rgba(255, 107, 157, 0.5);
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.5);
 }
 
 /* ============================== 5. 对话页：气泡与激活态精修 ============================== */
 /* AI 内容底（气泡 + AI 头像）：薄荷玻璃 + 左侧薄荷光边 */
 [class*='color-ai-bg'] {
-  background: linear-gradient(135deg, rgba(78, 205, 196, 0.16), rgba(78, 205, 196, 0.08));
-  box-shadow: inset 0 0 0 1px rgba(78, 205, 196, 0.22), inset 3px 0 0 rgba(78, 205, 196, 0.45);
+  background: linear-gradient(135deg, rgba(var(--color-accent-rgb), 0.16), rgba(var(--color-accent-rgb), 0.08));
+  box-shadow: inset 0 0 0 1px rgba(var(--color-accent-rgb), 0.22), inset 3px 0 0 rgba(var(--color-accent-rgb), 0.45);
 }
 /* 会话激活项 / 用户头像 / 次级粉色按钮（bg-sakura-100）：粉色玻璃底（不带左光条，
    避免圆形头像与按钮场景出现竖条割裂） */
 .bg-sakura-100 {
-  background: linear-gradient(135deg, rgba(255, 107, 157, 0.22), rgba(255, 107, 157, 0.1));
+  background: linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.22), rgba(var(--color-primary-rgb), 0.1));
   box-shadow:
-    inset 0 0 0 1px rgba(255, 107, 157, 0.26),
-    0 0 12px rgba(255, 107, 157, 0.1);
+    inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.26),
+    0 0 12px rgba(var(--color-primary-rgb), 0.1);
 }
 /* 引用块竖线：樱粉发光（限定 blockquote，避免命中 spinner 圆环/虚线占位框） */
 blockquote[class*='border-sakura-300'] {
   border-color: var(--color-primary-300);
-  box-shadow: -2px 0 8px rgba(255, 107, 157, 0.25);
+  box-shadow: -2px 0 8px rgba(var(--color-primary-rgb), 0.25);
 }
 
 /* ============================== 6. 绘画页：图片网格卡悬浮光晕 ============================== */
@@ -293,14 +293,14 @@ blockquote[class*='border-sakura-300'] {
   transform: translateY(-5px) scale(1.025);
   box-shadow:
     0 14px 34px rgba(0, 0, 0, 0.42),
-    0 0 0 1px rgba(255, 107, 157, 0.4),
-    0 0 26px rgba(255, 107, 157, 0.18);
+    0 0 0 1px rgba(var(--color-primary-rgb), 0.4),
+    0 0 26px rgba(var(--color-primary-rgb), 0.18);
   z-index: 2;
 }
 
 /* ============================== 7. 表格：质感升级 ============================== */
 .table th {
-  background: linear-gradient(180deg, rgba(255, 107, 157, 0.08), transparent);
+  background: linear-gradient(180deg, rgba(var(--color-primary-rgb), 0.08), transparent);
   border-bottom: 1px solid var(--color-border);
   letter-spacing: 0.3px;
 }
@@ -312,7 +312,7 @@ blockquote[class*='border-sakura-300'] {
   border: 1px solid transparent;
   background:
     linear-gradient(rgba(22, 33, 62, 0.72), rgba(22, 33, 62, 0.72)) padding-box,
-    linear-gradient(135deg, rgba(255, 107, 157, 0.24), rgba(78, 205, 196, 0.18)) border-box;
+    linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.24), rgba(var(--color-accent-rgb), 0.18)) border-box;
 }
 
 /* ============================== 8. 徽章玻璃化 + 状态灯增强 ============================== */
@@ -324,8 +324,8 @@ blockquote[class*='border-sakura-300'] {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 .model-status-badge.selected {
-  background: linear-gradient(135deg, #ff7cab, var(--color-primary-600));
-  box-shadow: 0 0 12px rgba(255, 107, 157, 0.35);
+  background: linear-gradient(135deg, var(--color-sakura-500), var(--color-primary-600));
+  box-shadow: 0 0 12px rgba(var(--color-primary-rgb), 0.35);
 }
 
 /* ============================== 9. 交错入场：.page 直接子区块级联浮现 ============================== */
@@ -346,17 +346,17 @@ blockquote[class*='border-sakura-300'] {
 
 /* ============================== 10. 右面板/状态栏分层强化 ============================== */
 .right-panel-header {
-  background: linear-gradient(90deg, rgba(255, 107, 157, 0.05), transparent 60%);
+  background: linear-gradient(90deg, rgba(var(--color-primary-rgb), 0.05), transparent 60%);
 }
 .statusbar .sb-value {
-  text-shadow: 0 0 10px rgba(255, 107, 157, 0.18);
+  text-shadow: 0 0 10px rgba(var(--color-primary-rgb), 0.18);
 }
 
 /* ============================== 11. 漫剧全屏工作台：底部氛围渐晕（不碰编辑器体系） ============================== */
 .manga-fullscreen .main-content {
   background:
-    radial-gradient(1200px 480px at 85% -8%, rgba(255, 107, 157, 0.06), transparent 60%),
-    radial-gradient(900px 420px at 8% 110%, rgba(78, 205, 196, 0.05), transparent 55%);
+    radial-gradient(1200px 480px at 85% -8%, rgba(var(--color-primary-rgb), 0.06), transparent 60%),
+    radial-gradient(900px 420px at 8% 110%, rgba(var(--color-accent-rgb), 0.05), transparent 55%);
 }
 
 /* ============================== 12. 空状态升级：双层光晕 ============================== */

@@ -1,0 +1,184 @@
+/* ==========================================================================
+   OmniSpace AI —— Dali 风花雪月治愈主题（双主题体系之三）
+   --------------------------------------------------------------------------
+   2026-09-11 立项（docs/治愈系主题方案-2026-09-11.md，用户拍板色板 B 靛海）。
+   设计世界：B 靛海 —— 深海蓝夜 × 冰蓝月辉 × 珊瑚和声（景中的留白：
+   洱海的蓝，清新透亮）；亮型晨海 —— 雾白晨空 × 湖蓝（苍山雪后初晴）。
+   色彩原则（v1.4）：一个主音（冰蓝）+ 一个和声（珊瑚），砍尽杂色相。
+
+   挂载契约（useAppStore.applyTheme）：
+     html[data-family="dali"]                      → Dali · 洱海月（靛海，暗色默认）
+     html[data-family="dali"][data-theme="light"] → Dali · 苍山雪（晨海，亮色）
+
+   核心 trick（与 tech-theme.css 同源，2026-09-10 CLAUDE.md §2.5 主题族豁免）：
+   Tailwind v4 的 @theme 变量在 @layer theme 内发射，本文件为无层 CSS ——
+   依据层叠规则（未分层 > 分层），此处对 --color-sakura-* / --color-mint-*
+   的重映射必然生效，全站 bg-sakura-500 等工具类整体换色，零组件改动。
+   令牌「名字」真源仍为 tokens.css；本文件仅换「值」。
+   ========================================================================== */
+
+/* ============================== 1. 令牌覆盖 · 洱海月（靛海，暗色默认） ============================== */
+[data-family='dali'] {
+  /* 色彩体系：深海蓝夜底 × 冰蓝主色 × 珊瑚辅助 */
+  --color-primary: #7cc0ec;              /* 冰蓝月辉 */
+  --color-accent: #f5a795;               /* 珊瑚和声 */
+  --color-primary-rgb: 124, 192, 236;    /* 冰蓝 RGB 三元组（rgba 辉光引用） */
+  --color-accent-rgb: 245, 167, 149;     /* 珊瑚 RGB 三元组 */
+  --color-bg: #0d1628;                   /* 深海蓝夜 */
+  --color-card: #142138;                 /* 夜海卡片 */
+  --color-text-primary: #f0f4fa;         /* 冰白一级文字 */
+  --color-highlight: #f0b860;            /* 暖金强调（全局唯一暖金，与珊瑚呼应） */
+  --color-success: #8fd4ac;
+  --color-warning: #f0b860;
+  --color-error: #f09088;
+  --color-info: #7cc0ec;
+  --color-input-bg: #101b30;             /* 输入井 */
+  --color-slider-track: rgba(160, 190, 230, 0.16);
+
+  /* 派生文字色（靛海夜底） */
+  --color-text-secondary: #bfcbdf;
+  --color-text-tertiary: #7e8ba3;
+  /* 品牌面反白文字族内重映射：冰蓝底配深蓝墨（对比 ≈8:1；白在冰蓝底仅 1.9:1 不可读） */
+  --color-text-on-brand: #0d2333;
+
+  /* 主色衍生刻度（冰蓝） */
+  --color-primary-50: rgba(124, 192, 236, 0.08);
+  --color-primary-100: rgba(124, 192, 236, 0.15);
+  --color-primary-200: rgba(124, 192, 236, 0.26);
+  --color-primary-300: #a5d6f5;
+  --color-primary-400: #8fcbf0;
+  --color-primary-500: #7cc0ec;
+  --color-primary-600: #4e9ed6;
+  --color-primary-700: #2e7fb8;
+
+  /* 辅助色衍生（珊瑚） */
+  --color-accent-100: rgba(245, 167, 149, 0.15);
+  --color-accent-300: #f8c0b2;
+  --color-accent-600: #d97f68;
+
+  /* 边框/分隔/遮罩（月蓝微光边） */
+  --color-border: rgba(160, 190, 230, 0.2);
+  --color-border-light: rgba(160, 190, 230, 0.1);
+  --color-input-border: rgba(160, 190, 230, 0.28);
+  --color-divider: rgba(234, 238, 244, 0.08);
+  --color-overlay: rgba(3, 7, 16, 0.68);
+  --color-focus-ring: rgba(124, 192, 236, 0.42);
+
+  /* 语义底色 */
+  --color-success-bg: rgba(143, 212, 172, 0.13);
+  --color-warning-bg: rgba(240, 184, 96, 0.13);
+  --color-error-bg: rgba(240, 144, 136, 0.13);
+  --color-info-bg: rgba(124, 192, 236, 0.13);
+  --color-ai-generated: rgba(245, 167, 149, 0.14);
+
+  /* 毛玻璃（夜海） */
+  --color-glass: rgba(20, 33, 56, 0.72);
+
+  /* 阴影（靛海重投影） */
+  --shadow-sm: 0 2px 6px rgba(3, 7, 16, 0.35);
+  --shadow-md: 0 4px 12px rgba(3, 7, 16, 0.42);
+  --shadow-lg: 0 8px 24px rgba(3, 7, 16, 0.5);
+  --shadow-card-hover: 0 8px 20px rgba(3, 7, 16, 0.55);
+  --shadow-modal: 0 24px 64px rgba(3, 7, 16, 0.62);
+  --shadow-toast: 0 8px 28px rgba(3, 7, 16, 0.5);
+
+  /* Tailwind 工具类刻度整体重映射（零组件换色的关键） */
+  --color-sakura-50: rgba(124, 192, 236, 0.09);
+  --color-sakura-100: rgba(124, 192, 236, 0.16);
+  --color-sakura-200: rgba(124, 192, 236, 0.28);
+  --color-sakura-300: #a5d6f5;
+  --color-sakura-400: #8fcbf0;
+  --color-sakura-500: #7cc0ec;
+  --color-sakura-600: #4e9ed6;
+  --color-sakura-700: #c5e4fa;           /* 暗底芯片激活文字：浅冰蓝 */
+  --color-mint-100: rgba(245, 167, 149, 0.15);
+  --color-mint-300: #f8c0b2;
+  --color-mint-500: #f5a795;
+  --color-mint-600: #d97f68;
+  --color-ai-bg: rgba(245, 167, 149, 0.15);
+}
+
+/* ============================== 2. 令牌覆盖 · 苍山雪（晨海，亮色） ============================== */
+[data-family='dali'][data-theme='light'] {
+  --color-bg: #f1f5fb;                   /* 雾白晨空 */
+  --color-card: #fdfeff;
+  --color-input-bg: #f3f6fc;
+  --color-slider-track: rgba(35, 50, 74, 0.14);
+
+  --color-text-primary: #23324a;         /* 深蓝墨 */
+  --color-text-secondary: #5a6a85;
+  --color-text-tertiary: #8a96ac;
+  --color-text-on-brand: #f2f8ff;
+
+  /* 主色刻度（湖蓝加深保对比） */
+  --color-primary: #2e6fae;
+  --color-primary-rgb: 46, 111, 174;     /* 深湖蓝 RGB 三元组（rgba 辉光引用） */
+  --color-accent-rgb: 217, 117, 95;      /* 深珊瑚 RGB 三元组 */
+  --color-primary-50: rgba(46, 111, 174, 0.07);
+  --color-primary-100: rgba(46, 111, 174, 0.12);
+  --color-primary-200: rgba(46, 111, 174, 0.22);
+  --color-primary-300: #5a94cc;
+  --color-primary-400: #3a80be;
+  --color-primary-500: #2e6fae;
+  --color-primary-600: #24598d;
+  --color-primary-700: #1d4a77;
+
+  --color-accent: #d9755f;
+  --color-accent-100: rgba(217, 117, 95, 0.11);
+  --color-accent-300: #e39684;
+  --color-accent-600: #bc5f49;
+
+  --color-highlight: #a0722a;
+  --color-success: #2e7d5f;
+  --color-warning: #a0722a;
+  --color-error: #b56359;
+  --color-info: #2e6fae;
+
+  --color-border: rgba(35, 50, 74, 0.14);
+  --color-border-light: rgba(35, 50, 74, 0.07);
+  --color-input-border: rgba(35, 50, 74, 0.2);
+  --color-divider: rgba(35, 50, 74, 0.08);
+  --color-overlay: rgba(15, 25, 45, 0.45);
+  --color-focus-ring: rgba(46, 111, 174, 0.35);
+
+  --color-success-bg: rgba(46, 125, 95, 0.12);
+  --color-warning-bg: rgba(160, 114, 42, 0.12);
+  --color-error-bg: rgba(181, 99, 89, 0.1);
+  --color-info-bg: rgba(46, 111, 174, 0.1);
+  --color-ai-generated: rgba(217, 117, 95, 0.11);
+
+  --color-glass: rgba(255, 255, 255, 0.72);
+
+  --shadow-sm: 0 1px 2px rgba(35, 50, 74, 0.06);
+  --shadow-md: 0 4px 10px rgba(35, 50, 74, 0.09);
+  --shadow-lg: 0 10px 20px rgba(35, 50, 74, 0.1);
+  --shadow-card-hover: 0 8px 20px rgba(35, 50, 74, 0.13);
+  --shadow-modal: 0 24px 64px rgba(35, 50, 74, 0.18);
+  --shadow-toast: 0 8px 28px rgba(35, 50, 74, 0.14);
+
+  --color-sakura-50: rgba(46, 111, 174, 0.07);
+  --color-sakura-100: rgba(46, 111, 174, 0.12);
+  --color-sakura-200: rgba(46, 111, 174, 0.22);
+  --color-sakura-300: #5a94cc;
+  --color-sakura-400: #3a80be;
+  --color-sakura-500: #2e6fae;
+  --color-sakura-600: #24598d;
+  --color-sakura-700: #1d4a77;
+  --color-mint-100: rgba(217, 117, 95, 0.11);
+  --color-mint-300: #e39684;
+  --color-mint-500: #d9755f;
+  --color-mint-600: #bc5f49;
+  --color-ai-bg: rgba(217, 117, 95, 0.11);
+}
+
+/* ============================== 3. 组件级修正（家族作用域） ==============================
+ * sakura-theme.css 的滑块底层硬编码樱粉描边（历史存量），Dali 族内换冰蓝。
+ */
+[data-family='dali'] .omni-slider::-webkit-slider-thumb {
+  background: var(--color-card);
+  border-color: var(--color-primary);
+}
+[data-family='dali'] .omni-slider::-moz-range-thumb {
+  background: var(--color-card);
+  border-color: var(--color-primary);
+}

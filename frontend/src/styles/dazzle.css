@@ -15,14 +15,14 @@
  * deep-polish 原值 0.26/0.20 —— 提升一档光斑浓度，暗室氛围更"活"。 */
 body::before {
   background: radial-gradient(circle at center,
-    rgba(255, 107, 157, 0.32) 0%,
-    rgba(255, 107, 157, 0.15) 36%,
+    rgba(var(--color-primary-rgb), 0.32) 0%,
+    rgba(var(--color-primary-rgb), 0.15) 36%,
     transparent 70%);
 }
 body::after {
   background: radial-gradient(circle at center,
-    rgba(78, 205, 196, 0.26) 0%,
-    rgba(78, 205, 196, 0.10) 38%,
+    rgba(var(--color-accent-rgb), 0.26) 0%,
+    rgba(var(--color-accent-rgb), 0.10) 38%,
     transparent 72%);
 }
 
@@ -62,14 +62,14 @@ body::after {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     var(--shadow-card-hover),
-    0 0 34px rgba(255, 107, 157, 0.16);
+    0 0 34px rgba(var(--color-primary-rgb), 0.16);
 }
 /* Sakura 亮色：柔粉外晕（原无外晕，浅底"发灰"主因之一） */
 [data-theme='light'] .card.hoverable:hover {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     var(--shadow-card-hover),
-    0 0 26px rgba(255, 107, 157, 0.13);
+    0 0 26px rgba(var(--color-primary-rgb), 0.13);
 }
 
 /* ============================== 5. 导航项 hover · 主色浸染 ============================== */

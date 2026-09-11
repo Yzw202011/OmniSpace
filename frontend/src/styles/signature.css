@@ -26,7 +26,7 @@
 span[class*='w-1.5'][class*='h-4'][class*='animate-pulse'] {
   background: var(--color-primary);
   border-radius: 1px;
-  box-shadow: 0 0 8px rgba(255, 107, 157, 0.8), 0 0 18px rgba(255, 107, 157, 0.35);
+  box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.8), 0 0 18px rgba(var(--color-primary-rgb), 0.35);
   animation: caret-blink 0.9s steps(1) infinite;
 }
 @keyframes caret-blink {
@@ -37,7 +37,7 @@ span[class*='w-1.5'][class*='h-4'][class*='animate-pulse'] {
 /* ============================== 2. AI 思考三点：波浪弹跳 + 辉光 ============================== */
 span.rounded-full.animate-bounce {
   background: var(--color-accent);
-  box-shadow: 0 0 6px rgba(78, 205, 196, 0.6);
+  box-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.6);
   animation: dot-wave 1.1s ease-in-out infinite;
 }
 span.rounded-full.animate-bounce:nth-child(2) { animation-delay: 0.15s; }
@@ -58,19 +58,19 @@ input.omni-slider::-webkit-slider-thumb {
   border: 2px solid var(--color-primary);
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.45),
-    0 0 10px rgba(255, 107, 157, 0.4);
+    0 0 10px rgba(var(--color-primary-rgb), 0.4);
   transition: box-shadow 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 input.omni-slider:hover::-webkit-slider-thumb {
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.5),
-    0 0 16px rgba(255, 107, 157, 0.6);
+    0 0 16px rgba(var(--color-primary-rgb), 0.6);
 }
 input.omni-slider:active::-webkit-slider-thumb {
   transform: scale(1.28);
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.5),
-    0 0 22px rgba(255, 107, 157, 0.75);
+    0 0 22px rgba(var(--color-primary-rgb), 0.75);
 }
 
 /* ============================== 4. 状态栏：指示项玻璃化 + 数值微脉冲 ============================== */
@@ -84,12 +84,12 @@ input.omni-slider:active::-webkit-slider-thumb {
     box-shadow var(--duration-hover) var(--ease-out);
 }
 .statusbar .sb-item:hover {
-  background: rgba(255, 107, 157, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(255, 107, 157, 0.28);
+  background: rgba(var(--color-primary-rgb), 0.14);
+  box-shadow: inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.28);
 }
 .statusbar .sb-item:hover .sb-value {
   color: var(--color-primary-300);
-  text-shadow: 0 0 8px rgba(255, 107, 157, 0.3);
+  text-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.3);
 }
 /* 状态栏 WS 灯：连接态双层呼吸（增强既有 on 态） */
 .ws-dot.on {
@@ -133,7 +133,7 @@ img:not([class*='avatar']):not([class*='emoji']) {
 /* ============================== 7. 全局键盘焦点：统一樱粉光环 ============================== */
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.55), 0 0 12px rgba(255, 107, 157, 0.25);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.55), 0 0 12px rgba(var(--color-primary-rgb), 0.25);
   border-radius: var(--radius-sm);
 }
 
@@ -148,8 +148,8 @@ img:not([class*='avatar']):not([class*='emoji']) {
   height: 1px;
   background: linear-gradient(90deg,
     transparent,
-    rgba(255, 107, 157, 0.45) 30%,
-    rgba(78, 205, 196, 0.4) 70%,
+    rgba(var(--color-primary-rgb), 0.45) 30%,
+    rgba(var(--color-accent-rgb), 0.4) 70%,
     transparent);
   pointer-events: none;
   z-index: 1;
@@ -157,7 +157,7 @@ img:not([class*='avatar']):not([class*='emoji']) {
 
 /* ============================== 9. mark 高亮：樱粉荧光笔 ============================== */
 mark {
-  background: linear-gradient(180deg, transparent 55%, rgba(255, 107, 157, 0.4) 55%);
+  background: linear-gradient(180deg, transparent 55%, rgba(var(--color-primary-rgb), 0.4) 55%);
   color: inherit;
   padding: 0 2px;
   border-radius: 2px;

@@ -21,7 +21,7 @@
  * ============================================================== */
 
 /* ============================== R3. 主按钮禁用态：中性灰 ==============================
- * 原 rgba(255,107,157,0.32) 粉底在暗色下呈"鲑鱼红"，视觉重心错误
+ * 原 rgba(var(--color-primary-rgb),0.32) 粉底在暗色下呈"鲑鱼红"，视觉重心错误
  * （评审：paint 生成按钮禁用时过强）。改为安静的中性半透灰——
  * 明确"不可用"而非"另一个强调色"。
  * ============================================================== */
@@ -39,7 +39,7 @@ button.bg-sakura-500:disabled {
  * 提亮边框与文字，激活态一眼可辨。
  * ============================================================== */
 .btn-secondary {
-  border-color: rgba(78, 205, 196, 0.65);
+  border-color: rgba(var(--color-accent-rgb), 0.65);
   color: #5fd6c9;
   font-weight: 500;
 }
@@ -55,8 +55,8 @@ button.bg-sakura-500:disabled {
 input.omni-slider::-webkit-slider-thumb {
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.45),
-    0 0 0 4px rgba(255, 107, 157, 0.14),
-    0 0 12px rgba(255, 107, 157, 0.45);
+    0 0 0 4px rgba(var(--color-primary-rgb), 0.14),
+    0 0 12px rgba(var(--color-primary-rgb), 0.45);
 }
 
 /* ============================== R4b. 虚线拖拽/占位区可发现性（learning 导入文档） ==============================
@@ -69,8 +69,8 @@ input.omni-slider::-webkit-slider-thumb {
 }
 .border-dashed:hover,
 [class*='border-dashed']:hover {
-  border-color: rgba(255, 107, 157, 0.55);
-  background-color: rgba(255, 107, 157, 0.04);
+  border-color: rgba(var(--color-primary-rgb), 0.55);
+  background-color: rgba(var(--color-primary-rgb), 0.04);
 }
 [data-theme='light'] .border-dashed,
 [data-theme='light'] [class*='border-dashed'] {
@@ -164,7 +164,7 @@ details summary:hover {
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-on-brand);
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-600));
-  box-shadow: 0 2px 8px rgba(255, 107, 157, 0.3);
+  box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.3);
 }
 
 /* ============================== R6c. 帮助页模块卡片明暗节奏（评审：背景过浅） ==============================
@@ -177,8 +177,8 @@ details summary:hover {
 }
 .card .card:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 107, 157, 0.35);
-  box-shadow: 0 8px 24px rgba(255, 107, 157, 0.12);
+  border-color: rgba(var(--color-primary-rgb), 0.35);
+  box-shadow: 0 8px 24px rgba(var(--color-primary-rgb), 0.12);
 }
 
 /* ============================== R7. 标题图标对齐（lucide 标题体系） ==============================

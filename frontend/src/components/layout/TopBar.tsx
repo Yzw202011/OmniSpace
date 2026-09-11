@@ -32,12 +32,14 @@ import { useTaskStore, TASK_TYPE_LABELS } from '@/stores/useTaskStore';
 import { TRAIN_STATUS_LABELS, type TrainStatusKey } from '@/constants/statusLabels';
 import type { OmniTask } from '@/types';
 
-/** 主题四态循环顺序（夜樱→拂晓→深空→晨辉→夜樱） */
+/** 主题六态循环顺序（夜樱→拂晓→深空→晨辉→洱海月→苍山雪→夜樱；2026-09-11 增补 Dali 族） */
 const NEXT_THEME: Record<Theme, Theme> = {
   sakura: 'light',
   light: 'tech',
   tech: 'tech-light',
-  'tech-light': 'sakura',
+  'tech-light': 'dali',
+  dali: 'dali-light',
+  'dali-light': 'sakura',
 };
 
 /** 主题显示名（与 Settings 主题选择器保持一致） */
@@ -46,6 +48,8 @@ const THEME_LABEL: Record<Theme, string> = {
   light: 'Sakura · 拂晓',
   tech: 'Nebula · 深空',
   'tech-light': 'Nebula · 晨辉',
+  dali: 'Dali · 洱海月',
+  'dali-light': 'Dali · 苍山雪',
 };
 
 /** 点击元素外部时触发（下拉面板关闭用） */
@@ -223,7 +227,7 @@ export default function TopBar() {
           )}
         </div>
 
-        {/* 主题切换（双主题体系四态循环：夜樱→拂晓→深空→晨辉） */}
+        {/* 主题切换（三主题体系六态循环：夜樱→拂晓→深空→晨辉→洱海月→苍山雪） */}
         <button
           type="button"
           className="topbar-icon-btn"
@@ -231,7 +235,9 @@ export default function TopBar() {
           title={`切换为 ${THEME_LABEL[NEXT_THEME[theme]]}`}
           aria-label={`切换为 ${THEME_LABEL[NEXT_THEME[theme]]}`}
         >
-          {NEXT_THEME[theme] === 'light' || NEXT_THEME[theme] === 'tech-light' ? (
+          {NEXT_THEME[theme] === 'light' ||
+          NEXT_THEME[theme] === 'tech-light' ||
+          NEXT_THEME[theme] === 'dali-light' ? (
             <Sun size={17} aria-hidden="true" />
           ) : (
             <Moon size={17} aria-hidden="true" />
@@ -283,3 +289,4 @@ export default function TopBar() {
     </header>
   );
 }
+// 本项目仅供学习使用，商业授权请+Q 3559331368

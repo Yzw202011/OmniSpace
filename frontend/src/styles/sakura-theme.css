@@ -45,8 +45,8 @@
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  background: #16213e;
-  border: 2px solid #ff6b9d;
+  background: var(--color-card);
+  border: 2px solid var(--color-sakura-500);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   transition: transform 0.15s ease-out;
 }
@@ -57,8 +57,8 @@
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  background: #16213e;
-  border: 2px solid #ff6b9d;
+  background: var(--color-card);
+  border: 2px solid var(--color-sakura-500);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 .omni-slider:disabled {

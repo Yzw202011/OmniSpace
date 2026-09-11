@@ -32,8 +32,8 @@
 body {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
-    radial-gradient(1300px 620px at 82% -12%, rgba(255, 107, 157, 0.14), transparent 64%),
-    radial-gradient(1100px 560px at -8% 108%, rgba(78, 205, 196, 0.10), transparent 60%),
+    radial-gradient(1300px 620px at 82% -12%, rgba(var(--color-primary-rgb), 0.14), transparent 64%),
+    radial-gradient(1100px 560px at -8% 108%, rgba(var(--color-accent-rgb), 0.10), transparent 60%),
     radial-gradient(1600px 820px at 50% 118%, rgba(122, 92, 220, 0.11), transparent 64%),
     var(--color-bg);
 }
@@ -44,13 +44,13 @@ body {
   background:
     linear-gradient(rgba(24, 36, 68, 0.78), rgba(22, 33, 62, 0.78)) padding-box,
     conic-gradient(from var(--glow-angle),
-      rgba(255, 107, 157, 0.72) 0%,
+      rgba(var(--color-primary-rgb), 0.72) 0%,
       rgba(255, 155, 190, 0.22) 14%,
-      rgba(78, 205, 196, 0.5) 38%,
+      rgba(var(--color-accent-rgb), 0.5) 38%,
       rgba(255, 255, 255, 0.34) 52%,
-      rgba(255, 107, 157, 0.6) 68%,
-      rgba(255, 107, 157, 0.08) 88%,
-      rgba(255, 107, 157, 0.72) 100%) border-box;
+      rgba(var(--color-primary-rgb), 0.6) 68%,
+      rgba(var(--color-primary-rgb), 0.08) 88%,
+      rgba(var(--color-primary-rgb), 0.72) 100%) border-box;
   animation: border-glow-rotate 3.2s linear infinite;
 }
 @keyframes border-glow-rotate {
@@ -61,25 +61,25 @@ body {
   background:
     linear-gradient(rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.92)) padding-box,
     conic-gradient(from var(--glow-angle),
-      rgba(255, 107, 157, 0.55) 0%,
+      rgba(var(--color-primary-rgb), 0.55) 0%,
       rgba(255, 155, 190, 0.16) 16%,
-      rgba(78, 205, 196, 0.4) 40%,
+      rgba(var(--color-accent-rgb), 0.4) 40%,
       rgba(255, 255, 255, 0.5) 54%,
-      rgba(255, 107, 157, 0.45) 70%,
-      rgba(255, 107, 157, 0.06) 88%,
-      rgba(255, 107, 157, 0.55) 100%) border-box;
+      rgba(var(--color-primary-rgb), 0.45) 70%,
+      rgba(var(--color-primary-rgb), 0.06) 88%,
+      rgba(var(--color-primary-rgb), 0.55) 100%) border-box;
 }
 
 /* 模型选中卡：常驻低速流光（身份指示） */
 .model-card.selected {
   background:
-    linear-gradient(rgba(255, 107, 157, 0.1), rgba(22, 33, 62, 0.74)) padding-box,
+    linear-gradient(rgba(var(--color-primary-rgb), 0.1), rgba(22, 33, 62, 0.74)) padding-box,
     conic-gradient(from var(--glow-angle),
-      rgba(255, 107, 157, 0.66),
+      rgba(var(--color-primary-rgb), 0.66),
       rgba(255, 155, 190, 0.3) 25%,
-      rgba(78, 205, 196, 0.28) 55%,
-      rgba(255, 107, 157, 0.55) 80%,
-      rgba(255, 107, 157, 0.66)) border-box;
+      rgba(var(--color-accent-rgb), 0.28) 55%,
+      rgba(var(--color-primary-rgb), 0.55) 80%,
+      rgba(var(--color-primary-rgb), 0.66)) border-box;
   animation: border-glow-rotate 5s linear infinite;
 }
 
@@ -126,7 +126,7 @@ button.bg-sakura-500:not(:disabled):hover::after {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-lg), 0 0 16px rgba(255, 107, 157, 0.14);
+  box-shadow: var(--shadow-lg), 0 0 16px rgba(var(--color-primary-rgb), 0.14);
   animation: tooltip-fade 160ms var(--ease-out);
 }
 @keyframes tooltip-fade {
@@ -143,20 +143,20 @@ button.bg-sakura-500:not(:disabled):hover::after {
   background:
     linear-gradient(rgba(22, 33, 62, 0.94), rgba(22, 33, 62, 0.94)) padding-box,
     linear-gradient(135deg,
-      rgba(255, 107, 157, 0.44) 0%,
+      rgba(var(--color-primary-rgb), 0.44) 0%,
       rgba(255, 155, 190, 0.2) 32%,
-      rgba(78, 205, 196, 0.3) 70%,
-      rgba(255, 107, 157, 0.18) 100%) border-box;
-  box-shadow: var(--shadow-modal), 0 0 56px rgba(255, 107, 157, 0.08);
+      rgba(var(--color-accent-rgb), 0.3) 70%,
+      rgba(var(--color-primary-rgb), 0.18) 100%) border-box;
+  box-shadow: var(--shadow-modal), 0 0 56px rgba(var(--color-primary-rgb), 0.08);
 }
 [data-theme='light'] [role='dialog'] {
   background:
     linear-gradient(rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)) padding-box,
     linear-gradient(135deg,
-      rgba(255, 107, 157, 0.36) 0%,
+      rgba(var(--color-primary-rgb), 0.36) 0%,
       rgba(255, 155, 190, 0.16) 32%,
-      rgba(78, 205, 196, 0.24) 70%,
-      rgba(255, 107, 157, 0.14) 100%) border-box;
+      rgba(var(--color-accent-rgb), 0.24) 70%,
+      rgba(var(--color-primary-rgb), 0.14) 100%) border-box;
 }
 /* 顶部樱粉→薄荷渐隐光线（弹窗"天光线"） */
 [role='dialog']::before {
@@ -164,7 +164,7 @@ button.bg-sakura-500:not(:disabled):hover::after {
   position: absolute;
   top: 0; left: 10%; right: 10%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 107, 157, 0.6), rgba(78, 205, 196, 0.5), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--color-primary-rgb), 0.6), rgba(var(--color-accent-rgb), 0.5), transparent);
   z-index: 1;
   pointer-events: none;
 }
@@ -184,8 +184,8 @@ textarea:focus,
   animation: focus-breathe 2.4s ease-in-out infinite;
 }
 @keyframes focus-breathe {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.35), 0 0 10px rgba(255, 107, 157, 0.1); }
-  50% { box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.5), 0 0 22px rgba(255, 107, 157, 0.22); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.35), 0 0 10px rgba(var(--color-primary-rgb), 0.1); }
+  50% { box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.5), 0 0 22px rgba(var(--color-primary-rgb), 0.22); }
 }
 
 /* ============================== 9. 滑块：拖动放大反馈 ============================== */
@@ -203,10 +203,10 @@ input[type='range'].slider:active::-webkit-slider-thumb {
   width: 10px;
   height: 10px;
   border-radius: 60% 4px 60% 4px;
-  background: linear-gradient(135deg, rgba(255, 183, 212, 0.95), rgba(255, 107, 157, 0.8));
+  background: linear-gradient(135deg, rgba(255, 183, 212, 0.95), rgba(var(--color-primary-rgb), 0.8));
   opacity: 0;
   pointer-events: none;
-  filter: drop-shadow(0 0 4px rgba(255, 107, 157, 0.4));
+  filter: drop-shadow(0 0 4px rgba(var(--color-primary-rgb), 0.4));
 }
 .empty-state::before { left: 28%; animation: petal-fall 6.5s ease-in 1.2s infinite; }
 .empty-state::after { left: 66%; width: 8px; height: 8px; animation: petal-fall 7.8s ease-in 3.6s infinite; }

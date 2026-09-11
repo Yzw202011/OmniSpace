@@ -40,6 +40,8 @@ import {
 import { trackBehavior } from './services/learningApi';
 import Tooltip from './components/common/Tooltip';
 import TechParticles from './components/common/TechParticles';
+import DaliParticles from './components/common/DaliParticles';
+import DaliVerse from './components/common/DaliVerse';
 import WarmupModal from './components/common/WarmupModal';
 import PaintWarmupModal from './components/common/PaintWarmupModal';
 import LicenseGate from './components/common/LicenseGate';
@@ -400,6 +402,9 @@ export function AppShell() {
       {/* 星云粒子环境层（Nebula 主题专属：fixed z-index:-1，不占布局）；
           性能模式下不渲染（GPU/内存大户，2026-09-08 UI 降载方案②） */}
       {!uiLite && <TechParticles />}
+      {/* 萤火粒子 + 四句诗句水印（Dali 风花雪月主题专属，2026-09-11 拍板 D2/D4） */}
+      {!uiLite && <DaliParticles />}
+      <DaliVerse />
 
       {/* 顶层导航栏（48px 通栏，文档D §1.1.1） */}
       <TopBar />
@@ -538,3 +543,4 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+// 本项目仅供学习使用，商业授权请+Q 3559331368

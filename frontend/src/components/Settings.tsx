@@ -1,3 +1,4 @@
+// 本项目仅供学习使用，商业授权请+Q 3559331368
 /* ==========================================================================
  * OmniSpace AI v2.1 —— 设置页
  * --------------------------------------------------------------------------
@@ -20,7 +21,7 @@ import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
 
-/** 主题四态配置（双主题体系 × 亮暗双模式，2026-08-20 用户裁定脱离 COM-009） */
+/** 主题六态配置（三主题体系 × 亮暗双模式；2026-09-11 增补 Dali 治愈系） */
 const THEME_OPTIONS: Array<{
   value: Theme;
   name: string;
@@ -51,6 +52,18 @@ const THEME_OPTIONS: Array<{
     name: 'Nebula · 晨辉',
     desc: '高科技冰蓝 × 淡紫',
     colors: ['#0891B2', '#7C6BE8', '#EEF4FB', 'rgba(8,145,178,0.35)'],
+  },
+  {
+    value: 'dali',
+    name: 'Dali · 洱海月',
+    desc: '治愈系靛海 · 我在风花雪月里等你',
+    colors: ['#7CC0EC', '#F5A795', '#0D1628', 'rgba(124,192,236,0.45)'],
+  },
+  {
+    value: 'dali-light',
+    name: 'Dali · 苍山雪',
+    desc: '治愈系晨海 · 雪后初晴等你来',
+    colors: ['#2E6FAE', '#D9755F', '#F1F5FB', 'rgba(46,111,174,0.35)'],
   },
 ];
 
@@ -140,7 +153,7 @@ export default function Settings() {
         <div className="settings-row" style={{ alignItems: 'stretch', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="settings-row-label">
             <span className="settings-row-name">主题</span>
-            <span className="settings-row-desc">双主题体系：Sakura 樱花系列 / Nebula 星云科技系列，各含亮暗双模式</span>
+            <span className="settings-row-desc">三主题体系：Sakura 樱花系列 / Nebula 星云科技系列 / Dali 风花雪月系列，各含亮暗双模式</span>
           </div>
           <div className="theme-grid" role="radiogroup" aria-label="主题选择">
             {THEME_OPTIONS.map((opt) => (

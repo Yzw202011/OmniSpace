@@ -338,7 +338,8 @@ def make_splash_handler(boot: BootOrchestrator) -> type[BaseHTTPRequestHandler]:
         def do_GET(self) -> None:  # noqa: N802 - http.server 约定
             if self.path in ('/', '/index.html'):
                 try:
-                    html = SPLASH_HTML.read_bytes()
+                    html = _apply_splash_skin(SPLASH_HTML.read_bytes(),
+                                              _read_ui_theme())
                     self._send(200, html, 'text/html; charset=utf-8')
                 except OSError:
                     self._send(500, b'splash.html missing', 'text/plain')
@@ -451,6 +452,65 @@ def _read_launch_mode() -> str:
         return 'browser' if mode == 'browser' else 'shell'
     except Exception:  # noqa: BLE001 - 读取失败按默认壳
         return 'shell'
+
+
+# 治愈系主题联动（2026-09-11，docs/治愈系主题方案-2026-09-11.md §1.4）：
+# 前端 useAppStore.setTheme 会把 theme 回写 system.settings（白名单六值）；
+# 启动页按该值注入 data-skin/data-skinmode 换肤。主题值 → (皮肤, 亮暗)。
+# 缺省/无效/读取失败 → 不注入 = 经典 HUD 青（旧库/旧版本零观感变化）。
+_THEME_SKINS = {
+    'sakura': ('sakura', None),
+    'light': ('sakura', 'light'),
+    'tech': ('tech', None),
+    'tech-light': ('tech', 'light'),
+    'dali': ('dali', None),
+    'dali-light': ('dali', 'light'),
+}
+
+
+def _read_ui_theme() -> str:
+    """读设置里的界面主题（六值白名单，2026-09-11 启动页联动）。
+
+    与 _read_launch_mode 同款只读 SQLite 模式（boot 阶段后端可能未起）；
+    读取失败/无记录/脏值返回 'sakura' 之外的哨兵空串由调用方判定——
+    这里直接返回白名单内的值或 ''（'' = 不注入，保持经典 HUD）。
+    """
+    try:
+        import sqlite3
+        db_path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), 'data', 'omnispace.db')
+        if not os.path.isfile(db_path):
+            return ''
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=2)
+        try:
+            row = conn.execute(
+                "SELECT value FROM system_settings WHERE key='system.settings'"
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return ''
+        theme = (json.loads(row[0]) or {}).get('theme', '')
+        return theme if theme in _THEME_SKINS else ''
+    except Exception:  # noqa: BLE001 - 读取失败按经典 HUD
+        return ''
+
+
+def _apply_splash_skin(html: bytes, theme: str) -> bytes:
+    """按主题值给启动页 HTML 注入 data-skin/data-skinmode 属性。
+
+    只替换首个 <html lang="zh-CN"> 开标签；找不到锚点原样返回
+    （未来 splash.html 改版时无害降级为主题缺省观感）。
+    """
+    skin = _THEME_SKINS.get(theme)
+    if not skin:
+        return html
+    skin_name, skinmode = skin
+    attr = f'data-skin="{skin_name}"'
+    if skinmode:
+        attr += f' data-skinmode="{skinmode}"'
+    return html.replace(b'<html lang="zh-CN">',
+                        f'<html lang="zh-CN" {attr}>'.encode(), 1)
 
 
 def _has_integrated_gpu() -> bool:
@@ -1203,3 +1263,4 @@ def main() -> int:
 
 if __name__ == '__main__':
     sys.exit(main())
+# 本项目仅供学习使用，商业授权请+Q 3559331368

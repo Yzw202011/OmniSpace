@@ -20,7 +20,7 @@
  * ============================================================== */
 button.bg-sakura-500:not(:disabled) {
   background-image: none;
-  background-color: #ff6b9d;
+  background-color: var(--color-sakura-500);
   text-shadow: none;
   letter-spacing: 0.01em;
   font-weight: 600;
@@ -31,14 +31,14 @@ button.bg-sakura-500:not(:disabled) {
 }
 button.bg-sakura-500:not(:disabled):hover {
   background-image: none;
-  background-color: #ff7fab;
+  background-color: var(--color-sakura-500);
   transform: none;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.32),
     0 2px 8px rgba(140, 27, 66, 0.4);
 }
 button.bg-sakura-500:not(:disabled):active {
-  background-color: #f0608f;
+  background-color: var(--color-sakura-600);
   transform: translateY(1px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
@@ -48,7 +48,7 @@ button.bg-sakura-500:not(:disabled):active {
 button.bg-sakura-500:disabled {
   animation: none;
   background-image: none;
-  background-color: rgba(255, 107, 157, 0.32);
+  background-color: rgba(var(--color-primary-rgb), 0.32);
   box-shadow: none;
   text-shadow: none;
 }
@@ -83,7 +83,7 @@ textarea[class*='bg-[var(--color-input-bg)]'] {
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: none;
   background-image: none;
-  caret-color: #ff6b9d;
+  caret-color: var(--color-sakura-500);
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 input[class*='bg-[var(--color-input-bg)]']:not(:disabled):not(:focus):hover,
@@ -97,8 +97,8 @@ textarea[class*='bg-[var(--color-input-bg)]']:focus {
   animation: none;
   background-color: rgba(255, 255, 255, 0.055);
   background-image: none;
-  border-color: #ff6b9d;
-  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.16);
+  border-color: var(--color-sakura-500);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.16);
 }
 input[class*='bg-[var(--color-input-bg)]']:disabled,
 textarea[class*='bg-[var(--color-input-bg)]']:disabled {
@@ -126,8 +126,8 @@ textarea[class*='bg-[var(--color-input-bg)]']::placeholder {
 .input:focus {
   animation: none;
   background-color: rgba(255, 255, 255, 0.055);
-  border-color: #ff6b9d;
-  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.16);
+  border-color: var(--color-sakura-500);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.16);
 }
 
 /* select：净面 + 樱粉箭头（箭头继承 interactions，重置其多层背景） */
@@ -149,8 +149,8 @@ select.input:focus {
   background-size: 12px 8px;
   background-origin: padding-box;
   background-clip: border-box;
-  border-color: #ff6b9d;
-  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.16);
+  border-color: var(--color-sakura-500);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.16);
 }
 
 /* ============================== 5. 芯片：净面胶囊 ============================== */
@@ -164,9 +164,9 @@ button[class*='border-[var(--color-input-border)]'] {
   transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, transform 100ms ease;
 }
 button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
-  background-color: rgba(255, 107, 157, 0.08);
-  border-color: rgba(255, 107, 157, 0.55);
-  color: #ff9bbe;
+  background-color: rgba(var(--color-primary-rgb), 0.08);
+  border-color: rgba(var(--color-primary-rgb), 0.55);
+  color: var(--color-sakura-300);
   transform: none;
   box-shadow: none;
 }
@@ -175,10 +175,10 @@ button[class*='border-[var(--color-input-border)]']:not(:disabled):active {
 }
 /* 选中芯片（border-sakura-500）：实色樱粉边 + 粉染底，干净笃定 */
 button.border-sakura-500 {
-  background-color: rgba(255, 107, 157, 0.13);
-  border-color: #ff6b9d;
-  color: #ffb3cd;
-  box-shadow: inset 0 0 0 1px rgba(255, 107, 157, 0.18);
+  background-color: rgba(var(--color-primary-rgb), 0.13);
+  border-color: var(--color-sakura-500);
+  color: var(--color-sakura-300);
+  box-shadow: inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.18);
   transition: background-color 140ms ease, transform 100ms ease;
 }
 button.border-sakura-500:not(:disabled):active {
@@ -190,7 +190,7 @@ button[class*='hover:bg-sakura-50'] {
   box-shadow: none;
 }
 button[class*='hover:bg-sakura-50']:not(:disabled):hover {
-  background-color: rgba(255, 107, 157, 0.1);
+  background-color: rgba(var(--color-primary-rgb), 0.1);
   box-shadow: none;
   transform: none;
 }
@@ -228,31 +228,31 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
 
 /* ============================== 8. 旧类清理（.btn-* 系列，部分页面使用） ============================== */
 .btn-primary {
-  background: #ff6b9d;
+  background: var(--color-sakura-500);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     0 1px 3px rgba(140, 27, 66, 0.35);
   text-shadow: none;
 }
 .btn-primary:not(:disabled):hover {
-  background: #ff7fab;
+  background: var(--color-sakura-500);
   transform: none;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.32),
     0 2px 8px rgba(140, 27, 66, 0.4);
 }
 .btn-primary:not(:disabled):active {
-  background: #f0608f;
+  background: var(--color-sakura-600);
   transform: translateY(1px);
 }
 .btn-secondary {
   background: transparent;
-  border: 1px solid rgba(78, 205, 196, 0.5);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.5);
   box-shadow: none;
 }
 .btn-secondary:not(:disabled):hover {
-  background: rgba(78, 205, 196, 0.09);
-  border-color: rgba(78, 205, 196, 0.7);
+  background: rgba(var(--color-accent-rgb), 0.09);
+  border-color: rgba(var(--color-accent-rgb), 0.7);
   box-shadow: none;
   transform: none;
 }
@@ -266,24 +266,24 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 8px rgba(255, 107, 107, 0.25);
 }
 .btn-ghost:not(:disabled):hover {
-  background: rgba(255, 107, 157, 0.1);
+  background: rgba(var(--color-primary-rgb), 0.1);
 }
 
 /* ============================== 9. 亮色主题适配 ============================== */
 [data-theme='light'] button.bg-sakura-500:not(:disabled) {
   background-image: none; /* 归零 premium 亮色宝石渐变（特异性同为 0,3,1，本层后加载裁定） */
-  background-color: #ff6b9d;
+  background-color: var(--color-sakura-500);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     0 1px 3px rgba(140, 27, 66, 0.28);
 }
 [data-theme='light'] button.bg-sakura-500:not(:disabled):hover {
   background-image: none;
-  background-color: #ff7fab;
+  background-color: var(--color-sakura-500);
 }
 [data-theme='light'] button.bg-sakura-500:not(:disabled):active {
   background-image: none;
-  background-color: #f0608f;
+  background-color: var(--color-sakura-600);
 }
 [data-theme='light'] input[class*='bg-[var(--color-input-bg)]'],
 [data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]'],
@@ -301,8 +301,8 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
 [data-theme='light'] textarea[class*='bg-[var(--color-input-bg)]']:focus,
 [data-theme='light'] .input:focus {
   background-color: #fff;
-  border-color: #ff6b9d;
-  box-shadow: 0 0 0 3px rgba(255, 107, 157, 0.14);
+  border-color: var(--color-sakura-500);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.14);
 }
 [data-theme='light'] select.input {
   background-color: rgba(255, 255, 255, 0.85);
@@ -313,8 +313,8 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
   border-color: rgba(20, 20, 50, 0.12);
 }
 [data-theme='light'] button[class*='border-[var(--color-input-border)]']:not(:disabled):hover {
-  background-color: rgba(255, 107, 157, 0.08);
-  border-color: rgba(255, 107, 157, 0.5);
+  background-color: rgba(var(--color-primary-rgb), 0.08);
+  border-color: rgba(var(--color-primary-rgb), 0.5);
 }
 [data-theme='light'] button[class*='bg-[var(--color-card)]'] {
   background-color: rgba(255, 255, 255, 0.75);
@@ -325,7 +325,7 @@ button[class*='bg-[var(--color-card)]']:not(:disabled):active {
   border-color: rgba(20, 20, 50, 0.16);
 }
 [data-theme='light'] button[class*='hover:bg-sakura-50']:not(:disabled):hover {
-  background-color: rgba(255, 107, 157, 0.1);
+  background-color: rgba(var(--color-primary-rgb), 0.1);
 }
 
 /* ============================== 10. 动效降级 ============================== */

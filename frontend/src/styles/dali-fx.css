@@ -1,0 +1,155 @@
+/* ==========================================================================
+   OmniSpace AI —— Dali FX 下关风特效层（风花雪月治愈主题专属）
+   --------------------------------------------------------------------------
+   2026-09-11 立项（docs/治愈系主题方案-2026-09-11.md v1.4）。
+   作用域：全部规则带 [data-family='dali'] / html[data-family='dali'] 前缀，
+   Sakura / Nebula 两族零影响。
+   内容：
+     1. 氛围场（html 暮色洗底：右上暖金天光 + 左下堇紫夜池）
+     2. 顶栏月晕（洱海月的呼吸）
+     3. 四句诗句水印（.dali-verse，DaliVerse.tsx 挂载；水墨渐隐 + 印章）
+   动效约束（CLAUDE.md §12.1）：只用 transform/opacity；
+   html.ui-lite 全局停动画闸（sakura.css「性能模式」）自动覆盖全部动画；
+   prefers-reduced-motion 单独兜底。
+   ========================================================================== */
+
+/* ============================== 1. 氛围场 ============================== */
+/* 暮色洗底：两团极低透明柔光晕染出「冷暖同框」的夜（v1.4 双城对照语言）。
+   z-index:-1 压在全部内容之下；ui-lite 下由全局闸停掉呼吸（渐变本身保留，
+   纯静态无 GPU 负担）。 */
+html[data-family='dali'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 62% 44% at 86% -6%, rgba(120, 180, 255, 0.08), transparent 66%),
+    radial-gradient(ellipse 50% 40% at 8% 108%, rgba(96, 126, 235, 0.07), transparent 66%);
+}
+html[data-family='dali'][data-theme='light'] body::before {
+  background:
+    radial-gradient(ellipse 62% 44% at 86% -6%, rgba(140, 190, 250, 0.16), transparent 66%),
+    radial-gradient(ellipse 50% 40% at 8% 108%, rgba(250, 190, 170, 0.09), transparent 66%);
+}
+
+/* 萤火粒子画布（DaliParticles.tsx）：fixed 全窗，与氛围洗底同层 */
+.dali-particles {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ============================== 2. 顶栏月晕 ============================== */
+/* 洱海月：顶栏右上一轮暖金呼吸辉光（呼吸=opacity 12s 循环） */
+[data-family='dali'] .topbar::after {
+  content: '';
+  position: absolute;
+  top: -30px;
+  right: 8%;
+  width: 220px;
+  height: 110px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(160, 210, 255, 0.13), transparent 68%);
+  animation: daliMoonBreathe 12s ease-in-out infinite;
+}
+[data-family='dali'][data-theme='light'] .topbar::after {
+  background: radial-gradient(ellipse at center, rgba(140, 190, 250, 0.2), transparent 68%);
+}
+@keyframes daliMoonBreathe {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ============================== 3. 四句诗句水印（画眼） ==============================
+ * D4 拍板（2026-09-11）：拆句植入五功能页 ——
+ * /chat 我在风花雪月里等你 · /paint 上关花 · /storyboard 洱海月 ·
+ * /learning 下关风 · /models 苍山雪（映射表见 DaliVerse.tsx）。
+ * 艺术语言：楷体竖排 + 墨韵渐隐（mask）+ 印章 + 若隐若现（透明度呼吸）。
+ * 永不挡活：pointer-events none + z-index 0（内容层之下）。
+ */
+[data-family='dali'] .dali-verse {
+  position: fixed;
+  top: 17vh;
+  right: 2.6vw;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+[data-family='dali'] .dali-verse-text {
+  writing-mode: vertical-rl;
+  font-family: 'KaiTi', 'STKaiti', '楷体', 'Noto Serif SC', serif;
+  font-size: clamp(44px, 8.6vh, 84px);
+  letter-spacing: 0.22em;
+  line-height: 1.8;
+  background: linear-gradient(
+    180deg,
+    rgba(244, 248, 255, 0.3) 0%,
+    rgba(244, 248, 255, 0.12) 62%,
+    rgba(244, 248, 255, 0) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: daliVerseBreathe 15s ease-in-out infinite;
+}
+[data-family='dali'] .dali-verse-seal {
+  align-self: flex-end;
+  margin-bottom: 4vh;
+  writing-mode: horizontal-tb;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  background: rgba(192, 69, 78, 0.55);
+  color: rgba(247, 241, 230, 0.72);
+  font-family: 'KaiTi', 'STKaiti', '楷体', serif;
+  font-size: 17px;
+  box-shadow:
+    0 3px 14px rgba(4, 5, 14, 0.28),
+    inset 0 0 0 2px rgba(247, 241, 230, 0.22);
+  transform: rotate(-4deg);
+  animation: daliVerseBreathe 15s ease-in-out infinite;
+}
+/* 亮色（晨金）：暖墨字 + 印章稍沉 */
+[data-family='dali'][data-theme='light'] .dali-verse-text {
+  background: linear-gradient(
+    180deg,
+    rgba(35, 50, 74, 0.14) 0%,
+    rgba(35, 50, 74, 0.06) 62%,
+    rgba(35, 50, 74, 0) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+[data-family='dali'][data-theme='light'] .dali-verse-seal {
+  background: rgba(188, 71, 80, 0.42);
+}
+@keyframes daliVerseBreathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* 无障碍：减少动效 → 水印静止在最低存在感 */
+@media (prefers-reduced-motion: reduce) {
+  [data-family='dali'] .dali-verse-text,
+  [data-family='dali'] .dali-verse-seal,
+  [data-family='dali'] .topbar::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}

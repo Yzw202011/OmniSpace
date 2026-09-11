@@ -12,16 +12,20 @@ import { create } from 'zustand';
 import type { ActiveFeature } from '@/types';
 import { canSwitchFeature } from '@/types';
 import { getSettings, updateSettings } from '@/services/systemApi';
+import { reportBgError } from '@/utils/errors';
 import { trackBehavior } from '@/services/learningApi';
 
-/** 主题（双主题体系 × 亮暗双模式，2026-08-20 用户裁定脱离文档 COM-009）：
+/** 主题（三主题体系 × 亮暗双模式，2026-08-20 脱离文档 COM-009；
+ *  2026-09-11 增补第三族 Dali 风花雪月治愈主题）：
  *  - sakura     Sakura · 夜樱（暗色，默认）
  *  - light      Sakura · 拂晓（亮色）
  *  - tech       Nebula · 深空（高科技暗色）
  *  - tech-light Nebula · 晨辉（高科技亮色）
- * DOM 契约：<html data-family="tech"?> + <html data-theme="light"?>；
+ *  - dali       Dali · 洱海月（治愈系暮金暗色）
+ *  - dali-light Dali · 苍山雪（治愈系晨金亮色）
+ * DOM 契约：<html data-family="tech|dali"?> + <html data-theme="light"?>；
  * sakura 暗色 = 双属性皆缺省（向后兼容存量 CSS）。 */
-export type Theme = 'sakura' | 'light' | 'tech' | 'tech-light';
+export type Theme = 'sakura' | 'light' | 'tech' | 'tech-light' | 'dali' | 'dali-light';
 
 /** 主题本地持久化键 */
 const THEME_KEY = 'omnispace.theme';
@@ -30,7 +34,9 @@ const THEME_KEY = 'omnispace.theme';
 function loadTheme(): Theme {
   try {
     const v = localStorage.getItem(THEME_KEY);
-    if (v === 'light' || v === 'tech' || v === 'tech-light') return v;
+    if (v === 'light' || v === 'tech' || v === 'tech-light' || v === 'dali' || v === 'dali-light') {
+      return v;
+    }
     return 'sakura';
   } catch {
     return 'sakura';
@@ -46,12 +52,17 @@ function applyTheme(theme: Theme): void {
   }
   if (typeof document !== 'undefined') {
     const el = document.documentElement;
-    const family = theme.startsWith('tech') ? 'tech' : 'sakura';
-    const isLight = theme === 'light' || theme === 'tech-light';
-    if (family === 'tech') {
-      el.setAttribute('data-family', 'tech');
-    } else {
+    const family = theme.startsWith('tech')
+      ? 'tech'
+      : theme.startsWith('dali')
+        ? 'dali'
+        : 'sakura';
+    const isLight = theme === 'light' || theme === 'tech-light' || theme === 'dali-light';
+    if (family === 'sakura') {
+      // sakura 族 = 双属性缺省（存量 CSS 的默认作用域，不可改为 setAttribute）
       el.removeAttribute('data-family');
+    } else {
+      el.setAttribute('data-family', family);
     }
     if (isLight) {
       el.setAttribute('data-theme', 'light');
@@ -144,6 +155,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   setTheme: (theme) => {
     set({ theme });
     applyTheme(theme);
+    // 治愈系主题 v1.4：回写后端 system.settings.theme，供下次启动 boot 读库
+    // 给启动页换肤（方案 §1.4 联动链路）。守卫（防整包替换 clobber）：
+    // settings 未加载或为空时先静默 loadSettings 补齐，再全量发送。
+    // fire-and-forget 静默失败：主题即时生效走 localStorage，回写只服务启动页。
+    const writeBack = (): void => {
+      const s = get().settings;
+      if (Object.keys(s).length > 0) {
+        updateSettings({ ...s, theme }).catch((e: unknown) =>
+          reportBgError('theme-writeback', e),
+        );
+      }
+    };
+    const { settings, settingsLoaded, loadSettings } = get();
+    if (!settingsLoaded || Object.keys(settings).length === 0) {
+      loadSettings()
+        .then(writeBack)
+        .catch((e: unknown) => reportBgError('theme-writeback', e));
+    } else {
+      writeBack();
+    }
   },
   setFontSize: (size) => {
     set({ fontSize: size });
@@ -236,3 +267,4 @@ export const useAppStore = create<AppState>((set, get) => ({
 applyTheme(useAppStore.getState().theme);
 
 export default useAppStore;
+// 本项目仅供学习使用，商业授权请+Q 3559331368

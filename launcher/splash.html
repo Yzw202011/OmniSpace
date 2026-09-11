@@ -14,12 +14,22 @@
   --void-2: #070C17;
   --panel: rgba(12, 19, 35, .68);
   --panel-solid: #0A1120;
-  --line: rgba(94, 234, 255, .16);
-  --line-soft: rgba(94, 234, 255, .07);
+  --line: rgba(var(--ion-rgb), .16);
+  --line-soft: rgba(var(--ion-rgb), .07);
   --ion: #5EEAFF;
   --ion-hi: #9DF5FF;
-  --ion-dim: rgba(94, 234, 255, .55);
-  --ion-glow: rgba(94, 234, 255, .35);
+  --ion-dim: rgba(var(--ion-rgb), .55);
+  --ion-glow: rgba(var(--ion-rgb), .35);
+  /* 主题联动变量（2026-09-11）：--ion-rgb 供画布 JS 与 rgba() 引用；
+     --ion-deep 渐变深端；--console-ink 日志正文；--p-mute 粒子次色；
+     --sky-glow 顶部天光；--fade 日志 CRT 渐隐；--bar-bg 就绪栏底 */
+  --ion-rgb: 94, 234, 255;
+  --ion-deep: #2EB6E8;
+  --console-ink: #97ABCE;
+  --p-mute: 124, 144, 186;
+  --sky-glow: rgba(46, 132, 216, .13);
+  --fade: rgba(10, 17, 32, .92);
+  --bar-bg: rgba(7, 12, 23, .88);
   --amber: #FFB454;
   --amber-glow: rgba(255, 180, 84, .35);
   --coral: #FF5C7A;
@@ -29,11 +39,127 @@
   --dim: #46577A;
   --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
 }
+/* ══════════ 主题皮肤（2026-09-11 治愈系主题联动，方案 §1.4）══════════
+   boot.py 读 system.settings.theme 后在 <html> 注入：
+     data-skin="sakura|tech|dali"（缺省 = 经典 HUD 青，向后兼容）
+     data-skinmode="light"（亮型）
+   六态映射：sakura 樱粉夜 / light 樱粉晨 / tech 经典青（现状零变化）/
+   tech-light 青晨 / dali 靛海夜（冰蓝×深海蓝×珊瑚）/ dali-light 晨海雾白 */
+
+/* ── sakura 樱粉夜 ── */
+[data-skin="sakura"] {
+  --void: #100A1A;
+  --void-2: #160F22;
+  --panel: rgba(30, 18, 40, .68);
+  --panel-solid: #1B1226;
+  --ion: #FF6B9D;
+  --ion-hi: #FF9BBE;
+  --ion-rgb: 255, 107, 157;
+  --ion-deep: #E6608D;
+  --ion-dim: rgba(255, 107, 157, .55);
+  --ion-glow: rgba(255, 107, 157, .35);
+  --line: rgba(255, 157, 190, .16);
+  --line-soft: rgba(255, 157, 190, .07);
+  --ink: #FDEEF5;
+  --mute: #B892A8;
+  --dim: #6E5568;
+  --console-ink: #C797B8;
+  --p-mute: 184, 146, 168;
+  --sky-glow: rgba(255, 107, 157, .10);
+  --fade: rgba(22, 15, 34, .92);
+  --bar-bg: rgba(22, 15, 34, .88);
+}
+/* ── dali 靛海夜（治愈系 B 案：深海蓝 × 冰蓝 × 珊瑚）── */
+[data-skin="dali"] {
+  --void: #0D1628;
+  --void-2: #0A1120;
+  --panel: rgba(16, 28, 48, .68);
+  --panel-solid: #101B30;
+  --ion: #7CC0EC;
+  --ion-hi: #A5D6F5;
+  --ion-rgb: 124, 192, 236;
+  --ion-deep: #4E9ED6;
+  --ion-dim: rgba(124, 192, 236, .55);
+  --ion-glow: rgba(124, 192, 236, .35);
+  --line: rgba(160, 190, 230, .16);
+  --line-soft: rgba(160, 190, 230, .07);
+  --ink: #F0F4FA;
+  --mute: #8B9BB5;
+  --dim: #55648A;
+  --console-ink: #9FB6D9;
+  --p-mute: 139, 155, 181;
+  --sky-glow: rgba(120, 180, 255, .12);
+  --fade: rgba(10, 17, 32, .92);
+  --bar-bg: rgba(10, 17, 32, .88);
+}
+/* ── 亮型通用（樱粉晨 / 青晨 / 晨海）：雪纸底 × 深色字 × 加深主色 ── */
+[data-skinmode="light"] {
+  --panel: rgba(255, 255, 255, .78);
+  --panel-solid: #ffffff;
+  --line: rgba(20, 30, 50, .14);
+  --line-soft: rgba(20, 30, 50, .07);
+  --fade: rgba(255, 255, 255, .92);
+  --bar-bg: rgba(255, 255, 255, .88);
+  --amber: #B47C2A;
+  --amber-glow: rgba(180, 124, 42, .30);
+}
+[data-skin="sakura"][data-skinmode="light"] {
+  --void: #F8F9FC;
+  --void-2: #EFF1F7;
+  --ion: #E6608D;
+  --ion-hi: #FF83AD;
+  --ion-rgb: 230, 96, 141;
+  --ion-deep: #C44E76;
+  --ion-dim: rgba(230, 96, 141, .55);
+  --ion-glow: rgba(230, 96, 141, .30);
+  --sky-glow: rgba(255, 107, 157, .12);
+  --ink: #1A1A2E;
+  --mute: #5A6070;
+  --dim: #8A90A0;
+  --console-ink: #445468;
+  --p-mute: 140, 155, 175;
+}
+[data-skin="tech"][data-skinmode="light"] {
+  --void: #EEF4FB;
+  --void-2: #E2EAF4;
+  --ion: #0891B2;
+  --ion-hi: #22D3EE;
+  --ion-rgb: 8, 145, 178;
+  --ion-deep: #0E7490;
+  --ion-dim: rgba(8, 145, 178, .55);
+  --ion-glow: rgba(8, 145, 178, .30);
+  --sky-glow: rgba(46, 132, 216, .12);
+  --ink: #0B1626;
+  --mute: #4E6076;
+  --dim: #8496A8;
+  --console-ink: #3E5470;
+  --p-mute: 130, 150, 175;
+}
+[data-skin="dali"][data-skinmode="light"] {
+  --void: #F1F5FB;
+  --void-2: #E6EDF6;
+  --ion: #2E6FAE;
+  --ion-hi: #5A94CC;
+  --ion-rgb: 46, 111, 174;
+  --ion-deep: #24598D;
+  --ion-dim: rgba(46, 111, 174, .55);
+  --ion-glow: rgba(46, 111, 174, .30);
+  --sky-glow: rgba(140, 190, 250, .18);
+  --ink: #23324A;
+  --mute: #5A6A85;
+  --dim: #8A96AC;
+  --console-ink: #445468;
+  --p-mute: 130, 150, 178;
+}
+/* 亮型组件对比度修正：白底上白系轨道/刻度不可见 */
+[data-skinmode="light"] .bar { background: rgba(20, 30, 50, .08); }
+[data-skinmode="light"] .code-rain .dim2 { color: rgba(90, 106, 133, .65); }
+[data-skinmode="light"] .state { background: rgba(20, 30, 50, .08); }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   background:
-    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(46, 132, 216, .13), transparent 60%),
+    radial-gradient(ellipse 90% 55% at 50% -10%, var(--sky-glow), transparent 60%),
     var(--void);
   color: var(--ink);
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -56,7 +182,7 @@ body::before {
 body::after {
   content: ""; position: fixed; left: 0; right: 0; height: 140px; z-index: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(94, 234, 255, .028), transparent);
+  background: linear-gradient(180deg, transparent, rgba(var(--ion-rgb), .028), transparent);
   animation: sweep 9s linear infinite;
 }
 @keyframes sweep { from { top: -160px; } to { top: 100vh; } }
@@ -83,7 +209,7 @@ body::after {
   font-size: 20px; color: var(--ion);
   border: 1px solid var(--line);
   clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-  background: rgba(94, 234, 255, .06);
+  background: rgba(var(--ion-rgb), .06);
   text-shadow: 0 0 14px var(--ion-glow);
 }
 .wordmark h1 {
@@ -119,10 +245,10 @@ body::after {
 }
 .ring { width: 100%; height: 100%; display: block; overflow: visible; }
 .ring .c-orbitBase { fill: none; stroke: var(--line-soft); stroke-width: 1; }
-.ring .c-ticks { fill: none; stroke: rgba(94, 234, 255, .3); stroke-width: 5; stroke-dasharray: 1 12.35; }
+.ring .c-ticks { fill: none; stroke: rgba(var(--ion-rgb), .3); stroke-width: 5; stroke-dasharray: 1 12.35; }
 .ring .c-dash { fill: none; stroke: var(--ion-dim); stroke-width: 1; stroke-dasharray: 3 7 16 7; opacity: .6; }
 .ring .arc { fill: none; stroke: url(#gIon); stroke-width: 3; stroke-linecap: round; }
-.ring .c-track { fill: none; stroke: rgba(94, 234, 255, .09); stroke-width: 6; }
+.ring .c-track { fill: none; stroke: rgba(var(--ion-rgb), .09); stroke-width: 6; }
 .ring .c-prog { fill: none; stroke: url(#gIon); stroke-width: 6; stroke-linecap: round; }
 .ring .c-sweep { fill: none; stroke: var(--ion); stroke-width: 6; stroke-linecap: round; opacity: .85; }
 .ring .sat { fill: var(--ion-hi); filter: drop-shadow(0 0 5px var(--ion-glow)); }
@@ -186,7 +312,7 @@ body::after {
 .t-step.error .t-txt b { color: var(--coral); }
 .t-txt span { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .t-dur { display: block; font-family: var(--mono); font-style: normal; font-size: 10.5px;
-         color: rgba(94, 234, 255, .75); margin-top: 2px; min-height: 12px; }
+         color: rgba(var(--ion-rgb), .75); margin-top: 2px; min-height: 12px; }
 
 /* ── 卡片通用（HUD 角标） ── */
 .card {
@@ -212,7 +338,7 @@ body::after {
   font-size: 11px; padding: 2px 10px; border-radius: 3px; white-space: nowrap;
   background: rgba(130, 150, 184, .12); color: var(--mute);
 }
-.state.ok { background: rgba(94, 234, 255, .12); color: var(--ion); }
+.state.ok { background: rgba(var(--ion-rgb), .12); color: var(--ion); }
 .state.warming { background: rgba(255, 180, 84, .13); color: var(--amber); }
 .state.err { background: rgba(255, 92, 122, .13); color: var(--coral); }
 .led { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
@@ -228,20 +354,20 @@ body::after {
             animation: rise .5s .5s both; }
 .console {
   position: relative; flex: 1; overflow-y: scroll; padding: 12px 16px 26px;
-  font-family: var(--mono); font-size: 12px; line-height: 1.8; color: #97ABCE;
+  font-family: var(--mono); font-size: 12px; line-height: 1.8; color: var(--console-ink);
 }
 .console::-webkit-scrollbar { width: 8px; }
 .console::-webkit-scrollbar-track {
-  background: rgba(94, 234, 255, .05); border-radius: 4px;
+  background: rgba(var(--ion-rgb), .05); border-radius: 4px;
 }
 .console::-webkit-scrollbar-thumb {
-  background: rgba(94, 234, 255, .3); border-radius: 4px;
+  background: rgba(var(--ion-rgb), .3); border-radius: 4px;
 }
-.console::-webkit-scrollbar-thumb:hover { background: rgba(94, 234, 255, .55); }
+.console::-webkit-scrollbar-thumb:hover { background: rgba(var(--ion-rgb), .55); }
 .console::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background:
-    linear-gradient(180deg, transparent calc(100% - 26px), rgba(10, 17, 32, .92)),
+    linear-gradient(180deg, transparent calc(100% - 26px), var(--fade)),
     repeating-linear-gradient(0deg, rgba(255, 255, 255, .016) 0 1px, transparent 1px 3px);
 }
 .log-line { display: flex; gap: 10px; animation: logIn .3s ease-out both; }
@@ -254,7 +380,7 @@ body::after {
 .log-line.warn .lm { color: var(--amber); }
 .log-line.error .lm { color: var(--coral); }
 .log-line .lm { word-break: break-all; white-space: pre-wrap; min-width: 0; }
-.log-line .lm::selection { background: rgba(94, 234, 255, .28); }
+.log-line .lm::selection { background: rgba(var(--ion-rgb), .28); }
 
 /* ── 遥测列（顶部自然堆叠：左列（环+轨道+日志）恒高于四卡内容高，
     space-between 会把卡片扯出 ~80px 大洞——2026-08-31 用户实测
@@ -282,7 +408,7 @@ body::after {
   position: relative; height: 100%; overflow: hidden;
   padding: 10px 14px;
   font-family: var(--mono); font-size: 10.5px; line-height: 1.75;
-  color: rgba(94, 234, 255, .48); white-space: nowrap;
+  color: rgba(var(--ion-rgb), .48); white-space: nowrap;
   -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 88%, transparent);
   mask-image: linear-gradient(180deg, transparent, #000 18%, #000 88%, transparent);
 }
@@ -297,7 +423,7 @@ body::after {
 .code-rain .dim2 { color: rgba(130, 150, 184, .55); }
 .bar { position: relative; height: 8px; margin-top: 6px; background: rgba(255, 255, 255, .055); }
 .bar i { position: absolute; inset: 0 auto 0 0; display: block; width: 0;
-         background: linear-gradient(90deg, #2EB6E8, var(--ion)); transition: width .8s; }
+         background: linear-gradient(90deg, var(--ion-deep), var(--ion)); transition: width .8s; }
 .bar::after { /* 仪表刻度 */
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--void) calc(10% - 1px) 10%);
@@ -305,11 +431,11 @@ body::after {
 .mini-btn {
   margin-top: 10px; width: 100%; padding: 8px 0; cursor: pointer;
   font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ion);
-  background: rgba(94, 234, 255, .12); border: 1px solid rgba(94, 234, 255, .3);
+  background: rgba(var(--ion-rgb), .12); border: 1px solid rgba(var(--ion-rgb), .3);
   transition: background .25s, box-shadow .25s;
   clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
 }
-.mini-btn:hover:not(:disabled) { background: rgba(94, 234, 255, .14); box-shadow: 0 0 16px var(--ion-glow); }
+.mini-btn:hover:not(:disabled) { background: rgba(var(--ion-rgb), .14); box-shadow: 0 0 16px var(--ion-glow); }
 .mini-btn:disabled { opacity: .45; cursor: default; }
 
 /* ── 故障横幅 ── */
@@ -325,7 +451,7 @@ body::after {
 .readybar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
   display: flex; align-items: center; gap: 18px; padding: 16px 30px;
-  background: rgba(7, 12, 23, .88); backdrop-filter: blur(14px);
+  background: var(--bar-bg); backdrop-filter: blur(14px);
   border-top: 1px solid var(--line);
   transform: translateY(110%); transition: transform .55s cubic-bezier(.2, .9, .3, 1.05);
 }
@@ -348,7 +474,7 @@ body::after {
 .btn-enter {
   padding: 11px 34px; cursor: pointer; border: none; font-family: inherit;
   font-size: 14.5px; font-weight: 700; letter-spacing: 2px; color: #04121C;
-  background: linear-gradient(180deg, var(--ion-hi), #37BEEF);
+  background: linear-gradient(180deg, var(--ion-hi), var(--ion-deep));
   box-shadow: 0 0 24px var(--ion-glow); transition: transform .25s, box-shadow .25s;
   clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 11px 100%, 0 calc(100% - 11px));
 }
@@ -412,8 +538,8 @@ body::after {
       <svg class="ring" viewBox="0 0 380 380" aria-hidden="true">
         <defs>
           <linearGradient id="gIon" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#9DF5FF"/>
-            <stop offset="1" stop-color="#2EB6E8"/>
+            <stop offset="0" style="stop-color:var(--ion-hi)"/>
+            <stop offset="1" style="stop-color:var(--ion-deep)"/>
           </linearGradient>
           <filter id="fGlow" x="-40%" y="-40%" width="180%" height="180%">
             <feGaussianBlur stdDeviation="4.5" result="b"/>
@@ -594,7 +720,12 @@ body::after {
     var ctx = cv.getContext('2d');
     var reduced = window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var COLORS = ['94,234,255', '94,234,255', '94,234,255', '255,180,84', '124,144,186'];
+    /* 主题联动（2026-09-11）：颜色从 CSS 变量读取（boot 注入 data-skin 后换肤），
+       画布不能用 var()，故启动时读一次计算值；缺省回退经典 HUD 青 */
+    var cssIon = getComputedStyle(document.documentElement);
+    var ION = (cssIon.getPropertyValue('--ion-rgb') || '94,234,255').trim() || '94,234,255';
+    var SLATE = (cssIon.getPropertyValue('--p-mute') || '124,144,186').trim() || '124,144,186';
+    var COLORS = [ION, ION, ION, '255,180,84', SLATE];
     var parts = [], streaks = [], mouse = { x: -9999, y: -9999 };
 
     function resize() { cv.width = innerWidth; cv.height = innerHeight; }
@@ -638,7 +769,7 @@ body::after {
           var dx = p.x - q.x, dy = p.y - q.y; d2 = dx * dx + dy * dy;
           if (d2 < LINK) {
             ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y);
-            ctx.strokeStyle = 'rgba(94,234,255,'
+            ctx.strokeStyle = 'rgba(' + ION + ','
               + (0.075 * (1 - d2 / LINK)).toFixed(3) + ')';
             ctx.lineWidth = 1; ctx.stroke();
           }
@@ -646,7 +777,7 @@ body::after {
         var mdx = p.x - mouse.x, mdy = p.y - mouse.y, md2 = mdx * mdx + mdy * mdy;
         if (md2 < MLINK) {
           ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(mouse.x, mouse.y);
-          ctx.strokeStyle = 'rgba(94,234,255,'
+          ctx.strokeStyle = 'rgba(' + ION + ','
             + (0.16 * (1 - md2 / MLINK)).toFixed(3) + ')';
           ctx.lineWidth = 1; ctx.stroke();
         }
@@ -658,8 +789,8 @@ body::after {
           st.x = -st.len; st.y = Math.random() * cv.height * .6; st.a = 0;
         }
         var grad = ctx.createLinearGradient(st.x - st.len, st.y, st.x, st.y);
-        grad.addColorStop(0, 'rgba(94,234,255,0)');
-        grad.addColorStop(1, 'rgba(94,234,255,' + st.a.toFixed(3) + ')');
+        grad.addColorStop(0, 'rgba(' + ION + ',0)');
+        grad.addColorStop(1, 'rgba(' + ION + ',' + st.a.toFixed(3) + ')');
         ctx.beginPath(); ctx.moveTo(st.x - st.len, st.y); ctx.lineTo(st.x, st.y);
         ctx.strokeStyle = grad; ctx.lineWidth = 1.3; ctx.stroke();
       }

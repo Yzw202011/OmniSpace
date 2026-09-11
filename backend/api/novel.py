@@ -47,6 +47,7 @@ def _require_project(db, project_id: str) -> dict:
                        (project_id,))
     if row is None:
         raise ApiError("NOVEL_PROJECT_NOT_FOUND",
+                       f"小说项目不存在: {project_id}",
                        detail={"project_id": project_id})
     return row
 

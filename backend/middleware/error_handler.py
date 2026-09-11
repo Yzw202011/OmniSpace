@@ -154,6 +154,8 @@ SEMANTIC_CODES: dict[str, str] = {
     "LEARN_BEHAVIOR_RECORD_FAILED": "行为事件记录失败",
     "LEARN_BEHAVIOR_CLEAR_FAILED": "行为数据清理失败",
     "LEARN_TOPIC_NAME_DUPLICATED": "学习主题名称已存在",
+    "NOVEL_PROJECT_NOT_FOUND": "小说项目不存在或已被删除",
+    "NOVEL_CHAPTER_NOT_FOUND": "章节不存在或已被删除",
     "STYLE_TRAINING_LOCKED": "风格训练进行中，该操作被拒绝",
     "SYSTEM_DEPENDENCY_MISSING": "功能依赖的组件缺失",
     "SYSTEM_NOT_FOUND": "资源不存在",
@@ -303,6 +305,8 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "LEARN_BEHAVIOR_RECORD_FAILED": "行为记录暂未写入（不影响使用）；反复出现请导出诊断包",
     "LEARN_BEHAVIOR_CLEAR_FAILED": "清理未完成，请重试；反复失败请导出诊断包",
     "LEARN_TOPIC_NAME_DUPLICATED": "请换一个主题名称（同名主题已存在）",
+    "NOVEL_PROJECT_NOT_FOUND": "该小说项目可能已被删除，请刷新列表",
+    "NOVEL_CHAPTER_NOT_FOUND": "该章节可能已被删除，请刷新后重试",
     # ── 浏览器类 ─────────────────────────────────────────────────
     "BROWSER_CRASHED": "浏览器组件会自动重启，请重试刚才的操作",
     "BROWSER_POOL_EXHAUSTED": "多个浏览器任务在同时运行，请等当前任务完成后再试",

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>治愈系主题预览 v3 · Dali 风花雪月（A/B 挑选版）</title>
+<!--
+  ═══════════════════════════════════════════════════════════════
+  治愈系主题「Dali · 风花雪月」设计预览 v3（2026-09-11，抽象氛围重设计）
+  设计哲学：不画具象风景（手绘剪影=廉价感来源），只做高级氛围——
+    暮色渐变场（多色 soft blob 交织）· 月光辉光（非圆球）
+    一线山影（极细流线，非剪影）· 胶片颗粒 · 暗角聚光
+    大字排版为英雄 · 竖排诗句为画眼 · 玻璃坞收纳一切样例
+    全部语言纯 CSS 可交付，预览即主题本色
+  · 顶部右侧：方案 A（灯火茶花·暖）/ B（青玉月白·素）× 暗/亮
+  · 左缘点轨切换五个模块（换诗、换风物粒子）
+  ═══════════════════════════════════════════════════════════════
+-->
+<style>
+/* ═════════ 方案 A · 暮金（靛蓝紫夜 × 暖金 × 珊瑚 —— 梵高星夜的治愈）═════════ */
+body[data-pal="A"][data-mode="dark"]{
+  --bg0:#1B1E33; --bg1:#121426; --bg2:#0B0D1A;
+  --blob1:rgba(255,190,120,.22);           /* 暮金天光 */
+  --blob2:rgba(244,164,150,.13);           /* 一抹珊瑚晚霞 */
+  --blob3:rgba(122,132,224,.14);           /* 堇紫夜池 */
+  --moon1:rgba(255,244,214,.95); --moon2:rgba(255,205,130,.42); --moon3:rgba(255,190,120,.17);
+  --ink:#F5F1E8; --sub:#C9C4D6; --dim:#8B87A2;
+  --primary:#F4C880; --primary-deep:#E0A45C;
+  --primary-soft:rgba(244,200,128,.16); --glow:rgba(255,200,120,.40);
+  --accent:#F2A08C; --accent-soft:rgba(242,160,140,.15);
+  --on-brand:#33220E;
+  --ok:#8FD4AC; --warn:#F0B860; --err:#F09088; --info:#8AB8E8;
+  --glass:rgba(26,28,48,.44); --glass-hi:rgba(255,255,255,.06);
+  --glass-brd:rgba(255,255,255,.10); --hairline:rgba(255,255,255,.07);
+  --ridge:rgba(190,196,232,.32);
+  --seal:#C2454E;
+  --verse-a:#FBF2DC; --verse-b:rgba(251,242,220,.14);
+  --grain-blend:overlay; --grain-op:.04;
+}
+body[data-pal="A"][data-mode="light"]{
+  --bg0:#FCF6E9; --bg1:#F8F0E4; --bg2:#F3EDE2;
+  --blob1:rgba(255,196,130,.32);
+  --blob2:rgba(244,164,150,.16);
+  --blob3:rgba(150,160,230,.12);
+  --moon1:rgba(255,252,242,.95); --moon2:rgba(250,205,140,.36); --moon3:rgba(250,205,140,.13);
+  --ink:#33291B; --sub:#6E6250; --dim:#9A8F7C;
+  --primary:#B0741E; --primary-deep:#94601A;
+  --primary-soft:rgba(176,116,30,.12); --glow:rgba(200,140,50,.26);
+  --accent:#D4765E; --accent-soft:rgba(212,118,94,.12);
+  --on-brand:#FFF6E6;
+  --ok:#3F8E6C; --warn:#B47C2A; --err:#C4685E; --info:#3E7E96;
+  --glass:rgba(255,255,255,.55); --glass-hi:rgba(255,255,255,.65);
+  --glass-brd:rgba(51,41,27,.09); --hairline:rgba(51,41,27,.06);
+  --ridge:rgba(120,110,90,.30);
+  --seal:#BC4750;
+  --verse-a:rgba(51,41,27,.92); --verse-b:rgba(51,41,27,.08);
+  --grain-blend:multiply; --grain-op:.03;
+}
+/* ═════════ 方案 B · 靛海（深海蓝 × 冰蓝 × 珊瑚 —— 洱海晨空的清新）═════════ */
+body[data-pal="B"][data-mode="dark"]{
+  --bg0:#12203A; --bg1:#0D1628; --bg2:#080E1C;
+  --blob1:rgba(120,180,255,.17);
+  --blob2:rgba(242,160,140,.11);
+  --blob3:rgba(96,126,235,.13);
+  --moon1:rgba(240,248,255,.95); --moon2:rgba(160,210,255,.36); --moon3:rgba(160,210,255,.14);
+  --ink:#F0F4FA; --sub:#BFCBDF; --dim:#7E8BA3;
+  --primary:#7CC0EC; --primary-deep:#4E9ED6;
+  --primary-soft:rgba(124,192,236,.15); --glow:rgba(140,200,245,.34);
+  --accent:#F5A795; --accent-soft:rgba(245,167,149,.14);
+  --on-brand:#0D2333;
+  --ok:#8FD4AC; --warn:#F0B860; --err:#F09088; --info:#7CC0EC;
+  --glass:rgba(18,30,52,.44); --glass-hi:rgba(255,255,255,.05);
+  --glass-brd:rgba(255,255,255,.09); --hairline:rgba(255,255,255,.06);
+  --ridge:rgba(160,190,230,.30);
+  --seal:#C2454E;
+  --verse-a:#F4F8FF; --verse-b:rgba(244,248,255,.14);
+  --grain-blend:overlay; --grain-op:.04;
+}
+body[data-pal="B"][data-mode="light"]{
+  --bg0:#F4F7FD; --bg1:#EEF2FA; --bg2:#E8EEF6;
+  --blob1:rgba(140,190,250,.26);
+  --blob2:rgba(250,190,170,.17);
+  --blob3:rgba(170,180,250,.13);
+  --moon1:rgba(252,255,253,.95); --moon2:rgba(150,210,240,.28); --moon3:rgba(150,210,240,.10);
+  --ink:#23324A; --sub:#5A6A85; --dim:#8A96AC;
+  --primary:#2E6FAE; --primary-deep:#24598D;
+  --primary-soft:rgba(46,111,174,.11); --glow:rgba(70,130,195,.22);
+  --accent:#D9755F; --accent-soft:rgba(217,117,95,.11);
+  --on-brand:#F2F8FF;
+  --ok:#2E7D5F; --warn:#A0722A; --err:#B56359; --info:#2E6FAE;
+  --glass:rgba(255,255,255,.55); --glass-hi:rgba(255,255,255,.62);
+  --glass-brd:rgba(35,50,74,.09); --hairline:rgba(35,50,74,.055);
+  --ridge:rgba(90,110,140,.28);
+  --seal:#BC4750;
+  --verse-a:rgba(35,50,74,.92); --verse-b:rgba(35,50,74,.08);
+  --grain-blend:multiply; --grain-op:.03;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI",sans-serif;
+  color:var(--ink); overflow:hidden; background:var(--bg2);
+  -webkit-font-smoothing:antialiased;
+}
+.serif{font-family:"Noto Serif SC","Source Han Serif SC","STSong","STZhongsong","SimSun",serif}
+
+/* ═══════════ 一、氛围场（代替一切具象剪影）═══════════ */
+.atmo{position:fixed;inset:0;z-index:0;
+  background:linear-gradient(180deg,var(--bg0) 0%,var(--bg1) 58%,var(--bg2) 100%);
+  transition:background 1.2s ease;
+}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);transition:background 1.2s}
+.blob.b1{width:56vw;height:56vh;right:-8vw;top:-24vh;background:var(--blob1)}
+.blob.b2{width:44vw;height:48vh;left:-14vw;top:16vh;background:var(--blob2)}
+.blob.b3{width:50vw;height:40vh;left:22vw;bottom:-22vh;background:var(--blob3)}
+/* 月光辉光：三层柔光叠成「亮」而非「球」 */
+.moon{position:absolute;top:4vh;right:calc(13vw + 30px);width:420px;height:420px;
+  pointer-events:none;transition:opacity 1.2s;
+  animation:bloom 3s ease .3s both, breathe 12s ease-in-out 3.3s infinite}
+.moon i{position:absolute;border-radius:50%;transform:translate(-50%,-50%);left:50%;top:50%;display:block}
+.moon .m1{width:112px;height:112px;background:radial-gradient(circle,var(--moon1) 0%,transparent 74%);
+  filter:blur(1px)}
+.moon .m2{width:240px;height:240px;background:radial-gradient(circle,var(--moon2) 0%,transparent 68%)}
+.moon .m3{width:420px;height:420px;background:radial-gradient(circle,var(--moon3) 0%,transparent 70%)}
+@keyframes bloom{from{opacity:0;transform:scale(.86)}to{opacity:1;transform:none}}
+@keyframes breathe{0%,100%{opacity:.92}50%{opacity:1}}
+/* 一线山影：极细流线，渐隐两端（苍山的笔意，不是剪影） */
+.ridge{position:absolute;left:0;right:0;bottom:17vh;width:100%;height:150px;transition:opacity 1.2s}
+.ridge path{fill:none;stroke:var(--ridge);stroke-width:1.6;stroke-linecap:round}
+/* 湖上一线微光 */
+.horizon{position:absolute;left:18vw;right:18vw;bottom:16.6vh;height:1px;transition:background 1.2s;
+  background:linear-gradient(90deg,transparent,var(--ridge) 30%,var(--ridge) 70%,transparent);
+  opacity:.5;filter:blur(.4px)}
+/* 胶片颗粒（压住数码平板感） */
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:var(--grain-op);
+  mix-blend-mode:var(--grain-blend);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E")}
+/* 暗角：把视线收向画心 */
+.vig{position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(ellipse 118% 92% at 50% 42%,transparent 58%,rgba(4,8,12,.42) 100%)}
+body[data-mode="light"] .vig{background:radial-gradient(ellipse 118% 92% at 50% 42%,transparent 62%,rgba(120,110,84,.16) 100%)}
+#canvas{position:fixed;inset:0;z-index:2;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.moon,.blob{animation:none}}
+
+/* ═══════════ 二、诗句立轴（画眼）═══════════ */
+.scroll{position:fixed;z-index:3;top:9vh;right:12vw;height:70vh;
+  pointer-events:none;user-select:none;
+  animation:inkin 2.4s cubic-bezier(.2,.7,.2,1) .5s both}
+@keyframes inkin{from{opacity:0;transform:translateY(18px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+.verse{
+  writing-mode:vertical-rl;height:100%;
+  font-family:"KaiTi","STKaiti","楷体","Noto Serif SC",serif;
+  font-size:clamp(50px,9.6vh,92px);
+  letter-spacing:.20em;line-height:1.72;
+  background:linear-gradient(180deg,var(--verse-a) 8%,var(--verse-a) 46%,var(--verse-b) 96%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 42px var(--moon3);
+  animation:breathe 14s ease-in-out infinite;
+}
+.seal{
+  position:absolute;right:-12px;bottom:1.6vh;
+  writing-mode:horizontal-tb;width:40px;height:40px;border-radius:8px;display:grid;place-items:center;
+  background:var(--seal);color:#F7F1E6;font-family:"KaiTi","STKaiti","楷体",serif;
+  font-size:21px;box-shadow:0 3px 14px rgba(0,0,0,.30), inset 0 0 0 2px rgba(247,241,230,.26);
+  transform:rotate(-4deg);opacity:.92;
+}
+.scroll .cap{position:absolute;bottom:-5.5vh;left:4px;writing-mode:horizontal-tb;
+  font-size:10.5px;letter-spacing:.46em;color:var(--dim)}
+@media (prefers-reduced-motion:reduce){.verse,.scroll{animation:none}}
+
+/* ═══════════ 三、界面层（少而精）═══════════ */
+.glass{background:var(--glass);border:1px solid var(--glass-brd);
+  backdrop-filter:blur(22px) saturate(1.2);-webkit-backdrop-filter:blur(22px) saturate(1.2);
+  box-shadow:0 12px 40px rgba(4,10,16,.16), inset 0 1px 0 var(--glass-hi)}
+/* 顶栏：品牌 + 控制台合而为一 */
+.top{position:fixed;top:0;left:0;right:0;z-index:6;
+  display:flex;align-items:center;padding:18px 26px;gap:14px;
+  animation:fadein 1s ease both}
+.brand{display:flex;align-items:center;gap:11px}
+.brand .mark{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--primary),var(--primary-deep));
+  color:var(--on-brand);font-family:"KaiTi","STKaiti",serif;font-size:17px;
+  box-shadow:0 0 16px var(--glow)}
+.brand b{font-size:14px;letter-spacing:.3px;display:block;line-height:1.2}
+.brand small{font-size:9.5px;color:var(--dim);letter-spacing:.42em;display:block;margin-top:2px}
+.ctrls{margin-left:auto;display:flex;gap:10px;align-items:center}
+.seg{display:flex;border:1px solid var(--glass-brd);border-radius:999px;overflow:hidden;
+  background:var(--glass);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.seg button{border:none;cursor:pointer;padding:7px 15px;font-size:11.5px;font-family:inherit;
+  background:transparent;color:var(--sub);letter-spacing:.08em;transition:all .25s}
+.seg button.on{background:var(--primary-soft);color:var(--primary);font-weight:600}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+/* 左缘模块点轨 */
+.dots{position:fixed;left:26px;top:50%;transform:translateY(-50%);z-index:6;
+  display:flex;flex-direction:column;gap:14px;animation:fadein 1s ease .2s both}
+.dots button{width:12px;height:12px;border-radius:6px;border:none;cursor:pointer;position:relative;
+  background:var(--dim);opacity:.45;transition:all .35s;padding:0}
+.dots button:hover{opacity:.8}
+.dots button.active{height:30px;opacity:1;background:linear-gradient(180deg,var(--primary),var(--primary-deep));
+  box-shadow:0 0 14px var(--glow)}
+.dots button .tip{position:absolute;left:24px;top:50%;transform:translateY(-50%) translateX(-4px);
+  white-space:nowrap;font-size:11px;letter-spacing:.3em;color:var(--ink);
+  padding:5px 11px;border-radius:8px;opacity:0;pointer-events:none;transition:all .25s;
+  background:var(--glass);border:1px solid var(--glass-brd);backdrop-filter:blur(14px)}
+.dots button:hover .tip{opacity:1;transform:translateY(-50%) translateX(0)}
+
+/* 主舞台 */
+.stage{position:fixed;z-index:3;left:9vw;top:0;bottom:0;width:44vw;
+  display:flex;flex-direction:column;justify-content:center;padding-bottom:9vh;pointer-events:none}
+.stage > *{pointer-events:auto}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;width:fit-content;
+  padding:6px 15px;border-radius:999px;font-size:11px;letter-spacing:.24em;color:var(--primary);
+  background:var(--primary-soft);border:1px solid var(--hairline);margin-bottom:24px;
+  animation:rise .9s cubic-bezier(.2,.7,.2,1) .35s both}
+.eyebrow i{width:5px;height:5px;border-radius:50%;background:var(--primary);font-style:normal;
+  box-shadow:0 0 8px var(--primary)}
+@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes riseC{from{opacity:0;transform:translate(-50%,18px)}to{opacity:1;transform:translate(-50%,0)}}
+.stage h1{font-weight:400;font-size:clamp(32px,5.2vh,50px);letter-spacing:.09em;
+  line-height:1.5;animation:rise .9s cubic-bezier(.2,.7,.2,1) .47s both}
+.stage h1 b{font-weight:700;color:var(--primary);
+  text-shadow:0 0 30px var(--glow)}
+.stage .sub{margin-top:16px;font-size:14.5px;color:var(--sub);letter-spacing:.15em;
+  animation:rise .9s cubic-bezier(.2,.7,.2,1) .59s both}
+.stage .sub em{font-style:normal;color:var(--accent);font-family:"KaiTi","STKaiti","楷体",serif;
+  letter-spacing:.2em;font-size:1.1em}
+/* 玻璃坞：所有质感样例收进一条 */
+.dock{position:fixed;z-index:4;left:50%;transform:translateX(-50%);bottom:5vh;
+  display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:999px;
+  max-width:min(92vw,900px);animation:riseC 1s cubic-bezier(.2,.7,.2,1) .75s both}
+.dock .field{height:34px;border-radius:999px;border:1px solid var(--glass-brd);
+  background:var(--glass-hi);color:var(--dim);font-size:12px;display:flex;align-items:center;
+  padding:0 14px;letter-spacing:.06em;min-width:130px;flex:0 1 auto}
+.dock .tag{font-size:11px;padding:5px 11px;border-radius:999px;letter-spacing:.1em;
+  background:var(--primary-soft);color:var(--primary);white-space:nowrap}
+.dock .tag.ghosty{background:transparent;border:1px solid var(--glass-brd);color:var(--sub)}
+.dock .tag.flower{background:var(--accent-soft);color:var(--accent)}
+.dock .btn{border:none;cursor:pointer;border-radius:999px;padding:9px 20px;font-size:12.5px;
+  letter-spacing:.16em;font-family:inherit;transition:all .25s;white-space:nowrap}
+.dock .btn.primary{background:linear-gradient(135deg,var(--primary),var(--primary-deep));
+  color:var(--on-brand);box-shadow:0 4px 18px var(--glow)}
+.dock .btn.primary:hover{transform:translateY(-1px);box-shadow:0 8px 24px var(--glow)}
+.dock .btn.ghost{background:transparent;color:var(--sub);border:1px solid var(--glass-brd)}
+.dock .btn.ghost:hover{color:var(--ink);border-color:var(--primary)}
+.dock .sep{width:1px;height:22px;background:var(--hairline)}
+.dock .dotrow{display:flex;gap:6px;align-items:center}
+.dock .dotrow i{width:7px;height:7px;border-radius:50%}
+.dock .dotrow .ok{background:var(--ok)}.dock .dotrow .warn{background:var(--warn)}
+.dock .dotrow .err{background:var(--err)}.dock .dotrow .info{background:var(--info)}
+@media (max-width:1100px){.dock{flex-wrap:wrap;border-radius:26px;justify-content:center}}
+@media (prefers-reduced-motion:reduce){
+  .eyebrow,.stage h1,.stage .sub,.dock,.top,.dots,.scroll{animation:none}
+}
+.hint{position:fixed;right:26px;bottom:2.2vh;z-index:6;font-size:10px;letter-spacing:.18em;
+  color:var(--dim);opacity:.7}
+</style>
+</head>
+<body data-pal="A" data-mode="dark">
+
+<div class="atmo">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="moon"><i class="m3"></i><i class="m2"></i><i class="m1"></i></div>
+  <svg class="ridge" viewBox="0 0 1440 150" preserveAspectRatio="none">
+    <path d="M-40,118 C 140,96 260,112 400,84 C 520,60 610,92 730,78 C 850,64 940,90 1060,72 C 1180,56 1300,86 1480,66"/>
+  </svg>
+  <div class="horizon"></div>
+</div>
+<div class="grain"></div>
+<div class="vig"></div>
+<canvas id="canvas"></canvas>
+
+<!-- 诗句立轴 -->
+<div class="scroll">
+  <div class="verse" id="verse">我在风花雪月里等你</div>
+  <div class="seal" id="seal">等</div>
+  <div class="cap" id="cap">大理四景 · 序</div>
+</div>
+
+<!-- 顶栏 -->
+<header class="top">
+  <div class="brand">
+    <div class="mark">月</div>
+    <div><b>OmniSpace</b><small>风花雪月</small></div>
+  </div>
+  <div class="ctrls">
+    <div class="seg">
+      <button id="palA" class="on" onclick="setPal('A')">A · 暮金</button>
+      <button id="palB" onclick="setPal('B')">B · 靛海</button>
+    </div>
+    <div class="seg">
+      <button id="mDark" class="on" onclick="setMode('dark')">暗 · 洱海月</button>
+      <button id="mLight" onclick="setMode('light')">亮 · 苍山雪</button>
+    </div>
+  </div>
+</header>
+
+<!-- 模块点轨 -->
+<nav class="dots">
+  <button class="active" data-mod="chat"><span class="tip">对话</span></button>
+  <button data-mod="paint"><span class="tip">绘画 · 漫画</span></button>
+  <button data-mod="story"><span class="tip">漫剧创作</span></button>
+  <button data-mod="learn"><span class="tip">学习</span></button>
+  <button data-mod="models"><span class="tip">模型管理</span></button>
+</nav>
+
+<!-- 主舞台 -->
+<div class="stage">
+  <span class="eyebrow"><i></i><span id="eyebrow">Dali · 洱海月</span></span>
+  <h1 class="serif" id="h1">灯还亮着，<b>就等你回来</b></h1>
+  <p class="sub" id="sub">好久不见 —— <em>我在风花雪月里等你</em></p>
+</div>
+
+<!-- 玻璃坞：质感样例 -->
+<div class="dock glass">
+  <div class="field">输入一点什么…</div>
+  <span class="tag">暖金胶囊</span>
+  <span class="tag ghosty">描边</span>
+  <span class="tag flower">茶花徽章</span>
+  <div class="sep"></div>
+  <div class="dotrow"><i class="ok"></i><i class="warn"></i><i class="err"></i><i class="info"></i></div>
+  <div class="sep"></div>
+  <button class="btn primary">开 始</button>
+  <button class="btn ghost">继续上次</button>
+</div>
+
+<div class="hint">预览件 · 非产品代码 · 顶部换方案与模式 · 左缘点轨换模块</div>
+
+<script>
+/* ═══ 模块 → 诗句 / 文案 / 风物粒子 ═══ */
+var MODS = {
+  chat:  {verse:'我在风花雪月里等你', seal:'等', cap:'大理四景 · 序', eb:'Dali · 洱海月',
+          h1:'灯还亮着，<b>就等你回来</b>', sub:'好久不见 —— <em>我在风花雪月里等你</em>',
+          fx:'firefly'},
+  paint:  {verse:'上关花', seal:'花', cap:'大理四景 · 一', eb:'Dali · 洱海月',
+          h1:'落笔生花，<b>等一朵开</b>', sub:'文生图 / 图生图 / 局部重绘 —— <em>上关花</em>',
+          fx:'petal'},
+  story:  {verse:'洱海月', seal:'月', cap:'大理四景 · 二', eb:'Dali · 洱海月',
+          h1:'月出洱海，<b>好戏开场</b>', sub:'分镜 · 关键帧 · 成片 —— <em>洱海月</em>',
+          fx:'firefly'},
+  learn:  {verse:'下关风', seal:'风', cap:'大理四景 · 三', eb:'Dali · 洱海月',
+          h1:'风起时，<b>知识入怀</b>', sub:'会话学习 / 知识库 —— <em>下关风</em>',
+          fx:'wind'},
+  models: {verse:'苍山雪', seal:'雪', cap:'大理四景 · 四', eb:'Dali · 洱海月',
+          h1:'雪落苍山，<b>沉稳如初</b>', sub:'加载 / 卸载 / 显存调度 —— <em>苍山雪</em>',
+          fx:'snow'}
+};
+function applyMod(key){
+  var m = MODS[key]; if(!m) return;
+  document.querySelectorAll('.dots button').forEach(function(b){
+    b.classList.toggle('active', b.dataset.mod===key);
+  });
+  document.getElementById('verse').textContent = m.verse;
+  document.getElementById('seal').textContent = m.seal;
+  document.getElementById('cap').textContent = m.cap;
+  document.getElementById('eyebrow').textContent = m.eb;
+  document.getElementById('h1').innerHTML = m.h1;
+  document.getElementById('sub').innerHTML = m.sub;
+  P.setMode(m.fx);
+}
+document.querySelectorAll('.dots button').forEach(function(b){
+  b.addEventListener('click', function(){ applyMod(b.dataset.mod); });
+});
+
+/* ═══ 方案 / 模式切换 ═══ */
+function setPal(p){
+  document.body.dataset.pal = p;
+  document.getElementById('palA').classList.toggle('on', p==='A');
+  document.getElementById('palB').classList.toggle('on', p==='B');
+  P.recolor();
+}
+function setMode(mo){
+  document.body.dataset.mode = mo;
+  document.getElementById('mDark').classList.toggle('on', mo==='dark');
+  document.getElementById('mLight').classList.toggle('on', mo==='light');
+  P.recolor();
+}
+
+/* ═══ 风物粒子：萤火 / 落花 / 风痕 / 落雪（少而慢，只做呼吸感）═══ */
+var FX_COLORS = {
+  'A-dark':  {glow:['255,205,130','242,160,140','255,230,180'], petal:'242,160,140', snow:'245,248,255', wind:'255,205,130'},
+  'A-light': {glow:['176,116,30','212,118,94','220,170,90'],   petal:'212,118,94', snow:'255,255,255', wind:'176,116,30'},
+  'B-dark':  {glow:['140,200,245','245,167,149','200,225,255'], petal:'160,200,240', snow:'245,250,255', wind:'140,200,245'},
+  'B-light': {glow:['46,111,174','217,117,95','120,160,220'],   petal:'150,170,210', snow:'255,255,255', wind:'46,111,174'}
+};
+var P = (function(){
+  var cv = document.getElementById('canvas'), ctx = cv.getContext('2d');
+  var W=0, H=0, t=0, raf=null, mode='firefly', items=[], colors=FX_COLORS['A-dark'];
+  var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function size(){ W = cv.width = innerWidth; H = cv.height = innerHeight; }
+  function rnd(a,b){ return a + Math.random()*(b-a); }
+  function seed(){
+    items = [];
+    if(mode==='firefly') for(var i=0;i<18;i++) items.push({
+      x:rnd(0,W), y:rnd(0,H*.8), r:rnd(.7,1.7), vx:rnd(-.1,.1), vy:rnd(-.16,-.04),
+      a:rnd(.08,.30), f:rnd(.006,.02), ph:rnd(0,6.28), c:(Math.random()*3)|0});
+    if(mode==='petal') for(var j=0;j<16;j++) items.push({
+      x:rnd(0,W), y:rnd(-H,H), r:rnd(2,3.8), vx:rnd(-.4,-.12), vy:rnd(.3,.7),
+      rot:rnd(0,6.28), vr:rnd(-.015,.015), sway:rnd(.3,.9), ph:rnd(0,6.28), a:rnd(.16,.4)});
+    if(mode==='snow') for(var k=0;k<34;k++) items.push({
+      x:rnd(0,W), y:rnd(0,H), r:rnd(.7,1.9), vx:rnd(-.15,.15), vy:rnd(.2,.5),
+      sway:rnd(.2,.8), ph:rnd(0,6.28), a:rnd(.12,.32)});
+    if(mode==='wind') for(var w=0;w<5;w++) items.push({
+      x:rnd(0,W), y:rnd(H*.14,H*.66), len:rnd(110,240), sp:rnd(.5,1.2),
+      a:rnd(.05,.12), ph:rnd(0,6.28)});
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H); t++;
+    var i, p;
+    if(mode==='firefly'){
+      for(i=0;i<items.length;i++){ p=items[i];
+        if(!reduced){ p.x+=p.vx; p.y+=p.vy;
+          if(p.y<-10){p.y=H+10;p.x=Math.random()*W}
+          if(p.x<-10)p.x=W+10; if(p.x>W+10)p.x=-10; }
+        var tw = reduced?1:(.4+.6*Math.sin(t*p.f+p.ph));
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832);
+        ctx.fillStyle='rgba('+colors.glow[p.c]+','+(p.a*tw).toFixed(3)+')';
+        ctx.shadowColor='rgba('+colors.glow[p.c]+',.8)'; ctx.shadowBlur=8; ctx.fill();
+      }
+      ctx.shadowBlur=0;
+    } else if(mode==='petal'){
+      for(i=0;i<items.length;i++){ p=items[i];
+        if(!reduced){ p.rot+=p.vr;
+          p.x+=p.vx+Math.sin(t*.018+p.ph)*p.sway*.4; p.y+=p.vy;
+          if(p.y>H+10){p.y=-10;p.x=Math.random()*W} if(p.x<-10)p.x=W+10; }
+        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+        ctx.beginPath(); ctx.ellipse(0,0,p.r,p.r*.55,0,0,6.2832);
+        ctx.fillStyle='rgba('+colors.petal+','+p.a+')';
+        ctx.shadowColor='rgba('+colors.petal+',.45)'; ctx.shadowBlur=4; ctx.fill(); ctx.restore();
+      }
+      ctx.shadowBlur=0;
+    } else if(mode==='snow'){
+      for(i=0;i<items.length;i++){ p=items[i];
+        if(!reduced){ p.x+=p.vx+Math.sin(t*.012+p.ph)*p.sway*.3; p.y+=p.vy;
+          if(p.y>H+6){p.y=-6;p.x=Math.random()*W} }
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.2832);
+        ctx.fillStyle='rgba('+colors.snow+','+p.a+')'; ctx.fill();
+      }
+    } else if(mode==='wind'){
+      for(i=0;i<items.length;i++){ p=items[i];
+        var head = reduced ? 0 : ((t*p.sp*2 + p.ph*220) % (W + p.len)) - p.len;
+        var x0 = head - p.len, y0 = p.y + Math.sin(t*.008+p.ph)*6;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(x0+p.len*.5, y0-11, x0+p.len, y0);
+        ctx.strokeStyle='rgba('+colors.wind+','+p.a+')';
+        ctx.lineWidth=1; ctx.stroke();
+      }
+    }
+    if(!reduced) raf = requestAnimationFrame(draw);
+  }
+  function setMode(m){ mode=m; seed(); if(!raf && !reduced) draw(); }
+  function recolor(){ colors = FX_COLORS[document.body.dataset.pal+'-'+document.body.dataset.mode]; }
+  size(); seed(); recolor(); draw();
+  addEventListener('resize', function(){ size(); seed(); });
+  document.addEventListener('visibilitychange', function(){
+    if(document.hidden){ if(raf) cancelAnimationFrame(raf); raf=null; }
+    else if(!raf && !reduced) draw();
+  });
+  return {setMode:setMode, recolor:recolor};
+})();
+applyMod('chat');
+</script>
+</body>
+</html>

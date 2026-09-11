@@ -25,8 +25,8 @@ body {
   color: var(--color-text-primary);
   /* 深蓝黑底 + 樱粉/薄荷绿极淡径向渐变氛围光 */
   background:
-    radial-gradient(1200px 600px at 85% -10%, rgba(255, 107, 157, 0.06), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(78, 205, 196, 0.05), transparent 55%),
+    radial-gradient(1200px 600px at 85% -10%, rgba(var(--color-primary-rgb), 0.06), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(var(--color-accent-rgb), 0.05), transparent 55%),
     var(--color-bg);
   -webkit-font-smoothing: antialiased;
   overflow: hidden; /* 应用外壳整窗布局，滚动由各区域自管 */
@@ -42,8 +42,8 @@ a:hover { text-decoration: underline; }
 
 /* 细滚动条（暗色） */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: rgba(78, 205, 196, 0.18); border-radius: var(--radius-full); }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 107, 157, 0.35); }
+::-webkit-scrollbar-thumb { background: rgba(var(--color-accent-rgb), 0.18); border-radius: var(--radius-full); }
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--color-primary-rgb), 0.35); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ============================== 0.1 通用工具类（供页面组件直接使用） ============================== */
@@ -449,7 +449,7 @@ a:hover { text-decoration: underline; }
 
 /* 按钮-主要：背景 var(--color-primary-500)，文字白色，圆角 8px，hover 加深 10% */
 .btn-primary { background: var(--color-primary); color: #fff; border-radius: var(--radius-md); }
-.btn-primary:not(:disabled):hover { background: var(--color-primary-600); box-shadow: 0 4px 14px rgba(255, 107, 157, 0.35); }
+.btn-primary:not(:disabled):hover { background: var(--color-primary-600); box-shadow: 0 4px 14px rgba(var(--color-primary-rgb), 0.35); }
 
 /* 按钮-次要：背景透明，边框 var(--color-info)，文字 var(--color-info) */
 .btn-secondary { background: transparent; color: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-md); }
@@ -851,7 +851,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   width: 44px; height: 44px; border-radius: var(--radius-md); flex-shrink: 0;
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-700));
   display: flex; align-items: center; justify-content: center; color: #fff;
-  box-shadow: 0 4px 12px rgba(255, 107, 157, 0.30);
+  box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.30);
 }
 .manga-project-name { font-weight: var(--font-weight-semibold); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .manga-project-meta { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-top: 2px; }
@@ -954,14 +954,14 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-create-card:hover {
   border-color: var(--color-primary); color: var(--color-primary);
-  box-shadow: 0 0 24px rgba(255, 107, 157, 0.18); transform: translateY(-2px);
+  box-shadow: 0 0 24px rgba(var(--color-primary-rgb), 0.18); transform: translateY(-2px);
 }
 .manga-create-icon {
   width: 52px; height: 52px; border-radius: var(--radius-full); display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-700)); color: #fff;
-  box-shadow: 0 6px 18px rgba(255, 107, 157, 0.35);
+  box-shadow: 0 6px 18px rgba(var(--color-primary-rgb), 0.35);
 }
-.manga-create-card:hover .manga-create-icon { box-shadow: 0 8px 26px rgba(255, 107, 157, 0.5); }
+.manga-create-card:hover .manga-create-icon { box-shadow: 0 8px 26px rgba(var(--color-primary-rgb), 0.5); }
 
 /* 作品封面卡（16:9 渐变封面 + hover 霓虹光环 + 管理操作浮现） */
 .manga-cover-card {
@@ -972,12 +972,12 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-cover-card:hover {
   transform: translateY(-3px); border-color: var(--color-primary-200);
-  box-shadow: 0 12px 32px rgba(255, 107, 157, 0.22);
+  box-shadow: 0 12px 32px rgba(var(--color-primary-rgb), 0.22);
 }
 .manga-cover {
   position: relative; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; color: #fff;
   background:
-    radial-gradient(360px 140px at 85% -10%, rgba(78, 205, 196, 0.25), transparent 60%),
+    radial-gradient(360px 140px at 85% -10%, rgba(var(--color-accent-rgb), 0.25), transparent 60%),
     linear-gradient(135deg, var(--color-primary-600), var(--color-card) 75%);
 }
 .manga-cover-name {
@@ -1000,7 +1000,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   display: flex; align-items: center; gap: var(--space-3);
   padding: var(--space-2) var(--space-4); margin-bottom: var(--space-3);
   border: 1px solid var(--color-primary-200); border-radius: var(--radius-md);
-  background: var(--color-primary-50, rgba(255, 107, 157, 0.06));
+  background: var(--color-primary-50, rgba(var(--color-primary-rgb), 0.06));
 }
 .manga-batch-count { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-right: auto; }
 .manga-batch-count strong { color: var(--color-primary); }
@@ -1015,7 +1015,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 /* 批量模式下的封面卡：选中态 + 左上角复选标记 */
 .manga-lib-grid.batching .manga-cover-card.selected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-200), 0 12px 32px rgba(255, 107, 157, 0.22);
+  box-shadow: 0 0 0 2px var(--color-primary-200), 0 12px 32px rgba(var(--color-primary-rgb), 0.22);
 }
 .manga-cover-check {
   position: absolute; top: var(--space-2); left: var(--space-2);
@@ -1026,7 +1026,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-cover-check.checked {
   background: var(--color-primary); border-color: #fff;
-  box-shadow: 0 2px 8px rgba(255, 107, 157, 0.45);
+  box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.45);
 }
 
 /* ---------- 编辑器三栏骨架 ---------- */
@@ -1092,18 +1092,18 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-shot-card:hover {
   border-color: var(--color-primary-200); transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(255, 107, 157, 0.12);
+  box-shadow: 0 6px 20px rgba(var(--color-primary-rgb), 0.12);
 }
 .manga-shot-card.selected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary), 0 10px 28px rgba(255, 107, 157, 0.20);
+  box-shadow: 0 0 0 1px var(--color-primary), 0 10px 28px rgba(var(--color-primary-rgb), 0.20);
 }
 .manga-shot-num {
   width: 52px; height: 52px; flex-shrink: 0; border-radius: var(--radius-md); align-self: flex-start;
   display: flex; align-items: center; justify-content: center; color: #fff;
   font-size: var(--font-size-lg); font-weight: var(--font-weight-bold);
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-700));
-  box-shadow: 0 4px 12px rgba(255, 107, 157, 0.30);
+  box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.30);
 }
 .manga-shot-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .manga-shot-input {
@@ -1160,7 +1160,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-pipe-step.current {
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-700));
   color: #fff; font-weight: var(--font-weight-semibold);
-  box-shadow: 0 2px 14px rgba(255, 107, 157, 0.45);
+  box-shadow: 0 2px 14px rgba(var(--color-primary-rgb), 0.45);
 }
 .manga-pipe-step.done { background: var(--color-success-bg); color: var(--color-success); }
 .manga-pipe-num {
@@ -1215,7 +1215,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   width: 26px; height: 26px; border-radius: var(--radius-full); flex-shrink: 0;
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-700));
   color: #fff; font-size: var(--font-size-xs); font-weight: var(--font-weight-bold);
-  box-shadow: 0 2px 8px rgba(255, 107, 157, 0.35);
+  box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.35);
 }
 
 /* 行内小工具按钮 */
@@ -1247,7 +1247,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   background: var(--color-input-bg); color: var(--color-text-primary);
   font-family: var(--font-family-base); font-size: var(--font-size-xs); line-height: 1.6;
 }
-.manga-cell-editor:focus { outline: none; box-shadow: 0 0 0 2px rgba(255, 107, 157, 0.25); }
+.manga-cell-editor:focus { outline: none; box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.25); }
 
 /* 资产缩略 / 添加占位框 */
 .manga-thumb {
@@ -1298,7 +1298,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-video-prog-bar {
   position: absolute; left: 0; top: 0; bottom: 0;
-  background: linear-gradient(90deg, var(--color-primary-100), rgba(255, 107, 157, 0.35));
+  background: linear-gradient(90deg, var(--color-primary-100), rgba(var(--color-primary-rgb), 0.35));
   transition: width var(--duration-normal) var(--ease-out);
 }
 .manga-video-prog-text {
@@ -1363,7 +1363,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-primary-200); border-radius: var(--radius-lg);
-  background: var(--color-card); box-shadow: 0 4px 16px rgba(255, 107, 157, 0.15);
+  background: var(--color-card); box-shadow: 0 4px 16px rgba(var(--color-primary-rgb), 0.15);
 }
 .manga-batchbar-count { font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--color-primary-300); }
 .manga-batchbar-danger:not(:disabled) { color: var(--color-error); border-color: var(--color-error); }
@@ -1411,7 +1411,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   background: var(--color-bg); color: inherit; text-align: center;
   transition: border-color var(--duration-hover) var(--ease-out), box-shadow var(--duration-hover) var(--ease-out);
 }
-.manga-asset-card:hover:not(:disabled) { border-color: var(--color-primary-200); box-shadow: 0 4px 14px rgba(255, 107, 157, 0.18); }
+.manga-asset-card:hover:not(:disabled) { border-color: var(--color-primary-200); box-shadow: 0 4px 14px rgba(var(--color-primary-rgb), 0.18); }
 .manga-asset-card:disabled { opacity: 0.45; cursor: not-allowed; }
 .manga-asset-card img, .manga-asset-ph {
   /* 2026-08-25 用户裁定：资产卡缩略图统一为正方形（1/1）cover 裁切；
@@ -1474,7 +1474,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   background: transparent; color: inherit;
   transition: border-color var(--duration-hover) var(--ease-out), box-shadow var(--duration-hover) var(--ease-out);
 }
-.manga-mini-card:hover { border-color: var(--color-primary-200); box-shadow: 0 2px 8px rgba(255, 107, 157, 0.2); }
+.manga-mini-card:hover { border-color: var(--color-primary-200); box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.2); }
 .manga-mini-card img, .manga-mini-card-ph {
   width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
 }
@@ -1516,7 +1516,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   position: absolute; top: 4px; right: 4px; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; border-radius: var(--radius-full);
-  background: var(--color-primary); color: #fff; box-shadow: 0 0 6px rgba(255, 107, 157, 0.55);
+  background: var(--color-primary); color: #fff; box-shadow: 0 0 6px rgba(var(--color-primary-rgb), 0.55);
 }
 .manga-asset-card { position: relative; }
 
@@ -1532,7 +1532,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-asset-badge.global {
   color: #fff;
   background: var(--color-primary);
-  box-shadow: 0 0 6px rgba(255, 107, 157, 0.45);
+  box-shadow: 0 0 6px rgba(var(--color-primary-rgb), 0.45);
 }
 
 /* 资产卡外包裹（承载 hover 删除按钮，2026-08-20 资产删除） */
@@ -1688,7 +1688,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   opacity: 0.6; transition: opacity var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out);
 }
 .manga-lightbox-thumb:hover { opacity: 1; }
-.manga-lightbox-thumb.active { border-color: var(--color-primary); opacity: 1; box-shadow: 0 0 8px rgba(255, 107, 157, 0.45); }
+.manga-lightbox-thumb.active { border-color: var(--color-primary); opacity: 1; box-shadow: 0 0 8px rgba(var(--color-primary-rgb), 0.45); }
 .manga-lightbox-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* 工序条右侧工具（提示词/生成记录） */
@@ -1722,7 +1722,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-mode-switch > button:hover { border-color: var(--color-primary-200); }
 .manga-mode-switch > button.active {
   border-color: var(--color-primary); background: var(--color-primary-50);
-  box-shadow: 0 0 12px rgba(255, 107, 157, 0.15);
+  box-shadow: 0 0 12px rgba(var(--color-primary-rgb), 0.15);
 }
 .manga-mode-switch .mode-title {
   font-weight: var(--font-weight-semibold); font-size: var(--font-size-sm);
@@ -1763,7 +1763,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-style-card:hover { border-color: var(--color-primary-200); transform: translateY(-1px); }
 .manga-style-card.active {
   border-color: var(--color-primary);
-  box-shadow: 0 0 12px rgba(255, 107, 157, 0.18);
+  box-shadow: 0 0 12px rgba(var(--color-primary-rgb), 0.18);
 }
 .manga-style-card .style-thumb {
   position: relative; display: flex; align-items: center; justify-content: center;
@@ -1775,7 +1775,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-style-card.custom .style-thumb {
   background: linear-gradient(135deg,
-    var(--color-primary-50, rgba(255, 107, 157, 0.08)),
+    var(--color-primary-50, rgba(var(--color-primary-rgb), 0.08)),
     var(--color-surface-secondary));
 }
 .manga-style-card .style-check {
@@ -1815,7 +1815,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-style-add:hover {
   border-color: var(--color-primary); color: var(--color-primary);
-  background: var(--color-primary-50, rgba(255, 107, 157, 0.06));
+  background: var(--color-primary-50, rgba(var(--color-primary-rgb), 0.06));
 }
 /* 自定义风格内联表单 */
 .manga-style-form {
@@ -1985,7 +1985,7 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px;
   width: calc(50% - 4px); border-radius: var(--radius-full);
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-  box-shadow: 0 2px 10px var(--color-primary-glow, rgba(255, 107, 157, 0.35));
+  box-shadow: 0 2px 10px var(--color-primary-glow, rgba(var(--color-primary-rgb), 0.35));
   transition: transform var(--duration-hover) var(--ease-out);
 }
 .manga-media-seg[data-active="image"]::before { transform: translateX(100%); }

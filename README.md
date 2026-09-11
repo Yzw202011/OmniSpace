@@ -16,14 +16,14 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10.11-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/React-19.0-61dafb?logo=react" alt="React">
-  <img src="https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi" alt="FastAPI">
-  <img src="https://img.shields.io/badge/PyTorch-2.x-ee4c2c?logo=pytorch" alt="PyTorch">
-  <img src="https://img.shields.io/badge/vLLM-latest-7c3aed" alt="vLLM">
+  <img src="https://img.shields.io/badge/FastAPI-0.141.1-009688?logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/PyTorch-2.13_cu130-ee4c2c?logo=pytorch" alt="PyTorch">
+  <img src="https://img.shields.io/badge/vLLM-0.27.1-7c3aed" alt="vLLM">
   <img src="https://img.shields.io/badge/license-Proprietary-red" alt="License">
 </p>
 
-> 💡 **对话 × 绘画 × 分镜 × 视频 × 语音 × 知识学习**
-> 全部推理在 **本地 GPU** 完成，数据 **永不离开你的机器**
+> 💡 **对话 × 漫画 × 漫剧 × 写作 × 知识学习**
+> 默认全部推理在 **本地 GPU** 完成；如需更强模型，可自带 Key 选接云端 API（明确标注、可关闭）
 
 </div>
 
@@ -36,48 +36,52 @@
 | 亮点 | 说明 |
 |------|------|
 | 🎯 **真·全模态** | 文本 / 图像 / 视频 / 语音 / 知识图谱，一站式创作管线 |
-| 🏠 **100% 本地优先** | 所有模型推理跑在你自己的 GPU 上，没有 API 调用，没有数据上传 |
-| ⚡ **显存调度器** | 自研显存协调器，16GB 显存也能跑全流程（自动加载/卸载/路由） |
-| 🏗️ **工程质量高** | 319 HTTP 路由（含别名，2026-09-02 静态实测复核）+ 4 WebSocket，五层架构；pytest **207 通过 / 5 跳过**（GPU 集成显式关闭，2026-09-02 实测）/ vitest / 活后端 E2E 三层测试体系 |
-| 🧩 **插件式推理引擎** | 支持 vLLM / Transformers / GGUF 多后端，可热切换 |
+| 🏠 **本地优先** | 默认所有模型推理跑在你自己的 GPU 上，数据不出本机；云端 API 是可选的自带 Key 档位 |
+| ⚡ **显存调度器** | 自研显存协调器（账本/准入/单一编排），16GB 消费级显卡跑全流程（自动加载/卸载/互斥/让档） |
+| 🩺 **自愈与体检** | 模型未加载自动加载并续跑、一键体检（8 项只读检查）+ 白名单修复、错误必带出路指引 |
+| 🏗️ **工程质量高** | ≈370 个 HTTP 端点（含别名，2026-09-11 静态统计）+ WebSocket 状态通道；pytest **690+ 用例**（GPU 集成显式开关）/ vitest **75 用例** / 活后端 E2E 三层测试体系 |
+| 🧩 **插件式推理引擎** | vLLM / llama.cpp (GGUF) / Transformers 多后端，可热切换、可自动降级 |
 | 📚 **丰富文档** | 架构图、API 文档、部署手册、故障排查，新人友好 |
 
 ---
 
 ## ✨ 核心特性
 
-### 🎨 AI 绘画（Paint）
-- SDXL / Flux / LCM 多模型支持
-- LoRA 风格训练与切换
-- ControlNet（线稿/深度/姿态）
-- 高清修复、局部重绘、扩图
+### 🎨 AI 漫画（Comic）
+- **参考图角色一致性**：角色参考图锚定 + 角色 LoRA 训练入模，跨格跨页形象统一
+- **四视图生成**：角色设定图一键出三视图/四视图
+- **AI 写分格**：从剧本文本自动划分漫画格
+- **台词气泡**：多角色台词、名字角标、气泡拖拽编辑
+- **资产库**：角色 / 场景 / 道具三页签，支持上传与 AI 生成
+- **整页导出与阅读预览**
 
 ### 🎬 AI 漫剧（Manga）
-- **分镜编辑器**：可视化分镜编排，所见即所得
-- **角色一致性**：同一角色跨页保持形象统一
-- **自动镜头语言**：根据剧情自动生成运镜
+- **分镜编辑器**：剧情 → 分镜 → 资产 → 关键帧 → 视频 → 成片全链路
+- **多角色一致性**：跨镜形象统一（双硬锁并发保护）
+- **视频生成**：主力 MiniMax H3 多镜链式生成（本地 ComfyUI 推理），Wan2.2-ti2v-5b 图生视频补档；视频队列排队/取消/进度可视
+- **镜头语言结构化**：A/B/C 三段式提示词 + 中文导演运镜 + 台词行
+- **风格包**：30 个预置视频/画风风格包，一键套用
 - **资产库管理**：角色、场景、道具系统化管理
 
-### 🎥 AI 视频（Video）
-- 图生视频、文生视频
-- 镜头级视频生成 + 自动拼接
-- LTX-Video / AnimateLCM 双后端
-
 ### 💬 AI 对话（Dialog）
-- 多模型对话（Qwen / Llama 等）
-- 流式输出，打字机效果
+- 多引擎本地对话（vLLM / llama.cpp GGUF / Transformers，按显存自动路由）
+- 流式输出（SSE），打字机效果
 - 上下文记忆 + 知识库 RAG
+- 排队不秒拒、自动降级明示（装不下的模型自动换档并提示）
+
+### ✍️ 写作台（Novel）
+- 长篇小说 / 剧本创作
+- 剧本可一键结构化，直接喂给漫画分格与漫剧分镜
 
 ### 🧠 知识学习（Learn）
-- 文档自动向量化入库
-- RAG 检索增强生成
+- 文档 / 图片自动向量化入库（多道入库质检闸）
+- RAG 检索增强生成（向量 + FTS5 全文 + RRF 融合）
 - 知识图谱可视化
 - 浏览器代理，自主上网学习
 
-### 🔊 AI 语音（Voice）
-- TTS 文字转语音
-- 声音克隆（少量样本即可）
-- 多说话人管理
+### 🔊 语音能力（Voice）
+- TTS 文字转语音（Windows SAPI5 本地语音）+ Whisper 本地语音识别
+- 已内置于漫剧配音链路；AI 声音克隆模型为门控实验功能（默认关闭）
 
 ---
 
@@ -85,14 +89,14 @@
 
 | 层级 | 技术 |
 |------|------|
-| **前端** | React 19.0 + TypeScript + Vite 6 + Tailwind CSS v4 + Zustand 5 + React Router 7（Hash 路由，Sakura 主题） |
-| **后端** | FastAPI 0.141 + Pydantic v2 + uvicorn（Python 3.10.11 嵌入式 runtime） |
-| **AI 推理** | PyTorch 2.11 (cu128) + Diffusers + Transformers；vLLM 为可选子进程后端（py313，AWQ/GPTQ/GGUF 模型自动路由） |
-| **数据库** | SQLite (WAL, 32 张用户表=主库 30+flow 独立库 2) + ChromaDB + FTS5 全文检索 |
+| **前端** | React 19.0 + TypeScript + Vite 6 + Tailwind CSS v4 + Zustand 5 + React Router 7（Hash 路由，六主题族可切换） |
+| **后端** | FastAPI 0.141.1 + Pydantic v2 + uvicorn（Python 3.10.11 嵌入式 runtime） |
+| **AI 推理** | PyTorch 2.13 (cu130) + Diffusers + Transformers；对话引擎 vLLM 0.27.1 子进程（py313）与 llama.cpp GGUF / Transformers 热切换 |
+| **数据库** | SQLite (WAL) + ChromaDB + FTS5 全文检索 |
 | **存储加密** | AES-256-GCM 字段级加密（对话正文/行为日志）+ DPAPI 密钥保护 |
-| **交付形态** | launcher 守护进程 + 系统浏览器（Tauri 桌面壳已于 2026-08-20 经 [ADR-002](docs/ADR-002-tauri-shell-decision.md) 裁剪） |
-| **测试** | pytest（207 用例通过，2026-09-02 实测）+ vitest + 活后端 E2E 流程编排 |
-| **代码质量** | ruff + pre-commit hooks |
+| **交付形态** | launcher 守护进程 + 系统浏览器 / 内嵌 WebView 壳（设置页可选）；Tauri 已于 2026-08-20 经 [ADR-002](docs/ADR-002-tauri-shell-decision.md) 裁剪 |
+| **测试** | pytest（690+ 用例，GPU 集成显式开关）+ vitest（75 用例）+ 活后端 E2E 流程编排 |
+| **代码质量** | ruff + mypy 基线闸（只增不减）+ pre-commit hooks |
 
 ---
 
@@ -101,15 +105,15 @@
 ```
 OmniSpace/
 ├── backend/               # FastAPI 后端
-│   ├── api/               # 路由层（dialog / paint / manga / learn / models …）
+│   ├── api/               # 路由层（dialog / comic / manga / novel / learn / models …）
 │   ├── services/          # 业务层 + 推理引擎 + 模型管理
 │   ├── engines/           # 资源层（GPU / VRAM / 内存管理）
 │   ├── data/              # 存储层（DB / 向量 / 全文 / 图谱 / 加密）
 │   └── middleware/        # 横切层（错误处理 / 限流 / 互斥锁 / CORS）
 ├── frontend/              # React SPA
-├── launcher/              # 启动守护进程（自检/端口/心跳/重启）
+├── launcher/              # 启动守护进程（自检/端口/心跳/重启/启动页）
 ├── docs/                  # 完整文档
-├── tools/                 # 构建与诊断脚本
+├── tools/                 # 构建与诊断脚本（第三方工具树不入库）
 └── tests/                 # E2E 流程编排
 ```
 
@@ -130,7 +134,9 @@ OmniSpace/
 # 进入项目目录（私有仓库，不对外分发）
 cd E:\OmniSpace
 
-# 启动（需先配置模型文件，详见部署手册）
+# 方式一：双击 启动OmniSpace.bat（免黑窗可用桌面快捷方式）
+
+# 方式二：命令行启动（需先配置模型文件，详见部署手册）
 runtime\py310\python.exe launcher\launcher.py
 ```
 
@@ -203,19 +209,22 @@ pnpm dev
 
 ### ✅ 已完成
 - [x] 基础架构搭建（FastAPI + React）
-- [x] AI 对话模块（Qwen3-VL 多模态 + RAG 混合检索）
-- [x] AI 绘画模块（SDXL / FLUX.2 Klein / qwen-image + LoRA）
-- [x] 漫剧分镜编辑器（分镜→资产→关键帧→视频全链路）
-- [x] 视频生成模块（Wan2.2 / LTX-Video / AnimateLCM 真实推理，Ken Burns 诚实降级）
-- [x] 知识学习与 RAG（ChromaDB + FTS5 + RRF 融合）
-- [x] 显存协调器与功能互斥锁
+- [x] AI 对话模块（多引擎本地推理 + RAG 混合检索 + 排队与降级明示）
+- [x] AI 漫画模块（参考图一致性 / 角色 LoRA / AI 分格 / 台词气泡 / 整页导出 / 资产库）
+- [x] 漫剧创作模块（分镜→资产→关键帧→视频全链路，MiniMax H3 链式生成主力）
+- [x] 写作台（小说/剧本创作，剧本直通漫画与漫剧）
+- [x] 知识学习与 RAG（ChromaDB + FTS5 + RRF 融合，图片知识入库）
+- [x] 显存协调器（账本/准入/编排五批重构）与功能互斥锁
+- [x] 一键体检与自愈机制（错误出路指引 / 事件日志自动兜底 / 模型自动加载）
+- [x] 可选云端 API 接入（文本 / 图像 / 视频，自带 Key）
+- [x] 多主题族界面（含治愈系「Dali·风花雪月」六态主题）
 
 > 注：图生 3D（TripoSR）后端管线与 3D 导演台曾实现，后者已于 2026-08-29 裁定整链路剔除；/art 视觉工具端点后端保留、暂无前端入口。
 
 ### 🔄 进行中
-- [ ] 语音克隆与 TTS 优化
-- [ ] 角色一致性算法提升（DINOv2 人脸/场景门禁已上线，持续标定中）
-- [ ] 移动端适配
+- [ ] 联网搜索 v1（免费双通道：无头浏览器自搜 + SearXNG 自建）
+- [ ] 多显卡实机验证
+- [ ] 语音克隆门控开放评估
 
 ### 🔮 规划中
 - [ ] 插件系统（第三方模型/功能扩展）
@@ -234,8 +243,8 @@ pnpm dev
 |------|------|--------|
 | [部署手册](docs/deployment-manual.md) | 硬件要求、环境装配、模型配置 | 第一次部署 |
 | [架构总览](docs/design/architecture-overview.md) | 分层结构、中间件链、数据流 | 理解系统设计 |
-| [API 端点总表](docs/design/api-endpoints.md) | 319 HTTP（含别名，2026-09-02 复核）+ 4 WS 端点文档 | 开发对接 |
-| [数据库 ER](docs/design/database-er.md) | 31 张用户表结构 + 迁移说明 | 数据库相关 |
+| [API 端点总表](docs/design/api-endpoints.md) | HTTP / WS 端点文档（快照，增量以代码为准） | 开发对接 |
+| [数据库 ER](docs/design/database-er.md) | 数据库表结构与迁移说明 | 数据库相关 |
 | [故障排查](docs/troubleshooting.md) | OOM / 端口冲突 / 模型加载失败 | 出问题时 |
 | [需求追踪矩阵](docs/requirements-traceability.md) | 功能/模块/架构/工程四类需求追踪 | 查需求状态 |
 
@@ -244,6 +253,8 @@ pnpm dev
 ## 📄 License
 
 版权所有 © 2026 OmniSpace。保留所有权利（All Rights Reserved）。
+
+**本项目仅供学习使用，商业授权请+Q 3559331368。**
 
 本项目为私有闭源软件，未经授权不得复制、分发、反向工程或二次开发。正式商业授权协议（EULA）随发行版提供。
 

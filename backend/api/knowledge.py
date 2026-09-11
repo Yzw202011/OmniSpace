@@ -35,18 +35,21 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from ..config import DATA_DIR
 from ..data.database import Database
 from ..middleware import upload_guard
 from ..middleware.error_handler import ApiError, ok
 from ..services import knowledge_quality_gate
 from ..services.behavior_service import get_behavior_service
 from ..services.injection_service import get_injection_service
-from ..services.knowledge_service import get_knowledge_service
+from ..services.knowledge_service import Knowledge, get_knowledge_service
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.knowledge")
@@ -283,6 +286,159 @@ def knowledge_process_text(req: ProcessTextRequest) -> dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  图片知识（UAT 2026-09-11 缺口：知识库支持图片知识）
+#  设计：图片按 knowledge_images/{kid}.{ext} 约定存放（零 schema 迁
+#  移），条目 type="image"、content=VLM 中文描述（可搜索/可向量化），
+#  回读走 GET /knowledge/{kid}/image。
+# ═══════════════════════════════════════════════════════════════════
+
+_KB_IMG_DIR = DATA_DIR / "knowledge_images"
+_KB_IMG_EXTS = (".png", ".jpg", ".jpeg")
+_KB_IMG_MAX_BYTES = 10 * 1024 * 1024
+_KB_DESCRIBE_PROMPT = (
+    "请用中文详细描述这张图片的主要内容（人物/场景/物体/动作），"
+    "如图中有文字请原样转录。描述将作为知识条目用于检索，"
+    "请写成 2-4 个完整句子。")
+
+
+def _kb_image_path(kid: str) -> Path | None:
+    """按约定扩展名探测图片路径（kid 已在端点层校验为十六进制）。"""
+    for ext in _KB_IMG_EXTS:
+        p = _KB_IMG_DIR / f"{kid}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+@router.post("/knowledge/import-image")
+async def knowledge_import_image(file: UploadFile = File(...),
+                                 topic: str = Form(...)) -> dict[str, Any]:
+    """导入图片知识：VLM 中文描述入库（可搜索），图片本体按 id 存档。
+
+    流程：类型嗅验（png/jpg/jpeg，10MB）→ 视觉模型描述（对话引擎
+    未就绪时有界等待自动装载，失败诚实报错带出路）→ 质检闸 → 入库
+    （type=image，content=VLM 描述）→ 图片落盘 knowledge_images/。
+    """
+    if not file or not file.filename:
+        raise ApiError("SYSTEM_PARAM_INVALID", "未提供上传文件")
+    if not topic or not topic.strip():
+        raise ApiError("SYSTEM_PARAM_INVALID", "topic 不能为空")
+    data = await file.read(_KB_IMG_MAX_BYTES + 1)
+    if not data:
+        raise ApiError("SYSTEM_PARAM_INVALID", "上传文件内容为空")
+    if len(data) > _KB_IMG_MAX_BYTES:
+        raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片超过 10MB 上限",
+                       detail={"size_bytes": len(data),
+                               "limit_bytes": _KB_IMG_MAX_BYTES},
+                       suggestion="请压缩图片后重试")
+    try:
+        upload_guard.validate(file.filename, data, upload_guard.MEDIA_TABLE)
+    except upload_guard.UploadRejected as exc:
+        raise ApiError("UNSUPPORTED_FORMAT", str(exc),
+                       detail={"filename": file.filename}) from exc
+    from PIL import Image as _PILImage
+
+    try:
+        pil_probe = _PILImage.open(io.BytesIO(data))
+        pil_probe.verify()
+        pil = _PILImage.open(io.BytesIO(data)).convert("RGB")
+    except Exception as exc:  # noqa: BLE001 - 解码失败即非法图片
+        raise ApiError("UNSUPPORTED_FORMAT", "图片解码失败，请上传有效图片",
+                       detail={"error": str(exc)[:120]}) from exc
+
+    # 视觉模型就绪（有界等待自动装载，产品铁律：不许「再点一次」）；
+    # 当前已就绪且为视觉模型（4B/8B-awq）则直接复用，不做无谓热切换
+    from ..services.inference.dialog_engine import get_dialog_engine
+    eng = get_dialog_engine()
+    vl_ids = ("qwen3-vl-4b", "qwen3-vl-8b-awq")
+    if not (eng.is_ready and eng.get_status().get("model") in vl_ids):
+        loaded = False
+        for vl in vl_ids:
+            if eng.ensure_loaded(vl):
+                loaded = True
+                break
+        if not loaded:
+            raise ApiError("MODEL_NOT_READY",
+                           "视觉模型装载失败，无法识别图片",
+                           suggestion="请到「模型管理」确认 qwen3-vl-4b/8b "
+                                      "在位后重试；或稍后等显存空闲再试")
+
+    t0 = time.time()
+    # 消息组装复用 engine.build_context（与对话页图片理解同链路）：
+    # 由它按后端能力产出多模态部件列表/纯文本，保证占位符与图片对齐
+    messages = eng.build_context(
+        f"{_KB_DESCRIBE_PROMPT}\n\n（图片文件名：{file.filename}）",
+        history=[], knowledge_text="", images=[pil],
+        max_tokens=2048)
+    # 走 chat_stream_ex（对话页图片理解同链路，已实弹验证）；join
+    # 正文 token（思考段由 enable_thinking=False 抑制）；error 事件
+    # 捕获透出（此前被静默丢弃，0.4s 空回复无从排查）
+    parts: list[str] = []
+    err_text = ""
+    try:
+        for ev in eng.chat_stream_ex(
+                messages, images=[pil], max_new_tokens=512,
+                enable_thinking=False):
+            if not isinstance(ev, dict):
+                continue
+            # chat_stream_ex 事件类型为 reasoning/content（非 token）
+            if ev.get("type") == "content":
+                parts.append(ev.get("text") or "")
+            elif ev.get("type") == "error":
+                err_text = ev.get("text") or ""
+    except Exception as exc:  # noqa: BLE001 - 生成异常转诚实报错不 500
+        err_text = f"{type(exc).__name__}: {str(exc)[:120]}"
+    description = "".join(parts).strip()
+    log.info("[图片知识] VLM 原始回复 %.1fs: %r（error=%r）",
+             time.time() - t0, description[:200], err_text[:120])
+    if not description and err_text:
+        raise ApiError("KNOWLEDGE_PROCESS_FAILED", f"视觉描述失败：{err_text[:150]}",
+                       suggestion="请重试；若反复出现请到「模型管理」检查视觉模型状态")
+    if not description:
+        raise ApiError("KNOWLEDGE_PROCESS_FAILED",
+                       "视觉模型未能生成图片描述，请重试")
+    log.info("图片知识描述完成: %s（%.1fs，%d 字）",
+             file.filename, time.time() - t0, len(description))
+
+    gate_ok, gate_reason = knowledge_quality_gate.check(description, "fact")
+    if not gate_ok:
+        raise ApiError("KNOWLEDGE_PROCESS_FAILED",
+                       f"描述未通过入库质检（{gate_reason}），请重试")
+
+    kid = uuid.uuid4().hex
+    _KB_IMG_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename or "x.png").suffix.lower() or ".png"
+    if ext not in _KB_IMG_EXTS:
+        ext = ".png"
+    (_KB_IMG_DIR / f"{kid}{ext}").write_bytes(data)
+
+    svc = get_knowledge_service()
+    k = Knowledge(id=kid, title=(file.filename or "图片知识").rsplit(".", 1)[0],
+                  content=description, topic=topic.strip(), type="image",
+                  source_url=f"knowledge_images/{kid}{ext}",
+                  quality_score=0.9)
+    svc.vectorize_and_store(k)
+    return ok({"id": kid, "topic": topic.strip(),
+               "description": description[:120],
+               "chars": len(description)},
+              message="图片知识已入库（含视觉描述，支持搜索）")
+
+
+@router.get("/knowledge/{kid}/image")
+def knowledge_image(kid: str) -> FileResponse:
+    """回读图片知识原图（前端缩略图/放大预览）。"""
+    import re as _re
+    if not _re.fullmatch(r"[0-9a-f]{32}", kid):
+        raise ApiError("SYSTEM_PARAM_INVALID", "非法知识 id")
+    p = _kb_image_path(kid)
+    if p is None:
+        raise ApiError("KNOWLEDGE_NOT_FOUND", "图片不存在",
+                       detail={"id": kid})
+    media = "image/jpeg" if p.suffix in (".jpg", ".jpeg") else "image/png"
+    return FileResponse(p, media_type=media)
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  契约别名（规格 §7.1.2 /v1/learn/knowledge/* 等）
 # ═══════════════════════════════════════════════════════════════════
 
@@ -476,7 +632,7 @@ async def learn_knowledge_import(
                        f"单次导入上限 {_KNOWLEDGE_IMPORT_LIMIT} 条",
                        detail={"count": len(rows)})
 
-    from ..services.knowledge_service import Knowledge, simhash64
+    from ..services.knowledge_service import simhash64
     svc = get_knowledge_service()
     imported, skipped, overwritten, failed, rejected = 0, 0, 0, 0, 0
     existing_simhashes: set[str] = set()

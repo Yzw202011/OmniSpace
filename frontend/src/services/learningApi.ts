@@ -165,6 +165,8 @@ export interface KnowledgeItem {
   content?: string;
   source?: string;
   created_at?: string | number;
+  /** 条目类型（image=图片知识，缩略图走 /knowledge/{id}/image） */
+  type?: string;
 }
 
 /** 知识图谱节点（GET /knowledge/graph，TASK-055） */
@@ -351,6 +353,15 @@ export function batchDeleteKnowledge(ids: string[]) {
     '/learn/knowledge/delete',
     { method: 'DELETE', body: { ids } },
   );
+}
+
+/** 导入图片知识（UAT 2026-09-11：VLM 中文描述入库，图片按 id 存档） */
+export function importKnowledgeImage(file: File, topic: string) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('topic', topic);
+  return upload<{ id: string; topic: string; description: string; chars: number }>(
+    '/knowledge/import-image', fd);
 }
 
 /** 知识图谱（TASK-055）：kid 为空返回全局图谱 */

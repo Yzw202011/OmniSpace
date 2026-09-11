@@ -17,7 +17,7 @@ import type { ChatSession } from './SessionList';
 import type { ChatMessage } from './MessageBubble';
 import { useDialogStore } from '@/stores/useDialogStore';
 import { useAppStore } from '@/stores/useAppStore';
-import { getErrorMessage } from '@/utils/errors';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { prewarmModel, rateMessage } from '@/services/dialogApi';
 import type { DialogSession, DialogMessage } from '@/types';
 
@@ -103,12 +103,12 @@ export default function DialogPage() {
       const st = useDialogStore.getState();
       const sid = st.currentSession?.id;
       if (sid && st.generating) {
-        void fetch('/api/v1/chat/stop', {
+        fetch('/api/v1/chat/stop', {
           method: 'POST',
           keepalive: true,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: sid }),
-        }).catch(() => {});
+        }).catch((err: unknown) => reportBgError('dialog.pagehideStop', err));
       }
     };
     window.addEventListener('pagehide', onHide);

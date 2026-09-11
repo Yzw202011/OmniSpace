@@ -109,6 +109,8 @@ export interface LearningState {
   deleteKnowledge: (id: string) => Promise<void>;
   batchDeleteKnowledge: (ids: string[]) => Promise<{ deleted: number; missing: string[] }>;
   importDocument: (file: File) => Promise<boolean>;
+  /** 导入图片知识（VLM 描述入库；UAT 2026-09-11 图片知识支持） */
+  importImage: (file: File) => Promise<boolean>;
   fetchKnowledgeGraph: (kid?: string) => Promise<void>;
 
   /* ------------------------------ 行为学习 ------------------------------ */
@@ -360,6 +362,23 @@ export const useLearningStore = create<LearningState>((set, get) => ({
     } catch (err) {
       const msg = err && typeof err === 'object' && 'message' in err
         ? (err as { message: string }).message : '文档导入失败';
+      useAppStore.getState().showToast(msg, 'error');
+      return false;
+    } finally {
+      set({ importing: false });
+    }
+  },
+
+  importImage: async (file) => {
+    set({ importing: true });
+    try {
+      await learningApi.importKnowledgeImage(file, '图片知识');
+      useAppStore.getState().showToast('图片知识已入库（含视觉描述）', 'success');
+      await Promise.all([get().fetchKnowledgeStats(), get().fetchKnowledge(1)]);
+      return true;
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'message' in err
+        ? (err as { message: string }).message : '图片导入失败';
       useAppStore.getState().showToast(msg, 'error');
       return false;
     } finally {

@@ -7,7 +7,7 @@
  * ========================================================================== */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Database, List, Network, Search } from 'lucide-react';
+import { Database, Image as ImageIcon, List, Network, Search } from 'lucide-react';
 import { useLearningStore } from '@/stores/useLearningStore';
 import { formatNumber, formatFileSize, formatRelativeTime, truncate } from '@utils/format';
 import { KnowledgeGraphView } from './KnowledgeGraphView';
@@ -39,6 +39,10 @@ export const KnowledgeBrowser: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmBatch, setConfirmBatch] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  // 导入图片知识（UAT 2026-09-11）
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const importingImage = useLearningStore((s) => s.importing);
+  const importImage = useLearningStore((s) => s.importImage);
 
   useEffect(() => {
     return () => {
@@ -149,6 +153,26 @@ export const KnowledgeBrowser: React.FC = () => {
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
             />
             <button className="btn btn-secondary btn-sm" onClick={handleSearch}><Search size={14} aria-hidden="true" /> 搜索</button>
+            {/* 导入图片知识（UAT 2026-09-11 图片知识支持；VLM 描述入库） */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) void importImage(f);
+              }}
+            />
+            <button
+              className="btn btn-ghost btn-sm"
+              title="导入图片知识：视觉模型生成中文描述入库，支持搜索"
+              disabled={importingImage}
+              onClick={() => imageInputRef.current?.click()}
+            >
+              <ImageIcon size={14} aria-hidden="true" /> {importingImage ? '识别中…' : '导入图片'}
+            </button>
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => toggleBatch()}
@@ -212,6 +236,20 @@ export const KnowledgeBrowser: React.FC = () => {
                       aria-label={`选中 ${item.title || truncate(item.content, 20)}`}
                       checked={selectedIds.has(item.id)}
                       onChange={() => toggleSelect(item.id)}
+                    />
+                  )}
+                  {/* 图片知识缩略图（UAT 2026-09-11：type=image） */}
+                  {item.type === 'image' && (
+                    <img
+                      src={`/api/v1/knowledge/${item.id}/image`}
+                      alt={item.title || '图片知识'}
+                      loading="lazy"
+                      style={{
+                        width: 56, height: 56, objectFit: 'cover',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border-light)',
+                        flexShrink: 0,
+                      }}
                     />
                   )}
                   <div className="flex-1" style={{ minWidth: 0 }}>

@@ -109,3 +109,45 @@ def test_v8_library_migrates_project_type(tmp_path):
     row = db.query_one("SELECT project_type FROM projects WHERE id='p1'")
     assert row is not None and row["project_type"] == "manga", "存量项目应归漫剧面"
     assert db.schema_version() == db.SCHEMA_VERSION
+
+
+def test_asset_library_face_isolation(client):
+    """资产库跨面隔离（2026-09-12 泄漏修复）：空 project_id 的「全部可用」
+    查询必须按产品面过滤——漫剧面（默认 manga）不得混出漫画面资产。
+    同时锁定 kind 过滤与 OR 分组的优先级回归。"""
+    from backend.data import database as db_mod
+    db = db_mod._db_instance
+    assert db is not None
+    c1 = client.post("/api/v1/comic/project/create",
+                     json={"name": "隔离漫画", "project_type": "comic"}).json()["data"]["project_id"]
+    m1 = client.post("/api/v1/comic/project/create",
+                     json={"name": "隔离漫剧", "project_type": "manga"}).json()["data"]["project_id"]
+    now = 1789000000.0
+    db.insert("comic_assets", {"id": "a-comic-p", "project_id": c1, "kind": "character",
+                               "name": "漫画项目角色", "file_path": "", "prompt": "", "created_at": now})
+    db.insert("comic_assets", {"id": "a-manga-p", "project_id": m1, "kind": "character",
+                               "name": "漫剧项目角色", "file_path": "", "prompt": "", "created_at": now})
+    db.insert("comic_assets", {"id": "a-manga-g", "project_id": "", "kind": "character", "scope": "global",
+                               "face": "manga", "name": "漫剧全局角色", "file_path": "", "prompt": "",
+                               "created_at": now})
+    db.insert("comic_assets", {"id": "a-comic-g", "project_id": "", "kind": "character", "scope": "global",
+                               "face": "comic", "name": "漫画全局角色", "file_path": "", "prompt": "",
+                               "created_at": now})
+
+    # 漫剧面（空 pid，face 缺省 manga）：只见漫剧项目资产 + manga 全局
+    r = client.get("/api/v1/comic/asset/library", params={"kind": "character"})
+    ids = {it["asset_id"] for it in r.json()["data"]["items"]}
+    assert ids == {"a-manga-p", "a-manga-g"}, f"漫剧面混出漫画面资产: {ids}"
+
+    # 漫画面（face=comic）：只见漫画项目资产 + comic 全局
+    r2 = client.get("/api/v1/comic/asset/library",
+                    params={"kind": "character", "face": "comic"})
+    ids2 = {it["asset_id"] for it in r2.json()["data"]["items"]}
+    assert ids2 == {"a-comic-p", "a-comic-g"}, f"漫画面混出漫剧面资产: {ids2}"
+
+    # kind 过滤与 OR 分组组合回归（kind 在面过滤之上仍生效）
+    db.insert("comic_assets", {"id": "s-manga-p", "project_id": m1, "kind": "scene",
+                               "name": "漫剧项目场景", "file_path": "", "prompt": "", "created_at": now})
+    r3 = client.get("/api/v1/comic/asset/library", params={"kind": "scene"})
+    ids3 = {it["asset_id"] for it in r3.json()["data"]["items"]}
+    assert ids3 == {"s-manga-p"}, f"kind 过滤失效: {ids3}"

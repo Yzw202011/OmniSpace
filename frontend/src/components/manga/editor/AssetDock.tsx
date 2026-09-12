@@ -186,7 +186,7 @@ export default function AssetDock() {
   useEffect(() => {
     let alive = true;
     setLibraryLoaded(false);
-    listAssets('', tab)
+    listAssets('', tab, undefined, 'manga')
       .then((items) => {
         if (!alive) return;
         setLibraryAssets(items);
@@ -296,7 +296,7 @@ export default function AssetDock() {
         );
         return fetchAssets();
       })
-      .then(() => listAssets('', tab))
+      .then(() => listAssets('', tab, undefined, 'manga'))
       .then((items) => setLibraryAssets(items))
       .catch((err: unknown) => showToast(getErrorMessage(err, '引入资产失败'), 'error'))
       .finally(() => setAdopting(''));
@@ -323,7 +323,7 @@ export default function AssetDock() {
         if (useMangaStore.getState().selectedAssetId === target.asset_id) {
           setSelectedAsset(null);
         }
-        return Promise.all([fetchAssets(), fetchRows(), listAssets('', tab)]);
+        return Promise.all([fetchAssets(), fetchRows(), listAssets('', tab, undefined, 'manga')]);
       })
       .then(([, , items]) => setLibraryAssets(items))
       .catch((err: unknown) => showToast(getErrorMessage(err, '删除资产失败'), 'error'))

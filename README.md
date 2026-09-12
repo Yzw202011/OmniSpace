@@ -6,6 +6,7 @@
 **本地优先的全栈 AI 漫剧创作工作站**
 
 <p align="center">
+  <a href="#-界面预览">界面预览</a> •
   <a href="#-核心特性">核心特性</a> •
   <a href="#-技术栈">技术栈</a> •
   <a href="#-快速开始">快速开始</a> •
@@ -42,6 +43,67 @@
 | 🏗️ **工程质量高** | ≈370 个 HTTP 端点（含别名，2026-09-11 静态统计）+ WebSocket 状态通道；pytest **690+ 用例**（GPU 集成显式开关）/ vitest **75 用例** / 活后端 E2E 三层测试体系 |
 | 🧩 **插件式推理引擎** | vLLM / llama.cpp (GGUF) / Transformers 多后端，可热切换、可自动降级 |
 | 📚 **丰富文档** | 架构图、API 文档、部署手册、故障排查，新人友好 |
+
+---
+
+## 📸 界面预览
+
+<div align="center">
+
+**启动页 · 点火序列 HUD**（环境自检 → 后端服务 → 模型预热 → 就绪）
+
+<img src="docs/promo/01-splash.png" width="86%" alt="启动页"/>
+
+<br/><br/>
+
+🎬 **[▶️ 观看演示视频 —— AI 生成漫剧成片（11 秒）](docs/promo/demo-video.mp4)**
+
+<br/>
+
+<table>
+<tr>
+<td width="50%" align="center">
+<img src="docs/promo/02-dialog.png" width="100%" alt="AI 对话"/><br><sub><b>AI 对话</b> · 本地多模态推理 / 流式输出 / 深度思考</sub>
+</td>
+<td width="50%" align="center">
+<img src="docs/promo/03-paint.png" width="100%" alt="AI 绘画"/><br><sub><b>AI 绘画</b> · FLUX.2 Klein 本地文生图 / 多比例出图</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" align="center">
+<img src="docs/promo/04-paint-viewer.png" width="100%" alt="出图效果"/><br><sub><b>出图效果</b> · 2688×1536 高清成图</sub>
+</td>
+<td width="50%" align="center">
+<img src="docs/promo/05-manga-projects.png" width="100%" alt="漫剧创作"/><br><sub><b>漫剧创作</b> · 从剧本到成片的工作台</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" align="center">
+<img src="docs/promo/06-storyboard.png" width="100%" alt="分镜编辑器"/><br><sub><b>分镜编辑器</b> · 角色/场景/道具资产 + 四视图一致性</sub>
+</td>
+<td width="50%" align="center">
+<img src="docs/promo/07-learning.png" width="100%" alt="知识学习"/><br><sub><b>知识学习</b> · AI 自主学习 + 知识库 RAG</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" align="center">
+<img src="docs/promo/08-models.png" width="100%" alt="模型管理"/><br><sub><b>模型管理</b> · 本地模型装载 / 显存监控 / 就绪体检</sub>
+</td>
+<td width="50%" align="center">
+<img src="docs/promo/09-settings.png" width="100%" alt="设置"/><br><sub><b>个性化</b> · 双主题族 × 亮暗模式</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" align="center">
+<img src="docs/promo/10-logs.png" width="100%" alt="系统日志"/><br><sub><b>系统日志</b> · 大白话事件时间线 + 异常聚合</sub>
+</td>
+<td width="50%" align="center">
+<img src="docs/promo/11-help.png" width="100%" alt="帮助"/><br><sub><b>帮助中心</b> · 功能总览 + 新手五步上手</sub>
+</td>
+</tr>
+</table>
+
+</div>
 
 ---
 

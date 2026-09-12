@@ -51,6 +51,7 @@ modelxiazai/
 *.mp4
 *.wav
 !docs/**/*.png
+!docs/promo/demo-video.mp4
 
 # ===== 第三方 ComfyUI 便携版（含模型，体积 200GB+，严禁入库） =====
 tools/ComfyUI_windows_portable/

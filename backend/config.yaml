@@ -125,6 +125,12 @@ comfyui:
   # （释放 CUDA context 数百 MB 显存 + torch GB 级常驻 RAM；冷启动
   # ~40s）。0 = 禁用（进程常驻热启动）
   idle_shutdown_seconds: 300
+  # SageAttention V7 真内核（2026-09-12 A/B：多角色格 426s→350s 提速
+  # ~18%，PuLID 多角色一致性目验无损；quant 非确定性有微差风险）。
+  # false 可关（回退 SDPA）。进程级开关：H3/绘画共实例同时生效。
+  # 依赖：triton-windows + woct0rdho 真轮（已装，见
+  # 记忆 sage-attention-v7-reopen）
+  use_sage_attention: true
 
 manga:
   # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，

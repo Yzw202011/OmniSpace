@@ -62,6 +62,20 @@ DEFAULT_IDLE_SHUTDOWN_S = COMFY_IDLE_SHUTDOWN_S
 _IDLE_CHECK_INTERVAL_S = 15.0
 
 
+def _use_sage_attention() -> bool:
+    """SageAttention V7 真内核开关（config comfyui.use_sage_attention，
+    默认 true）。2026-09-12 A/B 实测多角色格提速 ~18%，PuLID 一致性
+    目验无损；false 回退 SDPA。依赖 triton-windows + woct0rdho 真轮
+    （缺失时 ComfyUI 侧会自行回落 SDPA，不会启动失败）。"""
+    try:
+        from backend.config import get_config
+        return bool((get_config().get("comfyui") or {}).get(
+            "use_sage_attention", True))
+    except Exception:  # noqa: BLE001 - 配置异常按开启处理
+        # （真轮缺失时 ComfyUI 侧自行回落 SDPA，不会因此失败）
+        return True
+
+
 def _idle_shutdown_seconds() -> float:
     """读 config（缺失/异常回落默认值）。"""
     try:
@@ -284,6 +298,9 @@ class ComfyProcManager:
                         else COMFY_DIR / "python_embeded" / "python.exe")
             cmd = [str(comfy_py), "-s", "ComfyUI/main.py",
                    "--windows-standalone-build",
+                   # SageAttention V7 真内核（config comfyui.use_sage_attention
+                   # 可关；进程级：H3/绘画共实例同时生效）
+                   * (["--use-sage-attention"] if _use_sage_attention() else []),
                    "--deterministic",  # 绘画 PuLID 身份锁链路要求可复现
                                       # （对 H3 共实例仅微弱代价，产物无影响）
                    "--listen", "127.0.0.1", "--port", str(COMFY_PORT),

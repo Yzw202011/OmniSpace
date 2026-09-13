@@ -14,7 +14,6 @@ gen_router 重型导入。
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -22,29 +21,34 @@ KEYFRAME_PY = BACKEND / "api" / "manga" / "keyframe.py"
 COMMON_PY = BACKEND / "api" / "manga" / "common.py"
 COMFY_PY = BACKEND / "services" / "inference" / "comfy_paint_engine.py"
 
+# B9（2026-09-13）：沙箱 exec 改真 import。原 AST 提取方案绕开重导入，
+# 但代价是「模块 import 期接线坏了测试照样绿」（沙箱根本不执行模块
+# 顶层代码）。py312 主链下全套依赖在位、实测模块导入干净（~2.7s 无
+# 副作用），改为真 import——接线损坏从此在收集期即炸。
+_PATH_TO_MODULE = {
+    KEYFRAME_PY: "backend.api.manga.keyframe",
+    COMMON_PY: "backend.api.manga.common",
+    COMFY_PY: "backend.services.inference.comfy_paint_engine",
+}
+
 
 def _extract(source: Path, funcs: set[str], consts: set[str],
              class_name: str | None = None) -> dict:
-    """AST 提取函数（可指定类内方法）与模块级常量赋值，exec 隔离。"""
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-    body: list[ast.stmt] = []
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            tgt = node.targets[0]
-            if isinstance(tgt, ast.Name) and tgt.id in consts:
-                body.append(node)
-        elif isinstance(node, ast.ClassDef) and node.name == class_name:
-            body.extend(sub for sub in node.body
-                        if isinstance(sub, ast.FunctionDef)
-                        and sub.name in funcs)
-        elif isinstance(node, ast.FunctionDef) and node.name in funcs:
-            body.append(node)
-    got = {n.name for n in body if isinstance(n, ast.FunctionDef)}
-    assert funcs <= got, f"目标函数缺失: {funcs - got}"
+    """真 import 取函数/常量（签名与原 AST 沙箱版一致，调用点零改动）。
+
+    funcs 先查类（class_name 给定时），缺失项回退模块级——与原沙箱
+    「类体+模块体双扫」语义对齐（如 _ref_megapixels 即模块级函数）。"""
+    import importlib
+    module = importlib.import_module(_PATH_TO_MODULE[source])
+    owner = getattr(module, class_name) if class_name else module
     ns: dict = {}
-    exec(compile(ast.fix_missing_locations(
-        ast.Module(body=body, type_ignores=[])), "<ast-sandbox>", "exec"),
-        ns)
+    for name in funcs:
+        if class_name and hasattr(owner, name):
+            ns[name] = getattr(owner, name)
+        else:
+            ns[name] = getattr(module, name)  # 缺失即 AttributeError，等效原断言
+    for name in consts:
+        ns[name] = getattr(module, name)
     return ns
 
 

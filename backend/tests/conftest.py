@@ -2,9 +2,52 @@
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
+import logging
+import os
 import sys
+import tempfile
+from logging import handlers as _lh
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+# ── B9（2026-09-13）测试日志隔离 ─────────────────────────────────────
+# 病灶（两轮实锤）：测试进程内 setup_logging() 一旦被触发，Rotating
+# FileHandler 就会把测试期日志写进生产 logs/backend.log（pydeps/后端
+# 排障数据源被毒化）。本 patch 在任何 backend import 之前拦住 handler
+# 构造：pytest 进程内、指向项目 logs/ 的文件日志一律重定向到系统临时
+# 目录（OMNISPACE_PYTEST_LOGDIR 可覆盖）。仅本 conftest 生效（pytest
+# 专属入口），生产运行零影响。
+
+_PYTEST_LOGDIR = Path(
+    os.environ.get("OMNISPACE_PYTEST_LOGDIR")
+    or (Path(tempfile.gettempdir()) / "omnispace-pytest-logs"))
+
+
+def _redirect(filename: str) -> str:
+    try:
+        p = Path(filename).resolve()
+        if p.is_relative_to(ROOT / "logs"):
+            _PYTEST_LOGDIR.mkdir(parents=True, exist_ok=True)
+            return str(_PYTEST_LOGDIR / p.name)
+    except Exception:  # noqa: BLE001 - 重定向失败按原样（宁直写不炸测试）
+        pass
+    return filename
+
+
+def _patch_handler_init(cls: type, orig) -> None:  # type: ignore[no-untyped-def]
+    """包装 __init__：filename 经 _redirect 后再走原构造。
+
+    注记：曾试「重定向子类替换模块属性」，smoke 全量下 41 errors——
+    logging 内部对 Handler 构造参数的兼容面比签名更宽（位置/关键字
+    混用 + delay 语义），包装 __init__ 透传 *args/**kwargs 才是零
+    假设的写法。回退此版（717 全绿实证）。"""
+    def patched(self, filename, *args, **kwargs):  # type: ignore[no-untyped-def]
+        orig(self, _redirect(filename), *args, **kwargs)
+    cls.__init__ = patched  # type: ignore[misc]
+
+
+_patch_handler_init(_lh.RotatingFileHandler, _lh.RotatingFileHandler.__init__)
+_patch_handler_init(logging.FileHandler, logging.FileHandler.__init__)

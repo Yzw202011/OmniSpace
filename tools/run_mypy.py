@@ -60,6 +60,24 @@ def staged_py_files() -> list[str]:
 
 def main() -> int:
     if "--rebaseline" in sys.argv:
+        # B9（2026-09-13）确认闸：重生成基线=重置「只增不减」约束的
+        # 记账起点，误用会把真实新增错误洗白成存量。无 --yes 且 stderr
+        # 非 TTY（CI/脚本场景无人确认）时拒绝执行。
+        if "--yes" not in sys.argv:
+            if not sys.stderr.isatty():
+                print("[mypy-gate] ✗ --rebaseline 需要显式确认："
+                      "非交互环境请加 --yes（并自查 diff）")
+                return 2
+            print("[mypy-gate] ⚠ 即将重生成 mypy 基线（存量错误记账起点重置）。")
+            print("            这会丢弃基线差异告警能力——请先 review "
+                  "runtime/py312/python.exe tools/run_mypy.py 的输出。")
+            try:
+                ans = input("确认重生成？输入 yes 继续：").strip().lower()
+            except EOFError:
+                ans = ""
+            if ans != "yes":
+                print("[mypy-gate] 已取消")
+                return 2
         errors = parse_errors(run_mypy(list(SCOPE)))
         BASELINE.write_text(
             "\n".join(sorted(errors)) + ("\n" if errors else ""),

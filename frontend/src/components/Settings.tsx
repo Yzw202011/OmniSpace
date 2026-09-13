@@ -115,7 +115,9 @@ export default function Settings() {
   ]);
   const settingEntries = Object.entries(editableSettings)
     .filter(([key]) => !REMOTE_SETTING_KEYS.has(key));
-  const knownKeys = new Set(['language', 'auto_save_interval', 'default_model', 'ws_reconnect_interval']);
+  // B2（2026-09-13）：删除幽灵键 knownKeys（language/auto_save_interval/
+  // default_model/ws_reconnect_interval——后端无这些字段，PUT 被 Pydantic
+  // 丢弃，纯前端死码）；后端三个白写设置字段已同步删除。
 
   return (
     <div className="page settings-page">
@@ -279,17 +281,6 @@ export default function Settings() {
                         下次启动生效
                       </span>
                     </div>
-                  ) : knownKeys.has(key) ? (
-                    <input
-                      className="input settings-input"
-                      value={String(value ?? '')}
-                      onChange={(e) =>
-                        setEditableSettings((prev) => ({
-                          ...prev,
-                          [key]: e.target.value,
-                        }))
-                      }
-                    />
                   ) : (
                     <span className="settings-static-value">
                       {formatSettingValue(value)}
@@ -471,12 +462,8 @@ export default function Settings() {
 
 /* ============================== 辅助函数 ============================== */
 
-/** 设置键中文映射 */
+/** 设置键中文映射（B2：清退四个幽灵键——后端无对应字段） */
 const SETTING_KEY_LABELS: Record<string, string> = {
-  language: '界面语言',
-  auto_save_interval: '自动保存间隔',
-  default_model: '默认模型',
-  ws_reconnect_interval: 'WS 重连间隔',
   launch_mode: '界面打开方式',
   ui_performance: '界面效果',
 };

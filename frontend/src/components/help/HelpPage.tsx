@@ -14,10 +14,10 @@ import { MessageSquare, Palette, Clapperboard, BookOpen, Video, Package, CircleH
 /** 六大模块简介 */
 const MODULES: Array<{ icon: LucideIcon; name: string; desc: string }> = [
   { icon: MessageSquare, name: 'AI对话', desc: '与本地大模型多轮对话，支持知识库增强问答，回答引用已学习的知识。' },
-  { icon: Palette, name: 'AI绘画', desc: '文生图 / 图生图，支持批量出图（1~4）与高清修复；ControlNet 与绘画 LoRA 叠加尚未开放，页面已如实标注。' },
+  { icon: Palette, name: 'AI绘画', desc: '文生图 / 图生图，支持批量出图（1~4）；高清修复后端就绪但界面入口未开放，ControlNet 与绘画 LoRA 叠加尚未开放，页面已如实标注。' },
   { icon: Clapperboard, name: '漫剧创作', desc: '分镜表驱动的漫剧流水线：剧本拆解、机位管理、截图资产与语音绑定。' },
-  { icon: BookOpen, name: '知识学习', desc: 'AI 自主联网学习：主题管理、实时浏览查看、行为学习与知识库管理。' },
-  { icon: Video, name: '视频风格', desc: '上传视频/图片素材训练专属风格 LoRA，支持版本管理、回滚与风格化预览帧。' },
+  { icon: BookOpen, name: '知识学习', desc: '主题管理、实时浏览查看、行为学习与知识库管理（浏览器代理辅助抓取，无全自动自主学习）。' },
+  { icon: Video, name: '视频风格', desc: '上传视频/图片素材训练专属风格 LoRA（需 LTX-2 基座权重，离线版未随包分发，就绪后自动开放），支持版本管理与回滚。' },
   { icon: Package, name: '模型管理', desc: '本地模型的导入、加载、卸载与显存占用监控，协同调度一目了然（离线版本不提供在线下载）。' },
 ];
 

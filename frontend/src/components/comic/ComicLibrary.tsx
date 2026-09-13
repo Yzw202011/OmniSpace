@@ -127,7 +127,7 @@ export default function ComicLibrary({ onOpen }: Props) {
         <div>
           <h1 className="comic-lib-title"><BookOpenText size={22} /> AI 漫画</h1>
           <p className="comic-lib-sub">
-            分格漫画创作：建角色 → 写分格 → 一键出图（角色跨格一致性由 PuLID 身份锁保障）
+            分格漫画创作：建角色 → 写分格 → 一键出图（角色跨格一致性由参考图锚保障；PuLID 身份锁当前仅用于漫剧关键帧链）
           </p>
         </div>
         <button

@@ -984,9 +984,10 @@ class TrainTask(BaseModel):
 class SystemSettings(BaseModel):
     theme: str = "sakura"
     font_size: int = 14
-    auto_model_select: bool = True
-    default_video_codec: str = "h264"
-    default_resolution: str = "1080p"
+    # B2（2026-09-13）：删除 auto_model_select/default_video_codec/
+    # default_resolution 三字段——定义+持久化+展示俱全但全库零读取方
+    # （白写设置），按「宁可删不如修」清退；DB 中的历史行由 Pydantic
+    # 丢弃，无迁移需求。
     # 界面打开方式（2026-09-08 桌面壳接线）：shell=原生桌面窗口
     # （pywebview，默认）/ browser=系统浏览器。boot 启动链读取决定
     # 拉壳还是开浏览器；本次会话不热切，下次启动生效。

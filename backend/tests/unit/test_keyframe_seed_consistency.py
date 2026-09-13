@@ -1,8 +1,7 @@
 """V37 关键帧 seed 固定 + 一致性评分纯逻辑测试（2026-08-27 v36 事故方案D）。
 
-AST 沙箱手法：从 backend/api/manga/keyframe.py 解析目标函数及模块内
-依赖，exec 到隔离命名空间（补 re/json/random 桩 + 假 db），不触发
-torch/FastAPI 重型导入——与项目「纯函数验证用 AST 沙箱单测」约定一致。
+B9（2026-09-13）：AST 沙箱改真 import——真模块依赖（re/json/random）
+天然就位；_resolve_base_seed 的 db 由参数传入，_FakeDB 桩保持原样。
 
 覆盖：
   - _parse_consistency_score：VLM 输出评分宽容解析（格式漂移/钳制/无匹配）
@@ -10,28 +9,17 @@ torch/FastAPI 重型导入——与项目「纯函数验证用 AST 沙箱单测�
 """
 from __future__ import annotations
 
-import ast
-import json
-import random
-import re
-from pathlib import Path
+import backend.api.manga.keyframe as _kf_mod
 
-KEYFRAME_PY = (Path(__file__).resolve().parents[2]
-               / "api" / "manga" / "keyframe.py")
+KEYFRAME_PY = None  # 历史 Path 锚点退役（真 import 不再读源文件）
 
 
 def _load_funcs(*names: str) -> dict:
-    """AST 提取目标函数源码，exec 到隔离命名空间后返回函数表。"""
-    tree = ast.parse(KEYFRAME_PY.read_text(encoding="utf-8"))
-    picked = [n for n in tree.body
-              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-              and n.name in names]
-    assert {n.name for n in picked} == set(names), \
-        f"目标函数缺失: {set(names) - {n.name for n in picked}}"
-    module = ast.Module(body=picked, type_ignores=[])
-    ns: dict = {"re": re, "json": json, "random": random}
-    exec(compile(ast.fix_missing_locations(module), "<ast-sandbox>", "exec"),
-         ns)
+    """真 import 取目标函数（形态与原沙箱函数表一致，调用点零改动）。"""
+    ns: dict = {}
+    for name in names:
+        assert hasattr(_kf_mod, name), f"目标函数缺失: {name}"
+        ns[name] = getattr(_kf_mod, name)
     return ns
 
 

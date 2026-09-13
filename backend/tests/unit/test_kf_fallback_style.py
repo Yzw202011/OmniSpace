@@ -44,21 +44,14 @@ def test_keyframe_module_no_style_photo_ref() -> None:
 
 
 def _load_style_line_fn() -> tuple[dict, str]:
-    tree = ast.parse(ASSET_PY.read_text(encoding="utf-8"))
-    body = []
-    for n in tree.body:
-        if isinstance(n, ast.FunctionDef) and n.name == "_project_style_line":
-            body.append(n)
-        elif isinstance(n, ast.Assign):
-            tgt = n.targets[0]
-            if isinstance(tgt, ast.Name) and tgt.id in (
-                    "_INFER_STYLE_LINE", "_ART_STYLE_ZH"):
-                body.append(n)
-    assert body, "comic_asset.py 中未找到 _project_style_line 及其依赖"
-    ns: dict = {"log": type("L", (), {
-        "warning": staticmethod(lambda *a, **k: None)})()}
-    mod = ast.Module(body=body, type_ignores=[])
-    exec(compile(mod, "<extract>", "exec"), ns)  # noqa: S102 - 测试沙箱
+    """B9：AST 沙箱改真 import（真模块 log/常量自动就位）。
+    前两个测试的「源码静态钉」保留读源码形态——它们测的就是文本契约。"""
+    import backend.api.manga.comic_asset as _asset_mod
+    ns: dict = {
+        "_project_style_line": _asset_mod._project_style_line,
+        "_INFER_STYLE_LINE": _asset_mod._INFER_STYLE_LINE,
+        "_ART_STYLE_ZH": _asset_mod._ART_STYLE_ZH,
+    }
     return ns, ns["_INFER_STYLE_LINE"]
 
 

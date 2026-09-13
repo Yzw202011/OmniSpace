@@ -22,52 +22,27 @@ import UpgradeSection from '@/components/UpgradeSection';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
+import { THEME_PALETTE } from '@/constants/themePalette';
 
-/** 主题六态配置（三主题体系 × 亮暗双模式；2026-09-11 增补 Dali 治愈系） */
+/** 主题六态配置（三主题体系 × 亮暗双模式；2026-09-11 增补 Dali 治愈系）
+ *  色板真源 = constants/themePalette.ts（W1 令牌化 2026-09-13，G-B13） */
 const THEME_OPTIONS: Array<{
   value: Theme;
   name: string;
   desc: string;
   /** 色板：[主色, 辅助色, 背景色, 顶部辉光] */
   colors: [string, string, string, string];
-}> = [
-  {
-    value: 'sakura',
-    name: 'Sakura · 夜樱',
-    desc: '暗色樱粉 × 薄荷绿',
-    colors: ['#FF6B9D', '#4ECDC4', '#1A1A2E', 'rgba(255,107,157,0.45)'],
-  },
-  {
-    value: 'light',
-    name: 'Sakura · 拂晓',
-    desc: '亮色樱粉 × 柔白',
-    colors: ['#FF6B9D', '#4ECDC4', '#F8F9FC', 'rgba(255,107,157,0.35)'],
-  },
-  {
-    value: 'tech',
-    name: 'Nebula · 深空',
-    desc: '高科技电光青 × 星云紫',
-    colors: ['#22D3EE', '#8B7CF8', '#060B18', 'rgba(34,211,238,0.45)'],
-  },
-  {
-    value: 'tech-light',
-    name: 'Nebula · 晨辉',
-    desc: '高科技冰蓝 × 淡紫',
-    colors: ['#0891B2', '#7C6BE8', '#EEF4FB', 'rgba(8,145,178,0.35)'],
-  },
-  {
-    value: 'dali',
-    name: 'Dali · 洱海月',
-    desc: '治愈系靛海 · 我在风花雪月里等你',
-    colors: ['#7CC0EC', '#F5A795', '#0D1628', 'rgba(124,192,236,0.45)'],
-  },
-  {
-    value: 'dali-light',
-    name: 'Dali · 苍山雪',
-    desc: '治愈系晨海 · 雪后初晴等你来',
-    colors: ['#2E6FAE', '#D9755F', '#F1F5FB', 'rgba(46,111,174,0.35)'],
-  },
-];
+}> = ([
+  { value: 'sakura', name: 'Sakura · 夜樱', desc: '暗色樱粉 × 薄荷绿' },
+  { value: 'light', name: 'Sakura · 拂晓', desc: '亮色樱粉 × 柔白' },
+  { value: 'tech', name: 'Nebula · 深空', desc: '高科技电光青 × 星云紫' },
+  { value: 'tech-light', name: 'Nebula · 晨辉', desc: '高科技冰蓝 × 淡紫' },
+  { value: 'dali', name: 'Dali · 洱海月', desc: '治愈系靛海 · 我在风花雪月里等你' },
+  { value: 'dali-light', name: 'Dali · 苍山雪', desc: '治愈系晨海 · 雪后初晴等你来' },
+] as Array<{ value: Theme; name: string; desc: string }>).map((opt) => ({
+  ...opt,
+  colors: THEME_PALETTE[opt.value],
+}));
 
 /** 字号档位配置（实际生效值见 sakura.css [data-font-size] 覆盖：基准 --font-size-base） */
 const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string; desc: string }> = [

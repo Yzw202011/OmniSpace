@@ -11,7 +11,9 @@ main.py 经 importlib 动态导入 api.manga 并挂载 mod.router，对外零变
   voice        音色
   comic        漫画项目 + 剧本导入 + 场景 + 导出包
   comic_asset  资产库与资产 CRUD
-  comic_gen    资产生成管线（四视图 / 批量 / 重生成）
+  comic_gen    资产生成管线 helper（四视图/批量/重生成——无路由，
+               被 comic_asset import；W1 2026-09-13 摘除空 router
+               注册，G-B5）
 
 （director 3D 导演台已于 2026-08-29 按用户裁定整链路剔除，
  director_* DB 表保留为历史死表——schema 历史组禁改只许追加。）
@@ -24,7 +26,6 @@ from . import (
     comic,
     comic_asset,
     comic_export,
-    comic_gen,
     comic_script,
     keyframe,
     storyboard,
@@ -39,7 +40,8 @@ router.include_router(video.router)
 router.include_router(voice.router)
 router.include_router(comic.router)
 router.include_router(comic_asset.router)
-router.include_router(comic_gen.router)
+# G-B5（W1 2026-09-13）：comic_gen 空 router（0 端点）注册摘除——
+# 纯 helper 模块仍被 comic_asset import，模块保留
 router.include_router(comic_script.router)
 router.include_router(comic_export.router)
 

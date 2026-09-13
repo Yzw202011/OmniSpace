@@ -22,7 +22,8 @@ export default defineConfig({
       { find: '@services', replacement: `${src}/services` },
       { find: '@stores', replacement: `${src}/stores` },
       { find: '@types', replacement: `${src}/types` },
-      { find: '@hooks', replacement: `${src}/hooks` },
+      // G-B6（W1 2026-09-13）：@hooks 别名删除——src/hooks 目录不存在，
+      // 空别名属迁移残留
       { find: '@utils', replacement: `${src}/utils` },
       { find: '@styles', replacement: `${src}/styles` },
       { find: '@', replacement: src },
@@ -39,11 +40,8 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
-      '/v1': {
-        target: 'http://127.0.0.1:5800',
-        changeOrigin: true,
-        ws: true,
-      },
+      // G-B7（W1 2026-09-13）：/v1 代理删除——ADR-03 已迁 /api/v1，
+      // src 中无任何 /v1 业务调用，属迁移残留
       '/ws': {
         target: 'ws://127.0.0.1:5800',
         ws: true,

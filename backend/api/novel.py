@@ -134,23 +134,6 @@ def novel_project_get(project_id: str) -> dict[str, Any]:
     return ok(_project_row(_require_project(db, project_id)))
 
 
-@router.put("/novel/project/{project_id}")
-def novel_project_update(project_id: str,
-                         body: dict = Body(...)) -> dict[str, Any]:
-    db = _db()
-    _require_project(db, project_id)
-    data: dict[str, Any] = {"updated_at": _now()}
-    for key, cap in (("name", 60), ("genre", 40),
-                     ("description", 2000), ("style_notes", 500)):
-        if key in body:
-            val = str(body.get(key) or "").strip()
-            if key == "name" and not val:
-                raise ApiError("NOVEL_NAME_REQUIRED", "作品名不能为空")
-            data[key] = val[:cap]
-    db.update("novel_projects", data, "id=?", (project_id,))
-    return ok({"project_id": project_id})
-
-
 @router.delete("/novel/project/{project_id}")
 def novel_project_delete(project_id: str) -> dict[str, Any]:
     db = _db()
@@ -437,21 +420,6 @@ def novel_character_create(body: dict = Body(...)) -> dict[str, Any]:
         "summary": str(body.get("summary") or "").strip()[:1000],
         "created_at": now, "updated_at": now})
     return ok({"character_id": cid})
-
-
-@router.put("/novel/characters/{character_id}")
-def novel_character_update(character_id: str,
-                           body: dict = Body(...)) -> dict[str, Any]:
-    db = _db()
-    data: dict[str, Any] = {"updated_at": _now()}
-    for key, cap in (("name", 60), ("role", 20), ("summary", 1000)):
-        if key in body:
-            data[key] = str(body.get(key) or "").strip()[:cap]
-    n = db.update("novel_characters", data, "id=?", (character_id,))
-    if not n:
-        raise ApiError("NOVEL_CHARACTER_NOT_FOUND",
-                       detail={"id": character_id})
-    return ok({"id": character_id})
 
 
 @router.delete("/novel/characters/{character_id}")

@@ -1450,44 +1450,6 @@ def video_download(task_id: str) -> FileResponse:
                         filename=f"{task_id}.mp4")
 
 
-@router.get("/video/history")
-def video_paint_history(limit: int = Query(100, ge=1, le=500,
-                                          description="返回条数上限")) -> dict[str, Any]:
-    """绘画模块视频生成历史（2026-08-22 记录持久化修复）。
-
-    绘画模块发起的视频任务 storyboard_row_id 以 ``paint_`` 开头（见
-    前端 paintApi.generatePaintVideo），据此与漫剧任务区分；按
-    created_at 倒序返回。前端挂载时拉取，实现跨浏览器/重开可见。
-
-    mode 推断：i2v 纯图模式无提示词输入（description 恒空）→ i2v；
-    description 非空 → ti2v（文+图）。
-    """
-    db = get_db_safe()
-    if db is None:
-        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询视频历史")
-    try:
-        rows = db.query(
-            "SELECT id, description, resolution, fps, duration_seconds,"
-            " status, progress, file_path, model_used, created_at"
-            " FROM video_tasks"
-            " WHERE storyboard_row_id LIKE 'paint\\_%' ESCAPE '\\'"
-            " ORDER BY created_at DESC LIMIT ?", (limit,))
-    except Exception as exc:  # noqa: BLE001
-        raise ApiError("SYSTEM_DB_DEGRADED", f"视频历史查询失败：{exc}") from exc
-    items = [{
-        "task_id": r["id"],
-        "mode": "ti2v" if (r.get("description") or "").strip() else "i2v",
-        "prompt": r.get("description", "") or "",
-        "duration_seconds": float(r.get("duration_seconds", 5) or 5),
-        "fps": int(r.get("fps", 16) or 16),
-        "resolution": r.get("resolution", "720p") or "720p",
-        "status": r.get("status", "done") or "done",
-        "degraded": _is_fallback_video(r.get("model_used", "")),
-        "created_at": r.get("created_at", 0) or 0,
-    } for r in rows]
-    return ok({"items": items, "total": len(items)})
-
-
 @router.delete("/video/history/{task_id}")
 def video_paint_history_delete(task_id: str) -> dict[str, Any]:
     """删除视频历史记录（2026-08-31 删除机制补全：放开漫剧任务）。

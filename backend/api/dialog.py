@@ -52,7 +52,7 @@ from fastapi.responses import StreamingResponse
 from ..config import DIALOG_MAX_INPUT_CHARS
 from ..data.crypto import decrypt_text, encrypt_text
 from ..data.database import get_db_safe, parse_json
-from ..data.models import DialogSessionCreate, SessionBatchDelete
+from ..data.models import SessionBatchDelete
 from ..middleware.error_handler import ApiError, ok
 from ..middleware.feature_lock import FeatureLockManager, acquire_or_raise
 from ..services.inference.dialog_engine import (
@@ -1181,34 +1181,6 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
 
 # ── 历史 / 会话 ─────────────────────────────────────────────────────
 
-@router.get("/dialog/history")
-def dialog_history(session_id: str = Query(..., description="会话ID"),
-                   limit: int = Query(50, ge=1, le=500, description="返回条数上限")) -> dict[str, Any]:
-    """获取指定会话的历史消息（最近 limit 条，时间升序）。"""
-    db = get_db_safe()
-    if db is not None:
-        try:
-            rows = db.query(
-                "SELECT id, session_id, role, content, attachments,"
-                " model_used, rating, favorite, reasoning, timestamp"
-                " FROM dialog_messages WHERE session_id=? "
-                "ORDER BY timestamp DESC LIMIT ?",
-                (session_id, limit),
-            )
-            rows.reverse()
-            msgs = [_row_to_message(r) for r in rows]
-            total = db.count("dialog_messages", "session_id=?", (session_id,))
-            return ok({"session_id": session_id, "messages": msgs,
-                       "total": total})
-        except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
-
-    msgs = _mock_messages.get(session_id, [])
-    recent = msgs[-limit:] if limit < len(msgs) else list(msgs)
-    return ok({"session_id": session_id, "messages": recent,
-               "total": len(msgs)})
-
-
 @router.get("/chat/history")
 def chat_history(session_id: str = Query("", description="会话ID（可选）"),
                  page: int = Query(1, ge=1),
@@ -1276,76 +1248,6 @@ def chat_clear(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     else:
         _mock_messages.clear()
     return ok({"cleared": sid or "all"})
-
-
-@router.get("/dialog/sessions")
-def dialog_sessions() -> dict[str, Any]:
-    """获取会话列表（按最后更新时间倒序）。"""
-    db = get_db_safe()
-    if db is not None:
-        try:
-            rows = db.query(
-                "SELECT id, title, model, pinned, mode, created_at, updated_at"
-                " FROM dialog_sessions ORDER BY updated_at DESC")
-            items = [_row_to_session(r) for r in rows]
-            return ok({"items": items, "total": len(items)})
-        except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
-
-    items = sorted(_mock_sessions.values(),
-                   key=lambda s: s.get("updated_at", 0), reverse=True)
-    return ok({"items": items, "total": len(items)})
-
-
-@router.post("/dialog/sessions")
-def dialog_create_session(req: DialogSessionCreate) -> dict[str, Any]:
-    """创建新会话。"""
-    sid = uuid.uuid4().hex
-    now = _now()
-    session = {
-        "id": sid,
-        "title": req.title or "新对话",
-        "model": req.model or "",
-        "created_at": now,
-        "updated_at": now,
-    }
-    db = get_db_safe()
-    if db is not None:
-        try:
-            db.insert("dialog_sessions", session)
-            return ok({"session": session}, message="会话已创建")
-        except Exception as exc:  # noqa: BLE001
-            log.warning("数据库写入失败，降级内存存储: %s", exc)
-
-    _mock_sessions[sid] = session
-    _mock_messages[sid] = []
-    return ok({"session": session}, message="会话已创建")
-
-
-@router.delete("/dialog/sessions/{session_id}")
-def dialog_delete_session(session_id: str) -> dict[str, Any]:
-    """删除会话及其历史消息。"""
-    db = get_db_safe()
-    if db is not None:
-        try:
-            sess = db.query_one(
-                "SELECT id FROM dialog_sessions WHERE id=?", (session_id,))
-            if sess is None:
-                raise ApiError(40005, "会话不存在",
-                               detail={"session_id": session_id})
-            db.delete("dialog_messages", "session_id=?", (session_id,))
-            db.delete("dialog_sessions", "id=?", (session_id,))
-            return ok({"deleted": session_id})
-        except ApiError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            log.warning("数据库删除失败，降级内存存储: %s", exc)
-
-    if session_id not in _mock_sessions:
-        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
-    _mock_sessions.pop(session_id, None)
-    _mock_messages.pop(session_id, None)
-    return ok({"deleted": session_id})
 
 
 @router.post("/chat/sessions/batch-delete")
@@ -1619,10 +1521,39 @@ def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)
     return ok(_enrich_session(row))
 
 
+def _delete_session_everywhere(session_id: str) -> dict[str, Any]:
+    """删除会话及其历史消息（内部助手，B3 2026-09-13）。
+
+    历史注记：原为 REST 端点 DELETE /dialog/sessions/{session_id}
+    （前端零消费，B3 死端点普查摘除装饰器）；函数体保留——活端点
+    /chat/sessions/{session_id} 的删除语义经此复用。"""
+    db = get_db_safe()
+    if db is not None:
+        try:
+            sess = db.query_one(
+                "SELECT id FROM dialog_sessions WHERE id=?", (session_id,))
+            if sess is None:
+                raise ApiError(40005, "会话不存在",
+                               detail={"session_id": session_id})
+            db.delete("dialog_messages", "session_id=?", (session_id,))
+            db.delete("dialog_sessions", "id=?", (session_id,))
+            return ok({"deleted": session_id})
+        except ApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.warning("数据库删除失败，降级内存存储: %s", exc)
+
+    if session_id not in _mock_sessions:
+        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
+    _mock_sessions.pop(session_id, None)
+    _mock_messages.pop(session_id, None)
+    return ok({"deleted": session_id})
+
+
 @router.delete("/chat/sessions/{session_id}")
 def chat_delete_session(session_id: str) -> dict[str, Any]:
     """删除会话及其消息（复用 /dialog/sessions 删除语义）。"""
-    return dialog_delete_session(session_id)
+    return _delete_session_everywhere(session_id)
 
 
 @router.delete("/chat/sessions/{session_id}/messages")

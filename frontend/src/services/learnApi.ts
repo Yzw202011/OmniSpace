@@ -226,42 +226,11 @@ export async function getCapability(): Promise<{
   };
 }
 
-/* ------------------------------ 知识点/URL/爬取（待后端补齐） ------------------------------ */
-
-/** 手动新建知识点（待后端补齐端点） */
-export function createPoint(body: {
-  title?: string;
-  content: string;
-  source?: string;
-  type?: string;
-}) {
-  return post<{ id: string; auto_train?: boolean; task_id?: string }>(
-    '/learn/points',
-    body,
-  );
-}
-
-/** 添加学习 URL（待后端补齐端点） */
-export function addUrl(body: { url: string; title?: string }) {
-  return post<{ id: string }>('/learn/urls', body);
-}
-
-/** URL 列表（待后端补齐端点） */
-export function listUrls() {
-  return get<Paginated<{ id: string; url: string; title?: string; status?: string }>>(
-    '/learn/urls',
-  );
-}
-
-/** 网页爬取（待后端补齐端点） */
-export function crawl(body: { url: string }) {
-  return post<{ task_id: string }>('/learn/crawl', body);
-}
-
-/** 自动学习（待后端补齐端点） */
-export function autoLearn(body: { url: string; max_depth?: number; max_pages?: number }) {
-  return post<{ task_id: string; pages?: number }>('/learn/auto', body);
-}
+/* B3（2026-09-13）反向死链清退：原「知识点/URL/爬取」五函数
+ * （createPoint/addUrl/listUrls/crawl/autoLearn → /learn/points、
+ * /learn/urls、/learn/crawl、/learn/auto）删除——后端无这些路由，
+ * 调用必 404（信封语义）；组件层零调用（对账见 v4 §八）。后端若
+ * 未来补齐「自主联网学习」，按实际契约重建。 */
 
 export default {
   createTrain,
@@ -272,10 +241,5 @@ export default {
   uploadDataset,
   listLearnModels,
   getCapability,
-  createPoint,
-  addUrl,
-  listUrls,
-  crawl,
-  autoLearn,
 };
 // 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -1043,7 +1043,6 @@ async def draw_generate(body: dict = Body(default_factory=dict)) -> dict[str, An
 # ── 图生图 ──────────────────────────────────────────────────────────
 
 @router.post("/draw/img2img")
-@router.post("/paint/img2img")
 async def draw_img2img(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """图生图（异步任务）。额外参数: init_image(base64), strength(0.05~1.0)。"""
     params = _parse_common(body)
@@ -1473,23 +1472,6 @@ def paint_history_favorite(task_id: str,
     db.update("paint_history", {"favorite": new_val}, "task_id=?",
               (task_id,))
     return ok({"task_id": task_id, "favorite": bool(new_val)})
-
-
-@router.delete("/paint/history/{task_id}")
-@router.delete("/draw/history/{task_id}")
-def paint_history_delete(task_id: str) -> dict[str, Any]:
-    """删除单条历史（PAINT-050）：记录 + 图文件（best-effort）。"""
-    _ensure_history_table()
-
-    row = _history_row(task_id)
-    if row is None:
-        raise ApiError(40005, "历史记录不存在",
-                       detail={"task_id": task_id})
-    db = get_db_safe()
-    db.delete("paint_history", "task_id=?", (task_id,))
-    file_deleted = _delete_history_file(row.get("file_path", ""))
-    return ok({"task_id": task_id, "deleted": True,
-               "file_deleted": file_deleted})
 
 
 @router.post("/paint/history/batch-delete")

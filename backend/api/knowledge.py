@@ -838,22 +838,6 @@ def learn_behavior_stats() -> dict[str, Any]:
     return behavior_stats()
 
 
-@router.post("/learn/behavior/reset")
-def learn_behavior_reset(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
-    """契约别名：= POST /behavior/clear（重置行为数据，清空重学）。
-
-    审计 P2-9：破坏性操作必须显式确认——请求体必须携带
-    {"confirm": true}，否则返回 SYSTEM_PARAM_INVALID 拒绝执行，
-    防止误触/CSRF 一键清空用户行为学习积累。
-    """
-    if not isinstance(body, dict) or body.get("confirm") is not True:
-        raise ApiError(
-            "SYSTEM_PARAM_INVALID",
-            "重置行为数据需要显式确认：请提交 {\"confirm\": true}",
-            suggestion="确认后将清空全部行为学习数据且不可恢复")
-    return behavior_clear()
-
-
 @router.post("/learn/import/document")
 async def learn_import_document(file: UploadFile = File(...),
                                 topic: str = Form(...),

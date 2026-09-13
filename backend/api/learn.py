@@ -399,12 +399,6 @@ def learn_lora_rollback(body: dict = Body(default_factory=dict)) -> dict[str, An
 #  契约别名（规格 §7.1.2 /v1/learn/lora/*）
 # ═══════════════════════════════════════════════════════════════════
 
-@router.post("/learn/lora/train")
-def learn_lora_train(req: TrainTaskCreate) -> dict[str, Any]:
-    """契约别名：= POST /learn/train（手动触发 LoRA 微调）。"""
-    return learn_train(req)
-
-
 @router.get("/learn/lora/versions")
 def learn_lora_versions() -> dict[str, Any]:
     """LoRA 版本列表（规格 §7.1.2）：含质量评分与当前生效版本。"""

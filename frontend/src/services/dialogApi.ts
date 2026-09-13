@@ -213,34 +213,10 @@ export function parseDocument(file: File) {
   );
 }
 
-/* ------------------------------ 纠正/导出 ------------------------------ */
-
-/**
- * 纠正入库（§2.2 对话闭环 RAG 底座）
- * @deprecated 后端端点未实现（技术债 R3-ARCH8），调用将返回 SYSTEM_RESOURCE_NOT_FOUND；待后端补齐或移除
- */
-export function submitCorrection(body: {
-  session_id: string;
-  message_id?: string;
-  original: string;
-  correction: string;
-}) {
-  return post<void>('/chat/corrections', body);
-}
-
-/** 导出格式 */
-export type ExportFormat = 'markdown' | 'txt';
-
-/**
- * 导出会话为 Markdown/TXT
- * @deprecated 后端端点未实现（技术债 R3-ARCH8），调用将返回 SYSTEM_RESOURCE_NOT_FOUND；待后端补齐或移除
- */
-export function exportSession(body: {
-  session_id: string;
-  format?: ExportFormat;
-}) {
-  return post<{ url: string; format: ExportFormat }>('/chat/export', body);
-}
+/* B3（2026-09-13）反向死链清退：原 submitCorrection（/chat/corrections）
+ * 与 exportSession（/chat/export）删除——后端无这些路由（技术债
+ * R3-ARCH8），调用必 404（信封语义）；组件层零调用。后端补齐对话
+ * 纠正闭环 / 会话导出时按实际契约重建。 */
 
 export default {
   listSessions,
@@ -257,7 +233,5 @@ export default {
   sendMessage,
   stopGenerate,
   parseDocument,
-  submitCorrection,
-  exportSession,
 };
 // 本项目仅供学习使用，商业授权请+Q 3559331368

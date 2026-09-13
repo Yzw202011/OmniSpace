@@ -14,19 +14,13 @@
 """
 from __future__ import annotations
 
-import base64
 import logging
 import threading
-import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter
 
-from ..config import DATA_DIR
-from ..data.models import VoicePreviewRequest
-from ..middleware.error_handler import ApiError, ok
-from ..services.offload import run_blocking
+from ..middleware.error_handler import ok
 
 if TYPE_CHECKING:
     from ..services.inference.voice_engine import VoiceEngine
@@ -60,89 +54,4 @@ def voice_status() -> dict[str, Any]:
     return ok(_get_engine().get_status())
 
 
-@router.get("/voice/models")
-def voice_models() -> dict[str, Any]:
-    """models/ 目录动态发现的语音模型（ready=True 表示当前环境可直接推理）。"""
-    from ..services.inference.voice_engine import discover_voice_models
-    found = discover_voice_models()
-    items = [{"id": name, **info} for name, info in sorted(found.items())]
-    return ok({"items": items, "total": len(items)})
-
-
-@router.post("/voice/transcribe")
-async def voice_transcribe(
-    file: UploadFile = File(...),
-    language: str = Form(""),
-    model_id: str = Form(""),
-) -> dict[str, Any]:
-    """语音转写（Whisper 真实推理）。
-
-    - WAV 直接解码；mp3/m4a/flac/ogg 等经 FFmpeg 转 16k 单声道 WAV；
-    - 未导入 whisper 模型时返回 71003 诚实门控错误（不伪造转写文本）。
-    """
-    if not file or not file.filename:
-        raise ApiError(40008, "未提供上传文件")
-    ext = Path(file.filename).suffix.lower()
-    if ext not in _AUDIO_EXTS:
-        raise ApiError(71002, f"不支持的音频格式: {ext or '(无扩展名)'}",
-                       suggestion="支持: " + "/".join(sorted(_AUDIO_EXTS)))
-    content = await file.read(_MAX_AUDIO_BYTES + 1)
-    if not content:
-        raise ApiError(40008, "上传文件内容为空")
-    if len(content) > _MAX_AUDIO_BYTES:
-        raise ApiError(40009, "音频文件超过 100MB 上限",
-                       detail={"size_bytes": len(content)})
-
-    audio_dir = DATA_DIR / "audio"
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = audio_dir / f"upload_{uuid.uuid4().hex}{ext}"
-    try:
-        tmp_path.write_bytes(content)
-    except OSError as exc:
-        raise ApiError(40006, "音频落盘失败", detail={"error": str(exc)}) from exc
-
-    engine = _get_engine()
-    try:
-        # Whisper 推理为同步阻塞调用，经 run_blocking 卸载避免阻塞事件循环
-        result = await run_blocking(
-            engine.transcribe, str(tmp_path),
-            language or None, model_id or None)
-    finally:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-    return ok(result)
-
-
-@router.post("/voice/synthesize")
-async def voice_synthesize(req: VoicePreviewRequest) -> dict[str, Any]:
-    """语音合成（复用 VoicePreviewRequest 契约：voice_id/text/emotion）。
-
-    TTS 自动装载链：cosyvoice → chattts → bark（transformers 原生，
-    导入 models/ 即可用）→ SAPI5 系统语音 → 静音占位。非 AI 后端时
-    响应携带 degraded:true 与实际后端名（诚实降级）。
-    """
-    engine = _get_engine()
-    try:
-        # AI 推理 / SAPI5 COM 均为同步阻塞调用，经 run_blocking 卸载
-        audio_path = await run_blocking(
-            engine.synthesize, req.voice_id, req.text, req.emotion)
-        raw = Path(audio_path).read_bytes()
-    except ApiError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise ApiError(71005, "语音合成失败", detail={"error": str(exc)}) from exc
-
-    data = {
-        "voice_id": req.voice_id,
-        "text": req.text,
-        "emotion": req.emotion,
-        "audio": base64.b64encode(raw).decode("ascii"),
-        "format": "wav",
-    }
-    if not engine.is_ready:
-        data["degraded"] = True
-        data["fallback_backend"] = engine.fallback_backend
-    return ok(data)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

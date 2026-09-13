@@ -198,7 +198,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         log.warning("WebSocket 消息中枢启动失败（降级运行）: %s", exc)
 
-    log.info("T+10s 后端就绪，等待请求")
+    # B1（2026-09-13）：就绪日志报实测耗时——旧固定文案「T+10s」与真实
+    # 值不符（boot.log 实测 T+16s、冷机口径 25s~2min），固定文案误导排障
+    log.info("后端就绪 T+%.0fs，等待请求", time.time() - _boot_ts)
     log.info("=" * 60)
     # ── 统一事件日志（2026-08-21 日志可视化）─────────────────
     try:
@@ -376,7 +378,7 @@ def create_app() -> FastAPI:
 
     # 中间件
     setup_cors(app)        # §6.1 L4: 仅本地
-    setup_rate_limit(app)  # §7: 100 req/min
+    setup_rate_limit(app)  # config.yaml system.rate_limit（当前 300 req/min）
 
     # 激活门禁（P5）：发行包注入公钥后启用——未激活时业务 API 全 403，
     # 白名单=健康检查/激活接口/前端静态页。开发构建（无公钥）完全旁路。

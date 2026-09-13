@@ -1,0 +1,10 @@
+{
+  "_comment": "torch 版本契约单源（B1 2026-09-13）。三处 torch 独立安装、历史上无机制保证一致（cu128/cu130 双代 dist-info 曾并存）。升级 torch 时只改本文件 torch 字段，然后跑 tools/check_torch_contract.py 复核三处全部对齐；boot 预检会据此断言（OMNISPACE_ALLOW_TORCH_DRIFT=1 可豁免，自担风险）。",
+  "torch": "2.13.0+cu130",
+  "updated": "2026-09-13",
+  "targets": {
+    "主运行时 py312": "runtime/py312/Lib/site-packages/torch/version.py",
+    "vLLM py313": "runtime/py313/Lib/site-packages/torch/version.py",
+    "ComfyUI 便携包": "tools/ComfyUI_windows_portable/python_embeded/Lib/site-packages/torch/version.py"
+  }
+}

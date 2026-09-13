@@ -62,20 +62,22 @@ CODEPAGE_UNICODE = 0x04B0
 # 带 C 后缀 = python.exe 底（控制台子系统，供 bat 调试入口保控制台回显）；
 # 无后缀 = pythonw.exe 底（GUI 子系统，无窗主链）
 BRAND_MANIFEST: list[dict] = [
-    {'src': 'runtime/py310/pythonw.exe',
-     'dst': 'runtime/py310/OmniSpace-Boot.exe',
+    # B1（2026-09-13 拍板项 0=A）：主链五件套源切 py312；py310 旧品牌件
+    # 原地保留（打包基线/回退锚点仍走 py310，不重生成）
+    {'src': 'runtime/py312/pythonw.exe',
+     'dst': 'runtime/py312/OmniSpace-Boot.exe',
      'desc': 'OmniSpace 启动守护进程'},
-    {'src': 'runtime/py310/pythonw.exe',
-     'dst': 'runtime/py310/OmniSpace-Backend.exe',
+    {'src': 'runtime/py312/pythonw.exe',
+     'dst': 'runtime/py312/OmniSpace-Backend.exe',
      'desc': 'OmniSpace 后端服务'},
-    {'src': 'runtime/py310/pythonw.exe',
-     'dst': 'runtime/py310/OmniSpace-Shell.exe',
+    {'src': 'runtime/py312/pythonw.exe',
+     'dst': 'runtime/py312/OmniSpace-Shell.exe',
      'desc': 'OmniSpace 桌面窗口'},
-    {'src': 'runtime/py310/python.exe',
-     'dst': 'runtime/py310/OmniSpace-BootC.exe',
+    {'src': 'runtime/py312/python.exe',
+     'dst': 'runtime/py312/OmniSpace-BootC.exe',
      'desc': 'OmniSpace 启动守护进程（控制台）'},
-    {'src': 'runtime/py310/python.exe',
-     'dst': 'runtime/py310/OmniSpace-BackendC.exe',
+    {'src': 'runtime/py312/python.exe',
+     'dst': 'runtime/py312/OmniSpace-BackendC.exe',
      'desc': 'OmniSpace 后端服务（控制台）'},
     {'src': 'runtime/py313/python.exe',
      'dst': 'runtime/py313/OmniSpace-LLM.exe',

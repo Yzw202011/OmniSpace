@@ -43,10 +43,11 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
 
-# 默认不进升级包的大目录（--include 显式开启）；runtime/py310 见 HARD_EXCLUDE
+# 默认不进升级包的大目录（--include 显式开启）；runtime/py31x 见 HARD_EXCLUDE
 DEFAULT_EXCLUDED_TOPS = ("runtime", "tools", "models")
-# 永不进包：updater 运行所在的解释器；后三个是用户侧目录（构建里本就不该有）
-HARD_EXCLUDES = ("runtime/py310", "data", "updates", "logs")
+# 永不进包：updater 运行所在的解释器（B1 后主链=py312，py310 为回退锚点
+# 同样永不进包）；后三个是用户侧目录（构建里本就不该有）
+HARD_EXCLUDES = ("runtime/py310", "runtime/py312", "data", "updates", "logs")
 MANIFEST_NAME = "upgrade_manifest.json"
 SIG_NAME = "upgrade_manifest.sig"
 README_NAME = "README.txt"

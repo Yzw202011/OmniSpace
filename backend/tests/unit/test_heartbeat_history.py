@@ -9,13 +9,14 @@ logs/heartbeat_history.jsonl；超 512KB 轮转保留末 1000 行；
 from __future__ import annotations
 
 import json
-import sys
 import warnings
-from pathlib import Path
 
+# B1（2026-09-13）：删除本文件原有的 sys.path.insert(pydeps) hack——
+# py310 嵌入式 ._pth 本就含 pydeps（纯冗余），而 py312 主链下它会把
+# cp310 编译的 pydeps 树插到 sys.path[0] 且永不移除，污染同进程后续
+# 测试（实证：test_knowledge_eval 金标准在 full run 被它弄挂，
+# 二分定位 5 轮收口到此）。warnings 过滤同属进程级，保留原意图。
 warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path(__file__).resolve().parents[2].parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2].parent / "pydeps"))
 
 from backend.services import heartbeat as hb  # noqa: E402
 

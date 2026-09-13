@@ -617,8 +617,11 @@ def _open_ui(url: str, opts: BootOptions) -> None:
         return
     try:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        shell_exe = os.path.join(root, 'runtime', 'py310', 'OmniSpace-Shell.exe')
-        pythonw = os.path.join(root, 'runtime', 'py310', 'pythonw.exe')
+        # B1（2026-09-13 拍板项 0=A）：主链升级 3.12——py312 为主、py310
+        # 并存保留为回退锚点与打包基线。OmniSpace-Shell 品牌化 exe 尚未
+        # 复制到 py312（brand_exe 重打待收尾批），暂以 pythonw 兜底。
+        shell_exe = os.path.join(root, 'runtime', 'py312', 'OmniSpace-Shell.exe')
+        pythonw = os.path.join(root, 'runtime', 'py312', 'pythonw.exe')
         runner = shell_exe if os.path.isfile(shell_exe) else pythonw
         cmd = [runner, os.path.join(root, 'launcher', 'shell.py'),
                '--url', url]
@@ -848,11 +851,13 @@ class BootOrchestrator:
         self.state.set_phase('env', 'running')
         ok_all, results = self.env_checker.check_all()
         labels = {'os': '操作系统', 'python': 'Python', 'disk_space': '磁盘空间',
-                  'cuda': 'CUDA', 'dependencies': '依赖'}
+                  'cuda': 'CUDA', 'dependencies': '依赖',
+                  'hypervisor': '虚拟化层', 'torch_contract': 'torch 契约'}
         for name, r in results.items():
             mark = '✓' if r['passed'] else '✗'
             level = 'info' if r['passed'] else (
-                'warn' if name == 'cuda' else 'error')
+                'warn' if name in ('cuda', 'path_ascii', 'torch_contract')
+                else 'error')
             self.state.log(f'[{labels.get(name, name)}] {mark} {r["message"]}', level)
         # CUDA 不可用 / 路径非 ASCII 仅警告（诚实降级，后端自行处理）；
         # path_ascii：vLLM(tvm-ffi) 窄字符加载器不支持非 ASCII 路径，

@@ -1,47 +1,54 @@
-# OmniSpace AI 依赖锁定文件（实际运行时环境，勿手工编辑）
-# =========================================================
-# 环境: 嵌入式 Python 3.10.11 (runtime/py310)，CUDA 12.8
-# 双站点架构（2026-08-19 TASK-P0-06 实测修正，推翻审计 P23）:
-#   pydeps 与 runtime/py310/Lib/site-packages 是互补的承重依赖站点，
-#   由 runtime/py310/python310._pth 依序挂载（pydeps 优先）。
-#   - pydeps 独占 156 个包: fastapi/uvicorn/pydantic/numpy/scipy/diffusers/
-#     accelerate/peft/chromadb/modelscope/pytest 等 Web+数据栈
-#   - runtime 独占: torch 2.11.0+cu128/transformers/tokenizers/pandas/
-#     rembg 等 GPU 栈
-#   - 两侧重合（cv2/torchvision/torchaudio/torchgen/functorch）由 pydeps 优先
-#     加载且版本与 runtime torch 匹配（0.26.0+cu128 等），属有意安装
-#   重建环境 = 恢复两个目录，缺一后端无法启动；禁止删除或"清退"pydeps。
-# 导出: 2026-08-15 | 锁定 154 个包
+# OmniSpace 依赖锁（B1 2026-09-13 重导：从两个站点 dist-info 如实枚举生成）
 #
-# 勘误（2026-08-19，TASK-P0-06）:
-#   原头部"37 个空壳包"结论系系统性误判——审计按 pip 分发名找
-#   pydeps/<dist-name>/ 目录（如 beautifulsoup4/、pillow/、opencv-python/），
-#   而实际安装形态是 import 名目录（bs4/、PIL/、cv2/）或根级单文件模块
-#   （six.py、typing_extensions.py、pynvml.py、mmh3.pyd）。37 条中仅
-#   torch、sympy、tokenizers 3 条属实（无 __init__.py 的死目录，
-#   已于 TASK-P0-06 删除，连同 pydeps/tests 遮蔽包与幽灵 dist-info）。
-#   llama-cpp-python 0.3.34 实为可用（ctypes 后端 + DLL），P0-04 已在
-#   需求矩阵同步勘误 M-10/M-11。
+# 装载布局（真源 = runtime/py310/python310._pth）：pydeps 优先级高于
+# runtime/py310/Lib/site-packages。本文件按「实际装载序」分三节：
+#   ① pydeps 独占（172 包）
+#   ② runtime 独占（36 包：torch 系 + transformers + mypy 等）
+#   ③ 两侧同装（0 包：版本一致才有意义——boot torch 契约闸守 torch 系）
+# 合计 208 条。
+#
+# 已知偏差（诚实记录）：
+#   - pydeps 装的是完整版 opencv-python（非 headless），遮蔽关系以本文件为准；
+#   - torch 系版本契约真源 = backend/torch_contract.json（升级只改那里）；
+#   - 2026-09-13 已清理 4 处幽灵 dist-info（torchaudio/torchvision cu128
+#     双代元数据、pydeps 无包体 torchvision、huggingface_hub 1.26 双元数据）。
+#
+# 恢复环境 = 按节 pip install -r（注意 ①③ 装到 pydeps、② 装到 runtime site-packages）。
+#
+# B1（2026-09-13 拍板项 0=A）py312 主链安装差异（实测）：
+#   - py312 为**单站点**（全部装 runtime/py312/Lib/site-packages，无 pydeps 分层）；
+#   - 不随迁 5 项：backports-asyncio-runner、proxy-tools（杂物，唯一传递方
+#     pywebview 已单独补装）、jieba/llama-cpp-python（见下）、antlr4-python3-
+#     runtime + omegaconf（TripoSR 幻影引擎链，B3 待摘除）、kernels（违反
+#     transformers hub<1.0 上限的孤儿装）；
+#   - jieba/proxy-tools 为 sdist-only，单独免 --only-binary 安装；
+#   - huggingface-hub 维持 0.36.0（transformers 4.57.6 上限 <1.0）；
+#   - torch 三件套按契约从 download.pytorch.org/whl/cu130 装（2.13.0+cu130
+#     / 0.28.0+cu130 / 2.11.0+cu130）。
 
+# ── ① pydeps 独占 ─────────────────────────────
 accelerate==1.14.0
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aiosignal==1.4.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
-antlr4-python3-runtime==4.9.3
 anyio==4.14.2
 async-timeout==5.0.1
 attrs==26.1.0
 av==17.1.0
+backports-asyncio-runner==1.2.0
 bcrypt==5.0.0
+beautifulsoup4==4.15.0
 bitsandbytes==0.50.0
+bottle==0.13.4
 build==1.5.0
 certifi==2026.7.22
 cffi==2.1.0
 charset-normalizer==3.4.9
 chromadb==1.5.9
 click==8.4.2
+clr-loader==0.3.1
 colorama==0.4.6
 coloredlogs==15.0.1
 comtypes==1.4.16
@@ -50,24 +57,26 @@ coverage==7.15.3
 cryptography==50.0.0
 cycler==0.12.1
 diffusers==0.39.0
-dill==0.4.1
 diskcache==5.6.3
 durationpy==0.10
-einops==0.8.2
 exceptiongroup==1.3.1
 fastapi==0.141.1
-filelock==3.29.0
+filelock==3.32.2
 flatbuffers==25.12.19
 fonttools==4.63.0
 frozenlist==1.8.0
-fsspec==2026.4.0
+fsspec==2026.7.0
+ftfy==6.3.1
+gguf==0.19.0
+googleapis-common-protos==1.75.0
 greenlet==3.5.4
+grpcio==1.83.0
+grpcio-status==1.83.0
 h11==0.16.0
-hf-xet==1.5.2
+hf-xet==1.6.0
 httpcore==1.0.9
 httptools==0.8.0
 httpx==0.28.1
-huggingface-hub==0.36.0
 humanfriendly==10.0
 idna==3.18
 imageio==2.37.4
@@ -80,42 +89,49 @@ jinja2==3.1.6
 joblib==1.5.3
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
+kernels==0.14.1
+kernels-data==0.14.1
 kiwisolver==1.5.0
 kubernetes==36.0.3
-lazy-loader==0.5
-llvmlite==0.48.0
+llama-cpp-python==0.3.34
 loguru==0.7.3
 lxml==6.1.1
+markdown-it-py==4.2.0
 markupsafe==3.0.3
 matplotlib==3.10.9
 mdurl==0.1.2
+mmh3==5.2.1
 modelscope==1.39.1
 modelscope-hub==0.2.0
 mpmath==1.3.0
 multidict==6.7.1
-multiprocess==0.70.19
 networkx==3.4.2
-numba==0.66.0
 numpy==2.2.6
+nvidia-ml-py==13.610.43
 oauthlib==3.3.1
-omegaconf==2.3.1
 onnxruntime==1.23.2
-opencv-python-headless==5.0.0.93
+opencv-python==5.0.0.93
+opentelemetry-api==1.44.0
+opentelemetry-exporter-otlp-proto-common==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
+opentelemetry-proto==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-semantic-conventions==0.65b0
+optimum-quanto==0.2.7
 orjson==3.11.9
 overrides==7.7.0
-packaging==26.2
-pandas==2.3.3
+packaging==26.3
 peft==0.20.0
-pi-heif==1.4.0
+pillow==12.3.0
 pip==26.2.1
-platformdirs==4.11.1
 playwright==1.62.0
 pluggy==1.6.0
 polars==1.43.2
-pooch==1.9.0
+polars-runtime-32==1.43.2
 propcache==0.5.2
+protobuf==7.35.1
+proxy-tools==0.1.0
 psutil==7.2.2
-pyarrow==25.0.0
 pybase64==1.4.3
 pycparser==3.0
 pydantic==2.13.4
@@ -123,56 +139,104 @@ pydantic-core==2.46.4
 pydantic-settings==2.14.2
 pyee==13.0.1
 pygments==2.20.0
-pymatting==1.1.15
 pymupdf==1.28.0
+pynvml==13.0.1
 pyparsing==3.3.2
 pypika==0.51.1
+pypiwin32==223
 pyproject-hooks==1.2.0
 pyreadline3==3.5.6
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
+pytest-timeout==2.4.0
+python-dateutil==2.9.0.post0
+python-docx==1.2.0
+python-dotenv==1.2.2
 python-multipart==0.0.32
+pythonnet==3.1.0
 pyttsx3==2.99
-pytz==2026.3.post1
+pywebview==6.2.1
+pywin32==312
+pyyaml==6.0.3
 qwen-vl-utils==0.0.14
 referencing==0.37.0
 regex==2026.7.19
-rembg==2.0.69
 requests==2.34.2
 requests-oauthlib==2.0.0
 restrictedpython==8.4
 rich==15.0.0
+rpds-py==0.30.0
 safetensors==0.8.0
-scikit-image==0.25.2
+scikit-learn==1.7.2
 scipy==1.15.3
 sentence-transformers==5.6.1
 sentencepiece==0.2.2
-setuptools==78.1.0
+setuptools==83.0.0
 shellingham==1.5.4
+six==1.17.0
 soupsieve==2.9.1
+sqlalchemy==2.0.51
 starlette==1.3.1
-sympy==1.14.0
 tenacity==9.1.4
-tifffile==2025.5.10
-tokenizers==0.22.2
+threadpoolctl==3.6.0
 tomli==2.4.1
-torch==2.11.0+cu128
-torchaudio==2.11.0+cu128
-torchvision==0.26.0+cu128
 tqdm==4.70.0
-transformers==4.57.6
 trimesh==5.0.0
-typer==0.27.0
+triton-windows==3.7.1.post27
+typer==0.27.1
+typing-extensions==4.16.0
 typing-inspection==0.4.2
-tzdata==2026.3
 ultralytics==8.4.115
+ultralytics-thop==2.1.6
 urllib3==2.7.0
 uvicorn==0.52.1
 watchfiles==1.2.0
+wcwidth==0.8.2
+websocket-client==1.9.0
 websockets==16.1.1
 wheel==0.47.0
 win32-setctime==1.2.0
-xxhash==3.8.1
 yarl==1.24.5
 zipp==4.1.0
+
+# ── ② runtime 独占 ────────────────────────────
+antlr4-python3-runtime==4.9.3
+ast-serialize==0.9.0
+dill==0.4.1
+distlib==0.4.3
+einops==0.8.2
+huggingface-hub==0.36.0
+lazy-loader==0.5
+librt==0.15.0
+llvmlite==0.48.0
+multiprocess==0.70.19
+mypy==2.3.1
+mypy-extensions==1.1.0
+numba==0.66.0
+omegaconf==2.3.1
+opencv-python-headless==5.0.0.93
+pandas==2.3.3
+pathspec==1.1.1
+pi-heif==1.4.0
+platformdirs==4.11.1
+pooch==1.9.0
+pyarrow==25.0.0
+pymatting==1.1.15
+python-discovery==1.6.0
+pytz==2026.3.post1
+rembg==2.0.69
+scikit-image==0.25.2
+sympy==1.14.0
+tifffile==2025.5.10
+tokenizers==0.22.2
+torch==2.13.0+cu130
+torchaudio==2.11.0+cu130
+torchvision==0.28.0+cu130
+transformers==4.57.6
+tzdata==2026.3
+virtualenv==21.7.9
+xxhash==3.8.1
+
+# ── ③ 两侧同装 ────────────────────────────────
+

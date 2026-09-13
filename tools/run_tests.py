@@ -22,7 +22,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = ROOT / "runtime" / "py310" / "python.exe"
+# B1（2026-09-13 拍板项 0=A）：主链升 py312；py310 并存保留为回退锚点
+PY = ROOT / "runtime" / "py312" / "python.exe"
 
 SMOKE_ONLY = "--smoke" in sys.argv
 WITH_E2E = "--e2e" in sys.argv

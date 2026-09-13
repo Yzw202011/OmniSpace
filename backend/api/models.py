@@ -1397,6 +1397,34 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
     # 本地 diffusers 管线冷启动约 10~60s，进页面即点火把加载摊进浏览
     # 时间；就绪信号 = /draw/status loaded（PaintEngine state=ready）
     if feature == "paint":
+        # W3-C（2026-09-13）：gen_engine=comfy 时预热=拉起 ComfyUI 进程
+        # （klein 权重由工作流流式装载，无常驻预载概念）；legacy 走
+        # 原 diffusers 预热链不动
+        try:
+            from ..config import get_config
+            _comfy_mode = str((get_config().get("paint") or {}).get(
+                "gen_engine", "legacy")).strip().lower() == "comfy"
+        except Exception:  # noqa: BLE001
+            _comfy_mode = False
+        if _comfy_mode:
+            from ..services.inference.comfy_paint_engine import (
+                comfy_paint_available,
+                get_comfy_paint_engine,
+            )
+            _warmup_inflight.discard("paint")
+            if not comfy_paint_available():
+                return ok({"feature": "paint", "started": False,
+                           "reason": "unavailable",
+                           "model": "comfy-klein-9b-fp8"},
+                          message="ComfyUI klein 出图栈不可用"
+                                  "（便携版或权重缺失）")
+            threading.Thread(
+                target=get_comfy_paint_engine().ensure_running,
+                daemon=True, name="paint-warmup-comfy").start()
+            return ok({"feature": "paint", "started": True,
+                       "model_id": "comfy-klein-9b-fp8"},
+                      message="ComfyUI klein 预热已启动（冷启动约 40 秒）")
+
         from ..services.inference.paint_engine import get_paint_engine
         engine = get_paint_engine()
         status = engine.get_status()

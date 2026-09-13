@@ -434,7 +434,14 @@ class VideoTaskQueue:
         get_yield_coordinator().sleep_for_generation("video_queue")
 
     def _unload_paint_pipeline(self) -> None:
-        """卸载本地绘画管线驻留权重（best-effort，幂等）。"""
+        """卸载本地绘画管线驻留权重（best-effort，幂等）。
+
+        W3-C（2026-09-13）：双栈过渡期 comfy 与 legacy 同卸。"""
+        try:
+            from .inference.comfy_paint_engine import get_comfy_paint_engine
+            get_comfy_paint_engine().unload()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("comfy 绘画栈卸载失败（不阻断生成）: %s", exc)
         try:
             from .inference.paint_engine import get_paint_engine
             get_paint_engine().unload_model()

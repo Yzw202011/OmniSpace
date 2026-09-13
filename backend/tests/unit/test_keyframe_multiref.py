@@ -157,7 +157,10 @@ def test_char_protocol_empty():
 def _shim():
     ns = _extract(COMFY_PY,
                   {"_build_workflow", "_resolve_reflatent",
-                   "_ref_megapixels"},
+                   "_ref_megapixels",
+                   # 批1a（2026-09-12）：步数/CFG 档位解析助手随
+                   # _build_workflow 一并提取（纯函数 + 配置兜底）
+                   "_effective_steps_cfg", "_fast_preset"},
                   {"_PAINT_FILES", "_PULID_FILE"},
                   class_name="ComfyPaintEngine")
     return type("_Shim", (), {

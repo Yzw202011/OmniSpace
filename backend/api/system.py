@@ -305,6 +305,24 @@ def _probe_dialog_model() -> tuple[str, str]:
 
 def _probe_paint_model() -> tuple[str, str]:
     try:
+        from ..config import get_config
+        _comfy_mode = str((get_config().get("paint") or {}).get(
+            "gen_engine", "legacy")).strip().lower() == "comfy"
+    except Exception:  # noqa: BLE001
+        _comfy_mode = False
+    if _comfy_mode:
+        # W3-C：comfy 档探测便携版+权重齐备性（ComfyUI 常驻语义）
+        try:
+            from ..services.inference.comfy_paint_engine import (
+                comfy_paint_available,
+            )
+            if comfy_paint_available():
+                return "pass", "绘画出图就绪（ComfyUI klein-9b-fp8 栈）"
+            return "warn", ("ComfyUI klein 出图栈不可用（便携版或权重缺失），"
+                            "绘画功能不可用")
+        except Exception as exc:  # noqa: BLE001
+            return "warn", f"绘画引擎探测失败: {exc}"
+    try:
         from ..services.inference.paint_engine import get_paint_engine
         engine = get_paint_engine()
         models = engine.available_models()

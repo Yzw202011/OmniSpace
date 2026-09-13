@@ -82,10 +82,8 @@ async def unload_paint_pipeline() -> None:
     关键帧 S7「生成毕即卸」同源逻辑：绘画管线与 vLLM/H3 视频两族
     ~10GB 级权重不可同驻（用户约束 VRAM ≤90%）。幂等：未载时快速返回。
     """
-    try:
-        await run_blocking(get_paint_engine().unload_model)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("绘画管线卸载失败（不阻断收尾）: %s", exc)
+    # W3-C：双栈过渡期 comfy 与 legacy 都可能驻留，同卸
+    await unload_paint_engines()
 
 
 def manga_dialog_model_id() -> str:
@@ -1337,6 +1335,87 @@ def _flux_asset_params(prompt_zh: str, kind: str,
             "width": w, "height": h}
 
 
+# ── W3-C 统一 comfy klein 出图（2026-09-13，v3 方案 §五 W3）────────
+def _paint_gen_engine_comfy(*, force: bool | None = None) -> bool:
+    """生图引擎档位（W3-C 步2）：comfy=ComfyUI klein-9b-fp8 新栈；
+    legacy=旧 diffusers klein-4b 栈。config paint.gen_engine 门控
+    （默认 legacy=零行为变更，A/B 目验后切 comfy）；force 仅供
+    A/B 脚本与测试覆写。"""
+    if force is not None:
+        return force
+    try:
+        from ...config import get_config
+        _v = str((get_config().get("paint") or {}).get(
+            "gen_engine", "legacy")).strip().lower()
+        return _v == "comfy"
+    except Exception:  # noqa: BLE001 - 配置异常按 legacy
+        return False
+
+
+def _pil_to_png_b64(image: Image) -> str:
+    """PIL → PNG base64（与 PaintEngine.image_to_base64 同格式）。"""
+    import base64
+    from io import BytesIO
+    buf = BytesIO()
+    image.save(buf, "PNG")  # type: ignore[attr-defined]
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+def comfy_paint_generate(params: dict,
+                         ref_image: Image | None = None) -> dict:
+    """ComfyUI klein-9b-fp8 统一出图入口（W3-C；legacy 结果同构）。
+
+    params: prompt/negative/width/height/seed/steps/cfg——steps/cfg
+    不传时走 paint.preset 档位（fast=4步/cfg1.0、quality=36步/cfg4.0）。
+    ref_image: 参考条件生成（ReferenceLatent，等价 legacy img2img 的
+    ref conditioning 语义）。返回 {images:[PIL], seed, model,
+    elapsed_ms, engine}；不可用/失败抛 ApiError，由调用方既有降级链
+    处理。
+    """
+    from ...services.inference.comfy_paint_engine import (
+        comfy_paint_available,
+        get_comfy_paint_engine,
+    )
+    if not comfy_paint_available():
+        raise ApiError("PAINT_ENGINE_NOT_READY",
+                       "ComfyUI klein 出图栈不可用（便携版或权重缺失）")
+    p = dict(params)
+    seed = int(p.get("seed") or -1)
+    engine = get_comfy_paint_engine()
+    t0 = time.perf_counter()
+    if ref_image is not None:
+        result = engine.img2img(p, ref_image)
+    else:
+        result = engine.generate(p)
+    return {"images": result.get("images") or [],
+            "seed": seed,
+            "model": "flux2-klein-9b-fp8(comfy)",
+            "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+            "engine": "comfy-klein"}
+
+
+def unload_paint_engines_sync() -> None:
+    """双栈驻留同卸（W3-C 过渡期：comfy 与 legacy diffusers 可能都有
+    权重在驻；SAM/VL 让位、模块释放等场景需两代一起清）。幂等
+    best-effort，不抛。"""
+    try:
+        from ...services.inference.comfy_paint_engine import (
+            get_comfy_paint_engine,
+        )
+        get_comfy_paint_engine().unload()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("comfy 绘画栈卸载失败（不阻断）: %s", exc)
+    try:
+        get_paint_engine().unload_model()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("legacy 绘画栈卸载失败（不阻断）: %s", exc)
+
+
+async def unload_paint_engines() -> None:
+    """unload_paint_engines_sync 的异步包装（F-008：经 offload）。"""
+    await run_blocking(unload_paint_engines_sync)
+
+
 def _flux_asset_gen_params(req: AssetGenerateRequest, kind: str) -> dict:
     """_flux_asset_params 的 req 形态适配（_generate_asset_sync 用）。"""
     return _flux_asset_params(req.prompt, kind, req.width, req.height)
@@ -1364,6 +1443,7 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
     image = None
     result: dict[str, Any] | None = None
     flux_used = False
+    comfy_engine_used = False
     gen_w = gen_h = 0
     prompt_en = ""
 
@@ -1383,7 +1463,27 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
 
     # ① FLUX.2 中文直入（主路径）：中文描述词全文直送，无需翻译——
     # 免掉对话引擎换载与 ≤40 词翻译压缩，设定四层信息全量保留
-    elif engine.ensure_loaded("flux2-klein-4b"):
+    # ①' W3-C comfy klein-9b-fp8（gen_engine=comfy 时优先）：同中文
+    #     直入；失败落回 ①legacy / ②SDXL 兜底链不断
+    if image is None and cloud_endpoint is None \
+            and _paint_gen_engine_comfy():
+        try:
+            params = _flux_asset_gen_params(req, kind)
+            params.pop("steps", None)
+            params.pop("cfg", None)  # 档位化：走 paint.preset
+            result = comfy_paint_generate(params)
+            image = result["images"][0]
+            gen_w, gen_h = params["width"], params["height"]
+            flux_used = True
+            comfy_engine_used = True
+            if image.size != (req.width, req.height):
+                from PIL import Image as _PILImage
+                image = image.resize((req.width, req.height), _PILImage.LANCZOS)
+        except Exception as exc:  # noqa: BLE001 - comfy 失败落回 legacy 链
+            log.warning("comfy klein 资产出图失败，落回 legacy 链: %s", exc)
+
+    if image is None and cloud_endpoint is None \
+            and engine.ensure_loaded("flux2-klein-4b"):
         params = _flux_asset_gen_params(req, kind)
         result = engine.generate(params)
         image = result["images"][0]
@@ -1428,7 +1528,8 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
             "gen_width": gen_w, "gen_height": gen_h,
             "seed": result.get("seed", -1), "model": result.get("model", ""),
             "engine": "cloud" if cloud_endpoint is not None
-            else ("flux2" if flux_used else "sdxl"),
+            else ("comfy-klein" if comfy_engine_used
+                  else ("flux2" if flux_used else "sdxl")),
             "transparent": bool(req.transparent and kind == "prop"),
             "prompt_en": prompt_en}
     db = get_db_safe()

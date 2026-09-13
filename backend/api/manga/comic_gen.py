@@ -38,6 +38,8 @@ from .common import (
     _remove_background,
     _upscale_to,
     broadcast_gen_progress,
+    comfy_paint_generate,
+    unload_paint_engines_sync,
 )
 
 if TYPE_CHECKING:
@@ -48,6 +50,85 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.comic_gen")
+
+
+class _ComfyGenAdapter:
+    """legacy 引擎形状的 comfy klein 适配（W3-C 步3，2026-09-13）。
+
+    generate/img2img 同参转发 comfy_paint_generate；progress_cb 接受但
+    忽略（ComfyUI /history 轮询无步级粒度，粗粒度进度由调用方在提交/
+    完成边界广播）。ensure_loaded 恒真（comfy_proc 常驻语义）。
+    步数重映射：legacy klein-4b 的 20+ 步口径在 comfy 蒸馏 9B 上无
+    意义且过慢——≥20 步一律压到 8 步/cfg1.0（Turbo LoRA 有效区间
+    4~8 上沿），质量由既有 VL 视角校验关兜底。
+    """
+
+    is_ready = True
+    is_loaded = False  # 常驻态由 comfy_proc 管理，无驻留可卸
+
+    def ensure_loaded(self, model_id: str | None = None) -> bool:
+        return True
+
+    def unload_model(self) -> bool:
+        from ...services.inference.comfy_paint_engine import (
+            get_comfy_paint_engine,
+        )
+        get_comfy_paint_engine().unload()
+        return True
+
+    def get_status(self) -> dict:
+        return {"state": "ready", "loaded": True, "model": "comfy-klein-9b"}
+
+    @staticmethod
+    def _remap(params: dict) -> dict:
+        p = dict(params)
+        if int(p.get("steps") or 0) >= 20:
+            p["steps"] = 8
+            p["cfg"] = 1.0
+        p.pop("mask_margin", None)
+        return p
+
+    def generate(self, params: dict,
+                 progress_cb=None) -> dict:  # noqa: ARG002 - 粗粒度进度
+        return comfy_paint_generate(self._remap(params))
+
+    def img2img(self, params: dict, ref_image,
+                progress_cb=None) -> dict:  # noqa: ARG002
+        return comfy_paint_generate(self._remap(params), ref_image=ref_image)
+
+    def inpaint(self, params: dict, image, mask) -> dict:
+        """潜空间修复转发（W3-C 步4-c 2026-09-13：comfy 侧 inpaint
+        已落地——SetLatentNoiseMask+ReferenceLatent+软边回贴，A/B
+        未遮罩区保留与 legacy 同级 3321 vs 6159 差异像素）。"""
+        from ...services.inference.comfy_paint_engine import (
+            get_comfy_paint_engine,
+        )
+        return get_comfy_paint_engine().inpaint(
+            self._remap(params), image, mask)
+
+
+def _pick_turnaround_engine():
+    """四视图引擎档位选择（W3-C）。
+
+    ⚠️ 与全局 paint.gen_engine **刻意解耦**：独立读
+    manga.turnaround_engine（默认 legacy）。实测依据（2026-09-13
+    首过率复验，tools/scratch/w3c_firstpass.py）：comfy 蒸馏 9B 在
+    2560×1440 四格构图上格数遵循度 33~40% 且与步数无关
+    （8步2/5、12步0/3、20步1/3、28步1/3），丢格为构图级失败、
+    VL 修复环不可修（其修复逻辑假设四格齐在）——legacy 4B 构图
+    完整率 ~100%（仅格内视角偶错，可单格 inpaint 修复）。在 comfy
+    侧多格构图方案改进（独立格生成+拼格 / 区域条件）验证前，
+    本开关保持 legacy；全局 gen_engine 切 comfy 不影响此处。
+    """
+    try:
+        from ...config import get_config
+        _v = str((get_config().get("manga") or {}).get(
+            "turnaround_engine", "legacy")).strip().lower()
+        if _v == "comfy":
+            return _ComfyGenAdapter()
+    except Exception:  # noqa: BLE001 - 配置异常按 legacy
+        pass
+    return get_paint_engine()
 
 
 
@@ -244,10 +325,11 @@ def _whiten_background(image: Image) -> Image:
     # 2.5GB > 16GB）：卸载绘画管线腾显存重试一次（下次生成为ensure_
     # loaded 语义，自动重载）
     try:
-        if get_paint_engine().unload_model():
-            out = _sam_whiten(image, bg)
-            if out is not None:
-                return out
+        # W3-C：comfy 与 legacy 双栈都可能驻留显存，让位=两代同卸
+        unload_paint_engines_sync()
+        out = _sam_whiten(image, bg)
+        if out is not None:
+            return out
     except Exception as exc:  # noqa: BLE001 - 卸载失败保持原图
         log.warning("绘画管线卸载重试 SAM 失败: %s", exc)
     log.warning("背景漂白未生效，保持原图（人物完整优先于背景纯白）")
@@ -270,9 +352,8 @@ def _verify_view_layout(image: Image) -> tuple[bool | None, list[str]]:
     try:
         from ...services.inference.dialog_engine import get_dialog_engine
         eng = get_dialog_engine()
-        # FLUX.2 让位 VL（16GB 显存互斥）
-        if get_paint_engine().is_loaded:
-            get_paint_engine().unload_model()
+        # FLUX.2 让位 VL（16GB 显存互斥；W3-C 双栈同卸）
+        unload_paint_engines_sync()
         if not eng.is_ready and not eng.ensure_loaded("qwen3-vl-4b"):
             log.warning("VL 模型不可用，跳过视角校验: %s",
                         eng.get_status().get("last_error", ""))
@@ -375,8 +456,8 @@ def _verify_prompt_match(image: Image, desc_zh: str) -> bool | None:
     try:
         from ...services.inference.dialog_engine import get_dialog_engine
         eng = get_dialog_engine()
-        if get_paint_engine().is_loaded:
-            get_paint_engine().unload_model()
+        # FLUX.2 让位 VL（16GB 显存互斥；W3-C 双栈同卸）
+        unload_paint_engines_sync()
         if not eng.is_ready and not eng.ensure_loaded("qwen3-vl-4b"):
             log.warning("VL 模型不可用，跳过图文符合度校验: %s",
                         eng.get_status().get("last_error", ""))
@@ -413,12 +494,20 @@ def _repair_view_cell(engine: PaintEngine, image: Image, idx: int,
     整图重生换 seed 是「推倒重来」——实测 6 连抽每次恰好只错 1 格。
     本函数只重绘错格（整格 mask + margin 8 不越格污染邻格），其余
     三格逐像素保留，收敛性远优于整图重 roll。显存前置：卸载 VL
-    （校验时占位）→ ensure FLUX.2。返回修复后整图（失败返回原图）。
+    （校验时占位）。返回修复后整图（失败返回原图）。
+
+    W3-C（2026-09-13）：修复引擎跟随四视图档位
+    （manga.turnaround_engine）——comfy 潜空间 inpaint 已落地并
+    A/B 达标（SetLatentNoiseMask+ReferenceLatent+软边回贴，未遮罩
+    区保留 3321 vs legacy 6159 差异像素，机制=真潜空间修复优于
+    legacy 的 bbox 裁剪 img2img 降级）；四视图默认 legacy 故修复
+    默认同为 legacy。
     """
     import random
 
     from PIL import Image, ImageDraw
 
+    engine = _pick_turnaround_engine()  # W3-C：跟随四视图档位
     view = _TURNAROUND_VIEWS[idx]
     label = _ONEPASS_VIEW_LABELS[view]
     # 逐格正度约束（2026-08-24 用户实测：整图修复后仍有斜背身/
@@ -776,6 +865,9 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
     model, ref_used, view_errors, prompt_zh | prompt_en}。ctx_id 非空
     时全程广播 WS 实时进度（task_progress → 前端按钮进度条）。
     """
+    # W3-C：引擎档位在编排口统一裁决（comfy 适配器 / legacy klein-4b；
+    # comfy onepass 失败自然落入下方 legacy 全链回退）
+    engine = _pick_turnaround_engine()
     gen = None
     if engine.ensure_loaded("flux2-klein-4b"):
         try:

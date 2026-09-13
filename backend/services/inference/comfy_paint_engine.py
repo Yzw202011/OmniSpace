@@ -68,6 +68,34 @@ _TASK_TIMEOUT_MARGIN_S = 240.0      # 任务超时 = ETA + 固定余量（含模
 _MAX_WF_REFS = 8
 
 
+def _fast_preset(params: dict) -> bool:
+    """绘画步数/CFG 档位（批1a 2026-09-12）：fast = klein 蒸馏系原生
+    4 步 + cfg1.0（叠 SageAttention = 双重加速）；quality = 历史
+    36 步 / cfg4.0 原样。调用方显式传 steps/cfg 时优先级最高（不破坏
+    既有调用与单测）；config paint.preset 门控，默认 quality（A/B
+    实证后可改 fast）。"""
+    preset = str(params.get("preset") or "").strip().lower()
+    if preset in ("fast", "quality"):
+        return preset == "fast"
+    try:
+        from backend.config import get_config
+        _cfg = str((get_config().get("paint") or {}).get(
+            "preset", "quality")).strip().lower()
+        return _cfg == "fast"
+    except Exception:  # noqa: BLE001 - 配置异常按 quality 处理
+        return False
+
+
+def _effective_steps_cfg(params: dict) -> tuple[int, float]:
+    """档位感知的有效 (steps, cfg)：fast = 4 步 / cfg1.0，quality =
+    36 步 / cfg4.0（历史口径）；调用方显式传值优先。所有消费
+    steps/cfg 默认值的点位（工作流构造 / 日志 / ETA 超时）统一走此
+    函数，避免档位间口径漂移。"""
+    if _fast_preset(params):
+        return int(params.get("steps") or 4), float(params.get("cfg") or 1.0)
+    return int(params.get("steps") or 36), float(params.get("cfg") or 4.0)
+
+
 def _ref_megapixels(n_refs: int) -> float:
     """多参考逐图分辨率预算（总参考 latent token 预算≈拼图时代）。
 
@@ -187,6 +215,11 @@ class ComfyPaintEngine:
         """
         self._proc = get_comfy_proc().spawn("comfyui_paint.log")
 
+    def ensure_running(self) -> None:
+        """公开预热入口（W3-C 2026-09-13，/models/warmup feature=paint
+        comfy 档消费）：确保 ComfyUI 服务可用（幂等，复用探测）。"""
+        self._ensure_running()
+
     def _ensure_running(self) -> None:
         """确保 ComfyUI 服务可用（复用探测 + 单次冷启动等待）。"""
         if self.is_alive():
@@ -277,8 +310,7 @@ class ComfyPaintEngine:
         """
         prompt = str(params.get("prompt") or "")
         negative = str(params.get("negative") or "")
-        steps = int(params.get("steps") or 36)
-        cfg = float(params.get("cfg") or 4.0)
+        steps, cfg = _effective_steps_cfg(params)
         width = int(params.get("width") or 1280)
         height = int(params.get("height") or 720)
         seed = int(params.get("seed") or 0)
@@ -558,10 +590,11 @@ class ComfyPaintEngine:
                 raise ApiError(code=60003,
                                message=f"绘画工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
+            _log_steps, _ = _effective_steps_cfg(params)
             logger.info("绘画任务已提交 (prompt_id=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
                         prompt_id, int(params.get("width") or 1280),
                         int(params.get("height") or 720),
-                        int(params.get("steps") or 36),
+                        _log_steps,
                         params.get("lora_name") or "-",
                         float(params.get("lora_scale") or 0.0),
                         len(ref_names), ref_mode,
@@ -582,10 +615,148 @@ class ComfyPaintEngine:
                     except OSError:
                         pass
 
+    def inpaint(self, params: dict, image: Image.Image,
+                mask: Image.Image) -> dict:
+        """潜空间 mask 修复（W3-C 步4-c 2026-09-13）。
+
+        配方：VAEEncode(原图) → SetLatentNoiseMask → 采样。noise_mask
+        是 ComfyUI 内核采样机制（仅 mask 区注入噪声、未 mask 区每步
+        从原 latent 恢复=逐像素保留）；ReferenceLatent 额外注入整图
+        latent 作条件，给重绘区未遮罩上下文引导。mask 口径与 legacy
+        PaintEngine.inpaint 一致（L 模式，白=重绘）。steps/cfg 不传走
+        paint.preset 档；显式 ≥20 步压缩到 8 步/cfg1.0（与
+        _ComfyGenAdapter 重映射同口径：蒸馏 9B 不吃 legacy 步数）。
+        返回 {images, prompt_id, elapsed_s, engine:"comfy"}。
+        """
+        from PIL import Image as _PILImage
+
+        if not comfy_paint_available():
+            raise ApiError("PAINT_ENGINE_NOT_READY",
+                           "ComfyUI klein 出图栈不可用（便携版或权重缺失）")
+        image = image.convert("RGB")
+        mask = mask.convert("L")
+        if mask.size != image.size:
+            mask = mask.resize(image.size, _PILImage.NEAREST)  # type: ignore[attr-defined]
+        w = image.size[0] // 8 * 8
+        h = image.size[1] // 8 * 8
+        if (w, h) != image.size:  # VAE 需 /8 对齐：居中裁
+            image = image.crop(((image.size[0] - w) // 2,
+                                (image.size[1] - h) // 2,
+                                (image.size[0] - w) // 2 + w,
+                                (image.size[1] - h) // 2 + h))
+            mask = mask.crop(((mask.size[0] - w) // 2,
+                              (mask.size[1] - h) // 2,
+                              (mask.size[0] - w) // 2 + w,
+                              (mask.size[1] - h) // 2 + h))
+
+        p = dict(params)
+        if int(p.get("steps") or 0) >= 20:
+            p["steps"] = 8
+            p["cfg"] = 1.0
+        steps, cfg = _effective_steps_cfg(p)
+        seed = int(p.get("seed") or 0)
+        prompt = str(p.get("prompt") or "")
+        negative = str(p.get("negative") or "")
+
+        task_id = uuid.uuid4().hex[:12]
+        t0 = time.perf_counter()
+        _COMFY_INPUT.mkdir(parents=True, exist_ok=True)
+        img_name = f"paint_ip_img_{task_id}.png"
+        mask_name = f"paint_ip_mask_{task_id}.png"
+        image.save(_COMFY_INPUT / img_name, format="PNG")
+        mask.save(_COMFY_INPUT / mask_name, format="PNG")
+
+        wf = {
+            "unet": {"class_type": "UNETLoader", "inputs": {
+                "unet_name": _PAINT_FILES["unet"],
+                "weight_dtype": "default"}},
+            "clip": {"class_type": "CLIPLoader", "inputs": {
+                "clip_name": _PAINT_FILES["clip"],
+                "type": "flux2", "device": "default"}},
+            "vae": {"class_type": "VAELoader", "inputs": {
+                "vae_name": _PAINT_FILES["vae"]}},
+            "img_load": {"class_type": "LoadImage", "inputs": {
+                "image": img_name}},
+            "img_encode": {"class_type": "VAEEncode", "inputs": {
+                "pixels": ["img_load", 0], "vae": ["vae", 0]}},
+            "mask_load": {"class_type": "LoadImage", "inputs": {
+                "image": mask_name}},
+            "mask_conv": {"class_type": "ImageToMask", "inputs": {
+                "image": ["mask_load", 0], "channel": "red"}},
+            "mask_set": {"class_type": "SetLatentNoiseMask", "inputs": {
+                "samples": ["img_encode", 0], "mask": ["mask_conv", 0]}},
+        }
+        # ReferenceLatent 需要 conditioning 先建——正/负条件节点：
+        wf["pos"] = {"class_type": "CLIPTextEncode", "inputs": {
+            "clip": ["clip", 0], "text": prompt}}
+        wf["neg"] = {"class_type": "CLIPTextEncode", "inputs": {
+            "clip": ["clip", 0], "text": negative}}
+        wf["ref"] = {"class_type": "ReferenceLatent", "inputs": {
+            "conditioning": ["pos", 0],
+            "latent": ["img_encode", 0]}}
+        wf["noise"] = {"class_type": "RandomNoise", "inputs": {
+            "noise_seed": seed}}
+        wf["sampler"] = {"class_type": "KSamplerSelect", "inputs": {
+            "sampler_name": str(p.get("sampler") or "euler")}}
+        wf["sigmas"] = {"class_type": "Flux2Scheduler", "inputs": {
+            "steps": steps, "width": w, "height": h}}
+        wf["guider"] = {"class_type": "CFGGuider", "inputs": {
+            "model": ["unet", 0], "positive": ["ref", 0],
+            "negative": ["neg", 0], "cfg": cfg}}
+        wf["sample"] = {"class_type": "SamplerCustomAdvanced", "inputs": {
+            "noise": ["noise", 0], "guider": ["guider", 0],
+            "sampler": ["sampler", 0], "sigmas": ["sigmas", 0],
+            "latent_image": ["mask_set", 0]}}
+        wf["decode"] = {"class_type": "VAEDecode", "inputs": {
+            "samples": ["sample", 0], "vae": ["vae", 0]}}
+        wf["save"] = {"class_type": "SaveImage", "inputs": {
+            "images": ["decode", 0], "filename_prefix": f"paint_ip/{task_id}"}}
+
+        try:
+            self._ensure_running()
+            resp = self._api("POST", "/prompt",
+                             body={"prompt": wf,
+                                   "client_id": f"omnispace-{task_id}"},
+                             timeout=15.0)
+            if resp is None:
+                raise ApiError(code=60003, message="ComfyUI 不可达（提交失败）")
+            if resp.get("error") or resp.get("node_errors"):
+                detail = json.dumps(resp.get("node_errors") or resp["error"],
+                                    ensure_ascii=False)[:500]
+                raise ApiError(code=60003,
+                               message=f"修复工作流校验失败: {detail}")
+            prompt_id = str(resp["prompt_id"])
+            logger.info("潜空间修复已提交 (prompt_id=%s, %dx%d, %d步)",
+                        prompt_id, w, h, steps)
+            eta_params = {**p, "width": w, "height": h}
+            images = self._poll_history(prompt_id, eta_params)
+            logger.info("潜空间修复完成: %.1fs",
+                        time.perf_counter() - t0)
+            if not images:
+                raise ApiError(code=60003, message="修复采样无产物")
+            # 软边回贴（与 legacy PaintEngine.inpaint 的 composite 语义
+            # 对齐）：未遮罩区逐像素保留原原图，仅修复区取采样结果；
+            # VAE 往返损耗（实测 ~4.8% 像素差）不进入交付。
+            from PIL import ImageFilter
+            out = images[0].convert("RGB")
+            if out.size != image.size:
+                out = out.resize(image.size, _PILImage.LANCZOS)  # type: ignore[attr-defined]
+            soft = mask.filter(ImageFilter.GaussianBlur(6))
+            blended = _PILImage.composite(out, image, soft)
+            return {"images": [blended], "prompt_id": prompt_id,
+                    "elapsed_s": time.perf_counter() - t0,
+                    "engine": "comfy"}
+        finally:
+            for name in (img_name, mask_name):
+                try:
+                    (_COMFY_INPUT / name).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def _poll_history(self, prompt_id: str,
                       params: dict) -> list[Image.Image]:
         """轮询 /history 至完成，产物读出为 PIL（源文件随即清除）。"""
-        steps = int(params.get("steps") or 36)
+        steps, _ = _effective_steps_cfg(params)
         width = int(params.get("width") or 1280)
         height = int(params.get("height") or 720)
         eta = (steps * (width * height / 1e6) * _ETA_SEC_PER_STEP_PER_MPIX

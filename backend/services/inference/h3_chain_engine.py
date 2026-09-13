@@ -30,7 +30,7 @@ import shutil
 import time
 from pathlib import Path
 
-from ...config import DATA_DIR
+from ...config import DATA_DIR, get_config
 from ...middleware.error_handler import ApiError
 from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
 from .h3_engine import _COMFY_OUTPUT, align_h3_frames, get_h3_engine
@@ -421,7 +421,15 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         shots.append({"id": f"shot_{k:02d}",
                       "prompt": [_six_section(r["description"], refs, seconds)],
                       "length": frames, "seed": seed})
-    plan = {"defaults": {"duration_seconds": seconds, "steps": 6},
+    # 采样步数档位（批1b 2026-09-12）：config manga.h3_steps，标准 6 /
+    # 快速 4（Turbo LoRA 有效区间 4~8，钳制防呆）
+    try:
+        _steps = int((get_config().get("manga") or {}).get(
+            "h3_steps", 6) or 6)
+    except Exception:  # noqa: BLE001 - 配置异常按标准档
+        _steps = 6
+    plan = {"defaults": {"duration_seconds": seconds,
+                         "steps": max(4, min(8, _steps))},
             "shots": shots}
     plan_json = json.dumps(plan, ensure_ascii=False, indent=1)
 

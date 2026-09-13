@@ -64,6 +64,84 @@ from ..services.inference.prompt_translator import (
     translate_prompt_zh2en,
 )
 from ..services.offload import run_blocking
+from .manga.common import _paint_gen_engine_comfy  # W3-C 引擎档位门控
+
+# ── W3-C 本地化落盘件（2026-09-13，自 legacy PaintEngine 抽出）────
+# paint_history 建表 DDL（自建表，CREATE IF NOT EXISTS 幂等）——
+# paint_engine 退役后由本模块自治
+_PAINT_HISTORY_DDL = """
+CREATE TABLE IF NOT EXISTS paint_history (
+    task_id     TEXT PRIMARY KEY,
+    prompt      TEXT NOT NULL DEFAULT '',
+    negative    TEXT DEFAULT '',
+    params_json TEXT DEFAULT '{}',
+    file_path   TEXT DEFAULT '',
+    seed        INTEGER DEFAULT -1,
+    created_at  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_paint_history_time ON paint_history(created_at DESC);
+"""
+
+
+def _ensure_history_table() -> bool:
+    """确保 paint_history 表存在（幂等；W3-C 本地化版）。"""
+    try:
+        db = get_db_safe()
+        if db is None:
+            return False
+        db.executescript(_PAINT_HISTORY_DDL)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("paint_history 建表失败: %s", exc)
+        return False
+
+
+def _pil_to_b64(image: Image.Image) -> str:
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+def _save_result_local(image: Image.Image, task_id: str, prompt: str,
+                       negative: str, params: dict, seed: int) -> str:
+    """生成图落盘（file_store）+ paint_history 写入（W3-C 本地化版）。"""
+    import json as _json
+
+    rel_path = ""
+    try:
+        from ..data.file_store import get_file_store
+        store = get_file_store()
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        rel_path = store.save_file("image", buf.getvalue(),
+                                   filename=f"{task_id}.png")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("生成图落盘失败: %s", exc)
+    try:
+        db = get_db_safe()
+        if db is not None:
+            db.executescript(_PAINT_HISTORY_DDL)
+            db.insert("paint_history", {
+                "task_id": task_id,
+                "prompt": prompt,
+                "negative": negative,
+                "params_json": _json.dumps(params, ensure_ascii=False,
+                                           default=str),
+                "file_path": rel_path,
+                "seed": seed,
+                "created_at": time.time(),
+            })
+    except Exception as exc:  # noqa: BLE001
+        log.warning("paint_history 写入失败: %s", exc)
+    return rel_path
+
+
+def _upscale_lanczos(image: Image.Image, scale: int) -> dict:
+    """PIL LANCZOS 放大（comfy 档的 upscale 实现；诚实标注 degraded）。"""
+    w, h = image.size
+    out = image.resize((w * scale, h * scale), Image.LANCZOS)  # type: ignore[attr-defined]
+    return {"image": out, "scale": scale, "backend": "lanczos",
+            "degraded": True}
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -420,6 +498,102 @@ def _run_generate_task(task_id: str, params: dict,
 
         prompt = params["prompt"]
         model_hint = params.get("model")
+
+        # ── comfy klein 出图分支（W3-C 2026-09-13）──────────────────
+        # paint.gen_engine=comfy 时整段接管本地路径：klein 的 Qwen3
+        # 编码器中文直入，SDXL 时代的语言感知路由/翻译兜底/RAM 折腾
+        # 整段不需要；步数/cfg 走 paint.preset 档（fast=4 步）。
+        # legacy 分支原样保留在下方（gate=legacy 可达），paint_engine
+        # 退役时随删。img2img=ReferenceLatent 条件生成（非像素初始化）。
+        if _paint_gen_engine_comfy():
+            from ..services.inference.comfy_paint_engine import (
+                comfy_paint_available,
+                get_comfy_paint_engine,
+            )
+            from .manga.common import comfy_paint_generate
+
+            if model_hint and model_hint not in (
+                    "flux2-klein-9b", "flux2-klein-4b"):
+                # comfy 栈物理上只有 klein 权重：非 klein 点名如实记录
+                # 后按 klein 出活（白名单拒绝已在上方执行）
+                with flow.node("底座说明", friendly="底座口径说明") as n:
+                    n.output(f"comfy 栈仅 klein 系可用，点名 {model_hint}"
+                             " 按 flux2-klein-9b-fp8 执行")
+            with flow.node("模型加载", friendly="ComfyUI klein-9b-fp8 栈") as n:
+                if not comfy_paint_available():
+                    raise RuntimeError(
+                        "MODEL_LOAD_FAILED: ComfyUI klein 出图栈不可用"
+                        "（便携版或权重缺失）")
+                n.output("klein-9b-fp8（Qwen3 编码器中文直入，免翻译）")
+
+            try:
+                prompt, _style_note = _inject_style_pack(prompt, params)
+                if _style_note:
+                    with flow.node("风格注入",
+                                   friendly="按画风注入风格与质量词") as n:
+                        n.output(_style_note)
+            except Exception as exc:  # noqa: BLE001 - 注入失败不阻断
+                log.warning("风格包注入失败（跳过）: %s", exc)
+            params["prompt"] = prompt
+
+            if params.get("optimize"):
+                with flow.node("提示词优化", friendly="AI 优化提示词") as n:
+                    n.output("comfy klein 栈不支持提示词优化，原样使用")
+
+            with flow.node(
+                    "图像生成",
+                    input_summary=f"{params.get('width', 1024)}x"
+                                  f"{params.get('height', 1024)} "
+                                  f"paint.preset 档",
+                    friendly="ComfyUI 模型推理生成图像") as gen_node:
+                gen_node.output("已提交 ComfyUI（粗粒度进度）")
+                # 合成心跳：ComfyUI /history 轮询无步级粒度，阶梯进度
+                # 供 flow stalled 检测与前端进度条续命
+                _hb_stop = threading.Event()
+
+                def _hb() -> None:
+                    _pct = 3
+                    while not _hb_stop.wait(6.0):
+                        _pct = min(90, _pct + 4)
+                        progress(_pct, 0)
+
+                _hb_t = threading.Thread(target=_hb, daemon=True,
+                                         name="draw-comfy-hb")
+                _hb_t.start()
+                try:
+                    if mask is not None and init_image is not None:
+                        result = get_comfy_paint_engine().inpaint(
+                            params, init_image, mask)
+                    else:
+                        result = comfy_paint_generate(
+                            params, ref_image=init_image)
+                finally:
+                    _hb_stop.set()
+                    _hb_t.join(timeout=1)
+            gen_node = None
+
+            with flow.node("结果落盘",
+                           friendly="保存图像并写入历史记录") as n:
+                image = result["images"][0]
+                rel_path = _save_result_local(
+                    image, task_id, prompt, params.get("negative", ""),
+                    {k: v for k, v in params.items() if k != "optimize"},
+                    result["seed"])
+                image_b64 = _pil_to_b64(image)
+                n.output(rel_path)
+
+            _task_update(task_id, status="done", percent=100,
+                         file_path=rel_path, image_b64=image_b64,
+                         seed=result["seed"], model=result["model"],
+                         sampler=params.get("sampler", "euler"),
+                         elapsed_ms=int(result["elapsed_ms"]),
+                         backend="comfy-klein")
+            _broadcast_progress(task_id, 100,
+                                int(params.get("steps", 0)), status="done")
+            flow.end("success", output_summary=rel_path)
+            return
+
+        # （prompt/model_hint 已在 comfy 分支前提取——W3-C）
         # ── 模块级选型配置生效（模型管理 → 功能模块模型配置）───────
         # ① 显式点名模型不在白名单 → 如实失败（精细化管控落地）
         # ② 未指定模型且配置了默认 → 采用模块默认（优先于智能路由
@@ -983,11 +1157,15 @@ async def draw_upscale(body: dict = Body(default_factory=dict)) -> dict[str, Any
     engine = get_paint_engine()
     lock = await acquire_or_raise("paint")
     try:
-        result = await run_blocking(engine.upscale, image, scale)
+        if _paint_gen_engine_comfy():
+            # W3-C：comfy 档无超分模型——PIL LANCZOS 诚实降级
+            result = await run_blocking(_upscale_lanczos, image, scale)
+        else:
+            result = await run_blocking(engine.upscale, image, scale)
     finally:
         await lock.release("paint")
 
-    out_b64 = get_paint_engine().image_to_base64(result["image"])
+    out_b64 = _pil_to_b64(result["image"])
     return ok({
         "image": out_b64,
         "scale": result["scale"],
@@ -1010,8 +1188,7 @@ def draw_result(task_id: str) -> dict[str, Any]:
         db = get_db_safe()
         if db is not None:
             try:
-                from ..services.inference.paint_engine import PaintEngine
-                PaintEngine.ensure_history_table()
+                _ensure_history_table()
                 row = db.query_one(
                     "SELECT task_id, prompt, negative, params_json, file_path,"
                     " seed, created_at FROM paint_history WHERE task_id=?",
@@ -1181,8 +1358,7 @@ def draw_history(page: int = Query(1, ge=1),
     - width/height   按生成尺寸筛选（params_json 内 JSON1 提取）
     - keyword        提示词模糊匹配
     """
-    from ..services.inference.paint_engine import PaintEngine
-    PaintEngine.ensure_history_table()
+    _ensure_history_table()
     _ensure_history_columns()
 
     db = get_db_safe()
@@ -1281,8 +1457,7 @@ def _delete_history_file(file_path: str) -> bool:
 def paint_history_favorite(task_id: str,
                            body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """切换/设置收藏（PAINT-048）。body.favorite 缺省时取反。"""
-    from ..services.inference.paint_engine import PaintEngine
-    PaintEngine.ensure_history_table()
+    _ensure_history_table()
     _ensure_history_columns()
 
     row = _history_row(task_id)
@@ -1304,8 +1479,7 @@ def paint_history_favorite(task_id: str,
 @router.delete("/draw/history/{task_id}")
 def paint_history_delete(task_id: str) -> dict[str, Any]:
     """删除单条历史（PAINT-050）：记录 + 图文件（best-effort）。"""
-    from ..services.inference.paint_engine import PaintEngine
-    PaintEngine.ensure_history_table()
+    _ensure_history_table()
 
     row = _history_row(task_id)
     if row is None:
@@ -1327,8 +1501,7 @@ def paint_history_batch_delete(body: dict = Body(default_factory=dict)) -> dict[
         raise ApiError(40008, "缺少必填参数: ids（task_id 数组）")
     ids = [str(i) for i in ids[:200]]
 
-    from ..services.inference.paint_engine import PaintEngine
-    PaintEngine.ensure_history_table()
+    _ensure_history_table()
 
     db = get_db_safe()
     if db is None:

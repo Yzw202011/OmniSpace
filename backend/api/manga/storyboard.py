@@ -48,11 +48,14 @@ from .common import (
     _load_rows,
     _make_row,
     _now,
+    _paint_gen_engine_comfy,
+    _pil_to_png_b64,
     _public_row_to_db,
     _row_to_storyboard_row,
     _sanitize_delimiters,
     _storyboards,
     _validate_row_director_fields,
+    comfy_paint_generate,
     manga_dialog_model_id,
 )
 from .describe_refine import refine_description
@@ -1514,6 +1517,42 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
     if not description:
         raise ApiError(40008, "缺少 row_id 或 description")
 
+    try:
+        seed = int(body.get("seed", -1))
+    except (TypeError, ValueError):
+        seed = -1
+
+    # W3-C（2026-09-13）：gen_engine=comfy 走 ComfyUI klein-9b-fp8 新栈
+    # （legacy diffusers klein-4b 路径原样保留，默认零行为变更）
+    if _paint_gen_engine_comfy():
+        lock = await acquire_or_raise("paint", task_id=row_id or None)
+        try:
+            try:
+                result = await run_blocking(comfy_paint_generate, {
+                    "prompt": description, "negative": "",
+                    "width": 512, "height": 512, "seed": seed})
+            except ApiError as exc:
+                # 与 legacy 同款诚实降级：占位图 + 指路模型管理
+                return ok({
+                    "row_id": row_id or None,
+                    "image": _PLACEHOLDER_PNG,
+                    "degraded": True,
+                    "degrade_reason": (
+                        "ComfyUI klein 出图失败（预览图为占位图，非真实"
+                        f"生成）：{exc.message}。可到「模型管理 → AI 绘画」"
+                        "检查后重试"),
+                })
+            return ok({
+                "row_id": row_id or None,
+                "image": _pil_to_png_b64(result["images"][0]),
+                "seed": result["seed"],
+                "model": result["model"],
+                "elapsed_ms": result["elapsed_ms"],
+                "degraded": False,
+            })
+        finally:
+            await lock.release("paint")
+
     engine = get_paint_engine()
     if not engine.is_ready:
         # 2026-08-31 用户需求「点击生图时未加载要立刻加载」：先自动加载
@@ -1531,10 +1570,7 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
                 "engine_state": status["state"],
             })
 
-    try:
-        seed = int(body.get("seed", -1))
-    except (TypeError, ValueError):
-        seed = -1
+    # （seed 已在函数前段解析——W3-C comfy 分支与 legacy 共用）
     params = {
         "prompt": description,
         "negative": "",

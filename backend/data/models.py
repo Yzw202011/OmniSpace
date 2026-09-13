@@ -50,19 +50,16 @@ class SynergyMode(str, Enum):
 
 
 class VideoModel(str, Enum):
-    LTX2 = "ltx-2"
+    # B3（2026-09-14）死枚举收敛：删除 LTX2/WAN21_14B_FP8/WAN21_14B_INT4/
+    # WAN21_1_3B/WAN22_TI2V_5B/LTX_VIDEO_095 六成员——权重均已隔离/删除、
+    # VIDEO_ROUTING_TABLE 仅 minimax-h3、全库引用仅 video_router params_map
+    # （已同刀摘除）。保留四成员：MINIMAX_H3=路由唯一主力；ANIMATELCM 与
+    # COGVIDEOX_2B(_CPU)=video_router 兜底哨兵（<12G 档标记，落 Ken Burns）。
+    # 未来解锁 diffusers 路由按需重建成员（B3 路由守卫同步失效）。
     # MiniMax H3 33B（NVFP4 DiT + Qwen3-VL-32B int4 convrot 编码器，
     # ComfyUI 子进程管线，2026-08-25 接入）：DynamicVRAM 分时换载，
     # 采样期峰值 ~12GB，16GB 卡可跑；原生音画（32kHz 立体声）
     MINIMAX_H3 = "minimax-h3"
-    WAN21_14B_FP8 = "wan2.1-14b-fp8"
-    WAN21_14B_INT4 = "wan2.1-14b-int4"
-    WAN21_1_3B = "wan2.1-1.3b"
-    # Wan2.2-TI2V-5B：单 ckpt 原生 T2V+I2V+TI2V 双条件统一底座
-    # （2026-08-23 混合架构裁定：视频侧统一到该权重，I2V 与文+图
-    # 生视频共用；目录名 wan22-ti2v-5b 与发现层约定一致）
-    WAN22_TI2V_5B = "wan22-ti2v-5b"
-    LTX_VIDEO_095 = "ltx-video-0.9.5"  # 2B diffusers，T5 int8 量化加载
     COGVIDEOX_2B = "cogvideox-2b"
     COGVIDEOX_2B_CPU = "cogvideox-2b-cpu"
     ANIMATELCM = "AnimateLCM"

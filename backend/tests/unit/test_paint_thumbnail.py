@@ -5,35 +5,26 @@
 返回 512px JPEG（首访生成、.thumbs/ 磁盘缓存、原子替换），
 网格用缩略图、灯箱用原图；历史删除同步清缩略图防孤儿。
 
-AST 沙箱（同 test_keyframe_char_anchor 约定）：提取
-_paint_thumbnail + 常量到隔离命名空间。
+B9（2026-09-13）：AST 沙箱改真 import（同 test_keyframe_multiref
+改造）——接线损坏收集期即炸。
 """
 from __future__ import annotations
 
-import ast
 from pathlib import Path
+
+import backend.api.draw as _draw_mod
 
 DRAW_PY = (Path(__file__).resolve().parents[2] / "api" / "draw.py")
 
 
 def _load_thumb_fn():
-    tree = ast.parse(DRAW_PY.read_text(encoding="utf-8"))
-    body = []
-    for n in tree.body:
-        if isinstance(n, ast.FunctionDef) and n.name == "_paint_thumbnail":
-            body.append(n)
-        elif isinstance(n, ast.Assign):
-            tgt = n.targets[0]
-            if isinstance(tgt, ast.Name) and tgt.id in (
-                    "_THUMB_DIR_NAME", "_THUMB_SIZE"):
-                body.append(n)
-    assert body, "draw.py 中未找到 _paint_thumbnail 及常量"
-    ns: dict = {"log": type("L", (), {
-        "debug": staticmethod(lambda *a, **k: None),
-        "warning": staticmethod(lambda *a, **k: None)})()}
-    exec(compile(ast.Module(body=body, type_ignores=[]),
-                 "<extract>", "exec"), ns)  # noqa: S102 - 测试沙箱
-    return ns
+    assert hasattr(_draw_mod, "_paint_thumbnail"), (
+        "draw.py 中未找到 _paint_thumbnail")
+    return {
+        "_paint_thumbnail": _draw_mod._paint_thumbnail,
+        "_THUMB_DIR_NAME": _draw_mod._THUMB_DIR_NAME,
+        "_THUMB_SIZE": _draw_mod._THUMB_SIZE,
+    }
 
 
 def _make_png(path: Path, w: int = 2560, h: int = 1440) -> None:

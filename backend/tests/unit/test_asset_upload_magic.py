@@ -6,36 +6,27 @@
 修复 = _assert_image_magic（PIL 解码+格式白名单+verify）在落盘前拒绝，
 三个上传位（reference/upload/replace）统一设防。
 
-AST 沙箱手法（同 test_keyframe_char_anchor 约定）：提取
-_assert_image_magic 到隔离命名空间，ApiError 以等价桩替换。
+B9（2026-09-13）：AST 沙箱改真 import；原 ApiError 等价桩直接换
+真 ApiError（断言处按 .code 判别，形态不变）。
 """
 from __future__ import annotations
 
-import ast
 import io
 from pathlib import Path
+
+import backend.api.manga.comic_asset as _asset_mod
+from backend.middleware.error_handler import ApiError
 
 ASSET_PY = (Path(__file__).resolve().parents[2]
             / "api" / "manga" / "comic_asset.py")
 
-
-class _StubApiError(Exception):
-    def __init__(self, code, message="", detail=None):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.detail = detail
+_StubApiError = ApiError  # 兼容历史断言命名（真对象）
 
 
 def _load_magic_fn():
-    tree = ast.parse(ASSET_PY.read_text(encoding="utf-8"))
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef)
-              and n.name == "_assert_image_magic")
-    ns = {"io": io, "ApiError": _StubApiError}
-    mod = ast.Module(body=[fn], type_ignores=[])
-    exec(compile(mod, "<extract>", "exec"), ns)  # noqa: S102 - 测试沙箱
-    return ns["_assert_image_magic"]
+    assert hasattr(_asset_mod, "_assert_image_magic"), (
+        "comic_asset.py 中未找到 _assert_image_magic")
+    return _asset_mod._assert_image_magic
 
 
 def _png_bytes() -> bytes:
@@ -51,7 +42,7 @@ def test_html_masquerade_rejected() -> None:
         fn(b"<script>alert(1)</script>", "evil.png")
         raise AssertionError("HTML 伪装应被拒绝")
     except _StubApiError as e:
-        assert e.code == 40010
+        assert e.code == "UNSUPPORTED_FORMAT"
         assert "魔数" in e.message
 
 
@@ -61,7 +52,7 @@ def test_exe_masquerade_rejected() -> None:
         fn(b"MZ\x90\x00\x03\x00\x00\x00\x04", "evil.png")
         raise AssertionError("EXE 伪装应被拒绝")
     except _StubApiError as e:
-        assert e.code == 40010
+        assert e.code == "UNSUPPORTED_FORMAT"
 
 
 def test_valid_png_passes() -> None:
@@ -81,7 +72,7 @@ def test_wrong_real_format_rejected() -> None:
         fn(bmp, "fake.bmp.png")
         raise AssertionError("BMP 伪装 .png 应被拒绝")
     except _StubApiError as e:
-        assert e.code == 40010
+        assert e.code == "UNSUPPORTED_FORMAT"
 
 
 def test_all_three_upload_sites_guarded() -> None:

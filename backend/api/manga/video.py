@@ -1075,7 +1075,6 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
 
 
 @router.post("/manga/video/generate")
-@router.post("/video/generate")  # 顶层别名（文档 §7.1.4 /v1/video）
 async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     """生成视频（规格 §4.4，TASK-010 真实产出）——入队即返回（B 方案）。
 
@@ -1333,7 +1332,6 @@ def _attach_eta(resp: dict, task_id: str) -> None:
 
 
 @router.get("/manga/video/{task_id}/status")
-@router.get("/video/{task_id}/status")  # 顶层别名
 def video_status(task_id: str) -> dict[str, Any]:
     """视频生成状态（规格 §4.4）——真实进度回传（由后台工作线程落库）。"""
     db = get_db_safe()
@@ -1392,7 +1390,6 @@ def _video_task_record(task_id: str) -> dict | None:
 
 
 @router.get("/manga/video/{task_id}/result")
-@router.get("/video/{task_id}/result")  # 顶层别名
 def video_result(task_id: str) -> dict[str, Any]:
     """视频生成结果（规格 §4.4）——返回真实文件路径与下载地址。"""
     row = _video_task_record(task_id)
@@ -1434,7 +1431,6 @@ def video_result(task_id: str) -> dict[str, Any]:
 
 
 @router.get("/manga/video/{task_id}/download")
-@router.get("/video/{task_id}/download")  # 顶层别名
 def video_download(task_id: str) -> FileResponse:
     """下载生成的视频文件（真实文件流式返回）。"""
     row = _video_task_record(task_id)
@@ -1621,7 +1617,6 @@ def manga_media(relpath: str) -> FileResponse:
 
 
 @router.post("/manga/video/{task_id}/cancel")
-@router.post("/video/{task_id}/cancel")  # 顶层别名
 def video_cancel(task_id: str) -> dict[str, Any]:
     """取消视频生成任务（COMIC-131；2026-09-02 接视频队列）。
 

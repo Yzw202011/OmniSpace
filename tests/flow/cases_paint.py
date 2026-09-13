@@ -279,17 +279,24 @@ def paint_019(c: Client, r: Recorder) -> None:
              "canny 类型受理" + ("（降级）" if d.get("degraded") else ""))
 
 
-@case(MOD, "TC-FLOW-PAINT-020", "ControlNet Depth深度图流程验证", "P2")
+@case(MOD, "TC-FLOW-PAINT-020", "视觉工具端点收敛对账", "P2")
 def paint_020(c: Client, r: Recorder) -> None:
+    # B3（2026-09-13）：/art 收敛为单端点 segment——depth 端点应 404
+    #（信封语义 SYSTEM_RESOURCE_NOT_FOUND）；segment 存活性顺带核验
     env = c.post("/api/v1/art/depth", {"image": tiny_png_b64()})
     d = ok_data(env)
-    if d and (d.get("depth") or d.get("map") or d.get("image")):
-        r.record("TC-FLOW-PAINT-020", "ControlNet Depth深度图流程验证",
-                 "PASS", "P2", "MiDaS 深度估计真实推理成功（/art/depth）")
+    err = err_msg(env)
+    if env.status_code == 200 and d is None and (
+            "NOT_FOUND" in str(err) or "资源不存在" in str(err)):
+        r.record("TC-FLOW-PAINT-020", "视觉工具端点收敛对账",
+                 "PASS", "P2", "/art/depth 已随 B3 收敛移除（404 信封如实）")
     else:
-        r.record("TC-FLOW-PAINT-020", "ControlNet Depth深度图流程验证",
+        env2 = c.post("/api/v1/art/segment", {"image": tiny_png_b64()})
+        d2 = ok_data(env2)
+        r.record("TC-FLOW-PAINT-020", "视觉工具端点收敛对账",
                  "DEGRADED", "P2",
-                 f"MiDaS 深度端点响应: {str(d)[:80] if d else err_msg(env)[:60]}")
+                 f"/art/depth 未按预期收敛（{str(err)[:50]}）；segment 状态: "
+                 f"{'ok' if d2 else err_msg(env2)[:50]}")
 
 
 @case(MOD, "TC-FLOW-PAINT-021", "ControlNet强度梯度验证", "P3")

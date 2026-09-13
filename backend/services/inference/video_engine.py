@@ -1106,6 +1106,17 @@ class VideoEngine(BaseEngine):
         if _diffusers is None or _torch is None:
             self._animatelcm_error = "diffusers/torch 依赖不可用"
             return False
+        # B3（2026-09-13）路由诚实守卫（与 _ensure_video_loaded 同源）：
+        # AnimateLCM 是 F-07 兜底链，权重（ckpt+SD15）已入隔离区、路由
+        # 表仅 minimax-h3——产品路径不可达，探测装载本身即浪费。路由
+        # 表解锁 diffusers 条目时本闸自动失效。
+        from ...data.models import VIDEO_ROUTING_TABLE
+        _routed_a = {str(e.get("model") or "") for e in VIDEO_ROUTING_TABLE}
+        if not (_routed_a - {VideoModel.MINIMAX_H3.value,
+                             VideoModel.MINIMAX_H3.name}):
+            self._animatelcm_error = (
+                "路由表仅 minimax-h3（B3 守卫）：AnimateLCM 兜底链停用")
+            return False
         self._animatelcm_attempted = True
 
         status = get_animatelcm_status()
@@ -1281,6 +1292,22 @@ class VideoEngine(BaseEngine):
                 任务形态错配；纯文本请求保持原全量排序。
         """
         if self._loaded or self._fallback_mode or self._video_autoload_attempted:
+            return
+        # B3（2026-09-13）路由诚实守卫：VIDEO_ROUTING_TABLE 仅 minimax-h3
+        # （漫剧视频主力锁定令，09-06），diffusers 自动装载在任何产品路径
+        # 上都到不了——models/ 下遗留的 Wan/CogVideoX/LTX/HunyuanVideo
+        # 权重一旦被导入登记，旧逻辑会把它往卡上装（分钟级装载 + 数 GB
+        # 常驻 + 与 H3/对话链抢显存），而该结果永远不会被路由选中。守卫
+        # 语义：AnalyzeDiffusion 路由被解锁（路由表加回 diffusers 条目）
+        # 时本闸自动失效，代码路径整体保留零删除。
+        from ...data.models import VIDEO_ROUTING_TABLE
+        _routed = {str(e.get("model") or "") for e in VIDEO_ROUTING_TABLE}
+        _diffusers_routed = bool(
+            _routed - {VideoModel.MINIMAX_H3.value, VideoModel.MINIMAX_H3.name})
+        if not _diffusers_routed:
+            logger.info(
+                "diffusers 视频管线跳过自动装载（路由表仅 minimax-h3，"
+                "B3 路由诚实守卫；导入 diffusers 权重不再触装载）")
             return
         self._video_autoload_attempted = True
         if _diffusers is None or _torch is None:

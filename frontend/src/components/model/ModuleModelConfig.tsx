@@ -40,8 +40,12 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/useDialogStore';
-import { usePaintStore } from '@/stores/usePaintStore';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  listModels,
+  type DrawModelItem,
+} from '@/services/paintApi';
+import { reportActionError } from '@/utils/errors';
 import {
   getDialogModels,
   getDialogEngineStatus,
@@ -416,15 +420,22 @@ export const ModuleModelConfig: React.FC = () => {
   };
 
   /* ---------- AI 绘画 ---------- */
-  const paintModels = usePaintStore((s) => s.models);
-  const fetchPaintModels = usePaintStore((s) => s.fetchModels);
+  // W3-C 步5：去 usePaintStore 化（旧绘画 store 已清退）——模型列表
+  // 本地直调 /draw/models
+  const [paintModels, setPaintModels] = useState<DrawModelItem[]>([]);
   const [paintPref, setPaintPref] = useState<PaintModelPref>(() => loadPaintModelPref());
 
   useEffect(() => {
-    if (paintModels.length === 0) {
-      void fetchPaintModels();
-    }
-  }, [paintModels.length, fetchPaintModels]);
+    let cancelled = false;
+    void listModels()
+      .then((res) => {
+        if (!cancelled) setPaintModels(res.items || []);
+      })
+      .catch((err: unknown) => reportActionError(err, '读取绘画模型列表'));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** 本地就绪的可选绘画模型（/draw/models status === ready） */
   const readyPaintModels = paintModels.filter((m) => m.status === 'ready');

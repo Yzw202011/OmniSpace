@@ -7,9 +7,9 @@
 历史端点与收敛理由（零前端消费 + 权重不在盘，B3 调用面对账见
 docs/全量技术评估总汇总与修复总方案-v4 §八）：
 - /art/image-to-3d、/art/assets/3d/{filename}  TripoSR 3D（3D 已裁定剔除，
-  权重已入隔离区）；引擎文件 triposr_engine.py 待 B3 后续步摘除
+  权重已入隔离区）；引擎文件已随 B3 摘除
 - /art/depth、/art/detect                      MiDaS/YOLO（权重目录不存在，
-  一调必 MODEL_FILE_NOT_FOUND；引擎文件待后续步摘除）
+  一调必 MODEL_FILE_NOT_FOUND；引擎文件已随 B3 摘除）
 - /art/tools/status                            随四引擎聚合一并移除
 
 输入约定：image 字段为 base64（允许 data:image/...;base64, 前缀）。

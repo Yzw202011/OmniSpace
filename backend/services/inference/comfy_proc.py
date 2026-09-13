@@ -288,6 +288,11 @@ class ComfyProcManager:
                 logger.warning("ComfyUI 孤儿清扫异常（继续 spawn）: %s", exc)
             logs_dir = ROOT_DIR / "logs"
             logs_dir.mkdir(exist_ok=True)
+            # 审计 P2-3（2026-09-12）：重开前先关旧日志句柄——进程崩溃
+            # 路径未经 stop() 换手时旧 fp 会泄漏（句柄累积）
+            _old_fp, self._log_fp = self._log_fp, None
+            if _old_fp is not None and not _old_fp.closed:
+                _old_fp.close()
             self._log_fp = open(logs_dir / log_name, "ab")
             for d in (COMFY_OUTPUT_DIR, COMFY_INPUT_DIR,
                       COMFY_TEMP_DIR, COMFY_USER_DIR):

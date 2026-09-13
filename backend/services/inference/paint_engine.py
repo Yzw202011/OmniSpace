@@ -1,4 +1,10 @@
-"""OmniSpace AI v2.3 绘画推理引擎（TASK-006 真实推理实现）。
+"""OmniSpace AI 绘画推理引擎·旧 diffusers/GGUF 栈（批0-c 2026-09-12 勘误）。
+
+定位勘误：主力出图 = ComfyUI klein 栈（comfy_paint_engine.py，漫剧
+关键帧/四视图/资产图）；本文件为旧 diffusers 绘画栈（前端 /paint UI
+已由 AI 漫画页取代，draw API 兼容保留）。以下 SDXL 加载说明仅描述
+本栈内部实现，不代表现行绘画路由（PAINT_ROUTING_TABLE =
+flux2-klein-9b / qwen-image-2512）：
 
 使用 diffusers 加载本地 SDXL base 1.0（models/paint/sdxl-base-1.0）：
 

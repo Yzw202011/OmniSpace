@@ -64,7 +64,7 @@ def assert_loopback_host(host: str, allow_lan: str | None = None) -> None:
 assert_loopback_host(HOST)
 
 API_PREFIX = "/api/v1"  # 文档B/D/E 统一基线（ADR-03：由历史 /v1 迁移）
-RATE_LIMIT = _cfg["server"]["rate_limit"]  # 100/min
+RATE_LIMIT = _cfg["server"]["rate_limit"]  # 300/min（config.yaml 实值；旧注释 100 已过期，批0-c 勘误）
 
 # ── 调度 ─────────────────────────────────────────────────────────
 SCHEDULER_INTERVAL_MS = _cfg["scheduler"]["sample_interval_ms"]

@@ -1,11 +1,11 @@
-"""OmniSpace AI v2.1 视频推理引擎（规格 §5.2 + §5.3 视频模型路由）。
+"""OmniSpace AI 视频兜底引擎（批0-c 2026-09-12 docstring 勘误）。
 
-使用 LTX-2 / Wan2.1 / CogVideoX 进行视频生成（真实模型经 load_diffusers_model()
-钩子加载）。真实视频模型未下载时按探测链尝试 AnimateLCM 图生视频分支（F-07：
-AnimateLCM_sd15_t2v 运动模块 + SD1.5 底座组成 AnimateDiffPipeline，LCM 少步采样
-产出 2~4s 短 clip，不足时长由 Ken Burns 补足）；AnimateLCM 不可用（SD1.5 底座
-未随包）时走"降级真实管线"（TASK-010）：PIL 渲染 Ken Burns 推拉帧序列 + 字幕条
-→ FFmpeg 编码产出**真实可播放**的 MP4/AV1 文件到 data/generated/videos/。
+定位勘误：真实成片主力 = ComfyUI H3 链（h3_engine / h3_chain_engine），
+VIDEO_ROUTING_TABLE 仅 minimax-h3 一条——本文件的 LTX-2 / Wan2.1 /
+CogVideoX diffusers 生成路径已无路由可达（文档 §5.2 旧口径），当前
+职责仅为：目录常量（VIDEO_OUT_DIR）+ AnimateLCM/Ken Burns 探测链 +
+PIL+FFmpeg「降级真实管线」兜底成片（TASK-010）+ 状态台账
+（get_status，switch_engine 读）。
 """
 
 from __future__ import annotations

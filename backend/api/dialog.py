@@ -223,6 +223,11 @@ def _dialog_queue_position(sid: str) -> int:
 
 def _dialog_queue_enter(sid: str) -> int:
     now = time.monotonic()
+    # Windows monotonic 粒度 ~15.6ms：两位用户同 tick 进队会拿到相等
+    # 时间戳，位次判据 t < mine（严格小于）随即并列——FIFO 语义破缺
+    # （批0 2026-09-12：强制严格递增，并列竞态根修，测试随之定稳）
+    if _DIALOG_LOCK_WAITERS:
+        now = max(now, max(_DIALOG_LOCK_WAITERS.values()) + 1e-6)
     _DIALOG_LOCK_WAITERS[sid] = now
     return _dialog_queue_position(sid)
 
@@ -1121,23 +1126,30 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
             if watcher is not None:
                 watcher.cancel()
             _stop_flags.discard(sid)
+            # 审计 P2-2（2026-09-12）：先放锁后落库——落库原在放锁前，
+            # _save_message 一旦异常/阻塞会把对话功能锁卡死到重启；
+            # 落库异常降级为日志，不阻断放锁
+            await lock.release("dialog")
             reply = "".join(collected)
             reasoning_full = "".join(reasoning_parts)
             # 节点：消息落库
             with flow.node("消息落库", friendly="保存对话记录") as n:
-                if reply or reasoning_full:
-                    # M-4 兜底：异常路径残留标签剥离，防污染后续轮上下文
-                    _save_message(sid, "assistant", strip_think_tags(reply),
-                                  model_used=engine.model_name,
-                                  reasoning=reasoning_full,
-                                  rag_refs=refs)
-                    n.output(f"回复 {len(reply)} 字"
-                             + (f"，思考 {len(reasoning_full)} 字"
-                                if reasoning_full else ""))
-                    n.output(f"回复 {len(reply)} 字"
-                             + (f"，思考 {len(reasoning_full)} 字"
-                                if reasoning_full else ""))
-            await lock.release("dialog")
+                try:
+                    if reply or reasoning_full:
+                        # M-4 兜底：异常路径残留标签剥离，防污染后续轮上下文
+                        _save_message(sid, "assistant", strip_think_tags(reply),
+                                      model_used=engine.model_name,
+                                      reasoning=reasoning_full,
+                                      rag_refs=refs)
+                        n.output(f"回复 {len(reply)} 字"
+                                 + (f"，思考 {len(reasoning_full)} 字"
+                                    if reasoning_full else ""))
+                        n.output(f"回复 {len(reply)} 字"
+                                 + (f"，思考 {len(reasoning_full)} 字"
+                                    if reasoning_full else ""))
+                except Exception as exc:  # noqa: BLE001 - 落库失败不阻断收尾
+                    n.output(f"落库失败（已放锁）：{exc}")
+                    log.error("对话回复落库失败 sid=%s: %s", sid, exc)
             # 流程收尾：错误事件优先；有产出（含用户停止后部分产出）算成功
             if error_holder:
                 flow.end("error", error_code="STREAM_FAILED",
@@ -1888,42 +1900,45 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             return
         log.info("对话进入排队等待：blocker=%s sid=%s", _blocker, sid)
         _pos = _dialog_queue_enter(sid)
-        _deadline = time.monotonic() + _DIALOG_QUEUE_WAIT_S
-        _waited = 0
-        while True:
-            _waited = int(_DIALOG_QUEUE_WAIT_S - (_deadline - time.monotonic()))
-            _pos = _dialog_queue_position(sid)
-            try:
-                await websocket.send_json({
-                    "type": "status",
-                    "data": {
-                        "phase": "queued",
-                        "blocking": _blocker,
-                        "position": _pos,
-                        "waited_s": max(0, _waited),
-                        "message": f"排队中：{_blocker_zh}进行中，"
-                                   f"你排在第 {_pos} 位，"
-                                   f"结束后自动继续"
-                                   f"（已等待 {max(0, _waited)} 秒，"
-                                   "可点停止退出排队）",
-                    },
-                })
-            except Exception:  # noqa: BLE001 - WS 断开即退出排队
-                _dialog_queue_exit(sid)
-                return
-            try:
-                lock = await acquire_or_raise("dialog", task_id=sid)
-                _dialog_queue_exit(sid)
-                break
-            except ApiError as retry_exc:
-                if time.monotonic() >= _deadline:
-                    _dialog_queue_exit(sid)
-                    await _ws_send_error(
-                        websocket, retry_exc.code,
-                        f"排队超时（{_DIALOG_QUEUE_WAIT_S:.0f} 秒）："
-                        f"{retry_exc.message}")
+        # 审计 P2-1（2026-09-12）：排队全程 try/finally 兜底出队——
+        # 此前 asyncio.sleep 被取消（客户端断开）等异常路径会泄漏
+        # 位次表条目（_dialog_queue_exit 幂等，显式出口移除防重复）
+        try:
+            _deadline = time.monotonic() + _DIALOG_QUEUE_WAIT_S
+            _waited = 0
+            while True:
+                _waited = int(_DIALOG_QUEUE_WAIT_S - (_deadline - time.monotonic()))
+                _pos = _dialog_queue_position(sid)
+                try:
+                    await websocket.send_json({
+                        "type": "status",
+                        "data": {
+                            "phase": "queued",
+                            "blocking": _blocker,
+                            "position": _pos,
+                            "waited_s": max(0, _waited),
+                            "message": f"排队中：{_blocker_zh}进行中，"
+                                       f"你排在第 {_pos} 位，"
+                                       "结束后自动继续"
+                                       f"（已等待 {max(0, _waited)} 秒，"
+                                       "可点停止退出排队）",
+                        },
+                    })
+                except Exception:  # noqa: BLE001 - WS 断开即退出排队
                     return
-            await asyncio.sleep(2.0)
+                try:
+                    lock = await acquire_or_raise("dialog", task_id=sid)
+                    break
+                except ApiError as retry_exc:
+                    if time.monotonic() >= _deadline:
+                        await _ws_send_error(
+                            websocket, retry_exc.code,
+                            f"排队超时（{_DIALOG_QUEUE_WAIT_S:.0f} 秒）："
+                            f"{retry_exc.message}")
+                        return
+                await asyncio.sleep(2.0)
+        finally:
+            _dialog_queue_exit(sid)
 
     try:
         # 模型选择接线（2026-08-20）：前端 model 参数（旧档位标签或完整

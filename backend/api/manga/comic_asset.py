@@ -817,7 +817,7 @@ async def comic_asset_reference_upload(asset_id: str,
     if ext not in _ASSET_UPLOAD_EXTS:
         raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
         raise ApiError(40008, "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
@@ -1091,7 +1091,7 @@ async def comic_asset_image_replace(asset_id: str,
     if ext not in _ASSET_UPLOAD_EXTS:
         raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
         raise ApiError(40008, "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
@@ -1176,7 +1176,7 @@ async def comic_asset_upload(project_id: str = Form(...),
     if ext not in _ASSET_UPLOAD_EXTS:
         raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
         raise ApiError(40008, "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:

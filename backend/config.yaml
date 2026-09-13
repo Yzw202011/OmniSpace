@@ -209,6 +209,13 @@ ui:
 
 # vLLM 推理底座（V3 显存分档 2026-09-08）：
 vllm:
+  # sleep mode（B0 2026-09-13 实弹验证后回退默认关）：true=启动带
+  # --enable-sleep-mode + sitecustomize/cudart 补丁走真睡眠让渡；
+  # false=历史「杀子进程让渡」。实测 0.27.1 Windows wheel 的
+  # cumem_allocator.pyd 不导出 my_malloc/my_free 符号（EngineCore
+  # CUDAPluggableAllocator AttributeError），真 sleep 需上游修复或
+  # 重编扩展——升级 vLLM 后把本键翻 true 重验即可（补丁已常驻）。
+  sleep_mode: false
   # KV cache 量化档：""=关（默认，历史行为不变）/"auto"=FP8 能力卡
   # （计算能力≥8.9，如 5070 Ti sm_120）自动开/"fp8"=强制开。
   # FP8 KV 显存约减半（vLLM 官方 2026-04 production-ready 定调，

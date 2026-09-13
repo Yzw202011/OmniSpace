@@ -17,7 +17,7 @@
 - [ ] 我知道状态管理用 **Zustand 5**（5.0.0），不是 Pinia/Redux
 - [ ] 我知道包管理用 **pnpm**（packageManager 字段锁定），不是 npm/yarn
 - [ ] 我知道 **3D 导演台已整链路剔除**（2026-08-29 用户裁定：后端 director 路由/前端 DirectorStage/src/three/ 六件套/DB 表不再使用），前端无 3D 视口
-- [ ] 我知道 Python 运行时是**嵌入式 3.10.11**（runtime/py310 唯一解释器；vLLM 子进程独用 py313），不是 3.12
+- [ ] 我知道 Python 运行时是**嵌入式 3.12.10 主链（B1 2026-09-13 拍板项 0=A；py310 并存保留为回退锚点与打包基线）**；vLLM 子进程独用 py313，ComfyUI 便携包自带 py313——不是 3.10
 - [ ] 我知道后端用 FastAPI 0.141 + Pydantic v2，不是 Django/Flask
 - [ ] 我知道**没有 Tauri/Rust 壳层**——ADR-002（2026-08-20）已裁剪，交付形态 = launcher + 系统浏览器
 - [ ] 我知道数据库是 SQLite（WAL，**32 张用户表＝主库 30 + flow 独立库 logs/flow_trace.db 2**，user_version=7，2026-09-01 实测校准）+ ChromaDB，不是 PostgreSQL/MongoDB
@@ -43,12 +43,12 @@
 | 3D | **已剔除**（2026-08-29 裁定：src/three/ 六件套与 DirectorStage 已删除） | @react-three/fiber、drei |
 | 构建工具 | **Vite 6 + TypeScript 5.6**（strict）+ vitest 2.1.8 | — |
 | CSS | **Tailwind CSS 4**（@tailwindcss/vite） | — |
-| 后端语言 | **Python 3.10.11**（runtime/py310 嵌入式；pydeps/ 156 包双站点承载） | Python 3.12 |
+| 后端语言 | **Python 3.12.10（runtime/py312 嵌入式主链，B1 升级；py310 并存=回退锚点/打包基线）** | Python 3.10（作为主链的历史口径） |
 | 后端框架 | **FastAPI 0.141.1 + Pydantic v2 + uvicorn** | SQLAlchemy ORM（2.0.51 装而未用，全裸 sqlite3） |
-| AI 推理 | **torch 2.11.0+cu128 + diffusers 0.39 + transformers**；GGUF 走 llama.cpp；vLLM 0.26.0+cu128 子进程（py313，AWQ/GPTQ 自动路由） | — |
+| AI 推理 | **torch 2.13.0+cu130（契约真源=backend/torch_contract.json，boot 预检闸守）+ diffusers 0.39 + transformers**；GGUF 走 llama.cpp；vLLM **0.27.1** 子进程（py313；生成期让渡=杀子进程制，config vllm.sleep_mode 门控真 sleep 待上游） | — |
 | 关系数据库 | **SQLite WAL + FTS5**（32 张用户表=主库 30+flow 独立库 2，PRAGMA user_version=7） | — |
 | 向量数据库 | **ChromaDB 1.5.9**（bge-large-zh 1024 维，不可用时降级 TF-IDF 内存检索） | — |
-| 任务队列 | **进程内 PriorityQueue**（high/medium/low/background 四级，模拟 Celery 语义）+ WS Hub 广播 | Celery + Redis（F-13 已裁定 ⚪ 豁免） |
+| 任务队列 | **进程内多套队列并存（实测 9 套）**：对话位次表/图像/视频/小说/训练×2/行为/浏览器×2，模拟 Celery 语义；统一任务子系统=治理项（v4 方案 B5）+ WS Hub 广播 | Celery + Redis（F-13 已裁定 ⚪ 豁免） |
 | 浏览器 | **Playwright Chromium 进程池**（学习代理用）+ 用户系统浏览器 | CEF 120+ |
 | 加密 | **AES-256-GCM 字段级**（crypto.py）+ Windows DPAPI 密钥保护 | SQLCipher（未启用） |
 | 包管理 | 后端 **pip + requirements-lock.txt**（154 包钉版）；前端 **pnpm** | uv |
@@ -81,12 +81,13 @@ src/stores/：
 （旧文档写的 useChatStore/useStoryboardStore/useSettingsStore/useModalStore/useWebSocketStore 不存在）
 ```
 
-### 2.3 路由（React Router 7，Hash 模式，实测 9 个一级路由）
+### 2.3 路由（React Router 7，Hash 模式，实测 10 个一级路由；B1 2026-09-13 勘误）
 
 ```
 /chat      → components/dialog/DialogPage.tsx
-/paint     → components/paint/PaintPage.tsx
-/storyboard→ components/manga/MangaPage.tsx
+/paint     → components/comic/ComicPage.tsx（AI 漫画页；URL 名沿用历史，旧绘画页已清退）
+/storyboard→ components/manga/MangaPage.tsx（漫剧创作）
+/novel     → components/novel/NovelPage.tsx
 /learning  → components/learning/LearningPage.tsx
 /models    → components/model/ModelManager.tsx
 /style     → components/style/StylePage.tsx
@@ -171,7 +172,7 @@ src/stores/：
 Base URL: http://127.0.0.1:5800/api/v1   （直接 uvicorn / config.yaml）
           launcher 默认 --port 8765（冲突扫描 5800-5835）—— 两套端口并存，联调前先确认
 
-14→15 个路由模块（main.py _API_MODULES 实测 15，2026-09-02 license 入列）：
+18 个路由模块 ≈**377 端点**（B1 2026-09-13 实测；API 面水分约 40%——38 死端点+112 仅测试/脚本消费，清退清单见 docs/全量技术评估总汇总与修复总方案-v4 §八）：
 ├── /api/v1/dialog  (≈/chat 别名)   对话（send/history/sessions/status，SSE: /chat/stream）
 ├── /api/v1/draw    (≈/paint 别名)  绘画（generate 异步任务 /img2img /inpaint /upscale /queue /history）
 ├── /api/v1/manga/*                 漫剧包：storyboard / comic / comic_asset / keyframe / video
@@ -202,7 +203,7 @@ WebSocket 4 个：/ws（消息中枢）、/api/v1/dialog/stream/{session_id}（�
 
 | 数据库 | 用途 | 规则 |
 |--------|------|------|
-| SQLite (WAL) | `data/omnispace.db` 主库 **30 张用户表**（database.py `_SCHEMA` 18 张 + 服务层自建 12 张）+ 独立库 `logs/flow_trace.db` 2 张（2026-09-01 实测校准） | PRAGMA user_version=**7**（迁移组机制，历史组禁改只许追加）；FTS5 知识全文检索 |
+| SQLite (WAL) | `data/omnispace.db` 主库 **23 张 schema 表 + 12 张服务层散建表**（另有 FTS5 影子 5 张＝实体 41；B1 2026-09-13 实测）+ 独立库 `logs/flow_trace.db` 2 张 + 第三库 `data/model_usage.db` 1 张 | PRAGMA user_version=**13**（迁移组机制，历史组禁改只许追加；散建表迁入体系=v4 B10 待办）；FTS5 知识全文检索 |
 | ChromaDB | 向量/知识库（data/chroma/） | bge-large-zh 1024 维；不可用降级 TF-IDF |
 | localStorage / IndexedDB | 前端偏好/缓存 | 前端直接读写 |
 
@@ -247,9 +248,9 @@ GPU 利用率：>85% 持续 5s 轻度降参（steps×0.67）；>95% 持续 15s �
 
 ## 8. 性能指标（性质：验收目标值；非实测现状）
 
-> 2026-08-28 实测锚点（RTX 5070 Ti 16GB）：对话 qwen3-vl-4b 首字 **461ms**；
-> SDXL 768² 20步 **13.6s**；wan22-ti2v-5b I2V 2s/720p **83.4s**；后端冷启动 **T+10s 就绪**。
-> 旧版本节的"当前值"列（TTFT 240ms / 启动 4.2s 等）无实测来源，作废。
+> 2026-09-13 实测锚点（RTX 5070 Ti 16GB，B1 勘误）：对话暖态 SSE 首字 **0.29s**（<500ms 达标）；
+> 后端冷启动 splash→就绪 **~22s**（暖机口径；冷机 25s~2min=boot.py 口径），就绪日志已改实测 T+Xs。
+> 旧锚点（首字 461ms / SDXL 13.6s / wan 83.4s / T+10s）为 2026-08-28 口径，仅存档。
 
 | 指标 | 目标 |
 |------|------|
@@ -272,8 +273,8 @@ dialog / paint / video_gen / training 四类重量级功能**进程内异步锁�
 
 ## 10. 硬件基线
 
-**项目硬件基线：RTX 3060 12GB + 32GB RAM（入门档位）**——模型选型硬约束（HARDWARE_TIER_TABLE 按 min_vram 分档路由）。
-开发实测机：RTX 5070 Ti 16GB。所有功能 MUST 在 12GB 档可用。
+**项目硬件档位（B1 2026-09-13 诚实化）：推荐体验档 = RTX 5070 Ti 16GB**（开发实测机；空转基线 ~10.9GB 显存、桌面+浏览器常态下空闲可用 ~13.4GB）；
+**12GB 入门档 = 降级体验档**（HARDWARE_TIER_TABLE 按 min_vram 分档路由——8 个档位要求 ≥14GB，12GB 机自动落低档/走降级链）。历史口径「所有功能 MUST 12GB 可用」不再作为承诺；对外发行宣传按 16GB 推荐/12GB 降级两档表述。
 
 ---
 

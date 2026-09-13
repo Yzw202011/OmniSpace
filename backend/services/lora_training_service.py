@@ -1589,7 +1589,9 @@ class LoRATrainingService:
         if path.suffix == ".safetensors":
             from safetensors.torch import load_file  # type: ignore
             return load_file(str(path))
-        return torch.load(str(path), map_location="cpu")
+        # B0（2026-09-13）：weights_only=True——拒绝含任意 pickle 对象
+        # 的权重文件（恶意模型包 RCE 链收口）；自训产物均为纯 state_dict
+        return torch.load(str(path), map_location="cpu", weights_only=True)
 
     def _next_version_dir(self) -> tuple[Path, str]:
         """分配下一个版本目录（models/lora/v{N+1}）。"""

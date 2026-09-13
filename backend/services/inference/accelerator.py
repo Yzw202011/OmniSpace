@@ -306,9 +306,10 @@ def safe_load_model(
         except Exception as e:
             logger.debug("transformers 加载失败: %s", e)
 
-    # 尝试 torch.load 加载
+    # 尝试 torch.load 加载（B0 2026-09-13：weights_only=True 拒绝含
+    # 任意 pickle 对象的文件——恶意模型包 RCE 链收口；拒绝时诚实报错）
     try:
-        model = _torch.load(path, map_location=device)
+        model = _torch.load(path, map_location=device, weights_only=True)
         logger.info("torch.load 加载成功")
         return model
     except Exception as e:

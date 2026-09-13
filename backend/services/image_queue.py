@@ -136,9 +136,17 @@ class ImageTaskQueue:
         task = {**task, "on_finish": on_finish}
         self.submit(task)
         loop = asyncio.get_running_loop()
-        # 无 timeout 参数的 wait：超时由下方 woken.is_set 判定
-        await loop.run_in_executor(None, woken.wait)
-        if not woken.is_set():
+        # B0 修复（2026-09-13 P1-1）：wait 必须带超时——原实现 wait()
+        # 无参永久阻塞，下方 woken.is_set 恒真，TimeoutError 分支不可达
+        # （timeout_s 成死代码），worker 卡死则关键帧/资产图 8 处调用
+        # 的 HTTP 请求无限悬挂。
+        woken_in_time = await loop.run_in_executor(
+            None, lambda: woken.wait(timeout_s))
+        if not woken_in_time:
+            # 尽力撤销：排队任务直接出队；运行中任务由检查点收割
+            tid = str(task.get("task_id") or "")
+            if tid:
+                self.cancel(tid)
             raise TimeoutError(f"图像任务等待超时（>{timeout_s:.0f}s）")
         err = box["error"]
         if err is not None:
@@ -239,18 +247,28 @@ class ImageTaskQueue:
         收尾协商。云端任务不在此道（云道 dispatcher 独立消费）；仅剩
         云端任务的积压不阻碍本地道释放 paint 锁（云端不需要本地锁）。"""
         while True:
+            drain = False
             with self._cond:
-                task = None
-                while task is None:
-                    task = self._pop_lane_locked(cloud=False)
-                    if task is None:
-                        if self._lock_held:
-                            self._lock_held = False
-                            self._unload_paint_pipeline()
-                            self._release_paint_lock(self._loop)
-                            self._schedule_wake_if_idle()
-                        self._cond.wait()
-                self._current = task
+                task = self._pop_lane_locked(cloud=False)
+                if task is not None:
+                    self._current = task
+                elif self._lock_held:
+                    # 旗标翻转在 cond 内（B0：写路径收敛，修跨线程竞态）；
+                    # 收尾动作挪到 cond 外——原实现持 _cond 做 empty_cache
+                    # + ComfyUI /free（60s 超时），事件循环侧任何要进
+                    # _cond 的 submit 全被卡 → 全站冻结（09-13 锁序普查
+                    # 冻结链 #1）。收尾仅本 worker 线程会做，无竞争。
+                    self._lock_held = False
+                    drain = True
+            if drain:
+                self._unload_paint_pipeline()
+                self._release_paint_lock(self._loop)
+                self._schedule_wake_if_idle()
+                continue  # 重取：收尾窗口内新入队任务立即消费
+            if task is None:
+                with self._cond:
+                    self._cond.wait()
+                continue
             task_id = str(task.get("task_id"))
             try:
                 self._run_one(task)
@@ -406,13 +424,17 @@ class ImageTaskQueue:
             if wait_cb:
                 self._call_wait_cb(wait_cb, task_id)
             time.sleep(_THERMAL_POLL_S)
-        if not self._lock_held:
+        held = False
+        with self._cond:
+            held = self._lock_held
+        if not held:
             while True:
                 check()
                 if wait_cb:
                     self._call_wait_cb(wait_cb, task_id)
                 if self._acquire_paint_lock(task_id, task.get("loop")):
-                    self._lock_held = True
+                    with self._cond:
+                        self._lock_held = True
                     break
                 time.sleep(_WAIT_POLL_S)
         else:
@@ -474,10 +496,14 @@ class ImageTaskQueue:
         from ..middleware.feature_lock import get_feature_lock
         try:
             if loop is not None and not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(
+                # B0（2026-09-13）：提交后等待结果（10s）——原 fire-and-
+                # forget 在 release 静默失败时令 feature_lock 残留持有，
+                # 对话排队最长白等 300s（09-13 锁序普查冻结链 #3）。
+                fut = asyncio.run_coroutine_threadsafe(
                     get_feature_lock().release("paint"), loop)
+                fut.result(timeout=10.0)
         except Exception as exc:  # noqa: BLE001
-            log.warning("paint 锁释放失败: %s", exc)
+            log.error("paint 锁释放失败（可能功能锁残留）: %s", exc)
 
     def _sleep_vllm_for_generation(self) -> None:
         """vLLM 睡眠让渡（批3 起经 gpu_budget 让渡协调器单源；

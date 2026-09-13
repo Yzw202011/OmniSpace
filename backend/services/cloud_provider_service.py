@@ -6,8 +6,9 @@
 今天逐比特一致（纯增量安全网铁律）。
 
 存储：
-- cloud.providers  → JSON 数组（连接列表，含 api_key 明文本机存放，
-  对外 API 一律打码，见 mask_key）；
+- cloud.providers  → JSON 数组（连接列表；api_key 以 AES-256-GCM 密文
+  落库〔B0 2026-09-13，与 dialog_messages 同一套 crypto，DPAPI 绑机〕，
+  历史明文首次读取时自动迁移回写；对外 API 一律打码，见 mask_key）；
 - cloud.bindings   → JSON 对象（slot → {provider_id, model}）；
 - cloud.legacy_migrated → 批3 旧 remote_dialog_* 单服务器配置一次性
   迁移标记（旧键保留不删，回退安全）。
@@ -176,12 +177,46 @@ def _write_kv(key: str, value: object) -> bool:
 # ── Provider CRUD ────────────────────────────────────────────────
 
 def _load_providers() -> list[dict]:
+    """读连接列表；api_key 解密（enc:v1: 前缀，历史明文原样透传）。
+
+    B0（2026-09-13）：api_key 落库改 AES-256-GCM（与 dialog_messages
+    同一套 crypto，DPAPI 绑机）。首次读到历史明文时立即回写迁移，
+    此后库内不再有明文密钥——整库快照/导出 tar 不再随库泄钥。
+    """
+    from ..data.crypto import decrypt_text, is_encrypted
+
     raw = _read_kv(KV_PROVIDERS, [])
-    return list(raw) if isinstance(raw, list) else []
+    items = list(raw) if isinstance(raw, list) else []
+    migrated = False
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        stored = item.get("api_key")
+        if isinstance(stored, str) and stored and not is_encrypted(stored):
+            migrated = True
+        if isinstance(stored, str):
+            item["api_key"] = decrypt_text(stored)
+    if migrated:
+        try:
+            _save_providers(items)  # _save_providers 统一加密——一次性迁移
+            logger.info("云端 API Key 明文已迁移为密文落库（%d 条）", len(items))
+        except Exception:  # noqa: BLE001 - 迁移失败不影响读取（下次重试）
+            logger.warning("云端 api_key 明文迁移回写失败（下次读取重试）")
+    return items
 
 
 def _save_providers(items: list[dict]) -> bool:
-    return _write_kv(KV_PROVIDERS, items)
+    from ..data.crypto import encrypt_text, is_encrypted
+
+    persisted: list[object] = []
+    for item in items:
+        if isinstance(item, dict):
+            item = dict(item)
+            key = item.get("api_key")
+            if isinstance(key, str) and key and not is_encrypted(key):
+                item["api_key"] = encrypt_text(key)
+        persisted.append(item)
+    return _write_kv(KV_PROVIDERS, persisted)
 
 
 def list_providers(mask: bool = True) -> list[dict]:

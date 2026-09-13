@@ -186,6 +186,7 @@ class EnvironmentChecker:
             'dependencies': self._check_dependencies,
             'hypervisor': self._check_hypervisor,
             'path_ascii': self._check_path_ascii,
+            'torch_contract': self._check_torch_contract,
         }
 
         all_passed = True
@@ -203,6 +204,58 @@ class EnvironmentChecker:
 
         self.results = results
         return all_passed, results
+
+    def _check_torch_contract(self) -> tuple[bool, str]:
+        """torch 版本契约（B1 2026-09-13）：三处 torch 独立安装历史上无
+        机制保证一致（cu128/cu130 双代 dist-info 曾并存、文档三层失真）。
+        真源 = backend/torch_contract.json；主链（label 含「主运行时」）不符
+        = 不通过
+        （阻断，OMNISPACE_ALLOW_TORCH_DRIFT=1 豁免自担风险）；旁链
+        （py313 / ComfyUI 便携包，自包含栈）不符仅黄灯提示。"""
+        import json as _json
+        import os as _os
+        import re as _re
+
+        contract_path = PROJECT_ROOT / 'backend' / 'torch_contract.json'
+        try:
+            contract = _json.loads(contract_path.read_text(encoding='utf-8'))
+        except Exception as e:
+            return True, f'契约文件不可读（跳过，{e}）'
+        expected = str(contract.get('torch') or '')
+        if not expected:
+            return True, '契约缺少 torch 字段（跳过）'
+
+        def _read(ver_py: str) -> str | None:
+            try:
+                m = _re.search(
+                    r"""__version__\s*=\s*['"]([^'"]+)['"]""",
+                    (PROJECT_ROOT / ver_py).read_text(
+                        encoding='utf-8', errors='ignore'))
+                return m.group(1) if m else None
+            except Exception:
+                return None
+
+        drift = []
+        primary_bad = False
+        for label, rel in (contract.get('targets') or {}).items():
+            actual = _read(rel)
+            if actual is None:
+                drift.append(f'{label}: version.py 不可读')
+                if 'py310' in label:
+                    primary_bad = True
+                continue
+            if actual != expected:
+                drift.append(f'{label}: 实际 {actual} ≠ 契约 {expected}')
+                if 'py310' in label:
+                    primary_bad = True
+        if not drift:
+            return True, f'三处 torch 对齐契约 {expected}'
+        if primary_bad and _os.environ.get('OMNISPACE_ALLOW_TORCH_DRIFT') != '1':
+            return False, (
+                'torch 契约失配（' + '；'.join(drift) +
+                '）——升/换 torch 请同步 backend/torch_contract.json；'
+                '确需带漂运行设 OMNISPACE_ALLOW_TORCH_DRIFT=1')
+        return True, 'torch 契约旁链漂移（黄灯）：' + '；'.join(drift)
 
     def _check_os(self) -> tuple[bool, str]:
         """检查操作系统"""
@@ -642,7 +695,13 @@ class BackendProcess:
             return
 
         # 冷却检查
-        if now - self._last_restart_time < self.config.restart_cooldown:
+        # B0 修复（2026-09-13）：旧逻辑「距上次重启 >30s 即把计数重置为
+        # 1」——09-12 实测崩溃带每 3.3min 一崩，每轮都被重置，max=5 上限
+        # 从未触顶，5.5 小时 99 连崩全被「第1次」掩盖。改为：崩溃计数
+        # 仅在距上次重启 ≥10 分钟（稳定窗）后才重置；短间隔崩溃持续
+        # 累计直至 crash_permanent。
+        if (self._last_restart_time
+                and now - self._last_restart_time < 600.0):
             self._restart_count += 1
         else:
             self._restart_count = 1
@@ -671,7 +730,9 @@ class BackendProcess:
         self.start(port)
 
         if self.wait_until_ready(port, timeout=30):
-            self._restart_count = 0
+            # B0 修复（2026-09-13）：不再「重启成功即清零计数」——清零
+            # 只由上面的稳定窗判定（距上次重启 ≥10min）承担；立即清零
+            # 会让「崩→补位→再崩」的连环每轮都从第 1 次重新数起。
             if self.on_status_change:
                 self.on_status_change('running', '后端已重启')
 

@@ -1145,7 +1145,10 @@ class VideoEngine(BaseEngine):
                 from diffusers.loaders.single_file_utils import (
                     convert_animatediff_checkpoint_to_diffusers,
                 )
-                raw = _torch.load(str(ANIMATELCM_CKPT_PATH), map_location="cpu")
+                # B0（2026-09-13）：weights_only=True（恶意权重文件
+                # RCE 链收口；AnimateDiff 官方 ckpt 为纯 state_dict）
+                raw = _torch.load(str(ANIMATELCM_CKPT_PATH),
+                                  map_location="cpu", weights_only=True)
                 converted = convert_animatediff_checkpoint_to_diffusers(raw)
                 adapter = _diffusers.MotionAdapter()
                 missing, unexpected = adapter.load_state_dict(converted,

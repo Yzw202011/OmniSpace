@@ -233,6 +233,12 @@ def main() -> int:
 
     if splash is None and not boots and not ours and comfy is None:
         print('未发现运行中的 OmniSpace 启动链（启动页 / 后端 5800-5835 / ComfyUI 均无）。')
+        # B0（2026-09-13）：孤儿清扫不因「无启动链」短路——vLLM 子进程
+        # 可能逃逸 Job Object 滞留（实测当日：栈退出后两个
+        # OmniSpace-LLM.exe 孤儿占显存 12.8GB，本脚本却提前 return 0）。
+        llamas = _llama_leftovers()
+        if llamas:
+            _terminate(llamas, ' 推理子进程孤儿(llama/vLLM)')
         _report_others(others)
         return 0
 

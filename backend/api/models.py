@@ -991,6 +991,35 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
                        detail={"path": req.path})
     resolved = str(raw)
 
+    # B0（2026-09-13）：导入路径闸——端点设计上接受任意路径（外接盘
+    # 权重），但与加载链（trust_remote_code）组合即成恶意「模型分享包」
+    # RCE 链。封禁系统敏感目录与在库关键目录（向这些位置导入权重
+    # 永非合法场景；data/ 不封——隔离区观察期满回补登记走该处）。
+    # 闸为 best-effort，治本在加载侧沙箱（长期项）。
+    def _forbidden(prefix: Path) -> bool:
+        try:
+            return raw.is_relative_to(prefix.resolve())
+        except Exception:  # noqa: BLE001 - 解析失败逐项跳过
+            return False
+
+    for _bp in (
+        Path(os.environ.get("SystemRoot", r"C:\Windows")),
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+        Path(os.environ.get("ProgramData", r"C:\ProgramData")),
+    ):
+        if _forbidden(_bp):
+            raise ApiError("MODEL_IMPORT_PATH_FORBIDDEN",
+                           "该路径不允许导入（系统敏感目录）",
+                           detail={"path": req.path},
+                           suggestion="请把模型权重放在独立目录后再导入")
+    for _rel in ("runtime", "pydeps", "logs"):
+        if _forbidden(ROOT_DIR / _rel):
+            raise ApiError("MODEL_IMPORT_PATH_FORBIDDEN",
+                           f"该路径不允许导入（在库 {_rel}/ 目录）",
+                           detail={"path": req.path},
+                           suggestion="模型权重应放 models/ 或外部专用目录")
+
     db = get_db_safe()
 
     def _find_by_path() -> dict | None:

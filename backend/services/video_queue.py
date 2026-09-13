@@ -206,22 +206,31 @@ class VideoTaskQueue:
         """本地道消费主循环：取本地任务 → 准入 → 执行；本地道排空时
         释放锁并唤醒 vLLM（云端任务不需要本地锁，不阻碍锁释放）。"""
         while True:
+            drain = False
             with self._cond:
-                task = None
-                while task is None:
-                    task = self._pop_lane_locked(cloud=False)
-                    if task is None:
-                        if self._lock_held:
-                            self._lock_held = False
-                            self._release_video_gen(self._loop)
-                            # 批3（2026-09-10）：排空即唤醒 → 去抖唤醒
-                            # （此前 video 队列无去抖，与紧随的绘画任务
-                            # 撞锁——唤醒重启被功能锁门禁拒绝且无人重试，
-                            # image 队列 V9-β 只修了自己一侧；现经协调器
-                            # 单源，跨队列只认最新排空）
-                            self._schedule_wake_if_idle()
-                        self._cond.wait()
-                self._current = task
+                task = self._pop_lane_locked(cloud=False)
+                if task is not None:
+                    self._current = task
+                elif self._lock_held:
+                    # 旗标翻转在 cond 内（B0：写路径收敛，修跨线程竞态）；
+                    # 收尾动作挪到 cond 外——原实现持 _cond 等 run_coroutine_
+                    # threadsafe 回投，事件循环侧任何要进 _cond 的请求被
+                    # 卡（09-13 锁序普查冻结链 #1 的 video 侧同源）。
+                    self._lock_held = False
+                    drain = True
+            if drain:
+                self._release_video_gen(self._loop)
+                # 批3（2026-09-10）：排空即唤醒 → 去抖唤醒
+                # （此前 video 队列无去抖，与紧随的绘画任务
+                # 撞锁——唤醒重启被功能锁门禁拒绝且无人重试，
+                # image 队列 V9-β 只修了自己一侧；现经协调器
+                # 单源，跨队列只认最新排空）
+                self._schedule_wake_if_idle()
+                continue  # 重取：收尾窗口内新入队任务立即消费
+            if task is None:
+                with self._cond:
+                    self._cond.wait()
+                continue
             task_id = str(task.get("task_id"))
             try:
                 self._run_one(task)
@@ -362,11 +371,14 @@ class VideoTaskQueue:
             self._make_check_cancel(task_id)()
             time.sleep(_THERMAL_POLL_S)
         # ② 功能锁：其他功能（对话/绘画/训练）持锁时等待让位，不拒绝
-        if not self._lock_held:
+        with self._cond:
+            held = self._lock_held
+        if not held:
             while True:
                 self._make_check_cancel(task_id)()
                 if self._acquire_video_gen(task_id, task.get("loop")):
-                    self._lock_held = True
+                    with self._cond:
+                        self._lock_held = True
                     break
                 time.sleep(_WAIT_POLL_S)
         # ③ 显存让渡：持锁后执行，保证与对话/绘画无并发装载
@@ -418,14 +430,19 @@ class VideoTaskQueue:
         return bool(fut.result(timeout=10.0))
 
     def _release_video_gen(self, loop: asyncio.AbstractEventLoop | None) -> None:
-        """释放 video_gen 功能锁（best-effort，回投主事件循环）。"""
+        """释放 video_gen 功能锁（回投主事件循环并等待结果）。
+
+        B0（2026-09-13）：由 fire-and-forget 改为等待结果（10s）——
+        释放静默失败会令 feature_lock 残留持有，对话排队最长白等
+        300s（09-13 锁序普查冻结链 #3）。失败升 error 级日志。"""
         from ..middleware.feature_lock import get_feature_lock
         try:
             if loop is not None and not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(
+                fut = asyncio.run_coroutine_threadsafe(
                     get_feature_lock().release("video_gen"), loop)
+                fut.result(timeout=10.0)
         except Exception as exc:  # noqa: BLE001
-            log.warning("video_gen 锁释放失败: %s", exc)
+            log.error("video_gen 锁释放失败（可能功能锁残留）: %s", exc)
 
     def _sleep_vllm_for_generation(self) -> None:
         """vLLM 权重睡眠让渡显存（批3 起经 gpu_budget 让渡协调器

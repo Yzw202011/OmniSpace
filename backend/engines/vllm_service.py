@@ -166,6 +166,27 @@ def mtp_spec_enabled(model_dir: Path) -> bool:
         return False
     return True
 
+def sleep_mode_enabled() -> bool:
+    """vLLM sleep mode 门控（B0 2026-09-13；默认 false=杀进程让渡）。
+
+    历史与实弹结论：vLLM 0.26→0.27.1 Windows 下 ``--enable-sleep-mode``
+    三层障碍——①find_loaded_library 读 /proc/self/maps 崩溃（已由
+    runtime/py313 sitecustomize 补丁修复）；②cumem 需 cudart DLL（已
+    经 VLLM_CUDART_SO_PATH 解决）；③**最终卡点：本机 wheel 的
+    cumem_allocator.pyd 不导出 my_malloc/my_free 符号**（EngineCore
+    CUDAPluggableAllocator AttributeError，ctypes 实测 4 符号全缺）——
+    属上游 vllm-windows 构建问题，不可代码侧修。2026-09-13 实测
+    start=False(code=1)，故默认 false 回退杀进程让渡；升级 vLLM 或
+    上游修复后将本键翻 true 一键重验（补丁与 env 通路已常驻）。
+    """
+    try:
+        from backend.config import get_config
+        raw = (get_config().get("vllm") or {}).get("sleep_mode", False)
+        return bool(raw) and str(raw).strip().lower() not in ("false", "0", "")
+    except Exception:  # noqa: BLE001 - 配置异常保持关
+        return False
+
+
 # 启动健康轮询：模型加载 + CUDA 图编译可能耗时，预算放宽
 # P3 §3.2 收敛：超时 300s → 240s（低于 WARMUP_TIMEOUT 的预算值，
 # 去掉冗余余量），健康轮询 2s → 5s（冷启动期无意义高频探测省 I/O；
@@ -632,6 +653,10 @@ class VLLMService:
 
             # served-model-name = 模型目录名（热切换后请求方按此路由）
             served_name = mdir.name
+            # B0（2026-09-13）：sleep mode 走 py313 sitecustomize 补丁
+            # （修 Windows find_loaded_library 读 /proc/self/maps 崩溃，
+            # api_server 与 EngineCore 子进程全覆盖）+ env 提供 cudart
+            # DLL 路径；sleep 关时无 flag 无补丁路径，行为与历史一致。
             cmd = [
                 str(_llm_exe()), "-m", "vllm.entrypoints.openai.api_server",
                 "--model", str(mdir),
@@ -648,13 +673,14 @@ class VLLMService:
                 "--max-num-seqs", "32",
                 "--gpu-memory-utilization", str(gpu_memory_utilization),
                 "--enable-prefix-caching",
-                # sleep mode 已回退（2026-08-27）：vLLM 0.26.0 Windows
-                # 兼容 bug——--enable-sleep-mode 启动校验走 cumem
-                # allocator 探测（find_loaded_library 读 /proc/self/maps，
-                # Linux 专属路径）→ FileNotFoundError 子进程直接崩溃。
-                # 9B 关键帧改 GGUF Q4_K_M（5.5GB GPU 常驻）后激活空间
-                # 充足，1280×720 原生采样不再依赖 vLLM 让渡；协商端点
-                # 保留为 best-effort（路由 404 → warning 不阻断）。
+                # sleep mode 历史（2026-08-27 回退）：vLLM 0.26.0 Windows
+                # 下 --enable-sleep-mode 启动校验走 cumem allocator 探测
+                # （读 /proc/self/maps，Linux 专属路径）→ FileNotFoundError
+                # 子进程直接崩溃，遂回退「杀子进程让渡」——实测 08-27→
+                # 09-13 让渡端点 404 ×8921，每次协作全量重载权重（模型
+                # churn 总根源）。现运行时已升 0.27.1，经 config 门控
+                # vllm.sleep_mode 重开真 sleep（见 sleep_mode_enabled
+                # docstring；实弹若再崩，置 false 回退杀进程让渡）。
                 "--no-enable-log-requests",
                 "--seed", "42",
             ]
@@ -672,6 +698,10 @@ class VLLMService:
                 # delta.reasoning_content——与 deepseek_r1 同一消费
                 # 语义，chat_stream 只读 delta.content 保持正文干净。
                 cmd += ["--reasoning-parser", "qwen3"]
+            # B0（2026-09-13）：sleep mode 重开（门控见 sleep_mode_enabled）
+            if sleep_mode_enabled():
+                cmd.append("--enable-sleep-mode")
+                log.info("vLLM sleep mode: 开（生成期权重卸 RAM 让渡显存）")
             env = os.environ.copy()
             # Windows 控制台默认 GBK，vLLM banner 含 unicode 块字符会
             # UnicodeEncodeError 丢日志（日志文件亦按此编码写）
@@ -691,6 +721,17 @@ class VLLMService:
             cache_root.mkdir(parents=True, exist_ok=True)
             env["VLLM_CACHE_ROOT"] = str(cache_root)
             env["TRITON_CACHE_DIR"] = str(_PROJECT_ROOT / ".cache" / "triton")
+            # B0（2026-09-13）：sleep mode 需 cumem 加载 cudart——
+            # py313 torch 自带 cudart64 DLL，显式指路（仅 sleep 开时）
+            if sleep_mode_enabled():
+                import glob as _glob
+                _cands = _glob.glob(str(
+                    PY313_EXE.parent / "Lib" / "site-packages" / "torch"
+                    / "lib" / "cudart64_*.dll"))
+                if _cands:
+                    env["VLLM_CUDART_SO_PATH"] = _cands[0]
+                    log.info("vLLM sleep mode: VLLM_CUDART_SO_PATH=%s",
+                             _cands[0])
             # 2026-09-01 测试机三层洋葱终审：全新机器上 torch inductor
             # 不会自建 torch_aot_compile/<hash>/inductor_cache 深层目录，
             # write_atomic 的 rename 直接 WinError 3 → vLLM 启动即崩。
@@ -726,6 +767,7 @@ class VLLMService:
                 log.info("vLLM MTP 投机解码: 开（c=3，实测解码 +40%）")
 
             VLLM_LOG.parent.mkdir(parents=True, exist_ok=True)
+            self._close_log()  # B0（2026-09-13）：重开前先关旧句柄（同 09-12 审计 P2-3 病灶）
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
                 VLLM_LOG, "a", encoding="utf-8", buffering=1)
 
@@ -750,6 +792,17 @@ class VLLMService:
             self._started_at = time.time()
             self._model_dir = str(mdir)
             self._served_name = served_name
+
+            # B0（2026-09-13）：绑入 KILL_ON_JOB_CLOSE job——后端进程死亡
+            # （含被强杀）时 OS 自动终结 vLLM，杜绝孤儿（实测 09-13：栈
+            # 退出后两个 OmniSpace-LLM.exe 孤儿滞留占显存 12.8GB）。
+            # 模式与 comfy_proc 一致；绑定失败不阻断启动（stop.py 兜底）。
+            try:
+                from ..services.inference.comfy_proc import _bind_kill_on_close
+                if _bind_kill_on_close(self._proc):
+                    log.info("vLLM 子进程已绑入 Job Object（与后端共生死）")
+            except Exception:  # noqa: BLE001 - 绑定失败不阻断启动
+                log.debug("vLLM Job Object 绑定跳过", exc_info=True)
 
             # 健康轮询（持锁阻塞：调用方 expect start 返回即就绪）
             deadline = time.time() + startup_timeout_s

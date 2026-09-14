@@ -1248,6 +1248,21 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                          and comfy_paint_available() and pulid_available()
                          and 1 <= len(char_assets) <= 2
                          and any(face_refs))
+            # B6+（2026-09-14 S3 实弹发现）：行内角色带 D-LoRA 时 comfy
+            # 底座切 klein-4b 单文件——ComfyUI diffusion_models 缺该文件
+            # （盘上仅有 diffusers 分件版 models/paint/flux2-klein-4b），
+            # UNETLoader 校验必炸。带 LoRA 行回落 diffusers（4b 分件在
+            # legacy 栈完整可用），缺口补齐（单文件版下载/转换）后此闸
+            # 自动放行。
+            if use_comfy and any(
+                    ((DATA_DIR / str(a.get("file_path") or "")).parent
+                     / "lora.safetensors").is_file()
+                    for a in char_assets):
+                # 角色 LoRA 在场（comfy 将切 klein-4b 单文件底座）且
+                # ComfyUI diffusion_models 缺该文件 → 回落 diffusers
+                use_comfy = False
+                log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
+                         "权重——回落 diffusers（诚实降级）")
             route_label = ("comfy+双PuLID" if use_comfy and dual_faces
                            else "comfy+PuLID" if use_comfy and len(char_assets) == 1
                            else "comfy+多参考" if use_comfy else "diffusers")

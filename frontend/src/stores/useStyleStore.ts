@@ -17,37 +17,24 @@ import type { StyleDataset, StyleLoraVersion, StyleStatus } from '@/services/sty
 import type { TrainTask } from '@/types';
 import { useAppStore } from './useAppStore';
 
-/** 轮询定时器与可见性监听（模块级单例） */
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-let pollVisHandler: (() => void) | null = null;
+/** B7 步3：轮询收敛到 services/poller 工厂（消三套克隆之一）。 */
+import { createVisibilityPoller } from '@/services/poller';
 
 // 性能优化：训练为分钟级长任务，前台 5s / 后台 10s 轮询足够跟踪进度；
 // 可见性切换时重排间隔，隐藏时降频避免无意义请求。
-const STYLE_POLL_FG_MS = 5000;
-const STYLE_POLL_BG_MS = 10000;
-function _pollDelay(): number {
-  return typeof document !== 'undefined' && document.hidden
-    ? STYLE_POLL_BG_MS : STYLE_POLL_FG_MS;
+const stylePoller = createVisibilityPoller({
+  name: 'style-poll',
+  intervalMs: 5000,
+  hiddenIntervalMs: 10000,
+  tick: () => useStyleStore.getState().pollTask(),
+});
+
+function clearPoll(): void {
+  stylePoller.stop();
 }
 
-function clearPoll() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-  if (pollVisHandler) {
-    document.removeEventListener('visibilitychange', pollVisHandler);
-    pollVisHandler = null;
-  }
-}
-
-function schedulePoll() {
-  clearPoll();
-  pollTimer = setInterval(() => {
-    useStyleStore.getState().pollTask();
-  }, _pollDelay());
-  pollVisHandler = () => schedulePoll();
-  document.addEventListener('visibilitychange', pollVisHandler);
+function schedulePoll(): void {
+  stylePoller.start();
 }
 
 /** 视频风格状态 */

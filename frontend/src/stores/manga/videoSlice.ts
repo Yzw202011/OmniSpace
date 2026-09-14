@@ -1,6 +1,13 @@
 // 本项目仅供学习使用，商业授权请+Q 3559331368
 /* 漫剧视频切片（TASK-P2-01）：生成发起 / 状态轮询 / 取消收敛 / 功能锁
- * 轮询定时器基础设施在 ./videoPoller（模块级单例）。 */
+ * 轮询定时器基础设施在 ./videoPoller（模块级单例）。
+ *
+ * B7 步2（2026-09-14）投影定位登记：videoTasks 是「漫剧编辑器视频列块」
+ * 的**专用投影**（消费视频特化字段：queue_position/degraded/download_url/
+ * row_id 关联），useTaskStore 是全局任务中心投影——同一事件流喂两个
+ * 不同视图，**非冗余双写**（硬拆=把专用视图消灭进通用视图，字段语义
+ * 不对齐）。两投影的终态一致性由本文件的成对调用保证（done/error/
+ * cancelled 三分支均同步两侧）。 */
 
 import type { StateCreator } from 'zustand';
 import type { StoryboardGenerationStatus } from '@/types';
@@ -132,8 +139,11 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           useAppStore.getState().showToast(st.error || '视频生成失败', 'error');
           releaseVideoLockIfIdle();
         } else if (st.status === 'cancelled') {
-          // 取消链路终态：停止轮询并释放功能锁（否则轮询永不收敛）
+          // 取消链路终态：停止轮询并释放功能锁（否则轮询永不收敛）。
+          // B7 步2 对齐：后端侧取消（运行取消检查点）同样通知任务中心，
+          // 否则中心条目挂 running 至 15 分钟幽灵收敛。
           stopVideoPoll(taskId);
+          useTaskStore.getState().failTask(taskId, '任务已取消');
           releaseVideoLockIfIdle();
         }
       } catch (err) {

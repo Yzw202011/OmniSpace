@@ -154,6 +154,30 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     return ok(_settings, message="设置已更新")
 
 
+# ── 界面偏好镜像（2026-09-12：修复「选型重启回退」类 bug）──────────────
+# 前端把对话模型选择/漫剧模型配置/提示词配置/布局偏好等 localStorage 键
+# 镜像到此 KV（key='ui.prefs'，值为 {原localStorage键: JSON值}）；
+# 启动渲染前回放进 localStorage——localStorage 因换端口顺延（5800→5801）、
+# 桌面壳 WebView 配置、清缓存丢失时，选型不再打回默认。
+_UI_PREFS_KEY = "ui.prefs"
+
+
+@router.get("/system/ui_prefs")
+def ui_prefs_get() -> dict[str, Any]:
+    """读取界面偏好镜像（localStorage 键值对，跨端口/跨配置持久）。"""
+    prefs = _kv_get(_UI_PREFS_KEY, {})
+    return ok(prefs if isinstance(prefs, dict) else {})
+
+
+@router.put("/system/ui_prefs")
+def ui_prefs_update(req: dict = Body(...)) -> dict[str, Any]:
+    """写入界面偏好镜像（前端读合并写整包提交；单用户桌面场景无并发竞争）。"""
+    if not isinstance(req, dict):
+        return ok({}, message="空偏好已忽略")
+    _kv_set(_UI_PREFS_KEY, req)
+    return ok(req, message="界面偏好已保存")
+
+
 @router.get("/system/web_search")
 def web_search_settings_get() -> dict[str, Any]:
     """联网搜索 v1 配置读取（架构升级计划 B-阶段一；默认关）。"""

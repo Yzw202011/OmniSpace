@@ -103,6 +103,18 @@ export function updateSettings(body: Record<string, unknown>) {
   return put<Record<string, unknown>>('/system/settings', body);
 }
 
+/* ------------------------ 界面偏好镜像（2026-09-12） ------------------------ */
+
+/** 读取界面偏好镜像（localStorage 键值对；选型持久化回放用） */
+export function getUiPrefs() {
+  return get<Record<string, unknown>>('/system/ui_prefs');
+}
+
+/** 写入界面偏好镜像（前端读合并写整包提交） */
+export function updateUiPrefs(body: Record<string, unknown>) {
+  return put<Record<string, unknown>>('/system/ui_prefs', body);
+}
+
 /** 联网搜索 v1 配置（架构升级计划 B-阶段一，默认关） */
 export interface WebSearchSettings {
   enabled: boolean;

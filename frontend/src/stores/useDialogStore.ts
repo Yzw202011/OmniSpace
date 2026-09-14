@@ -16,6 +16,7 @@ import * as dialogApi from '@/services/dialogApi';
 import { getDialogStream, releaseDialogStream } from '@/services/ws';
 import { trackBehavior } from '@/services/learningApi';
 import { useAppStore } from './useAppStore';
+import { mirrorPref } from '@/services/uiPrefs';
 
 /* ------------------------------ 对话生成参数（规格 §6.2.1 参数控制） ------------------------------ */
 
@@ -105,6 +106,7 @@ function loadDialogParams(): DialogParamsSnapshot {
 function persistDialogParams(snapshot: DialogParamsSnapshot): void {
   try {
     localStorage.setItem(DIALOG_PARAMS_STORAGE_KEY, JSON.stringify(snapshot));
+    mirrorPref(DIALOG_PARAMS_STORAGE_KEY, snapshot); // 界面偏好镜像（2026-09-12 修复重启回退）
   } catch {
     /* 隐私模式等写入失败场景静默 */
   }

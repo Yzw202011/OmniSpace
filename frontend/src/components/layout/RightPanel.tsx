@@ -1,3 +1,4 @@
+import { mirrorPref } from '@/services/uiPrefs';
 /* ==========================================================================
  * OmniSpace AI v2.3.1 —— 右侧面板（规格 §6.1.3：320px，按当前路由动态切换）
  * --------------------------------------------------------------------------
@@ -835,6 +836,7 @@ export function RightPanel() {
   useEffect(() => {
     try {
       localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
+      mirrorPref(PANEL_COLLAPSED_KEY, collapsed); // 界面偏好镜像
     } catch {
       /* 隐私模式写入失败静默 */
     }
@@ -844,6 +846,7 @@ export function RightPanel() {
   useEffect(() => {
     try {
       localStorage.setItem(PANEL_WIDTH_KEY, String(width));
+      mirrorPref(PANEL_WIDTH_KEY, width); // 界面偏好镜像
     } catch {
       /* 隐私模式写入失败静默 */
     }

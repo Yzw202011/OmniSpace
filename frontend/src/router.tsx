@@ -1,3 +1,4 @@
+import { mirrorPref } from './services/uiPrefs';
 // 本项目仅供学习使用，商业授权请+Q 3559331368
 /* ==========================================================================
  * OmniSpace AI v2.3.1 —— Hash 路由配置（10 个一级路由，规格 §6.1.2）
@@ -130,6 +131,7 @@ export function loadSidebarOrder(): string[] {
 export function saveSidebarOrder(routes: string[]): void {
   try {
     localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(routes));
+    mirrorPref(SIDEBAR_ORDER_KEY, routes); // 界面偏好镜像
   } catch {
     /* 写入失败静默（隐私模式） */
   }

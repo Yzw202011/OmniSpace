@@ -304,16 +304,14 @@ def test_cloud_video_cancel_and_snapshot() -> None:
     q.submit({"task_id": "vx", "kind": "cloud_video", "runner": runner,
               "cloud": True, "update_status": lambda tid, patch: None})
     for _ in range(200):
-        with q._cond:
-            if "vx" in q._cloud_running:
-                break
+        if "vx" in q.snapshot()["cloud_running"]:
+            break
         time.sleep(0.02)
     assert q.cancel("vx") == "running"
     gate.set()
     for _ in range(300):
-        with q._cond:
-            if "vx" not in q._cloud_running:
-                break
+        if "vx" not in q.snapshot()["cloud_running"]:
+            break
         time.sleep(0.02)
     snap = q.snapshot()
     assert "vx" not in snap["cloud_running"]
@@ -342,9 +340,8 @@ def test_local_video_not_blocked_by_cloud_backlog() -> None:
               "runner": cloud_runner, "cloud": True,
               "update_status": lambda tid, patch: None})
     for _ in range(200):
-        with q._cond:
-            if "cb1" in q._cloud_running:
-                break
+        if "cb1" in q.snapshot()["cloud_running"]:
+            break
         time.sleep(0.02)
     q.submit({"task_id": "cb2", "kind": "cloud_video",
               "runner": cloud_runner, "cloud": True,

@@ -134,7 +134,11 @@ def test_unified_drain_releases_without_unload(
     _wait_until(lambda: "release" in h.events, timeout=5.0,
                 what="排空放锁")
     assert "wake" in h.events
-    assert spy == [], "video 排空不得触发绘画管线卸载（行为漂移）"
+    # 精确契约：准入时卸载合法（让显存给视频）；**release 之后的排空段
+    # 不得再卸载**（排空卸载=行为漂移）
+    release_idx = h.events.index("release")
+    assert "unload" not in h.events[release_idx:], (
+        "video 排空段出现卸载（行为漂移）")
     h.undo()
 
 

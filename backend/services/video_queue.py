@@ -105,6 +105,13 @@ class VideoTaskQueue:
                 wake_hook="_schedule_wake_if_idle",
                 budget_admit_hook="_budget_admit",
                 budget_release_hook="_budget_release",
+                # 宿主编排：video 任务全流程状态机（经 update_status 的
+                # generating/error/cancelled 终态）必须逐比特保留
+                run_one_hook="_run_one",
+                # 锁旗标代理到宿主字段（宿主 _wait_admission 写自己的
+                # _lock_held，Core drain 看同一份状态）
+                host_lock_field="_lock_held",
+                cloud_run_hook="_run_cloud_one",
                 cloud_concurrency_hook="_cloud_concurrency",
                 wait_poll_s=_WAIT_POLL_S, thermal_poll_s=_THERMAL_POLL_S,
                 priority_sort=False))

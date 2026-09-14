@@ -10,13 +10,17 @@ server:
   # 提升至 300/min（≈5 req/s，仍可拦截失控重试循环）。
   rate_limit: 300  # requests/minute per endpoint
 
-# B5 统一任务子系统灰度开关（2026-09-14）：
+# B5 统一任务子系统（2026-09-14 灰度翻转，拍板=A）：
 task_queue:
-  # impl: legacy（默认）= image/video 队列走既有内联实现（行为零变更）；
-  #       unified = 调度委托通用 TaskQueueCore（backend/services/task_queue.py，
-  #       双实现以金标准测试逐比特对齐，unified 镜像见
-  #       tests/unit/test_image_queue_unified.py）。异常时自动回 legacy。
-  impl: legacy
+  # impl: unified（现默认）= image/video 队列调度委托通用 TaskQueueCore
+  #       （backend/services/task_queue.py；双实现以金标准测试逐比特对齐，
+  #       镜像见 tests/unit/test_image_queue_unified.py 与
+  #       test_video_queue_unified.py）；
+  #       legacy = 既有内联实现（保留为回退锚点，观察期满删除）。
+  #       任意异常拨回 legacy 即原行为（秒级回退，重启生效）。
+  # 观察期 3 天（2026-09-14~09-17）：核对 events 日志任务成功率/准入
+  # 失败率不劣化；无异常后删 legacy 内联实现（约 -400 行）。
+  impl: unified
 
 scheduler:
   sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）

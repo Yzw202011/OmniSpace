@@ -50,6 +50,18 @@ class QueueSpec:
     priority_sort: bool = True      # False=纯 FIFO（video 语义）
     default_priority: int = 5
     label: str = "task"             # 任务种类日志词（"图像"/"视频"）
+    # 宿主自定义任务执行编排（(task)->None）：None=用 Core 内置 _run_one
+    # （on_finish 形态）；video 传 "_run_one"——其完整状态机（排队取消
+    # 兜底/准入异常→error/generating 翻转/取消逃逸兜底终态，经
+    # task["update_status"]）必须逐比特保留
+    run_one_hook: str | None = None
+    # 宿主编排模式下锁旗标的宿主字段名：Core 的 _lock_held 读写代理到
+    # host.<field>（video 宿主 _wait_admission 写自己的 _lock_held，
+    # Core drain 必须看同一份状态）；None=Core 自持（image 内置编排）
+    host_lock_field: str | None = None
+    # 云道执行体方法名（宿主实现 (task)->None）——两克隆历史命名不同
+    # （image=_run_one_cloud / video=_run_cloud_one），经此归一
+    cloud_run_hook: str = "_run_one_cloud"
 
 
 class TaskQueueCore:
@@ -75,8 +87,25 @@ class TaskQueueCore:
         self._cloud_running: dict[str, dict] = {}
         self._current: dict | None = None
         self._cancel_flags: set[str] = set()
-        self._lock_held = False
+        self._own_lock_held = False
+        self._host_lock_field = spec.host_lock_field
         self._loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def _lock_held(self) -> bool:
+        """锁旗标：host_lock_field 给定时代理宿主同名字段（宿主编排
+        模式下宿主 _wait_admission 写的是宿主自己的状态，Core drain
+        必须看同一份）；否则 Core 自持（Core 内置编排）。"""
+        if self._host_lock_field:
+            return bool(getattr(self._host, self._host_lock_field, False))
+        return self._own_lock_held
+
+    @_lock_held.setter
+    def _lock_held(self, v: bool) -> None:
+        if self._host_lock_field:
+            setattr(self._host, self._host_lock_field, v)
+        else:
+            self._own_lock_held = v
 
     # ── 宿主钩子快捷方式 ────────────────────────────────────────
     def _h(self, name: str) -> Callable:
@@ -231,7 +260,12 @@ class TaskQueueCore:
                 continue
             task_id = str(task.get("task_id"))
             try:
-                self._run_one(task)
+                if self.spec.run_one_hook:
+                    # 宿主编排（video 完整状态机）：准入/状态翻转/终态
+                    # 兜底全在宿主 _run_one 内，Core 只兜逃逸
+                    self._h(self.spec.run_one_hook)(task)
+                else:
+                    self._run_one(task)
             except Exception as exc:  # noqa: BLE001 - worker 永不退出
                 log.error("%s队列任务异常逃逸: %s: %s",
                           self.spec.name, task_id, exc)
@@ -328,7 +362,7 @@ class TaskQueueCore:
     def _run_cloud_task(self, task: dict) -> None:
         task_id = str(task.get("task_id"))
         try:
-            self._host._run_one_cloud(task)
+            self._h(self.spec.cloud_run_hook)(task)
         except Exception as exc:  # noqa: BLE001
             log.error("%s云任务执行异常: %s: %s", self.spec.name, task_id, exc)
         finally:

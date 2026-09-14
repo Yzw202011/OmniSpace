@@ -24,6 +24,10 @@ export async function getHardwareInfo(): Promise<HardwareProfile> {
     await get<unknown>('/hardware/info'),
     '硬件信息',
   );
+  // B7 已知债：HardwareProfile 全集（GpuInfo 7 字段/CpuInfo/RamInfo/
+  // DiskInfo/PowerInfo/tier/precision_spec）手译 Zod 成本高于收益——
+  // schema 双轨结构性限制，登记待「接口类型从 schema infer 派生」工程项
+  // 治本；此处双跳断言为 parseWith 核心字段校验后的受控收口。
   return res as unknown as HardwareProfile;
 }
 

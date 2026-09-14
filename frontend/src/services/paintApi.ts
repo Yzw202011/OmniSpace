@@ -29,7 +29,7 @@ export function getStatus(taskId?: string) {
   return taskId
     ? get<unknown>(`/draw/result/${taskId}`).then(
         // 批 3-3c：queue_position 链入口过 Zod（FRONTEND_PARSE_ERROR 走错误三分法）
-        (d) => parseWith(DrawStatusRespSchema, d, '绘画任务状态') as unknown as DrawTaskResult,
+        (d) => parseWith(DrawStatusRespSchema, d, '绘画任务状态') as DrawTaskResult,
       )
     : get<Record<string, unknown>>('/draw/status');
 }

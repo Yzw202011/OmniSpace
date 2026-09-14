@@ -259,6 +259,18 @@ export const SystemVersionRespSchema = z
 /** GET /hardware/info 响应（核心字段：FE 首页曾因其缺失崩溃） */
 export const HardwareInfoRespSchema = z
   .object({
+    // B7 步4 补齐：cpu/power 为 HardwareProfile 必填（缺失即接口漂移，
+    // 宁可在 parse 层报错也不让首页崩在 undefined 访问）
+    cpu: z
+      .object({
+        name: z.string().default(''),
+        usage_percent: z.number().optional(),
+        cores: z.number().optional(),
+        threads: z.number().optional(),
+        temp_celsius: z.number().optional(),
+      })
+      .passthrough(),
+    power: z.string().default('ac'),
     gpu: z
       .object({
         name: z.string().default(''),
@@ -285,11 +297,25 @@ export const HardwareInfoRespSchema = z
   .passthrough();
 
 /** GET /models 列表项（模型管理页关键字段） */
+// B7 步4（2026-09-14）：照后端 ModelInfo（data/models.py ModelInfo）全集
+// 补齐字段——schema 与前端接口类型结构性一致后，parseWith 返回可单层
+// 断言（消灭 as unknown as 双跳）。宁松勿严：未知字段 passthrough 兜底。
 export const ModelItemSchema = z
   .object({
     id: z.string(),
-    name: z.string().optional(),
-    status: z.string().optional(),
+    name: z.string().default(''),
+    category: z.string(),
+    purpose: z.string().default(''),
+    size_gb: z.number().default(0),
+    params: z.string().default(''),
+    min_vram_gb: z.number().default(0),
+    associated_features: z.array(z.string()).default([]),
+    status: z.string().default('not_installed'),
+    file_path: z.string().default(''),
+    sha256: z.string().default(''),
+    // 前端运行时扩展：/models 响应为后端合并下载态/装载态后的视图
+    downloaded: z.boolean().default(false),
+    loaded: z.boolean().default(false),
   })
   .passthrough();
 

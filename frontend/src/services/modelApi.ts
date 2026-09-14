@@ -40,7 +40,7 @@ export async function listModels(query?: QueryParams): Promise<ModelInfo[]> {
   const raw = Array.isArray(res)
     ? res
     : ((res as ModelListResponse | null)?.models ?? []);
-  return parseWith(z.array(ModelItemSchema), raw, '模型列表') as unknown as ModelInfo[];
+  return parseWith(z.array(ModelItemSchema), raw, '模型列表') as ModelInfo[];
 }
 
 /** 模型详情（Zod 校验） */
@@ -50,7 +50,7 @@ export async function getModelDetail(modelId: string): Promise<ModelInfo> {
     await get<unknown>(`/models/${encodeURIComponent(modelId)}`),
     '模型详情',
   );
-  return res as unknown as ModelInfo;
+  return res as ModelInfo;
 }
 
 /* ------------------------------ 导入/校验/删除 ------------------------------ */

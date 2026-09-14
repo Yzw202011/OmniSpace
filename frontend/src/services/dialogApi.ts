@@ -76,7 +76,7 @@ export interface UpdateSessionBody {
 /** 获取会话列表（批 3-3c：响应过 Zod，非法抛 FRONTEND_PARSE_ERROR 走三分法） */
 export function listSessions(query?: SessionListQuery) {
   return get<unknown>('/chat/sessions', query).then(
-    (d) => parseWith(DialogSessionListRespSchema, d, '会话列表') as unknown as Paginated<DialogSession>,
+    (d) => parseWith(DialogSessionListRespSchema, d, '会话列表') as Paginated<DialogSession>,
   );
 }
 

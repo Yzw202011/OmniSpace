@@ -538,6 +538,7 @@ export function DialogView({
     if (docFiles.length > 0) {
       const dt = new DataTransfer();
       docFiles.forEach((f) => dt.items.add(f));
+      // B7 登记例外：DataTransfer 合成 ChangeEvent 是无替代的标准手法
       const evt = { target: { files: dt.files, value: '' } } as unknown as ChangeEvent<HTMLInputElement>;
       void onDocFilesChange(evt);
     }

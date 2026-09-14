@@ -166,12 +166,31 @@ _encrypt_fail_reported = False  # B10：加密失败事件每进程仅报一次
 
 # ── 加解密 API ────────────────────────────────────────────────────
 
+def _report_encrypt_failure(detail: str) -> None:
+    """B10：加密失败升格用户时间线告警（每进程去重一次，防刷屏）。"""
+    global _encrypt_fail_reported
+    if _encrypt_fail_reported:
+        return
+    _encrypt_fail_reported = True
+    try:
+        from ..services.event_log import log_event
+        log_event("system", "encrypt_failed",
+                  "数据加密模块异常，新数据将暂时以明文保存。"
+                  "重启应用通常可恢复；如反复出现请联系售后。",
+                  level="warning", detail=detail[:200])
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def encrypt_text(plain: str | None) -> str | None:
     """加密文本字段；None/空串原样返回，加密不可用时明文透传。"""
     if not plain:
         return plain
     key = _ensure_key()
     if key is None:
+        # B10：密钥不可用（DPAPI 故障/密钥缺失）=生产最常见失败形态，
+        # 与 AESGCM 异常路径同告警（每进程去重一次）
+        _report_encrypt_failure("encryption key unavailable")
         return plain
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -185,7 +204,7 @@ def encrypt_text(plain: str | None) -> str | None:
         if not _encrypt_fail_reported:
             _encrypt_fail_reported = True
             try:
-                from .event_log import log_event
+                from ..services.event_log import log_event
                 log_event("system", "encrypt_failed",
                           "数据加密模块异常，新数据将暂时以明文保存。"
                           "重启应用通常可恢复；如反复出现请联系售后。",

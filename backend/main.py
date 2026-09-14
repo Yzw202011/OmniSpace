@@ -134,6 +134,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "存在局域网暴露风险（规格 §14 约束2 要求 127.0.0.1）",
                     config.HOST)
         log.warning("!" * 60)
+        # B8（2026-09-14）：LAN 豁免升格为用户时间线大白话告警
+        try:
+            from .services.event_log import log_event as _le_lan
+            _le_lan("system", "lan_exposure",
+                    "局域网模式已开启：本机所有数据（对话/项目/文件）对同一"
+                    "WiFi 下设备可见，且接口无密码。仅在你完全信任当前网络时"
+                    "继续使用；关闭方法：不设 OMNISPACE_ALLOW_LAN 环境变量重启。",
+                    level="warning")
+        except Exception:  # noqa: BLE001
+            pass
+
+    # T-1（B10 数据保全 2026-09-14）：恢复待办处理——/system/restore
+    # 安排的 pending 副本在数据库初始化前替换主库；替换前的当前库先
+    # 备份一份到 backups/（防呆可回退）。失败不阻断启动（保留标记下轮重试）。
+    try:
+        _restore_pending = config.DATA_DIR / "omnispace.restore-pending.db"
+        _restore_mark = config.DATA_DIR / "omnispace.restore-pending.json"
+        if _restore_pending.is_file() and _restore_mark.is_file():
+            _info = json.loads(_restore_mark.read_text(encoding="utf-8"))
+            if config.DB_PATH.is_file():
+                import shutil as _shutil
+                _safe_cur = (config.DATA_DIR / "backups" /
+                             f"omnispace_pre_restore_{int(time.time())}.db")
+                config.DATA_DIR.joinpath("backups").mkdir(parents=True,
+                                                          exist_ok=True)
+                _shutil.copy2(config.DB_PATH, _safe_cur)
+            _shutil.copy2(_restore_pending, config.DB_PATH)
+            for _p in (config.DATA_DIR / "omnispace.db-wal",
+                       config.DATA_DIR / "omnispace.db-shm"):
+                _p.unlink(missing_ok=True)
+            _restore_pending.unlink(missing_ok=True)
+            _restore_mark.unlink(missing_ok=True)
+            log.warning("备份恢复已生效（来源 %s）；替换前的当前库已备份",
+                        _info.get("source"))
+            from .services.event_log import log_event as _le_restore
+            _le_restore("system", "restore_applied",
+                        "备份恢复已完成（重启时替换主库），替换前的旧库已备份",
+                        level="warning")
+    except Exception as _exc:  # noqa: BLE001 - 恢复失败保留标记下轮重试
+        log.error("备份恢复执行失败（标记保留）：%s", _exc)
 
     # T+0s: 数据库
     try:

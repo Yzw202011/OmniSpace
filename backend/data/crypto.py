@@ -162,6 +162,8 @@ def _ensure_key() -> bytes | None:
     return _key_cache
 
 
+_encrypt_fail_reported = False  # B10：加密失败事件每进程仅报一次
+
 # ── 加解密 API ────────────────────────────────────────────────────
 
 def encrypt_text(plain: str | None) -> str | None:
@@ -177,6 +179,19 @@ def encrypt_text(plain: str | None) -> str | None:
         ct = AESGCM(key).encrypt(nonce, plain.encode("utf-8"), None)
         return _PREFIX + base64.b64encode(nonce + ct).decode("ascii")
     except Exception as exc:  # noqa: BLE001
+        # B10（2026-09-14）：加密失败=明文落库（可用性优先），升格为
+        # 用户时间线告警（每进程去重一次，防刷屏）。
+        global _encrypt_fail_reported
+        if not _encrypt_fail_reported:
+            _encrypt_fail_reported = True
+            try:
+                from .event_log import log_event
+                log_event("system", "encrypt_failed",
+                          "数据加密模块异常，新数据将暂时以明文保存。"
+                          "重启应用通常可恢复；如反复出现请联系售后。",
+                          level="warning", detail=str(exc)[:200])
+            except Exception:  # noqa: BLE001
+                pass
         log.warning("字段加密失败（明文落库）: %s", exc)
         return plain
 
@@ -197,6 +212,15 @@ def decrypt_text(value: str | None) -> str | None:
     except Exception as exc:  # noqa: BLE001
         log.warning("字段解密失败（返回空串）: %s", exc)
         return ""
+
+
+def cache_hmac_key() -> bytes:
+    """缓存完整性校验密钥（B8 2026-09-14）：机器指纹派生——同机本应用
+    写入的缓存可过验；文件被替换/伪造（他机/手改）验签不过即拒载。"""
+    import hashlib
+    import hmac as _hmac
+    return _hmac.new(b"omnispace.cache-integrity",
+                     _derive_key_machine(), hashlib.sha256).digest()
 
 
 def is_encrypted(value: str | None) -> bool:

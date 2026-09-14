@@ -12,6 +12,8 @@
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
+import hashlib
+import hmac as _hmac_mod
 import logging
 import pickle
 import threading
@@ -30,6 +32,45 @@ try:
     _LZ4_AVAILABLE = True
 except Exception:  # pragma: no cover - 降级路径
     pass
+
+# ── B8 缓存完整性（HMAC 签名，2026-09-14）──────────────────
+# L2 落盘数据统一签名：非本机本应用写入（替换/伪造/他机拷贝）
+# 验签不过即拒载。密钥=机器指纹派生（crypto.cache_hmac_key）。
+_CACHE_MAGIC = b"OMNI1"
+_HMAC_SIG_LEN = 32  # sha256 hex 前 32 字节二进制（digest 前 32B）
+
+
+def _cache_hmac_key() -> bytes:
+    try:
+        from ..data.crypto import cache_hmac_key
+        return cache_hmac_key()
+    except Exception:  # noqa: BLE001 - 密钥不可用=跳过签名（同机自写自读）
+        return b""
+
+
+def _sign(payload: bytes) -> bytes:
+    key = _cache_hmac_key()
+    if not key:
+        return payload
+    return _hmac_mod.new(key, payload, hashlib.sha256).digest()[:16]
+
+
+def _wrap_signed(payload: bytes) -> bytes:
+    sig = _sign(payload)
+    return _CACHE_MAGIC + sig + payload if sig else payload
+
+
+def _verify_and_strip(data: bytes) -> bytes | None:
+    if not data.startswith(_CACHE_MAGIC):
+        return data  # 旧版无签名数据（兼容读一轮后自然淘汰）
+    key = _cache_hmac_key()
+    if not key:
+        return None
+    sig = data[len(_CACHE_MAGIC):len(_CACHE_MAGIC) + 16]
+    body = data[len(_CACHE_MAGIC) + 16:]
+    expected = _hmac_mod.new(key, body, hashlib.sha256).digest()[:16]
+    return body if _hmac_mod.compare_digest(sig, expected) else None
+
 
 # ── Redis 可用性探测 ────────────────────────────────────────
 _REDIS_AVAILABLE = False
@@ -175,20 +216,30 @@ class RedisCache:
         raw = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
         if self._compress:
             try:
-                return lz4_frame.compress(raw)
-            except Exception:
-                return raw
-        return raw
-
-    def _unwrap(self, data: bytes) -> Any:
-        """信任边界（审计 09-10 P2-4）：pickle 只解**本机 Redis 自写**
-        的缓存值（本机回环、单用户），不接受外部输入作为缓存内容。"""
-        if self._compress:
-            try:
-                data = lz4_frame.decompress(data)
+                raw = lz4_frame.compress(raw)
             except Exception:
                 pass
-        return pickle.loads(data)
+        return _wrap_signed(raw)
+
+    def _unwrap(self, data: bytes, key: str = "") -> Any:
+        """信任边界（审计 09-10 P2-4）：pickle 只解**本机 Redis 自写**
+        的缓存值（本机回环、单用户），不接受外部输入作为缓存内容。"""
+        # B8（2026-09-14）：L2 数据 HMAC 验签——非本机本应用写入的
+        # 数据（替换/伪造/他机拷贝）拒载并清键，杜绝不可信反序列化。
+        body = _verify_and_strip(data)
+        if body is None:
+            log.warning("L2 缓存验签失败，拒绝反序列化（key=%s）", key)
+            try:
+                self._client.delete(key)
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+        if self._compress:
+            try:
+                body = lz4_frame.decompress(body)
+            except Exception:
+                pass
+        return pickle.loads(body)
 
     def get(self, key: str) -> Any | None:
         if not self._connected:
@@ -197,7 +248,7 @@ class RedisCache:
             data = self._client.get(key)
             if data is None:
                 return None
-            return self._unwrap(data)
+            return self._unwrap(data, key)
         except Exception:
             return self._fallback.get(key)
 

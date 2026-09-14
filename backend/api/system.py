@@ -238,6 +238,68 @@ async def system_backup() -> dict[str, Any]:
                "size_bytes": len(json.dumps(payload))})
 
 
+# ── B10（2026-09-14）恢复端点：半套备份 → 全套闭环 ─────────────────
+_RESTORE_PENDING_DB = DATA_DIR / "omnispace.restore-pending.db"
+_RESTORE_PENDING_MARK = DATA_DIR / "omnispace.restore-pending.json"
+
+
+@router.get("/system/restore/list")
+def restore_list() -> dict[str, Any]:
+    """列出可恢复的 DB 副本（文件名+体积+修改时间，供恢复 UI 下拉）。"""
+    items = []
+    if BACKUP_DIR.is_dir():
+        for f in sorted(BACKUP_DIR.glob("omnispace_*.db"),
+                        key=lambda f: f.stat().st_mtime, reverse=True):
+            items.append({"filename": f.name,
+                          "size_bytes": f.stat().st_size,
+                          "mtime": f.stat().st_mtime})
+    return ok({"backups": items,
+               "pending_restore": _RESTORE_PENDING_MARK.is_file()})
+
+
+@router.post("/system/restore")
+async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """安排从备份恢复（**下次重启时生效**，当前会话不受影响）。
+
+    请求: {"filename": "omnispace_<ts>.db"}——文件必须位于 data/backups/
+    （白名单目录，防路径穿越）。安排后写入 restore-pending 标记；启动
+    链在数据库初始化**之前**检测到标记：先把当前主库备份一份（防呆），
+    再用副本替换主库并清除标记。全程可回退（替换前的那份仍在 backups/）。
+    """
+    filename = str(req.get("filename") or "")
+    safe = Path(filename).name
+    if safe != filename or not safe.startswith("omnispace_") \
+            or not safe.endswith(".db"):
+        raise ApiError("SYSTEM_PARAM_INVALID", "非法备份文件名",
+                       suggestion="请从 GET /system/restore/list 返回的清单中选择")
+    src = BACKUP_DIR / safe
+    if not src.is_file():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "备份文件不存在",
+                       detail={"filename": safe})
+    size = src.stat().st_size
+    if size < 4096:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "备份文件过小（疑似损坏），已拒绝恢复")
+
+    def _stage() -> None:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copy2(src, _RESTORE_PENDING_DB)
+        _RESTORE_PENDING_MARK.write_text(
+            json.dumps({"source": safe, "staged_at": time.time(),
+                        "size": size}, ensure_ascii=False),
+            encoding="utf-8")
+
+    await run_blocking(_stage)
+    from ..services.event_log import log_event
+    log_event("system", "restore_staged",
+              "已安排从备份恢复（下次重启时生效）",
+              level="warning",
+              detail=json.dumps({"source": safe}, ensure_ascii=False))
+    return ok({"staged": True, "source": safe,
+               "hint": "重启应用后恢复生效；替换前的当前库会先备份到 backups/"})
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  系统诊断（审计 BK-002：26 项全部真实探测，不再硬编码）
 # ═══════════════════════════════════════════════════════════════════
@@ -1176,8 +1238,12 @@ def train_defaults_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
 
 
 # ── SET-019 自动备份（开关 + 间隔，后台定时线程）───────────────────
+# B10（2026-09-14）：enabled 默认 True（数据保全 P0 收口——旧默认关
+# 导致「库损坏→静默空库」时无近期快照可救）；DB 副本滚动保留 3 份。
 _BACKUP_CFG_KEY = "system.backup_config"
-_BACKUP_CFG_DEFAULT = {"enabled": False, "interval_hours": 24}
+_BACKUP_CFG_DEFAULT = {"enabled": True, "interval_hours": 24}
+_BACKUP_KEEP_DB = 3
+_BACKUP_KEEP_JSON = 3
 _LAST_BACKUP_KEY = "system.last_auto_backup"
 _backup_thread_started = False
 
@@ -1213,7 +1279,20 @@ def _perform_backup() -> dict:
         finally:
             src.close()
         db_path = str(dest)
+    _prune_old_backups()
     return {"backup_id": backup_id, "path": str(path), "db_path": db_path}
+
+
+def _prune_old_backups() -> None:
+    """滚动清理：DB 副本与设置 JSON 各保留最近 N 份（B10 数据保全）。"""
+    try:
+        for pattern, keep in (("omnispace_*.db", _BACKUP_KEEP_DB),
+                              ("backup_*.json", _BACKUP_KEEP_JSON)):
+            files = sorted(BACKUP_DIR.glob(pattern), key=lambda f: f.stat().st_mtime)
+            for old in files[:-keep] if len(files) > keep else []:
+                old.unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("备份滚动清理失败（不影响备份本身）: %s", exc)
 
 
 def _backup_scheduler_loop() -> None:

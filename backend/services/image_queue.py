@@ -40,6 +40,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from .task_queue import QueueSpec, TaskQueueCore
 from .vram_policy import WAKE_DEBOUNCE_S
 
 log = logging.getLogger("omnispace.services.image_queue")
@@ -56,6 +57,19 @@ _CLOUD_POOL_MAX = 8       # 云道线程池硬上限（实际并发由设置钳 
 _WAKE_DEBOUNCE_S = WAKE_DEBOUNCE_S
 
 
+def _use_unified() -> bool:
+    """B5 灰度开关：config task_queue.impl（legacy|unified，默认 legacy）。
+    unified=调度委托 TaskQueueCore（行为以金标准测试逐比特对齐）；
+    legacy=既有内联实现。读取失败/异常一律 legacy（保守）。"""
+    try:
+        from backend.config import get_config
+        raw = str((get_config().get("task_queue") or {}).get("impl", "")
+                  or "").strip().lower()
+        return raw == "unified"
+    except Exception:  # noqa: BLE001 - 配置异常保持 legacy
+        return False
+
+
 class ImageTaskCancelled(Exception):
     """图像任务取消信号（排队出队与运行中检查点共用）。"""
 
@@ -67,6 +81,26 @@ class ImageTaskQueue:
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
+        # B5（2026-09-14）双模：config task_queue.impl=unified 时调度委托
+        # 通用 TaskQueueCore（本类保留全部宿主钩子方法，Core 经 host 回调
+        # ——金标准 Harness 的 monkeypatch 手法对 unified 同样生效）；
+        # 默认 legacy=下方内联实现零变更。legacy 字段两模都建（便宜，
+        # 且 Harness/外部对字段的手工探测不炸）。
+        self._core: TaskQueueCore | None = None
+        if _use_unified():
+            self._core = TaskQueueCore(host=self, spec=QueueSpec(
+                name="图像", label="图像",
+                acquire_hook="_acquire_paint_lock",
+                release_hook="_release_paint_lock",
+                thermal_hook="_thermal_paused",
+                vllm_sleep_hook="_sleep_vllm_for_generation",
+                unload_hook="_unload_paint_pipeline",
+                wake_hook="_schedule_wake_if_idle",
+                budget_admit_hook="_budget_admit",
+                budget_release_hook="_budget_release",
+                cloud_concurrency_hook="_cloud_concurrency",
+                wait_poll_s=_WAIT_POLL_S, thermal_poll_s=_THERMAL_POLL_S,
+                priority_sort=True, default_priority=_DEFAULT_PRIORITY))
         self._queue: deque[dict] = deque()
         self._cond = threading.Condition()
         self._worker: threading.Thread | None = None
@@ -99,6 +133,8 @@ class ImageTaskQueue:
         （排队等待期间周期回调 (task_id, position)）/ label（诊断用）/
         cloud（bool，True=云端道：跳过本地准入，见模块 docstring）。
         """
+        if self._core is not None:
+            return self._core.submit(task)
         task.setdefault("priority", _DEFAULT_PRIORITY)
         with self._cond:
             self._queue.append(task)
@@ -126,6 +162,8 @@ class ImageTaskQueue:
         run_in_executor 阻塞等待（跨线程安全，worker 线程 set）；
         runner 返回值由队列回填 task["_result"]。
         """
+        if self._core is not None:
+            return await self._core.submit_and_wait(task, timeout_s)
         woken = threading.Event()
         box: dict[str, Any] = {"error": None}
 
@@ -157,6 +195,8 @@ class ImageTaskQueue:
         """取消：'queued'（已出队）/ 'running'（置旗标，runner 检查点
         收割——绘画页任务的引擎协作中断旗标由调用方自理）/ 'missing'。
         本地道与云端道同源判定（云端任务在轮询间隔收割取消）。"""
+        if self._core is not None:
+            return self._core.cancel(task_id)
         with self._cond:
             for i, t in enumerate(self._queue):
                 if str(t.get("task_id")) == task_id:
@@ -173,6 +213,8 @@ class ImageTaskQueue:
 
     def set_priority(self, task_id: str, priority: int) -> bool:
         """调整排队任务优先级并重排（0~9；未在队列返回 False）。"""
+        if self._core is not None:
+            return self._core.set_priority(task_id, priority)
         with self._cond:
             for t in self._queue:
                 if str(t.get("task_id")) == task_id:
@@ -184,11 +226,15 @@ class ImageTaskQueue:
 
     def position(self, task_id: str) -> int | None:
         """排队位次（1 起，按调度序；仅排队中任务有值）。"""
+        if self._core is not None:
+            return self._core.position(task_id)
         with self._cond:
             return self._position_locked(task_id)
 
     def snapshot(self) -> dict:
         """队列状态快照（/paint/queue 与诊断用；本地道与云端道合并）。"""
+        if self._core is not None:
+            return self._core.snapshot()
         with self._cond:
             return {
                 "queued": [
@@ -203,6 +249,8 @@ class ImageTaskQueue:
 
     def is_cancelled(self, task_id: str) -> bool:
         """运行中任务的取消旗标查询（check_cancel 闭包数据源）。"""
+        if self._core is not None:
+            return self._core.is_cancelled(task_id)
         return str(task_id) in self._cancel_flags
 
     # ── worker ──────────────────────────────────────────────────

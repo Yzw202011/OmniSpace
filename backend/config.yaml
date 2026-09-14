@@ -10,6 +10,14 @@ server:
   # 提升至 300/min（≈5 req/s，仍可拦截失控重试循环）。
   rate_limit: 300  # requests/minute per endpoint
 
+# B5 统一任务子系统灰度开关（2026-09-14）：
+task_queue:
+  # impl: legacy（默认）= image/video 队列走既有内联实现（行为零变更）；
+  #       unified = 调度委托通用 TaskQueueCore（backend/services/task_queue.py，
+  #       双实现以金标准测试逐比特对齐，unified 镜像见
+  #       tests/unit/test_image_queue_unified.py）。异常时自动回 legacy。
+  impl: legacy
+
 scheduler:
   sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）
   # 分级采样间隔（秒）：低频指标不随 tick 重复采集，降低 psutil/NVML 开销

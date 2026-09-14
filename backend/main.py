@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import os
 import time
 
@@ -96,6 +97,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.info("外部模型包登记：%s", _r)
     except Exception as _exc:  # noqa: BLE001 - 登记失败不阻断启动
         log.warning("外部模型包登记异常（不阻断启动）：%s", _exc)
+
+    # B6 步3（2026-09-14）：模型账实对账闸上线——validate_against_disk
+    # 此前只在无人跑的 startup_check 里（线上 0 次执行，R7 审计），现挂
+    # lifespan：ghost（清单有盘无）/ orphan（盘有清单无）/ required_missing
+    # 三计数写大白话事件日志。只读不阻断；同时是一键体检的数据源。
+    try:
+        from .data.model_registry import validate_against_disk
+        from .services.event_log import log_event as _le
+        _rep = validate_against_disk()
+        _ghost = len(_rep["ghost_entries"])
+        _orphan = len(_rep["orphan_dirs"])
+        _missing = len(_rep["required_missing"])
+        if _ghost or _orphan or _missing:
+            _le("models", "registry_drift",
+                f"模型账本对不上：清单里 { _ghost } 个模型盘上找不到，"
+                f"盘上 { _orphan } 个目录没登记，{ _missing } 个必备模型缺失。"
+                "其余功能不受影响，可在模型管理页核对。",
+                level="warning",
+                detail=json.dumps({"ghost": _rep["ghost_entries"],
+                                   "orphan": _rep["orphan_dirs"],
+                                   "required_missing":
+                                       _rep["required_missing"]},
+                                  ensure_ascii=False)[:500])
+        else:
+            _le("models", "registry_check",
+                "模型账本与磁盘对账一致", level="info")
+        log.info("模型账实对账：ghost=%d orphan=%d required_missing=%d",
+                 _ghost, _orphan, _missing)
+    except Exception as _exc:  # noqa: BLE001 - 对账失败不阻断启动
+        log.warning("模型账实对账异常（不阻断启动）：%s", _exc)
     # 审计 R3-BE3：非回环绑定醒目告警（API 无认证体系，规格 §14 约束2 要求 127.0.0.1）
     if config.HOST not in ("127.0.0.1", "localhost"):
         log.warning("!" * 60)

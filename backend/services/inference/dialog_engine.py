@@ -58,6 +58,9 @@ def _try_import(name: str) -> Any:
 # 2026-08-21 多模型热切换：qwen3-vl-8b-awq（AWQ int4 ~6GB 权重，vLLM
 # 子进程后端）纳入候选。自动选择默认仍 4b（保留知识 LoRA 能力），
 # 显式请求 8b-awq 时经 load_model 热切换（杀 vLLM 进程 → 换目录重启）。
+# 口径标注（B6）：本表第三元=weights 权重体积口径（调度预算另见
+# vram_policy.DIALOG_TIERS 的 dispatch 口径——qwen35-9b 11.0 vs 14.9
+# 非矛盾，是两种坐标）。
 DIALOG_MODEL_CANDIDATES: list[tuple[str, str, float]] = [
     # Qwen3.5-9B W4A16（2026-09-06 接入，架构升级计划 B-阶段一「换脑子」）：
     # RedHatAI compressed-tensors int4（10.95GB 权重 + 0.49GB MTP 投机

@@ -107,6 +107,10 @@ class ActiveFeature(str, Enum):
 #    - 视频只保留 MiniMax H3（12GB 档 5s 段 ~10.6GB 实测可跑）。
 # ═══════════════════════════════════════════════════════════════════
 
+# 口径标注（B6）：路由表 min_vram_gb=declared 档位声明口径（选型
+# 门槛），调度显存裁定走 model_manager.estimate_vram_gb 裁定链
+# （_VRAM_OVERRIDES 实测值最高优先）；三口径分列见
+# models_manifest.json _vram_semantics。
 VIDEO_ROUTING_TABLE = [
     # H3 NVFP4：33B 顶格质量 + 原生音画。门槛 12 = 实测采样峰值
     # ~10.6GB（125 帧 5s 段）+ 余量；16GB 卡首选，12GB 档跑短段
@@ -138,6 +142,10 @@ PAINT_ROUTING_TABLE = [
 # 文档B §4.2 权威映射（显存路由无法区分 4070Ti 12GB 与 3060 12GB，
 # 必须按型号名匹配）；型号名未命中时按显存保守降档回退。
 # 模型列为内部路由表模型 id（dialog/paint/video）+ 学习标签数配额。
+# B6（2026-09-14）纸面档标注：min_vram_gb ≥14G 的 8 档（rtx5090/4090/
+# 5080/5080s/4080s/4080/4070TiS/4060Ti-16G 等）在本项目**无实机验证**
+# （开发机 16G 5070Ti、基线口径 12G 3060）——档位行为为纸面推导，
+# 实机反馈前勿作为承诺依据。
 HARDWARE_TIER_TABLE: list[dict] = [
     # ── RTX 50 系列 (Blackwell, CC 12.0) ──
     {

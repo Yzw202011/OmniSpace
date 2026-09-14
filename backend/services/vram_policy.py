@@ -55,6 +55,9 @@ class DialogTier:
 # 对话档位表（显存调度机制批4，方案 §3.5；数值依据见 §1.3 供需表）
 # 2026-09-10 用户令删除 qwen35-9b-gguf-q4km（Q4 量化思考退化，
 # 权重已清 5.5G）——共存档随之移除；恢复方法见 dialog_engine 候选表注
+# 口径标注（B6）：本表 vram_gb=dispatch 调度预算口径（权重+KV+激活
+# 运行峰值）。与 dialog_engine 候选表的 weights 口径（qwen35-9b 11.0
+# vs 14.9）非矛盾，是两种坐标；换算：10.95 权重+0.49 MTP+KV+激活。
 DIALOG_TIERS: tuple[DialogTier, ...] = (
     DialogTier("qwen35-9b-w4a16", 14.9, "vllm",
                "主力独占档（权重10.95+MTP0.49+KV+激活，需近乎空卡）"),

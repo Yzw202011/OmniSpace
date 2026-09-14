@@ -156,6 +156,9 @@ _LORA_VERSION_RE = _re.compile(r"^v\d{1,2}$")
 
 # 显存估算人工覆盖（引擎候选表/路由表之后、磁盘大小回退之前）：
 # 磁盘含 fp32 全量权重导致 size×1.2 严重高估的模型按真实加载档位修正
+# 口径标注（B6）：本表=dispatch 调度预算口径（运行峰值，实测裁定，
+# 调度裁定链最高优先）。勿与 weights（权重体积）/ declared（清单声明）
+# 混用——三口径分列说明见 models_manifest.json _vram_semantics。
 _VRAM_OVERRIDES: dict[str, float] = {
     "sd15": 4.0,             # SD1.5 fp16 实加载约 3.5~4GB（AnimateLCM 基座）
     "ltx-video-0.9.5": 12.0, # fp16 权重约 12GB（磁盘 23.6GB 为 fp32 全量）

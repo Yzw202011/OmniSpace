@@ -711,7 +711,16 @@ class BootOrchestrator:
             print(f'检测到已在运行的启动页 {url}，复用并退出本实例（单实例守卫）')
             self._deferred_to_existing = True
             if not self.opts.no_browser:
-                _open_ui(url, self.opts)
+                # 就绪后来客直开主界面，不路过启动页（2026-09-14 实测定性）：
+                # 后端已就绪时 HUD 的 redirect.auto_in=0，页面一加载就
+                # location.replace 跳主界面，撞 WebView2 早期导航竞态——
+                # 壳窗永久白屏（shell.log 23:25 现场 + 直装/跳转 2×2 对照
+                # 矩阵实锤）；启动页是启动期临时 HUD，只有真的还在启动中
+                # 才值得带给用户看
+                backend_port = self._probe_existing()
+                if backend_port is not None:
+                    url = f'http://{self.config.backend_host}:{backend_port}'
+            _open_ui(url, self.opts)
             return False
         self.state.set_phase('splash', 'running')
         handler = make_splash_handler(self)

@@ -145,36 +145,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:  # noqa: BLE001
             pass
 
-    # T-1（B10 数据保全 2026-09-14）：恢复待办处理——/system/restore
-    # 安排的 pending 副本在数据库初始化前替换主库；替换前的当前库先
-    # 备份一份到 backups/（防呆可回退）。失败不阻断启动（保留标记下轮重试）。
-    try:
-        _restore_pending = config.DATA_DIR / "omnispace.restore-pending.db"
-        _restore_mark = config.DATA_DIR / "omnispace.restore-pending.json"
-        if _restore_pending.is_file() and _restore_mark.is_file():
-            _info = json.loads(_restore_mark.read_text(encoding="utf-8"))
-            if config.DB_PATH.is_file():
-                import shutil as _shutil
-                _safe_cur = (config.DATA_DIR / "backups" /
-                             f"omnispace_pre_restore_{int(time.time())}.db")
-                config.DATA_DIR.joinpath("backups").mkdir(parents=True,
-                                                          exist_ok=True)
-                _shutil.copy2(config.DB_PATH, _safe_cur)
-            _shutil.copy2(_restore_pending, config.DB_PATH)
-            for _p in (config.DATA_DIR / "omnispace.db-wal",
-                       config.DATA_DIR / "omnispace.db-shm"):
-                _p.unlink(missing_ok=True)
-            _restore_pending.unlink(missing_ok=True)
-            _restore_mark.unlink(missing_ok=True)
-            log.warning("备份恢复已生效（来源 %s）；替换前的当前库已备份",
-                        _info.get("source"))
-            from .services.event_log import log_event as _le_restore
-            _le_restore("system", "restore_applied",
-                        "备份恢复已完成（重启时替换主库），替换前的旧库已备份",
-                        level="warning")
-    except Exception as _exc:  # noqa: BLE001 - 恢复失败保留标记下轮重试
-        log.error("备份恢复执行失败（标记保留）：%s", _exc)
-
     # T+0s: 数据库
     try:
         db = get_db()
@@ -183,6 +153,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         log.error("数据库初始化失败: %s", exc)
         raise
+
+    # T+0.5（B10 数据保全 2026-09-14）：恢复待办处理——/system/restore
+    # 安排的 pending 副本经 **sqlite backup API 在线恢复**到主库。
+    #
+    # 实弹演练两轮修正：文件层覆盖（copy2/原子 replace）在 Windows 上
+    # 会被 boot/杀软等共享读锁卡死（WinError 32 ×2 实弹复现）——改为
+    # sqlite backup API（锁由 sqlite 管理，对已初始化主库在线恢复）。
+    # 防呆：恢复前当前库先 copy2 一份到 backups/（读锁无碍 copy）。
+    try:
+        _restore_pending = config.DATA_DIR / "omnispace.restore-pending.db"
+        _restore_mark = config.DATA_DIR / "omnispace.restore-pending.json"
+        if _restore_pending.is_file() and _restore_mark.is_file():
+            import shutil as _shutil
+            import sqlite3 as _sq
+            _info = json.loads(_restore_mark.read_text(encoding="utf-8"))
+            if config.DB_PATH.is_file():
+                _safe_cur = (config.DATA_DIR / "backups" /
+                             f"omnispace_pre_restore_{int(time.time())}.db")
+                config.DATA_DIR.joinpath("backups").mkdir(parents=True,
+                                                          exist_ok=True)
+                _shutil.copy2(config.DB_PATH, _safe_cur)
+            _src = _sq.connect(str(_restore_pending))
+            try:
+                _dst = _sq.connect(str(config.DB_PATH))
+                try:
+                    _src.backup(_dst)  # pending → 主库（在线恢复）
+                finally:
+                    _dst.close()
+            finally:
+                _src.close()
+            _restore_pending.unlink(missing_ok=True)
+            _restore_mark.unlink(missing_ok=True)
+            log.warning("备份恢复已生效（来源 %s）；替换前的当前库已备份",
+                        _info.get("source"))
+            from .services.event_log import log_event as _le_restore
+            _le_restore("system", "restore_applied",
+                        "备份恢复已完成（本次启动时已替换主库），"
+                        "替换前的旧库已备份", level="warning")
+    except Exception as _exc:  # noqa: BLE001 - 恢复失败保留标记下轮重试
+        log.error("备份恢复执行失败（标记保留）：%s", _exc)
 
     # T+3s: 文件存储与缓存
     try:

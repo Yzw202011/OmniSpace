@@ -1255,14 +1255,19 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             # legacy 栈完整可用），缺口补齐（单文件版下载/转换）后此闸
             # 自动放行。
             if use_comfy and any(
-                    ((DATA_DIR / str(a.get("file_path") or "")).parent
+                    (Path(str(a.get("file_path") or "")).parent
                      / "lora.safetensors").is_file()
                     for a in char_assets):
-                # 角色 LoRA 在场（comfy 将切 klein-4b 单文件底座）且
-                # ComfyUI diffusion_models 缺该文件 → 回落 diffusers
-                use_comfy = False
-                log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
-                         "权重——回落 diffusers（诚实降级）")
+                # 角色 LoRA 在场（comfy 将切 klein-4b 单文件底座）——
+                # 仅当 ComfyUI diffusion_models 缺该文件才回落 diffusers
+                _4b_unet = (DATA_DIR.parent / "tools" /
+                            "ComfyUI_windows_portable" / "ComfyUI" /
+                            "models" / "diffusion_models" /
+                            "flux-2-klein-4b.safetensors")
+                if not _4b_unet.is_file():
+                    use_comfy = False
+                    log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
+                             "权重——回落 diffusers（诚实降级）")
             route_label = ("comfy+双PuLID" if use_comfy and dual_faces
                            else "comfy+PuLID" if use_comfy and len(char_assets) == 1
                            else "comfy+多参考" if use_comfy else "diffusers")

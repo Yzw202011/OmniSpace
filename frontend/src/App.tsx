@@ -302,6 +302,14 @@ export function AppShell() {
     }
   }, [collapsed]);
 
+  // 启动即拉取后端设置（2026-09-12 主题回放依赖：loadSettings 内会把
+  // 后端 system.settings.theme 回放为当前主题，修复「选洱海月重启变
+  // 夜樱」——localStorage 因换端口/壳配置丢失时主题打回默认。此前仅
+  // 设置页挂载才拉取，回放无触发点。fire-and-forget，内部自带静默）
+  useEffect(() => {
+    void useAppStore.getState().loadSettings();
+  }, []);
+
   /* --------------------- 模块切换资源调度（2026-08-21） --------------------- */
   // 上一个重量级模块（跨轻量页面保留：paint→models→storyboard 仍触发释放；
   // 会话首次进入仅记基线静默——启动时通常无已加载模型，避免无意义提示）

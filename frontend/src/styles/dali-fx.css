@@ -13,24 +13,90 @@
    prefers-reduced-motion 单独兜底。
    ========================================================================== */
 
-/* ============================== 1. 氛围场 ============================== */
-/* 暮色洗底：两团极低透明柔光晕染出「冷暖同框」的夜（v1.4 双城对照语言）。
-   z-index:-1 压在全部内容之下；ui-lite 下由全局闸停掉呼吸（渐变本身保留，
-   纯静态无 GPU 负担）。 */
+/* ============================== 1. 氛围场 v2（场景化） ==============================
+ * 用户反馈「单调」（2026-09-12）：换色不够，要有预览件那种月夜层次。
+ * 三层结构（全部 fixed + pointer-events none，压在内容之下）：
+ *   body::before  暮色天幕（静态多层渐变：月侧天光/堇紫夜池/地平暖带）z:-2
+ *   body::after   缓漂光晕层（纯 transform 位移，合成器友好）z:-1
+ *   .dali-particles  萤火画布（同 z:-1，DOM 序在光晕层之上）
+ * 无 blur() 滤镜（一次性绘制零重绘）；漂移动画被 ui-lite 全局闸与
+ * prefers-reduced-motion 双重关闭，静态时即一张精绘壁纸。
+ * 注意：主内容区透明（TechParticles 同款契约），场景从主画布空隙透出。
+ */
 html[data-family='dali'] body::before {
   content: '';
   position: fixed;
   inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle 150px at 88% 8%, rgba(205, 232, 250, 0.14), rgba(124, 192, 236, 0.05) 58%, transparent 72%),
+    radial-gradient(ellipse 58% 44% at 84% -8%, rgba(120, 180, 255, 0.13), transparent 64%),
+    radial-gradient(ellipse 44% 34% at 96% 34%, rgba(96, 126, 235, 0.08), transparent 66%),
+    radial-gradient(ellipse 52% 38% at 2% 106%, rgba(96, 126, 235, 0.12), transparent 64%),
+    linear-gradient(180deg, rgba(15, 27, 51, 0.55) 0%, rgba(13, 22, 40, 0) 46%);
+}
+html[data-family='dali'] body::after {
+  content: '';
+  position: fixed;
+  inset: -18%;
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 62% 44% at 86% -6%, rgba(120, 180, 255, 0.08), transparent 66%),
-    radial-gradient(ellipse 50% 40% at 8% 108%, rgba(96, 126, 235, 0.07), transparent 66%);
+    radial-gradient(circle at 26% 30%, rgba(124, 192, 236, 0.055), transparent 40%),
+    radial-gradient(circle at 72% 64%, rgba(245, 167, 149, 0.045), transparent 44%),
+    radial-gradient(circle at 52% 12%, rgba(160, 210, 255, 0.04), transparent 38%);
+  animation: daliDrift 52s ease-in-out infinite alternate;
 }
+@keyframes daliDrift {
+  from {
+    transform: translate3d(-1.6%, -1%, 0);
+  }
+  to {
+    transform: translate3d(1.6%, 1.4%, 0);
+  }
+}
+/* ── 苍山雪 · 独立场景 v2（2026-09-12 用户拍板：雪后初晴，不做洱海月的亮色版）──
+   身份语言：低角度冬阳（白核暖边）当空 + 雪原反光 + 底部两片冷蓝灰雪影；
+   与暗色的「冰蓝月 + 堇紫夜池」完全不同的构图与色温。 */
 html[data-family='dali'][data-theme='light'] body::before {
   background:
-    radial-gradient(ellipse 62% 44% at 86% -6%, rgba(140, 190, 250, 0.16), transparent 66%),
-    radial-gradient(ellipse 50% 40% at 8% 108%, rgba(250, 190, 170, 0.09), transparent 66%);
+    radial-gradient(circle 130px at 84% 9%, rgba(255, 255, 255, 0.95), rgba(255, 244, 214, 0.5) 46%, rgba(250, 205, 140, 0.14) 68%, transparent 78%),
+    radial-gradient(ellipse 60% 46% at 80% -10%, rgba(255, 251, 240, 0.9), transparent 62%),
+    radial-gradient(ellipse 46% 30% at 98% 40%, rgba(214, 228, 246, 0.55), transparent 66%),
+    radial-gradient(ellipse 54% 32% at 0% 106%, rgba(205, 220, 240, 0.6), transparent 64%),
+    radial-gradient(ellipse 60% 24% at 52% 112%, rgba(188, 208, 232, 0.4), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.85) 0%, rgba(244, 249, 253, 0.4) 42%, rgba(226, 236, 246, 0) 72%);
+}
+/* 雪原反光漂移（vs 暗色的夜云漂移：更白更亮） */
+html[data-family='dali'][data-theme='light'] body::after {
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.72), transparent 38%),
+    radial-gradient(circle at 74% 62%, rgba(214, 230, 248, 0.42), transparent 42%),
+    radial-gradient(circle at 52% 8%, rgba(255, 248, 230, 0.5), transparent 34%);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-family='dali'] body::after {
+    animation: none;
+  }
+}
+
+/* ============================== 1b. 卡片玻璃质感 ==============================
+ * 平涂卡片 → 顶部高光渐变面 + 内发光描边；hover 浮起交给 app 既有规则。
+ * 只动 background-image/box-shadow（静态绘制），无滤镜无动画。 */
+[data-family='dali'] section.card,
+[data-family='dali'] .card {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 36%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 10px rgba(3, 7, 16, 0.22);
+}
+[data-family='dali'][data-theme='light'] section.card,
+[data-family='dali'][data-theme='light'] .card {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 42%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 10px rgba(35, 50, 74, 0.06);
 }
 
 /* 萤火粒子画布（DaliParticles.tsx）：fixed 全窗，与氛围洗底同层 */
@@ -55,7 +121,8 @@ html[data-family='dali'][data-theme='light'] body::before {
   animation: daliMoonBreathe 12s ease-in-out infinite;
 }
 [data-family='dali'][data-theme='light'] .topbar::after {
-  background: radial-gradient(ellipse at center, rgba(140, 190, 250, 0.2), transparent 68%);
+  /* 晴光（雪后初晴的日晕）：白核暖边，区别于暗色的冰蓝月晕 */
+  background: radial-gradient(ellipse at center, rgba(255, 248, 230, 0.5), rgba(250, 205, 140, 0.12) 55%, transparent 72%);
 }
 @keyframes daliMoonBreathe {
   0%,
@@ -151,5 +218,104 @@ html[data-family='dali'][data-theme='light'] body::before {
   [data-family='dali'] .topbar::after {
     animation: none;
     opacity: 0.6;
+  }
+}
+
+/* ============================== 4. C 效果层（2026-09-12 用户拍板） ============================== */
+
+/* ── 4.1 湖光扫过：可悬停卡片 hover 时一道冰蓝湖光斜掠 ──
+ * 依赖卡片自身 overflow:hidden 裁剪（此处显式补上）；仅 transform/opacity。 */
+[data-family='dali'] section.card.hoverable {
+  position: relative;
+  overflow: hidden;
+}
+[data-family='dali'] section.card.hoverable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(105deg,
+    transparent 40%,
+    rgba(160, 210, 255, 0.10) 47%,
+    rgba(255, 255, 255, 0.07) 52%,
+    transparent 60%);
+  transform: translateX(-110%);
+  opacity: 0;
+  transition: transform 0.9s ease, opacity 0.45s ease;
+}
+[data-family='dali'] section.card.hoverable:hover::after {
+  transform: translateX(110%);
+  opacity: 1;
+}
+[data-family='dali'][data-theme='light'] section.card.hoverable::after {
+  background: linear-gradient(105deg,
+    transparent 40%,
+    rgba(124, 180, 235, 0.14) 47%,
+    rgba(255, 255, 255, 0.55) 52%,
+    transparent 60%);
+}
+
+/* ── 4.2 主按钮呼吸辉光：静态外辉 + 透明度呼吸（box-shadow 本身不动画） ── */
+[data-family='dali'] .btn-primary,
+[data-family='dali'] button[class*='bg-sakura-500'] {
+  position: relative;
+  z-index: 0;
+}
+[data-family='dali'] .btn-primary::after,
+[data-family='dali'] button[class*='bg-sakura-500']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: 0 0 18px rgba(var(--color-primary-rgb), 0.6);
+  animation: daliBtnGlow 3.2s ease-in-out infinite;
+}
+@keyframes daliBtnGlow {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.85; }
+}
+
+/* ============================== 5. B 诗句浮现（空状态强化） ==============================
+ * 平时=水印（弱）；页面空状态（DaliVerse 探测器挂 .dali-verse--revealed）=
+ * 浮现：墨色升起、印章实色、呼吸停驻，transition 1.4s 如潮水漫上来。 */
+[data-family='dali'] .dali-verse-text,
+[data-family='dali'] .dali-verse-seal {
+  transition: opacity 1.4s ease;
+}
+[data-family='dali'] .dali-verse--revealed .dali-verse-text {
+  background: linear-gradient(180deg,
+    rgba(244, 248, 255, 0.95) 0%,
+    rgba(244, 248, 255, 0.55) 62%,
+    rgba(244, 248, 255, 0.14) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: none;
+  opacity: 1;
+  text-shadow: 0 0 44px rgba(124, 192, 236, 0.35);
+}
+[data-family='dali'] .dali-verse--revealed .dali-verse-seal {
+  background: rgba(192, 69, 78, 0.92);
+  color: rgba(247, 241, 230, 0.95);
+  animation: none;
+  opacity: 1;
+}
+/* 亮色（苍山雪）浮现：暖墨落在雪纸上 */
+[data-family='dali'][data-theme='light'] .dali-verse--revealed .dali-verse-text {
+  background: linear-gradient(180deg,
+    rgba(35, 50, 74, 0.92) 0%,
+    rgba(35, 50, 74, 0.5) 62%,
+    rgba(35, 50, 74, 0.08) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 44px rgba(255, 255, 255, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-family='dali'] .btn-primary::after,
+  [data-family='dali'] button[class*='bg-sakura-500']::after {
+    animation: none;
+    opacity: 0.4;
   }
 }

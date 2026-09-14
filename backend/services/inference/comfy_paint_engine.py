@@ -57,6 +57,20 @@ _PAINT_FILES = {
 # antelopev2 人脸分析；EVA-CLIP 首跑经 open_clip 自动下载）
 _PULID_FILE = "pulid_flux2_klein_v2.safetensors"
 
+# ── sampler 名跨栈别名（B2 实弹验收 2026-09-14 揪出的既有缺陷）──────
+# draw 链默认 DEFAULT_SAMPLER="euler_a"（paint_engine.py legacy diffusers
+# 常量）会随请求传入 comfy 工作流，而 ComfyUI 0.34 的 KSamplerSelect
+# 列表（44 项）无 euler_a（新版名 euler_ancestral）→ 工作流校验失败、
+# 绘画页默认参数生图全断。显式映射 legacy 名 → ComfyUI 标准名；
+# 未知名直传（由 ComfyUI 校验兜底）。
+_COMFY_SAMPLER_ALIAS = {
+    "euler_a": "euler_ancestral",
+}
+
+
+def _comfy_sampler_name(raw: str) -> str:
+    return _COMFY_SAMPLER_ALIAS.get(raw, raw)
+
 # 每步每百万像素耗时（2026-08-27 实测：1280x720=0.92MP @36步 euler
 # fp8 90s/镜 → ~2.7 s/步/MPix @ RTX 5070 Ti 16GB）
 _ETA_SEC_PER_STEP_PER_MPIX = 2.7
@@ -340,7 +354,8 @@ class ComfyPaintEngine:
             "noise": {"class_type": "RandomNoise", "inputs": {
                 "noise_seed": seed}},
             "sampler": {"class_type": "KSamplerSelect", "inputs": {
-                "sampler_name": str(params.get("sampler") or "euler")}},
+                "sampler_name": _comfy_sampler_name(
+                    str(params.get("sampler") or "euler"))}},
             "sigmas": {"class_type": "Flux2Scheduler", "inputs": {
                 "steps": steps, "width": width, "height": height}},
             "latent": {"class_type": "EmptyFlux2LatentImage", "inputs": {
@@ -697,7 +712,8 @@ class ComfyPaintEngine:
         wf["noise"] = {"class_type": "RandomNoise", "inputs": {
             "noise_seed": seed}}
         wf["sampler"] = {"class_type": "KSamplerSelect", "inputs": {
-            "sampler_name": str(p.get("sampler") or "euler")}}
+            "sampler_name": _comfy_sampler_name(
+                str(p.get("sampler") or "euler"))}}
         wf["sigmas"] = {"class_type": "Flux2Scheduler", "inputs": {
             "steps": steps, "width": w, "height": h}}
         wf["guider"] = {"class_type": "CFGGuider", "inputs": {

@@ -38,13 +38,15 @@ class QueueSpec:
     release_hook: str               # 宿主释放锁方法名 (loop)->None
     thermal_hook: str               # 热保护暂停查询 ()->bool
     vllm_sleep_hook: str            # 生成期让渡 ()->None
-    unload_hook: str                # 排空收尾卸载 ()->None
     wake_hook: str                  # 排空去抖唤醒 ()->None
     budget_admit_hook: str          # 预算准入 (task)->None
     budget_release_hook: str        # 预算收尾 (task)->None
     cloud_concurrency_hook: str     # 云道并发上限 ()->int
     wait_poll_s: float = 1.0
     thermal_poll_s: float = 2.0
+    # 排空收尾卸载钩子（()->None）：None=排空不卸载（video 语义——卸载
+    # 在准入时做，排空只放锁+唤醒）；image 传 "_unload_paint_pipeline"
+    unload_hook: str | None = None
     priority_sort: bool = True      # False=纯 FIFO（video 语义）
     default_priority: int = 5
     label: str = "task"             # 任务种类日志词（"图像"/"视频"）
@@ -217,7 +219,8 @@ class TaskQueueCore:
                     drain = True
             if drain:
                 try:
-                    self._h(self.spec.unload_hook)()
+                    if self.spec.unload_hook:
+                        self._h(self.spec.unload_hook)()
                 finally:
                     self._h(self.spec.release_hook)(self._loop)
                     self._h(self.spec.wake_hook)()

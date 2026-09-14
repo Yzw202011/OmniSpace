@@ -46,9 +46,22 @@ from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
+from .task_queue import QueueSpec, TaskQueueCore
 from .vram_policy import WAKE_DEBOUNCE_S
 
 log = logging.getLogger("omnispace.services.video_queue")
+
+
+def _use_unified() -> bool:
+    """B5 灰度开关：config task_queue.impl（legacy|unified，默认 legacy）。
+    与 image_queue 同名函数各自独立（测试可分别 monkeypatch）。"""
+    try:
+        from backend.config import get_config
+        raw = str((get_config().get("task_queue") or {}).get("impl", "")
+                  or "").strip().lower()
+        return raw == "unified"
+    except Exception:  # noqa: BLE001 - 配置异常保持 legacy
+        return False
 
 # 排队任务取消检查周期（秒）：等待锁/热保护的循环里以此时长让出
 _WAIT_POLL_S = 1.0
@@ -75,6 +88,26 @@ class VideoTaskQueue:
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
+        # B5（2026-09-14）双模：unified 时调度委托 TaskQueueCore（本类
+        # 保留全部宿主钩子方法）；legacy=下方内联实现零变更默认在役。
+        # video 差异：纯 FIFO（无优先级排序）、排空收尾不卸载绘画管线
+        # （卸载在准入时做，unload_hook=None）、snapshot/next_kind 形状
+        # 与 image 不同（薄壳层做形状适配）。
+        self._core: TaskQueueCore | None = None
+        if _use_unified():
+            self._core = TaskQueueCore(host=self, spec=QueueSpec(
+                name="视频", label="视频",
+                acquire_hook="_acquire_video_gen",
+                release_hook="_release_video_gen",
+                thermal_hook="_thermal_paused",
+                vllm_sleep_hook="_sleep_vllm_for_generation",
+                unload_hook=None,
+                wake_hook="_schedule_wake_if_idle",
+                budget_admit_hook="_budget_admit",
+                budget_release_hook="_budget_release",
+                cloud_concurrency_hook="_cloud_concurrency",
+                wait_poll_s=_WAIT_POLL_S, thermal_poll_s=_THERMAL_POLL_S,
+                priority_sort=False))
         self._queue: deque[dict] = deque()
         self._cond = threading.Condition()
         self._worker: threading.Thread | None = None
@@ -110,6 +143,11 @@ class VideoTaskQueue:
         首次入队时回收历史孤儿任务（后端重启遗留的 pending/generating
         行，无 worker 接管则永卡假进度）。
         """
+        if self._core is not None:
+            if not self._reconciled:
+                self._reconciled = True
+                self._reconcile_orphan_tasks(task)
+            return self._core.submit(task)
         if not self._reconciled:
             self._reconciled = True
             self._reconcile_orphan_tasks(task)
@@ -128,6 +166,8 @@ class VideoTaskQueue:
         """取消任务：'queued'（已出队，调用方写终态）/ 'running'
         （已置旗标，运行中检查点收割）/ 'missing'（不在队列中，走旧
         旗标兜底路径）。本地道与云端道同源判定。"""
+        if self._core is not None:
+            return self._core.cancel(task_id)
         with self._cond:
             for i, t in enumerate(self._queue):
                 if t.get("task_id") == task_id:
@@ -144,6 +184,8 @@ class VideoTaskQueue:
 
     def position(self, task_id: str) -> int | None:
         """排队位次（1 起，仅排队中任务有值）。"""
+        if self._core is not None:
+            return self._core.position(task_id)
         with self._cond:
             for i, t in enumerate(self._queue):
                 if t.get("task_id") == task_id:
@@ -157,11 +199,24 @@ class VideoTaskQueue:
         卸载，镜间接力免整轮重载。云端任务排在队首时返回 cloud_video
         ——非 h3_chain，H3 正常收尾卸载（正确语义：云端不接力本地权重）。
         """
+        if self._core is not None:
+            queued = self._core.snapshot()["queued"]
+            return queued[0]["kind"] if queued else None
         with self._cond:
             return self._queue[0].get("kind") if self._queue else None
 
     def snapshot(self) -> dict:
         """队列状态快照（诊断/日志用；本地道与云端道合并）。"""
+        if self._core is not None:
+            cs = self._core.snapshot()
+            # 形状适配：core 的 queued 是列表，video 对外契约是数量+kinds
+            return {
+                "queued": len(cs["queued"]),
+                "current": cs["current"],
+                "kinds": [t.get("kind") for t in cs["queued"]],
+                "cloud_running": cs["cloud_running"],
+                "lock_held": cs["lock_held"],
+            }
         with self._cond:
             return {
                 "queued": len(self._queue),
@@ -173,6 +228,8 @@ class VideoTaskQueue:
 
     def is_cancelled(self, task_id: str) -> bool:
         """运行中任务的取消旗标查询（check_cancel 闭包数据源）。"""
+        if self._core is not None:
+            return self._core.is_cancelled(task_id)
         return task_id in self._cancel_flags
 
     # ── worker ──────────────────────────────────────────────────

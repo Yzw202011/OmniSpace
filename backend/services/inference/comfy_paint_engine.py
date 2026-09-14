@@ -342,6 +342,17 @@ class ComfyPaintEngine:
             unet_name = "flux-2-klein-4b.safetensors"
             clip_name = "qwen_3_4b.safetensors"
 
+        # B7+（2026-09-14）：model 参数切换底座单文件（管理员 paint 槽
+        # default 或用户显式指定）——4b 组装件已在 diffusion_models，
+        # 9b-fp8 为默认。只在值非默认时覆盖，不影响已有流程。
+        model_id = str(params.get("model") or "").strip()
+        if model_id == "flux2-klein-4b":
+            unet_name = "flux-2-klein-4b.safetensors"
+            clip_name = "qwen_3_4b.safetensors"
+        elif model_id == "flux2-klein-9b":
+            unet_name = "flux-2-klein-9b-fp8.safetensors"
+            clip_name = "qwen3_8b.safetensors"
+
         wf: dict[str, dict] = {
             "unet": {"class_type": "UNETLoader", "inputs": {
                 "unet_name": unet_name,

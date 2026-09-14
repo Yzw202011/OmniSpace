@@ -75,7 +75,7 @@ from typing import Any
 from ..config import DATA_DIR, MODELS_DIR
 from ..data.database import get_db_safe
 from ..middleware.feature_lock import get_feature_lock
-from .priority import Priority
+from .priority import LEVEL_BY_NAME, Priority
 from .vram_policy import TRAINING_MIN_FREE_GB
 
 logger = logging.getLogger("omnispace.lora_training")
@@ -139,7 +139,8 @@ QUALITY_DECLINE_WINDOW = 4          # 检测窗口：最近 4 次完成训练的
 QUALITY_DECLINE_STREAK = 3          # 连续 3 次下降 → 暂停自动训练
 
 # 训练任务优先级（对齐 Celery 队列语义）
-PRIORITY_LEVELS = {"high": 0, "medium": 1, "low": 2, "background": 3}
+# B5 步4：相对级映射收敛到 priority.py 单源（消克隆漂移）
+PRIORITY_LEVELS = LEVEL_BY_NAME
 
 # 本服务在全局调度中的优先级（文档 §8.4.2：P2 LoRA训练，
 # 低于 P0 用户操作 / P1 模型预加载，高于 P3 浏览器学习等后台任务）

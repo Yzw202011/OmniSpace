@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 
 from . import knowledge_quality_gate as gate
 
@@ -105,25 +104,19 @@ def run_checkup() -> dict:
             "friendly": friendly}
 
 
-def start_checkup_task() -> None:
-    """启动体检后台线程（幂等）：启动即查一次 + 每 7 天巡检。"""
-    t = threading.Thread(target=_loop, name="knowledge-checkup", daemon=True)
-    t.start()
-
-
 _started = False
 _start_lock = threading.Lock()
 
 
-def _loop() -> None:
+def start_checkup_task() -> None:
+    """启动体检后台线程（幂等）：启动即查一次 + 每 7 天巡检。
+
+    B5 步5：循环体收敛到 periodic.start_periodic_daemon（消克隆）。"""
     global _started
     with _start_lock:
         if _started:
             return
         _started = True
-    while True:
-        try:
-            run_checkup()
-        except Exception:  # noqa: BLE001 - 体检失败不影响业务
-            log.exception("知识库体检异常")
-        time.sleep(_CHECKUP_INTERVAL_S)
+    from .periodic import start_periodic_daemon
+    start_periodic_daemon("knowledge-checkup", _CHECKUP_INTERVAL_S,
+                          run_checkup, run_immediately=True)

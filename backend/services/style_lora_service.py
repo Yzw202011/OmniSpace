@@ -42,7 +42,7 @@ from typing import Any
 from ..config import DATA_DIR, MODELS_DIR
 from ..data.database import get_db_safe
 from ..middleware.feature_lock import get_feature_lock
-from .priority import Priority
+from .priority import LEVEL_BY_NAME, Priority
 
 logger = logging.getLogger("omnispace.style_lora")
 
@@ -105,7 +105,8 @@ CREATE TABLE IF NOT EXISTS style_tasks (
 """
 
 # 训练任务优先级（对齐 Celery 队列语义，与知识 LoRA 一致）
-PRIORITY_LEVELS = {"high": 0, "medium": 1, "low": 2, "background": 3}
+# B5 步4：相对级映射收敛到 priority.py 单源（消克隆漂移）
+PRIORITY_LEVELS = LEVEL_BY_NAME
 
 # 默认训练超参（文档 §8.3.7：QLoRA 4bit，rank=16，alpha=32，lr 2e-5，epochs 3）
 DEFAULT_STYLE_CONFIG: dict[str, Any] = {

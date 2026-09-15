@@ -826,6 +826,15 @@ class VLLMService:
 
             VLLM_LOG.parent.mkdir(parents=True, exist_ok=True)
             self._close_log()  # B0（2026-09-13）：重开前先关旧句柄（同 09-12 审计 P2-3 病灶）
+            # 追加式日志轮转（2026-09-15 审计修复）：持续追加使 mtime
+            # 恒新，30 天清理 glob 永远够不着——超 10MB 落 .1（保一份旧）
+            try:
+                if (VLLM_LOG.is_file()
+                        and VLLM_LOG.stat().st_size > 10 * 1024 * 1024):
+                    VLLM_LOG.replace(VLLM_LOG.with_name(
+                        VLLM_LOG.name + ".1"))
+            except OSError:
+                pass
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
                 VLLM_LOG, "a", encoding="utf-8", buffering=1)
 

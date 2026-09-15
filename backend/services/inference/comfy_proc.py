@@ -293,7 +293,16 @@ class ComfyProcManager:
             _old_fp, self._log_fp = self._log_fp, None
             if _old_fp is not None and not _old_fp.closed:
                 _old_fp.close()
-            self._log_fp = open(logs_dir / log_name, "ab")
+            # 追加式日志轮转（2026-09-15 审计修复）：mtime 恒新使 30 天
+            # 清理够不着——超 10MB 落 .1（保一份旧）
+            _log_path = logs_dir / log_name
+            try:
+                if (_log_path.is_file()
+                        and _log_path.stat().st_size > 10 * 1024 * 1024):
+                    _log_path.replace(_log_path.with_name(_log_path.name + ".1"))
+            except OSError:
+                pass
+            self._log_fp = open(_log_path, "ab")
             for d in (COMFY_OUTPUT_DIR, COMFY_INPUT_DIR,
                       COMFY_TEMP_DIR, COMFY_USER_DIR):
                 d.mkdir(parents=True, exist_ok=True)

@@ -1114,7 +1114,9 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
         from ...services.inference.comfy_paint_engine import (
             comfy_paint_available as _z_avail,
         )
-        _z_ok = _z_avail()
+        # 2026-09-15 审计修复：按 z 槽权重探测（旧实现查的是 klein
+        # 三件套——z 权重缺失时闸仍绿，冷启动后才炸）
+        _z_ok = _z_avail("z-image-turbo")
     except Exception:
         log.exception("Z2 gate: 可用性探测抛异常（按不可用）")
         _z_ok = False

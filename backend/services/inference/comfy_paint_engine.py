@@ -138,14 +138,24 @@ def _ref_megapixels(n_refs: int) -> float:
     return 0.35
 
 
-def comfy_paint_available() -> bool:
-    """ComfyUI 绘画管线是否就绪（便携版 + 三件权重硬链接齐全）。"""
+def comfy_paint_available(model_id: str = "") -> bool:
+    """ComfyUI 绘画管线是否就绪（便携版 + 对应引擎槽权重齐全）。
+
+    model_id 空串/klein 系 → 查 klein 三件套；_Z_IMAGE_MODEL_ID → 查
+    Z 三件套（2026-09-15 审计修复：旧实现恒查 klein 三件，Z2 gate 拿
+    它当「z 可用」探测——z 权重缺失时闸仍绿，直到 ComfyUI 工作流校验
+    才炸再走异常回退，白付一次冷启动）。
+    """
     if not (_COMFY_PY.is_file() and _COMFY_MAIN.is_file()):
         return False
+    if model_id == _Z_IMAGE_MODEL_ID:
+        files = _Z_IMAGE_FILES
+    else:
+        files = _PAINT_FILES
     checks = [
-        _COMFY_MODELS / "diffusion_models" / _PAINT_FILES["unet"],
-        _COMFY_MODELS / "text_encoders" / _PAINT_FILES["clip"],
-        _COMFY_MODELS / "vae" / _PAINT_FILES["vae"],
+        _COMFY_MODELS / "diffusion_models" / files["unet"],
+        _COMFY_MODELS / "text_encoders" / files["clip"],
+        _COMFY_MODELS / "vae" / files["vae"],
     ]
     return all(p.is_file() for p in checks)
 
@@ -656,6 +666,27 @@ class ComfyPaintEngine:
                         "（PuLID 为 flux2 专属 patch）",
                 suggestion="身份锚定请改用参考图条件（img2img 传参考图）"
                            "或等待 Z-Image 角色 LoRA（规划 Z4）")
+        # 准入闸（2026-09-15 审计修复）：z 任务此前向 gpu-budget 申报
+        # need=0.0G 裸发，19.6GB staged 全家桶靠 ComfyUI dynamic offload
+        # 硬扛（首跑即 96% 显存越线+RAM 危急连环告警）。空闲低于 unet
+        # 权重体积（11.5GB）时诚实早拒——宁可早拒不让装到一半死。
+        if z_mode:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    _free_b, _ = torch.cuda.mem_get_info(0)
+                    if _free_b < 11.5 * 1024 ** 3:
+                        raise ApiError(
+                            code=60003,
+                            message=(f"Z-Image 需近乎空卡（unet 11.5GB 起"
+                                     f"+TE/VAE 靠 offload），实测空闲仅"
+                                     f" {_free_b / 1024 ** 3:.1f}GB"),
+                            suggestion="关闭占显存应用后重试，或改用"
+                                       " klein-9b 引擎槽")
+            except ApiError:
+                raise
+            except Exception:  # noqa: BLE001 - 探测失败放行（ComfyUI 侧自会报）
+                pass
 
         # ReferenceLatent 模式提前解析：off 时不落参考图（省 IO，
         # 工作流不建 ref 链）

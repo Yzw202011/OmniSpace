@@ -853,6 +853,243 @@ def _generate_turnaround_onepass(engine: PaintEngine, out_dir: Path, *, name: st
     }
 
 
+# ── zviews 分张管线（Z2 2026-09-15：Z-Image 逐视图 + 参考锚身份 + ──
+# 代码贴字）。动因（ab5 四视图对标实测）：单图 one-pass 版式指令服从
+# 是生成模型能力边界（klein 双栈丢格/特写错、长标签错字），竞品级
+# 交付只能靠"拆活儿"——每视图单独生成（语义=提示词保证）+ PIL 贴字
+# （零错字）+ 参考图条件锚身份（TextEncodeZImageOmni 原生参考）。
+_ZVIEW_SIZE_W, _ZVIEW_SIZE_H = 576, 1296   # 与画布格 640×1440 同比例
+_ZVIEW_DIRECTIVES = {
+    "front": "正面全身站立照：正面正对镜头，双臂自然下垂，"
+             "头顶到脚底全身入画",
+    "side": "侧面全身站立照：严格正侧面90度朝向，全身入画",
+    "back": "背面全身站立照：背对镜头仅见背影，全身入画",
+    "closeup": "上半身特写肖像：胸部以上构图，正视镜头，平静表情",
+}
+# 参考图条件只给与参考姿势同向的视图（Z-Image 参考是编辑级强度：
+# 实弹 2026-09-15，全视图挂参考会把侧面/背面全带成正面脸+参考图
+# 碎片复刻——与 klein 关键帧 R2/ECU「face 入 latent 致脸复制」同课）。
+# 侧/背视图身份由同种子+同设定文本锚定。
+_ZVIEW_REF_VIEWS: tuple[str, ...] = ()  # A/B 待定：挂参考的视图（编辑条件会带参考压缩伪影，见 14:2x 实测）
+
+
+def _zview_use_ref(view: str, ref_image: Image | None) -> bool:
+    return ref_image is not None and view in _ZVIEW_REF_VIEWS
+
+
+def _zview_prep_ref(ref: Image, w: int, h: int) -> Image:
+    """参考图预处理（Z2）：白边补齐到出图宽高比（不裁切不变形）。
+
+    Z-Image 参考隐空间须与采样隐空间同形（编辑语义），官方
+    ImageScale crop=center 会硬裁人像产生构图伪影；改为先等比
+    缩放 + 白边补齐（参考图本就是白底，白边与背景融为一体），
+    LANCZOS 高质量重采样到精确输出尺寸。"""
+    from PIL import Image
+
+    tw, th = w, h
+    scale = min(tw / ref.width, th / ref.height)
+    nw, nh = max(1, round(ref.width * scale)), max(1, round(ref.height * scale))
+    canvas = Image.new("RGB", (tw, th), (255, 255, 255))
+    res = ref.convert("RGB").resize((nw, nh), Image.LANCZOS)
+    canvas.paste(res, ((tw - nw) // 2, (th - nh) // 2))
+    return canvas
+
+
+def _zview_whiten(image: Image) -> Image:
+    """zviews 专用背景净化（区别于 _whiten_background 的 SAM 路线）。
+
+    原理：取四边边界色中位数=背景色 → 容差内且**与边界连通**的像素
+    洗成纯白（洪泛填充）。人物内部的白色衣物不与边界连通故不受影响
+    （SAM 路线在「白T恤 vs 白底」场景实测误啃衣物，且逐视图 SAM 显存
+    不足会卸载 ComfyUI 造成逐张冷重启——2026-09-15 实弹教训）。"""
+    import numpy as np
+    from PIL import Image
+
+    arr = np.asarray(image.convert("RGB"), dtype=np.int16)
+    border = np.concatenate([
+        arr[:2].reshape(-1, 3), arr[-2:].reshape(-1, 3),
+        arr[:, :2].reshape(-1, 3), arr[:, -2:].reshape(-1, 3)])
+    bg = np.median(border, axis=0)
+    if float(bg.min()) >= 250.0:
+        return image.convert("RGB")
+    dist = np.abs(arr - bg).max(axis=2)
+    cand = dist <= 20
+    flooded = np.zeros(cand.shape, dtype=bool)
+    flooded[0, :] = cand[0, :]
+    flooded[-1, :] = cand[-1, :]
+    flooded[:, 0] = cand[:, 0]
+    flooded[:, -1] = cand[:, -1]
+    while True:
+        grown = flooded.copy()
+        grown[1:, :] |= flooded[:-1, :]
+        grown[:-1, :] |= flooded[1:, :]
+        grown[:, 1:] |= flooded[:, :-1]
+        grown[:, :-1] |= flooded[:, 1:]
+        grown &= cand
+        n = int(grown.sum())
+        if n == int(flooded.sum()):
+            break
+        flooded = grown
+    arr[flooded] = 255
+    return Image.fromarray(arr.astype(np.uint8))
+
+
+def _zviews_enabled() -> bool:
+    """zviews 分张管线开关（默认开；manga.turnaround_engine=legacy/
+    comfy 可强制回旧管线）。z-image 权重不在位时调用方自然回退。"""
+    try:
+        from ...config import get_config
+        _v = str((get_config().get("manga") or {}).get(
+            "turnaround_engine", "zviews")).strip().lower()
+        return _v in ("", "zviews", "auto")
+    except Exception:  # noqa: BLE001 - 配置异常按默认开
+        return True
+
+
+def _zview_view_prompt(prompt: str, view: str) -> str:
+    """单视图提示词：净化后的人物设定 + 视图指令 + 白底棚拍约束。"""
+    return (f"{_sanitize_character_prompt_zh(prompt)}\n"
+            f"{_ZVIEW_DIRECTIVES[view]}。纯白无缝背景（#FFFFFF），"
+            "影棚白底，无投影无阴影，画面中不得出现任何文字。")
+
+
+def _generate_turnaround_zviews(out_dir: Path, *, name: str, prompt: str,
+                                seed: int, transparent: bool = False,
+                                ctx_id: str = "") -> dict:
+    """zviews 分张四视图核心（Z2 2026-09-15）。
+
+    1. 逐视图生成：Z-Image-Turbo 8 步蒸馏，576×1296（与画布格
+       640×1440 同比例）；正/侧/背/特写各一条专用提示词——视图语义
+       由提示词构造性保证，不再赌单图版式指令服从
+    2. 身份锚：资产目录 reference.png 走 TextEncodeZImageOmni 原生
+       参考条件（实弹：脸即参考图本人）；四视图同种子
+    3. 背景确定性漂白（_whiten_background）+ 透明模式抠底
+    4. 合成 2560×1440 画布 + PIL 中文标注（复用 one-pass 标注器，
+       零错字）——视图语义/标注两大痛点在此构造性消失
+    """
+    import random
+
+    from PIL import Image
+
+    if seed is None or seed < 0:
+        seed = random.randint(0, 2 ** 31 - 1)
+    clean_prompt = _sanitize_character_prompt_zh(prompt)
+    ref_image = _load_onepass_reference(out_dir)
+    ref_used = ref_image is not None
+
+    # 角色 LoRA（Z4）：角色目录 lora.safetensors 在场即挂载（同卷硬链
+    # 进 ComfyUI loras，与关键帧 D-LoRA 同约定）；触发词 trigger.txt
+    lora_name = ""
+    trigger = ""
+    _lora_path = out_dir / "lora.safetensors"
+    if _lora_path.is_file():
+        import hashlib
+        import os
+        import shutil
+        loras_dir = (Path(__file__).resolve().parents[3] / "tools" /
+                     "ComfyUI_windows_portable" / "ComfyUI" / "models" /
+                     "loras")
+        loras_dir.mkdir(parents=True, exist_ok=True)
+        tag = hashlib.md5(str(_lora_path).encode()).hexdigest()[:8]
+        dst = loras_dir / f"char_{tag}.safetensors"
+        if not dst.is_file():
+            try:
+                os.link(_lora_path, dst)
+            except OSError:  # noqa: PERF203 - 跨卷退回复制
+                shutil.copy(_lora_path, dst)
+        lora_name = dst.name
+        _trig = out_dir / "trigger.txt"
+        if _trig.is_file():
+            trigger = _trig.read_text(encoding="utf-8").strip()
+
+    # 云端档（ZC 2026-09-15）：asset.image 槽绑定云端端点时逐视图走
+    # 云端旗舰（qwen-image 原生中文/竞品级质量）；未绑定走本地
+    # Z-Image-Turbo。云端单张约 5~15s，四张 30~60s。
+    _cloud_ep = None
+    try:
+        from ...services.cloud_provider_service import (
+            SLOT_ASSET_IMAGE,
+            get_image_endpoint,
+        )
+        _cloud_ep = get_image_endpoint(SLOT_ASSET_IMAGE)
+    except Exception:  # noqa: BLE001 - 绑定读取失败按本地
+        _cloud_ep = None
+
+    views_dir = out_dir / "portrait_views"
+    views_dir.mkdir(parents=True, exist_ok=True)
+    views: dict[str, str] = {}
+    view_imgs: list[Image.Image] = []
+    # 先全部生成（ComfyUI 只冷启一次），再统一净化——净化不涉及
+    # ComfyUI，避免 SAM 路线「显存不足→卸载→下一张冷重启」的抖动
+    raw_imgs: list[Image.Image] = []
+    for idx, view in enumerate(_TURNAROUND_VIEWS):
+        label = _ONEPASS_VIEW_LABELS[view]
+        broadcast_gen_progress(
+            "asset", ctx_id, percent=3 + idx * 22,
+            label=f"生成{label}")
+        vp = _zview_view_prompt(prompt, view)
+        if lora_name and trigger:
+            vp = f"{trigger}, {vp}"
+        params = {"prompt": vp,
+                  "seed": (seed + idx) % (2 ** 31),
+                  "width": _ZVIEW_SIZE_W, "height": _ZVIEW_SIZE_H,
+                  "steps": 8, "cfg": 1.0, "model": "z-image-turbo"}
+        if lora_name:
+            params["lora_name"] = lora_name
+            params["lora_scale"] = 1.0
+        if _cloud_ep is not None:
+            from ...services.inference.cloud_image_client import (
+                generate_image as _cloud_gen,
+            )
+            raw_imgs.append(_cloud_gen(
+                _cloud_ep, vp, width=_ZVIEW_SIZE_W,
+                height=_ZVIEW_SIZE_H,
+                slot="asset.image").convert("RGB"))
+            continue
+        _ref = (_zview_prep_ref(ref_image, _ZVIEW_SIZE_W, _ZVIEW_SIZE_H)
+                if _zview_use_ref(view, ref_image) else None)
+        r = comfy_paint_generate(params, ref_image=_ref)
+        raw_imgs.append(r["images"][0].convert("RGB"))
+
+    for view, img in zip(_TURNAROUND_VIEWS, raw_imgs, strict=True):
+        # 洪泛净化（边界连通背景→纯白；SAM 路线在白T恤vs白底场景
+        # 实测误啃衣物，弃用）——此阶段批量做，无 ComfyUI 交互
+        img = _zview_whiten(img)
+        if transparent:
+            img = _remove_background(img)
+        p = views_dir / f"{view}.png"
+        img.save(p, "PNG")
+        views[view] = str(p.relative_to(DATA_DIR)).replace("\\", "/")
+        view_imgs.append(img)
+
+    broadcast_gen_progress("asset", ctx_id, percent=93, label="合成标注")
+    master = Image.new("RGB", (_ONEPASS_W, _ONEPASS_H), "white")
+    cell_w, cell_h = _ONEPASS_W // 4, _ONEPASS_H
+    for idx, img in enumerate(view_imgs):
+        master.paste(img.convert("RGB").resize((cell_w, cell_h),
+                                               Image.LANCZOS),
+                     (idx * cell_w, 0))
+    master_path = out_dir / "master.png"
+    master.save(master_path, "PNG")
+    canvas_path = out_dir / "canvas.png"
+    _draw_onepass_labels(master, name).save(canvas_path, "PNG")
+    broadcast_gen_progress("asset", ctx_id, percent=97, label="裁切落盘")
+
+    return {
+        "pipeline": "zviews",
+        "views": views,
+        "canvas": str(canvas_path.relative_to(DATA_DIR)).replace("\\", "/"),
+        "master": str(master_path.relative_to(DATA_DIR)).replace("\\", "/"),
+        "consistency": _views_consistency(view_imgs),
+        "seed": seed,
+        "model": (f"cloud:{_cloud_ep.provider_name}:{_cloud_ep.model}"
+                  if _cloud_ep is not None else "z-image-turbo(comfy)"),
+        "prompt_zh": clean_prompt,
+        "ref_used": ref_used,
+        "view_errors": {},
+    }
+
+
 def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
                              prompt: str, seed: int,
                              transparent: bool = False,
@@ -868,6 +1105,33 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
     # W3-C：引擎档位在编排口统一裁决（comfy 适配器 / legacy klein-4b；
     # comfy onepass 失败自然落入下方 legacy 全链回退）
     engine = _pick_turnaround_engine()
+    # Z2（2026-09-15）：zviews 分张管线优先——Z-Image 逐视图+参考锚
+    # 身份+代码贴字，视图语义/标注两大痛点构造性消失；失败或 z-image
+    # 不可用时自然回落 one-pass / legacy 逐视图（诚实降级链不变）
+    try:
+        # 注意三点相对导入：comic_gen 在 backend.api.manga 下，
+        # backend.services 需跨两级包（.. 只有 backend.api）
+        from ...services.inference.comfy_paint_engine import (
+            comfy_paint_available as _z_avail,
+        )
+        _z_ok = _z_avail()
+    except Exception:
+        log.exception("Z2 gate: 可用性探测抛异常（按不可用）")
+        _z_ok = False
+    log.warning("Z2 gate: enabled=%s z_ok=%s engine_hint=%s",
+                _zviews_enabled(), _z_ok,
+                type(engine).__name__)
+    if _zviews_enabled() and _z_ok:
+        try:
+            gen = _generate_turnaround_zviews(
+                out_dir, name=name, prompt=prompt, seed=seed,
+                transparent=transparent, ctx_id=ctx_id)
+            log.info("zviews 四视图完成: %s seed=%s model=%s",
+                     name, gen["seed"], gen["model"])
+            return gen
+        except Exception as exc:  # noqa: BLE001 - 分张失败回退旧管线
+            log.exception("zviews 四视图生成失败，回退 one-pass/legacy: %s",
+                          exc)
     gen = None
     if engine.ensure_loaded("flux2-klein-4b"):
         try:
@@ -899,7 +1163,7 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
 
 
 def _apply_turnaround_meta(meta: dict, gen: dict) -> None:
-    """把 gen dict 刷新进资产 meta（one-pass / views4 双形态归一）。"""
+    """把 gen dict 刷新进资产 meta（one-pass / zviews / views4 归一）。"""
     meta["turnaround"] = True
     meta["pipeline"] = gen["pipeline"]
     meta["onepass"] = gen["pipeline"] == "onepass"
@@ -920,6 +1184,17 @@ def _apply_turnaround_meta(meta: dict, gen: dict) -> None:
         meta.pop("prompt_en", None)
         meta.pop("degraded", None)
         meta.pop("degrade_reason", None)
+    elif gen["pipeline"] == "zviews":
+        # zviews：与 one-pass 同画布规格（标注/裁切/单视图重生同构），
+        # 无 VL 三关（视图语义由分张提示词构造性保证）
+        meta["width"], meta["height"] = _ONEPASS_W, _ONEPASS_H
+        meta["view_width"], meta["view_height"] = _ONEPASS_W // 4, _ONEPASS_H
+        meta["prompt_zh"] = gen["prompt_zh"]
+        meta["master"] = gen["master"]
+        for k in ("layout_verified", "bg_verified", "match_verified",
+                  "verify_attempts", "prompt_en", "degraded",
+                  "degrade_reason"):
+            meta.pop(k, None)
     else:
         meta["width"], meta["height"] = _TURNAROUND_W, _TURNAROUND_H
         meta.pop("view_width", None)
@@ -1323,7 +1598,8 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
             "view_errors": gen.get("view_errors") or None,
             "pipeline": gen["pipeline"],
             "onepass": gen["pipeline"] == "onepass",
-            "degraded": gen["pipeline"] != "onepass",
+            # 降级语义仅指 views4（SDXL 兜底）；zviews 是 Z2 新主力
+            "degraded": gen["pipeline"] == "views4",
             "degrade_reason": meta.get("degrade_reason"),
             "meta": meta}
 
@@ -1489,6 +1765,8 @@ def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
         meta = {}
     if meta.get("onepass"):
         return _regenerate_view_onepass(asset, view, prompt_zh, meta)
+    if meta.get("pipeline") == "zviews":
+        return _regenerate_view_zviews(asset, view, prompt_zh, meta)
     # 中文描述词先净化（剥离版式指令）再译英；翻译先于 paint 加载。
     prompt_en = _prepare_turnaround_prompt_en(prompt_zh)
     engine = get_paint_engine()
@@ -1641,6 +1919,88 @@ def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
     meta["views"] = views
     meta["consistency"] = _views_consistency(list(view_imgs.values()))
     meta["seed"] = res.get("seed", seed)
+    meta["regenerated_at"] = _now()
+    _append_asset_history(meta, "view", view, view_rel)
+    db = get_db_safe()
+    if db is not None:
+        db.update("comic_assets", {"meta": meta}, "id=?",
+                  (asset["asset_id"],))
+    asset = {**asset, "meta": meta}
+    return {"asset": asset, "view": view, "file_path": view_rel}
+
+
+def _regenerate_view_zviews(asset: dict, view: str, prompt_zh: str,
+                            meta: dict) -> dict:
+    """zviews 资产单视图重生（Z2 2026-09-15）：该视图 Z-Image 单独
+    重生成（参考图条件锚身份，同种子基址），其余三格原样保留 →
+    重合成 master 1×4 拼版与中文标注交付图。"""
+    import random
+
+    from PIL import Image
+
+    if view not in _TURNAROUND_VIEWS:
+        raise ApiError(40008, f"未知视图: {view}")
+    rel_path = (asset.get("file_path") or "").strip()
+    if not rel_path:
+        raise ApiError(40008, "资产缺少主图文件，无法定位视图目录",
+                       detail={"asset_id": asset.get("asset_id")})
+    out_dir = (DATA_DIR / rel_path).parent
+    views_dir = out_dir / "portrait_views"
+    views_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        seed = int(meta.get("seed", -1))
+    except (TypeError, ValueError):
+        seed = -1
+    if seed < 0:
+        seed = random.randint(0, 2 ** 31 - 1)
+    idx = _TURNAROUND_VIEWS.index(view)
+    ref_image = _load_onepass_reference(out_dir)
+    params = {"prompt": _zview_view_prompt(prompt_zh, view),
+              "seed": (seed + idx) % (2 ** 31),
+              "width": _ZVIEW_SIZE_W, "height": _ZVIEW_SIZE_H,
+              "steps": 8, "cfg": 1.0, "model": "z-image-turbo"}
+    _ref = (_zview_prep_ref(ref_image, _ZVIEW_SIZE_W, _ZVIEW_SIZE_H)
+            if _zview_use_ref(view, ref_image) else None)
+    r = comfy_paint_generate(params, ref_image=_ref)
+    img = _zview_whiten(r["images"][0].convert("RGB"))
+    if bool(meta.get("transparent")):
+        img = _remove_background(img)
+    p = views_dir / f"{view}.png"
+    img.save(p, "PNG")
+    view_rel = str(p.relative_to(DATA_DIR)).replace("\\", "/")
+    if view == "front":
+        # portrait.png 约定为正面视图（COMIC-037），随 front 同步覆盖
+        _sync_portrait_from_views(out_dir)
+
+    # 重合成 master 1×4 拼版 + 中文标注 canvas
+    view_imgs: list = []
+    for v in _TURNAROUND_VIEWS:
+        with Image.open(views_dir / f"{v}.png") as im:
+            view_imgs.append(im.convert("RGB").copy())
+    master = Image.new("RGB", (_ONEPASS_W, _ONEPASS_H), "white")
+    cell_w, cell_h = _ONEPASS_W // 4, _ONEPASS_H
+    for i, im in enumerate(view_imgs):
+        master.paste(im.resize((cell_w, cell_h), Image.LANCZOS),
+                     (i * cell_w, 0))
+    master.save(out_dir / "master.png", "PNG")
+    _draw_onepass_labels(master,
+                         asset.get("name") or "asset").save(
+        out_dir / "canvas.png", "PNG")
+
+    views = meta.get("views")
+    if not isinstance(views, dict):
+        views = {}
+    views[view] = view_rel
+    meta["views"] = views
+    meta["consistency"] = _views_consistency(view_imgs)
+    meta["canvas"] = str((out_dir / "canvas.png").relative_to(
+        DATA_DIR)).replace("\\", "/")
+    meta["master"] = str((out_dir / "master.png").relative_to(
+        DATA_DIR)).replace("\\", "/")
+    if ref_image is not None:
+        meta["ref_used"] = True
+    else:
+        meta.pop("ref_used", None)
     meta["regenerated_at"] = _now()
     _append_asset_history(meta, "view", view, view_rel)
     db = get_db_safe()

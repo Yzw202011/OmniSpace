@@ -1255,7 +1255,7 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             # legacy 栈完整可用），缺口补齐（单文件版下载/转换）后此闸
             # 自动放行。
             if use_comfy and any(
-                    (Path(str(a.get("file_path") or "")).parent
+                    ((DATA_DIR / str(a.get("file_path") or "")).parent
                      / "lora.safetensors").is_file()
                     for a in char_assets):
                 # 角色 LoRA 在场（comfy 将切 klein-4b 单文件底座）——
@@ -1508,8 +1508,34 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     result = comfy.generate(params,
                                             pulid_image=pulid_img)
             elif shot_refs:
+                # D-LoRA 回落挂载（2026-09-15 三连断根修·断点①）：带
+                # LoRA 行回落 diffusers 分支时 LoRA 曾被静默丢弃（只剩
+                # 参考图软锁）；attach_lora 自 09-10 写完后生产零调用。
+                # 配套：无 LoRA 行主动 detach——防止上一镜挂的 LoRA
+                # 泄漏到本镜（底座生命周期内 LoRA 常驻，见
+                # paint_engine._reset_lora_state 注释）。lora 条目无
+                # "image" 键，参考图列表须过滤（断点③ KeyError 拆除）。
+                lora_refs = [e for e in shot_refs
+                             if e.get("kind") == "lora"]
+                img_refs = [e["image"] for e in shot_refs
+                            if e.get("image") is not None]
+                if lora_refs:
+                    _lp = Path(str(lora_refs[0].get("path") or ""))
+                    if _lp.is_file() and engine.attach_lora(_lp, 1.0):
+                        log.info("D-LoRA 回落挂载: %s（底座=diffusers "
+                                 "klein-4b，身份硬锁）", _lp.name)
+                    else:
+                        log.warning("D-LoRA 回落挂载失败（按无 LoRA "
+                                    "软锁继续）: %s", _lp)
+                else:
+                    try:
+                        if (engine.lora_status() or {}).get("adapter"):
+                            engine.detach_lora()
+                            log.info("D-LoRA 已卸载（本镜无角色 LoRA）")
+                    except Exception:  # noqa: BLE001 - 状态探测失败不阻断
+                        pass
                 result = engine.img2img(
-                    params, [e["image"] for e in shot_refs],
+                    params, img_refs,
                     progress_cb=step_cb)
             else:
                 result = engine.generate(params, progress_cb=step_cb)

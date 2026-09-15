@@ -85,6 +85,16 @@ def _busy() -> bool:
     except Exception as exc:  # noqa: BLE001
         log.debug("page_guard 视频队列探测失败: %s", exc)
         return True
+    # 浏览器代理任务（2026-09-15 审计修复）：browser_agent 不持功能锁
+    # 也不进图像/视频队列——此前全页关闭 60s 会掐死进行中的网页代理
+    # 任务。active_session 探测 running/paused 会话。
+    try:
+        from .browser_agent_service import get_browser_agent_service
+        if get_browser_agent_service().active_session() is not None:
+            return True
+    except Exception as exc:  # noqa: BLE001
+        log.debug("page_guard 浏览器代理探测失败: %s", exc)
+        return True
     return False
 
 

@@ -181,6 +181,7 @@ class EnvironmentChecker:
             'os': self._check_os,
             'python': self._check_python,
             'disk_space': self._check_disk_space,
+            'ram_commit': self._check_ram_commit,
             'cuda': self._check_cuda,
             'dependencies': self._check_dependencies,
             'hypervisor': self._check_hypervisor,
@@ -278,6 +279,42 @@ class EnvironmentChecker:
         if free_gb >= self.config.min_disk_space_gb:
             return True, f'可用磁盘空间: {free_gb:.1f}GB'
         return False, f'磁盘空间不足: 可用{free_gb:.1f}GB，需要≥{self.config.min_disk_space_gb}GB'
+
+    def _check_ram_commit(self) -> tuple[bool, str]:
+        """RAM 提交余量预检（2026-09-15 审计补线，warn-only 不阻断）。
+
+        背景：2026-09-02 实锤的后端静默死亡根因是 RAM 提交耗尽（WER
+        RADAR_PRE_LEAK_64）——启动链此前对 RAM 零预检，防线只剩 ≤5 次
+        崩溃补位。低余量时提示关应用再启动，但不 block（低配机也能起，
+        起后 resource_guard 运行期兜底）。口径用 commit（虚拟内存承诺）
+        而非物理内存——WER 按提交耗尽判死。
+        """
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ('dwLength', ctypes.c_ulong),
+                    ('dwMemoryLoad', ctypes.c_ulong),
+                    ('ullTotalPhys', ctypes.c_ulonglong),
+                    ('ullAvailPhys', ctypes.c_ulonglong),
+                    ('ullTotalPageFile', ctypes.c_ulonglong),
+                    ('ullAvailPageFile', ctypes.c_ulonglong),
+                    ('ullTotalVirtual', ctypes.c_ulonglong),
+                    ('ullAvailVirtual', ctypes.c_ulonglong),
+                    ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            avail_commit_gb = stat.ullAvailPageFile / (1024 ** 3)
+            if avail_commit_gb >= 8.0:
+                return True, f'RAM 提交余量: {avail_commit_gb:.1f}GB'
+            return True, (f'⚠ RAM 提交余量仅 {avail_commit_gb:.1f}GB（建议≥8GB）——'
+                          f'历史静默死亡（WER 提交耗尽）高危态，建议关闭占内存应用后重启')
+        except Exception as e:  # noqa: BLE001 - 探测失败不阻断
+            return True, f'RAM 预检跳过（探测失败: {e}）'
 
     def _check_cuda(self) -> tuple[bool, str]:
         """检查CUDA环境"""
@@ -596,16 +633,23 @@ class BackendProcess:
             return False
 
     def stop(self, timeout: float = 10.0) -> None:
-        """停止后端进程"""
+        """停止后端进程（2026-09-15 竞态根修：先递增代际号让在飞心跳
+        循环立即失配退出，再与 _handle_crash 互斥串行——否则「stop 进
+        行中、心跳恰好判定崩溃→锁内重启」会把后端复活成孤儿（无人
+        监管、持单实例互斥体占端口）。锁内最多等一轮在飞重启收尾后
+        正常终止。_running=False 双保险：即使代际递增与 start() 竞争
+        丢失，循环也在下个检查点退出。）"""
         self._running = False
-        if self.process:
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
-            self.process = None
+        self._hb_gen += 1  # 在飞心跳线程代际失配，立即退出不再触发重启
+        with self._crash_lock:
+            if self.process:
+                try:
+                    self.process.terminate()
+                    self.process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+                self.process = None
 
     def is_healthy(self, port: int) -> bool:
         """健康检查（审计 R3-ARCH2 修复三处历史残留）：

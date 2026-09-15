@@ -167,13 +167,16 @@ def _dir_has_weight_file(p: Path) -> bool:
 
 
 def _iter_model_dirs(root: Path) -> Iterator[Path]:
-    """递归枚举参与孤儿判定的目录（豁免顶层整枝剪除）。"""
+    """递归枚举参与孤儿判定的目录（豁免顶层整枝剪除；跳过符号链接
+    /junction 防重解析点循环——is_dir() 在 Windows 会跟随 reparse）。"""
     try:
         children = list(root.iterdir())
     except OSError:
         return
     for child in children:
         if not child.is_dir() or child.name.startswith((".", "_")):
+            continue
+        if child.is_symlink():
             continue
         if child.name in _ORPHAN_EXEMPT_TOP_DIRS or child.name == "__pycache__":
             continue

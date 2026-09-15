@@ -1002,18 +1002,27 @@ def _generate_turnaround_zviews(out_dir: Path, *, name: str, prompt: str,
         if _trig.is_file():
             trigger = _trig.read_text(encoding="utf-8").strip()
 
-    # 云端档（ZC 2026-09-15）：asset.image 槽绑定云端端点时逐视图走
-    # 云端旗舰（qwen-image 原生中文/竞品级质量）；未绑定走本地
-    # Z-Image-Turbo。云端单张约 5~15s，四张 30~60s。
+    # 云端档（ZC 2026-09-15；**拍板 B 2026-09-15：本地优先+云端显式选**）：
+    # 旧实现「asset.image 槽绑定云端端点即走云」=默认烧配额，产品语义
+    # 变化未经用户知情确认——现改为 config manga.turnaround_cloud=on
+    # 显式开启才走云（默认 off=本地 Z-Image-Turbo）。云端单张约 5~15s，
+    # 四张 30~60s，qwen-image 原生中文/竞品级质量。
     _cloud_ep = None
     try:
-        from ...services.cloud_provider_service import (
-            SLOT_ASSET_IMAGE,
-            get_image_endpoint,
-        )
-        _cloud_ep = get_image_endpoint(SLOT_ASSET_IMAGE)
-    except Exception:  # noqa: BLE001 - 绑定读取失败按本地
-        _cloud_ep = None
+        from ...config import get_config as _get_cfg
+        _cloud_on = str((_get_cfg().get("manga") or {}).get(
+            "turnaround_cloud", "off")).strip().lower() in ("on", "true", "1")
+    except Exception:  # noqa: BLE001 - 配置读取失败按本地
+        _cloud_on = False
+    if _cloud_on:
+        try:
+            from ...services.cloud_provider_service import (
+                SLOT_ASSET_IMAGE,
+                get_image_endpoint,
+            )
+            _cloud_ep = get_image_endpoint(SLOT_ASSET_IMAGE)
+        except Exception:  # noqa: BLE001 - 绑定读取失败按本地
+            _cloud_ep = None
 
     views_dir = out_dir / "portrait_views"
     views_dir.mkdir(parents=True, exist_ok=True)

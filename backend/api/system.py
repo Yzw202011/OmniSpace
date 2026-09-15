@@ -136,14 +136,20 @@ def _now_ts() -> str:
 @router.get("/system/settings")
 def system_settings_get() -> dict[str, Any]:
     """获取系统设置（规格 §4.7，持久化 system_settings 表）。"""
-    return ok(_load_persisted_settings())
+    return ok(_mask_remote_key(_load_persisted_settings()))
 
 
 @router.put("/system/settings")
 def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     """更新系统设置（规格 §4.7）：写库持久化 + 刷新内存副本。"""
     global _settings
-    _settings = req.model_dump()
+    data = req.model_dump()
+    # 打码回写保护（2026-09-15 审计修复）：GET 出网是掩码，前端整包
+    # 回存时若不拦会把真实 key 覆写成掩码串——掩码入参保留旧值
+    if data.get("remote_dialog_api_key") == _REMOTE_KEY_MASK:
+        data["remote_dialog_api_key"] = str(
+            _load_persisted_settings().get("remote_dialog_api_key") or "")
+    _settings = data
     _kv_set(_SETTINGS_KEY, _settings)
     # 远程对话配置热生效（批3 D3）：清 5s TTL 缓存，下一跳即用新值
     try:
@@ -206,6 +212,32 @@ def system_dialog_remote_test(req: dict = Body(...)) -> dict[str, Any]:
                "base_url": base_url.rstrip("/")})
 
 
+# ── remote_dialog_api_key 秘密保护（2026-09-15 审计修复）──────────────
+# 该字段是批3 旧配置（models.py SystemSettings），未纳入 B0 的
+# cloud.providers 加密迁移——GET 出网明文 + 备份 JSON 明文落盘两条
+# 泄密面（自动备份接活后后者变为每日一次）。修复口径：
+#   GET 打码（掩码串）+ PUT 掩码保留旧值 + 备份 payload 排除
+# （settings JSON 无恢复通道——/system/restore 只认 .db 副本——
+# 排除零功能损失；DB 热备里的 cloud.providers 本就是 B0 密文）。
+_REMOTE_KEY_MASK = "***"
+
+
+def _mask_remote_key(s: dict) -> dict:
+    """GET 出网打码：key 非空 → 掩码（空值保持空，前端表单语义不变）。"""
+    out = dict(s)
+    if str(out.get("remote_dialog_api_key") or "").strip():
+        out["remote_dialog_api_key"] = _REMOTE_KEY_MASK
+    return out
+
+
+def _redact_remote_key(s: dict) -> dict:
+    """备份 payload 排除秘密：置空落盘（恢复侧不存在，无需还原）。"""
+    out = dict(s)
+    if str(out.get("remote_dialog_api_key") or "").strip():
+        out["remote_dialog_api_key"] = ""
+    return out
+
+
 @router.post("/system/backup")
 async def system_backup() -> dict[str, Any]:
     """备份（规格 §4.7）：设置 JSON + SQLite 数据库真实副本（审计 BK-019）。
@@ -217,7 +249,7 @@ async def system_backup() -> dict[str, Any]:
         "app_version": APP_VERSION,
         "backup_id": backup_id,
         "created_at": time.time(),
-        "settings": _settings,
+        "settings": _redact_remote_key(_settings),
     }
 
     def _write_settings_backup() -> str:
@@ -1285,7 +1317,7 @@ def _perform_backup() -> dict:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"app_version": APP_VERSION, "backup_id": backup_id,
                "created_at": time.time(),
-               "settings": _load_persisted_settings()}
+               "settings": _redact_remote_key(_load_persisted_settings())}
     path = BACKUP_DIR / f"backup_{_now_ts()}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                     encoding="utf-8")

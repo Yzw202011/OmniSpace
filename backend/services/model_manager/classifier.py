@@ -117,6 +117,8 @@ _NAME_KEYWORDS = {
     "sdxl": ModelCategory.VISION,
     "stable-diffusion": ModelCategory.VISION,
     "kolors": ModelCategory.VISION,
+    "z-image": ModelCategory.VISION,       # Z-Image-Turbo（Z1 2026-09-15）
+    "z_image": ModelCategory.VISION,
     "clip": ModelCategory.VISION,
     "vit": ModelCategory.VISION,
     "depth": ModelCategory.VISION,

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,16 @@ LIFECYCLE_VALUES = ("inproc", "subprocess")
 _ORPHAN_EXEMPT_TOP_DIRS = {
     "hf_cache", "lora", "style_lora", "image_gen", "_build", "__pycache__",
 }
+
+# 权重文件叶子判据（2026-09-15 审计修复·嵌套盲区补查）：
+# 扩展名 + ≥100MB 体积下限（豁免 face yunet 228K 一类小件 aux 权重；
+# LoRA 适配器目录走下方嵌套豁免表）
+_WEIGHT_EXTS = {".safetensors", ".gguf", ".onnx", ".bin", ".ckpt"}
+_WEIGHT_MIN_BYTES = 100 * 1024 * 1024
+
+# 嵌套目录豁免（相对 MODELS_DIR 的 posix 路径）：适配器产物自管
+#   paint/loras —— 绘画 LoRA 适配器（schema_notes：适配器不入册）
+_ORPHAN_EXEMPT_MODEL_DIRS = {"paint/loras"}
 
 # 模型目录「已下载」判定特征文件（与 model_manager._DIR_SIGNATURES 同口径）
 _DIR_SIGNATURES = (
@@ -139,6 +150,37 @@ def _dir_has_signature(p: Path) -> bool:
         for child in p.iterdir())
 
 
+def _dir_has_weight_file(p: Path) -> bool:
+    """目录是否**直接**含 ≥100MB 权重文件（叶子级判据）。"""
+    try:
+        for f in p.iterdir():
+            if not f.is_file() or f.suffix.lower() not in _WEIGHT_EXTS:
+                continue
+            try:
+                if f.stat().st_size >= _WEIGHT_MIN_BYTES:
+                    return True
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return False
+
+
+def _iter_model_dirs(root: Path) -> Iterator[Path]:
+    """递归枚举参与孤儿判定的目录（豁免顶层整枝剪除）。"""
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return
+    for child in children:
+        if not child.is_dir() or child.name.startswith((".", "_")):
+            continue
+        if child.name in _ORPHAN_EXEMPT_TOP_DIRS or child.name == "__pycache__":
+            continue
+        yield child
+        yield from _iter_model_dirs(child)
+
+
 def validate_against_disk() -> dict[str, list[str]]:
     """manifest ↔ 磁盘一致性校验（startup_check 第 25 项数据源）。
 
@@ -175,5 +217,28 @@ def validate_against_disk() -> dict[str, list[str]]:
                 continue
             if _dir_has_signature(child):
                 report["orphan_dirs"].append(child.name)
-    report["orphan_dirs"].sort()
+    # 嵌套盲区补查（2026-09-15 审计修复）：covered_top 只取 manifest
+    # path 首段，models/paint/* 下的新模型（z-image-turbo 12G）与顶层
+    # 裸权重目录（text_encoders/ 7.5G 单文件）此前对孤儿判定完全隐形
+    # （实测 orphan=0 假绿）。递归扫叶子：直接含 ≥100MB 权重文件的
+    # 目录，须落在 manifest 路径（含 dependencies）本身/祖先/子树内，
+    # 否则报孤儿（相对 posix 路径，与顶层名去重合并）。子树同覆盖：
+    # 已登记 diffusers 模型的 text_encoder/vae 等分件目录不误报。
+    covered_paths: set[Path] = set()
+    for e in models.values():
+        p = (MODELS_DIR / str(e.get("path", ""))).resolve()
+        covered_paths.add(p)
+        for dep in e.get("dependencies") or []:
+            covered_paths.add((MODELS_DIR / str(dep)).resolve())
+    for d in _iter_model_dirs(MODELS_DIR):
+        rel = d.relative_to(MODELS_DIR.resolve()).as_posix()
+        if rel in _ORPHAN_EXEMPT_MODEL_DIRS:
+            continue
+        if not _dir_has_weight_file(d):
+            continue
+        if any(p == d or d in p.parents or p in d.parents
+               for p in covered_paths):
+            continue
+        report["orphan_dirs"].append(rel)
+    report["orphan_dirs"] = sorted(set(report["orphan_dirs"]))
     return report

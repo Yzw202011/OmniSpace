@@ -106,6 +106,13 @@ _EXTRA_KNOWN_MODELS = {
     "deepseek-r1-14b-w4a16": {"category": ModelCategory.DIALOG.value,
                               "purpose": "深度推理对话（R1，vLLM W4A16）",
                               "min_vram_gb": 11.5},
+    # Z-Image-Turbo（Z1 2026-09-15 接入）：ComfyUI 单文件布局（bf16
+    # unet + z_image_ae，TE 复用 qwen_3_4b），8步/cfg1.0 蒸馏档——
+    # 绘画直连与分张四视图 zviews 管线底座。审计修复（同日）：补此
+    # 条目+分类器关键词，否则归 AUXILIARY 进不了 paint 槽候选（死锁）
+    "z-image-turbo": {"category": ModelCategory.VISION.value,
+                      "purpose": "绘画（Z-Image 极速档/四视图分张底座，comfy 槽）",
+                      "min_vram_gb": 12.5},
 }
 
 

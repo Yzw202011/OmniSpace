@@ -52,6 +52,20 @@ _PAINT_FILES = {
     "vae": "flux2-vae.safetensors",
 }
 
+# Z-Image-Turbo 权重族（2026-09-15 Z1 接入，Apache-2.0 可随包发行）。
+# TE 与 klein-4b 同源（Qwen3-4B comfy 格式；CLIPLoader type=lumina2
+# 且非 flux 分支时 sd.py 按 TEModel.QWEN3_4B 走 z_image TE）——零额外下载。
+# 实测（tools/scratch/zimg_verify.py）：四视图 720p 14.1s / 512² 6.1s，
+# 中文字渲染 klein 不可比；参数矩阵（zimg_matrix2）证官方基线最优。
+_Z_IMAGE_FILES = {
+    "unet": "z_image_turbo_bf16.safetensors",
+    "clip": "qwen_3_4b.safetensors",
+    "vae": "z_image_ae.safetensors",
+}
+_Z_IMAGE_MODEL_ID = "z-image-turbo"
+# TextEncodeZImageOmni 原生参考条件上限（image1~3）
+_Z_IMAGE_MAX_REFS = 3
+
 # PuLID-Flux2 身份注入（2026-08-28 P1）：klein 原生权重 v2
 # （iFayens/ComfyUI-PuLID-Flux2 节点 + Fayens/Pulid-Flux2 权重 +
 # antelopev2 人脸分析；EVA-CLIP 首跑经 open_clip 自动下载）
@@ -492,6 +506,91 @@ class ComfyPaintEngine:
             "latent_image": ["latent", 0]}}
         return wf
 
+    def _build_workflow_z_image(self, params: dict,
+                                ref_names: list[str] | None,
+                                filename_prefix: str) -> dict:
+        """Z-Image-Turbo 工作流族（2026-09-15 Z1，params.model=z-image-turbo）。
+
+        参数固化官方基线（社区二开矩阵 tools/scratch/zimg_matrix2.py 实测
+        无增益、cfg>1 反致卡通化/约束失守）：8 步/cfg1/res_multistep/
+        simple + ModelSamplingAuraFlow(shift=3)。蒸馏模型 cfg=1 下负向
+        语义无效 → 负向恒 ConditioningZeroOut（同官方模板）。参考图走
+        TextEncodeZImageOmni 原生参考条件（VAE 参考隐空间，≤3 张，
+        auto_resize 1MP），与 klein 的 ReferenceLatent 链不同族。
+        角色 LoRA（Z4）：lora_name/lora_scale 走 LoraLoader（模型侧，
+        strength_clip=0；TE 未包裹）。不支持：PuLID（flux2 专属）、inpaint。
+        """
+        prompt = str(params.get("prompt") or "")
+        width = int(params.get("width") or 1280)
+        height = int(params.get("height") or 720)
+        seed = int(params.get("seed") or 0)
+        refs = list(ref_names or [])[:_Z_IMAGE_MAX_REFS]
+
+        wf: dict[str, dict] = {
+            "unet": {"class_type": "UNETLoader", "inputs": {
+                "unet_name": _Z_IMAGE_FILES["unet"],
+                "weight_dtype": "default"}},
+            "clip": {"class_type": "CLIPLoader", "inputs": {
+                "clip_name": _Z_IMAGE_FILES["clip"],
+                "type": "lumina2", "device": "default"}},
+            "vae": {"class_type": "VAELoader", "inputs": {
+                "vae_name": _Z_IMAGE_FILES["vae"]}},
+        }
+
+        pos_src = ["pos", 0]
+        model_src = ["unet", 0]
+        clip_src = ["clip", 0]
+        # Z-Image 角色 LoRA（Z4）：底座冻结、仅模型侧适配（TE 未包裹，
+        # strength_clip=0）。lora_name 相对 ComfyUI models/loras 目录。
+        lora_name = str(params.get("lora_name") or "")
+        lora_scale = float(params.get("lora_scale") or 1.0)
+        if lora_name:
+            wf["lora"] = {"class_type": "LoraLoader", "inputs": {
+                "model": model_src, "clip": clip_src,
+                "lora_name": lora_name,
+                "strength_model": lora_scale,
+                "strength_clip": 0.0}}
+            model_src = ["lora", 0]
+            clip_src = ["lora", 1]
+        wf["ms"] = {"class_type": "ModelSamplingAuraFlow", "inputs": {
+            "model": model_src, "shift": 3}}
+        wf["pos"] = {"class_type": "CLIPTextEncode", "inputs": {
+            "clip": clip_src, "text": prompt}}
+        pos_src = ["pos", 0]
+        if refs:
+            # 参考隐空间必须与采样隐空间同形（Z-Image 参考是编辑语义：
+            # 输出=输入分辨率；异形即 reshape 崩）→ 参考图中心裁剪
+            # 精确缩放到出图尺寸，关闭节点内 1MP 自动缩放
+            enc_inputs: dict = {"clip": clip_src, "prompt": prompt,
+                                "vae": ["vae", 0],
+                                "auto_resize_images": False}
+            for i, name in enumerate(refs, start=1):
+                wf[f"load_img{i}"] = {"class_type": "LoadImage",
+                                      "inputs": {"image": name}}
+                wf[f"scale_img{i}"] = {"class_type": "ImageScale", "inputs": {
+                    "image": [f"load_img{i}", 0],
+                    "upscale_method": "lanczos",
+                    "width": width, "height": height, "crop": "center"}}
+                enc_inputs[f"image{i}"] = [f"scale_img{i}", 0]
+            wf["z_pos"] = {"class_type": "TextEncodeZImageOmni",
+                           "inputs": enc_inputs}
+            pos_src = ["z_pos", 0]
+        wf["neg"] = {"class_type": "ConditioningZeroOut", "inputs": {
+            "conditioning": pos_src}}
+        wf["latent"] = {"class_type": "EmptySD3LatentImage", "inputs": {
+            "width": width, "height": height, "batch_size": 1}}
+        wf["sample"] = {"class_type": "KSampler", "inputs": {
+            "model": ["ms", 0], "positive": pos_src,
+            "negative": ["neg", 0], "latent_image": ["latent", 0],
+            "seed": seed, "steps": 8, "cfg": 1.0,
+            "sampler_name": "res_multistep", "scheduler": "simple",
+            "denoise": 1.0}}
+        wf["decode"] = {"class_type": "VAEDecode", "inputs": {
+            "samples": ["sample", 0], "vae": ["vae", 0]}}
+        wf["save"] = {"class_type": "SaveImage", "inputs": {
+            "images": ["decode", 0], "filename_prefix": filename_prefix}}
+        return wf
+
     # ── 对外接口（对齐 paint_engine）─────────────────────────────
 
     def generate(self, params: dict,
@@ -546,6 +645,18 @@ class ComfyPaintEngine:
         task_id = uuid.uuid4().hex[:12]
         t0 = time.perf_counter()
 
+        # Z-Image-Turbo 模式（Z1 2026-09-15）：PuLID 是 flux2 专属
+        # patch，z 底座诚实拒绝（身份锚定走参考图条件/Z4 角色 LoRA）
+        z_mode = str(params.get("model") or "") == _Z_IMAGE_MODEL_ID
+        if z_mode and (pulid_image is not None
+                       or pulid_image_b is not None):
+            raise ApiError(
+                code=60003,
+                message="Z-Image 底座暂不支持 PuLID 身份锁"
+                        "（PuLID 为 flux2 专属 patch）",
+                suggestion="身份锚定请改用参考图条件（img2img 传参考图）"
+                           "或等待 Z-Image 角色 LoRA（规划 Z4）")
+
         # ReferenceLatent 模式提前解析：off 时不落参考图（省 IO，
         # 工作流不建 ref 链）
         pulid_will = (pulid_image is not None
@@ -598,12 +709,17 @@ class ComfyPaintEngine:
 
         try:
             self._ensure_running()
-            wf = self._build_workflow(params, ref_names,
-                                      filename_prefix=f"paint/{task_id}",
-                                      pulid_image_name=pulid_name,
-                                      ref_megapixels=ref_megapixels,
-                                      pulid_image_b_name=pulid_b_name,
-                                      pulid_strength_b=pulid_strength_b)
+            if z_mode:
+                wf = self._build_workflow_z_image(
+                    params, ref_names,
+                    filename_prefix=f"paint/{task_id}")
+            else:
+                wf = self._build_workflow(params, ref_names,
+                                          filename_prefix=f"paint/{task_id}",
+                                          pulid_image_name=pulid_name,
+                                          ref_megapixels=ref_megapixels,
+                                          pulid_image_b_name=pulid_b_name,
+                                          pulid_strength_b=pulid_strength_b)
             resp = self._api("POST", "/prompt",
                              body={"prompt": wf,
                                    "client_id": f"omnispace-{task_id}"},
@@ -616,9 +732,12 @@ class ComfyPaintEngine:
                 raise ApiError(code=60003,
                                message=f"绘画工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
-            _log_steps, _ = _effective_steps_cfg(params)
-            logger.info("绘画任务已提交 (prompt_id=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
-                        prompt_id, int(params.get("width") or 1280),
+            _log_steps, _ = (_effective_steps_cfg(params)
+                             if not z_mode else (8, 1.0))
+            logger.info("绘画任务已提交 (prompt_id=%s, model=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
+                        prompt_id,
+                        _Z_IMAGE_MODEL_ID if z_mode else "klein-9b-fp8",
+                        int(params.get("width") or 1280),
                         int(params.get("height") or 720),
                         _log_steps,
                         params.get("lora_name") or "-",
@@ -655,6 +774,15 @@ class ComfyPaintEngine:
         返回 {images, prompt_id, elapsed_s, engine:"comfy"}。
         """
         from PIL import Image as _PILImage
+
+        if str(params.get("model") or "") == _Z_IMAGE_MODEL_ID:
+            # Z-Image 工作流族暂无 inpaint 配方（SetLatentNoiseMask
+            # 依赖 flux2 潜空间口径），诚实拒绝优于静默走错底座
+            raise ApiError(
+                code=60003,
+                message="Z-Image 底座暂不支持局部重绘（inpaint）",
+                suggestion="局部重绘请切 klein 底座（模型选型选 "
+                           "flux2-klein-9b/4b）后重试")
 
         if not comfy_paint_available():
             raise ApiError("PAINT_ENGINE_NOT_READY",

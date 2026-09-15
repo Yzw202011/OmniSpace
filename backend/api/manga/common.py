@@ -1387,11 +1387,13 @@ def comfy_paint_generate(params: dict,
         result = engine.img2img(p, ref_image)
     else:
         result = engine.generate(p)
+    _z = str(p.get("model") or "") == "z-image-turbo"
     return {"images": result.get("images") or [],
             "seed": seed,
-            "model": "flux2-klein-9b-fp8(comfy)",
+            "model": "z-image-turbo(comfy)" if _z
+            else "flux2-klein-9b-fp8(comfy)",
             "elapsed_ms": int((time.perf_counter() - t0) * 1000),
-            "engine": "comfy-klein"}
+            "engine": "comfy-z-image" if _z else "comfy-klein"}
 
 
 def unload_paint_engines_sync() -> None:

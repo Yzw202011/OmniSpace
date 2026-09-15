@@ -513,18 +513,25 @@ def _run_generate_task(task_id: str, params: dict,
             from .manga.common import comfy_paint_generate
 
             if model_hint and model_hint not in (
-                    "flux2-klein-9b", "flux2-klein-4b"):
-                # comfy 栈物理上只有 klein 权重：非 klein 点名如实记录
-                # 后按 klein 出活（白名单拒绝已在上方执行）
+                    "flux2-klein-9b", "flux2-klein-4b", "z-image-turbo"):
+                # comfy 栈物理上只有 klein 系 + z-image-turbo 权重：其余
+                # 点名如实记录后按 klein 出活（白名单拒绝已在上方执行）
                 with flow.node("底座说明", friendly="底座口径说明") as n:
-                    n.output(f"comfy 栈仅 klein 系可用，点名 {model_hint}"
+                    n.output(f"comfy 栈仅 klein 系与 z-image-turbo 可用，"
+                             f"点名 {model_hint}"
                              " 按 flux2-klein-9b-fp8 执行")
-            with flow.node("模型加载", friendly="ComfyUI klein-9b-fp8 栈") as n:
+            _z_mode = model_hint == "z-image-turbo"
+            with flow.node(
+                    "模型加载",
+                    friendly=("ComfyUI Z-Image-Turbo 栈" if _z_mode
+                              else "ComfyUI klein-9b-fp8 栈")) as n:
                 if not comfy_paint_available():
                     raise RuntimeError(
                         "MODEL_LOAD_FAILED: ComfyUI klein 出图栈不可用"
                         "（便携版或权重缺失）")
-                n.output("klein-9b-fp8（Qwen3 编码器中文直入，免翻译）")
+                n.output("z-image-turbo（中文字渲染/写实，8 步蒸馏）"
+                         if _z_mode else
+                         "klein-9b-fp8（Qwen3 编码器中文直入，免翻译）")
 
             try:
                 prompt, _style_note = _inject_style_pack(prompt, params)
@@ -587,7 +594,7 @@ def _run_generate_task(task_id: str, params: dict,
                          seed=result["seed"], model=result["model"],
                          sampler=params.get("sampler", "euler"),
                          elapsed_ms=int(result["elapsed_ms"]),
-                         backend="comfy-klein")
+                         backend=result.get("engine") or "comfy-klein")
             _broadcast_progress(task_id, 100,
                                 int(params.get("steps", 0)), status="done")
             flow.end("success", output_summary=rel_path)

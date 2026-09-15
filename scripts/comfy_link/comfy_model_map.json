@@ -4,6 +4,7 @@
   "map": {
     "diffusion_models/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors": "video_gen/h3/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors",
     "diffusion_models/flux-2-klein-9b-fp8.safetensors": "paint/flux2-klein-9b-fp8/flux-2-klein-9b-fp8.safetensors",
+    "diffusion_models/z_image_turbo_bf16.safetensors": "paint/z-image-turbo/z_image_turbo_bf16.safetensors",
     "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors": "video_gen/h3/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
     "insightface/models/antelopev2/1k3d68.onnx": "face/insightface/antelopev2/1k3d68.onnx",
     "insightface/models/antelopev2/2d106det.onnx": "face/insightface/antelopev2/2d106det.onnx",
@@ -14,8 +15,10 @@
     "loras/flux2-klein-9b-consistency-v2.safetensors": "paint/loras/flux2-klein-9b-consistency-v2.safetensors",
     "loras/minimax_h3_turbo_v4_step600_ema.safetensors": "video_gen/h3/loras/minimax_h3_turbo_v4_step600_ema.safetensors",
     "text_encoders/qwen3_8b.safetensors": "paint/flux2-klein-9b/text_encoder_comfy/qwen3_8b.safetensors",
+    "text_encoders/qwen_3_4b.safetensors": "text_encoders/qwen_3_4b.safetensors",
     "text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors": "video_gen/h3/text_encoders/qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
     "vae/flux2-vae.safetensors": "paint/flux2-klein-9b/vae/diffusion_pytorch_model.safetensors",
+    "vae/z_image_ae.safetensors": "paint/z-image-turbo/z_image_ae.safetensors",
     "vae/minimax_h3_audio_vae_fp32.safetensors": "video_gen/h3/vae/minimax_h3_audio_vae_fp32.safetensors",
     "vae/minimax_h3_video_vae_fp16.safetensors": "video_gen/h3/vae/minimax_h3_video_vae_fp16.safetensors",
     "diffusion_models/qwen-image-edit-2511-Q4_K_M.gguf": "paint/qwen-edit-2511/qwen-image-edit-2511-Q4_K_M.gguf",
@@ -31,9 +34,7 @@
     "unet/flux1-dev-fp8-e4m3fn.safetensors": "uno/flux1-dev-fp8-e4m3fn.safetensors",
     "clip/t5xxl_fp8_e4m3fn.safetensors": "uno/t5xxl_fp8_e4m3fn.safetensors",
     "unet/flux-2-klein-4b.safetensors": "uno/flux-2-klein-4b.safetensors",
-    "text_encoders/qwen_3_4b.safetensors": "text_encoders/qwen_3_4b.safetensors",
     "vae/flux2_klein_ae.safetensors": "uno/flux2_ae.safetensors",
-    "loras/xia_mumu_v1.safetensors": "../data/lora_train/xia_mumu/output/xia_mumu_v1.safetensors",
-    "diffusion_models/flux-2-klein-4b.safetensors": "diffusion_models/flux-2-klein-4b.safetensors"
+    "loras/xia_mumu_v1.safetensors": "../data/lora_train/xia_mumu/output/xia_mumu_v1.safetensors"
   }
 }

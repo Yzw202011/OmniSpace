@@ -19,6 +19,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from ...vram_policy import (
+    VLLM_DFLASH_EXTRA_GB,
     VLLM_FLOOR_OVERHEAD_GB,
     VLLM_MTP_EXTRA_GB,
     VLLM_UTIL_DEFAULT,
@@ -97,18 +98,25 @@ class VLLMBackend(DialogBackend):
                 except Exception:  # noqa: BLE001 - 配置异常保持默认档
                     pass
             util = VLLM_UTIL_LARGE_WEIGHTS if big else VLLM_UTIL_DEFAULT
-            # MTP 开启时大权重 util 提至 0.92（V6 2026-09-09 冒烟实测：
-            # 9B+MTP+前缀缓存 util 0.86 时 KV=-0.81 起不来、0.92 过线）
+            # MTP/DFlash 开启时大权重 util 提至 0.92（V6 2026-09-09 冒烟
+            # 实测：9B+MTP+前缀缓存 util 0.86 时 KV=-0.81 起不来、0.92
+            # 过线；DFlash 草稿更重，同走轻载窗口档）
             _mtp_on = False
+            _dflash_on = False
             try:
-                from ....engines.vllm_service import mtp_spec_enabled
-                _mtp_on = mtp_spec_enabled(Path(model_dir))
+                from ....engines.vllm_service import (
+                    dflash_spec_enabled,
+                    mtp_spec_enabled,
+                )
+                _dflash_on = dflash_spec_enabled(Path(model_dir))
+                _mtp_on = (not _dflash_on
+                           and mtp_spec_enabled(Path(model_dir)))
             except Exception:  # noqa: BLE001 - 探测失败按 MTP 关
                 pass
-            if _mtp_on and big:
+            if (_mtp_on or _dflash_on) and big:
                 util = max(util, VLLM_UTIL_MTP)
-                logger.info("MTP 开启：大权重 util 提至 %.2f（轻载窗口档）",
-                            util)
+                logger.info("%s 开启：大权重 util 提至 %.2f（轻载窗口档）",
+                            "DFlash" if _dflash_on else "MTP", util)
             # 显存自适应让档（2026-09-02 漫剧描述词自动加载实测）：静态
             # util 按「模块释放后的空卡」标定，桌面/浏览器常态占 2GB+
             # 时 0.2GB 级差距即被准入闸门拒绝（16GB 卡：需 13.6 空闲
@@ -131,11 +139,17 @@ class VLLMBackend(DialogBackend):
                         free_gb, total_gb = _free_b / 2**30, _total_b / 2**30
                         floor_budget = weight_gb + VLLM_FLOOR_OVERHEAD_GB
                         # MTP 开启时草稿层+图画像多占 ~1.3GB（V6 冒烟
-                        # 实测 9B+MTP util 0.86 时 KV=-0.81 起不来）——
+                        # 实测 9B+MTP util 0.86 时 KV=-0.81 起不来）；
+                        # DFlash 草稿 2.58GB+开销 ~4GB（P-5 估算口径）——
                         # 准入线同步抬高，宁可早拒不让 vLLM 装到一半才死
                         try:
-                            from ....engines.vllm_service import mtp_spec_enabled
-                            if mtp_spec_enabled(Path(model_dir)):
+                            from ....engines.vllm_service import (
+                                dflash_spec_enabled,
+                                mtp_spec_enabled,
+                            )
+                            if dflash_spec_enabled(Path(model_dir)):
+                                floor_budget += VLLM_DFLASH_EXTRA_GB
+                            elif mtp_spec_enabled(Path(model_dir)):
                                 floor_budget += VLLM_MTP_EXTRA_GB
                         except Exception:  # noqa: BLE001 - 探测失败按原线
                             pass

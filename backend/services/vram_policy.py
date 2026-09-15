@@ -114,6 +114,11 @@ VLLM_MTP_EXTRA_GB = 1.3
 """MTP 草稿层 + 图画像额外显存（V6 冒烟实测）——准入线同步抬高，
 宁可早拒不让 vLLM 装到一半才死。"""
 
+VLLM_DFLASH_EXTRA_GB = 4.0
+"""DFlash 草稿额外显存（P-5 2026-09-15）：z-lab/Qwen3.5-9B-DFlash
+草稿权重 2.58GB + 图画像/激活开销（估算口径，A/B 实弹后校准）——
+准入线同步抬高，宁可早拒。"""
+
 VLLM_ADMISSION_FACTOR = 0.98
 """vLLM 准入闸安全系数：预分配需求 = 整卡 × util × 0.98
 （vllm_service._vram_admission_wait，2026-09-02 自 start() 抽取）。"""

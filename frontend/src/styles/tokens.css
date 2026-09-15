@@ -14,6 +14,7 @@
   --color-bg: #1A1A2E;                   /* 深蓝黑背景 */
   --color-card: #16213E;                 /* 深蓝卡片 */
   --color-text-primary: #EAEAEA;         /* 浅灰白一级文字 */
+  --color-on-primary: #FFFFFF;           /* 主色底上的文字/图标（2026-09-15 注册：组件内联白字统一走此令牌） */
   --color-highlight: #FFD93D;            /* 暖黄强调色（兼警告色） */
   --color-success: #6BCB77;
   --color-warning: #FFD93D;

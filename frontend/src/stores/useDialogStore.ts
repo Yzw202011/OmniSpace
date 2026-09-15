@@ -17,6 +17,7 @@ import { getDialogStream, releaseDialogStream } from '@/services/ws';
 import { trackBehavior } from '@/services/learningApi';
 import { useAppStore } from './useAppStore';
 import { mirrorPref } from '@/services/uiPrefs';
+import { reportBgError } from '@/utils/errors';
 
 /* ------------------------------ 对话生成参数（规格 §6.2.1 参数控制） ------------------------------ */
 
@@ -223,7 +224,9 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     try {
       const res = await dialogApi.listSessions({ keyword });
       set({ sessions: res.items || [], sessionsLoaded: true });
-    } catch {
+    } catch (err: unknown) {
+      // 2026-09-15 审计修复：加载失败静默显示空列表——上报留痕（三分法 CONSOLE 级）
+      reportBgError('会话列表加载失败', err);
       set({ sessionsLoaded: true });
     }
   },
@@ -246,12 +249,14 @@ export const useDialogStore = create<DialogState>((set, get) => ({
         },
         messages: detail.messages || [],
       });
-    } catch {
-      // 失败时尝试只拉消息列表
+    } catch (err: unknown) {
+      // 2026-09-15 审计修复：会话详情拉取失败静默清空——上报留痕再兜底
+      reportBgError('会话详情加载失败（回退消息列表）', err);
       try {
         const res = await dialogApi.listMessages(sessionId);
         set({ messages: res.items || [] });
-      } catch {
+      } catch (err2: unknown) {
+        reportBgError('消息列表加载失败', err2);
         set({ messages: [] });
       }
     }
@@ -655,8 +660,9 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     }
     try {
       await dialogApi.stopGenerate(currentSession.id);
-    } catch {
-      /* 忽略 */
+    } catch (err: unknown) {
+      // 2026-09-15 审计修复：用户主动动作失败不再吞——上报留痕（本地中断仍继续）
+      reportBgError('停止生成请求失败（本地已中断）', err);
     }
     get().abortStream();
   },
@@ -705,8 +711,8 @@ export const useDialogStore = create<DialogState>((set, get) => ({
           m.id === messageId ? { ...m, rating } : m,
         ),
       }));
-    } catch {
-      /* 忽略 */
+    } catch (err: unknown) {
+      reportBgError('消息评分失败', err);  // 2026-09-15：吞错改上报
     }
   },
 
@@ -725,8 +731,8 @@ export const useDialogStore = create<DialogState>((set, get) => ({
           m.id === messageId ? { ...m, favorite: updated.favorite } : m,
         ),
       }));
-    } catch {
-      /* 忽略 */
+    } catch (err: unknown) {
+      reportBgError('收藏切换失败', err);  // 2026-09-15：吞错改上报
     }
   },
 

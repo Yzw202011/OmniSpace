@@ -320,7 +320,7 @@ const ModuleScopePanel: React.FC<{
               fontSize: 'var(--font-size-xs)',
               border: '1px solid var(--color-primary)',
               background: 'var(--color-primary)',
-              color: '#fff',
+              color: 'var(--color-on-primary)',
               opacity: saving ? 0.6 : 1,
             }}
           >

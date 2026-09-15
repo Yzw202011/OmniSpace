@@ -410,14 +410,41 @@ export default function AssetDetailPanel() {
 
       {/* 2. 预览区：四视图单图整图 / 单图 */}
       {hasTurnaround ? (
-        <button
-          type="button"
-          className="manga-view-sheet"
-          title="点击放大查看四视图整图（正面/侧面/背面/特写）"
-          onClick={() => setLightbox({ srcs: [canvasUrl], idx: 0 })}
-        >
-          <img src={canvasUrl} alt={`${asset.name} 四视图`} loading="lazy" />
-        </button>
+        <>
+          <button
+            type="button"
+            className="manga-view-sheet"
+            title="点击放大查看四视图整图（正面/侧面/背面/特写）"
+            onClick={() => setLightbox({ srcs: [canvasUrl], idx: 0 })}
+          >
+            <img src={canvasUrl} alt={`${asset.name} 四视图`} loading="lazy" />
+          </button>
+          {/* zviews 生成来源与一致性标注（2026-09-15 契约修复）：
+              meta.model 辨本地 z-image / 云端真身，consistent 为跨视图
+              色相一致性判定（hue_spread_deg ≤45° 为一致）——此前这些
+              字段前端全静默丢弃 */}
+          {(() => {
+            const m = (asset.meta ?? {}) as Record<string, unknown>;
+            const model = typeof m.model === 'string' ? m.model : '';
+            const cons = m.consistency as
+              | { consistent?: boolean; hue_spread_deg?: number }
+              | undefined;
+            if (!model && !cons) return null;
+            const parts: string[] = [];
+            if (model) parts.push(model);
+            if (cons) parts.push(
+              `跨视图一致性${cons.consistent ? '良好' : '偏低'}`
+              + (typeof cons.hue_spread_deg === 'number'
+                ? `（${Math.round(cons.hue_spread_deg)}°）` : ''));
+            if (m.ref_used) parts.push('参考图已用');
+            return (
+              <div className="text-xs mt-1"
+                   style={{ color: 'var(--color-text-secondary)' }}>
+                {parts.join(' · ')}
+              </div>
+            );
+          })()}
+        </>
       ) : (
         <div className="manga-asset-preview">
           {mainUrl ? (

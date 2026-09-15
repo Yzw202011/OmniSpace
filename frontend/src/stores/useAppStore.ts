@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import type { ActiveFeature } from '@/types';
 import { canSwitchFeature } from '@/types';
 import { getSettings, updateSettings } from '@/services/systemApi';
+import { mirrorPref } from '@/services/uiPrefs';
 import { reportBgError } from '@/utils/errors';
 import { trackBehavior } from '@/services/learningApi';
 
@@ -157,7 +158,16 @@ let toastSeq = 0;
 export const useAppStore = create<AppState>((set, get) => ({
   /* ------------------------------ 初始状态 ------------------------------ */
   theme: loadTheme(),
-  fontSize: 'md',
+  // 字号持久化（2026-09-15 审计修复）：此前只写内存+DOM，每次重启回
+  // md——与 970a608「选型重启回退」同病。localStorage 即时生效 + setFontSize 侧镜像
+  fontSize: (() => {
+    try {
+      const v = localStorage.getItem('omnispace.fontSize');
+      return v === 'sm' || v === 'lg' ? v : 'md';
+    } catch {
+      return 'md';
+    }
+  })(),
   activeFeature: null,
   featureBlockedMessage: null,
   settings: {},
@@ -195,6 +205,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 同步到 <html> data-font-size 供 CSS 变量消费
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-font-size', size);
+    }
+    // 持久化（2026-09-15 审计修复）：localStorage 即时 + 后端镜像防丢
+    try {
+      localStorage.setItem('omnispace.fontSize', size);
+      mirrorPref('omnispace.fontSize', size);
+    } catch {
+      /* 隐私模式写入失败：内存态仍生效（本次会话内） */
     }
   },
 

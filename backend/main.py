@@ -316,6 +316,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         flow_trace.start_cleanup_task()
     except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
         log.warning("流程追踪初始化异常（降级运行）")
+    # ── 自动备份调度（SET-019 补线，2026-09-15 审计修复）─────
+    # 病灶：_ensure_backup_scheduler 此前只在 GET/PUT /system/backup/config
+    # 端点内被调用，主启动链未注册——后端重启守护线程即丢，无人打开
+    # 设置页则调度永不启动（审计实锤：system.last_auto_backup 键从未
+    # 存在=一次都没跑过）。现接进启动链，与事件清理/流程追踪同模式。
+    try:
+        from .api.system import _ensure_backup_scheduler
+        _ensure_backup_scheduler()
+    except Exception:  # noqa: BLE001 - 备份调度失败不阻断启动
+        log.warning("自动备份调度启动失败（忽略）")
     # ── 知识库体检周报（知识学习升级批4）：启动即查 + 每 7 天巡检 ──
     try:
         from .services.knowledge_checkup import start_checkup_task

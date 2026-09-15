@@ -9,6 +9,8 @@ import tempfile
 from logging import handlers as _lh
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -51,3 +53,20 @@ def _patch_handler_init(cls: type, orig) -> None:  # type: ignore[no-untyped-def
 
 _patch_handler_init(_lh.RotatingFileHandler, _lh.RotatingFileHandler.__init__)
 _patch_handler_init(logging.FileHandler, logging.FileHandler.__init__)
+
+
+# ── 模块级全局态隔离（2026-09-15 审计修复）───────────────────────────
+# 对话排队位次表（api/dialog.py _DIALOG_LOCK_WAITERS）是模块级可变
+# dict——测试失败路径泄漏的条目会污染同进程后续测试（全量跑「偶发
+# 1 挂、单跑即过」的病根之一）。autouse 每用例前后各清一次。
+@pytest.fixture(autouse=True)
+def _isolate_module_globals():
+    def _clear() -> None:
+        try:
+            from backend.api import dialog as _dialog
+            _dialog._DIALOG_LOCK_WAITERS.clear()
+        except Exception:  # noqa: BLE001 - 模块未载/重构改名时跳过
+            pass
+    _clear()
+    yield
+    _clear()

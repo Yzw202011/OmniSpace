@@ -19,8 +19,11 @@ import warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
+# 2026-09-15 审计地雷拆除：原第二行把仓库根 pydeps/ 插到 sys.path 首
+# 位——pydeps 里的 pydantic_core 源码垫片（无 py312 原生扩展）会劫持
+# 后续任何 pydantic_core 导入，窄子集跑测必炸（全量靠导入顺序庇护）。
+# 本测试所需 backend 包只需仓库根（首行），pydeps 实无必要。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2].parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2].parent / "pydeps"))
 
 from backend.engines.vllm_service import _estimate_model_dir_gb  # noqa: E402
 from backend.services.vram_policy import VLLM_RAM_HEADROOM_GB  # noqa: E402

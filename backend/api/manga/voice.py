@@ -259,7 +259,9 @@ async def voices_upload(name: str = Query("自定义音色"),
     if not filename.endswith(_VOICE_UPLOAD_EXTS):
         raise ApiError(40010, "仅支持 wav/mp3/flac/m4a 音频文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    # 有界读（2026-09-15 审计收尾）：先读后验改 read(limit+1)，与
+    # comic_asset/comic.py 同款——全量 read 会让超大文件先整包进内存
+    raw = await file.read(_VOICE_MAX_BYTES + 1)
     if not raw:
         raise ApiError("VOICE_FILE_MISSING", "音频文件为空")
     if len(raw) > _VOICE_MAX_BYTES:

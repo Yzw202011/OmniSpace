@@ -726,7 +726,10 @@ async def comic_asset_regenerate(asset_id: str,
         raise ApiError("PAINT_GENERATION_FAILED", str(exc)[:300]) from exc
     _end_asset_flow(flow, "success",
                     output_summary=str(data.get("file_path") or ""))
-    return ok({"asset": data, "degraded": False})
+    # 降级标记透传（2026-09-15 审计修复）：SDXL views4 兜底时
+    # meta.degraded=True，旧实现顶层硬编码 False → 前端不提示降级
+    return ok({"asset": data,
+               "degraded": bool((data.get("meta") or {}).get("degraded"))})
 
 
 @router.post("/comic/asset/{asset_id}/regenerate-view")

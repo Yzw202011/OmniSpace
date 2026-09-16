@@ -8,7 +8,6 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
 import './styles/sakura.css';
 
 const rootEl = document.getElementById('root');
@@ -16,21 +15,27 @@ if (!rootEl) {
   throw new Error('根节点 #root 未找到，请检查 index.html');
 }
 
-// React 19 createRoot 渲染
-createRoot(rootEl).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
-
-// 移除启动屏（index.html 中的 #boot-screen）
-const bootScreen = document.getElementById('boot-screen');
-if (bootScreen) {
-  bootScreen.classList.add('hidden');
-  setTimeout(() => {
-    bootScreen.remove();
-  }, 320);
-}
+/* 界面偏好回放（2026-09-12，修复「选型重启回退」类 bug）：
+ * App 静态导入会让全部 store 在回放前初始化（localStorage 读取早于回放），
+ * 故 App 改为回放完成后的动态导入——≤2s 超时兜底，失败按本地值启动。 */
+void (async () => {
+  const { replayUiPrefs } = await import('./services/uiPrefs');
+  await replayUiPrefs();
+  const { default: App } = await import('./App');
+  createRoot(rootEl).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+  // 移除启动屏（index.html 中的 #boot-screen）
+  const bootScreen = document.getElementById('boot-screen');
+  if (bootScreen) {
+    bootScreen.classList.add('hidden');
+    setTimeout(() => {
+      bootScreen.remove();
+    }, 320);
+  }
+})();
 
 // 前端异常采集（2026-09-01 日志机制方案 C）：window.onerror 与
 // unhandledrejection 进入系统日志事件库（/logs/frontend-event），

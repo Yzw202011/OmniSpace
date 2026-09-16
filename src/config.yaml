@@ -10,6 +10,18 @@ server:
   # 提升至 300/min（≈5 req/s，仍可拦截失控重试循环）。
   rate_limit: 300  # requests/minute per endpoint
 
+# B5 统一任务子系统（2026-09-14 灰度翻转，拍板=A）：
+task_queue:
+  # impl: unified（现默认）= image/video 队列调度委托通用 TaskQueueCore
+  #       （src/services/task_queue.py；双实现以金标准测试逐比特对齐，
+  #       镜像见 tests/unit/test_image_queue_unified.py 与
+  #       test_video_queue_unified.py）；
+  #       legacy = 既有内联实现（保留为回退锚点，观察期满删除）。
+  #       任意异常拨回 legacy 即原行为（秒级回退，重启生效）。
+  # 观察期 3 天（2026-09-14~09-17）：核对 events 日志任务成功率/准入
+  # 失败率不劣化；无异常后删 legacy 内联实现（约 -400 行）。
+  impl: unified
+
 scheduler:
   sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）
   # 分级采样间隔（秒）：低频指标不随 tick 重复采集，降低 psutil/NVML 开销
@@ -80,22 +92,9 @@ database:
   # 内存成本按页面大小计，受 85% RAM 硬顶约束；默认 16MB。
   cache_size_kb: 16384
 
-# 诚实标注：Redis 未部署/未启用。以下为文档 §7.1 架构中的目标形态，
-# 当前实现为进程内缓存（src/data/cache.py），无外部 Redis 依赖。
-redis:
-  enabled: false
-  host: "127.0.0.1"
-  port: 6379
-  watchdog: false
-
-# 诚实标注：Celery 未部署/未启用。以下为文档 §7.1 架构中的目标形态，
-# 当前实现为进程内 PriorityQueue 四级优先队列模拟 Celery 语义
-# （见 src/services/lora_training_service.py 头部迁移路径说明）。
-celery:
-  enabled: false
-  queues: ["high", "normal", "low"]
-  worker_max_tasks: 100  # 每100任务重启防内存泄漏
-  task_acks_late: true
+# G-B8（W1 2026-09-13）：redis/celery 占位节删除——两节为文档 §7.1
+# 目标形态的 enabled:false 占位，全库零代码读取（grep 实证），当前
+# 实现 = 进程内缓存（data/cache.py）+ 进程内 PriorityQueue，无外部依赖。
 
 video:
   default_codec: "h264"
@@ -116,6 +115,23 @@ paint:
   default_steps: 20
   default_guidance: 7.5
   max_batch_size: 4
+  # 出图档位（批1a 2026-09-12；**2026-09-16 拍板扩三档**）：
+  # fast = klein 蒸馏系原生 4 步 + cfg1.0（叠 SageAttention 双重加速，
+  # A/B 实测 1280x720 46.5s→4.1s ≈11 倍，4 步有可感细节损失）；
+  # balanced = 8 步 / cfg4.0（**默认档，2026-09-16 拍板**：A/B 实证
+  # 8 步与 36 步目验平齐 8.2 分、快 4.2×——同种子同题 36 步 58.5s vs
+  # 8 步 14.1s，证据 data/generated/images/01fb088e*/33c6acbb* +
+  # logs/ab_steps_p1.json）；quality = 历史 36 步/cfg4.0。显式传
+  # steps/cfg 的调用方（漫剧关键帧链 36 步）不受此档影响——关键帧
+  # PuLID+多参考组合的 8 步 A/B 未做，维持 36 待验。
+  preset: balanced
+  # 生图引擎档（v3-W3-C 2026-09-13）：comfy=ComfyUI klein-9b-fp8 新栈
+  # （分镜行预览/资产生成图/draw 链走 comfy_paint_generate，steps/cfg
+  # 走上面 preset 档）；legacy=旧 diffusers klein-4b 栈。**默认 comfy
+  # 已拍板切换**（A/B 实弹：分镜预览 25.0s→15.4s 暖机、draw E2E
+  # 62.7s 含冷启动，质量目验达标）；四视图不受此档影响（独立开关
+  # manga.turnaround_engine，实测格数遵循度 33~40% 保持 legacy）。
+  gen_engine: comfy
 
 # ComfyUI 子进程生命周期（2026-08-31 抢占治理；进程统一由
 # src/services/inference/comfy_proc.py 管理：Job Object 与后端
@@ -140,6 +156,21 @@ manga:
   camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
   pose_presets_count: 15
   voice_preset_emotions: ["默认", "愤怒", "悲伤"]
+  # H3 链采样步数（批1b 2026-09-12）：Turbo LoRA 有效区间 4~8 步
+  # （README 口径）。6 = 标准档（现行，大动态镜头更稳）；4 = 快速档
+  # （采样段再省 ~33%，大动态有 ghosting 风险）。改完重启后端生效。
+  h3_steps: 6
+  # 四视图引擎档（v3-W3-C 2026-09-13）：与全局 paint.gen_engine 解耦。
+  # comfy 蒸馏 9B 四格构图格数遵循度实测仅 33~40% 且与步数无关
+  # （丢格为构图级失败，VL 修复环不可修）——保持 legacy 直至 comfy
+  # 侧多格方案（独立格生成+拼格/区域条件）验证通过。
+  # Z2 2026-09-15：zviews=Z-Image 分张管线（逐视图+参考锚身份+代码贴字，语义/标注构造性正确）；回滚=改回 legacy。
+  turnaround_engine: zviews
+  # 四视图云端档（拍板 B 2026-09-15：本地优先+云端显式选）：
+  # off=本地 Z-Image（默认——旧「绑了云端端点即走云=默认烧配额」经拍板
+  # 废除）；on=asset.image 槽绑定云端端点时逐视图走云旗舰。
+  # 重启后端生效。
+  turnaround_cloud: "off"
 
 # 磁盘可用空间阈值（P2 统一口径，单一来源：launcher / startup_check / installer
 # 均从此处读取，不再各自硬编码）。
@@ -199,6 +230,13 @@ ui:
 
 # vLLM 推理底座（V3 显存分档 2026-09-08）：
 vllm:
+  # sleep mode（B0 2026-09-13 实弹验证后回退默认关）：true=启动带
+  # --enable-sleep-mode + sitecustomize/cudart 补丁走真睡眠让渡；
+  # false=历史「杀子进程让渡」。实测 0.27.1 Windows wheel 的
+  # cumem_allocator.pyd 不导出 my_malloc/my_free 符号（EngineCore
+  # CUDAPluggableAllocator AttributeError），真 sleep 需上游修复或
+  # 重编扩展——升级 vLLM 后把本键翻 true 重验即可（补丁已常驻）。
+  sleep_mode: false
   # KV cache 量化档：""=关（默认，历史行为不变）/"auto"=FP8 能力卡
   # （计算能力≥8.9，如 5070 Ti sm_120）自动开/"fp8"=强制开。
   # FP8 KV 显存约减半（vLLM 官方 2026-04 production-ready 定调，
@@ -208,9 +246,21 @@ vllm:
   # 可设 16384/32768——仅对非大权重模型生效（大权重 4K 是显存
   # 安全钳制，FP8 KV 实测数据齐后再评估放开）。
   max_model_len: 16384
-  # MTP 投机解码（V6 2026-09-09，D6-bis=A 拍板）：true=开（轻载窗口
-  # 手动开，9B 实测解码 +40%、输出无损）；false=关（默认）。硬约束：
-  # 16GB 卡 + 9B 时 MTP+前缀缓存同开需近乎空卡（util≥0.92）；显存
-  # 不足时装载会被准入线诚实拒绝。仅对带 model_mtp.safetensors 的
-  # 模型生效（当前=qwen35-9b-w4a16）。
-  mtp_speculative: false
+  # MTP 投机解码（V6 2026-09-09，D6-bis=A 拍板；批1c 2026-09-12 全量
+  # 改造改常开）：true=开（9B 实测解码 +40%、输出无损）；false=关。
+  # 硬约束：16GB 卡 + 9B 时 MTP+前缀缓存同开需近乎空卡（util≥0.92）；
+  # 显存不足时装载会被准入线诚实拒绝（降级链兜底）。仅对带
+  # model_mtp.safetensors 的模型生效（当前=qwen35-9b-w4a16）。
+  # 重启后端生效。
+  mtp_speculative: true
+  # DFlash 块扩散投机解码（P-5 2026-09-15 新技术加速方案；默认 false
+  # =A/B 未收口）：true=开（输出数学无损——草稿仅提议、目标验证全权
+  # 裁决，对话行为不变）。与 MTP 同开时 DFlash 优先。仅对 qwen35-9b
+  # 家族目标生效（草稿=z-lab/Qwen3.5-9B-DFlash 官方配对未消融版
+  # 2.58GB，跨家族配对反向劣化）。显存：草稿+图画像 ~4GB，16GB 卡
+  # + 9B 需近乎空卡，准入线诚实拒。重启后端生效。
+  # ⚠️ 归位勘误（2026-09-15 深夜）：这两键曾被 Z1 提交时的 config 重写
+  # 误挪进 manga 节（vllm. 前缀读取永远读不到=开关假死）——已移回。
+  dflash_speculative: false
+  # DFlash 草稿权重目录（项目相对路径，须含 model.safetensors）
+  dflash_draft_model: "models/dflash/qwen35-9b-draft"

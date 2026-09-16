@@ -6,38 +6,29 @@
 修复 = _sanitize_delimiters（三连半角尖括号 → 全角，视觉保留、
 语义失活），三个用户可控入口全应用（剧本原文/资产设定/旧描述词）。
 
-AST 沙箱提取 _build_abc_prompt + _sanitize_delimiters + 依赖
-（_derive_shot_plan/_ABC_MARK/_ASSET_KIND_ZH/_ABC_PROMPT_TEMPLATE）。
+B9（2026-09-13）：AST 沙箱改真 import（真模块常量/模板自动就位）。
 """
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
-import ast
 from pathlib import Path
+
+import src.api.manga.common as _common_mod
 
 COMMON_PY = (Path(__file__).resolve().parents[2]
              / "api" / "manga" / "common.py")
 STORYBOARD_PY = (Path(__file__).resolve().parents[2]
                  / "api" / "manga" / "storyboard.py")
 
-_FUNCS = {"_sanitize_delimiters", "_build_abc_prompt", "_derive_shot_plan"}
-_CONSTS = {"_ABC_MARK", "_ASSET_KIND_ZH", "_ABC_PROMPT_TEMPLATE"}
-
 
 def _load_abc_builder() -> dict:
-    tree = ast.parse(COMMON_PY.read_text(encoding="utf-8"))
-    body = []
-    for n in tree.body:
-        if isinstance(n, ast.FunctionDef) and n.name in _FUNCS:
-            body.append(n)
-        elif isinstance(n, ast.Assign):
-            tgt = n.targets[0]
-            if isinstance(tgt, ast.Name) and tgt.id in _CONSTS:
-                body.append(n)
-    assert body, "common.py 中未找到 _build_abc_prompt 及依赖"
-    ns: dict = {"__name__": "sandbox"}
-    exec(compile(ast.Module(body=body, type_ignores=[]),
-                 "<extract>", "exec"), ns)  # noqa: S102 - 测试沙箱
+    """真 import 取目标函数与常量（形态与原沙箱 ns 一致，调用点零改动）。"""
+    ns: dict = {name: getattr(_common_mod, name)
+                for name in ("_sanitize_delimiters", "_build_abc_prompt",
+                             "_derive_shot_plan", "_ABC_MARK",
+                             "_ASSET_KIND_ZH", "_ABC_PROMPT_TEMPLATE")}
+    assert ns["_build_abc_prompt"] is not None, (
+        "common.py 中未找到 _build_abc_prompt 及依赖")
     return ns
 
 

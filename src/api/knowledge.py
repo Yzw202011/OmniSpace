@@ -68,6 +68,9 @@ _SUPPORTED_EXTS = {".pdf", ".docx", ".txt", ".md"}
 
 # 审计 P1-4：上传大小上限 50MB（与 learn.py 数据集上传一致）
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+# B8-d（2026-09-14）：docx 解压后总量上限（zip 炸弹防护，50MB 压缩包
+# 合法文档解压后通常 <10MB；超限判定为疑似炸弹拒绝）
+_MAX_DOCX_UNCOMPRESSED = 512 * 1024 * 1024
 
 
 # ── 请求模型 ─────────────────────────────────────────────────
@@ -123,8 +126,20 @@ def _parse_document(filename: str, data: bytes) -> str:
     # .docx
     try:
         import io
+        import zipfile
 
         import docx  # type: ignore  # python-docx
+        # B8-d（2026-09-14）zip 炸弹防护：docx 本质是 zip——解压前校验
+        # 声明解压总量，超限拒绝（50MB 压缩包声明解压 2GB 即内存耗尽）。
+        # python-docx 内部用 zipfile，此处预检其底层成员防止内存耗尽。
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            total_unc = sum(i.file_size for i in zf.infolist())
+            if total_unc > _MAX_DOCX_UNCOMPRESSED:
+                raise ApiError(
+                    "DOCX_BOMB_SUSPECTED",
+                    f"docx 解压后体积 {total_unc // 1024**2}MB 超上限"
+                    f"（{_MAX_DOCX_UNCOMPRESSED // 1024**2}MB），疑似 zip 炸弹",
+                    suggestion="请拆分或压缩文档后重试")
         doc = docx.Document(io.BytesIO(data))
         text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         if text.strip():
@@ -836,22 +851,6 @@ def learn_analysis_topic_compare(topics: str = Query("")) -> dict[str, Any]:
 def learn_behavior_stats() -> dict[str, Any]:
     """契约别名：= GET /behavior/stats。"""
     return behavior_stats()
-
-
-@router.post("/learn/behavior/reset")
-def learn_behavior_reset(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
-    """契约别名：= POST /behavior/clear（重置行为数据，清空重学）。
-
-    审计 P2-9：破坏性操作必须显式确认——请求体必须携带
-    {"confirm": true}，否则返回 SYSTEM_PARAM_INVALID 拒绝执行，
-    防止误触/CSRF 一键清空用户行为学习积累。
-    """
-    if not isinstance(body, dict) or body.get("confirm") is not True:
-        raise ApiError(
-            "SYSTEM_PARAM_INVALID",
-            "重置行为数据需要显式确认：请提交 {\"confirm\": true}",
-            suggestion="确认后将清空全部行为学习数据且不可恢复")
-    return behavior_clear()
 
 
 @router.post("/learn/import/document")

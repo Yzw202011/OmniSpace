@@ -7,7 +7,8 @@
 # 绕过（自担风险）: git commit --no-verify
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-PY="$REPO_ROOT/runtime/py310/python.exe"
+# B1（2026-09-13 拍板项 0=A）：主链 py312
+PY="$REPO_ROOT/runtime/py312/python.exe"
 RUFF="$REPO_ROOT/tools/ruff/ruff.exe"
 
 if [ ! -f "$PY" ]; then
@@ -52,7 +53,7 @@ echo "[pre-commit] [4/4] mypy 增量类型检查（基线冻结只增不减）..
 if [ $? -ne 0 ]; then
   echo ""
   echo "[pre-commit] ✗ mypy 新增类型错误，提交被拦截（修复；"
-  echo "             或确认属基线漂移后 runtime/py310/python.exe tools/run_mypy.py --rebaseline 重审）"
+  echo "             或确认属基线漂移后 runtime/py312/python.exe tools/run_mypy.py --rebaseline 重审）"
   exit 1
 fi
 

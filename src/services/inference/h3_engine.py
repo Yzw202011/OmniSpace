@@ -507,6 +507,29 @@ _DIRECTOR_HEIGHT = 768
 # 每镜连 3 个 ref 槽（<Picture 1>=首帧(fixed) + 角色资产 + 场景资产）
 _DIRECTOR_REF_SLOTS = 3
 
+# 导播台三节点（批0-a 2026-09-12）：当前 ComfyUI 树（custom_nodes +
+# comfy_extras 全量 grep）无任何提供方，原样提交 = 工作流执行报错。
+# 预检缺失即诚实降级为语义化错误，指路标准分镜模式。
+_DIRECTOR_REQUIRED_NODES = ("TheodoreDirector_Project",
+                            "TheodoreDirector_SelectShot",
+                            "TheodoreDirector_H3Adapter")
+_director_nodes_ok: bool | None = None
+
+
+def _director_nodes_available() -> bool:
+    """导播台三节点存在性预检（探测 /object_info，节点安装态随
+    custom_nodes 目录不变，进程内缓存一次即可）。"""
+    global _director_nodes_ok
+    if _director_nodes_ok is None:
+        try:
+            _probe = urllib.request.Request(
+                f"{_COMFY_BASE}/object_info/TheodoreDirector_Project")
+            with urllib.request.urlopen(_probe, timeout=5.0) as _resp:
+                _director_nodes_ok = bool(_resp.read())
+        except Exception:  # noqa: BLE001 - 连不上也按缺失处理（诚实降级）
+            _director_nodes_ok = False
+    return _director_nodes_ok
+
 
 def _build_director_workflow(*, plan_json: str, queue_index: int,
                              base_seed: int, steps: int,
@@ -530,6 +553,13 @@ def _build_director_workflow(*, plan_json: str, queue_index: int,
     扩 22 帧上下文（duration_mode=final_output），头部重复帧由
     video.py 裁时剥离。
     """
+    if not _director_nodes_available():
+        raise ApiError(
+            "SYSTEM_DEPENDENCY_MISSING",
+            "导播台组件未安装（ComfyUI 缺少 TheodoreDirector 三节点），"
+            "无法按导播台模式生成",
+            suggestion="请改用标准分镜生成模式；或安装 "
+                       "ComfyUI_Theodore_Director 节点包后重启后端")
     wf = {
         "1": {"class_type": "UNETLoader",
               "inputs": {"unet_name": _H3_FILES["unet"],

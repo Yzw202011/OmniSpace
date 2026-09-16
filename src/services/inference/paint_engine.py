@@ -1,4 +1,10 @@
-"""OmniSpace AI v2.3 绘画推理引擎（TASK-006 真实推理实现）。
+"""OmniSpace AI 绘画推理引擎·旧 diffusers/GGUF 栈（批0-c 2026-09-12 勘误）。
+
+定位勘误：主力出图 = ComfyUI klein 栈（comfy_paint_engine.py，漫剧
+关键帧/四视图/资产图）；本文件为旧 diffusers 绘画栈（前端 /paint UI
+已由 AI 漫画页取代，draw API 兼容保留）。以下 SDXL 加载说明仅描述
+本栈内部实现，不代表现行绘画路由（PAINT_ROUTING_TABLE =
+flux2-klein-9b / qwen-image-2512）：
 
 使用 diffusers 加载本地 SDXL base 1.0（models/paint/sdxl-base-1.0）：
 
@@ -936,18 +942,35 @@ class PaintEngine(BaseEngine):
                 # 生成时才爆 "Tensor.item() cannot be called on meta
                 # tensors"。此处校验关键组件参数非 meta，命中则如实报
                 # 加载失败，避免静默成功导致连环回退烧显存。
+                # ⚠️ 2026-09-16 勘误（live 复现实锤）：sequential_cpu_
+                # offload（low_vram_mode）路径下组件转 meta 是 **accelerate
+                # 的设计态**（层级钩子按需上 GPU，权重 mmap 懒加载——
+                # 常规件 enable_model_cpu_offload 则恒 cpu）——旧校验把
+                # 低显存模式的正常态误判成装载失败，flux2-klein-4b 在
+                # 空闲 <12GB 时稳定被误杀（D-LoRA 链受害实录 09-15/16）。
+                # 修正：常规件路径维持原校验；流式路径改验 offload 钩子
+                # 在位（钩子缺失才是真空壳）。
                 try:
-                    for comp_name in ("transformer", "unet", "text_encoder",
-                                      "vae"):
-                        comp = getattr(pipe, comp_name, None)
-                        if comp is None:
-                            continue
-                        p = next(comp.parameters(), None)
-                        if p is not None and p.is_meta:
+                    if low_vram_mode:
+                        comp = (getattr(pipe, "transformer", None)
+                                or getattr(pipe, "unet", None))
+                        if comp is not None \
+                                and getattr(comp, "_hf_hook", None) is None:
                             raise RuntimeError(
-                                f"管线组件 {comp_name} 处于 meta 空壳状态"
-                                "（权重未真正加载，疑似进程 CUDA 状态异常"
-                                "或显存不足），拒绝以空壳管线注册")
+                                "sequential offload 钩子未挂载（管线未真正"
+                                "进入流式布局，疑似装载中断）")
+                    else:
+                        for comp_name in ("transformer", "unet",
+                                          "text_encoder", "vae"):
+                            comp = getattr(pipe, comp_name, None)
+                            if comp is None:
+                                continue
+                            p = next(comp.parameters(), None)
+                            if p is not None and p.is_meta:
+                                raise RuntimeError(
+                                    f"管线组件 {comp_name} 处于 meta 空壳状态"
+                                    "（权重未真正加载，疑似进程 CUDA 状态异常"
+                                    "或显存不足），拒绝以空壳管线注册")
                 except Exception as exc:
                     self._last_error = f"绘画模型加载失败: {exc}"
                     self._state = "error"

@@ -50,19 +50,16 @@ class SynergyMode(str, Enum):
 
 
 class VideoModel(str, Enum):
-    LTX2 = "ltx-2"
+    # B3（2026-09-14）死枚举收敛：删除 LTX2/WAN21_14B_FP8/WAN21_14B_INT4/
+    # WAN21_1_3B/WAN22_TI2V_5B/LTX_VIDEO_095 六成员——权重均已隔离/删除、
+    # VIDEO_ROUTING_TABLE 仅 minimax-h3、全库引用仅 video_router params_map
+    # （已同刀摘除）。保留四成员：MINIMAX_H3=路由唯一主力；ANIMATELCM 与
+    # COGVIDEOX_2B(_CPU)=video_router 兜底哨兵（<12G 档标记，落 Ken Burns）。
+    # 未来解锁 diffusers 路由按需重建成员（B3 路由守卫同步失效）。
     # MiniMax H3 33B（NVFP4 DiT + Qwen3-VL-32B int4 convrot 编码器，
     # ComfyUI 子进程管线，2026-08-25 接入）：DynamicVRAM 分时换载，
     # 采样期峰值 ~12GB，16GB 卡可跑；原生音画（32kHz 立体声）
     MINIMAX_H3 = "minimax-h3"
-    WAN21_14B_FP8 = "wan2.1-14b-fp8"
-    WAN21_14B_INT4 = "wan2.1-14b-int4"
-    WAN21_1_3B = "wan2.1-1.3b"
-    # Wan2.2-TI2V-5B：单 ckpt 原生 T2V+I2V+TI2V 双条件统一底座
-    # （2026-08-23 混合架构裁定：视频侧统一到该权重，I2V 与文+图
-    # 生视频共用；目录名 wan22-ti2v-5b 与发现层约定一致）
-    WAN22_TI2V_5B = "wan22-ti2v-5b"
-    LTX_VIDEO_095 = "ltx-video-0.9.5"  # 2B diffusers，T5 int8 量化加载
     COGVIDEOX_2B = "cogvideox-2b"
     COGVIDEOX_2B_CPU = "cogvideox-2b-cpu"
     ANIMATELCM = "AnimateLCM"
@@ -110,6 +107,10 @@ class ActiveFeature(str, Enum):
 #    - 视频只保留 MiniMax H3（12GB 档 5s 段 ~10.6GB 实测可跑）。
 # ═══════════════════════════════════════════════════════════════════
 
+# 口径标注（B6）：路由表 min_vram_gb=declared 档位声明口径（选型
+# 门槛），调度显存裁定走 model_manager.estimate_vram_gb 裁定链
+# （_VRAM_OVERRIDES 实测值最高优先）；三口径分列见
+# models_manifest.json _vram_semantics。
 VIDEO_ROUTING_TABLE = [
     # H3 NVFP4：33B 顶格质量 + 原生音画。门槛 12 = 实测采样峰值
     # ~10.6GB（125 帧 5s 段）+ 余量；16GB 卡首选，12GB 档跑短段
@@ -141,6 +142,10 @@ PAINT_ROUTING_TABLE = [
 # 文档B §4.2 权威映射（显存路由无法区分 4070Ti 12GB 与 3060 12GB，
 # 必须按型号名匹配）；型号名未命中时按显存保守降档回退。
 # 模型列为内部路由表模型 id（dialog/paint/video）+ 学习标签数配额。
+# B6（2026-09-14）纸面档标注：min_vram_gb ≥14G 的 8 档（rtx5090/4090/
+# 5080/5080s/4080s/4080/4070TiS/4060Ti-16G 等）在本项目**无实机验证**
+# （开发机 16G 5070Ti、基线口径 12G 3060）——档位行为为纸面推导，
+# 实机反馈前勿作为承诺依据。
 HARDWARE_TIER_TABLE: list[dict] = [
     # ── RTX 50 系列 (Blackwell, CC 12.0) ──
     {
@@ -529,7 +534,9 @@ class DrawRequest(BaseModel):
     negative_prompt: str = ""
     width: int = Field(default=1024, ge=512, le=2688)
     height: int = Field(default=1024, ge=512, le=2688)
-    steps: int = Field(default=20, ge=4, le=50)
+    # 默认 8 步（2026-09-16 拍板 balanced 档）：A/B 实证与 36 步平齐、
+    # 快 4.2×；旧默认 20 为 legacy diffusers 时代口径
+    steps: int = Field(default=8, ge=4, le=50)
     guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
     model: str | None = None
     controlnet: dict | None = None
@@ -984,9 +991,10 @@ class TrainTask(BaseModel):
 class SystemSettings(BaseModel):
     theme: str = "sakura"
     font_size: int = 14
-    auto_model_select: bool = True
-    default_video_codec: str = "h264"
-    default_resolution: str = "1080p"
+    # B2（2026-09-13）：删除 auto_model_select/default_video_codec/
+    # default_resolution 三字段——定义+持久化+展示俱全但全库零读取方
+    # （白写设置），按「宁可删不如修」清退；DB 中的历史行由 Pydantic
+    # 丢弃，无迁移需求。
     # 界面打开方式（2026-09-08 桌面壳接线）：shell=原生桌面窗口
     # （pywebview，默认）/ browser=系统浏览器。boot 启动链读取决定
     # 拉壳还是开浏览器；本次会话不热切，下次启动生效。

@@ -1,10 +1,8 @@
 """P0-3 多角色锚协议纯逻辑测试（2026-08-28）。
 
-AST 沙箱手法（同 test_keyframe_seed_consistency 约定）：从
-src/api/manga/keyframe.py 提取 _shot_image_prompt_from_abc 及其
-模块内依赖（strip 系函数 + 模块级正则），exec 到隔离命名空间，
-detect_style 以桩替换、_SHOT_FRAMING 注入受控景别表——不触发
-gen_router/torch/FastAPI 重型导入。
+B9（2026-09-13）：AST 沙箱改真 import。桩注入改走模块级 monkeypatch：
+detect_style 桩 + _SHOT_FRAMING 受控景别表经 fixture 注入并在测试后
+自动还原（原沙箱靠 ns 作用域隔离，真模块必须显式打桩）。
 
 覆盖（P0-3 残留补口：外层锚曾写死「始终只有这一个角色」，与调用
 方多角色锚「共 N 位」同句矛盾）：
@@ -16,35 +14,21 @@ gen_router/torch/FastAPI 重型导入。
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
-import ast
-import re
-from pathlib import Path
+import pytest
 
-KEYFRAME_PY = (Path(__file__).resolve().parents[2]
-               / "api" / "manga" / "keyframe.py")
+import src.api.manga.keyframe as _kf_mod
 
 _FUNCS = {"_shot_image_prompt_from_abc", "_strip_prop_colors",
           "_strip_char_appearance", "_strip_hand_flush"}
 _CONSTS = {"_PROP_COLOR", "_CHAR_APPEAR_PAT", "_HAND_FLUSH_PAT"}
 
 
-def _load_shot_prompt_builder() -> dict:
-    """AST 提取目标函数 + 依赖常量，exec 到隔离命名空间后返回。"""
-    tree = ast.parse(KEYFRAME_PY.read_text(encoding="utf-8"))
-    body = []
-    for n in tree.body:
-        if isinstance(n, ast.FunctionDef) and n.name in _FUNCS:
-            body.append(n)
-        elif isinstance(n, ast.Assign):
-            tgt = n.targets[0]
-            if isinstance(tgt, ast.Name) and tgt.id in _CONSTS:
-                body.append(n)
-    picked_names = {n.name for n in body if isinstance(n, ast.FunctionDef)}
-    assert _FUNCS <= picked_names, f"目标函数缺失: {_FUNCS - picked_names}"
-    ns: dict = {"re": re}
-    exec(compile(ast.fix_missing_locations(ast.Module(body=body,
-          type_ignores=[])), "<ast-sandbox>", "exec"), ns)
-    ns["_SHOT_FRAMING"] = {"1x2": ["Medium shot", "Medium shot"]}
+@pytest.fixture()
+def shot_prompt_ns(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """真 import 目标函数 + 注入受控风格/景别桩（测试后自动还原）。"""
+    ns: dict = {n: getattr(_kf_mod, n) for n in _FUNCS}
+    for c in _CONSTS:
+        ns[c] = getattr(_kf_mod, c)
 
     class _Pack:
         sid = "default"
@@ -52,7 +36,11 @@ def _load_shot_prompt_builder() -> dict:
         style_block = ""
         quality_block = ""
 
-    ns["detect_style"] = lambda text: _Pack()
+    monkeypatch.setattr(_kf_mod, "detect_style", lambda text: _Pack())
+    monkeypatch.setattr(_kf_mod, "_SHOT_FRAMING",
+                        {"1x2": ["Medium shot", "Medium shot"]})
+    ns["detect_style"] = _kf_mod.detect_style
+    ns["_SHOT_FRAMING"] = _kf_mod._SHOT_FRAMING
     return ns
 
 
@@ -66,16 +54,16 @@ def _build(ns: dict, char_prompt: str, char_count: int = 0) -> str:
              char_count=char_count)
 
 
-def test_single_char_keeps_uniqueness_anchor():
-    ns = _load_shot_prompt_builder()
+def test_single_char_keeps_uniqueness_anchor(shot_prompt_ns: dict) -> None:
+    ns = shot_prompt_ns
     out = _build(ns, "小满，外貌、服装与角色设定图严格一致", char_count=1)
     assert "同一角色（各镜严格一致，画面中始终只有这一个角色，" \
            "除该角色外不得出现任何人物）：小满" in out
     assert "角色锚（各镜严格一致）：" not in out
 
 
-def test_multi_char_anchor_has_no_contradiction():
-    ns = _load_shot_prompt_builder()
+def test_multi_char_anchor_has_no_contradiction(shot_prompt_ns: dict) -> None:
+    ns = shot_prompt_ns
     cp = ("画面中的角色共2位：小满、阿澈，各自外貌、服装与角色设定图"
           "严格一致；除这些角色外不得出现任何其他人物")
     out = _build(ns, cp, char_count=2)
@@ -86,16 +74,16 @@ def test_multi_char_anchor_has_no_contradiction():
     assert "除这些角色外不得出现任何其他人物" in out
 
 
-def test_no_char_binding_no_anchor():
-    ns = _load_shot_prompt_builder()
+def test_no_char_binding_no_anchor(shot_prompt_ns: dict) -> None:
+    ns = shot_prompt_ns
     out = _build(ns, "")
     assert "同一角色" not in out
     assert "角色锚" not in out
 
 
-def test_default_char_count_backcompat():
+def test_default_char_count_backcompat(shot_prompt_ns: dict) -> None:
     """不传 char_count（旧调用方）保持单角色行为。"""
-    ns = _load_shot_prompt_builder()
+    ns = shot_prompt_ns
     f = ns["_shot_image_prompt_from_abc"]
     grid = {"layout": "1x2", "shots": [{"text": "少女站在灯塔下"}]}
     out = f("A. 全局风格：日系网漫。", grid, 0,

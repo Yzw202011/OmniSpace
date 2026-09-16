@@ -63,26 +63,12 @@ export interface LearnState {
     file: File,
     meta?: { type?: TrainType },
   ) => Promise<{ path: string; size_mb?: number; count?: number }>;
-  /** 手动新建知识点（文本≥100 自动建 knowledge_lora 任务） */
-  createPoint: (body: {
-    title?: string;
-    content: string;
-    source?: string;
-    type?: string;
-  }) => Promise<{ id: string; auto_train?: boolean; task_id?: string }>;
-  /** 添加学习 URL */
-  addUrl: (url: string, title?: string) => Promise<{ id: string }>;
-  /** 网页爬取 */
-  crawl: (url: string) => Promise<{ task_id: string }>;
-  /** 自动学习（深度≤3/50页/同域 BFS） */
-  autoLearn: (
-    url: string,
-    maxDepth?: number,
-    maxPages?: number,
-  ) => Promise<{ task_id: string; pages?: number }>;
+  /* B3（2026-09-13）：删除 createPoint/addUrl/crawl/autoLearn 四方法——
+   * learnApi 对应函数随反向死链清退（后端无路由，调用必 404；组件层
+   * 零调用对账见 v4 §八）。 */
 }
 
-export const useLearnStore = create<LearnState>((set, get) => ({
+export const useLearnStore = create<LearnState>((set) => ({
   trainTasks: [],
   availableModels: [],
   capability: null,
@@ -215,31 +201,6 @@ export const useLearnStore = create<LearnState>((set, get) => ({
 
   uploadDataset: async (file, meta) => {
     return learnApi.uploadDataset(file, meta);
-  },
-
-  createPoint: async (body) => {
-    const res = await learnApi.createPoint(body);
-    // 自动触发训练时刷新任务列表
-    if (res.auto_train) {
-      get().fetchTasks();
-    }
-    return res;
-  },
-
-  addUrl: async (url, title) => {
-    return learnApi.addUrl({ url, title });
-  },
-
-  crawl: async (url) => {
-    return learnApi.crawl({ url });
-  },
-
-  autoLearn: async (url, maxDepth, maxPages) => {
-    return learnApi.autoLearn({
-      url,
-      max_depth: maxDepth,
-      max_pages: maxPages,
-    });
   },
 }));
 

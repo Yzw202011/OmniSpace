@@ -16,6 +16,8 @@ import * as dialogApi from '@/services/dialogApi';
 import { getDialogStream, releaseDialogStream } from '@/services/ws';
 import { trackBehavior } from '@/services/learningApi';
 import { useAppStore } from './useAppStore';
+import { mirrorPref } from '@/services/uiPrefs';
+import { reportBgError } from '@/utils/errors';
 
 /* ------------------------------ 对话生成参数（规格 §6.2.1 参数控制） ------------------------------ */
 
@@ -105,6 +107,7 @@ function loadDialogParams(): DialogParamsSnapshot {
 function persistDialogParams(snapshot: DialogParamsSnapshot): void {
   try {
     localStorage.setItem(DIALOG_PARAMS_STORAGE_KEY, JSON.stringify(snapshot));
+    mirrorPref(DIALOG_PARAMS_STORAGE_KEY, snapshot); // 界面偏好镜像（2026-09-12 修复重启回退）
   } catch {
     /* 隐私模式等写入失败场景静默 */
   }
@@ -143,6 +146,8 @@ export interface DialogState {
   _streamUnsubs: Array<() => void>;
   /** 当前流式 assistant 消息 ID */
   _streamingMessageId: string | null;
+  /** 当前流式所属会话 ID（abortStream 释放连接用，2026-09-15） */
+  _streamSessionId: string | null;
 
   /* ------------------------------ 动作 ------------------------------ */
   /** 拉取会话列表 */
@@ -213,12 +218,15 @@ export const useDialogStore = create<DialogState>((set, get) => ({
 
   _streamUnsubs: [],
   _streamingMessageId: null,
+  _streamSessionId: null,
 
   fetchSessions: async (keyword) => {
     try {
       const res = await dialogApi.listSessions({ keyword });
       set({ sessions: res.items || [], sessionsLoaded: true });
-    } catch {
+    } catch (err: unknown) {
+      // 2026-09-15 审计修复：加载失败静默显示空列表——上报留痕（三分法 CONSOLE 级）
+      reportBgError('会话列表加载失败', err);
       set({ sessionsLoaded: true });
     }
   },
@@ -241,12 +249,14 @@ export const useDialogStore = create<DialogState>((set, get) => ({
         },
         messages: detail.messages || [],
       });
-    } catch {
-      // 失败时尝试只拉消息列表
+    } catch (err: unknown) {
+      // 2026-09-15 审计修复：会话详情拉取失败静默清空——上报留痕再兜底
+      reportBgError('会话详情加载失败（回退消息列表）', err);
       try {
         const res = await dialogApi.listMessages(sessionId);
         set({ messages: res.items || [] });
-      } catch {
+      } catch (err2: unknown) {
+        reportBgError('消息列表加载失败', err2);
         set({ messages: [] });
       }
     }
@@ -366,6 +376,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       messages: [...state.messages, userMsg, assistantMsg],
       generating: true,
       _streamingMessageId: assistantId,
+      _streamSessionId: sessionId,
     }));
 
     // 行为学习埋点（fire-and-forget，失败静默）
@@ -563,6 +574,44 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       offFirstReasoning();
     });
 
+    // 断流兜底（2026-09-15 审计 P0 修复）：后端重启/断网时连接断开，
+    // 本次生成不会再有 done/error 帧——旧实现 generating 永久 true，
+    // 输入框与重生成被卡死到用户手点停止。策略：连接级状态离开 open
+    // 即起 8s 宽限计时（初始 connecting 不算——流尚未建立）；期间恢复
+    // open 则撤销，超时则终止流并在消息位落中断提示（后端按 socket
+    // 路由流式回复，重连后旧流不续，诚实终止优于假等）。
+    let connGraceTimer: number | null = null;
+    let streamWasOpen = false;
+    const clearStreamGrace = () => {
+      if (connGraceTimer !== null) {
+        clearTimeout(connGraceTimer);
+        connGraceTimer = null;
+      }
+    };
+    const offConnStatus = conn.onStatus((st) => {
+      if (st === 'open') {
+        streamWasOpen = true;
+        clearStreamGrace();
+        return;
+      }
+      if (!streamWasOpen
+          || get()._streamingMessageId !== assistantId) {
+        return;
+      }
+      clearStreamGrace();
+      connGraceTimer = window.setTimeout(() => {
+        if (get()._streamingMessageId !== assistantId) return;
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === assistantId && !m.content
+              ? { ...m, content: '[连接中断，生成已终止——请重发]' }
+              : m,
+          ),
+        }));
+        get().abortStream();
+      }, 8000);
+    });
+
     function cleanup() {
       offToken();
       offReasoning();
@@ -572,6 +621,8 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       offDone();
       offStatus();
       offFirstReasoning();
+      offConnStatus();
+      clearStreamGrace();
       set({ _streamingMessageId: null, _streamUnsubs: [] });
       // 审计 R3-FE2：流式结束释放连接池条目（destroy 并移出 Map），避免池随会话数线性增长；
       // 同会话再次发送时 getDialogStream 会重建连接（connect 幂等，复用语义不变）
@@ -580,8 +631,8 @@ export const useDialogStore = create<DialogState>((set, get) => ({
 
     set({
       _streamUnsubs: [
-        offToken, offReasoning, offMeta, offError, offDone,
-        offStatus, offFirstReasoning,
+        offToken, offReasoning, offWebRefs, offMeta, offError, offDone,
+        offStatus, offFirstReasoning, offConnStatus,
       ],
     });
 
@@ -609,8 +660,9 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     }
     try {
       await dialogApi.stopGenerate(currentSession.id);
-    } catch {
-      /* 忽略 */
+    } catch (err: unknown) {
+      // 2026-09-15 审计修复：用户主动动作失败不再吞——上报留痕（本地中断仍继续）
+      reportBgError('停止生成请求失败（本地已中断）', err);
     }
     get().abortStream();
   },
@@ -623,11 +675,23 @@ export const useDialogStore = create<DialogState>((set, get) => ({
         /* 忽略 */
       }
     });
+    const streamSession = get()._streamSessionId;
     set({
       _streamUnsubs: [],
       _streamingMessageId: null,
+      _streamSessionId: null,
       generating: false,
     });
+    // 2026-09-15 审计修复：abort 路径同样释放连接池条目——此前只有
+    // done/error 驱动的 cleanup() 会调 releaseDialogStream，用户停止/
+    // 断流兜底走 abortStream 时连接留在池里持续自动重连（僵尸累积）
+    if (streamSession) {
+      try {
+        releaseDialogStream(streamSession);
+      } catch {
+        /* 忽略 */
+      }
+    }
     // 释放功能锁
     const appStore = useAppStore.getState();
     if (appStore.activeFeature === 'dialog') {
@@ -647,8 +711,8 @@ export const useDialogStore = create<DialogState>((set, get) => ({
           m.id === messageId ? { ...m, rating } : m,
         ),
       }));
-    } catch {
-      /* 忽略 */
+    } catch (err: unknown) {
+      reportBgError('消息评分失败', err);  // 2026-09-15：吞错改上报
     }
   },
 
@@ -667,8 +731,8 @@ export const useDialogStore = create<DialogState>((set, get) => ({
           m.id === messageId ? { ...m, favorite: updated.favorite } : m,
         ),
       }));
-    } catch {
-      /* 忽略 */
+    } catch (err: unknown) {
+      reportBgError('收藏切换失败', err);  // 2026-09-15：吞错改上报
     }
   },
 

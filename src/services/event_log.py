@@ -38,7 +38,6 @@ from __future__ import annotations
 import json
 import logging
 import threading
-import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -469,23 +468,16 @@ def cleanup_expired(now: datetime | None = None) -> dict[str, Any]:
 
 
 def start_cleanup_task() -> None:
-    """启动后台清理线程（幂等）：立即清一次 + 每 24h 巡检。"""
+    """启动后台清理线程（幂等）：立即清一次 + 每 24h 巡检。
+
+    B5 步5：循环体收敛到 periodic.start_periodic_daemon（消克隆）。"""
     global _cleanup_started
     with _cleanup_lock:
         if _cleanup_started:
             return
         _cleanup_started = True
 
-    def _loop() -> None:
-        while True:
-            try:
-                cleanup_expired()
-            except Exception:  # noqa: BLE001 - 巡检失败不影响业务
-                logger.exception("日志清理巡检异常")
-            time.sleep(_CLEANUP_INTERVAL_S)
-
-    t = threading.Thread(target=_loop, name="log-cleanup",
-                         daemon=True)
-    t.start()
-    logger.info("日志 30 天自动清除任务已启动（每 24h 巡检）")
+    from .periodic import start_periodic_daemon
+    start_periodic_daemon("log-cleanup", _CLEANUP_INTERVAL_S,
+                          cleanup_expired, run_immediately=True)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

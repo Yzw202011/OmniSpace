@@ -9,15 +9,21 @@
 WebSocket 断开，后端 page_guard 按「全部页面关闭 60s 且无任务」倒计时走
 正规退出链（/api/quit 由启动页发起）。壳进程自身随窗口关闭自然退出。
 
+单实例守卫（2026-09-14）：已有壳窗口时本进程置前旧窗并让位退出（exit 0），
+不开第二个窗——boot 让位分支再拉界面、用户重复手动拉壳都收敛到同一窗；
+OMNISPACE_ALLOW_MULTI=1 豁免（双实例联调，与 boot/后端互斥体同语义）。
+
 用法（boot 调用，也可手动）：
   runtime/py310/OmniSpace-Shell.exe launcher/shell.py --url http://127.0.0.1:5800
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
 import sys
 import time
+from ctypes import wintypes
 
 # Win10/11 自带 .NET Framework（netfx）而非 .NET Core（coreclr）；
 # pythonnet 默认找 coreclr 必炸，指到 netfx（pywebview 官方 Windows 姿势）
@@ -88,12 +94,89 @@ def _renderer_process_limit() -> int:
         return 3
 
 
+def _find_existing_shell_window() -> int:
+    """找已有壳窗口句柄（2026-09-14 壳单实例守卫）。
+
+    过滤三闸（对齐 09-03 单实例误伤修复的教训）：可见顶层窗口 +
+    窗口标题含 omnispace + 宿主进程 exe 在白名单内——只认壳链的
+    python.exe/pythonw.exe/OmniSpace-Shell.exe，标题字样匹配绝不
+    单独作数（cmd/bash 壳带字样误报的同源教训）；另排除控制台
+    窗口（ConsoleWindowClass）——python.exe 带控制台调试时控制台
+    标题含脚本路径字样，不排除会把自己拦在门外。返回 0 = 没有。
+    """
+    # use_last_error：brand_exe 同款教训，ctypes 调 Win32 必带
+    user32 = ctypes.WinDLL('user32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    found = 0
+    proc_enum = ctypes.WINFUNCTYPE(
+        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _on_window(hwnd: int, _lparam: int) -> bool:  # noqa: WPS430
+        nonlocal found
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        cls = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls, 64)
+        if cls.value == 'ConsoleWindowClass':
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        if 'omnispace' not in buf.value.lower():
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        # PROCESS_QUERY_LIMITED_INFORMATION=0x1000：只读进程路径够用
+        handle = kernel32.OpenProcess(0x1000, False, pid.value)
+        if not handle:
+            return True
+        try:
+            path = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(1024)
+            if kernel32.QueryFullProcessImageNameW(
+                    handle, 0, path, ctypes.byref(size)):
+                exe = os.path.basename(path.value).lower()
+                if exe in ('python.exe', 'pythonw.exe',
+                           'omnispace-shell.exe'):
+                    found = hwnd
+                    return False  # 命中即停枚举
+        finally:
+            kernel32.CloseHandle(handle)
+        return True
+
+    user32.EnumWindows(proc_enum(_on_window), 0)
+    return found
+
+
+def _raise_existing_window(hwnd: int) -> None:
+    """把已有壳窗口提到最前：最小化先恢复，未最小化保持原样亮出。"""
+    user32 = ctypes.WinDLL('user32', use_last_error=True)
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    else:
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+    user32.SetForegroundWindow(hwnd)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--url', required=True, help='要装载的页面地址')
     ap.add_argument('--width', type=int, default=1440)
     ap.add_argument('--height', type=int, default=900)
     args = ap.parse_args()
+
+    # 壳单实例守卫（2026-09-14）：已有壳窗口就让位置前，不开第二个——
+    # 对齐 boot 启动页守卫语义；OMNISPACE_ALLOW_MULTI=1 同款豁免
+    # （异目录双实例联调时各自壳都要能起来）
+    if os.environ.get('OMNISPACE_ALLOW_MULTI') != '1':
+        existing = _find_existing_shell_window()
+        if existing:
+            _raise_existing_window(existing)
+            _log(f'检测到已有壳窗口（hwnd={existing:#x}），已置前并让位退出'
+                 '（单实例守卫）')
+            return 0
 
     # WebView2 官方环境变量通道：渲染进程上限（必须在 webview 环境
     # 创建前设置；GPU/网络服务进程不受此控，只限页面渲染进程）

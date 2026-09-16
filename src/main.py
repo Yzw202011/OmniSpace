@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import os
 import time
 
@@ -96,6 +97,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.info("外部模型包登记：%s", _r)
     except Exception as _exc:  # noqa: BLE001 - 登记失败不阻断启动
         log.warning("外部模型包登记异常（不阻断启动）：%s", _exc)
+
+    # B6 步3（2026-09-14）：模型账实对账闸上线——validate_against_disk
+    # 此前只在无人跑的 startup_check 里（线上 0 次执行，R7 审计），现挂
+    # lifespan：ghost（清单有盘无）/ orphan（盘有清单无）/ required_missing
+    # 三计数写大白话事件日志。只读不阻断；同时是一键体检的数据源。
+    try:
+        from .data.model_registry import validate_against_disk
+        from .services.event_log import log_event as _le
+        _rep = validate_against_disk()
+        _ghost = len(_rep["ghost_entries"])
+        _orphan = len(_rep["orphan_dirs"])
+        _missing = len(_rep["required_missing"])
+        if _ghost or _orphan or _missing:
+            _le("models", "registry_drift",
+                f"模型账本对不上：清单里 { _ghost } 个模型盘上找不到，"
+                f"盘上 { _orphan } 个目录没登记，{ _missing } 个必备模型缺失。"
+                "其余功能不受影响，可在模型管理页核对。",
+                level="warning",
+                detail=json.dumps({"ghost": _rep["ghost_entries"],
+                                   "orphan": _rep["orphan_dirs"],
+                                   "required_missing":
+                                       _rep["required_missing"]},
+                                  ensure_ascii=False)[:500])
+        else:
+            _le("models", "registry_check",
+                "模型账本与磁盘对账一致", level="info")
+        log.info("模型账实对账：ghost=%d orphan=%d required_missing=%d",
+                 _ghost, _orphan, _missing)
+    except Exception as _exc:  # noqa: BLE001 - 对账失败不阻断启动
+        log.warning("模型账实对账异常（不阻断启动）：%s", _exc)
     # 审计 R3-BE3：非回环绑定醒目告警（API 无认证体系，规格 §14 约束2 要求 127.0.0.1）
     if config.HOST not in ("127.0.0.1", "localhost"):
         log.warning("!" * 60)
@@ -103,6 +134,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "存在局域网暴露风险（规格 §14 约束2 要求 127.0.0.1）",
                     config.HOST)
         log.warning("!" * 60)
+        # B8（2026-09-14）：LAN 豁免升格为用户时间线大白话告警
+        try:
+            from .services.event_log import log_event as _le_lan
+            _le_lan("system", "lan_exposure",
+                    "局域网模式已开启：本机所有数据（对话/项目/文件）对同一"
+                    "WiFi 下设备可见，且接口无密码。仅在你完全信任当前网络时"
+                    "继续使用；关闭方法：不设 OMNISPACE_ALLOW_LAN 环境变量重启。",
+                    level="warning")
+        except Exception:  # noqa: BLE001
+            pass
 
     # T+0s: 数据库
     try:
@@ -112,6 +153,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         log.error("数据库初始化失败: %s", exc)
         raise
+
+    # T+0.5（B10 数据保全 2026-09-14）：恢复待办处理——/system/restore
+    # 安排的 pending 副本经 **sqlite backup API 在线恢复**到主库。
+    #
+    # 实弹演练两轮修正：文件层覆盖（copy2/原子 replace）在 Windows 上
+    # 会被 boot/杀软等共享读锁卡死（WinError 32 ×2 实弹复现）——改为
+    # sqlite backup API（锁由 sqlite 管理，对已初始化主库在线恢复）。
+    # 防呆：恢复前当前库先 copy2 一份到 backups/（读锁无碍 copy）。
+    try:
+        _restore_pending = config.DATA_DIR / "omnispace.restore-pending.db"
+        _restore_mark = config.DATA_DIR / "omnispace.restore-pending.json"
+        if _restore_pending.is_file() and _restore_mark.is_file():
+            import shutil as _shutil
+            import sqlite3 as _sq
+            _info = json.loads(_restore_mark.read_text(encoding="utf-8"))
+            if config.DB_PATH.is_file():
+                _safe_cur = (config.DATA_DIR / "backups" /
+                             f"omnispace_pre_restore_{int(time.time())}.db")
+                config.DATA_DIR.joinpath("backups").mkdir(parents=True,
+                                                          exist_ok=True)
+                _shutil.copy2(config.DB_PATH, _safe_cur)
+            _src = _sq.connect(str(_restore_pending))
+            try:
+                _dst = _sq.connect(str(config.DB_PATH))
+                try:
+                    _src.backup(_dst)  # pending → 主库（在线恢复）
+                finally:
+                    _dst.close()
+            finally:
+                _src.close()
+            _restore_pending.unlink(missing_ok=True)
+            _restore_mark.unlink(missing_ok=True)
+            log.warning("备份恢复已生效（来源 %s）；替换前的当前库已备份",
+                        _info.get("source"))
+            from .services.event_log import log_event as _le_restore
+            _le_restore("system", "restore_applied",
+                        "备份恢复已完成（本次启动时已替换主库），"
+                        "替换前的旧库已备份", level="warning")
+    except Exception as _exc:  # noqa: BLE001 - 恢复失败保留标记下轮重试
+        log.error("备份恢复执行失败（标记保留）：%s", _exc)
 
     # T+3s: 文件存储与缓存
     try:
@@ -198,7 +279,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         log.warning("WebSocket 消息中枢启动失败（降级运行）: %s", exc)
 
-    log.info("T+10s 后端就绪，等待请求")
+    # B1（2026-09-13）：就绪日志报实测耗时——旧固定文案「T+10s」与真实
+    # 值不符（boot.log 实测 T+16s、冷机口径 25s~2min），固定文案误导排障
+    log.info("后端就绪 T+%.0fs，等待请求", time.time() - _boot_ts)
     log.info("=" * 60)
     # ── 统一事件日志（2026-08-21 日志可视化）─────────────────
     try:
@@ -233,6 +316,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         flow_trace.start_cleanup_task()
     except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
         log.warning("流程追踪初始化异常（降级运行）")
+    # ── 自动备份调度（SET-019 补线，2026-09-15 审计修复）─────
+    # 病灶：_ensure_backup_scheduler 此前只在 GET/PUT /system/backup/config
+    # 端点内被调用，主启动链未注册——后端重启守护线程即丢，无人打开
+    # 设置页则调度永不启动（审计实锤：system.last_auto_backup 键从未
+    # 存在=一次都没跑过）。现接进启动链，与事件清理/流程追踪同模式。
+    try:
+        from .api.system import _ensure_backup_scheduler
+        _ensure_backup_scheduler()
+    except Exception:  # noqa: BLE001 - 备份调度失败不阻断启动
+        log.warning("自动备份调度启动失败（忽略）")
     # ── 知识库体检周报（知识学习升级批4）：启动即查 + 每 7 天巡检 ──
     try:
         from .services.knowledge_checkup import start_checkup_task
@@ -376,7 +469,7 @@ def create_app() -> FastAPI:
 
     # 中间件
     setup_cors(app)        # §6.1 L4: 仅本地
-    setup_rate_limit(app)  # §7: 100 req/min
+    setup_rate_limit(app)  # config.yaml system.rate_limit（当前 300 req/min）
 
     # 激活门禁（P5）：发行包注入公钥后启用——未激活时业务 API 全 403，
     # 白名单=健康检查/激活接口/前端静态页。开发构建（无公钥）完全旁路。

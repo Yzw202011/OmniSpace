@@ -26,10 +26,12 @@ PROJECT_ROOT = LAUNCHER_DIR.parent
 def _boot_exe() -> Path:
     """快捷方式目标（2026-09-02 品牌化）：OmniSpace-Boot.exe（logo+进程名
     规范化）优先，副本缺失回退 pythonw.exe——两者同为 pythonw 底，行为一致。"""
-    branded = PROJECT_ROOT / 'runtime' / 'py310' / 'OmniSpace-Boot.exe'
+    # B1（2026-09-13 拍板项 0=A）：主链 py312；品牌化 Boot.exe 待重打，
+    # 回退 pythonw（同 pythonw 底，行为一致）
+    branded = PROJECT_ROOT / 'runtime' / 'py312' / 'OmniSpace-Boot.exe'
     if branded.is_file():
         return branded
-    return PROJECT_ROOT / 'runtime' / 'py310' / 'pythonw.exe'
+    return PROJECT_ROOT / 'runtime' / 'py312' / 'pythonw.exe'
 
 
 PYTHONW = _boot_exe()

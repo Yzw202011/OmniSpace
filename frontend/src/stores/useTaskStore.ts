@@ -271,7 +271,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         next[idx] = { ...next[idx], ...task, updated_at: Date.now() };
         return { tasks: next };
       }
-      return { tasks: [...state.tasks, { ...task, updated_at: Date.now() }] };
+      // 上限裁剪（2026-09-15 审计修复）：任务只追加不删除（removeTask
+      // 前端零调用），漫剧批量关键帧（每镜一任务）长会话通知中心无限
+      // 变长。超 200 先清最旧终态（done/error），全在途则不裁
+      let tasks = [...state.tasks, { ...task, updated_at: Date.now() }];
+      while (tasks.length > 200) {
+        const i = tasks.findIndex(
+          (t) => t.status === 'done' || t.status === 'error');
+        if (i < 0) {
+          break;
+        }
+        tasks = tasks.filter((_, j) => j !== i);
+      }
+      return { tasks };
     });
   },
 

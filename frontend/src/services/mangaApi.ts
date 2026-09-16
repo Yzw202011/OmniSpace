@@ -509,19 +509,19 @@ export async function importDslFile(
 
 /* ============================== 七、分镜 AI 辅助与重排 ============================== */
 
-/** 拖拽重排（POST /storyboard/reorder：按 row_ids 顺序重写 sort_index 并持久化） */
+/** 拖拽重排（POST /manga/storyboard/reorder：按 row_ids 顺序重写 sort_index 并持久化） */
 export async function reorderStoryboard(
   rowIds: string[],
   projectId?: string,
 ): Promise<StoryboardRow[]> {
   const res = await post<{ rows: StoryboardRow[]; total: number }>(
-    '/storyboard/reorder',
+    '/manga/storyboard/reorder',
     { row_ids: rowIds, project_id: projectId || undefined },
   );
   return res.rows ?? [];
 }
 
-/** AI 画面描述（POST /storyboard/ai-describe；对话引擎未就绪 → DIALOG_NOT_READY 诚实错误；
+/** AI 画面描述（POST /manga/storyboard/ai-describe；对话引擎未就绪 → DIALOG_NOT_READY 诚实错误；
  *  promptPrefix 为可选用户自定义提示词前缀（≤500 字，提示词弹窗配置）；
  *  modelOverride 为可选模型覆盖（G2 工序弹窗选择）） */
 export async function aiDescribe(
@@ -531,7 +531,7 @@ export async function aiDescribe(
   modelOverride?: string,
 ): Promise<string> {
   const res = await post<{ description: string; model?: string }>(
-    '/storyboard/ai-describe',
+    '/manga/storyboard/ai-describe',
     {
       row_id: rowId,
       project_id: projectId || undefined,
@@ -542,12 +542,12 @@ export async function aiDescribe(
   return res.description;
 }
 
-/** 分镜预览图（POST /storyboard/preview → base64 PNG；引擎未就绪 degraded:true 占位图） */
+/** 分镜预览图（POST /manga/storyboard/preview → base64 PNG；引擎未就绪 degraded:true 占位图） */
 export async function previewStoryboardImage(
   rowId: string,
   projectId?: string,
 ): Promise<{ image: string; degraded?: boolean; degrade_reason?: string }> {
-  return post('/storyboard/preview', {
+  return post('/manga/storyboard/preview', {
     row_id: rowId,
     project_id: projectId || undefined,
   });

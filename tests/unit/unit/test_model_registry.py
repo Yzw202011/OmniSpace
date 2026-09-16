@@ -39,9 +39,12 @@ def test_manifest_v3_schema(manifest: dict) -> None:
     """schema 锁定：manifest_version=3，每条目必填字段齐全且合法。"""
     assert manifest.get("manifest_version") == 3
     models = manifest["models"]
-    assert len(models) >= 18, (
+    assert len(models) >= 14, (
         "注册表覆盖磁盘模型族（09-02 实测 20；09-10 体积清理经用户拍板删"
-        " deepseek/GGUF-9B/qwen-edit/wan×2 共 4 条后实测 18，回补权重须重新登记）")
+        " deepseek/GGUF-9B/qwen-edit/wan×2 共 4 条后实测 18；09-12 全量改造"
+        "批0 删 wan21-i2v-1.3b 空账（磁盘 0 字节）→17；09-13 v3-W2 经用户"
+        "「A,开工」拍板隔离区下架 LTX/AnimateLCM/sd15 旧视频栈三条 →14，"
+        "权重移 data/backups/quarantine-20260913 观察 7 天，回补须重新登记）")
     for mid, e in models.items():
         for field in REQUIRED_FIELDS:
             assert field in e, f"{mid} 缺必填字段 {field}"

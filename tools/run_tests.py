@@ -6,9 +6,9 @@
     L3  E2E 流程编排  tests/flow（需活后端 http://127.0.0.1:5800，真实推理级）
 
 用法（cwd = e:\\OmniSpace）:
-    runtime\\py310\\python.exe tools\\run_tests.py            # L1 + L2（默认全量）
-    runtime\\py310\\python.exe tools\\run_tests.py --smoke    # 仅 L1 冒烟标记（提交前最小集）
-    runtime\\py310\\python.exe tools\\run_tests.py --e2e      # L1 + L2 + L3（发版前实机验证）
+    runtime\\py312\\python.exe tools\\run_tests.py            # L1 + L2（默认全量）
+    runtime\\py312\\python.exe tools\\run_tests.py --smoke    # 仅 L1 冒烟标记（提交前最小集）
+    runtime\\py312\\python.exe tools\\run_tests.py --e2e      # L1 + L2 + L3（发版前实机验证）
 
 退出码：任一层失败即 1（供 CI / 提交钩子判定）。
 定位说明见 tests/README.md（root tests/ 是流程编排脚本，不是 pytest 用例，
@@ -22,7 +22,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = ROOT / "runtime" / "py310" / "python.exe"
+# B1（2026-09-13 拍板项 0=A）：主链升 py312；py310 并存保留为回退锚点
+PY = ROOT / "runtime" / "py312" / "python.exe"
 
 SMOKE_ONLY = "--smoke" in sys.argv
 WITH_E2E = "--e2e" in sys.argv
@@ -50,11 +51,17 @@ def main() -> int:
     )
 
     # L2 前端 vitest（npm run test = vitest run；跳过条件：显式 --no-frontend）
+    skipped: list[str] = []
     if "--no-frontend" not in sys.argv:
         npm = shutil.which("npm") or shutil.which("npm.cmd")
         if npm is None:
-            print("◀ L2 前端 vitest: SKIP（PATH 中无 npm）")
-            results["L2 frontend vitest"] = True
+            # 便携 node 兜底（2026-09-15 审计修复）：PATH 无 npm 时用
+            # 仓内 runtime/node-v20.20.2-win-x64（与 tsc/vite 构建同源）
+            portable = ROOT / "runtime" / "node-v20.20.2-win-x64" / "npm.cmd"
+            npm = str(portable) if portable.is_file() else None
+        if npm is None:
+            print("◀ L2 前端 vitest: SKIP（PATH 无 npm 且便携 node 缺失）")
+            skipped.append("L2 frontend vitest")
         else:
             results["L2 frontend vitest"] = _run_layer(
                 "L2 前端 vitest", [npm, "run", "test"], ROOT / "frontend"
@@ -69,11 +76,18 @@ def main() -> int:
     print(f"\n{'═' * 60}\n总计：")
     for layer, ok in results.items():
         print(f"  {'✓' if ok else '✗'} {layer}")
+    # 2026-09-15 审计修复：跳过层如实标 SKIP 不打 ✓——旧实现把未执行
+    # 的层计入 True，汇总打「✓ 全量通过」属虚假全绿
+    for layer in skipped:
+        print(f"  ○ {layer}: SKIP（未执行，不计通过）")
     failed = [k for k, v in results.items() if not v]
     print(f"{'═' * 60}")
     if failed:
         print(f"失败层：{', '.join(failed)}")
         return 1
+    if skipped:
+        print(f"已执行层全部通过（另有 {len(skipped)} 层被跳过，见上）。")
+        return 0
     print("全量通过。")
     return 0
 

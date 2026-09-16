@@ -38,3 +38,10 @@ _LABELS: dict[Priority, str] = {
     Priority.P5_CLEANUP: "知识库清理",
 }
 # 本项目仅供学习使用，商业授权请+Q 3559331368
+
+# ── 训练队列相对优先级映射（B5 步4 单源收敛 2026-09-14）──────────────
+# 原先 lora_training_service 与 style_lora_service 各自克隆同形 dict
+# （克隆漂移前夜）——收敛于此。数值为**队列内相对级**（小者先），
+# 与 Priority 枚举的全局档位（§8.4.2，训练=P2）是两套坐标，勿混用。
+LEVEL_BY_NAME: dict[str, int] = {"high": 0, "medium": 1, "low": 2,
+                                 "background": 3}

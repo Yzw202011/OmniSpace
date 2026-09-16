@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import type { ActiveFeature } from '@/types';
 import { canSwitchFeature } from '@/types';
 import { getSettings, updateSettings } from '@/services/systemApi';
+import { mirrorPref } from '@/services/uiPrefs';
 import { reportBgError } from '@/utils/errors';
 import { trackBehavior } from '@/services/learningApi';
 
@@ -27,15 +28,28 @@ import { trackBehavior } from '@/services/learningApi';
  * sakura 暗色 = 双属性皆缺省（向后兼容存量 CSS）。 */
 export type Theme = 'sakura' | 'light' | 'tech' | 'tech-light' | 'dali' | 'dali-light';
 
+/** 全部合法主题值（loadTheme 白名单 + 后端回放校验共用） */
+const THEME_VALUES: ReadonlyArray<Theme> = [
+  'sakura',
+  'light',
+  'tech',
+  'tech-light',
+  'dali',
+  'dali-light',
+];
+
 /** 主题本地持久化键 */
 const THEME_KEY = 'omnispace.theme';
+
+/** 本次会话用户是否主动换过主题（true 时禁用后端主题回放，防竞态覆盖） */
+let userChangedTheme = false;
 
 /** 读取持久化主题（异常/旧值回退 Sakura 暗色；旧 'light' 值平滑迁移） */
 function loadTheme(): Theme {
   try {
     const v = localStorage.getItem(THEME_KEY);
-    if (v === 'light' || v === 'tech' || v === 'tech-light' || v === 'dali' || v === 'dali-light') {
-      return v;
+    if (v && (THEME_VALUES as readonly string[]).includes(v)) {
+      return v as Theme;
     }
     return 'sakura';
   } catch {
@@ -144,7 +158,16 @@ let toastSeq = 0;
 export const useAppStore = create<AppState>((set, get) => ({
   /* ------------------------------ 初始状态 ------------------------------ */
   theme: loadTheme(),
-  fontSize: 'md',
+  // 字号持久化（2026-09-15 审计修复）：此前只写内存+DOM，每次重启回
+  // md——与 970a608「选型重启回退」同病。localStorage 即时生效 + setFontSize 侧镜像
+  fontSize: (() => {
+    try {
+      const v = localStorage.getItem('omnispace.fontSize');
+      return v === 'sm' || v === 'lg' ? v : 'md';
+    } catch {
+      return 'md';
+    }
+  })(),
   activeFeature: null,
   featureBlockedMessage: null,
   settings: {},
@@ -154,6 +177,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   /* ------------------------------ 主题与字号 ------------------------------ */
   setTheme: (theme) => {
     set({ theme });
+    userChangedTheme = true; // 本次会话用户主动选择：禁用后端回放，防竞态覆盖
     applyTheme(theme);
     // 治愈系主题 v1.4：回写后端 system.settings.theme，供下次启动 boot 读库
     // 给启动页换肤（方案 §1.4 联动链路）。守卫（防整包替换 clobber）：
@@ -181,6 +205,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 同步到 <html> data-font-size 供 CSS 变量消费
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-font-size', size);
+    }
+    // 持久化（2026-09-15 审计修复）：localStorage 即时 + 后端镜像防丢
+    try {
+      localStorage.setItem('omnispace.fontSize', size);
+      mirrorPref('omnispace.fontSize', size);
+    } catch {
+      /* 隐私模式写入失败：内存态仍生效（本次会话内） */
     }
   },
 
@@ -218,6 +249,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const data = await getSettings();
       set({ settings: data || {}, settingsLoaded: true });
+      // 主题回放（2026-09-12 用户报障修复：选洱海月重启变夜樱）：
+      // localStorage 会因换端口启动（5800 被占顺延）/壳配置/清缓存丢失，
+      // 后端 system.settings.theme 才是跨会话可靠真源（启动页同源）。
+      // 后端存有合法主题且与当前不符 → 回放（顺带刷新 localStorage）。
+      // 用户本次会话主动换过主题则跳过（防拉取竞态覆盖新选择）。
+      const t = (data || {}).theme;
+      if (
+        !userChangedTheme &&
+        typeof t === 'string' &&
+        (THEME_VALUES as readonly string[]).includes(t) &&
+        t !== get().theme
+      ) {
+        const theme = t as Theme;
+        set({ theme });
+        applyTheme(theme);
+      }
     } catch {
       // 后端未就绪时静默，不阻塞界面
       set({ settingsLoaded: true });

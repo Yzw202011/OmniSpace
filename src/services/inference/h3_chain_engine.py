@@ -30,7 +30,7 @@ import shutil
 import time
 from pathlib import Path
 
-from ...config import DATA_DIR
+from ...config import DATA_DIR, get_config
 from ...middleware.error_handler import ApiError
 from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
 from .h3_engine import _COMFY_OUTPUT, align_h3_frames, get_h3_engine
@@ -42,6 +42,19 @@ from .h3_engine import _COMFY_OUTPUT, align_h3_frames, get_h3_engine
 # 「Invalid image file」（E2E 双镜实测揪出）。统一从 comfy_proc 取真源。
 
 _TEMPLATE = Path(__file__).parent / "h3_chain_workflow_api.json"
+
+# B6 步2（2026-09-14）：链式管线权重名单源。渲染时注入 workflow json
+# 的 5 处 Loader 节点——json 内同名值自此降级为占位默认，改名只动这里
+# （消「代码与模板双写、改名必炸其一」的克隆漂移）。注意与 h3_engine
+# ._H3_FILES 的关系：那是普通单镜管线的名单（nvfp4 代差），两套管线
+# 权重代差不同、各自单源，非双写关系。
+_CHAIN_H3_FILES = {
+    "unet": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+    "clip": "qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+    "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+    "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+    "turbo_lora": "minimax_h3_turbo_v4_step600_ema.safetensors",
+}
 
 
 def _load_template_text() -> str:
@@ -306,6 +319,12 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
                   start_clip: int = 1) -> dict:
     graph = json.loads(json.dumps(template))
+    # B6 步2：权重名从 _CHAIN_H3_FILES 单源注入（json 内同名值=占位默认）
+    graph["1"]["inputs"]["unet_name"] = _CHAIN_H3_FILES["unet"]
+    graph["2"]["inputs"]["clip_name"] = _CHAIN_H3_FILES["clip"]
+    graph["3"]["inputs"]["vae_name"] = _CHAIN_H3_FILES["video_vae"]
+    graph["4"]["inputs"]["vae_name"] = _CHAIN_H3_FILES["audio_vae"]
+    graph["1961"]["inputs"]["lora_name"] = _CHAIN_H3_FILES["turbo_lora"]
     p = graph["1700"]["inputs"]
     p["plan_json"] = plan_json
     p["run_name"] = run_name
@@ -421,7 +440,15 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         shots.append({"id": f"shot_{k:02d}",
                       "prompt": [_six_section(r["description"], refs, seconds)],
                       "length": frames, "seed": seed})
-    plan = {"defaults": {"duration_seconds": seconds, "steps": 6},
+    # 采样步数档位（批1b 2026-09-12）：config manga.h3_steps，标准 6 /
+    # 快速 4（Turbo LoRA 有效区间 4~8，钳制防呆）
+    try:
+        _steps = int((get_config().get("manga") or {}).get(
+            "h3_steps", 6) or 6)
+    except Exception:  # noqa: BLE001 - 配置异常按标准档
+        _steps = 6
+    plan = {"defaults": {"duration_seconds": seconds,
+                         "steps": max(4, min(8, _steps))},
             "shots": shots}
     plan_json = json.dumps(plan, ensure_ascii=False, indent=1)
 

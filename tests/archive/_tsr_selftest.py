@@ -7,13 +7,13 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 sys.path.insert(0, r"e:\OmniSpace\pydeps\triposr_src")
 
 import torch
-from PIL import Image, ImageDraw
 
 # 引擎同款 DINO 离线补丁
 from src.services.inference.triposr_engine import (
     _patch_dino_offline_fallback,
     _write_dino_config_cache,
 )
+from PIL import Image, ImageDraw
 
 _write_dino_config_cache()
 _patch_dino_offline_fallback()

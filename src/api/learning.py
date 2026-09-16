@@ -826,21 +826,4 @@ def learn_quota() -> dict[str, Any]:
 #  契约别名（规格 §7.1.2：/learn/settings/get|update、/learn/session/log）
 # ═══════════════════════════════════════════════════════════════════
 
-@router.get("/learn/settings/get")
-def learn_settings_get_alias() -> dict[str, Any]:
-    """契约别名：= GET /learn/settings。"""
-    return learn_settings_get()
-
-
-@router.put("/learn/settings/update")
-def learn_settings_update_alias(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
-    """契约别名：= PUT /learn/settings（部分更新）。"""
-    return learn_settings_put(body)
-
-
-@router.get("/learn/session/log")
-def session_log_alias(session_id: str = Query(default=""),
-                      limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
-    """契约别名：= GET /learn/session/logs。"""
-    return session_logs(session_id=session_id, limit=limit)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

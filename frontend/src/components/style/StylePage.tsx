@@ -174,7 +174,7 @@ export const StylePage: React.FC = () => {
           <span className="inline-flex items-start gap-2">
             <AlertTriangle size={16} aria-hidden="true" className="shrink-0 mt-0.5" />
             风格训练基座（{status.base_model}）未就绪：{status.base_reason || '权重文件缺失'}。
-            素材上传与数据集管理可用；训练 / 预览将由后端如实返回错误（80010 / 80013）。
+            素材上传与数据集管理可用；训练 / 预览按钮已置灰（B2），权重就位后自动恢复。
           </span>
         </div>
       )}
@@ -388,7 +388,8 @@ export const StylePage: React.FC = () => {
           </div>
           <button
             className="btn btn-primary btn-block mt-3"
-            disabled={training || uploading || !datasetId}
+            disabled={training || uploading || !datasetId
+              || (status != null && !status.base_ready)}
             onClick={startTraining}
           >
             {training ? (
@@ -472,7 +473,8 @@ export const StylePage: React.FC = () => {
               </select>
               <button
                 className="btn btn-secondary btn-sm"
-                disabled={previewBusy || versions.length === 0}
+                disabled={previewBusy || versions.length === 0
+                  || (status != null && !status.base_ready)}
                 onClick={handlePreview}
               >
                 {previewBusy ? (

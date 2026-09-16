@@ -136,14 +136,20 @@ def _now_ts() -> str:
 @router.get("/system/settings")
 def system_settings_get() -> dict[str, Any]:
     """获取系统设置（规格 §4.7，持久化 system_settings 表）。"""
-    return ok(_load_persisted_settings())
+    return ok(_mask_remote_key(_load_persisted_settings()))
 
 
 @router.put("/system/settings")
 def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     """更新系统设置（规格 §4.7）：写库持久化 + 刷新内存副本。"""
     global _settings
-    _settings = req.model_dump()
+    data = req.model_dump()
+    # 打码回写保护（2026-09-15 审计修复）：GET 出网是掩码，前端整包
+    # 回存时若不拦会把真实 key 覆写成掩码串——掩码入参保留旧值
+    if data.get("remote_dialog_api_key") == _REMOTE_KEY_MASK:
+        data["remote_dialog_api_key"] = str(
+            _load_persisted_settings().get("remote_dialog_api_key") or "")
+    _settings = data
     _kv_set(_SETTINGS_KEY, _settings)
     # 远程对话配置热生效（批3 D3）：清 5s TTL 缓存，下一跳即用新值
     try:
@@ -152,6 +158,30 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - 缓存清理失败下个 TTL 自愈
         pass
     return ok(_settings, message="设置已更新")
+
+
+# ── 界面偏好镜像（2026-09-12：修复「选型重启回退」类 bug）──────────────
+# 前端把对话模型选择/漫剧模型配置/提示词配置/布局偏好等 localStorage 键
+# 镜像到此 KV（key='ui.prefs'，值为 {原localStorage键: JSON值}）；
+# 启动渲染前回放进 localStorage——localStorage 因换端口顺延（5800→5801）、
+# 桌面壳 WebView 配置、清缓存丢失时，选型不再打回默认。
+_UI_PREFS_KEY = "ui.prefs"
+
+
+@router.get("/system/ui_prefs")
+def ui_prefs_get() -> dict[str, Any]:
+    """读取界面偏好镜像（localStorage 键值对，跨端口/跨配置持久）。"""
+    prefs = _kv_get(_UI_PREFS_KEY, {})
+    return ok(prefs if isinstance(prefs, dict) else {})
+
+
+@router.put("/system/ui_prefs")
+def ui_prefs_update(req: dict = Body(...)) -> dict[str, Any]:
+    """写入界面偏好镜像（前端读合并写整包提交；单用户桌面场景无并发竞争）。"""
+    if not isinstance(req, dict):
+        return ok({}, message="空偏好已忽略")
+    _kv_set(_UI_PREFS_KEY, req)
+    return ok(req, message="界面偏好已保存")
 
 
 @router.get("/system/web_search")
@@ -182,6 +212,32 @@ def system_dialog_remote_test(req: dict = Body(...)) -> dict[str, Any]:
                "base_url": base_url.rstrip("/")})
 
 
+# ── remote_dialog_api_key 秘密保护（2026-09-15 审计修复）──────────────
+# 该字段是批3 旧配置（models.py SystemSettings），未纳入 B0 的
+# cloud.providers 加密迁移——GET 出网明文 + 备份 JSON 明文落盘两条
+# 泄密面（自动备份接活后后者变为每日一次）。修复口径：
+#   GET 打码（掩码串）+ PUT 掩码保留旧值 + 备份 payload 排除
+# （settings JSON 无恢复通道——/system/restore 只认 .db 副本——
+# 排除零功能损失；DB 热备里的 cloud.providers 本就是 B0 密文）。
+_REMOTE_KEY_MASK = "***"
+
+
+def _mask_remote_key(s: dict) -> dict:
+    """GET 出网打码：key 非空 → 掩码（空值保持空，前端表单语义不变）。"""
+    out = dict(s)
+    if str(out.get("remote_dialog_api_key") or "").strip():
+        out["remote_dialog_api_key"] = _REMOTE_KEY_MASK
+    return out
+
+
+def _redact_remote_key(s: dict) -> dict:
+    """备份 payload 排除秘密：置空落盘（恢复侧不存在，无需还原）。"""
+    out = dict(s)
+    if str(out.get("remote_dialog_api_key") or "").strip():
+        out["remote_dialog_api_key"] = ""
+    return out
+
+
 @router.post("/system/backup")
 async def system_backup() -> dict[str, Any]:
     """备份（规格 §4.7）：设置 JSON + SQLite 数据库真实副本（审计 BK-019）。
@@ -193,7 +249,7 @@ async def system_backup() -> dict[str, Any]:
         "app_version": APP_VERSION,
         "backup_id": backup_id,
         "created_at": time.time(),
-        "settings": _settings,
+        "settings": _redact_remote_key(_settings),
     }
 
     def _write_settings_backup() -> str:
@@ -236,6 +292,68 @@ async def system_backup() -> dict[str, Any]:
     return ok({"backup_id": backup_id, "path": file_path,
                "db_path": db_path,
                "size_bytes": len(json.dumps(payload))})
+
+
+# ── B10（2026-09-14）恢复端点：半套备份 → 全套闭环 ─────────────────
+_RESTORE_PENDING_DB = DATA_DIR / "omnispace.restore-pending.db"
+_RESTORE_PENDING_MARK = DATA_DIR / "omnispace.restore-pending.json"
+
+
+@router.get("/system/restore/list")
+def restore_list() -> dict[str, Any]:
+    """列出可恢复的 DB 副本（文件名+体积+修改时间，供恢复 UI 下拉）。"""
+    items = []
+    if BACKUP_DIR.is_dir():
+        for f in sorted(BACKUP_DIR.glob("omnispace_*.db"),
+                        key=lambda f: f.stat().st_mtime, reverse=True):
+            items.append({"filename": f.name,
+                          "size_bytes": f.stat().st_size,
+                          "mtime": f.stat().st_mtime})
+    return ok({"backups": items,
+               "pending_restore": _RESTORE_PENDING_MARK.is_file()})
+
+
+@router.post("/system/restore")
+async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """安排从备份恢复（**下次重启时生效**，当前会话不受影响）。
+
+    请求: {"filename": "omnispace_<ts>.db"}——文件必须位于 data/backups/
+    （白名单目录，防路径穿越）。安排后写入 restore-pending 标记；启动
+    链在数据库初始化**之前**检测到标记：先把当前主库备份一份（防呆），
+    再用副本替换主库并清除标记。全程可回退（替换前的那份仍在 backups/）。
+    """
+    filename = str(req.get("filename") or "")
+    safe = Path(filename).name
+    if safe != filename or not safe.startswith("omnispace_") \
+            or not safe.endswith(".db"):
+        raise ApiError("SYSTEM_PARAM_INVALID", "非法备份文件名",
+                       suggestion="请从 GET /system/restore/list 返回的清单中选择")
+    src = BACKUP_DIR / safe
+    if not src.is_file():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "备份文件不存在",
+                       detail={"filename": safe})
+    size = src.stat().st_size
+    if size < 4096:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "备份文件过小（疑似损坏），已拒绝恢复")
+
+    def _stage() -> None:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copy2(src, _RESTORE_PENDING_DB)
+        _RESTORE_PENDING_MARK.write_text(
+            json.dumps({"source": safe, "staged_at": time.time(),
+                        "size": size}, ensure_ascii=False),
+            encoding="utf-8")
+
+    await run_blocking(_stage)
+    from ..services.event_log import log_event
+    log_event("system", "restore_staged",
+              "已安排从备份恢复（下次重启时生效）",
+              level="warning",
+              detail=json.dumps({"source": safe}, ensure_ascii=False))
+    return ok({"staged": True, "source": safe,
+               "hint": "重启应用后恢复生效；替换前的当前库会先备份到 backups/"})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -304,6 +422,24 @@ def _probe_dialog_model() -> tuple[str, str]:
 
 
 def _probe_paint_model() -> tuple[str, str]:
+    try:
+        from ..config import get_config
+        _comfy_mode = str((get_config().get("paint") or {}).get(
+            "gen_engine", "legacy")).strip().lower() == "comfy"
+    except Exception:  # noqa: BLE001
+        _comfy_mode = False
+    if _comfy_mode:
+        # W3-C：comfy 档探测便携版+权重齐备性（ComfyUI 常驻语义）
+        try:
+            from ..services.inference.comfy_paint_engine import (
+                comfy_paint_available,
+            )
+            if comfy_paint_available():
+                return "pass", "绘画出图就绪（ComfyUI klein-9b-fp8 栈）"
+            return "warn", ("ComfyUI klein 出图栈不可用（便携版或权重缺失），"
+                            "绘画功能不可用")
+        except Exception as exc:  # noqa: BLE001
+            return "warn", f"绘画引擎探测失败: {exc}"
     try:
         from ..services.inference.paint_engine import get_paint_engine
         engine = get_paint_engine()
@@ -1158,8 +1294,12 @@ def train_defaults_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
 
 
 # ── SET-019 自动备份（开关 + 间隔，后台定时线程）───────────────────
+# B10（2026-09-14）：enabled 默认 True（数据保全 P0 收口——旧默认关
+# 导致「库损坏→静默空库」时无近期快照可救）；DB 副本滚动保留 3 份。
 _BACKUP_CFG_KEY = "system.backup_config"
-_BACKUP_CFG_DEFAULT = {"enabled": False, "interval_hours": 24}
+_BACKUP_CFG_DEFAULT = {"enabled": True, "interval_hours": 24}
+_BACKUP_KEEP_DB = 3
+_BACKUP_KEEP_JSON = 3
 _LAST_BACKUP_KEY = "system.last_auto_backup"
 _backup_thread_started = False
 
@@ -1177,7 +1317,7 @@ def _perform_backup() -> dict:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"app_version": APP_VERSION, "backup_id": backup_id,
                "created_at": time.time(),
-               "settings": _load_persisted_settings()}
+               "settings": _redact_remote_key(_load_persisted_settings())}
     path = BACKUP_DIR / f"backup_{_now_ts()}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                     encoding="utf-8")
@@ -1195,7 +1335,20 @@ def _perform_backup() -> dict:
         finally:
             src.close()
         db_path = str(dest)
+    _prune_old_backups()
     return {"backup_id": backup_id, "path": str(path), "db_path": db_path}
+
+
+def _prune_old_backups() -> None:
+    """滚动清理：DB 副本与设置 JSON 各保留最近 N 份（B10 数据保全）。"""
+    try:
+        for pattern, keep in (("omnispace_*.db", _BACKUP_KEEP_DB),
+                              ("backup_*.json", _BACKUP_KEEP_JSON)):
+            files = sorted(BACKUP_DIR.glob(pattern), key=lambda f: f.stat().st_mtime)
+            for old in files[:-keep] if len(files) > keep else []:
+                old.unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("备份滚动清理失败（不影响备份本身）: %s", exc)
 
 
 def _backup_scheduler_loop() -> None:

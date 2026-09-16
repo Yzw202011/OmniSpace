@@ -48,11 +48,14 @@ from .common import (
     _load_rows,
     _make_row,
     _now,
+    _paint_gen_engine_comfy,
+    _pil_to_png_b64,
     _public_row_to_db,
     _row_to_storyboard_row,
     _sanitize_delimiters,
     _storyboards,
     _validate_row_director_fields,
+    comfy_paint_generate,
     manga_dialog_model_id,
 )
 from .describe_refine import refine_description
@@ -75,7 +78,6 @@ log = logging.getLogger("omnispace.api.manga.storyboard")
 # ═══════════════════════════════════════════════════════════════════
 
 @router.post("/manga/storyboard")
-@router.post("/storyboard")  # 顶层别名（文档 §7.1.4 /v1/storyboard）
 def storyboard_create(req: StoryboardCreate) -> dict[str, Any]:
     """创建分镜表（规格 §4.4）。为项目初始化空分镜表。"""
     pid = req.project_id
@@ -92,7 +94,6 @@ def storyboard_create(req: StoryboardCreate) -> dict[str, Any]:
 
 
 @router.get("/manga/storyboard/list")
-@router.get("/storyboard/list")  # 顶层别名
 def storyboard_list(project_id: str = Query("", description="项目ID")) -> dict[str, Any]:
     """分镜行列表（R2-B06）：按 sort_index 升序返回，供拖拽排序视图。
 
@@ -118,7 +119,6 @@ def storyboard_list(project_id: str = Query("", description="项目ID")) -> dict
 
 
 @router.get("/manga/storyboard/{project_id}")
-@router.get("/storyboard/{project_id}")  # 顶层别名
 def storyboard_get(project_id: str) -> dict[str, Any]:
     """获取分镜表（规格 §4.4）。
 
@@ -147,7 +147,6 @@ def storyboard_get(project_id: str) -> dict[str, Any]:
 
 
 @router.put("/manga/storyboard/{project_id}/rows/{row_id}")
-@router.put("/storyboard/{project_id}/rows/{row_id}")  # 顶层别名
 def storyboard_row_update(project_id: str, row_id: str,
                           req: StoryboardRowUpdate) -> dict[str, Any]:
     """更新分镜行（规格 §4.4）。仅更新非空字段。"""
@@ -240,7 +239,6 @@ def _cascade_removed_rows(db: Database, project_id: str, old_ids: set[str],
 
 
 @router.put("/manga/storyboard/{project_id}")
-@router.put("/storyboard/{project_id}")  # 顶层别名
 async def storyboard_save(project_id: str,
                           body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """全量保存分镜表（前端「保存」按钮 / 自动保存 / 拖拽排序持久化）。
@@ -895,7 +893,6 @@ async def _ai_split_script(script: str, project_id: str = "") -> tuple[list[dict
 
 
 @router.get("/manga/storyboard/{project_id}/auto-split/progress")
-@router.get("/storyboard/{project_id}/auto-split/progress")  # 顶层别名
 async def storyboard_auto_split_progress(project_id: str) -> dict[str, Any]:
     """AI 切分实时进度（前端 SplitProgressBar 3s 轮询）。
 
@@ -965,7 +962,6 @@ async def _persist_split_rows(project_id: str, shots: list[dict],
 
 
 @router.post("/manga/storyboard/{project_id}/auto-split")
-@router.post("/storyboard/{project_id}/auto-split")  # 顶层别名
 async def storyboard_auto_split(project_id: str,
                                 body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """AI 自动分镜（2026-08-23 镜头级真分镜改造）。
@@ -1048,7 +1044,6 @@ async def storyboard_auto_split(project_id: str,
 
 
 @router.post("/manga/storyboard/{project_id}/auto-split/commit")
-@router.post("/storyboard/{project_id}/auto-split/commit")  # 顶层别名
 async def storyboard_auto_split_commit(project_id: str,
                                        body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """确认 dry-run 预览结果并落库（body: {split_id}，避免二次 AI 推理）。"""
@@ -1084,7 +1079,6 @@ async def storyboard_auto_split_commit(project_id: str,
 
 
 @router.post("/manga/storyboard/import")
-@router.post("/storyboard/import")  # 顶层别名
 async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """导入剧本（规格 §4.4）。解析剧本文本为分镜行结构。"""
     project_id = str(body.get("project_id") or "").strip()
@@ -1144,7 +1138,6 @@ def _csv_safe_cell(value: str) -> str:
 
 
 @router.get("/manga/storyboard/{project_id}/export")
-@router.get("/storyboard/{project_id}/export")  # 顶层别名
 def storyboard_export(project_id: str,
                       format: str = Query("json", description="导出格式：csv|json|png-seq|pdf")) -> dict[str, Any]:
     """导出分镜表（规格 §4.4）。format=csv|json|png-seq|pdf（批 1.7 扩展）。
@@ -1289,7 +1282,6 @@ def _export_pdf_reportlab(pdf_path: Path, project_id: str,
 
 
 @router.post("/manga/storyboard/reorder")
-@router.post("/storyboard/reorder")  # 顶层别名
 def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """拖拽重排（R2-B06）：按 row_ids 数组顺序重写各行 sort_index。
 
@@ -1382,7 +1374,6 @@ def _load_storyboard_row(row_id: str, project_id: str = "") -> dict | None:
 
 
 @router.post("/manga/storyboard/ai-describe")
-@router.post("/storyboard/ai-describe")  # 顶层别名
 async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     """AI 分镜描述词（R2-B07 / 2026-08-25 竞品对齐 A/B/C 统一格式）。
 
@@ -1491,7 +1482,6 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
 
 
 @router.post("/manga/storyboard/preview")
-@router.post("/storyboard/preview")  # 顶层别名
 async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """分镜预览图（R2-B07）：按分镜行画面描述调用绘画引擎生成预览图。
 
@@ -1514,6 +1504,42 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
     if not description:
         raise ApiError(40008, "缺少 row_id 或 description")
 
+    try:
+        seed = int(body.get("seed", -1))
+    except (TypeError, ValueError):
+        seed = -1
+
+    # W3-C（2026-09-13）：gen_engine=comfy 走 ComfyUI klein-9b-fp8 新栈
+    # （legacy diffusers klein-4b 路径原样保留，默认零行为变更）
+    if _paint_gen_engine_comfy():
+        lock = await acquire_or_raise("paint", task_id=row_id or None)
+        try:
+            try:
+                result = await run_blocking(comfy_paint_generate, {
+                    "prompt": description, "negative": "",
+                    "width": 512, "height": 512, "seed": seed})
+            except ApiError as exc:
+                # 与 legacy 同款诚实降级：占位图 + 指路模型管理
+                return ok({
+                    "row_id": row_id or None,
+                    "image": _PLACEHOLDER_PNG,
+                    "degraded": True,
+                    "degrade_reason": (
+                        "ComfyUI klein 出图失败（预览图为占位图，非真实"
+                        f"生成）：{exc.message}。可到「模型管理 → AI 绘画」"
+                        "检查后重试"),
+                })
+            return ok({
+                "row_id": row_id or None,
+                "image": _pil_to_png_b64(result["images"][0]),
+                "seed": result["seed"],
+                "model": result["model"],
+                "elapsed_ms": result["elapsed_ms"],
+                "degraded": False,
+            })
+        finally:
+            await lock.release("paint")
+
     engine = get_paint_engine()
     if not engine.is_ready:
         # 2026-08-31 用户需求「点击生图时未加载要立刻加载」：先自动加载
@@ -1531,10 +1557,7 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
                 "engine_state": status["state"],
             })
 
-    try:
-        seed = int(body.get("seed", -1))
-    except (TypeError, ValueError):
-        seed = -1
+    # （seed 已在函数前段解析——W3-C comfy 分支与 legacy 共用）
     params = {
         "prompt": description,
         "negative": "",

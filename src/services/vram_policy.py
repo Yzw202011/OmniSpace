@@ -55,6 +55,9 @@ class DialogTier:
 # 对话档位表（显存调度机制批4，方案 §3.5；数值依据见 §1.3 供需表）
 # 2026-09-10 用户令删除 qwen35-9b-gguf-q4km（Q4 量化思考退化，
 # 权重已清 5.5G）——共存档随之移除；恢复方法见 dialog_engine 候选表注
+# 口径标注（B6）：本表 vram_gb=dispatch 调度预算口径（权重+KV+激活
+# 运行峰值）。与 dialog_engine 候选表的 weights 口径（qwen35-9b 11.0
+# vs 14.9）非矛盾，是两种坐标；换算：10.95 权重+0.49 MTP+KV+激活。
 DIALOG_TIERS: tuple[DialogTier, ...] = (
     DialogTier("qwen35-9b-w4a16", 14.9, "vllm",
                "主力独占档（权重10.95+MTP0.49+KV+激活，需近乎空卡）"),
@@ -110,6 +113,11 @@ VLLM_FLOOR_OVERHEAD_GB = 4.2
 VLLM_MTP_EXTRA_GB = 1.3
 """MTP 草稿层 + 图画像额外显存（V6 冒烟实测）——准入线同步抬高，
 宁可早拒不让 vLLM 装到一半才死。"""
+
+VLLM_DFLASH_EXTRA_GB = 4.0
+"""DFlash 草稿额外显存（P-5 2026-09-15）：z-lab/Qwen3.5-9B-DFlash
+草稿权重 2.58GB + 图画像/激活开销（估算口径，A/B 实弹后校准）——
+准入线同步抬高，宁可早拒。"""
 
 VLLM_ADMISSION_FACTOR = 0.98
 """vLLM 准入闸安全系数：预分配需求 = 整卡 × util × 0.98

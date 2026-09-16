@@ -17,6 +17,8 @@
 > `discover_dialog_models()` 实测发现结果（非文档口径）。修正项：M-01/M-03/M-10/M-11/M-13/M-14/M-15 由 🟦/❌ 上调 ✅，F-10 上调 ✅，M-04 转豁免。
 >
 > **⚠️ 2026-09-02 复核（诚实化审计，全节适用）**：第三节 M 域多行「本地路径」已因 09-02 两批磁盘清理失效——qwen3-vl-8b（4KB 空壳）/ qwen3-32b / codestral-22b / qwen3-tts / cosyvoice2 / qwen3-asr / gpt-sovits / bge-m3 / hunyuan3d-2.1 / TripoSR **均已移入隔离区 `E:\_trash_staging\`，盘上不存在**。口径修正：M-01 高档路由现由 **qwen3-vl-8b-awq** 承接（DIALOG_ROUTING_TABLE 12GB 档实测）；M-02 绘画主力已易主 **flux2-klein-9b**（PAINT_ROUTING_TABLE 10GB 档），klein-4b one-pass 路线待拍板（拍板清单 A5）；sd15 实占已降 5.2G（四份冗余副本已清）。**模型现状真源 = `models/models_manifest.json` v3 + `GET /api/v1/models`**，本节 M 域降级为"选型决策史 + 接线史"（历史状态判定保留原时点含义，勿再据其找盘上路径）。
+>
+> **⚠️ 2026-09-13 二次复核（B2 产品信誉批）**：下列行的 ✅ 为**历史时点状态**，盘上现状以此为准——**在盘**：qwen3-vl-8b-awq(7.05G)、qwen35-9b-w4a16(10.7G)、flux2-klein-9b(38.0G)、flux2-klein-4b(14.9G)、qwen-image-2512(28.0G)、minimax-h3(51.3G)、sam-vit-h(2.4G)；**不在盘**：qwen3-vl-8b、ltx-video-0.9.5、qwen3-32b、codestral-22b、AnimateLCM、sd15、models/depth/、models/detect/（09-13 起 LTX/ToonCrafter/SD15/AnimateLCM 入 `data/backups/quarantine-20260913/` 观察 7 天）。连带现状：`/art` 六端点仅 segment 在役（depth/detect/3d 无权重必报错）、`/style/train|preview` 因无 LTX-2 基座恒 80010/80013（前端已置灰）。M-14 同前口径。
 
 ---
 
@@ -88,7 +90,7 @@
 | E-02 | 依赖锁定 | ✅ | requirements-lock.txt（154 包；记录 pydeps 空壳包与双 torch 元数据隐患） |
 | E-03 | 测试基线 | ✅ | pytest.ini + tests/unit（**2026-08-29 实测 156 passed / 5 skipped，28.31s**；skip 均为需 OMNISPACE_VLLM_STRESS/E2E 显式开启的 GPU 集成测试）+ 前端 vitest + 活后端 E2E（tools/run_tests.py 唯一入口） | 早期口径"16 用例"已大幅增长 |
 | E-04 | schema 版本化迁移 | ✅ | PRAGMA user_version + _MIGRATION_GROUPS + 降级守护（**2026-08-28 实测 user_version=7**；本行旧口径 SCHEMA_VERSION=2 已过时，明细见 docs/design/database-er.md §6） |
-| E-05 | Lint 配置 | ✅ | ruff.toml + frontend/eslint.config.js 落地；**2026-08-29 实测 tools/ruff/ruff.exe 存在、node v24.19.0 / pnpm 11.22.0 在位**（原"二进制未安装"为 08-20 前口径） | 提交前三步门可实际执行 |
+| E-05 | Lint 配置 | ✅ | ruff.toml + frontend/eslint.config.js 落地；**B1 2026-09-13 勘误：实机为便携 node v20.20.2（runtime/node-v20.20.2-win-x64）+ pnpm 11.22.0（packageManager 钉版）**；旧「node v24.19.0」为 08-29 误记 | 提交前三步门可实际执行 |
 | E-06 | CI 流水线 | ❌ | 仍无（无远端仓库；建议先建本地 pre-commit 钩子跑 pytest -m smoke） |
 | E-07 | 单一真源交付 | ✅ | tools/build_rc.py 一键镜像（/MIR + 显式排除清单）；2026-08-19 首次全量同步 198.86GB 后 robocopy 列表模式校验零差异 | RC 目录自此仅由脚本产出，禁止手工改动（TASK-P0-01） |
 

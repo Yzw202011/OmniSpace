@@ -1075,7 +1075,6 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
 
 
 @router.post("/manga/video/generate")
-@router.post("/video/generate")  # 顶层别名（文档 §7.1.4 /v1/video）
 async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     """生成视频（规格 §4.4，TASK-010 真实产出）——入队即返回（B 方案）。
 
@@ -1333,7 +1332,6 @@ def _attach_eta(resp: dict, task_id: str) -> None:
 
 
 @router.get("/manga/video/{task_id}/status")
-@router.get("/video/{task_id}/status")  # 顶层别名
 def video_status(task_id: str) -> dict[str, Any]:
     """视频生成状态（规格 §4.4）——真实进度回传（由后台工作线程落库）。"""
     db = get_db_safe()
@@ -1392,7 +1390,6 @@ def _video_task_record(task_id: str) -> dict | None:
 
 
 @router.get("/manga/video/{task_id}/result")
-@router.get("/video/{task_id}/result")  # 顶层别名
 def video_result(task_id: str) -> dict[str, Any]:
     """视频生成结果（规格 §4.4）——返回真实文件路径与下载地址。"""
     row = _video_task_record(task_id)
@@ -1434,7 +1431,6 @@ def video_result(task_id: str) -> dict[str, Any]:
 
 
 @router.get("/manga/video/{task_id}/download")
-@router.get("/video/{task_id}/download")  # 顶层别名
 def video_download(task_id: str) -> FileResponse:
     """下载生成的视频文件（真实文件流式返回）。"""
     row = _video_task_record(task_id)
@@ -1452,44 +1448,6 @@ def video_download(task_id: str) -> FileResponse:
                                "status": row.get("status", "pending")})
     return FileResponse(str(path), media_type="video/mp4",
                         filename=f"{task_id}.mp4")
-
-
-@router.get("/video/history")
-def video_paint_history(limit: int = Query(100, ge=1, le=500,
-                                          description="返回条数上限")) -> dict[str, Any]:
-    """绘画模块视频生成历史（2026-08-22 记录持久化修复）。
-
-    绘画模块发起的视频任务 storyboard_row_id 以 ``paint_`` 开头（见
-    前端 paintApi.generatePaintVideo），据此与漫剧任务区分；按
-    created_at 倒序返回。前端挂载时拉取，实现跨浏览器/重开可见。
-
-    mode 推断：i2v 纯图模式无提示词输入（description 恒空）→ i2v；
-    description 非空 → ti2v（文+图）。
-    """
-    db = get_db_safe()
-    if db is None:
-        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询视频历史")
-    try:
-        rows = db.query(
-            "SELECT id, description, resolution, fps, duration_seconds,"
-            " status, progress, file_path, model_used, created_at"
-            " FROM video_tasks"
-            " WHERE storyboard_row_id LIKE 'paint\\_%' ESCAPE '\\'"
-            " ORDER BY created_at DESC LIMIT ?", (limit,))
-    except Exception as exc:  # noqa: BLE001
-        raise ApiError("SYSTEM_DB_DEGRADED", f"视频历史查询失败：{exc}") from exc
-    items = [{
-        "task_id": r["id"],
-        "mode": "ti2v" if (r.get("description") or "").strip() else "i2v",
-        "prompt": r.get("description", "") or "",
-        "duration_seconds": float(r.get("duration_seconds", 5) or 5),
-        "fps": int(r.get("fps", 16) or 16),
-        "resolution": r.get("resolution", "720p") or "720p",
-        "status": r.get("status", "done") or "done",
-        "degraded": _is_fallback_video(r.get("model_used", "")),
-        "created_at": r.get("created_at", 0) or 0,
-    } for r in rows]
-    return ok({"items": items, "total": len(items)})
 
 
 @router.delete("/video/history/{task_id}")
@@ -1621,7 +1579,6 @@ def manga_media(relpath: str) -> FileResponse:
 
 
 @router.post("/manga/video/{task_id}/cancel")
-@router.post("/video/{task_id}/cancel")  # 顶层别名
 def video_cancel(task_id: str) -> dict[str, Any]:
     """取消视频生成任务（COMIC-131；2026-09-02 接视频队列）。
 

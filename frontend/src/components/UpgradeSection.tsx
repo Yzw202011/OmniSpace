@@ -20,7 +20,7 @@ import {
   type UpgradePackagesResp,
 } from '@/services/upgradeApi';
 import { useAppStore } from '@/stores/useAppStore';
-import { reportActionError } from '@/utils/errors';
+import { reportActionError, reportBgError } from '@/utils/errors';
 
 const MAX_IMPORT_MB = 2048;
 
@@ -61,7 +61,7 @@ export default function UpgradeSection() {
   useEffect(() => {
     void getUpgradeStatus()
       .then((s) => setCurrent(s.current))
-      .catch(() => undefined);
+      .catch((err: unknown) => reportBgError('升级状态探测', err));
     void refresh();
   }, [refresh]);
 

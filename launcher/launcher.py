@@ -21,7 +21,6 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -182,10 +181,12 @@ class EnvironmentChecker:
             'os': self._check_os,
             'python': self._check_python,
             'disk_space': self._check_disk_space,
+            'ram_commit': self._check_ram_commit,
             'cuda': self._check_cuda,
             'dependencies': self._check_dependencies,
             'hypervisor': self._check_hypervisor,
             'path_ascii': self._check_path_ascii,
+            'torch_contract': self._check_torch_contract,
         }
 
         all_passed = True
@@ -203,6 +204,58 @@ class EnvironmentChecker:
 
         self.results = results
         return all_passed, results
+
+    def _check_torch_contract(self) -> tuple[bool, str]:
+        """torch 版本契约（B1 2026-09-13）：三处 torch 独立安装历史上无
+        机制保证一致（cu128/cu130 双代 dist-info 曾并存、文档三层失真）。
+        真源 = src/torch_contract.json；主链（label 含「主运行时」）不符
+        = 不通过
+        （阻断，OMNISPACE_ALLOW_TORCH_DRIFT=1 豁免自担风险）；旁链
+        （py313 / ComfyUI 便携包，自包含栈）不符仅黄灯提示。"""
+        import json as _json
+        import os as _os
+        import re as _re
+
+        contract_path = PROJECT_ROOT / 'backend' / 'torch_contract.json'
+        try:
+            contract = _json.loads(contract_path.read_text(encoding='utf-8'))
+        except Exception as e:
+            return True, f'契约文件不可读（跳过，{e}）'
+        expected = str(contract.get('torch') or '')
+        if not expected:
+            return True, '契约缺少 torch 字段（跳过）'
+
+        def _read(ver_py: str) -> str | None:
+            try:
+                m = _re.search(
+                    r"""__version__\s*=\s*['"]([^'"]+)['"]""",
+                    (PROJECT_ROOT / ver_py).read_text(
+                        encoding='utf-8', errors='ignore'))
+                return m.group(1) if m else None
+            except Exception:
+                return None
+
+        drift = []
+        primary_bad = False
+        for label, rel in (contract.get('targets') or {}).items():
+            actual = _read(rel)
+            if actual is None:
+                drift.append(f'{label}: version.py 不可读')
+                if 'py310' in label:
+                    primary_bad = True
+                continue
+            if actual != expected:
+                drift.append(f'{label}: 实际 {actual} ≠ 契约 {expected}')
+                if 'py310' in label:
+                    primary_bad = True
+        if not drift:
+            return True, f'三处 torch 对齐契约 {expected}'
+        if primary_bad and _os.environ.get('OMNISPACE_ALLOW_TORCH_DRIFT') != '1':
+            return False, (
+                'torch 契约失配（' + '；'.join(drift) +
+                '）——升/换 torch 请同步 src/torch_contract.json；'
+                '确需带漂运行设 OMNISPACE_ALLOW_TORCH_DRIFT=1')
+        return True, 'torch 契约旁链漂移（黄灯）：' + '；'.join(drift)
 
     def _check_os(self) -> tuple[bool, str]:
         """检查操作系统"""
@@ -226,6 +279,42 @@ class EnvironmentChecker:
         if free_gb >= self.config.min_disk_space_gb:
             return True, f'可用磁盘空间: {free_gb:.1f}GB'
         return False, f'磁盘空间不足: 可用{free_gb:.1f}GB，需要≥{self.config.min_disk_space_gb}GB'
+
+    def _check_ram_commit(self) -> tuple[bool, str]:
+        """RAM 提交余量预检（2026-09-15 审计补线，warn-only 不阻断）。
+
+        背景：2026-09-02 实锤的后端静默死亡根因是 RAM 提交耗尽（WER
+        RADAR_PRE_LEAK_64）——启动链此前对 RAM 零预检，防线只剩 ≤5 次
+        崩溃补位。低余量时提示关应用再启动，但不 block（低配机也能起，
+        起后 resource_guard 运行期兜底）。口径用 commit（虚拟内存承诺）
+        而非物理内存——WER 按提交耗尽判死。
+        """
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ('dwLength', ctypes.c_ulong),
+                    ('dwMemoryLoad', ctypes.c_ulong),
+                    ('ullTotalPhys', ctypes.c_ulonglong),
+                    ('ullAvailPhys', ctypes.c_ulonglong),
+                    ('ullTotalPageFile', ctypes.c_ulonglong),
+                    ('ullAvailPageFile', ctypes.c_ulonglong),
+                    ('ullTotalVirtual', ctypes.c_ulonglong),
+                    ('ullAvailVirtual', ctypes.c_ulonglong),
+                    ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            avail_commit_gb = stat.ullAvailPageFile / (1024 ** 3)
+            if avail_commit_gb >= 8.0:
+                return True, f'RAM 提交余量: {avail_commit_gb:.1f}GB'
+            return True, (f'⚠ RAM 提交余量仅 {avail_commit_gb:.1f}GB（建议≥8GB）——'
+                          f'历史静默死亡（WER 提交耗尽）高危态，建议关闭占内存应用后重启')
+        except Exception as e:  # noqa: BLE001 - 探测失败不阻断
+            return True, f'RAM 预检跳过（探测失败: {e}）'
 
     def _check_cuda(self) -> tuple[bool, str]:
         """检查CUDA环境"""
@@ -544,16 +633,23 @@ class BackendProcess:
             return False
 
     def stop(self, timeout: float = 10.0) -> None:
-        """停止后端进程"""
+        """停止后端进程（2026-09-15 竞态根修：先递增代际号让在飞心跳
+        循环立即失配退出，再与 _handle_crash 互斥串行——否则「stop 进
+        行中、心跳恰好判定崩溃→锁内重启」会把后端复活成孤儿（无人
+        监管、持单实例互斥体占端口）。锁内最多等一轮在飞重启收尾后
+        正常终止。_running=False 双保险：即使代际递增与 start() 竞争
+        丢失，循环也在下个检查点退出。）"""
         self._running = False
-        if self.process:
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
-            self.process = None
+        self._hb_gen += 1  # 在飞心跳线程代际失配，立即退出不再触发重启
+        with self._crash_lock:
+            if self.process:
+                try:
+                    self.process.terminate()
+                    self.process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+                self.process = None
 
     def is_healthy(self, port: int) -> bool:
         """健康检查（审计 R3-ARCH2 修复三处历史残留）：
@@ -642,7 +738,13 @@ class BackendProcess:
             return
 
         # 冷却检查
-        if now - self._last_restart_time < self.config.restart_cooldown:
+        # B0 修复（2026-09-13）：旧逻辑「距上次重启 >30s 即把计数重置为
+        # 1」——09-12 实测崩溃带每 3.3min 一崩，每轮都被重置，max=5 上限
+        # 从未触顶，5.5 小时 99 连崩全被「第1次」掩盖。改为：崩溃计数
+        # 仅在距上次重启 ≥10 分钟（稳定窗）后才重置；短间隔崩溃持续
+        # 累计直至 crash_permanent。
+        if (self._last_restart_time
+                and now - self._last_restart_time < 600.0):
             self._restart_count += 1
         else:
             self._restart_count = 1
@@ -671,237 +773,15 @@ class BackendProcess:
         self.start(port)
 
         if self.wait_until_ready(port, timeout=30):
-            self._restart_count = 0
+            # B0 修复（2026-09-13）：不再「重启成功即清零计数」——清零
+            # 只由上面的稳定窗判定（距上次重启 ≥10min）承担；立即清零
+            # 会让「崩→补位→再崩」的连环每轮都从第 1 次重新数起。
             if self.on_status_change:
                 self.on_status_change('running', '后端已重启')
 
 
-class TrayIcon:
-    """系统托盘图标"""
 
-    def __init__(self, launcher: 'Launcher') -> None:
-        self.launcher = launcher
-        self._icon = None
-
-    def show(self) -> None:
-        """显示托盘图标（如果pystray可用）"""
-        try:
-            import pystray
-            from PIL import Image, ImageDraw
-
-            # 创建简单图标
-            img = Image.new('RGB', (64, 64), color=(100, 100, 255))
-            dc = ImageDraw.Draw(img)
-            dc.ellipse([16, 16, 48, 48], fill=(255, 255, 255))
-
-            menu = pystray.Menu(
-                pystray.MenuItem('打开界面', self._open_browser),
-                pystray.MenuItem('状态', self._show_status),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem('退出', self._quit),
-            )
-
-            self._icon = pystray.Icon('OmniSpace', img, 'OmniSpace AI', menu)
-            threading.Thread(target=self._icon.run, daemon=True).start()
-        except ImportError:
-            print('pystray/PIL未安装，跳过托盘图标')
-
-    def notify(self, title: str, message: str) -> None:
-        """显示气泡通知"""
-        if self._icon:
-            try:
-                self._icon.notify(message, title)
-            except Exception:
-                pass
-        print(f'[通知] {title}: {message}')
-
-    def _open_browser(self) -> None:
-        self.launcher.open_browser()
-
-    def _show_status(self, icon: object | None = None, item: object | None = None) -> None:
-        status = self.launcher.get_status()
-        self.notify('OmniSpace AI 状态', status)
-
-    def _quit(self, icon: object | None = None, item: object | None = None) -> None:
-        self.launcher.shutdown()
-        if self._icon:
-            self._icon.stop()
-
-
-class Launcher:
-    """OmniSpace Launcher主类"""
-
-    def __init__(self, config: LauncherConfig | None = None) -> None:
-        self.config = config or LauncherConfig()
-        self.port_manager = PortManager(self.config)
-        self.env_checker = EnvironmentChecker(self.config)
-        self.backend = BackendProcess(self.config)
-        self.backend.on_status_change = self._on_backend_status
-        self.tray = TrayIcon(self)
-        self._actual_port = self.config.backend_port
-        self._start_time = None
-
-    def initialize(self) -> bool:
-        """初始化Launcher"""
-        print('=' * 60)
-        print('OmniSpace AI Launcher')
-        print('=' * 60)
-
-        # TASK-P0-05：非回环绑定硬拒绝（规格 §14 约束2，与 src/config.py
-        # 导入期闸门构成双层防线；此处拦截避免拉起注定被拒的后端进程）
-        import os
-        if (self.config.backend_host not in ('127.0.0.1', 'localhost', '::1')
-                and os.environ.get('OMNISPACE_ALLOW_LAN') != '1'):
-            print(f'  ✗ 拒绝启动：backend_host={self.config.backend_host} 为非回环地址。'
-                  'API 无认证体系，绑定局域网等于数据裸奔。')
-            print('    确需局域网访问：设置环境变量 OMNISPACE_ALLOW_LAN=1（自担风险）；'
-                  '或改回 127.0.0.1。')
-            return False
-
-        # 1. 环境检查
-        print('\n[1/4] 环境检查...')
-        passed, results = self.env_checker.check_all()
-        for name, result in results.items():
-            status = '✓' if result['passed'] else '✗'
-            print(f'  {status} {name}: {result["message"]}')
-
-        if not passed:
-            print('\n环境检查未通过，请修复后重试')
-            return False
-
-        # 2. 端口处理
-        print('\n[2/4] 端口配置...')
-        try:
-            self._actual_port, port_msg = self.port_manager.resolve_port_conflict(self.config.backend_port)
-            print(f'  {port_msg}')
-            self.config.backend_port = self._actual_port
-        except RuntimeError as e:
-            print(f'  ✗ {e}')
-            return False
-
-        # 3. 写入前端配置
-        print('\n[3/4] 写入前端配置...')
-        self._write_frontend_config()
-        print(f'  后端端口: {self._actual_port}')
-
-        # 4. 启动后端
-        print('\n[4/4] 启动后端服务...')
-        if not self.backend.start(self._actual_port):
-            print('  ✗ 后端启动失败')
-            return False
-
-        if self.backend.wait_until_ready(self._actual_port, timeout=60):
-            print('  ✓ 后端服务已就绪')
-        else:
-            print('  ✗ 后端启动超时')
-            return False
-
-        self._start_time = datetime.now()
-        self.tray.show()
-        self.tray.notify('OmniSpace AI', '服务已就绪，正在打开界面...')
-
-        return True
-
-    def _write_frontend_config(self) -> None:
-        """前端配置注入（已废弃，保留为 no-op）。
-
-        现行前端 frontend/index.html + frontend/src/api.js 采用同源相对路径自动探测
-        （协议/主机/端口全部继承自页面地址），无需 Launcher 注入任何运行时配置；
-        遗留 frontend/dist 双轨已剔除，本方法不再产生任何文件写入。
-        """
-        return
-
-    def open_browser(self) -> None:
-        """打开浏览器界面"""
-        url = f'http://{self.config.backend_host}:{self._actual_port}'
-        webbrowser.open(url)
-
-    def get_status(self) -> str:
-        """获取状态字符串"""
-        uptime = ''
-        if self._start_time:
-            delta = datetime.now() - self._start_time
-            hours = int(delta.total_seconds() // 3600)
-            minutes = int((delta.total_seconds() % 3600) // 60)
-            uptime = f'运行{hours}小时{minutes}分钟'
-        return f'端口: {self._actual_port} | {uptime}'
-
-    def _on_backend_status(self, status: str, message: str) -> None:
-        """后端状态变化回调"""
-        print(f'[后端] {status}: {message}')
-        self.tray.notify('OmniSpace AI', message)
-
-    def shutdown(self) -> None:
-        """关闭Launcher"""
-        print('\n正在关闭OmniSpace AI...')
-        self.backend.stop()
-        self._kill_comfyui_leftover()
-        print('已关闭')
-
-    def _kill_comfyui_leftover(self) -> None:
-        """清理 ComfyUI 子进程残留（2026-08-31 治理，第三道防线）。
-
-        后端侧已有 Job Object 共生死 + atexit 双保险（src/
-        services/inference/comfy_proc.py）；此处兜住外部手动实例或
-        极端场景（job 绑定失败）。按 ComfyUI 端口查杀，严格校验
-        cmdline 含 ComfyUI/main.py 且工作目录在本项目内——现有
-        is_omnispace_process 匹配不到 ComfyUI（无 omnispace/
-        src.main 关键字），且后端被强杀时 atexit 不执行。
-        """
-        port = int(os.environ.get('OMNISPACE_COMFYUI_PORT', '8189'))
-        try:
-            proc = self.get_process_using_port(port)
-            if proc is None:
-                return
-            cmdline = ' '.join(proc.cmdline()).lower()
-            cwd = ''
-            try:
-                cwd = proc.cwd().lower()
-            except Exception:
-                pass
-            project_marker = str(PROJECT_ROOT).lower()
-            if 'comfyui/main.py' in cmdline and project_marker in cwd:
-                proc.kill()
-                print(f'已清理 ComfyUI 残留进程 (PID: {proc.pid})')
-        except Exception as e:
-            print(f'ComfyUI 残留清理跳过: {e}')
-
-    def run(self) -> None:
-        """运行Launcher主循环"""
-        if not self.initialize():
-            input('\n按回车键退出...')
-            return
-
-        self.open_browser()
-
-        print('\nOmniSpace AI 已启动!')
-        print(f'界面地址: http://{self.config.backend_host}:{self._actual_port}')
-        print('按 Ctrl+C 退出')
-
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.shutdown()
-
-
-def main() -> None:
-    import argparse
-    parser = argparse.ArgumentParser(description='OmniSpace AI Launcher')
-    parser.add_argument('--port', type=int, default=8765, help='后端端口')
-    parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器')
-    args = parser.parse_args()
-
-    config = LauncherConfig(backend_port=args.port)
-    launcher = Launcher(config)
-
-    if args.no_browser:
-        launcher.open_browser = lambda: None
-
-    launcher.run()
-
-
-if __name__ == '__main__':
-    main()
+# B3（2026-09-13）幻影清理：本文件旧入口 TrayIcon/Launcher/main()（8765
+# 守护链，约 230 行）已摘除——boot.py 链（5800）自 2026-08-31 起为唯一
+# 入口，且双栈双跑有显存叠载事故案底；上方 BackendProcess/EnvironmentChecker/
+# LauncherConfig/PortManager 为 boot.py 复用的库部分，原样保留。

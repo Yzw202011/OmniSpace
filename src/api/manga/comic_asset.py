@@ -315,6 +315,16 @@ def comic_asset_library(project_id: str | None = Query(None),
     elif project_id:
         cond.append("project_id=?")
         params.append(project_id)
+    else:
+        # 空 project_id = 跨项目「全部可用」：必须按产品面隔离
+        # （2026-09-12 泄漏修复：此前此分支零过滤，漫剧资产坞把漫画
+        # 页的项目资产全量混出——实测 19 个角色里 10 个属漫画面）。
+        # 口径：该面全局资产 ∪ 该面项目的项目资产（face 列只在转全局
+        # 时落库，项目资产按所属项目的 project_type 判定）。
+        f = face if face in ("manga", "comic") else "manga"
+        cond.append("((scope='global' AND face=?) OR (project_id IN "
+                    "(SELECT id FROM projects WHERE project_type=?)))")
+        params.extend([f, f])
     if kind:
         cond.append("kind=?")
         params.append(kind)
@@ -716,7 +726,10 @@ async def comic_asset_regenerate(asset_id: str,
         raise ApiError("PAINT_GENERATION_FAILED", str(exc)[:300]) from exc
     _end_asset_flow(flow, "success",
                     output_summary=str(data.get("file_path") or ""))
-    return ok({"asset": data, "degraded": False})
+    # 降级标记透传（2026-09-15 审计修复）：SDXL views4 兜底时
+    # meta.degraded=True，旧实现顶层硬编码 False → 前端不提示降级
+    return ok({"asset": data,
+               "degraded": bool((data.get("meta") or {}).get("degraded"))})
 
 
 @router.post("/comic/asset/{asset_id}/regenerate-view")
@@ -807,7 +820,7 @@ async def comic_asset_reference_upload(asset_id: str,
     if ext not in _ASSET_UPLOAD_EXTS:
         raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
         raise ApiError(40008, "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
@@ -1081,7 +1094,7 @@ async def comic_asset_image_replace(asset_id: str,
     if ext not in _ASSET_UPLOAD_EXTS:
         raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
         raise ApiError(40008, "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
@@ -1166,7 +1179,7 @@ async def comic_asset_upload(project_id: str = Form(...),
     if ext not in _ASSET_UPLOAD_EXTS:
         raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
         raise ApiError(40008, "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:

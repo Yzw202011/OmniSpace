@@ -1,0 +1,37 @@
+diff --git a/src/musubi_tuner/modules/custom_offloading_utils.py b/src/musubi_tuner/modules/custom_offloading_utils.py
+index 5ae3091..6813062 100644
+--- a/src/musubi_tuner/modules/custom_offloading_utils.py
++++ b/src/musubi_tuner/modules/custom_offloading_utils.py
+@@ -838,9 +838,14 @@ class LoRAStreamOffloader:
+ 
+     def _swap_modules(self, block: nn.Module) -> list[nn.Module]:
+         # same selection rule as ModelOffloader.swap_weight_devices_cuda: Linear layers with a weight
++        # PATCH (OmniSpace 2026-09-15): exclude trainable modules (LoRA down/up) from streaming —
++        # they must stay resident on GPU, otherwise backward assigns CUDA grads to CPU params
++        # ("attempting to assign a gradient with device type 'cuda' to a tensor with device type 'cpu'").
+         mods = []
+         for _, m in block.named_modules():
+-            if hasattr(m, "weight") and m.weight is not None and m.__class__.__name__.endswith("Linear"):
++            if (hasattr(m, "weight") and m.weight is not None
++                    and m.__class__.__name__.endswith("Linear")
++                    and not m.weight.requires_grad):
+                 mods.append(m)
+         return mods
+ 
+diff --git a/src/musubi_tuner/zimage_train.py b/src/musubi_tuner/zimage_train.py
+index f04f47c..521b05d 100644
+--- a/src/musubi_tuner/zimage_train.py
++++ b/src/musubi_tuner/zimage_train.py
+@@ -248,6 +248,12 @@ class ZImageTrainer(ZImageNetworkTrainer):
+ 
+         # prepare lr_scheduler
+         lr_scheduler = self.get_lr_scheduler(args, optimizer, accelerator.num_processes)
++        # PATCH (OmniSpace 2026-09-15): lora.py 的 requires_grad_(True) 会
++        # 级联解冻被包裹的底座 Linear（org_module 是 LoRA 模块的注册子
++        # 模块），导致 6B 底座整座进入训练态——优化器状态爆显存、底座
++        # 权重以可训练态驻留 CPU。此处重新声明冻结：仅 LoRA 参数可训练。
++        for _n, _p in transformer.named_parameters():
++            _p.requires_grad_(("lora_up" in _n) or ("lora_down" in _n))
+ 
+         # prepare training model. accelerator does some magic here
+ 

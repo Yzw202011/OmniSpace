@@ -455,7 +455,9 @@ async def comic_script_import_dsl(project_id: str = Query(...),
     if not filename.endswith((".txt", ".dsl")):
         raise ApiError(40010, "仅支持 .txt/.dsl 剧本文件",
                        detail={"filename": file.filename})
-    raw = await file.read()
+    # 有界读（2026-09-15 审计 P2-4 收尾）：旧实现先全量 read 后验大小，
+    # 超大文件会先整包进内存才被拒——与 comic_asset.py 三端点同款修法
+    raw = await file.read(_DSL_MAX_BYTES + 1)
     if not raw:
         raise ApiError("SCRIPT_FORMAT_UNSUPPORTED", "剧本文件为空")
     if len(raw) > _DSL_MAX_BYTES:

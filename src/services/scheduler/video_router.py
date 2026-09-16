@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from ...config import LTX2_MAX_AUDIO_SYNC, VIDEO_MAX_DURATION
+from ...config import VIDEO_MAX_DURATION
 from ...data.models import VIDEO_ROUTING_TABLE, VideoGenerateRequest, VideoModel
 from ...middleware.error_handler import ApiError
 
@@ -66,15 +66,6 @@ class VideoRouter:
         不同模型有不同的分辨率、帧数、精度等参数限制。
         """
         params_map = {
-            VideoModel.LTX2: {
-                "max_resolution": "1080p",
-                "max_fps": 30,
-                "max_duration_seconds": VIDEO_MAX_DURATION,
-                "precision": "bf16",
-                "supports_audio_sync": True,
-                "max_audio_sync_seconds": LTX2_MAX_AUDIO_SYNC,
-                "vram_required_gb": 24,
-            },
             VideoModel.MINIMAX_H3: {
                 # MiniMax H3 33B（ComfyUI 子进程管线，2026-08-25）：
                 # 画幅 768 短边（1344x768 顶格，"720p" 档映射 864x480）；
@@ -88,58 +79,6 @@ class VideoRouter:
                 "supports_audio_sync": True,
                 "max_audio_sync_seconds": 15,
                 "vram_required_gb": 16,
-            },
-            VideoModel.WAN21_14B_FP8: {
-                "max_resolution": "1080p",
-                "max_fps": 24,
-                "max_duration_seconds": VIDEO_MAX_DURATION,
-                "precision": "fp8",
-                "supports_audio_sync": True,
-                "max_audio_sync_seconds": LTX2_MAX_AUDIO_SYNC,
-                "vram_required_gb": 16,
-            },
-            VideoModel.WAN21_14B_INT4: {
-                "max_resolution": "720p",
-                "max_fps": 24,
-                "max_duration_seconds": VIDEO_MAX_DURATION,
-                "precision": "int4",
-                "supports_audio_sync": False,
-                "max_audio_sync_seconds": 0,
-                "vram_required_gb": 12,
-            },
-            VideoModel.WAN21_1_3B: {
-                "max_resolution": "720p",
-                "max_fps": 24,
-                "max_duration_seconds": VIDEO_MAX_DURATION,
-                "precision": "fp16",
-                "supports_audio_sync": False,
-                "max_audio_sync_seconds": 0,
-                "vram_required_gb": 8,
-            },
-            VideoModel.WAN22_TI2V_5B: {
-                # Wan2.2-TI2V-5B：单 ckpt 原生双条件（umT5 文本 + 首帧
-                # 图），I2V 与文+图生视频统一底座（2026-08-23 混合架构）。
-                # split 布局 16GB 卡可跑；720p 预设实际映射 1024x576
-                # （引擎 Wan 家族对齐），激活余量充裕。官方片段 5s
-                # （121 帧 @24fps）。
-                "max_resolution": "720p",
-                "max_fps": 24,
-                "max_duration_seconds": 5,
-                "precision": "bf16",
-                "supports_audio_sync": False,
-                "max_audio_sync_seconds": 0,
-                "vram_required_gb": 13,
-            },
-            VideoModel.LTX_VIDEO_095: {
-                # LTX-Video 0.9.5 2B：768x512@24fps 原生，
-                # T5 int8 量化 + CPU offload 兜底，16GB 可跑 10s 片段
-                "max_resolution": "768x512",
-                "max_fps": 24,
-                "max_duration_seconds": 10,
-                "precision": "int8",
-                "supports_audio_sync": False,
-                "max_audio_sync_seconds": 0,
-                "vram_required_gb": 8,
             },
             VideoModel.COGVIDEOX_2B: {
                 "max_resolution": "720p",

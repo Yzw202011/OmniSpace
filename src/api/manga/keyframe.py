@@ -1248,6 +1248,26 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                          and comfy_paint_available() and pulid_available()
                          and 1 <= len(char_assets) <= 2
                          and any(face_refs))
+            # B6+（2026-09-14 S3 实弹发现）：行内角色带 D-LoRA 时 comfy
+            # 底座切 klein-4b 单文件——ComfyUI diffusion_models 缺该文件
+            # （盘上仅有 diffusers 分件版 models/paint/flux2-klein-4b），
+            # UNETLoader 校验必炸。带 LoRA 行回落 diffusers（4b 分件在
+            # legacy 栈完整可用），缺口补齐（单文件版下载/转换）后此闸
+            # 自动放行。
+            if use_comfy and any(
+                    ((DATA_DIR / str(a.get("file_path") or "")).parent
+                     / "lora.safetensors").is_file()
+                    for a in char_assets):
+                # 角色 LoRA 在场（comfy 将切 klein-4b 单文件底座）——
+                # 仅当 ComfyUI diffusion_models 缺该文件才回落 diffusers
+                _4b_unet = (DATA_DIR.parent / "tools" /
+                            "ComfyUI_windows_portable" / "ComfyUI" /
+                            "models" / "diffusion_models" /
+                            "flux-2-klein-4b.safetensors")
+                if not _4b_unet.is_file():
+                    use_comfy = False
+                    log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
+                             "权重——回落 diffusers（诚实降级）")
             route_label = ("comfy+双PuLID" if use_comfy and dual_faces
                            else "comfy+PuLID" if use_comfy and len(char_assets) == 1
                            else "comfy+多参考" if use_comfy else "diffusers")
@@ -1287,6 +1307,29 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     break
                 log.warning("路由底座 %s 加载失败，依链降级: %s",
                             mid, engine.get_status().get("last_error") or "")
+        if not flux:
+            # D-LoRA 救援点（2026-09-16 根因定位后重修·断点④真身）：
+            # 路由链首位常是 flux2-klein-9b——其 diffusers 目录自 09-10
+            # bf16 分片删除后即为幻影候选（transformer/ 只剩骨架索引，
+            # _flux_model_dir_ready 不认 transformer-gguf），而风格包偏
+            # 好序 klein 族常只有 9b → 白名单交集滤掉 4b → 默认提权要求
+            # default∈偏好序（4b 不在）→ 兜底返回不可用原序——四层叠加
+            # 使链滑向 SDXL，LoRA 行既无底座也无参考（refs 仅 flux 态
+            # 加载）。带 LoRA 行在此显式装载 4b（在盘/白名单内/用户默
+            # 认），使 flux 分支与 attach 挂载可达；无 LoRA 行维持原降级。
+            _row_has_lora = any(
+                ((DATA_DIR / str(a.get("file_path") or "")).parent
+                 / "lora.safetensors").is_file()
+                for a in char_assets)
+            if _row_has_lora:
+                if engine.ensure_loaded("flux2-klein-4b"):
+                    flux = True
+                    log.info("D-LoRA 救援：路由链无可载 klein，行带角色 LoRA "
+                             "→ 显式装载 flux2-klein-4b（避开 SDXL 无锚降级）")
+                else:
+                    log.warning("D-LoRA 救援失败：flux2-klein-4b 装载不成"
+                                "（%s），本镜降级 SDXL+翻译（LoRA 失效）",
+                                engine.get_status().get("last_error") or "未知")
         if not flux:
             # 降级链：FLUX.2 缺失/加载失败 → SDXL（中文走翻译兜底）
             log.warning("klein 家族加载失败，关键帧降级 SDXL+翻译")
@@ -1488,8 +1531,42 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     result = comfy.generate(params,
                                             pulid_image=pulid_img)
             elif shot_refs:
+                # D-LoRA 回落挂载（2026-09-15 三连断根修·断点①）：带
+                # LoRA 行回落 diffusers 分支时 LoRA 曾被静默丢弃（只剩
+                # 参考图软锁）；attach_lora 自 09-10 写完后生产零调用。
+                # 配套：无 LoRA 行主动 detach——防止上一镜挂的 LoRA
+                # 泄漏到本镜（底座生命周期内 LoRA 常驻，见
+                # paint_engine._reset_lora_state 注释）。lora 条目无
+                # "image" 键，参考图列表须过滤（断点③ KeyError 拆除）。
+                lora_refs = [e for e in shot_refs
+                             if e.get("kind") == "lora"]
+                img_refs = [e["image"] for e in shot_refs
+                            if e.get("image") is not None]
+                if lora_refs:
+                    # D-LoRA 底座对齐（2026-09-15 E2E 发现的断点④）：角色
+                    # LoRA 按 klein base-4b 训练，而路由链首位 flux2-klein-9b
+                    # 的 diffusers 目录已不在盘（仅存 comfy fp8 单文件）→
+                    # 回落链滑到 SDXL 时 LoRA 无底座可挂。LoRA 行显式装载
+                    # 4b（幂等，已载秒过；失败则 attach 自会按软锁降级）。
+                    if not engine.ensure_loaded("flux2-klein-4b"):
+                        log.warning("D-LoRA 底座 flux2-klein-4b 装载失败"
+                                    "（本镜按无 LoRA 软锁继续）")
+                    _lp = Path(str(lora_refs[0].get("path") or ""))
+                    if _lp.is_file() and engine.attach_lora(_lp, 1.0):
+                        log.info("D-LoRA 回落挂载: %s（底座=diffusers "
+                                 "klein-4b，身份硬锁）", _lp.name)
+                    else:
+                        log.warning("D-LoRA 回落挂载失败（按无 LoRA "
+                                    "软锁继续）: %s", _lp)
+                else:
+                    try:
+                        if (engine.lora_status() or {}).get("adapter"):
+                            engine.detach_lora()
+                            log.info("D-LoRA 已卸载（本镜无角色 LoRA）")
+                    except Exception:  # noqa: BLE001 - 状态探测失败不阻断
+                        pass
                 result = engine.img2img(
-                    params, [e["image"] for e in shot_refs],
+                    params, img_refs,
                     progress_cb=step_cb)
             else:
                 result = engine.generate(params, progress_cb=step_cb)

@@ -1,3 +1,4 @@
+import { mirrorPref } from '@/services/uiPrefs';
 /* ==========================================================================
  * OmniSpace AI v2.3.1 —— 漫剧模型配置持久化（TASK-P2-07 迁出 ModelConfigModal）
  * --------------------------------------------------------------------------
@@ -62,6 +63,7 @@ export function loadModelConfig(): MangaModelConfig {
 export function writeModelConfig(cfg: MangaModelConfig): void {
   try {
     localStorage.setItem(MODEL_CFG_KEY, JSON.stringify(cfg));
+    mirrorPref(MODEL_CFG_KEY, cfg); // 界面偏好镜像（2026-09-12）
   } catch {
     /* 静默：与 readPromptCfg 同策略 */
   }

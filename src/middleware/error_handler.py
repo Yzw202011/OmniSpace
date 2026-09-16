@@ -402,6 +402,20 @@ def _default_message(code: int | str) -> str:
     return SEMANTIC_CODES.get(sem, "未知错误")
 
 
+# B8-e（2026-09-14）：语义码→HTTP 状态映射（meta.http_status 用，信封
+# HTTP 层仍恒 200——外部监控凭 meta 区分真实成功与语义失败）。
+# 仅列已确认映射，未命中兜底 200（语义失败按信封语义处理）。
+_SEMANTIC_HTTP: dict[str, int] = {
+    "SYSTEM_PARAM_INVALID": 400,
+    "SYSTEM_RESOURCE_NOT_FOUND": 404,
+    "LICENSE_LOCKED": 429,
+    "RATE_LIMITED": 429,
+    "FEATURE_MUTEX_LOCKED": 409,
+    "LICENSE_REQUIRED": 403,
+    "SYSTEM_INTERNAL_ERROR": 500,
+}
+
+
 def _meta() -> dict[str, Any]:
     """统一 meta 三元组（文档D：request_id / timestamp / duration_ms）。"""
     return {
@@ -463,6 +477,9 @@ def error(code: int | str, message: str = "", detail: Any = None,
         "success": False,
         "data": None,
         "error": err_obj,
-        "meta": _meta(),
+        "meta": {**_meta(), "http_status": _SEMANTIC_HTTP.get(sem, 200)},
     }
+    # B8-e（2026-09-14）：监控解盲——meta.http_status 携带语义码对应的
+    # 真实 HTTP 状态（信封 HTTP 层仍恒 200，前端零改动；外部监控/网关
+    # 可凭此字段区分真实成功与语义失败，消除恒 200 信封的监控盲区）。
     return JSONResponse(status_code=200, content=body)

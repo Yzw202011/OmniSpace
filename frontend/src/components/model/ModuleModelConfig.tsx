@@ -40,8 +40,12 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useDialogStore } from '@/stores/useDialogStore';
-import { usePaintStore } from '@/stores/usePaintStore';
 import { useAppStore } from '@/stores/useAppStore';
+import {
+  listModels,
+  type DrawModelItem,
+} from '@/services/paintApi';
+import { reportActionError } from '@/utils/errors';
 import {
   getDialogModels,
   getDialogEngineStatus,
@@ -65,38 +69,10 @@ import type { AvailableModel } from '@/types';
 
 /* ------------------------------ 绘画共享偏好 ------------------------------ */
 
-/** 绘画模型偏好 localStorage 键（ModuleModelConfig 与 PaintView 双向同步） */
-export const PAINT_MODEL_PREF_KEY = 'omnispace.paint.modelPreference';
-
-/** 绘画模型偏好：auto = 智能路由；manual = 显式点名模型 id */
-export interface PaintModelPref {
-  mode: 'auto' | 'manual';
-  modelId: string;
-}
-
-/** 读取绘画偏好（损坏 / 缺失回退 auto；绝不抛错） */
-export function loadPaintModelPref(): PaintModelPref {
-  try {
-    const raw = localStorage.getItem(PAINT_MODEL_PREF_KEY);
-    if (!raw) return { mode: 'auto', modelId: '' };
-    const parsed = JSON.parse(raw) as Partial<PaintModelPref>;
-    if (parsed.mode === 'manual' && typeof parsed.modelId === 'string' && parsed.modelId) {
-      return { mode: 'manual', modelId: parsed.modelId };
-    }
-    return { mode: 'auto', modelId: '' };
-  } catch {
-    return { mode: 'auto', modelId: '' };
-  }
-}
-
-/** 写入绘画偏好（失败静默） */
-export function savePaintModelPref(pref: PaintModelPref): void {
-  try {
-    localStorage.setItem(PAINT_MODEL_PREF_KEY, JSON.stringify(pref));
-  } catch {
-    // 存储满 / 隐私模式：不影响交互
-  }
-}
+/* B7 步1a（2026-09-14）：原 localStorage「omnispace.paint.modelPreference」
+ * 死键及读写器整体删除——PaintView 清退后该键零外部消费（写了自己存的
+ * 摆设），绘画选型真源收敛为 module-config 的 paint 槽 default
+ * （''=智能路由），与本页对话/漫剧槽位同型。 */
 
 /* ------------------------------ 常量 ------------------------------ */
 
@@ -344,7 +320,7 @@ const ModuleScopePanel: React.FC<{
               fontSize: 'var(--font-size-xs)',
               border: '1px solid var(--color-primary)',
               background: 'var(--color-primary)',
-              color: '#fff',
+              color: 'var(--color-on-primary)',
               opacity: saving ? 0.6 : 1,
             }}
           >
@@ -416,34 +392,32 @@ export const ModuleModelConfig: React.FC = () => {
   };
 
   /* ---------- AI 绘画 ---------- */
-  const paintModels = usePaintStore((s) => s.models);
-  const fetchPaintModels = usePaintStore((s) => s.fetchModels);
-  const [paintPref, setPaintPref] = useState<PaintModelPref>(() => loadPaintModelPref());
+  // W3-C 步5：去 usePaintStore 化（旧绘画 store 已清退）——模型列表
+  // 本地直调 /draw/models。B7 步1a：选型真源=module-config paint 槽
+  // default（''=智能路由），原 localStorage 死键已删。
+  const [paintModels, setPaintModels] = useState<DrawModelItem[]>([]);
 
   useEffect(() => {
-    if (paintModels.length === 0) {
-      void fetchPaintModels();
-    }
-  }, [paintModels.length, fetchPaintModels]);
+    let cancelled = false;
+    void listModels()
+      .then((res) => {
+        if (!cancelled) setPaintModels(res.items || []);
+      })
+      .catch((err: unknown) => reportActionError(err, '读取绘画模型列表'));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** 本地就绪的可选绘画模型（/draw/models status === ready） */
   const readyPaintModels = paintModels.filter((m) => m.status === 'ready');
-
-  /** 切换绘画偏好：写共享 localStorage，PaintView 下次挂载生效 */
-  const handlePaintChange = (value: string) => {
-    const pref: PaintModelPref =
-      value === '__auto__' ? { mode: 'auto', modelId: '' } : { mode: 'manual', modelId: value };
-    setPaintPref(pref);
-    savePaintModelPref(pref);
-    showToast(
-      pref.mode === 'auto'
-        ? '绘画已切回智能路由（自动挑选最合适的模型）'
-        : `绘画模型已指定为「${readyPaintModels.find((m) => m.id === pref.modelId)?.name || pref.modelId}」`,
-      'success',
-    );
-  };
+  // B7 步1a：paint 选型逻辑移至 scopeSlots 段之后（依赖 slotBy，TDZ）
 
   /* ---------- 漫剧创作（文字/图片/视频 三模型流水线） ---------- */
+  // 口径标注（B7 步1b）：mangaCfg（localStorage 用户最近一次会话选择，
+  // 含画幅/时长）与 scopeSlots（module-config 管理级范围/默认）是**两层
+  // 合法语义**非双写——前者=用户偏好，后者=管理员配置；三模型槽值超出
+  // 范围时由后端 /manga/models/available 过滤兜底。
   const [mangaCfg, setMangaCfg] = useState<MangaModelConfig>(() => loadModelConfig());
   const [mangaOptions, setMangaOptions] = useState<
     Record<'dialog' | 'paint' | 'video', AvailableModel[]>
@@ -549,6 +523,39 @@ export const ModuleModelConfig: React.FC = () => {
       );
     } finally {
       setSavingSlot(null);
+    }
+  };
+
+  /* ---------- AI 绘画选型（B7 步1a：真源=module-config paint 槽）---------- */
+  const paintSlot = slotBy('paint');
+  const paintDefault = paintSlot?.default || '';
+  const [paintSaving, setPaintSaving] = useState(false);
+
+  /** 切换绘画选型：写 module-config paint 槽（服务端真源，''=智能路由） */
+  const handlePaintChange = async (value: string) => {
+    const info = slotBy('paint');
+    if (!info || paintSaving) return;
+    setPaintSaving(true);
+    try {
+      const nextDefault = value === '__auto__' ? '' : value;
+      const res = await saveModuleModelConfig({
+        paint: { allowed: [...info.allowed], default: nextDefault },
+      });
+      const info2 = (res.slots || []).find((s) => s.slot === 'paint');
+      if (info2) {
+        setScopeSlots((prev) =>
+          prev.map((s) => (s.slot === 'paint' ? info2 : s)));
+      }
+      showToast(
+        nextDefault === ''
+          ? '绘画已切回智能路由（自动挑选最合适的模型）'
+          : `绘画模型已指定为「${readyPaintModels.find((m) => m.id === nextDefault)?.name || nextDefault}」`,
+        'success',
+      );
+    } catch (err: unknown) {
+      reportActionError(err, '保存绘画选型');
+    } finally {
+      setPaintSaving(false);
     }
   };
 
@@ -700,17 +707,18 @@ export const ModuleModelConfig: React.FC = () => {
             </span>
           </div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
-            {paintPref.mode === 'auto' ? (
+            {paintDefault === '' ? (
               <>智能路由：qwen-image（中文最优）→ FLUX.2 → SDXL 兜底，按资源自动挑选</>
             ) : (
-              <>已指定：{readyPaintModels.find((m) => m.id === paintPref.modelId)?.name || paintPref.modelId}</>
+              <>已指定：{readyPaintModels.find((m) => m.id === paintDefault)?.name || paintDefault}</>
             )}
           </div>
         </div>
         <select
           aria-label="选择绘画模型"
-          value={paintPref.mode === 'auto' ? '__auto__' : paintPref.modelId}
-          onChange={(e) => handlePaintChange(e.target.value)}
+          value={paintDefault === '' ? '__auto__' : paintDefault}
+          onChange={(e) => void handlePaintChange(e.target.value)}
+          disabled={paintSaving}
           style={SELECT_STYLE}
         >
           <option value="__auto__">智能路由（推荐）</option>

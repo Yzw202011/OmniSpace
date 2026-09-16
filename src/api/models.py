@@ -106,6 +106,13 @@ _EXTRA_KNOWN_MODELS = {
     "deepseek-r1-14b-w4a16": {"category": ModelCategory.DIALOG.value,
                               "purpose": "深度推理对话（R1，vLLM W4A16）",
                               "min_vram_gb": 11.5},
+    # Z-Image-Turbo（Z1 2026-09-15 接入）：ComfyUI 单文件布局（bf16
+    # unet + z_image_ae，TE 复用 qwen_3_4b），8步/cfg1.0 蒸馏档——
+    # 绘画直连与分张四视图 zviews 管线底座。审计修复（同日）：补此
+    # 条目+分类器关键词，否则归 AUXILIARY 进不了 paint 槽候选（死锁）
+    "z-image-turbo": {"category": ModelCategory.VISION.value,
+                      "purpose": "绘画（Z-Image 极速档/四视图分张底座，comfy 槽）",
+                      "min_vram_gb": 12.5},
 }
 
 
@@ -782,12 +789,6 @@ def models_predict(current_feature: str = Query("", description="当前功能名
 # 注意（审计 P2-4）：以下命名路由必须声明在 /models/{model_id} 之前，
 # 否则 "list"/"health"/"vram" 会被参数化路由吞掉当作 model_id。
 
-@router.get("/models/list")
-def models_list_alias() -> dict[str, Any]:
-    """规格 §7.1 契约别名：/models/list → 模型列表（同 GET /models）。"""
-    return models_list()
-
-
 @router.get("/models/vram")
 def models_vram() -> dict[str, Any]:
     """规格 §7.1 契约端点：显存全景（GPU 状态 + 逻辑预留 + 已加载占用）。
@@ -990,6 +991,35 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
         raise ApiError(30001, "模型文件未找到，请导入模型",
                        detail={"path": req.path})
     resolved = str(raw)
+
+    # B0（2026-09-13）：导入路径闸——端点设计上接受任意路径（外接盘
+    # 权重），但与加载链（trust_remote_code）组合即成恶意「模型分享包」
+    # RCE 链。封禁系统敏感目录与在库关键目录（向这些位置导入权重
+    # 永非合法场景；data/ 不封——隔离区观察期满回补登记走该处）。
+    # 闸为 best-effort，治本在加载侧沙箱（长期项）。
+    def _forbidden(prefix: Path) -> bool:
+        try:
+            return raw.is_relative_to(prefix.resolve())
+        except Exception:  # noqa: BLE001 - 解析失败逐项跳过
+            return False
+
+    for _bp in (
+        Path(os.environ.get("SystemRoot", r"C:\Windows")),
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+        Path(os.environ.get("ProgramData", r"C:\ProgramData")),
+    ):
+        if _forbidden(_bp):
+            raise ApiError("MODEL_IMPORT_PATH_FORBIDDEN",
+                           "该路径不允许导入（系统敏感目录）",
+                           detail={"path": req.path},
+                           suggestion="请把模型权重放在独立目录后再导入")
+    for _rel in ("runtime", "pydeps", "logs"):
+        if _forbidden(ROOT_DIR / _rel):
+            raise ApiError("MODEL_IMPORT_PATH_FORBIDDEN",
+                           f"该路径不允许导入（在库 {_rel}/ 目录）",
+                           detail={"path": req.path},
+                           suggestion="模型权重应放 models/ 或外部专用目录")
 
     db = get_db_safe()
 
@@ -1248,102 +1278,6 @@ async def _acquire_switch_lock(feature: str, model_id: str) -> None:
                                "active_feature": lock_mgr.active_feature})
 
 
-@router.post("/models/switch")
-async def models_switch(req: ModelSwitchRequest) -> dict[str, Any]:
-    """提交模型切换任务（异步：plan→unload→load→verify，WS 进度推送）。
-
-    返回任务快照（含 plan 显存账/驱逐清单/预估耗时）；进度经
-    WS task_progress（module=model_switch）推送，终态 task_complete/
-    task_error。锁移交：API 层 acquire → 任务线程终态释放。
-    """
-    from ..services.switch_engine import ModelSwitchEngine, SwitchBusyError, get_switch_engine
-
-    model = _find_model(req.model_id)
-    if model is None:
-        raise ApiError(20011, f"模型未下载: {req.model_id}",
-                       detail={"model_id": req.model_id})
-    category = (req.category or model.get("category", "")).strip().lower()
-    if category not in ModelSwitchEngine.VALID_CATEGORIES:
-        raise ApiError(
-            20010, f"该类别暂不支持切换: {category}（支持 dialog/vision/video）",
-            detail={"model_id": req.model_id, "category": category})
-
-    feature = _category_to_feature(category)
-    acquired = False
-    # 让位重入标记（P1）：acquire 前锁已被同 feature 的切换任务持有
-    # （switch: 前缀）时，本次 acquire 是重入——submit 失败的兜底
-    # release 会误清原持有任务的锁（2026-08-25 e2e B3 实测：loading
-    # 中提交 user switch 被互斥拒绝后，prefetch 任务的锁被清空，
-    # 全程失去 scheduler 保护）。此时锁仍归原任务，不得释放。
-    was_switch_held = False
-    if feature:
-        st = get_feature_lock().status()
-        was_switch_held = (
-            st.get("active_feature") == feature
-            and str(st.get("task_id") or "").startswith("switch:"))
-        await _acquire_switch_lock(feature, req.model_id)
-        acquired = True
-    engine = get_switch_engine()
-    try:
-        info = engine.submit(category, req.model_id, rollback=req.rollback,
-                             feature=feature if acquired else None)
-    except SwitchBusyError as e:
-        if acquired and not was_switch_held:
-            await get_feature_lock().release(feature)
-        raise ApiError(20010, str(e),
-                       detail={"active_task_id": e.active_task_id,
-                               "category": category}) from e
-    except ValueError as e:
-        if acquired and not was_switch_held:
-            await get_feature_lock().release(feature)
-        raise ApiError(20011, str(e), detail={"model_id": req.model_id}) from e
-    return ok(info, message="切换任务已提交")
-
-
-@router.get("/models/switch/list")
-def models_switch_list(limit: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
-    """最近切换任务列表（新在前，供任务面板/排查）。
-
-    路径必须两段（/switch/list）：单段 /models/switch 会被先注册的
-    GET /models/{model_id} 吞掉（model_id="switch"）；且本路由必须
-    声明在 /switch/{task_id} 之前（"list" 不落入 task_id 参数）。
-    """
-    from ..services.switch_engine import get_switch_engine
-    return ok({"items": get_switch_engine().list_tasks(limit)})
-
-
-@router.get("/models/switch/{task_id}")
-def models_switch_status(task_id: str) -> dict[str, Any]:
-    """查询单个切换任务状态（含 plan/进度/错误/回滚状态）。"""
-    from ..services.switch_engine import get_switch_engine
-    info = get_switch_engine().get(task_id)
-    if info is None:
-        raise ApiError(20010, f"切换任务不存在: {task_id}",
-                       detail={"task_id": task_id})
-    return ok(info)
-
-
-@router.post("/models/switch/{task_id}/cancel")
-async def models_switch_cancel(task_id: str, force: bool = Query(False)) -> dict[str, Any]:
-    """请求取消切换任务。
-
-    P1 语义：
-    - loading 前：立即取消（默认）
-    - loading/verifying + force=true（用户最高权威）：
-      * vLLM 模型：强杀子进程（自杀协议）真终止，任务转 cancelled
-      * transformers/diffusers：标记善后——加载调用不可安全中断，
-        返回后立即卸载目标模型（消息如实告知）
-    """
-    from ..services.switch_engine import get_switch_engine
-    engine = get_switch_engine()
-    # cancel 内 vLLM stop 涉及 taskkill（数秒级同步阻塞）→ run_blocking
-    cancelled, msg = await run_blocking(engine.cancel, task_id, force=force)
-    info = engine.get(task_id)
-    if not cancelled:
-        raise ApiError(20010, msg, detail=info or {"task_id": task_id})
-    return ok(info, message=msg)
-
-
 class ModuleReleaseRequest(BaseModel):
     """模块切换资源释放请求（用户裁定 2026-08-21）。"""
     module: str                # 目标模块功能名（dialog/paint/video_gen/training）
@@ -1397,6 +1331,34 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
     # 本地 diffusers 管线冷启动约 10~60s，进页面即点火把加载摊进浏览
     # 时间；就绪信号 = /draw/status loaded（PaintEngine state=ready）
     if feature == "paint":
+        # W3-C（2026-09-13）：gen_engine=comfy 时预热=拉起 ComfyUI 进程
+        # （klein 权重由工作流流式装载，无常驻预载概念）；legacy 走
+        # 原 diffusers 预热链不动
+        try:
+            from ..config import get_config
+            _comfy_mode = str((get_config().get("paint") or {}).get(
+                "gen_engine", "legacy")).strip().lower() == "comfy"
+        except Exception:  # noqa: BLE001
+            _comfy_mode = False
+        if _comfy_mode:
+            from ..services.inference.comfy_paint_engine import (
+                comfy_paint_available,
+                get_comfy_paint_engine,
+            )
+            _warmup_inflight.discard("paint")
+            if not comfy_paint_available():
+                return ok({"feature": "paint", "started": False,
+                           "reason": "unavailable",
+                           "model": "comfy-klein-9b-fp8"},
+                          message="ComfyUI klein 出图栈不可用"
+                                  "（便携版或权重缺失）")
+            threading.Thread(
+                target=get_comfy_paint_engine().ensure_running,
+                daemon=True, name="paint-warmup-comfy").start()
+            return ok({"feature": "paint", "started": True,
+                       "model_id": "comfy-klein-9b-fp8"},
+                      message="ComfyUI klein 预热已启动（冷启动约 40 秒）")
+
         from ..services.inference.paint_engine import get_paint_engine
         engine = get_paint_engine()
         status = engine.get_status()
@@ -1590,106 +1552,6 @@ def models_delete(model_id: str) -> dict[str, Any]:
         if mid == model_id:
             _selections.pop(feat, None)
     return ok({"deleted": model_id})
-
-
-@router.delete("/models/{model_id}/files")
-def models_purge_files(model_id: str) -> dict[str, Any]:
-    """彻底删除模型磁盘文件（2026-08-20 卸载按钮升级：卸载+删盘）。
-
-    流程：已加载先卸载 → 删除磁盘权重（目录 rmtree / 文件 unlink）→
-    移除注册表记录（DB + **manifest v3 同步**，UAT 2026-09-10 缺陷⑨
-    根修）→ 清理功能选择引用。返回删除的路径与释放体积。
-    安全约束：解析后路径必须位于 models/ 目录内（防路径穿越误删任意
-    目录）；models/ 根目录本身与过浅路径（直接等于 models/）拒绝；
-    manifest required=true（随包/常驻）模型拒绝删盘。
-    """
-    import shutil as _shutil
-
-    from ..data import model_registry as _registry
-
-    model = _find_model(model_id)
-    if model is None:
-        raise ApiError(30001, "模型不存在", detail={"model_id": model_id})
-    # 随包/常驻模型护栏（UAT 2026-09-10 一天三犯幽灵条目的根治护栏）：
-    # required=true 是启动依赖，删盘必造成启动期登记表对账红
-    _m_entry = _registry.load_manifest().get("models", {}).get(model_id) or {}
-    if _m_entry.get("required"):
-        raise ApiError(40003, "随包/常驻模型禁止删盘（required=true）",
-                       detail={"model_id": model_id})
-    raw_path = (model.get("file_path") or "").strip()
-    if not raw_path or not model.get("downloaded"):
-        raise ApiError(30002, "模型文件不在本地磁盘，无需删除",
-                       detail={"model_id": model_id})
-
-    from ..config import MODELS_DIR as _MODELS_ROOT
-    target = Path(raw_path)
-    if not target.is_absolute():
-        target = _MODELS_ROOT.parent / target
-    target = target.resolve()
-    models_root = _MODELS_ROOT.resolve()
-    # 路径安全闸门：必须在 models/ 内且不能是 models/ 根自身
-    if target == models_root or models_root not in target.parents:
-        raise ApiError(40003, "拒绝删除：路径不在 models/ 目录内",
-                       detail={"path": str(target)})
-    if not target.exists():
-        raise ApiError(30001, "模型文件不存在（可能已被删除）",
-                       detail={"path": str(target)})
-
-    # 体积统计（删除前）
-    if target.is_dir():
-        size_gb = sum(f.stat().st_size for f in target.rglob("*")
-                      if f.is_file()) / (1024 ** 3)
-    else:
-        size_gb = target.stat().st_size / (1024 ** 3)
-
-    # 1. 卸载（未加载时 no-op；对话等常驻引擎一并释放）
-    mgr = get_model_manager()
-    mgr.unload_model(model_id)
-
-    # 2. 删除磁盘文件
-    try:
-        if target.is_dir():
-            _shutil.rmtree(target)
-        else:
-            target.unlink()
-    except OSError as exc:
-        raise ApiError(50001, f"文件删除失败：{exc}",
-                       detail={"path": str(target)}) from exc
-
-    # 3. 移除注册表记录（DB 优先，内存兜底）
-    db = get_db_safe()
-    if db is not None:
-        try:
-            db.delete("models", "id=?", (model_id,))
-        except Exception as exc:  # noqa: BLE001
-            log.warning("purge 注册表清理失败（文件已删）: %s", exc)
-    _models.pop(model_id, None)
-
-    # 4. 清理功能选择引用
-    for feat, mid in list(_selections.items()):
-        if mid == model_id:
-            _selections.pop(feat, None)
-
-    # 5. manifest v3 同步（UAT 2026-09-10 缺陷⑨根修：删盘必除名，
-    #    幽灵条目「登记有磁盘无」从源头封死；写失败仅告警不回滚
-    #    删盘动作，登记表由提交闸对账兜底）
-    try:
-        if _registry.remove_manifest_entry(model_id):
-            log.info("manifest 登记条目已同步移除: %s", model_id)
-    except Exception as exc:  # noqa: BLE001 - 同步失败不阻断删盘结果
-        log.warning("manifest 同步失败（提交闸将对账兜底）: %s", exc)
-
-    # 6. 强制失效磁盘扫描缓存（2026-08-20 幽灵卡片修复）：扫描器带
-    # 30s 缓存，purge 后若不失效，前端紧接着拉 /models 会从缓存读到
-    # 已删条目——磁盘已无文件但卡片仍显示"就绪+体积"定格在页面
-    try:
-        mgr.scan_downloaded_models(force=True)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("purge 后扫描缓存刷新失败（30s 后自然过期）: %s", exc)
-
-    log.info("模型文件已彻底删除: %s (%.1fGB)", target, size_gb)
-    return ok({"deleted": model_id, "path": str(target),
-               "freed_gb": round(size_gb, 2)})
 
 
 @router.put("/models/select")

@@ -55,6 +55,7 @@ import { useMangaStore } from './stores/useMangaStore';
 import { useTaskStore } from './stores/useTaskStore';
 import { useWarmupStore } from './stores/useWarmupStore';
 import { releaseForModule, warmupFeature } from './services/modelApi';
+import { getWsHub } from './services/ws';
 import { canSwitchFeature, type ActiveFeature } from './types';
 
 /**
@@ -302,6 +303,14 @@ export function AppShell() {
     }
   }, [collapsed]);
 
+  // 启动即拉取后端设置（2026-09-12 主题回放依赖：loadSettings 内会把
+  // 后端 system.settings.theme 回放为当前主题，修复「选洱海月重启变
+  // 夜樱」——localStorage 因换端口/壳配置丢失时主题打回默认。此前仅
+  // 设置页挂载才拉取，回放无触发点。fire-and-forget，内部自带静默）
+  useEffect(() => {
+    void useAppStore.getState().loadSettings();
+  }, []);
+
   /* --------------------- 模块切换资源调度（2026-08-21） --------------------- */
   // 上一个重量级模块（跨轻量页面保留：paint→models→storyboard 仍触发释放；
   // 会话首次进入仅记基线静默——启动时通常无已加载模型，避免无意义提示）
@@ -530,11 +539,53 @@ export default function App() {
     useHardwareStore.getState().init();
     useTaskStore.getState().init();
     useAppStore.getState().loadSettings();
+    // 字号启动回放（2026-09-15 持久化修复）：初始态已带 localStorage 值，此处落 DOM
+    document.documentElement.setAttribute(
+      'data-font-size', useAppStore.getState().fontSize);
 
     return () => {
       useHardwareStore.getState().destroy();
       useTaskStore.getState().destroy();
     };
+  }, []);
+
+  // 死信通道复活（2026-09-15 审计修复）：notification / 资源告警 status 系 /
+  // quality_degraded 此前零前端订阅——RAM/显存自动卸载、热限频、自动训练
+  // 暂停、质量降参用户全无感知。与 useTaskStore 同一 /ws 连接（多订阅共存），
+  // 资源类告警 60s 节流防刷屏。
+  useEffect(() => {
+    const conn = getWsHub();
+    conn.connect();
+    const lastWarn = new Map<string, number>();
+    const throttled = (key: string, msg: string) => {
+      const now = Date.now();
+      if (now - (lastWarn.get(key) ?? 0) < 60_000) return;
+      lastWarn.set(key, now);
+      useAppStore.getState().showToast(msg, 'warning');
+    };
+    const offs = [
+      conn.on<{ level?: string; message?: string }>('notification', (d) => {
+        if (!d?.message) return;
+        useAppStore.getState().showToast(
+          d.message,
+          d.level === 'error' ? 'error'
+            : d.level === 'success' ? 'success' : 'info');
+      }),
+      conn.on<{ message?: string }>('quality_degraded', (d) => {
+        throttled('quality_degraded',
+                  d?.message || 'GPU 持续高压，生成参数已自动下调');
+      }),
+      conn.on<{ event?: string; message?: string }>('task_progress', (d) => {
+        const ev = d?.event;
+        if (!ev) return;
+        if (ev.startsWith('resource_')) {
+          throttled(ev, d?.message || '系统资源紧张：部分模型已自动让位卸载');
+        } else if (ev === 'thermal_pause') {
+          throttled(ev, d?.message || '温度过高：已暂停接收新任务');
+        }
+      }),
+    ];
+    return () => offs.forEach((off) => off());
   }, []);
 
   return (

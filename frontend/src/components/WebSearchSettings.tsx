@@ -6,7 +6,7 @@
  * SearXNG 自建（推荐，对程序友好无反爬）/ 博查（用户自带 Key）。
  * 产品纪律：默认关闭；只上传查询词不上传聊天历史。
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Globe,
   Loader2,
@@ -33,13 +33,24 @@ const TRIGGER_LABELS: Record<WebSearchSettings['trigger'], string> = {
 
 export default function WebSearchSettings() {
   const [cfg, setCfg] = useState<WebSearchSettings | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  // 2026-09-15 审计修复：读配置失败明示错误并提供重试——旧实现
+  // catch 后 cfg 恒 null，界面永远停在「加载中…」，用户无从得知
+  // 后端不可用（静默降级不诚实）
+  const load = useCallback(() => {
     getWebSearchSettings()
-      .then(setCfg)
-      .catch(() => setCfg(null));
+      .then((c) => {
+        setCfg(c);
+        setLoadFailed(false);
+      })
+      .catch(() => setLoadFailed(true));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function handleSave() {
     if (!cfg) return;
@@ -82,7 +93,19 @@ export default function WebSearchSettings() {
         开启后，命中时效类问题时 AI 会先联网检索再回答，回复带【1】【2】引用
         标注与来源链接。默认关闭；只上传查询词，不上传聊天历史。
       </p>
-      {!cfg ? (
+      {loadFailed && !cfg ? (
+        <div className="settings-loading flex items-center gap-2">
+          <span className="text-[var(--color-text-secondary)]">
+            配置加载失败（后端不可用）
+          </span>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={load}
+          >
+            重试
+          </button>
+        </div>
+      ) : !cfg ? (
         <div className="settings-loading">加载中…</div>
       ) : (
         <div className="flex flex-col gap-3">

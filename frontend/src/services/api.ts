@@ -54,8 +54,6 @@ export interface RequestOptions {
   query?: QueryParams;
   /** 自定义请求头 */
   headers?: Record<string, string>;
-  /** 是否跳过统一信封解析（如直接返回二进制/纯文本），默认 false */
-  raw?: boolean;
   /** AbortSignal，用于取消请求 */
   signal?: AbortSignal;
   /** 请求超时毫秒，默认 0（不超时） */
@@ -105,7 +103,7 @@ export function isApiError(err: unknown): err is ApiError {
  * 核心 fetch 封装：统一处理信封、错误与超时。
  * @param path  不带 /api/v1 前缀的路径，如 '/chat/sessions'
  * @param opts  请求选项
- * @returns     成功时返回 ApiResponse.data（raw 模式返回 Response）
+ * @returns     成功时返回 ApiResponse.data
  */
 export async function request<T = unknown>(
   path: string,
@@ -116,7 +114,6 @@ export async function request<T = unknown>(
     body,
     query,
     headers = {},
-    raw = false,
     signal,
     timeout = 0,
     root = false,
@@ -177,11 +174,9 @@ export async function request<T = unknown>(
     if (signal) signal.removeEventListener('abort', onExternalAbort);
   }
 
-  // raw 模式：直接返回 Response，由调用方自行处理（如文件下载）
-  if (raw) {
-    return res as unknown as T;
-  }
-
+  // B7 步4（2026-09-14）：raw 模式已删——零消费方的死选项（文件下载
+  // 类需求将来用独立的 requestRaw(): Promise<Response> 承载，不与信封
+  // 泛型混用类型谎言（as unknown as T）。
   // 解析统一信封（文档D：{ success, data, error, meta }）
   let env: ApiResponse<T> | null;
   try {

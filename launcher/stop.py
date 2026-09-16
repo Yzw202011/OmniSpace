@@ -161,6 +161,24 @@ def _llama_leftovers() -> list[psutil.Process]:
     return found
 
 
+def _shell_leftovers() -> list[psutil.Process]:
+    """桌面壳残留（2026-09-15 审计修复）：退出链此前不清壳——stop 后
+    壳窗口成死窗，且下次启动壳单实例守卫会把死窗「置前让位」，新启动
+    链的界面反而打不开。匹配 OmniSpace-Shell.exe（pywebview 壳专属
+    品牌名，命名唯一不误伤）。"""
+    found: list[psutil.Process] = []
+    me = psutil.Process().pid
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['pid'] == me:
+                continue
+            if (proc.info['name'] or '') == 'OmniSpace-Shell.exe':
+                found.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return found
+
+
 def _graceful_quit(port: int) -> None:
     conn = http.client.HTTPConnection(LOOPBACK_HOST, port, timeout=3)
     try:
@@ -233,6 +251,15 @@ def main() -> int:
 
     if splash is None and not boots and not ours and comfy is None:
         print('未发现运行中的 OmniSpace 启动链（启动页 / 后端 5800-5835 / ComfyUI 均无）。')
+        # B0（2026-09-13）：孤儿清扫不因「无启动链」短路——vLLM 子进程
+        # 可能逃逸 Job Object 滞留（实测当日：栈退出后两个
+        # OmniSpace-LLM.exe 孤儿占显存 12.8GB，本脚本却提前 return 0）。
+        llamas = _llama_leftovers()
+        if llamas:
+            _terminate(llamas, ' 推理子进程孤儿(llama/vLLM)')
+        shells = _shell_leftovers()
+        if shells:
+            _terminate(shells, ' 桌面壳残留(OmniSpace-Shell)')
         _report_others(others)
         return 0
 
@@ -253,6 +280,9 @@ def main() -> int:
                 leftovers = _llama_leftovers()
                 if leftovers:
                     _terminate(leftovers, ' 推理子进程孤儿(llama/vLLM)')
+                shells = _shell_leftovers()
+                if shells:
+                    _terminate(shells, ' 桌面壳残留(OmniSpace-Shell)')
                 _report_others(others)
                 return 0
             time.sleep(1.0)
@@ -274,8 +304,10 @@ def main() -> int:
             pass
     llama = _llama_leftovers()
     _terminate(llama, ' 推理子进程孤儿(llama/vLLM)')
+    _terminate(_shell_leftovers(), ' 桌面壳进程(OmniSpace-Shell)')
 
-    ok = _stack_cleared() and _find_comfy_leftover() is None and not _llama_leftovers()
+    ok = (_stack_cleared() and _find_comfy_leftover() is None
+          and not _llama_leftovers() and not _shell_leftovers())
     print('✓ 兜底清理完成。' if ok else '✗ 清理后仍有残留，请检查任务管理器。')
     _report_others(others)
     return 0 if ok else 1

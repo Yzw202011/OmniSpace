@@ -1,3 +1,4 @@
+import { mirrorPref } from '../../../services/uiPrefs';
 /* ==========================================================================
  * batchOps.ts —— 漫剧编辑器批量行操作（工序箭头/批量条共用）
  * --------------------------------------------------------------------------
@@ -73,10 +74,9 @@ export function readPromptCfg(): PromptCfg {
 
 /** 写入提示词配置（custom 截断至上限） */
 export function writePromptCfg(cfg: PromptCfg): void {
-  localStorage.setItem(
-    PROMPT_CFG_KEY,
-    JSON.stringify({ mode: cfg.mode, custom: cfg.custom.slice(0, PROMPT_PREFIX_MAX) }),
-  );
+  const snap = { mode: cfg.mode, custom: cfg.custom.slice(0, PROMPT_PREFIX_MAX) };
+  localStorage.setItem(PROMPT_CFG_KEY, JSON.stringify(snap));
+  mirrorPref(PROMPT_CFG_KEY, snap); // 界面偏好镜像（2026-09-12）
 }
 
 /** 读取提示词弹窗配置，custom 且有值时回传 prompt_prefix */

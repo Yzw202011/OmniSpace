@@ -48,7 +48,15 @@ _SCAN_ENTRY_CAP = 4000
 
 
 def _has_weight_file(entry_dir: Path, size_gb: float = 0.0) -> bool:
-    """目录是否真有权重在位（命中即返回，封顶防拖死）。"""
+    """目录（或单文件条目）是否真有权重在位（命中即返回，封顶防拖死）。"""
+    # 单文件条目（2026-09-15 修复）：manifest path 允许是文件（如
+    # text_encoders/qwen_3_4b.safetensors）——旧实现对文件路径 rglob
+    # 落空 → 永判「缺失」，造成每日常态假警报「软件包可能损坏」
+    if entry_dir.is_file():
+        try:
+            return entry_dir.stat().st_size >= _BIG_FILE_BYTES
+        except OSError:
+            return False
     need_total = max(_BIG_FILE_BYTES, int((size_gb or 0.0) * 1e9 * 0.5))
     total = 0
     seen = 0

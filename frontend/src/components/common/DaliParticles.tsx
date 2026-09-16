@@ -118,7 +118,7 @@ export function DaliParticles() {
       );
     }
 
-    /** 单帧：萤火慢浮 + 呼吸明灭 */
+    /** 单帧：月亮实体 + 萤火慢浮 + 呼吸明灭 */
     function frame(now: number): void {
       if (!running) return;
       const dt = Math.min((now - last) / 1000, 0.05);
@@ -126,6 +126,42 @@ export function DaliParticles() {
       const t = now / 1000;
 
       c2d.clearRect(0, 0, w, h);
+
+      // 月亮实体（2026-09-12 用户拍板 A）：主界面视觉锚点，仅暗色绘制；
+      // 亮色「苍山雪」= 雪后初晴，太阳由场景 CSS 承担（dali-fx.css 氛围场）
+      if (!light) {
+        const mx = w * 0.63;
+        const my = h * 0.15;
+        const mr = Math.min(w, h) * 0.05;
+        // 外晕
+        let mg = c2d.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 3.6);
+        mg.addColorStop(0, 'rgba(180, 216, 245, 0.16)');
+        mg.addColorStop(0.45, 'rgba(124, 192, 236, 0.07)');
+        mg.addColorStop(1, 'rgba(124, 192, 236, 0)');
+        c2d.fillStyle = mg;
+        c2d.fillRect(mx - mr * 3.6, my - mr * 3.6, mr * 7.2, mr * 7.2);
+        // 盘面
+        mg = c2d.createRadialGradient(
+          mx - mr * 0.25, my - mr * 0.25, mr * 0.1, mx, my, mr,
+        );
+        mg.addColorStop(0, '#FBFDFF');
+        mg.addColorStop(0.72, '#E4F1FC');
+        mg.addColorStop(1, '#C6DDF2');
+        c2d.beginPath();
+        c2d.arc(mx, my, mr, 0, Math.PI * 2);
+        c2d.fillStyle = mg;
+        c2d.fill();
+        // 月海（两抹淡影）
+        c2d.globalAlpha = 0.16;
+        c2d.fillStyle = '#7FA6C9';
+        c2d.beginPath();
+        c2d.arc(mx - mr * 0.3, my - mr * 0.1, mr * 0.28, 0, Math.PI * 2);
+        c2d.fill();
+        c2d.beginPath();
+        c2d.arc(mx + mr * 0.22, my + mr * 0.3, mr * 0.18, 0, Math.PI * 2);
+        c2d.fill();
+        c2d.globalAlpha = 1;
+      }
 
       for (const p of particles) {
         p.y -= p.vy * dt;

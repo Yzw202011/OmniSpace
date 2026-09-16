@@ -148,7 +148,13 @@ def _parse_pkg_entry(pkg: CuteMamenPkg, name: str, raw: bytes) -> None:
         level = name.split("/", 1)[1].rsplit(".", 1)[0]
         data = json.loads(raw.decode("utf-8"))
         entries = data.get("entries") if isinstance(data, dict) else None
-        if isinstance(entries, dict):
+        if entries is None and isinstance(data, dict) and "events" in data:
+            # 内核 save_pkg 的 episodic 格式（{"events": [...]}）跨体系兼容
+            # （2026-09-16 批5）：原样收进 events 键零丢失——内核侧事件流
+            # 与 OSP 侧 KV 模型语义不同，强行拆解反而失真；此前此处静默
+            # 丢弃整段 episodic 记忆。待两套记忆模型统一后一并收敛。
+            pkg.memory[level] = {"events": data["events"]}
+        elif isinstance(entries, dict):
             pkg.memory[level] = dict(entries)
         elif isinstance(entries, list):  # [{key, value}] 形态兼容
             pkg.memory[level] = {

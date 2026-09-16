@@ -1,9 +1,13 @@
 # plugin/ — CuteMamen 插件包
 
 OmniSpace 插件系统的插件包目录。插件以 `.CuteMamen` 自包含包交付
-（tar.gz：manifest.json + weights/ + memory/ 三级记忆），由
-`src/cutemamen/` 内核加载与路由，源码与插件系统规范都在
-`src/cutemamen/`。另：`plugin/video_making.py` 为评审用独立副本，实现同 `src/cutemamen/video_making.py`，导入已改为绝对路径 `src.cutemamen.*`。
+（tar.gz：manifest.json + weights/ + memory/ 三级记忆，**包内不含
+.py 源码**）。产品加载方 = `src/services/plugin_runtime/`（OSP v1，
+`plugin/` 为种子包登记目录）；`src/cutemamen/` 内核经 2026-09-16
+接线后亦可装载（拍板项③）。插件源码单一真源 =
+`src/cutemamen/{rust_coding,video_making}.py`（评审副本
+`plugin/video_making.py` 已删除，2026-09-16 勘误——此前本行错误
+指向已不存在的副本）。
 
 | 插件包 | 能力 | 资源需求 |
 | ------ | ---- | -------- |

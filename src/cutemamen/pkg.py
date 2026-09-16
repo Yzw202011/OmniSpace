@@ -262,7 +262,8 @@ def _read_members(path: str) -> tuple[dict, dict, dict]:
         if member is not None:
             data = tar.extractfile(member).read()
             if len(data) > 0:
-                weights = dict(np.load(io.BytesIO(data)))
+                # allow_pickle=False：npy/npz 安全体，对齐 OSP loader 同款
+                weights = dict(np.load(io.BytesIO(data), allow_pickle=False))
 
         working = _read_json(tar, WORKING_PATH, {})
         episodic = _read_json(tar, EPISODIC_PATH, {})

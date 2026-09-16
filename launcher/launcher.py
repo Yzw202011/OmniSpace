@@ -44,6 +44,53 @@ for _stream in (sys.stdout, sys.stderr):
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# ── 崩溃取证（2026-09-16 布控）─────────────────────────────────
+# 09-16 审计定性：看门狗「只记重启次数、不记退出码、不留现场」= 无声死
+# 取证断链的直接原因（08:57 崩溃簇五连死无 traceback/无 WER，根因悬置）。
+# 快照写入 logs/crash_forensics/，取证全程 fail-open。
+_CRASH_FORENSICS_DIR = PROJECT_ROOT / 'logs' / 'crash_forensics'
+# 引擎子进程特征（cmdline 小写匹配）：comfy / vllm / llama 三类
+_ENGINE_SIGNATURES = ('comfyui/main.py', 'vllm', 'llama-server')
+
+
+def _snapshot_gpu() -> dict[str, Any] | None:
+    """nvidia-smi 快照（VRAM/利用率/温度）；失败返回 None（fail-open）。"""
+    try:
+        out = subprocess.run(
+            ['nvidia-smi',
+             '--query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5)
+        parts = out.stdout.strip().splitlines()[0].split(', ')
+        if out.returncode == 0 and len(parts) == 4:
+            return {'vram_used_mb': int(parts[0]),
+                    'vram_total_mb': int(parts[1]),
+                    'gpu_util_pct': int(parts[2]),
+                    'gpu_temp_c': int(parts[3])}
+    except Exception:  # noqa: BLE001 - 取证失败不影响看门狗
+        pass
+    return None
+
+
+def _snapshot_engine_procs() -> list[dict[str, Any]]:
+    """当前引擎类子进程清单（pid/RSS/命令行截断），供死亡现场比对。"""
+    out: list[dict[str, Any]] = []
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_info']):
+        try:
+            # 反斜杠归一化：Windows 命令行路径分隔符不定，统一按 / 匹配
+            cmd = ' '.join(
+                proc.info['cmdline'] or []).lower().replace('\\', '/')
+            if not any(sig in cmd for sig in _ENGINE_SIGNATURES):
+                continue
+            mi = proc.info.get('memory_info')
+            out.append({'pid': proc.info['pid'],
+                        'name': proc.info.get('name'),
+                        'rss_mb': round(mi.rss / 1e6, 1) if mi else None,
+                        'cmdline': cmd[:200]})
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return out
+
 
 def _load_disk_start_min_gb(default: float = 20.0) -> float:
     """从 config.yaml `disk.start_min_gb` 读取启动磁盘门槛（P2 统一口径）。
@@ -719,8 +766,76 @@ class BackendProcess:
         with self._crash_lock:
             self._handle_crash_locked(port)
 
+    def _write_crash_forensics(self, port: int,
+                               exit_code: int | None) -> Path | None:
+        """后端死亡现场快照：退出码 + RAM + GPU + 引擎子进程清单。
+
+        写入 logs/crash_forensics/crash-<时间戳>.json。取证全程
+        fail-open——快照失败绝不影响看门狗重启主链。
+        """
+        try:
+            vm = psutil.virtual_memory()
+            snap: dict[str, Any] = {
+                'ts': datetime.now().isoformat(timespec='seconds'),
+                'backend_pid': self.process.pid if self.process else None,
+                'exit_code': exit_code,
+                'restart_count_so_far': self._restart_count,
+                'port': port,
+                'ram': {'percent': vm.percent,
+                        'available_mb': round(vm.available / 1e6)},
+                'gpu': _snapshot_gpu(),
+                'engine_procs': _snapshot_engine_procs(),
+            }
+            _CRASH_FORENSICS_DIR.mkdir(parents=True, exist_ok=True)
+            path = (_CRASH_FORENSICS_DIR /
+                    f"crash-{datetime.now():%Y%m%d-%H%M%S}.json")
+            path.write_text(
+                json.dumps(snap, ensure_ascii=False, indent=2),
+                encoding='utf-8')
+            return path
+        except Exception:  # noqa: BLE001 - 取证失败不影响看门狗
+            return None
+
+    def _cleanup_orphan_engines(self) -> list[int]:
+        """热重启前清理孤儿引擎子进程（父进程已死的 comfy/vllm/llama）。
+
+        后端猝死时引擎子进程可能存活并继续占显存——新实例在满显存上
+        初始化 CUDA 是 09-16 崩溃簇 5 连死的候选放大器。冷启动链已有
+        同款清理（boot.py 启动时），热重启链此前为零。只杀父进程已死
+        者，绝不误伤其他存活实例的活引擎。
+        """
+        killed: list[int] = []
+        my_pid = os.getpid()
+        for proc in psutil.process_iter(['pid', 'cmdline']):
+            try:
+                cmd = ' '.join(
+                    proc.info['cmdline'] or []).lower().replace('\\', '/')
+                if not any(sig in cmd for sig in _ENGINE_SIGNATURES):
+                    continue
+                if proc.info['pid'] == my_pid:
+                    continue
+                try:
+                    parent = proc.parent()
+                    parent_alive = parent is not None and parent.is_running()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    parent_alive = False
+                if parent_alive:
+                    continue
+                proc.kill()
+                killed.append(proc.info['pid'])
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        if killed:
+            print(f'[launcher] 热重启前清理孤儿引擎进程: PID {killed}',
+                  flush=True)
+        return killed
+
     def _handle_crash_locked(self, port: int) -> None:
         now = time.time()
+
+        # 崩溃布控（2026-09-16）：入口先抓退出码与死亡现场快照
+        exit_code = self.process.poll() if self.process else None
+        forensics_path = self._write_crash_forensics(port, exit_code)
 
         # 端口归属检查（2026-08-22 僵尸循环修复）：双 launcher 共存时，
         # 对方 watchdog 拉起的 uvicorn 已占用端口，本实例重启的 uvicorn
@@ -757,8 +872,11 @@ class BackendProcess:
                 self.on_status_change('crash_permanent', f'后端崩溃次数超过限制({self.config.max_restart_attempts}次)')
             return
 
+        extra = f'，现场快照 {forensics_path.name}' if forensics_path else ''
         if self.on_status_change:
-            self.on_status_change('restarting', f'后端异常，正在重启(第{self._restart_count}次)...')
+            self.on_status_change(
+                'restarting',
+                f'后端异常(exit={exit_code}{extra})，正在重启(第{self._restart_count}次)...')
 
         # 终止旧进程
         if self.process:
@@ -767,6 +885,12 @@ class BackendProcess:
                 self.process.wait(timeout=5)
             except Exception:
                 pass
+
+        # 孤儿引擎清理（2026-09-16 布控）：清理失败不阻断重启
+        try:
+            self._cleanup_orphan_engines()
+        except Exception:  # noqa: BLE001
+            pass
 
         # 重启
         time.sleep(2)

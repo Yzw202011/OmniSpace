@@ -1308,6 +1308,24 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 log.warning("路由底座 %s 加载失败，依链降级: %s",
                             mid, engine.get_status().get("last_error") or "")
         if not flux:
+            # D-LoRA 救援点（2026-09-16 根因定位后重修·断点④真身）：
+            # 路由链首位常是 flux2-klein-9b——其 diffusers 目录自 09-10
+            # bf16 分片删除后即为幻影候选（transformer/ 只剩骨架索引，
+            # _flux_model_dir_ready 不认 transformer-gguf），而风格包偏
+            # 好序 klein 族常只有 9b → 白名单交集滤掉 4b → 默认提权要求
+            # default∈偏好序（4b 不在）→ 兜底返回不可用原序——四层叠加
+            # 使链滑向 SDXL，LoRA 行既无底座也无参考（refs 仅 flux 态
+            # 加载）。带 LoRA 行在此显式装载 4b（在盘/白名单内/用户默
+            # 认），使 flux 分支与 attach 挂载可达；无 LoRA 行维持原降级。
+            _row_has_lora = any(
+                ((DATA_DIR / str(a.get("file_path") or "")).parent
+                 / "lora.safetensors").is_file()
+                for a in char_assets)
+            if _row_has_lora and engine.ensure_loaded("flux2-klein-4b"):
+                flux = True
+                log.info("D-LoRA 救援：路由链无可载 klein，行带角色 LoRA "
+                         "→ 显式装载 flux2-klein-4b（避开 SDXL 无锚降级）")
+        if not flux:
             # 降级链：FLUX.2 缺失/加载失败 → SDXL（中文走翻译兜底）
             log.warning("klein 家族加载失败，关键帧降级 SDXL+翻译")
             if not engine.ensure_loaded(None):

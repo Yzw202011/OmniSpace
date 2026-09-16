@@ -9,8 +9,10 @@
 import { useState } from 'react';
 
 import {
+  runDiagnose,
   runHealthCheck,
   runHealthRepair,
+  type DiagnoseResult,
   type HealthCheckItem,
   type HealthCheckReport,
 } from '@/services/systemApi';
@@ -24,10 +26,31 @@ const LEVEL_META: Record<string, { color: string; label: string }> = {
   unknown: { color: 'var(--color-text-secondary, currentColor)', label: '未知' },
 };
 
+/** 深度体检状态色（后端语义：pass/warn/fail） */
+const DIAG_META: Record<string, { color: string; label: string }> = {
+  pass: { color: 'var(--color-success)', label: '通过' },
+  warn: { color: 'var(--color-warning)', label: '注意' },
+  fail: { color: 'var(--color-error)', label: '异常' },
+};
+
 export default function HealthCheckCard() {
   const [report, setReport] = useState<HealthCheckReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [repairing, setRepairing] = useState('');
+  /** 深度体检（26 项环境级真实探测，审计 BK-002；2026-09-17 接线） */
+  const [deep, setDeep] = useState<DiagnoseResult | null>(null);
+  const [deepLoading, setDeepLoading] = useState(false);
+
+  const runDeep = async (): Promise<void> => {
+    setDeepLoading(true);
+    try {
+      setDeep(await runDiagnose());
+    } catch (err) {
+      reportActionError(err, '深度体检');
+    } finally {
+      setDeepLoading(false);
+    }
+  };
 
   const refresh = async (): Promise<HealthCheckReport | null> => {
     setLoading(true);
@@ -68,6 +91,16 @@ export default function HealthCheckCard() {
           }}
         >
           {loading ? '体检中…' : report === null ? '开始体检' : '重新体检'}
+        </button>
+        <button
+          className="btn btn-outline btn-sm"
+          disabled={deepLoading}
+          title="环境级 27 项真实探测（硬件/数据库/引擎/目录），与上方运行时体检互补"
+          onClick={() => {
+            void runDeep();
+          }}
+        >
+          {deepLoading ? '深度体检中…' : '深度体检'}
         </button>
       </div>
       <p className="settings-section-desc">
@@ -121,6 +154,34 @@ export default function HealthCheckCard() {
             })}
           </div>
         </>
+      )}
+
+      {/* 深度体检结果（26 项环境级；audit BK-002） */}
+      {deep !== null && (
+        <div style={{ marginTop: 'var(--space-3)', borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 'var(--space-2)' }}>
+          <p className="settings-section-desc">
+            深度体检：{deep.summary.pass} 通过 / {deep.summary.warn} 注意 /{' '}
+            {deep.summary.fail} 异常（共 {deep.summary.total} 项，只读探测不改动系统）
+          </p>
+          <table className="table" style={{ fontSize: 12 }}>
+            <thead>
+              <tr><th>#</th><th>检测项</th><th>结果</th><th>详情</th></tr>
+            </thead>
+            <tbody>
+              {deep.items.map((it) => {
+                const meta = DIAG_META[it.status] ?? DIAG_META.warn;
+                return (
+                  <tr key={it.index}>
+                    <td>{it.index}</td>
+                    <td>{it.name}</td>
+                    <td style={{ color: meta.color }}>{meta.label}</td>
+                    <td style={{ opacity: 0.8 }}>{it.detail}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

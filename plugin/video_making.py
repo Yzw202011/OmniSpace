@@ -22,7 +22,7 @@ route = "video": on_think 渲染帧序列并发布 "video.rendered"
 未注入权重时使用内置默认运动曲线 (真实运镜参数蒸馏自分镜惯例)。
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -31,7 +31,7 @@ from .plugin import ExpertPlugin, PluginContext
 # ── 内置镜头运动曲线 (真实运镜惯例参数: 每镜头归一化位移/缩放/旋转) ──
 # dx/dy: 归一化平移 (画面宽高比例), zoom: 1.0 = 不缩放,
 # rot: 度; "from" → 镜头起点, "to" → 镜头终点 (缓动插值)。
-DEFAULT_MOTION_PROFILES: Dict[str, Dict[str, Any]] = {
+DEFAULT_MOTION_PROFILES: dict[str, dict[str, Any]] = {
     "static":      {"from": {"dx": 0.00, "dy": 0.00, "zoom": 1.00, "rot": 0.0},
                     "to":   {"dx": 0.00, "dy": 0.00, "zoom": 1.00, "rot": 0.0}},
     "pan_left":    {"from": {"dx": 0.08, "dy": 0.00, "zoom": 1.05, "rot": 0.0},
@@ -75,21 +75,21 @@ class VideoMakingPlugin(ExpertPlugin):
                   "帧序列 + 转场合成 (纯 numpy, 零 GPU / 零外部依赖)")
 
     def __init__(self, name: str = "video-making", *,
-                 route: Optional[str] = None, **kwargs):
+                 route: str | None = None, **kwargs):
         super().__init__(name, route=route or "video", **kwargs)
         # 运动曲线权重 (可存档): motion → profile; 未注入用内置默认
-        self.motion_profiles: Dict[str, Dict[str, Any]] = {}
+        self.motion_profiles: dict[str, dict[str, Any]] = {}
         self.render_count = 0
         self.total_frames = 0
 
     # ── 运动曲线 ────────────────────────────────────────────
-    def _profile(self, motion: str) -> Dict[str, Any]:
+    def _profile(self, motion: str) -> dict[str, Any]:
         if motion in self.motion_profiles:
             return self.motion_profiles[motion]
         return DEFAULT_MOTION_PROFILES.get(
             motion, DEFAULT_MOTION_PROFILES["static"])
 
-    def available_motions(self) -> List[str]:
+    def available_motions(self) -> list[str]:
         merged = dict(DEFAULT_MOTION_PROFILES)
         merged.update(self.motion_profiles)
         return sorted(merged)
@@ -101,8 +101,8 @@ class VideoMakingPlugin(ExpertPlugin):
         self.memory.set("transitions", list(TRANSITIONS))
         super().on_load(ctx)
 
-    def on_think(self, event: Dict[str, Any],
-                 ctx: PluginContext) -> Optional[Dict[str, Any]]:
+    def on_think(self, event: dict[str, Any],
+                 ctx: PluginContext) -> dict[str, Any] | None:
         """渲染一段视频: spec → 帧序列 + 统计"""
         super().on_think(event, ctx)
         spec = _extract_spec(event.get("data"))
@@ -129,8 +129,8 @@ class VideoMakingPlugin(ExpertPlugin):
         super().on_unload()
 
     # ── 渲染内核 ────────────────────────────────────────────
-    def render(self, spec: Dict[str, Any]
-               ) -> Tuple[List[np.ndarray], List[Dict[str, Any]]]:
+    def render(self, spec: dict[str, Any]
+               ) -> tuple[list[np.ndarray], list[dict[str, Any]]]:
         """spec → (帧序列, 镜头计划)
 
         每个镜头从对应关键帧出发, 按运动曲线在 duration 内逐帧逆仿射
@@ -143,9 +143,9 @@ class VideoMakingPlugin(ExpertPlugin):
         shots_spec = spec.get("shots") or [{"motion": "static"}]
         shots_spec = shots_spec[:len(keyframes)] or [{"motion": "static"}]
 
-        frames: List[np.ndarray] = []
-        plan: List[Dict[str, Any]] = []
-        prev_last: Optional[np.ndarray] = None
+        frames: list[np.ndarray] = []
+        plan: list[dict[str, Any]] = []
+        prev_last: np.ndarray | None = None
         for i, shot in enumerate(shots_spec):
             motion = str(shot.get("motion", "static"))
             duration_s = float(shot.get("duration_s", DEFAULT_DURATION_S))
@@ -177,8 +177,8 @@ class VideoMakingPlugin(ExpertPlugin):
         return frames, plan
 
     # ── 权重序列化 (运动曲线参数表) ──────────────────────────
-    def save_weights(self) -> Dict[str, np.ndarray]:
-        out: Dict[str, np.ndarray] = {}
+    def save_weights(self) -> dict[str, np.ndarray]:
+        out: dict[str, np.ndarray] = {}
         for motion, prof in self.motion_profiles.items():
             out[f"prof_{motion}"] = np.array(
                 [[prof["from"]["dx"], prof["from"]["dy"],
@@ -189,8 +189,8 @@ class VideoMakingPlugin(ExpertPlugin):
             [self.render_count, self.total_frames], dtype=int)
         return out
 
-    def load_weights(self, weights: Dict[str, np.ndarray],
-                     manifest: Dict[str, Any]) -> None:
+    def load_weights(self, weights: dict[str, np.ndarray],
+                     manifest: dict[str, Any]) -> None:
         self.motion_profiles = {}
         for key, arr in weights.items():
             if not key.startswith("prof_"):
@@ -207,7 +207,7 @@ class VideoMakingPlugin(ExpertPlugin):
             self.render_count = int(weights["__stats__"][0])
             self.total_frames = int(weights["__stats__"][1])
 
-    def build_manifest(self, **extra: Any) -> Dict[str, Any]:
+    def build_manifest(self, **extra: Any) -> dict[str, Any]:
         extra.setdefault("capability", self.CAPABILITY)
         extra.setdefault("motions", self.available_motions())
         extra.setdefault("transitions", list(TRANSITIONS))
@@ -215,7 +215,7 @@ class VideoMakingPlugin(ExpertPlugin):
         extra.setdefault("gpu_required", False)
         return super().build_manifest(**extra)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         s = super().stats()
         s["motions"] = self.available_motions()
         s["render_count"] = self.render_count
@@ -228,7 +228,7 @@ class VideoMakingPlugin(ExpertPlugin):
 # 渲染内核辅助 (纯 numpy, 无 scipy/cv2)
 # ═══════════════════════════════════════════════════════════════
 
-def _extract_spec(data: Any) -> Optional[Dict[str, Any]]:
+def _extract_spec(data: Any) -> dict[str, Any] | None:
     """从事件取渲染 spec: 支持 spec 本体或 {"spec": spec} 包装"""
     if isinstance(data, dict) and "keyframes" in data:
         return data
@@ -260,8 +260,8 @@ def _ease(t: float, kind: str = "smoothstep") -> float:
     return t * t * (3.0 - 2.0 * t)        # smoothstep
 
 
-def _camera_at(profile: Dict[str, Any], p: float
-               ) -> Tuple[float, float, float, float]:
+def _camera_at(profile: dict[str, Any], p: float
+               ) -> tuple[float, float, float, float]:
     """运动曲线插值: 进度 p → (dx, dy, zoom, rot)"""
     f, to = profile["from"], profile["to"]
     return (f["dx"] + (to["dx"] - f["dx"]) * p,
@@ -310,8 +310,8 @@ def _affine_frame(frame: np.ndarray, dx: float, dy: float,
 
 
 def _apply_transition(prev_last: np.ndarray,
-                      shot_frames: List[np.ndarray],
-                      transition: str) -> List[np.ndarray]:
+                      shot_frames: list[np.ndarray],
+                      transition: str) -> list[np.ndarray]:
     """镜头间转场: crossfade (叠化) / dip_to_black (黑场过渡)"""
     n = max(2, len(shot_frames) // 3)   # 前 1/3 帧做转场
     n = min(n, len(shot_frames))
@@ -325,7 +325,7 @@ def _apply_transition(prev_last: np.ndarray,
     return shot_frames
 
 
-def _match_shape(frame: np.ndarray, shape: Tuple[int, ...]) -> np.ndarray:
+def _match_shape(frame: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
     """把参考帧裁/扩到目标形状 (转场合成用, 最近邻)"""
     if frame.shape == tuple(shape):
         return frame

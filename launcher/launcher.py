@@ -606,19 +606,41 @@ class BackendProcess:
         env['OMNISPACE_LAUNCHER'] = '1'
         return env
 
+    # 管道日志轮转阈值（_drain_pipe 用）
+    _PIPE_LOG_ROTATE_BYTES = 10 * 1024 * 1024
+
     def _drain_pipe(self, pipe: io.BufferedReader, log_path: Path) -> None:
-        """L-M2: 后台线程持续读取子进程管道内容写入日志文件，避免管道满后子进程阻塞"""
+        """L-M2: 后台线程持续读取子进程管道内容写入日志文件，避免管道满后子进程阻塞
+
+        2026-09-16 批4：加轮转（原 append 无界——backend_stderr.log 已
+        9.1MB 即将失守）。超阈值轮转保留一代 .1（替换式不累积），
+        轮转失败继续写原文件（日志绝不因轮转而断流）。"""
+        written = 0
         try:
-            with open(log_path, 'a', encoding='utf-8') as f:
+            f = open(log_path, 'a', encoding='utf-8')
+            try:
                 for line in iter(pipe.readline, b''):
                     try:
                         text = line.decode('utf-8', errors='replace')
                         f.write(text)
                         f.flush()
+                        written += len(text)
                         if self.on_output is not None:
                             self.on_output(text.rstrip('\r\n'))
+                        if written > self._PIPE_LOG_ROTATE_BYTES:
+                            f.close()
+                            rotated = log_path.parent / (log_path.name + '.1')
+                            try:
+                                rotated.unlink(missing_ok=True)
+                                log_path.replace(rotated)
+                            except OSError:
+                                pass
+                            f = open(log_path, 'a', encoding='utf-8')
+                            written = 0
                     except Exception:
                         break
+            finally:
+                f.close()
         except Exception:
             pass
         finally:

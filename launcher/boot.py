@@ -51,17 +51,24 @@ sys.path.insert(0, str(BOOT_DIR))
 # （追加式 + 简单截断保护），/logs/raw 白名单可直接 tail 本文件
 BOOT_LOG = BOOT_DIR.parent / 'logs' / 'boot.log'
 _boot_log_lock = threading.Lock()
+# 轮转阈值（2026-09-16：原「超 20MB 砍前半」无痕丢一半历史且不生成
+# 归档；改标准轮转 boot.log → boot.log.1，保留一代完整启动现场）
+_BOOT_LOG_ROTATE_BYTES = 10 * 1024 * 1024
 
 
 def _boot_log_write(line: str) -> None:
     try:
         with _boot_log_lock:
+            if (BOOT_LOG.exists()
+                    and BOOT_LOG.stat().st_size > _BOOT_LOG_ROTATE_BYTES):
+                rotated = BOOT_LOG.parent / (BOOT_LOG.name + '.1')
+                try:
+                    rotated.unlink(missing_ok=True)
+                    BOOT_LOG.replace(rotated)
+                except OSError:
+                    pass
             with open(BOOT_LOG, 'a', encoding='utf-8') as f:
                 f.write(f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")} {line}\n')
-            # 截断保护：超 20MB 砍前半（启动链日志量小，仅防长期膨胀）
-            if BOOT_LOG.stat().st_size > 20 * 1024 * 1024:
-                data = BOOT_LOG.read_text(encoding='utf-8', errors='replace')
-                BOOT_LOG.write_text(data[len(data) // 2:], encoding='utf-8')
     except Exception:  # noqa: BLE001 - 日志失败绝不阻断启动
         pass
 

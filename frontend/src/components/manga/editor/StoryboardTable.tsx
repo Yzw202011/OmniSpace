@@ -32,6 +32,7 @@ import {
   Trash2,
   Wand2,
   X,
+  Zap,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -280,6 +281,10 @@ interface StoryboardRowProps {
   onMove: (rowId: string, dir: -1 | 1) => void;
   onRemove: (rowId: string) => void;
   onGenerateVideo: (row: StoryboardRowData) => void;
+  /** 插件快速预览（秒级草稿；成功返回 mp4 URL，失败返回 null） */
+  onPreviewVideo: (row: StoryboardRowData) => Promise<string | null>;
+  /** 快速预览进行中的行 id（''=空闲） */
+  previewBusyRowId: string;
   /** 取消视频生成（方案C：取消入口收进视频列进度块） */
   onCancelVideo?: (taskId: string) => void;
 }
@@ -309,6 +314,8 @@ const StoryboardRow = memo(function StoryboardRow({
   onMove,
   onRemove,
   onGenerateVideo,
+  onPreviewVideo,
+  previewBusyRowId,
   onCancelVideo,
 }: StoryboardRowProps) {
   const locked = row.is_locked === true;
@@ -545,16 +552,35 @@ const StoryboardRow = memo(function StoryboardRow({
             失败重试
           </button>
         ) : (
-          <button
-            type="button"
-            className="manga-gen-btn"
-            disabled={row.generation_status === 'generating'}
-            title="生成该镜视频"
-            onClick={() => onGenerateVideo(row)}
-          >
-            <Clapperboard size={14} />
-            生成
-          </button>
+          <div className="manga-video-ops">
+            <button
+              type="button"
+              className="manga-gen-btn"
+              disabled={row.generation_status === 'generating'}
+              title="生成该镜视频"
+              onClick={() => onGenerateVideo(row)}
+            >
+              <Clapperboard size={14} />
+              生成
+            </button>
+            <button
+              type="button"
+              className="manga-preview-btn"
+              disabled={previewBusyRowId !== ''}
+              title={previewBusyRowId === row.id
+                ? '快速预览生成中（秒级）…'
+                : '快速预览：关键帧运镜草稿（秒级，不出正式片）'}
+              aria-label={`镜 ${row.shot_number} 快速预览`}
+              onClick={() => {
+                void onPreviewVideo(row).then((url) => {
+                  if (url) setVideoPreview(url);
+                });
+              }}
+            >
+              <Zap size={13} />
+              {previewBusyRowId === row.id ? '预览中…' : '预览'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -597,13 +623,17 @@ export interface StoryboardTableProps {
   onSaveStatus?: (s: ShotSaveStatus) => void;
   /** 生成视频 */
   onGenerateVideo: (row: StoryboardRowData) => void;
+  /** 插件快速预览（秒级草稿；成功返回 mp4 URL，失败返回 null） */
+  onPreviewVideo: (row: StoryboardRowData) => Promise<string | null>;
+  /** 快速预览进行中的行 id（''=空闲） */
+  previewBusyRowId: string;
   /** 打开行检查器（详情/关键帧/音色） */
   onOpenInspector: (rowId: string) => void;
   /** 取消视频生成（方案C：顶栏进度行移除后，取消入口收进视频列进度块） */
   onCancelVideo?: (taskId: string) => void;
 }
 
-export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector, onCancelVideo }: StoryboardTableProps) {
+export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onPreviewVideo, previewBusyRowId, onOpenInspector, onCancelVideo }: StoryboardTableProps) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const rows = useMangaStore((s) => s.rows);
@@ -963,6 +993,8 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               onMove={moveShot}
               onRemove={removeShot}
               onGenerateVideo={onGenerateVideo}
+              onPreviewVideo={onPreviewVideo}
+              previewBusyRowId={previewBusyRowId}
               onCancelVideo={onCancelVideo}
             />
           );

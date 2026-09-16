@@ -31,6 +31,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { SAVE_STATUS_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
+import { previewVideo } from '@/services/mangaApi';
 import type { ShotSaveStatus, StoryboardRow } from '@/types';
 import { ScriptImport } from './ScriptImport';
 import { VoiceBinder } from './VoiceBinder';
@@ -139,6 +140,24 @@ export default function MangaWorkspace() {
       void generateVideo(row);
     },
     [generateVideo],
+  );
+
+  // 行内 ⚡ → 插件快速预览（秒级草稿；成功返回 mp4 URL 交行组件开大窗）
+  const [previewBusyRowId, setPreviewBusyRowId] = useState('');
+  const handlePreviewVideo = useCallback(
+    async (row: StoryboardRow): Promise<string | null> => {
+      setPreviewBusyRowId(row.id);
+      try {
+        const resp = await previewVideo({ row_id: row.id });
+        return resp.video_url;
+      } catch (err) {
+        showToast(getErrorMessage(err, '快速预览失败'), 'error');
+        return null;
+      } finally {
+        setPreviewBusyRowId('');
+      }
+    },
+    [showToast],
   );
 
   // 取消视频任务（toast 透出失败原因）
@@ -447,6 +466,8 @@ export default function MangaWorkspace() {
             <StoryboardTable
               onSaveStatus={setSaveStatus}
               onGenerateVideo={handleGenerateVideo}
+              onPreviewVideo={handlePreviewVideo}
+              previewBusyRowId={previewBusyRowId}
               onOpenInspector={openInspector}
               onCancelVideo={handleCancelVideo}
             />

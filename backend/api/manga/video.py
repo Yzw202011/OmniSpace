@@ -1543,9 +1543,10 @@ def video_task_list(project_id: str = Query("", description="项目ID"),
 
 # ── 漫剧媒体文件安全回读（资产/关键帧/导出包）─────────────────────────
 
-# 允许回读的 DATA_DIR 子目录白名单（零信任：仅这三类产物目录）
+# 允许回读的 DATA_DIR 子目录白名单（零信任：仅产物目录）
 _MEDIA_ALLOWED_DIRS = ("comic_assets", "keyframes",
-                       str(Path("generated") / "exports"))
+                       str(Path("generated") / "exports"),
+                       str(Path("generated") / "preview_videos"))
 _MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".webp": "image/webp", ".gif": "image/gif",
@@ -1965,3 +1966,99 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
     return ok({"task_id": task_id, "status": "pending",
                "queue_position": position, "engine": "h3_chain"})
 # 本项目仅供学习使用，商业授权请+Q 3559331368
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  插件快速预览（插件系统 P2，2026-09-16）
+#  分镜行当前关键帧 → video-making 插件运镜（纯 numpy 零 GPU，秒级）→
+#  ffmpeg 封装 → data/generated/preview_videos/preview_<row_id>.mp4
+#  （同镜重生成同名覆盖=自动清理，不进 video_tasks 正式任务表——
+#  预览是镜头语言草稿而非成片，登记正式表会污染任务列表）。
+# ═══════════════════════════════════════════════════════════════════
+
+_PREVIEW_MAX_EDGE = 1280   # 预览帧最长边（RAM 红线：1080p 全帧实测峰值 1.6GB）
+_PREVIEW_FPS = 12
+_PREVIEW_OUTPUT_DIR = DATA_DIR / "generated" / "preview_videos"
+
+
+class VideoPreviewRequest(_PydanticBaseModel):
+    """单镜快速预览请求（P2：出 H3 正片前先秒级看镜头语言）。"""
+    row_id: str
+    motion: str = "zoom_in"
+    duration_s: float = 2.0
+    transition: str | None = None
+
+
+def _load_preview_frame(row_id: str):
+    """线程体：读行当前关键帧（网格行 _shot1 优先）并限长边 1280。"""
+    img = _load_first_frame_for_row(row_id)
+    if img is None:
+        return None
+    img = img.convert("RGB")
+    w, h = img.size
+    edge = max(w, h)
+    if edge > _PREVIEW_MAX_EDGE:  # 保比例缩放（横竖屏都正确）
+        scale = _PREVIEW_MAX_EDGE / edge
+        img = img.resize((max(2, round(w * scale)),
+                          max(2, round(h * scale))))
+    return img
+
+
+def _encode_preview_sync(frame_dir: Path, out_path: Path,
+                         fps: int) -> dict[str, Any]:
+    """线程体：帧目录 → mp4（不传 resolution：encoder 硬 scale 会拉变形竖屏）。"""
+    from ...services.encoder_service import get_encoder_service
+    enc = get_encoder_service()
+    return enc.encode_frames_to_video(frame_dir, out_path, fps=fps)
+
+
+@router.post("/manga/video/preview")
+async def video_preview(req: VideoPreviewRequest) -> dict[str, Any]:
+    """单镜快速预览（插件运镜草稿；非正式视频任务，秒级返回）。"""
+    from ...services.encoder_service import EncoderUnavailableError
+    from ...services.plugin_runtime import get_plugin_runtime
+    from ...services.plugin_runtime.registry import PluginRuntimeError
+
+    rt = get_plugin_runtime()
+    try:
+        instance = await run_blocking(rt.ensure_loaded, "video-making")
+        motions = getattr(instance, "available_motions", None)
+        if callable(motions) and req.motion not in motions():
+            raise ApiError(
+                "PLUGIN_SPEC_MISMATCH", f"未知运镜名: {req.motion}",
+                suggestion=f"合法运镜: {sorted(motions())}")
+        img = await run_blocking(_load_preview_frame, req.row_id)
+        if img is None:
+            raise ApiError(
+                "VIDEO_GENERATION_FAILED",
+                f"分镜行没有可用的当前关键帧: {req.row_id}",
+                suggestion="先生成/重生成该镜关键帧，再做快速预览")
+        import numpy as np
+        shot: dict[str, Any] = {"motion": req.motion,
+                                "duration_s": req.duration_s}
+        if req.transition:
+            shot["transition"] = req.transition
+        spec = {"keyframes": [np.asarray(img, dtype=np.uint8)],
+                "fps": _PREVIEW_FPS, "shots": [shot]}
+        result = await rt.invoke(
+            "video-making", spec,
+            save_dirname=f"preview_{req.row_id}")
+        out_path = _PREVIEW_OUTPUT_DIR / f"preview_{req.row_id}.mp4"
+        enc = await run_blocking(
+            _encode_preview_sync, Path(result["output_dir"]),
+            out_path, _PREVIEW_FPS)
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion or "稍后重试或到日志页排查") from exc
+    except EncoderUnavailableError as exc:
+        raise ApiError("ENCODER_UNAVAILABLE", f"ffmpeg 不可用: {exc}",
+                       suggestion="检查 runtime/ffmpeg 是否完整") from exc
+    rel = out_path.relative_to(DATA_DIR).as_posix()
+    return ok({
+        "row_id": req.row_id,
+        "video_url": f"{API_PREFIX}/manga/media/{rel}",
+        "n_frames": result["summary"]["n_frames"],
+        "duration_s": enc.get("duration_s"),
+        "motion": req.motion,
+        "size_bytes": enc.get("size_bytes"),
+    })

@@ -1321,10 +1321,15 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 ((DATA_DIR / str(a.get("file_path") or "")).parent
                  / "lora.safetensors").is_file()
                 for a in char_assets)
-            if _row_has_lora and engine.ensure_loaded("flux2-klein-4b"):
-                flux = True
-                log.info("D-LoRA 救援：路由链无可载 klein，行带角色 LoRA "
-                         "→ 显式装载 flux2-klein-4b（避开 SDXL 无锚降级）")
+            if _row_has_lora:
+                if engine.ensure_loaded("flux2-klein-4b"):
+                    flux = True
+                    log.info("D-LoRA 救援：路由链无可载 klein，行带角色 LoRA "
+                             "→ 显式装载 flux2-klein-4b（避开 SDXL 无锚降级）")
+                else:
+                    log.warning("D-LoRA 救援失败：flux2-klein-4b 装载不成"
+                                "（%s），本镜降级 SDXL+翻译（LoRA 失效）",
+                                engine.get_status().get("last_error") or "未知")
         if not flux:
             # 降级链：FLUX.2 缺失/加载失败 → SDXL（中文走翻译兜底）
             log.warning("klein 家族加载失败，关键帧降级 SDXL+翻译")

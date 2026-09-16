@@ -19,6 +19,7 @@ import CloudApiSettings from '@/components/CloudApiSettings';
 import WebSearchSettings from '@/components/WebSearchSettings';
 import HealthCheckCard from '@/components/HealthCheckCard';
 import UpgradeSection from '@/components/UpgradeSection';
+import PluginSection from '@/components/PluginSection';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
@@ -299,6 +300,9 @@ export default function Settings() {
 
       {/* ============ 联网搜索（架构升级计划 B-阶段一，默认关） ============ */}
       <WebSearchSettings />
+
+      {/* ============ 插件（2026-09-16 拍板：用户导入/启停/删除） ============ */}
+      <PluginSection />
 
       {/* ============ 功能互斥规则（规格 §6.1） ============ */}
       <div className="settings-section card">

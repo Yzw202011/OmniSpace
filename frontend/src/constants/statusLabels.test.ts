@@ -1,7 +1,7 @@
 /* ==========================================================================
  * 状态文案集中营一致性测试（TASK-P2-07，审计 P13）
  * --------------------------------------------------------------------------
- * 1. 后端枚举真值核对：直读 backend/data/models.py 提取 TrainStatus /
+ * 1. 后端枚举真值核对：直读 src/data/models.py 提取 TrainStatus /
  *    ModelStatus / GenerationStatus 枚举值，与前端常量/适配层映射双向核对；
  * 2. 完备性核对：每个标签 Record 键与对应类型字面量集合一致、值非空；
  * 3. 漂移即红：后端新增/改名状态而前端未跟随时立即失败。
@@ -24,9 +24,9 @@ import {
 } from './statusLabels';
 import type { AvailableModel, ShotSaveStatus } from '@/types';
 
-const BACKEND_MODELS = path.resolve(process.cwd(), '../backend/data/models.py');
+const BACKEND_MODELS = path.resolve(process.cwd(), '../src/data/models.py');
 
-/** 从 backend/data/models.py 提取指定枚举类的全部取值 */
+/** 从 src/data/models.py 提取指定枚举类的全部取值 */
 function extractBackendEnum(enumName: string): string[] {
   const src = readFileSync(BACKEND_MODELS, 'utf-8');
   const re = new RegExp(`class ${enumName}\\b[^:]*:\\s*\\n((?:\\s+\\w+\\s*=\\s*['"][\\w]+['"]\\s*\\n?)+)`);

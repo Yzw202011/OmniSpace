@@ -34,31 +34,31 @@
 
 **共性背景**：权重已在 `models/`、manifest 已声明能力、推理依赖已齐备（pydeps 含 `triposr_src`、`ultralytics 8.4.115`、`onnxruntime 1.23.2`、transformers 内置 SamModel），唯后端零调用。属"花小钱兑现已有资产"。
 
-**统一落地模式**：在 `backend/services/inference/` 各建一个引擎模块（懒加载 + feature_lock 互斥 + degraded 标记），在 `backend/api/` 暴露端点，manifest 能力→端点一一对应。
+**统一落地模式**：在 `src/services/inference/` 各建一个引擎模块（懒加载 + feature_lock 互斥 + degraded 标记），在 `src/api/` 暴露端点，manifest 能力→端点一一对应。
 
 ### F-01 TripoSR 单图 3D 生成（1.5d）
 - 文档依据：§1.7 3D 清单（TripoSR 在列）、manifest `image_to_3d`
 - 资产：`models/3d/TripoSR/model.ckpt`（1.6GB）；依赖 `pydeps/triposr_src` 已在
-- 方案：新建 `backend/services/inference/triposr_engine.py`（`tsr.system.TSR.from_pretrained` → `load_image` → `extract_mesh` 导出 glTF/OBJ 至 `data/assets/3d/`）；新增 `POST /api/v1/art/image-to-3d`（`backend/api/draw.py` 或独立 `asset3d.py`）；前端 DirectorStage 增加"图片生成 3D 资产"入口（消费 glTF）
+- 方案：新建 `src/services/inference/triposr_engine.py`（`tsr.system.TSR.from_pretrained` → `load_image` → `extract_mesh` 导出 glTF/OBJ 至 `data/assets/3d/`）；新增 `POST /api/v1/art/image-to-3d`（`src/api/draw.py` 或独立 `asset3d.py`）；前端 DirectorStage 增加"图片生成 3D 资产"入口（消费 glTF）
 - 验收：上传 PNG → 60s 内（RTX 40 系）返回 .glb 路径；Three.js 端可加载展示
 - 涉及：新建 1 引擎 + 1 端点 + 前端 1 入口
 
 ### F-02 SAM ViT-H 分割接线（1d）
 - 文档依据：§1.7 辅助清单、manifest `segmentation`
 - 资产：`models/sam-vit-h/model.safetensors`（2.4GB）；transformers 4.57 内置 `SamModel/SamProcessor`
-- 方案：`backend/services/inference/segment_engine.py`（点/框提示 → mask）；端点 `POST /api/v1/art/segment`；首要用途：为 Inpainting 遮罩与漫剧角色抠图供能
+- 方案：`src/services/inference/segment_engine.py`（点/框提示 → mask）；端点 `POST /api/v1/art/segment`；首要用途：为 Inpainting 遮罩与漫剧角色抠图供能
 - 验收：点提示分割返回 mask PNG，mIoU 抽测达标
 
 ### F-03 MiDaS 深度估计接线（1d）
 - 文档依据：§1.7 辅助清单、manifest `depth`
 - 资产：`models/depth/midas_small.onnx` + `.pt`；onnxruntime 已在
-- 方案：`backend/services/inference/depth_engine.py`（ORT CUDA Session）；端点 `POST /api/v1/art/depth`；用途：ControlNet-depth 前置、3D 导演台自动布景
+- 方案：`src/services/inference/depth_engine.py`（ORT CUDA Session）；端点 `POST /api/v1/art/depth`；用途：ControlNet-depth 前置、3D 导演台自动布景
 - 验收：输入图 → 深度图 PNG，<3s
 
 ### F-04 YOLOv8 目标检测接线（1d）
 - 文档依据：§1.7 辅助清单、manifest `detection`
 - 资产：`models/detect/yolov8n.pt`；`ultralytics` 包已在 pydeps
-- 方案：`backend/services/inference/detect_engine.py`；端点 `POST /api/v1/art/detect`；用途：分镜角色定位、学习页图像内容理解
+- 方案：`src/services/inference/detect_engine.py`；端点 `POST /api/v1/art/detect`；用途：分镜角色定位、学习页图像内容理解
 - 验收：返回检测框 JSON（class/conf/bbox），单帧 <500ms
 
 ---

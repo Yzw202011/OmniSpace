@@ -1,6 +1,6 @@
 # OmniSpace AI 架构总览
 
-> 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：backend/main.py、config.yaml、launcher/launcher.py 及各模块源码
+> 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：src/main.py、config.yaml、launcher/launcher.py 及各模块源码
 > **2026-08-28 校准**：路由模块 13→14（logs）、HTTP 端点 270→328（含别名）、限流 100→300/min、引擎与 api 行数按当前源码刷新、前端 React 19.0 + 9 路由、launcher 端口口径补充。
 > **2026-09-02 复核**：路由模块 14→**15**（license 入列，见 §3 路由表）、路由装饰器 328→**319**（08-29 剔除 3D 导演台路由 + 统计口径差异，与《全量技术文档-2026-09-01》319 口径一致）；middleware/ 七件实况：cors/error_handler/feature_lock/logger/rate_limit/request_context/upload_guard。
 >
@@ -17,7 +17,7 @@ OmniSpace AI 是一台跑在单机 Windows 工作站上的全模态创作工作�
 │  · subprocess 启动 uvicorn → 5s 心跳守护 → 崩溃自动重启(≤5次)     │
 │  · 就绪后 webbrowser.open(http://127.0.0.1:{实际端口})            │
 └──────────────────────────┬──────────────────────────────────────┘
-                           │ backend.main:app (cwd=项目根, 127.0.0.1:{端口})
+                           │ src.main:app (cwd=项目根, 127.0.0.1:{端口})
 ┌──────────────────────────▼──────────────────────────────────────┐
 │ FastAPI 后端进程（唯一服务进程）                                   │
 │  ┌───────────────────────────────────────────────────────────┐  │

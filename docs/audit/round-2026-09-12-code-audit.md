@@ -12,7 +12,7 @@
 
 | 闸门 | 结果 | 证据 |
 |------|------|------|
-| ruff（backend/launcher/scripts） | ✅ All checks passed | tools/ruff/ruff.exe 0.16.3 |
+| ruff（src/launcher/scripts） | ✅ All checks passed | tools/ruff/ruff.exe 0.16.3 |
 | mypy 第4闸 | ✅ 新增 0；存量 231 条冻结基线（较 09-04 立闸时 234 净 -3） | tools/run_mypy.py 全量跑 |
 | tsc --noEmit（前端 strict） | ✅ 0 错误 | node v20.20.2 + ts 5.6 |
 | 前端静默吞错扫描 `.catch(()=>{})` | ✅ 0 处 | grep frontend/src |

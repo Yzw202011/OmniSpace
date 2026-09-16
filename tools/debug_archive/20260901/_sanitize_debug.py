@@ -2,7 +2,7 @@ import re
 import sys
 
 sys.path.insert(0, r"e:\OmniSpace")
-from backend.api.manga.comic_asset import _build_character_prompt_v2
+from src.api.manga.comic_asset import _build_character_prompt_v2
 
 setting = ("16岁中国当代普通高中女生，身高160cm。体态匀称清瘦。"
            "上身穿白色与藏青色拼接运动校服外套。")

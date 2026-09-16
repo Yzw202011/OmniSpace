@@ -8,7 +8,7 @@
 >
 > 配套文档：[架构总览](architecture-overview.md) ｜ [数据库 ER 说明](database-er.md)
 
-共 **270 个 HTTP 端点**（08-20 快照口径；2026-08-28 实测 328 含别名）+ **4 个 WebSocket 端点**，按业务域分 16 组。表中每行含处理函数名——需要细节时按函数名在 `backend/api/` 下直接定位。
+共 **270 个 HTTP 端点**（08-20 快照口径；2026-08-28 实测 328 含别名）+ **4 个 WebSocket 端点**，按业务域分 16 组。表中每行含处理函数名——需要细节时按函数名在 `src/api/` 下直接定位。
 
 ## 通用约定
 
@@ -91,7 +91,7 @@
 
 ## 漫剧域（manga 43 + comic 27 + director 1，共 71 权威端点）
 
-对应前端 `#/storyboard` 漫剧工作台全流程。源码在 `backend/api/manga/` 包（TASK-P2-01 拆分，各子域独立模块）。
+对应前端 `#/storyboard` 漫剧工作台全流程。源码在 `src/api/manga/` 包（TASK-P2-01 拆分，各子域独立模块）。
 
 ### 分镜表（storyboard.py）
 

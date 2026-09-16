@@ -14,7 +14,7 @@ comfy_model_map.json 把中央 models 的权重硬链接进 ComfyUI 分类目录
     计入 cross_volume，由调用方提示「移动到同盘」。
 
 调用方（都按文件路径 importlib 加载本模块，不进包体系）：
-  - backend/services/inference/comfy_proc.py：spawn() 拉起前（主时机，
+  - src/services/inference/comfy_proc.py：spawn() 拉起前（主时机，
     引擎每次冷启都重挂，天然覆盖拖入后的一切场景）；
   - launcher/boot.py：拖入识别（通道 A）与启动期接线反馈。
 

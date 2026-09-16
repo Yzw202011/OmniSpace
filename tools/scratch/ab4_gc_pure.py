@@ -19,8 +19,8 @@ PROMPT = ("美术风格：3D GC 游戏风格、高精度 3D 建模、PBR 物理�
 SEED = 20260914
 OUT = Path(r"E:\OmniSpace\data\generated\images")
 
-from backend.services.inference.comfy_paint_engine import get_comfy_paint_engine
-from backend.services.inference.comfy_proc import get_comfy_proc
+from src.services.inference.comfy_paint_engine import get_comfy_paint_engine
+from src.services.inference.comfy_proc import get_comfy_proc
 eng = get_comfy_paint_engine()
 t0 = time.perf_counter()
 r = eng.generate({"prompt": PROMPT, "negative": "", "seed": SEED,
@@ -30,7 +30,7 @@ r["images"][0].save(OUT / "ab4_gc_pure9b.png", "PNG")
 print(f"[纯B comfy9b 纯文字] wall={time.perf_counter()-t0:.1f}s", flush=True)
 get_comfy_proc().shutdown()
 
-from backend.services.inference.paint_engine import get_paint_engine
+from src.services.inference.paint_engine import get_paint_engine
 pe = get_paint_engine()
 assert pe.ensure_loaded("flux2-klein-4b"), pe.get_status().get("last_error")
 t0 = time.perf_counter()

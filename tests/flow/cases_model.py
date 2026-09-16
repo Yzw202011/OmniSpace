@@ -1,6 +1,6 @@
 """第七部分：模型管理模块 (ModelManager) 操作流程测试（MODEL-001~038）。
 
-实测契约（backend/api/models.py + services/model_manager）：
+实测契约（src/api/models.py + services/model_manager）：
 - 列表/详情/导入/删除/校验/加载/卸载/状态/显存/健康/预测/使用事件端点齐全
 - 加载错误码：20011 未下载 / 20012 未加载 / 20013 显存不足 / 20014 功能互斥
 - 离线单机定位：无模型下载/更新/导出/基准测试端点 → 对应用例诚实记 DEGRADED

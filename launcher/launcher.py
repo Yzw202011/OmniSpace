@@ -5,7 +5,7 @@ OmniSpace AI Launcher 守护进程
 - 端口冲突三级递进处理
 - 模型完整性校验 + 断点续传下载
 - 启动/监控后端主进程 + 心跳检测 + 崩溃自动重启
-- 就绪后打开系统浏览器访问后端同源前端（backend.main 静态托管 frontend/dist，
+- 就绪后打开系统浏览器访问后端同源前端（src.main 静态托管 frontend/dist，
   无独立前端端口；实际端口经 --port 传入 uvicorn，默认 8765）
 - 系统托盘图标 + 气泡通知
 - 首次安装引导（动画/轮播/偏好问卷）
@@ -48,7 +48,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 def _load_disk_start_min_gb(default: float = 20.0) -> float:
     """从 config.yaml `disk.start_min_gb` 读取启动磁盘门槛（P2 统一口径）。
 
-    Launcher 是独立启动进程，不 import backend.config（避免其目录创建 /
+    Launcher 是独立启动进程，不 import src.config（避免其目录创建 /
     回环校验副作用），直接轻量读取同一份 config.yaml；解析失败回退默认值。
     """
     try:
@@ -121,7 +121,7 @@ class PortManager:
             # 不含 python 字样，2026-09-02 品牌化后必须显式认领）
             is_python = (('python' in name) or ('omnispace' in name)
                          or ('uvicorn' in cmdline) or ('celery' in cmdline))
-            is_omnispace = ('omnispace' in name) or ('omnispace' in cmdline) or (project_marker in cwd and 'backend.main' in cmdline)
+            is_omnispace = ('omnispace' in name) or ('omnispace' in cmdline) or (project_marker in cwd and 'src.main' in cmdline)
             return is_python and is_omnispace
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
@@ -208,7 +208,7 @@ class EnvironmentChecker:
     def _check_torch_contract(self) -> tuple[bool, str]:
         """torch 版本契约（B1 2026-09-13）：三处 torch 独立安装历史上无
         机制保证一致（cu128/cu130 双代 dist-info 曾并存、文档三层失真）。
-        真源 = backend/torch_contract.json；主链（label 含「主运行时」）不符
+        真源 = src/torch_contract.json；主链（label 含「主运行时」）不符
         = 不通过
         （阻断，OMNISPACE_ALLOW_TORCH_DRIFT=1 豁免自担风险）；旁链
         （py313 / ComfyUI 便携包，自包含栈）不符仅黄灯提示。"""
@@ -253,7 +253,7 @@ class EnvironmentChecker:
         if primary_bad and _os.environ.get('OMNISPACE_ALLOW_TORCH_DRIFT') != '1':
             return False, (
                 'torch 契约失配（' + '；'.join(drift) +
-                '）——升/换 torch 请同步 backend/torch_contract.json；'
+                '）——升/换 torch 请同步 src/torch_contract.json；'
                 '确需带漂运行设 OMNISPACE_ALLOW_TORCH_DRIFT=1')
         return True, 'torch 契约旁链漂移（黄灯）：' + '；'.join(drift)
 
@@ -597,7 +597,7 @@ class BackendProcess:
             use_pipe_stderr = (not sys.stderr) or self.on_output is not None
 
             self.process = subprocess.Popen(
-                [self._backend_exe(), '-m', 'uvicorn', 'backend.main:app',
+                [self._backend_exe(), '-m', 'uvicorn', 'src.main:app',
                  '--host', self.config.backend_host, '--port', str(port),
                  '--log-level', 'info'],
                 cwd=str(PROJECT_ROOT),

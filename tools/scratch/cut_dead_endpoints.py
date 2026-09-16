@@ -13,13 +13,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 TARGETS: dict[str, list[str]] = {
-    "backend/api/dialog.py": [
+    "src/api/dialog.py": [
         '@router.get("/dialog/history")',
         '@router.get("/dialog/sessions")',
         '@router.post("/dialog/sessions")',
         '@router.delete("/dialog/sessions/{session_id}")',
     ],
-    "backend/api/models.py": [
+    "src/api/models.py": [
         '@router.get("/models/list")',
         '@router.post("/models/switch")',
         '@router.get("/models/switch/list")',
@@ -27,33 +27,33 @@ TARGETS: dict[str, list[str]] = {
         '@router.post("/models/switch/{task_id}/cancel")',
         '@router.delete("/models/{model_id}/files")',
     ],
-    "backend/api/novel.py": [
+    "src/api/novel.py": [
         '@router.put("/novel/project/{project_id}")',
         '@router.put("/novel/characters/{character_id}")',
     ],
-    "backend/api/learn.py": [
+    "src/api/learn.py": [
         '@router.post("/learn/lora/train")',
     ],
-    "backend/api/knowledge.py": [
+    "src/api/knowledge.py": [
         '@router.post("/learn/behavior/reset")',
     ],
-    "backend/api/learning.py": [
+    "src/api/learning.py": [
         '@router.get("/learn/settings/get")',
         '@router.put("/learn/settings/update")',
         '@router.get("/learn/session/log")',
     ],
-    "backend/api/voice.py": [
+    "src/api/voice.py": [
         '@router.get("/voice/models")',
         '@router.post("/voice/transcribe")',
         '@router.post("/voice/synthesize")',
     ],
-    "backend/api/draw.py": [
+    "src/api/draw.py": [
         '@router.post("/paint/img2img")',
         '@router.delete("/draw/history/{task_id}")',
         '@router.delete("/paint/history/{task_id}")',
         '@router.post("/draw/history/batch-delete")',
     ],
-    "backend/api/manga/video.py": [
+    "src/api/manga/video.py": [
         '@router.get("/video/history")',
     ],
 }

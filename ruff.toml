@@ -32,7 +32,7 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"backend/tests/*" = ["B011"]  # 测试允许 assert False 语义
+"tests/unit/*" = ["B011"]  # 测试允许 assert False 语义
 "tools/build_manga_*_workflow.py" = ["E741", "E702", "F841", "B007"]  # 一次性工作流生成脚本：链接元组惯用 l、脚手架变量无害
 
 [format]

@@ -10,7 +10,7 @@ make_release 的产物，两边都有全量哈希清单 dist_manifest.json），
   runtime/py310/python.exe tools/make_upgrade_package.py --init-key
       # 一次性：生成 Ed25519 升级密钥对（keys/upgrade_signing.key，
       # gitignore+打包黑名单双保险绝不外流；公钥印到终端，固化进
-      # backend/services/upgrade_service.py 的 UPGRADE_PUBKEY_HEX）
+      # src/services/upgrade_service.py 的 UPGRADE_PUBKEY_HEX）
 
   runtime/py310/python.exe tools/make_upgrade_package.py \
       --old D:/omnispacefz/OmniSpace-2.3.1-g3d810ff \
@@ -19,7 +19,7 @@ make_release 的产物，两边都有全量哈希清单 dist_manifest.json），
       [--from-min 2.3.1] [--from-max 3.0.0] \
       [--include runtime,tools,models] [--key keys/upgrade_signing.key]
 
-默认装什么：代码区全量差分（backend/frontend/launcher/skills/
+默认装什么：代码区全量差分（src/frontend/launcher/skills/
 modelxiazai/根文件）+ pydeps 自动差分；runtime/tools(ComfyUI)/models
 默认不带（--include 显式开启）；runtime/py310 永不带（updater 自己就
 跑在这个解释器上，v1 换它=自断手脚，硬拒绝）。
@@ -184,7 +184,7 @@ def init_key(keys_dir: Path, force: bool) -> int:
     pub_path.write_text(pub_hex + "\n", encoding="utf-8")
     print(f"✅ 私钥：{priv_path}（gitignore keys/ + 打包黑名单双保险，严禁外发）")
     print(f"✅ 公钥：{pub_path}")
-    print("\n公钥 hex（固化到 backend/services/upgrade_service.py 的"
+    print("\n公钥 hex（固化到 src/services/upgrade_service.py 的"
           " UPGRADE_PUBKEY_HEX 与 updater/updater.py 的同名常量）：")
     print(f"  {pub_hex}")
     return 0
@@ -245,7 +245,7 @@ def build_package(a: BuildArgs) -> Path:
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
         # 保守启发：数据库模块有变动就按"可能带迁移"对待（升级器会快照 DB）
         "contains_migration": any(
-            e["path"].startswith("backend/data/database") for e in entries),
+            e["path"].startswith("src/data/database") for e in entries),
         "payload_bytes": payload_bytes,
         "files": entries,
     }

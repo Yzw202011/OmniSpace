@@ -37,7 +37,7 @@
 ### R3-SEC1 WebSocket 无 Origin 校验（CSWSH 跨站劫持） → ✅ 已修复
 - 问题：CORS 中间件不覆盖 WS 握手；恶意网页可 `new WebSocket("ws://127.0.0.1:5800/ws")` 窃取硬件遥测/任务进度广播。
 - 修复：
-  - `backend/middleware/cors.py:65-79` 新增 `ws_origin_guard()`——复用 HTTP 侧本地来源白名单，有 Origin 且不匹配 → `close(1008)`；无 Origin（非浏览器客户端）放行。
+  - `src/middleware/cors.py:65-79` 新增 `ws_origin_guard()`——复用 HTTP 侧本地来源白名单，有 Origin 且不匹配 → `close(1008)`；无 Origin（非浏览器客户端）放行。
   - 4 个 WS 端点 accept 前全部接入：`/ws`（main.py:280-285）、`/api/v1/dialog/stream/{id}`（main.py:265-271）、`/api/v1/hardware/realtime`（hardware.py:286-288）、`/api/v1/learn/session/progress`（learning.py:453-455）。
 - 验证（运行时实测）：恶意 Origin `http://evil.example.com` → 拒绝（HTTP 403）；本地 Origin `http://localhost:5800` → 放行；无 Origin → 放行。
 
@@ -54,7 +54,7 @@
 - `launcher/launcher.py:701`：`--port` default 8765→5800（与 `LauncherConfig`/`config.yaml`/前端 API_BASE 对齐）。原值导致无参启动后前端 REST 全灭（WS 走同源推导反而正常，故障形态割裂难排查）。
 
 ### R3-ARCH3 数据库损坏无恢复机制 → ✅ 已修复
-- `backend/data/database.py:240-274`：新增 `_recover_if_corrupt()`——启动前 `PRAGMA quick_check`，非 'ok' 时隔离 `.corrupt-{ts}`（含 -wal/-shm 伴生文件）并重建空库；原数据保留于隔离文件，与 `/system/backup` 形成备份-恢复闭环。库不存在或校验通过时零开销。
+- `src/data/database.py:240-274`：新增 `_recover_if_corrupt()`——启动前 `PRAGMA quick_check`，非 'ok' 时隔离 `.corrupt-{ts}`（含 -wal/-shm 伴生文件）并重建空库；原数据保留于隔离文件，与 `/system/backup` 形成备份-恢复闭环。库不存在或校验通过时零开销。
 - 顺带验证：启动日志确认 `train_tasks 新增列 priority` 幂等迁移在新代码下正常执行。
 
 ### R3-ARCH8（部分）前端接线而后端缺失的 8 个端点 → ✅ 分层处置

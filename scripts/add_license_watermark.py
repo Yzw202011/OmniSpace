@@ -1,6 +1,6 @@
 """授权水印补打脚本（2026-09-10 全量 474 处的复跑工具）。
 
-对第一方代码（backend/launcher/scripts/frontend/src）逐文件检查，
+对第一方代码（src/launcher/scripts/frontend/src）逐文件检查，
 缺水印者补一条（随机头部/尾部位置，幂等——已含则跳过）。
 新增加的代码文件跑一遍即可补齐。
 

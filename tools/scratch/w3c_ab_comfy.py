@@ -8,7 +8,7 @@ import time
 
 sys.path.insert(0, r"E:\OmniSpace")
 
-from backend.api.manga.common import comfy_paint_generate  # noqa: E402
+from src.api.manga.common import comfy_paint_generate  # noqa: E402
 
 PROMPT = ("A. 全局风格：3D卡通、皮克斯质感、黏土材质渲染、柔和电影光、"
           "干净明亮，细节刻画精致，光影层次丰富")

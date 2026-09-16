@@ -18,6 +18,7 @@
 - [ ] 我知道包管理用 **pnpm**（packageManager 字段锁定），不是 npm/yarn
 - [ ] 我知道 **3D 导演台已整链路剔除**（2026-08-29 用户裁定：后端 director 路由/前端 DirectorStage/src/three/ 六件套/DB 表不再使用），前端无 3D 视口
 - [ ] 我知道 Python 运行时是**嵌入式 3.12.10 主链（B1 2026-09-13 拍板项 0=A；py310 并存保留为回退锚点与打包基线）**；vLLM 子进程独用 py313，ComfyUI 便携包自带 py313——不是 3.10
+- [ ] 我知道后端代码已**扁平化至 src/**（2026-09-15 重构：backend/ 目录已删除，四层架构 = HTTP 层 src/api / 业务层 src/services / 资源层 src/engines+data / 内核层 src/core+cutemamen；config.yaml 位于 **src/config.yaml**；仓库外冻结进程的 backend.main:app 旧入口由 backend/ 兼容 shim 转发）
 - [ ] 我知道后端用 FastAPI 0.141 + Pydantic v2，不是 Django/Flask
 - [ ] 我知道**没有 Tauri/Rust 壳层**——ADR-002（2026-08-20）已裁剪，交付形态 = launcher + 系统浏览器
 - [ ] 我知道数据库是 SQLite（WAL，**32 张用户表＝主库 30 + flow 独立库 logs/flow_trace.db 2**，user_version=7，2026-09-01 实测校准）+ ChromaDB，不是 PostgreSQL/MongoDB
@@ -45,7 +46,8 @@
 | CSS | **Tailwind CSS 4**（@tailwindcss/vite） | — |
 | 后端语言 | **Python 3.12.10（runtime/py312 嵌入式主链，B1 升级；py310 并存=回退锚点/打包基线）** | Python 3.10（作为主链的历史口径） |
 | 后端框架 | **FastAPI 0.141.1 + Pydantic v2 + uvicorn** | SQLAlchemy ORM（2.0.51 装而未用，全裸 sqlite3） |
-| AI 推理 | **torch 2.13.0+cu130（契约真源=backend/torch_contract.json，boot 预检闸守）+ diffusers 0.39 + transformers**；GGUF 走 llama.cpp；vLLM **0.27.1** 子进程（py313；生成期让渡=杀子进程制，config vllm.sleep_mode 门控真 sleep 待上游） | — |
+| AI 内核 | **DistributedFormer 移植（2026-09-15）**：CubeGPT 脉冲主模型（src/core/）+ CuteMamen 插件内核（src/cutemamen/，双路导入：内核相对导入优先 / 宿主 omnispace.plugin 注入回退）+ OSP v1 插件运行时（src/services/plugin_runtime/，base/bridge/loader/registry 四件套，三道运行闸） | — |
+| AI 推理 | **torch 2.13.0+cu130（契约真源=src/torch_contract.json，boot 预检闸守）+ diffusers 0.39 + transformers**；GGUF 走 llama.cpp；vLLM **0.27.1** 子进程（py313；生成期让渡=杀子进程制，config vllm.sleep_mode 门控真 sleep 待上游） | — |
 | 关系数据库 | **SQLite WAL + FTS5**（32 张用户表=主库 30+flow 独立库 2，PRAGMA user_version=7） | — |
 | 向量数据库 | **ChromaDB 1.5.9**（bge-large-zh 1024 维，不可用时降级 TF-IDF 内存检索） | — |
 | 任务队列 | **进程内多套队列并存（实测 9 套）**：对话位次表/图像/视频/小说/训练×2/行为/浏览器×2，模拟 Celery 语义；统一任务子系统=治理项（v4 方案 B5）+ WS Hub 广播 | Celery + Redis（F-13 已裁定 ⚪ 豁免） |
@@ -142,13 +144,34 @@ src/stores/：
 | 规则 | 说明 |
 |------|------|
 | 全部函数MUST写type hints | `def foo(x: int) -> str:` |
-| API 数据模型MUST用Pydantic v2 | 集中在 backend/data/models.py |
+| API 数据模型MUST用Pydantic v2 | 集中在 src/data/models.py |
 | asyncio循环中禁止同步阻塞 | 同步推理唯一入口 `services/offload.py`（run_blocking/sync_core，P1-06 有测试锁定） |
 | 大模型卸载MUST三件套 | `del model; torch.cuda.empty_cache(); gc.collect()` |
 | 禁止循环中重复加载模型 | 引擎为模块级懒加载单例（双重检查锁） |
 | SQLite 写入串行化 | threading.local 连接 + 全局 _write_lock；批量写走 execute_in_transaction |
 | 静态检查 | ruff check + mypy 第4闸通过（提交前，.githooks 三闸+1；mypy 基线冻结只增不减，见 §12.1） |
 | 降级必须诚实 | 不可用功能返回 degraded:true + degrade_reason，禁止伪造结果 |
+
+### 3.1.1 目录布局（2026-09-15 src 扁平化重构后）
+
+```
+src/
+├── api/          HTTP 层：18 个路由模块（plugins 为 2026-09-16 新增）
+├── services/     业务层：推理/调度/模型管理/插件运行时(plugin_runtime)等
+├── engines/      资源层：vllm/gpu/vram 等引擎适配
+├── data/         资源层：数据库/模型 schema
+├── core/         内核层：distributedformer.py（CubeGPT 脉冲主模型）
+├── cutemamen/    内核层：插件内核（plugin/pkg/video_making 等）
+├── middleware/   HTTP 中间件（error_handler/feature_lock/...）
+├── config.py     配置（SRC_DIR 基准；config.yaml 同目录）
+└── main.py       FastAPI 入口（uvicorn src.main:app）
+
+plugin/           CuteMamen 插件包（*.CuteMamen tar.gz）——video_making.py
+                  评审副本已删除，单一源码 = src/cutemamen/video_making.py
+tests/unit/       单测（含 distributed/ 内核测试族）
+docs/             全部文档（AGENTS.md/CLAUDE.md 例外，居根目录作门卫）
+backend/          兼容 shim（仅 re-export src.main:app，救仓库外冻结进程）
+```
 
 ### 3.2 API响应格式（铁律，实测一致）
 
@@ -223,12 +246,12 @@ Rust/Tauri 编码规则整节作废；重启壳决策须新立 ADR（重启条�
 启动/停止入口（2026-08-31 落地并 E2E 实测）：
 - **有窗（日常调试）**：根目录 `启动OmniSpace.bat` → `launcher/boot.py`（启动页/自检/心跳/ComfyUI 清理；Ctrl+C 或关窗退出）
 - **免黑窗（桌面交付）**：`launcher/make_shortcut.py` 生成桌面 `OmniSpace.lnk`（pythonw 直拉 boot.py，端口 5800-5835，重复运行幂等重建；boot.py 启动各阶段含冷启动等待期均响应 /api/quit；重复双击触发单实例守卫——检测到在跑启动页即让位退出 exit 0，不再累积守护进程）
-- **停止（免黑窗唯一主动退出通道）**：根目录 `停止OmniSpace.bat` → `launcher/stop.py`（优先 POST 启动页 /api/quit 优雅收尾；兜底只清本启动链——boot.py 进程 / 5800-5835 的 backend.main / 8189 ComfyUI；项目内独立实例如 :8765 只提示不动手）
-- **单实例限制**（2026-08-31，`backend/single_instance.py`）：backend.main lifespan 首步经 Windows 命名互斥体全机唯一，重复启动秒失败并给出指引；豁免 = pytest 运行态或 `OMNISPACE_ALLOW_MULTI=1`。动机：双栈叠载显存（当日关键帧采样 20+ 分钟超时；08-29 蓝屏同源）。注意：仅对运行新代码的实例生效，存量老进程需重启后才持有互斥体
+- **停止（免黑窗唯一主动退出通道）**：根目录 `停止OmniSpace.bat` → `launcher/stop.py`（优先 POST 启动页 /api/quit 优雅收尾；兜底只清本启动链——boot.py 进程 / 5800-5835 的 src.main / 8189 ComfyUI；项目内独立实例如 :8765 只提示不动手）
+- **单实例限制**（2026-08-31，`src/single_instance.py`）：src.main lifespan 首步经 Windows 命名互斥体全机唯一，重复启动秒失败并给出指引；豁免 = pytest 运行态或 `OMNISPACE_ALLOW_MULTI=1`。动机：双栈叠载显存（当日关键帧采样 20+ 分钟超时；08-29 蓝屏同源）。注意：仅对运行新代码的实例生效，存量老进程需重启后才持有互斥体
 
 ---
 
-## 7. 安全与资源策略（阈值真源 = backend/config.yaml scheduler.thresholds）
+## 7. 安全与资源策略（阈值真源 = src/config.yaml scheduler.thresholds）
 
 | 显存阈值（config.yaml 实值） | 动作 |
 |------|------|

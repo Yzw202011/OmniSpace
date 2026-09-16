@@ -6,7 +6,7 @@
  * 视频/历史端点的消费面清零，本文件仅保留存活链路：
  * - GET /draw/status   引擎状态（waitPaintReady 漫剧预热链 + PaintWarmupModal）
  * - GET /draw/models   绘画模型列表（ModuleModelConfig 直调）
- * 生成链已统一 ComfyUI klein 栈（backend/api/draw.py comfy 分支），
+ * 生成链已统一 ComfyUI klein 栈（src/api/draw.py comfy 分支），
  * 后端端点保留兼容，前端不再消费。
  * ========================================================================== */
 

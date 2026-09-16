@@ -1,7 +1,7 @@
 # OmniSpace AI v2.3.1 项目审计报告（四轮完整版）
 
 - 报告日期：2026-08-07
-- 审计对象：`e:\OmniSpace` 全仓（backend/ 71+ Python 文件、frontend/ 约 1.3 万行 TS/TSX、launcher、tools、配置、文档）
+- 审计对象：`e:\OmniSpace` 全仓（src/ 71+ Python 文件、frontend/ 约 1.3 万行 TS/TSX、launcher、tools、配置、文档）
 - 审计基线：五份需求文档，矛盾裁决优先级 **B（可信）> E > D > A > C**（正交语言细则以 C 为准），详见 `baseline-checklist.md`（456 条合规基线）
 - 审计方法：零信任原则——一切代码、注释、配置均不可信，逐条与文档交叉验证；所有"疑似问题"必须回查代码事实方可定性
 - 执行团队：技术主管 / 前端 / 后端 / UI-UX / AI-ML / 测试 六角色协作模式

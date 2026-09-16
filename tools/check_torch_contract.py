@@ -1,6 +1,6 @@
 """torch 版本契约单源检查器（B1 2026-09-13）。
 
-真源 = backend/torch_contract.json（升级 torch 只改那一处）。
+真源 = src/torch_contract.json（升级 torch 只改那一处）。
 本工具比对契约与三处运行时的 torch/version.py 实际版本：
   - 主运行时 py310 不符 → exit 1（阻断 boot 预检语义）
   - vLLM py313 / ComfyUI 便携包不符 → exit 1 并标注旁链（自包含栈，

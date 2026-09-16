@@ -8,7 +8,7 @@
      同区间陌生服务），POST /api/quit 令 boot 自行走 _shutdown（后端
      terminate→kill、ComfyUI 清理、splash 关停），等效于关闭控制台窗口。
   2. 兜底路径：优雅退出超时（boot 卡死/异常态）时，按严格匹配清理本
-     启动链进程：boot.py 进程 → 端口 5800-5835 的 backend.main uvicorn
+     启动链进程：boot.py 进程 → 端口 5800-5835 的 src.main uvicorn
      → 8189 ComfyUI 残留（对齐 launcher/boot 的三道防线口径）。
 
 安全边界：只处理「本启动链」管理的对象。项目内以其他方式直启的实例
@@ -109,7 +109,7 @@ def _backend_processes() -> tuple[list[tuple[psutil.Process, int]],
     ours, others = [], []
     for proc in psutil.process_iter(['pid']):
         cl = _cmdline(proc)
-        if 'backend.main:app' not in cl or PROJECT_MARKER not in cl:
+        if 'src.main:app' not in cl or PROJECT_MARKER not in cl:
             continue
         m = re.search(r'--port\s+(\d+)', cl)
         port = int(m.group(1)) if m else None

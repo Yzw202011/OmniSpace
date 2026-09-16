@@ -503,14 +503,14 @@ graph TB
   <p class="section-lead">改动范围非常小——1 个新引擎文件 + 3 处现有文件修改 + 工作流 JSON。</p>
 
   <div class="file-tree">
-    <div class="folder">backend/services/inference/</div>
+    <div class="folder">src/services/inference/</div>
     <div class="file new">├── comfy_paint_engine.py  <span style="color:var(--success)">[新增] ComfyUI 绘画引擎</span></div>
     <div class="file exist">├── paint_engine.py  <span class="exist">（不动）</span></div>
     <div class="file exist">├── h3_engine.py  <span class="exist">（不动，参考范本）</span></div>
     <div class="file exist">└── gen_router.py  <span style="color:var(--warning)">[修改] 新增 comfy 路由分支</span></div>
-    <div class="folder" style="margin-top:12px">backend/api/manga/</div>
+    <div class="folder" style="margin-top:12px">src/api/manga/</div>
     <div class="file exist">└── keyframe.py  <span style="color:var(--warning)">[修改] 一致性模式下调用 comfy 引擎</span></div>
-    <div class="folder" style="margin-top:12px">backend/services/</div>
+    <div class="folder" style="margin-top:12px">src/services/</div>
     <div class="file exist">└── model_manager/  <span style="color:var(--warning)">[修改] 注册 comfy_paint 显存占用</span></div>
     <div class="folder" style="margin-top:12px">comfy_workflows/  <span style="color:var(--success)">[新增目录]</span></div>
     <div class="file new">├── pulid_flux_t2i.json  <span style="color:var(--success">PuLID 文生图工作流</span></div>

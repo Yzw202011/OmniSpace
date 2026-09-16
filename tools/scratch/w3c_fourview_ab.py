@@ -10,7 +10,7 @@ sys.path.insert(0, r"E:\OmniSpace")
 
 from PIL import Image  # noqa: E402
 
-from backend.api.manga.comic_gen import _ComfyGenAdapter  # noqa: E402
+from src.api.manga.comic_gen import _ComfyGenAdapter  # noqa: E402
 
 PROMPT = (
     "角色设定图。角色：少年侠客阿澜，十六岁，束发，青衫剑客，"

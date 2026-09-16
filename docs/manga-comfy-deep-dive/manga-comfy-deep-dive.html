@@ -982,7 +982,7 @@ sequenceDiagram
     </table>
   </div>
 
-  <p>请求体完整 schema（后端 <code class="file">backend/data/models.py</code> L772 起 <code>KeyframeGenerateRequest</code>）及每个字段的最终去向：</p>
+  <p>请求体完整 schema（后端 <code class="file">src/data/models.py</code> L772 起 <code>KeyframeGenerateRequest</code>）及每个字段的最终去向：</p>
 
   <div class="table-wrap">
     <table>
@@ -1010,7 +1010,7 @@ sequenceDiagram
   <!-- 3.2 -->
   <h3 id="ch3-2">3.2 后端编排层：_generate_keyframe_sync 八步流水线</h3>
 
-  <p>编排层（<code class="file">backend/api/manga/keyframe.py</code>）是整条链路的「大脑」，它决定了哪些数据进 ComfyUI、以什么形态进。按执行顺序拆为八步：</p>
+  <p>编排层（<code class="file">src/api/manga/keyframe.py</code>）是整条链路的「大脑」，它决定了哪些数据进 ComfyUI、以什么形态进。按执行顺序拆为八步：</p>
 
   <ol class="steps">
     <li>
@@ -1084,7 +1084,7 @@ sequenceDiagram
   <!-- 3.3 -->
   <h3 id="ch3-3">3.3 引擎桥接层：文件落盘与 HTTP 协议</h3>
 
-  <p>桥接层（<code class="file">backend/services/inference/comfy_paint_engine.py</code>）是后端与 ComfyUI 之间唯一的通道，线程安全单例。一次 <code>img2img(params, refs, pulid_image)</code> 调用的完整数据搬运：</p>
+  <p>桥接层（<code class="file">src/services/inference/comfy_paint_engine.py</code>）是后端与 ComfyUI 之间唯一的通道，线程安全单例。一次 <code>img2img(params, refs, pulid_image)</code> 调用的完整数据搬运：</p>
 
   <h4>第一步：参考图落盘到 ComfyUI/input/</h4>
   <p>ComfyUI 的 <code>LoadImage</code> 节点按<strong>文件名</strong>引用图片——这是它的数据入口约定，所以参考图必须先写成 PNG 文件：</p>
@@ -1305,7 +1305,7 @@ graph TB
     <p><b>视频把关键帧当原料：拆出每镜首帧 → 逐镜 I2V → ffmpeg 拼接。</b>只有选 H3 模型才走 ComfyUI，其余模型走本地 diffusers——两条路对上层完全透明。</p>
   </div>
 
-  <p class="lead">视频链路（<code class="file">backend/api/manga/video.py</code>）把关键帧链路的产物当作输入。先用四步故事版建立骨架，再看图与细节：</p>
+  <p class="lead">视频链路（<code class="file">src/api/manga/video.py</code>）把关键帧链路的产物当作输入。先用四步故事版建立骨架，再看图与细节：</p>
 
   <h3 id="ch4-0">4.0 故事版：从关键帧到成片</h3>
 
@@ -1742,14 +1742,14 @@ graph TB
         <tr><td>视频前批量补帧</td><td><code class="file">frontend/src/components/manga/drawers/VideoDrawer.tsx</code></td><td>L48</td></tr>
         <tr><td>关键帧 API 封装</td><td><code class="file">frontend/src/services/mangaApi.ts</code></td><td>L887-933</td></tr>
         <tr><td>WS 进度订阅</td><td><code class="file">frontend/src/components/manga/editor/useGenProgress.ts</code></td><td>模块头注释（数据链路说明）</td></tr>
-        <tr><td>请求 schema</td><td><code class="file">backend/data/models.py</code></td><td>L772 起 KeyframeGenerateRequest</td></tr>
-        <tr><td>生成编排核心</td><td><code class="file">backend/api/manga/keyframe.py</code></td><td>L64-91 显存协商 · L1114-1154 引擎选路 · L1197-1312 _gen_one · L1403-1482 逐镜循环 · L1499-1519 落库即卸</td></tr>
-        <tr><td>ComfyUI 绘画桥接</td><td><code class="file">backend/services/inference/comfy_paint_engine.py</code></td><td>L48-107 权重与就绪判定 · L272-406 工作流构建 · L435-517 提交/轮询/清理 · L519-565 _poll_history</td></tr>
-        <tr><td>H3 视频引擎</td><td><code class="file">backend/services/inference/h3_engine.py</code></td><td>L235-291 工作流构建 · L295-390 生成主流程（首帧落盘/提交/回搬/即卸）</td></tr>
-        <tr><td>视频网格判据与拆格</td><td><code class="file">backend/api/manga/video.py</code></td><td>L125-154 _detect_row_grid · L172-190 _segment_prompt · L272-305 _load_shot_frames · L307-406 逐镜分段循环</td></tr>
-        <tr><td>视频模型路由表</td><td><code class="file">backend/services/scheduler/video_router.py</code></td><td>L17-60 select_model · L62-173 参数预设</td></tr>
-        <tr><td>H3 引擎分派</td><td><code class="file">backend/services/inference/video_engine.py</code></td><td>L1641-1686 H3 管线 · L2044 分派</td></tr>
-        <tr><td>模型预热/切换</td><td><code class="file">backend/services/switch_engine.py</code></td><td>L650-680 H3 预热 · L942-964 卸载口径</td></tr>
+        <tr><td>请求 schema</td><td><code class="file">src/data/models.py</code></td><td>L772 起 KeyframeGenerateRequest</td></tr>
+        <tr><td>生成编排核心</td><td><code class="file">src/api/manga/keyframe.py</code></td><td>L64-91 显存协商 · L1114-1154 引擎选路 · L1197-1312 _gen_one · L1403-1482 逐镜循环 · L1499-1519 落库即卸</td></tr>
+        <tr><td>ComfyUI 绘画桥接</td><td><code class="file">src/services/inference/comfy_paint_engine.py</code></td><td>L48-107 权重与就绪判定 · L272-406 工作流构建 · L435-517 提交/轮询/清理 · L519-565 _poll_history</td></tr>
+        <tr><td>H3 视频引擎</td><td><code class="file">src/services/inference/h3_engine.py</code></td><td>L235-291 工作流构建 · L295-390 生成主流程（首帧落盘/提交/回搬/即卸）</td></tr>
+        <tr><td>视频网格判据与拆格</td><td><code class="file">src/api/manga/video.py</code></td><td>L125-154 _detect_row_grid · L172-190 _segment_prompt · L272-305 _load_shot_frames · L307-406 逐镜分段循环</td></tr>
+        <tr><td>视频模型路由表</td><td><code class="file">src/services/scheduler/video_router.py</code></td><td>L17-60 select_model · L62-173 参数预设</td></tr>
+        <tr><td>H3 引擎分派</td><td><code class="file">src/services/inference/video_engine.py</code></td><td>L1641-1686 H3 管线 · L2044 分派</td></tr>
+        <tr><td>模型预热/切换</td><td><code class="file">src/services/switch_engine.py</code></td><td>L650-680 H3 预热 · L942-964 卸载口径</td></tr>
       </tbody>
     </table>
   </div>

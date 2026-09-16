@@ -86,11 +86,11 @@
 
 | 规格 | 实现 | 验证 |
 |------|------|------|
-| >85°C 降频 | [thermal_guard.py](file:///e:/OmniSpace/backend/services/thermal_guard.py) 状态机 THROTTLING + 5°C 回差防抖动 | 代码审查 ✅ |
-| >90°C 强制暂停 | STATE_PAUSED → [feature_lock.py:137](file:///e:/OmniSpace/backend/middleware/feature_lock.py#L137) 与 [draw.py:295](file:///e:/OmniSpace/backend/api/draw.py#L295) 双入口拒绝新任务 | 代码审查 ✅ |
+| >85°C 降频 | [thermal_guard.py](file:///e:/OmniSpace/src/services/thermal_guard.py) 状态机 THROTTLING + 5°C 回差防抖动 | 代码审查 ✅ |
+| >90°C 强制暂停 | STATE_PAUSED → [feature_lock.py:137](file:///e:/OmniSpace/src/middleware/feature_lock.py#L137) 与 [draw.py:295](file:///e:/OmniSpace/src/api/draw.py#L295) 双入口拒绝新任务 | 代码审查 ✅ |
 | 连续3次高温锁利用率80% | `_LOCK_AFTER_EVENTS=3` / `_LOCKED_UTIL_CAP=0.80`，会话级锁定不随冷却解除 | 代码审查 ✅ |
 | UI 警告 | WS 广播 thermal_pause/thermal_throttle/thermal_recovered（5s 节流+迁移即时） | 代码审查 ✅ |
-| 状态可观测 | **审计发现缺口**：docstring 承诺「状态经 /hardware 暴露」但 /hardware/synergy 仅返回 scheduler/vram/feature_lock 三段 | **已修复**：synergy 增加 `thermal_guard` 段（[hardware.py:298-308](file:///e:/OmniSpace/backend/api/hardware.py#L298-L308)），前端 `SynergyState`/`ThermalGuardState` 类型同步（[types/index.ts:170-192](file:///e:/OmniSpace/frontend/src/types/index.ts#L170-L192)）；运行时实证：`state=normal warn=85°C crit=90°C util_cap=null` ✅ |
+| 状态可观测 | **审计发现缺口**：docstring 承诺「状态经 /hardware 暴露」但 /hardware/synergy 仅返回 scheduler/vram/feature_lock 三段 | **已修复**：synergy 增加 `thermal_guard` 段（[hardware.py:298-308](file:///e:/OmniSpace/src/api/hardware.py#L298-L308)），前端 `SynergyState`/`ThermalGuardState` 类型同步（[types/index.ts:170-192](file:///e:/OmniSpace/frontend/src/types/index.ts#L170-L192)）；运行时实证：`state=normal warn=85°C crit=90°C util_cap=null` ✅ |
 
 ### 4.2 显存 4 级阈值 —— ⚠ 通过（1 项规格冲突待裁决）
 
@@ -98,21 +98,21 @@
 |------|-----------------------------------|-----------------|---------|
 | 安全区 | <80% | <70% | GPU_PRIMARY 正常调度 |
 | 警戒区 | 80-90% | 70-85% | CPU_ASSIST；精度降级阶梯写入 ModelManager |
-| 危险区 | 90-95% | 85-95% | critical → 降精度/卸载非活跃（[analyzer.py:83-84](file:///e:/OmniSpace/backend/services/scheduler/analyzer.py#L83-L84)） |
-| 溢出区 | >95% | >95% | force_unload → GPU_ASSIST_CPU（[analyzer.py:127-128](file:///e:/OmniSpace/backend/services/scheduler/analyzer.py#L127-L128)） |
+| 危险区 | 90-95% | 85-95% | critical → 降精度/卸载非活跃（[analyzer.py:83-84](file:///e:/OmniSpace/src/services/scheduler/analyzer.py#L83-L84)） |
+| 溢出区 | >95% | >95% | force_unload → GPU_ASSIST_CPU（[analyzer.py:127-128](file:///e:/OmniSpace/src/services/scheduler/analyzer.py#L127-L128)） |
 
 - **规格冲突项（遗留，SEC-01）**：分区结构与动作链完全在线，但边界数值为 BK-023 裁决对齐文档B §4.1 的 80/90/95，与 CLAUDE.md §7 表的 70/85/95 不一致。按 §14 裁决优先级 CLAUDE.md 为最高，但 BK-023 裁决时已明确选择文档B 口径并经运行时验证。**建议**：修订 CLAUDE.md §7 表数值为 80/90/95 以消除文档间冲突（改阈值反而会使 12GB 基线机型在常规负载下频繁落入警戒区，引发模式抖动——维持实现值更安全）。
-- GPU 利用率 >95% 持续 10s → 在途降参：[analyzer.py:87-100](file:///e:/OmniSpace/backend/services/scheduler/analyzer.py#L87-L100) 持续越线判定 → [quality_governor.py](file:///e:/OmniSpace/backend/services/quality_governor.py) 旗标 → [paint_engine.py:482-487](file:///e:/OmniSpace/backend/services/inference/paint_engine.py#L482-L487) 每 step 轮询置 `pipe._interrupt=True`。全链真实接线 ✅。
+- GPU 利用率 >95% 持续 10s → 在途降参：[analyzer.py:87-100](file:///e:/OmniSpace/src/services/scheduler/analyzer.py#L87-L100) 持续越线判定 → [quality_governor.py](file:///e:/OmniSpace/src/services/quality_governor.py) 旗标 → [paint_engine.py:482-487](file:///e:/OmniSpace/src/services/inference/paint_engine.py#L482-L487) 每 step 轮询置 `pipe._interrupt=True`。全链真实接线 ✅。
 
 ### 4.3 零信任安全清单 —— ✅ 9/9 通过
 
 | # | 检查项 | 证据 | 结论 |
 |---|--------|------|------|
-| 1 | 路径穿越防护 | [system.py:102](file:///e:/OmniSpace/backend/api/system.py#L102) `_resolve_safe_path` 白名单；[file_store.py:178-181](file:///e:/OmniSpace/backend/data/file_store.py#L178-L181) `resolve()+relative_to()`  containment；[models.py:939-942](file:///e:/OmniSpace/backend/api/models.py#L939-L942) ROOT_DIR 校验 | ✅ |
-| 2 | SQL 注入 | [database.py:441](file:///e:/OmniSpace/backend/data/database.py#L441) 值全参数化（`?` 占位符），表/列名仅内部常量 | ✅ |
-| 3 | CORS 仅本地 | [cors.py:28](file:///e:/OmniSpace/backend/middleware/cors.py#L28) localhost/127.0.0.1 白名单 + WS 握手 Origin 校验 | ✅ |
-| 4 | 限流 | [rate_limit.py](file:///e:/OmniSpace/backend/middleware/rate_limit.py) 100 req/min/(ip,endpoint) 滑动窗口，错误码 10002 | ✅ |
-| 5 | 错误信封无堆栈泄漏 | [error_handler.py:98](file:///e:/OmniSpace/backend/middleware/error_handler.py#L98) SYSTEM_INTERNAL_ERROR 通用文案；统一信封 + X-Request-ID | ✅ |
+| 1 | 路径穿越防护 | [system.py:102](file:///e:/OmniSpace/src/api/system.py#L102) `_resolve_safe_path` 白名单；[file_store.py:178-181](file:///e:/OmniSpace/src/data/file_store.py#L178-L181) `resolve()+relative_to()`  containment；[models.py:939-942](file:///e:/OmniSpace/src/api/models.py#L939-L942) ROOT_DIR 校验 | ✅ |
+| 2 | SQL 注入 | [database.py:441](file:///e:/OmniSpace/src/data/database.py#L441) 值全参数化（`?` 占位符），表/列名仅内部常量 | ✅ |
+| 3 | CORS 仅本地 | [cors.py:28](file:///e:/OmniSpace/src/middleware/cors.py#L28) localhost/127.0.0.1 白名单 + WS 握手 Origin 校验 | ✅ |
+| 4 | 限流 | [rate_limit.py](file:///e:/OmniSpace/src/middleware/rate_limit.py) 100 req/min/(ip,endpoint) 滑动窗口，错误码 10002 | ✅ |
+| 5 | 错误信封无堆栈泄漏 | [error_handler.py:98](file:///e:/OmniSpace/src/middleware/error_handler.py#L98) SYSTEM_INTERNAL_ERROR 通用文案；统一信封 + X-Request-ID | ✅ |
 | 6 | XSS 前端 | 全仓库无 `dangerouslySetInnerHTML`；Markdown 走 react-markdown + remark-gfm（无 rehype-raw，HTML 默认转义） | ✅ |
 | 7 | 输入校验 | Pydantic v2 模型边界校验（ApiError SYSTEM_PARAM_INVALID） | ✅ |
 | 8 | 绑定地址 | 127.0.0.1 仅本地（config.yaml §14约束2「不可更改」） | ✅ |

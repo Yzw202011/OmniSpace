@@ -44,7 +44,7 @@ def outside_diff(a: Image, b: Image) -> int:
 
 
 # ── comfy 侧 ──────────────────────────────────────────────
-from backend.services.inference.comfy_paint_engine import (  # noqa: E402
+from src.services.inference.comfy_paint_engine import (  # noqa: E402
     get_comfy_paint_engine,
 )
 
@@ -62,7 +62,7 @@ print(f"[comfy inpaint] wall={tc:.1f}s 未遮罩区差异像素="
 # ── legacy 侧（comfy 实例退出后跑，避免 16G 叠载）──────
 eng.unload()
 time.sleep(3)
-from backend.services.inference.paint_engine import get_paint_engine  # noqa: E402
+from src.services.inference.paint_engine import get_paint_engine  # noqa: E402
 
 leg = get_paint_engine()
 assert leg.ensure_loaded("flux2-klein-4b"), "legacy 4B 装载失败"

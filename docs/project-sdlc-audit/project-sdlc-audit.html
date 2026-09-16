@@ -417,7 +417,7 @@
         <div class="kpi danger"><div class="kpi-num">65.9 <small>GB</small></div><div class="kpi-label">确认未接线的模型资产（另有约 21GB 目录内部分闲置），models/ 总计 193.61GB</div></div>
         <div class="kpi danger"><div class="kpi-num">16 <small>个测试</small></div><div class="kpi-label">全部测试函数数，对应后端约 31,000 行 + 前端 24,713 行代码</div></div>
         <div class="kpi warn"><div class="kpi-num">665 <small>处</small></div><div class="kpi-label">except Exception 裸捕获，分布在 58 个文件，含大量静默吞错路径</div></div>
-        <div class="kpi warn"><div class="kpi-num">3 <small>套依赖声明</small></div><div class="kpi-label">backend/requirements.txt（陈旧 v2.1）、根 requirements.txt（宽松）、lock（154 包精确）互相矛盾</div></div>
+        <div class="kpi warn"><div class="kpi-num">3 <small>套依赖声明</small></div><div class="kpi-label">src/requirements.txt（陈旧 v2.1）、根 requirements.txt（宽松）、lock（154 包精确）互相矛盾</div></div>
         <div class="kpi warn"><div class="kpi-num">2 <small>个真源</small></div><div class="kpi-label">e:\OmniSpace 与 E:\RC1002（45.9GB）靠手工 robocopy 同步，历史已漂移一次</div></div>
       </div>
 
@@ -450,9 +450,9 @@
           </thead>
           <tbody>
             <tr><td>需求与设计</td><td>docs/ 全目录（12 个 md，4.93MB）、需求追踪矩阵、ADR</td><td>文档清单比对、矩阵条目与源码交叉验证</td></tr>
-            <tr><td>后端实现</td><td>backend/ 全部 Python（约 31,000 行，排除 pydeps/runtime/models）</td><td>分层行数统计、grep 计数（异常/单例/阻塞/日志）、文件抽查</td></tr>
+            <tr><td>后端实现</td><td>src/ 全部 Python（约 31,000 行，排除 pydeps/runtime/models）</td><td>分层行数统计、grep 计数（异常/单例/阻塞/日志）、文件抽查</td></tr>
             <tr><td>前端实现</td><td>frontend/src/（90 个 TS/TSX 文件，24,713 行）</td><td>行数统计、类型安全 grep、依赖与脚本核对</td></tr>
-            <tr><td>测试与质量</td><td>backend/tests/、frontend 测试配置、CI/钩子/lint 工具链</td><td>用例计数、配置存在性验证、二进制与依赖实测</td></tr>
+            <tr><td>测试与质量</td><td>tests/unit/、frontend 测试配置、CI/钩子/lint 工具链</td><td>用例计数、配置存在性验证、二进制与依赖实测</td></tr>
             <tr><td>部署运维</td><td>launcher/、根目录脚本、models/ 与 data/ 磁盘资产、tools/</td><td>目录递归实测（GB 级）、脚本逻辑走读</td></tr>
             <tr><td>安全</td><td>middleware/、上传端点、数据库存储、认证体系</td><td>中间件走读、端点校验逻辑核对</td></tr>
           </tbody>
@@ -473,7 +473,7 @@
       <p>docs/ 的结构是历次工作流的地质沉积层。模型推荐主题下并存三份递进覆盖的文档：<code>model-recommendation-final.md</code>（187 行）、<code>model-recommendation-based-on-doc.md</code>（292 行，明确引用并推翻前者部分结论）、<code>model-deployment-plan.md</code>（约 23KB）；audit/ 子目录堆积了 14 个审计文件（round0 到 round5 加各类专项报告，其中 baseline-checklist.md 达 59.79KB）；competitor/ 子目录 34 个文件，包含抓取的竞品 JS/CSS 原始产物。这些材料各自记录了某个时点的判断，但没有一份"当前有效"的索引说明哪些结论已被覆盖。<strong>新读者无法判断哪份文档代表现状</strong>，这正是历轮审计口径漂移的物质基础。</p>
 
       <h3><span class="secno">3.3</span>三类设计文档全缺，设计信息散落源码注释</h3>
-      <p>架构、数据库、API 三类设计文档均不存在。13 张业务表的完整 DDL 只活在 <code>backend/data/database.py</code> 源码里；API 端点清单散落在各 <code>api/*.py</code> 文件头部的 docstring 注释（如 dialog.py 第 3-13 行、manga.py 第 3-29 行）；分层架构的描述则挤在 <code>architecture-security-plan.md</code> 的前 29 行里。ADR-001.md 记录了早期技术选型决策，但决策记录替代不了设计文档——它回答"为什么选"，不回答"系统长什么样"。<strong>当前理解这个系统的唯一途径是通读源码</strong>，这直接抬高了每一次维护与交接的成本。</p>
+      <p>架构、数据库、API 三类设计文档均不存在。13 张业务表的完整 DDL 只活在 <code>src/data/database.py</code> 源码里；API 端点清单散落在各 <code>api/*.py</code> 文件头部的 docstring 注释（如 dialog.py 第 3-13 行、manga.py 第 3-29 行）；分层架构的描述则挤在 <code>architecture-security-plan.md</code> 的前 29 行里。ADR-001.md 记录了早期技术选型决策，但决策记录替代不了设计文档——它回答"为什么选"，不回答"系统长什么样"。<strong>当前理解这个系统的唯一途径是通读源码</strong>，这直接抬高了每一次维护与交接的成本。</p>
 
       <h3><span class="secno">3.4</span>追踪矩阵建立四天即漂移：三处与代码实况不符</h3>
       <p>需求追踪矩阵建立于 2026-08-15，本次审计交叉验证发现至少三处条目已经与代码不符。这是全报告里最具警示性的一项发现：一个以"唯一真源"为使命的治理工具，在四天内就开始输出错误事实。</p>
@@ -520,7 +520,7 @@
       <p>后端约 31,000 行 Python，分层结构清晰（api / services / data / middleware / engines），注释密度和日志纪律都优于平均水平。问题集中在四个结构性缺陷上：文件规模失控、异常处理放任、事件循环阻塞约定脆弱、依赖声明分裂。</p>
 
       <h3><span class="secno">4.1</span>上帝文件：manga.py 一家独大</h3>
-      <p><code>backend/api/manga.py</code> 达到 4,035 行（203.5KB），是全项目唯一突破 3,000 行的文件。它在同一个文件里承载分镜 CRUD、AI 描述生成、全景导出、四宫格截图、视频生成调度、声音预览等至少六类职责，单文件 58 处 except Exception、56 处日志调用，均为全后端之最。第二梯队同样超标：browser_agent_service.py（1,574 行）、lora_training_service.py（1,363 行）、system.py（1,277 行）、video_engine.py（1,268 行），都越过了常见的 800-1000 行单文件舒适区。</p>
+      <p><code>src/api/manga.py</code> 达到 4,035 行（203.5KB），是全项目唯一突破 3,000 行的文件。它在同一个文件里承载分镜 CRUD、AI 描述生成、全景导出、四宫格截图、视频生成调度、声音预览等至少六类职责，单文件 58 处 except Exception、56 处日志调用，均为全后端之最。第二梯队同样超标：browser_agent_service.py（1,574 行）、lora_training_service.py（1,363 行）、system.py（1,277 行）、video_engine.py（1,268 行），都越过了常见的 800-1000 行单文件舒适区。</p>
 
       <figure class="chart-figure">
         <figcaption><span class="figno">图 4</span>后端最大文件 TOP 5（虚线为 1,000 行参考线）</figcaption>
@@ -570,7 +570,7 @@
           </thead>
           <tbody>
             <tr>
-              <td class="code">backend/requirements.txt</td>
+              <td class="code">src/requirements.txt</td>
               <td>头部标注"v2.1 后端依赖"，13 条精确钉版（fastapi==0.115.0、sqlalchemy==2.0.36 等）</td>
               <td>版本号陈旧两个大版本；<strong>声明的 sqlalchemy 数据层根本未使用</strong>（database.py 实际用标准库 sqlite3）；celery/redis 已被注释标注"未启用"，但这份文件整体仍在误导任何按图索骥的重建尝试</td>
             </tr>
@@ -588,7 +588,7 @@
         </table>
       </div>
 
-      <p>三份并存的实质是<strong>没有声明哪一份是权威</strong>。backend/requirements.txt 危险度最高——它看起来最正式（精确钉版、规格引用），实际最错误。任何人拿着它重建环境，会装出一个没有 torch/diffusers、却带 sqlalchemy 的假环境。</p>
+      <p>三份并存的实质是<strong>没有声明哪一份是权威</strong>。src/requirements.txt 危险度最高——它看起来最正式（精确钉版、规格引用），实际最错误。任何人拿着它重建环境，会装出一个没有 torch/diffusers、却带 sqlalchemy 的假环境。</p>
 
       <h3><span class="secno">4.6</span>硬编码假数据回填</h3>
       <p>api/hardware.py 第 171-192 行在探测失败时回填硬编码假数据：<code>usage_percent: 0.0</code>、<code>vram_used_mb: 8192</code>、GPU 使用率 35.0% 等。前端硬件面板会将这些数字如实渲染成仪表盘读数——<strong>用户看到的是编造的硬件状态</strong>。降级本身合理（离线环境探测可能失败），但降级值应当显式标记 unknown 让前端禁用显示，而不是填一个看起来可信的数。</p>
@@ -731,7 +731,7 @@
         <div class="rp-head"><span class="rp-tag">P0</span><strong>终结不可逆风险</strong><span class="rp-window">本周内 · 合计约 2 天</span></div>
         <ol>
           <li><strong>合并双真源</strong>：以 git 仓库为唯一真源，写一个 build-rc 脚本从源码树生成 E:\RC1002（robocopy 排除 .git/data/logs），此后 RC 目录只允许由脚本产出。约半天。</li>
-          <li><strong>三套依赖归一</strong>：删除 backend/requirements.txt（最误导的一份）；根 requirements.txt 顶部加一行"以 requirements-lock.txt 为准"声明；lock 文件保持唯一权威。约 10 分钟。</li>
+          <li><strong>三套依赖归一</strong>：删除 src/requirements.txt（最误导的一份）；根 requirements.txt 顶部加一行"以 requirements-lock.txt 为准"声明；lock 文件保持唯一权威。约 10 分钟。</li>
           <li><strong>上传端点类型校验</strong>：三个端点补后缀白名单 + 文件头魔数嗅验（.jsonl/.md/.txt/.pdf 等按业务定）。约半天。</li>
           <li><strong>RTM 台账刷新 + 模型接线决策</strong>：逐目录实测尺寸回填矩阵；65.9GB 未接线模型逐个给出"接线排期/删除"结论——哪怕结论是"下季度再定"，也要落成矩阵里的一条决策记录。约半天。</li>
           <li><strong>非回环绑定硬拒绝</strong>：launcher 启动时 host 非回环直接拒绝拉起（替代仅日志告警）。约 1 小时。</li>
@@ -788,21 +788,21 @@
             <tr><td>P07</td><td>后端</td><td>665 处 except Exception，吞错路径遍布 API 与引擎层</td><td class="code">58 文件；hardware.py 4 处 pass、vram_manager.py 4 处 pass</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P08</td><td>后端</td><td>事件循环阻塞防护靠注释约定而非结构保证</td><td class="code">9 处 time.sleep；dialog.py:313 "调用方须放线程池"注释契约</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P09</td><td>后端</td><td>125 处全局单例，测试隔离与启动时序强耦合</td><td class="code">29 文件 get_xxx()；main.py lifespan T+0~T+5.5s 注释时序</td><td><span class="sev sev-mid">中</span></td></tr>
-            <tr><td>P10</td><td>后端</td><td>三套依赖声明并存且互相矛盾，陈旧版声明未使用技术栈</td><td class="code">backend/requirements.txt 声明 sqlalchemy（实际用 sqlite3 标准库）</td><td><span class="sev sev-high">高</span></td></tr>
+            <tr><td>P10</td><td>后端</td><td>三套依赖声明并存且互相矛盾，陈旧版声明未使用技术栈</td><td class="code">src/requirements.txt 声明 sqlalchemy（实际用 sqlite3 标准库）</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P11</td><td>后端</td><td>硬件探测失败回填硬编码假数据，前端如实渲染</td><td class="code">hardware.py:171-192 回填 35.0% / 8192MB</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P12</td><td>前端</td><td>24,713 行零测试，vitest 声明但无配置无用例</td><td class="code">package.json:10 test 脚本；无 vitest.config；无 *.test.*</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P13</td><td>前端</td><td>42,720 个中文字符硬编码，状态枚举标签与后端无一致性校验</td><td class="code">MangaWorkspace.tsx:58-73 VIDEO_STATUS_LABELS 等</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P14</td><td>前端</td><td>ESLint 为死配置：依赖未声明、无 lint 脚本</td><td class="code">eslint.config.js import @eslint/js；node_modules 无此包</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P15</td><td>前端</td><td>巨型文件与巨型 store：mangaApi 923 行 / useMangaStore 738 行</td><td class="code">RightPanel 910 / DirectorStage 866 / StoryboardTable 855 行</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P16</td><td>前端</td><td>错误处理双轨制，组件层 121 处 try/catch 处置策略不一</td><td class="code">MangaWorkspace.tsx:153 catch(() =&gt; undefined) 静默吞错</td><td><span class="sev sev-mid">中</span></td></tr>
-            <tr><td>P17</td><td>测试</td><td>覆盖结构性失衡：16 个函数 vs 56,000 行，九引擎/调度/模型管理/前端全零</td><td class="code">backend/tests 仅 2 个测试文件；见第六章图 6</td><td><span class="sev sev-high">高</span></td></tr>
+            <tr><td>P17</td><td>测试</td><td>覆盖结构性失衡：16 个函数 vs 56,000 行，九引擎/调度/模型管理/前端全零</td><td class="code">tests/unit 仅 2 个测试文件；见第六章图 6</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P18</td><td>测试</td><td>无 CI/CD、无 pre-commit、无 husky，质量门禁靠自觉</td><td class="code">无 .github/workflows；无 .pre-commit*</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P19</td><td>测试</td><td>ruff 二进制缺失，ruff.toml 同为死配置</td><td class="code">tools/ruff/ruff.exe 实测不存在（ruff.toml 注释引用该路径）</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P20</td><td>运维</td><td>双真源交付靠手工 robocopy，历史已漂移一次</td><td class="code">矩阵 E-07；round5 报告记载 RC1002 45.9GB</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P21</td><td>运维</td><td>65.9GB 模型确认未接线 + 4 个空目录 + 台账尺寸漂移</td><td class="code">models/ 实测 193.61GB；见第七章图 7</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P22</td><td>运维</td><td>无 README、用户手册、部署手册、故障排查文档</td><td class="code">根目录与 docs/ 实测均无</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P23</td><td>运维</td><td>双 Python 包目录并存，空壳包可能遮蔽真实包</td><td class="code">runtime/py310 4.94GB + pydeps 1.63GB（37 空壳包）</td><td><span class="sev sev-low">低</span></td></tr>
-            <tr><td>P24</td><td>运维</td><td>根目录 tests/（流程编排脚本）与 backend/tests/ 双测试入口并存</td><td class="code">tests/flow/run.py、harness.py 等</td><td><span class="sev sev-low">低</span></td></tr>
+            <tr><td>P24</td><td>运维</td><td>根目录 tests/（流程编排脚本）与 tests/unit/ 双测试入口并存</td><td class="code">tests/flow/run.py、harness.py 等</td><td><span class="sev sev-low">低</span></td></tr>
             <tr><td>P25</td><td>安全</td><td>API 无认证体系，仅靠回环绑定 + 日志告警缓解</td><td class="code">main.py:50-56 告警逻辑；无任何 auth 中间件</td><td><span class="sev sev-high">高</span></td></tr>
             <tr><td>P26</td><td>安全</td><td>SQLite 明文存储，crypto.py 字段级加密未接 DB 层</td><td class="code">config.yaml:41-44 注释；crypto.py 未被 database 引用</td><td><span class="sev sev-mid">中</span></td></tr>
             <tr><td>P27</td><td>安全</td><td>三个上传端点仅校验大小，无类型/后缀/文件头校验</td><td class="code">knowledge.py:208-225、learn.py:272-289、style.py:49-72</td><td><span class="sev sev-high">高</span></td></tr>

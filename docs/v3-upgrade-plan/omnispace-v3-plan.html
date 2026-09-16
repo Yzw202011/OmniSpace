@@ -385,7 +385,7 @@ sup a:hover { text-decoration: underline; }
 <!-- ==================== 01 现状 ==================== -->
 <section id="status">
   <h2><span class="idx">01</span>项目真实现状<span class="rule-line"></span></h2>
-  <p class="sec-lead">本节所有事实均来自当前代码库结构、<code>backend/main.py</code> 版本配置、<code>README.md</code>、<code>CLAUDE.md</code> 与项目记忆库，非理想化描述。</p>
+  <p class="sec-lead">本节所有事实均来自当前代码库结构、<code>src/main.py</code> 版本配置、<code>README.md</code>、<code>CLAUDE.md</code> 与项目记忆库，非理想化描述。</p>
 
   <h3>1.1 定位与版本</h3>
   <div class="card">
@@ -428,7 +428,7 @@ sup a:hover { text-decoration: underline; }
   </div>
 
   <h3>1.4 推理底座与风格路由（gen_router）</h3>
-  <p>生图采用<mark class="key">「底座池 + 风格包路由」</mark>架构，定义于 <code>backend/services/inference/gen_router.py</code>：</p>
+  <p>生图采用<mark class="key">「底座池 + 风格包路由」</mark>架构，定义于 <code>src/services/inference/gen_router.py</code>：</p>
   <div class="table-wrap">
     <table>
       <thead><tr><th>底座</th><th>角色</th><th>关键约束</th></tr></thead>
@@ -694,9 +694,9 @@ flowchart TB
     <ol>
       <li id="cite-1"><span class="src-title">README.md — 项目定位、技术栈、模块全景、路线图。</span><span class="src-url">项目根目录 README.md</span></li>
       <li id="cite-2"><span class="src-title">CLAUDE.md — AI 开发铁律：技术栈锁定、编码规范、模块互斥矩阵、硬件基线（v2.3.1）。</span><span class="src-url">项目根目录 CLAUDE.md</span></li>
-      <li id="cite-3"><span class="src-title">backend/main.py — APP_VERSION=2.3.1 版本号实际来源。</span><span class="src-url">backend/main.py</span></li>
-      <li id="cite-4"><span class="src-title">backend/api/ 与 backend/services/inference/ — 真实 API 域与推理引擎文件结构。</span><span class="src-url">backend/api · backend/services/inference</span></li>
-      <li id="cite-5"><span class="src-title">gen_router.py / keyframe.py / comfy_paint_engine.py — 底座路由、关键帧守卫、ComfyUI 引擎实现。</span><span class="src-url">backend/services/inference/</span></li>
+      <li id="cite-3"><span class="src-title">src/main.py — APP_VERSION=2.3.1 版本号实际来源。</span><span class="src-url">src/main.py</span></li>
+      <li id="cite-4"><span class="src-title">src/api/ 与 src/services/inference/ — 真实 API 域与推理引擎文件结构。</span><span class="src-url">src/api · src/services/inference</span></li>
+      <li id="cite-5"><span class="src-title">gen_router.py / keyframe.py / comfy_paint_engine.py — 底座路由、关键帧守卫、ComfyUI 引擎实现。</span><span class="src-url">src/services/inference/</span></li>
       <li id="cite-6"><span class="src-title">项目记忆库 project_memory.md（Hard Constraints / Lessons Learned）— V49→V58 一致性迭代、face_sim 度量数据与事故教训。</span><span class="src-url">memory/projects/.../project_memory.md</span></li>
       <li id="cite-7"><span class="src-title">docs/ — 架构、审计、一致性技术评估、模型部署等历史产出。</span><span class="src-url">docs/</span></li>
     </ol>

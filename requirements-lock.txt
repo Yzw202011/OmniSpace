@@ -9,7 +9,7 @@
 #
 # 已知偏差（诚实记录）：
 #   - pydeps 装的是完整版 opencv-python（非 headless），遮蔽关系以本文件为准；
-#   - torch 系版本契约真源 = backend/torch_contract.json（升级只改那里）；
+#   - torch 系版本契约真源 = src/torch_contract.json（升级只改那里）；
 #   - 2026-09-13 已清理 4 处幽灵 dist-info（torchaudio/torchvision cu128
 #     双代元数据、pydeps 无包体 torchvision、huggingface_hub 1.26 双元数据）。
 #

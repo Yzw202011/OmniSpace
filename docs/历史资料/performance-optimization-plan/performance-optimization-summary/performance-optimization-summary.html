@@ -356,7 +356,7 @@ sup a:hover{text-decoration:underline}
     <table>
       <thead><tr><th>层</th><th>入口</th><th>覆盖</th><th>结论</th></tr></thead>
       <tbody>
-        <tr><td>L1 后端 pytest</td><td><code>backend/tests</code></td><td>API 冒烟、引擎逻辑、异步边界、主机守卫、遥测诚实性、上传守卫、知识管线</td><td><span class="tag done">108 通过</span></td></tr>
+        <tr><td>L1 后端 pytest</td><td><code>tests/unit</code></td><td>API 冒烟、引擎逻辑、异步边界、主机守卫、遥测诚实性、上传守卫、知识管线</td><td><span class="tag done">108 通过</span></td></tr>
         <tr><td>L2 前端 vitest</td><td><code>frontend/src/**/*.test.ts</code></td><td>useMangaStore 轮询、错误收敛、statusLabels/videoStatus 枚举一致性、mangaApi</td><td><span class="tag done">55 通过</span></td></tr>
         <tr><td>L3 E2E 流程</td><td><code>tests/flow</code>（需活后端）</td><td>真实推理级全流程</td><td><span class="tag partial">发版前实机</span></td></tr>
         <tr><td>GPU gated</td><td><code>test_vllm_hot_switch_stress</code> / <code>test_vllm_multimodal</code></td><td>vLLM 热切换压力、多模态 e2e（需 GPU+双模型+py313）</td><td><span class="tag todo">显式开启</span></td></tr>
@@ -452,17 +452,17 @@ sup a:hover{text-decoration:underline}
     <table>
       <thead><tr><th>文件</th><th>阶段</th><th>改动</th></tr></thead>
       <tbody>
-        <tr><td><code>backend/engines/vllm_service.py</code></td><td><span class="tag p2">P2/P3</span></td><td>启动超时收敛、健康轮询降频、<code>is_booting()</code>、无阻塞 <code>start_async()</code> 后台预冷</td></tr>
-        <tr><td><code>backend/services/model_manager/__init__.py</code></td><td><span class="tag p2">P2/P3</span></td><td><code>release_for_module()</code> 按目标模块类型决定保留/终止 vLLM 热备；<code>_VRAM_HEAVY_FEATURES</code> 定义</td></tr>
-        <tr><td><code>backend/engines/gpu_backend.py</code></td><td><span class="tag p2">P2/P3</span></td><td>硬件后端选择、精度×量化兼容矩阵、多卡枚举与设备计划、<code>get_effective_tier()</code></td></tr>
-        <tr><td><code>backend/services/inference/backends/base.py</code></td><td><span class="tag p2">P2/P3</span></td><td><code>preferred_load_dtype()</code> 按兼容矩阵裁决精度</td></tr>
-        <tr><td><code>backend/services/resource_sampler.py</code></td><td><span class="tag p2">P2/P3</span></td><td><strong>新增</strong>资源采样巡检服务（30s 快照、环形缓冲、JSONL、越界告警）</td></tr>
-        <tr><td><code>backend/api/hardware.py</code></td><td><span class="tag p2">P2/P3</span></td><td>新增 <code>/hardware/resource-samples</code> 趋势端点</td></tr>
-        <tr><td><code>backend/config.yaml / config.py</code></td><td><span class="tag p1">P1/P2</span></td><td>磁盘阈值统一来源、GPU 利用率分级参数、调度回收参数、数据库调优参</td></tr>
-        <tr><td><code>backend/services/scheduler/</code></td><td><span class="tag p1">P1/P2</span></td><td>两级空闲回收、GPU 分级降参（analyzer + <code>__init__</code>）</td></tr>
-        <tr><td><code>backend/services/thermal_guard.py</code></td><td><span class="tag p1">P1/P2</span></td><td>热保护状态事件化广播（仅状态变化推送）</td></tr>
-        <tr><td><code>backend/services/model_manager/cache.py</code></td><td><span class="tag p1">P1/P2</span></td><td><code>full_unload()</code> 卸载后立即 <code>empty_cache</code> 防碎片</td></tr>
-        <tr><td><code>backend/startup_check.py</code></td><td><span class="tag p1">P1/P2</span></td><td>启动自检并行化</td></tr>
+        <tr><td><code>src/engines/vllm_service.py</code></td><td><span class="tag p2">P2/P3</span></td><td>启动超时收敛、健康轮询降频、<code>is_booting()</code>、无阻塞 <code>start_async()</code> 后台预冷</td></tr>
+        <tr><td><code>src/services/model_manager/__init__.py</code></td><td><span class="tag p2">P2/P3</span></td><td><code>release_for_module()</code> 按目标模块类型决定保留/终止 vLLM 热备；<code>_VRAM_HEAVY_FEATURES</code> 定义</td></tr>
+        <tr><td><code>src/engines/gpu_backend.py</code></td><td><span class="tag p2">P2/P3</span></td><td>硬件后端选择、精度×量化兼容矩阵、多卡枚举与设备计划、<code>get_effective_tier()</code></td></tr>
+        <tr><td><code>src/services/inference/backends/base.py</code></td><td><span class="tag p2">P2/P3</span></td><td><code>preferred_load_dtype()</code> 按兼容矩阵裁决精度</td></tr>
+        <tr><td><code>src/services/resource_sampler.py</code></td><td><span class="tag p2">P2/P3</span></td><td><strong>新增</strong>资源采样巡检服务（30s 快照、环形缓冲、JSONL、越界告警）</td></tr>
+        <tr><td><code>src/api/hardware.py</code></td><td><span class="tag p2">P2/P3</span></td><td>新增 <code>/hardware/resource-samples</code> 趋势端点</td></tr>
+        <tr><td><code>src/config.yaml / config.py</code></td><td><span class="tag p1">P1/P2</span></td><td>磁盘阈值统一来源、GPU 利用率分级参数、调度回收参数、数据库调优参</td></tr>
+        <tr><td><code>src/services/scheduler/</code></td><td><span class="tag p1">P1/P2</span></td><td>两级空闲回收、GPU 分级降参（analyzer + <code>__init__</code>）</td></tr>
+        <tr><td><code>src/services/thermal_guard.py</code></td><td><span class="tag p1">P1/P2</span></td><td>热保护状态事件化广播（仅状态变化推送）</td></tr>
+        <tr><td><code>src/services/model_manager/cache.py</code></td><td><span class="tag p1">P1/P2</span></td><td><code>full_unload()</code> 卸载后立即 <code>empty_cache</code> 防碎片</td></tr>
+        <tr><td><code>src/startup_check.py</code></td><td><span class="tag p1">P1/P2</span></td><td>启动自检并行化</td></tr>
         <tr><td><code>frontend/src/components/common/VirtualList.tsx</code></td><td><span class="tag p2">P2/P3</span></td><td><strong>新增</strong>零依赖可变行高虚拟列表</td></tr>
         <tr><td><code>frontend/src/components/dialog/DialogView.tsx</code></td><td><span class="tag p2">P2/P3</span></td><td>消息列表接入 <code>VirtualList</code> 窗口化</td></tr>
         <tr><td><code>frontend/src/services/hardwareApi.ts</code></td><td><span class="tag p2">P2/P3</span></td><td>新增 <code>ResourceSample</code> / <code>getResourceSamples()</code></td></tr>
@@ -484,20 +484,20 @@ sup a:hover{text-decoration:underline}
         <a class="src-url" href="e:\OmniSpace\performance-optimization-plan\performance-optimization-plan.html" target="_blank" rel="noopener">e:\OmniSpace\performance-optimization-plan\performance-optimization-plan.html</a>
       </li>
       <li id="cite-2">
-        <span class="src-title">backend/engines · gpu_backend.py / vllm_service.py（硬件后端、兼容矩阵、vLLM 常驻热备）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\engines" target="_blank" rel="noopener">e:\OmniSpace\backend\engines</a>
+        <span class="src-title">src/engines · gpu_backend.py / vllm_service.py（硬件后端、兼容矩阵、vLLM 常驻热备）</span>
+        <a class="src-url" href="e:\OmniSpace\src\engines" target="_blank" rel="noopener">e:\OmniSpace\src\engines</a>
       </li>
       <li id="cite-3">
-        <span class="src-title">backend/services · model_manager / scheduler / thermal_guard / resource_sampler（卸载决策、两级回收、热保护事件化、采样巡检）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\services" target="_blank" rel="noopener">e:\OmniSpace\backend\services</a>
+        <span class="src-title">src/services · model_manager / scheduler / thermal_guard / resource_sampler（卸载决策、两级回收、热保护事件化、采样巡检）</span>
+        <a class="src-url" href="e:\OmniSpace\src\services" target="_blank" rel="noopener">e:\OmniSpace\src\services</a>
       </li>
       <li id="cite-4">
-        <span class="src-title">backend/api/hardware.py（/hardware/resource-samples 资源趋势端点）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\api\hardware.py" target="_blank" rel="noopener">e:\OmniSpace\backend\api\hardware.py</a>
+        <span class="src-title">src/api/hardware.py（/hardware/resource-samples 资源趋势端点）</span>
+        <a class="src-url" href="e:\OmniSpace\src\api\hardware.py" target="_blank" rel="noopener">e:\OmniSpace\src\api\hardware.py</a>
       </li>
       <li id="cite-5">
-        <span class="src-title">backend/config.yaml / startup_check.py（磁盘阈值、GPU 降参、回收参数、自检并行化）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\config.yaml" target="_blank" rel="noopener">e:\OmniSpace\backend\config.yaml</a>
+        <span class="src-title">src/config.yaml / startup_check.py（磁盘阈值、GPU 降参、回收参数、自检并行化）</span>
+        <a class="src-url" href="e:\OmniSpace\src\config.yaml" target="_blank" rel="noopener">e:\OmniSpace\src\config.yaml</a>
       </li>
       <li id="cite-6">
         <span class="src-title">frontend/src/components/common/VirtualList.tsx 与 components/dialog/DialogView.tsx（长列表窗口化）</span>
@@ -508,8 +508,8 @@ sup a:hover{text-decoration:underline}
         <a class="src-url" href="e:\OmniSpace\tools\run_tests.py" target="_blank" rel="noopener">e:\OmniSpace\tools\run_tests.py</a>
       </li>
       <li id="cite-8">
-        <span class="src-title">backend/tests（L1 回归：108 通过/5 gated 跳过）与 frontend/src/**/*.test.ts（L2：55 通过）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\tests" target="_blank" rel="noopener">e:\OmniSpace\backend\tests</a>
+        <span class="src-title">tests/unit（L1 回归：108 通过/5 gated 跳过）与 frontend/src/**/*.test.ts（L2：55 通过）</span>
+        <a class="src-url" href="e:\OmniSpace\src\tests" target="_blank" rel="noopener">e:\OmniSpace\src\tests</a>
       </li>
     </ol>
   </div>

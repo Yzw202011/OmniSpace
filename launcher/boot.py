@@ -211,7 +211,7 @@ class BootState:
 class ComfyManager:
     """ComfyUI 可选预热：boot 拥有进程生命周期，后端经 8189 自动复用外部实例。
 
-    spawn 参数与 backend/services/inference/h3_engine.py 对齐（含 ffmpeg
+    spawn 参数与 src/services/inference/h3_engine.py 对齐（含 ffmpeg
     PATH 前置——宿主 Electron 阉割版 ffmpeg 探测能过、执行报错，UAT M-03）。
     """
 

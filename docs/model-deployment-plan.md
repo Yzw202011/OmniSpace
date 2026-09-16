@@ -2,7 +2,7 @@
 
 > ⚠️ **2026-09-02 诚实化裁定：本文已被现实超越，降级为历史决策记录，勿据此部署。**
 > 审计结论（`docs/audit/round-2026-09-02-doc-honestification.md`）：5070Ti 档位已修复入 `HARDWARE_TIER_TABLE`；HunyuanVideo 路线已否决裁剪（2026-08-15）；Klein-4B 与 8B（AWQ 形态）已落地；gpt-sovits / TripoSR / bge-m3 已移入隔离区（09-02）；体积基数失真（文内基数 46.6G vs models/ 实占 244G）；多处行号漂移。
-> **模型现状真源 = `models/models_manifest.json`（v3）+ `backend/data/models.py` 路由表 + `docs/deployment-manual.md` §3**。本文仅作 2026-08-14~20 选型决策过程追溯。
+> **模型现状真源 = `models/models_manifest.json`（v3）+ `src/data/models.py` 路由表 + `docs/deployment-manual.md` §3**。本文仅作 2026-08-14~20 选型决策过程追溯。
 
 > **[唯一权威版 2026-08-20 确立]** 本文档为模型推荐/部署主题的单一真源（TASK-P2-04 收敛裁定）；RTM 中「部署计划」字样均指本文档。历史版本已归档至 `docs/archive/`。模型接线状态以 `docs/requirements-traceability.md`（M-01~M-16）为准——本计划描述目标架构，RTM 记录当前进度。
 >
@@ -40,7 +40,7 @@ RTX 5070 Ti 的 Tensor Core 原生支持 FP8 混合精度运算。相比 FP16：
 
 ### 关键问题：硬件分级表缺失 RTX 5070 Ti
 
-项目 `backend/data/models.py` 的 `HARDWARE_TIER_TABLE`（第 113-164 行）不包含 RTX 5070 Ti。该 GPU 会被 VRAM 回退逻辑误判为 `rtx3060` 档位（dialog 降到 2B、paint 降到 SDXL），严重浪费硬件能力。必须在部署前新增 `rtx5070ti` 档位。
+项目 `src/data/models.py` 的 `HARDWARE_TIER_TABLE`（第 113-164 行）不包含 RTX 5070 Ti。该 GPU 会被 VRAM 回退逻辑误判为 `rtx3060` 档位（dialog 降到 2B、paint 降到 SDXL），严重浪费硬件能力。必须在部署前新增 `rtx5070ti` 档位。
 
 ---
 
@@ -181,7 +181,7 @@ Qwen3-VL-8B 在反直觉视觉场景测试中得分 0.773，为开源 Instruct V
 
 **现有代码已部分支持**：`dialog_engine.py` 第 48-54 行 `DIALOG_MODEL_CANDIDATES` 已有 `qwen3-vl-8b` 条目，但条件为 GPU tier >= 12GB VRAM。由于 RTX 5070 Ti 被误判为 rtx3060 档，8B 永不入选。**修复硬件分级表即可解锁。**
 
-**代码修改 — backend/data/models.py：**
+**代码修改 — src/data/models.py：**
 
 ```python
 # HARDWARE_TIER_TABLE 新增 rtx5070ti 档位（第 113-164 行之间）
@@ -216,7 +216,7 @@ HunyuanVideo 1.5 官方最低 14GB 显存（开启 model offloading），支持 
 **唯一需要的修改 — VIDEO_ROUTING_TABLE：**
 
 ```python
-# backend/data/models.py 第 79 行
+# src/data/models.py 第 79 行
 # 新增 VideoModel 枚举值 + 路由表条目
 class VideoModel(str, Enum):
     # ... 现有 ...
@@ -242,7 +242,7 @@ VIDEO_ROUTING_TABLE = [
 
 Hunyuan3D 2.1 的 PBR 纹理通道在 16GB 卡上可跑（低显存路径约 13GB），输出带物理纹理的电影级 3D 模型。几何生成仅需 6GB，可与常驻层共存。
 
-**代码修改 — 新建 backend/services/inference/hunyuan3d_engine.py：**
+**代码修改 — 新建 src/services/inference/hunyuan3d_engine.py：**
 
 ```python
 # 参照现有 triposr_engine.py 结构
@@ -262,7 +262,7 @@ class Hunyuan3DEngine:
         return mesh_path
 ```
 
-同时修改 `backend/api/manga.py` 的 `director_text_to_3d()`（第 3115 行），优先使用 Hunyuan3D，TripoSR 兜底。
+同时修改 `src/api/manga.py` 的 `director_text_to_3d()`（第 3115 行），优先使用 Hunyuan3D，TripoSR 兜底。
 
 ### 5.2 CosyVoice2-0.5B + F5-TTS — 双 TTS 引擎
 
@@ -394,16 +394,16 @@ NVFP4 是 Blackwell Tensor Core 原生支持的 4-bit 浮点格式：
 
 | 优先级 | 文件 | 函数/位置 | 改动内容 | 工作量 |
 |--------|------|----------|---------|--------|
-| P0 | `backend/data/models.py` | `HARDWARE_TIER_TABLE` (L113) | 新增 `rtx5070ti` 档位 + VRAM 回退顺序 | 小 |
-| P0 | `backend/data/models.py` | `VideoModel` 枚举 + `VIDEO_ROUTING_TABLE` (L79) | 新增 `hunyuan-video-1.5` + 14GB 路由 | 小 |
-| P0 | `backend/services/inference/paint_engine.py` | `PAINT_MODEL_CANDIDATES` (L54) + `load_model()` (L295) | 新增 FLUX.2 Klein 4B + FluxPipeline + FP8 dtype | 中 |
+| P0 | `src/data/models.py` | `HARDWARE_TIER_TABLE` (L113) | 新增 `rtx5070ti` 档位 + VRAM 回退顺序 | 小 |
+| P0 | `src/data/models.py` | `VideoModel` 枚举 + `VIDEO_ROUTING_TABLE` (L79) | 新增 `hunyuan-video-1.5` + 14GB 路由 | 小 |
+| P0 | `src/services/inference/paint_engine.py` | `PAINT_MODEL_CANDIDATES` (L54) + `load_model()` (L295) | 新增 FLUX.2 Klein 4B + FluxPipeline + FP8 dtype | 中 |
 | P0 | `models/models_manifest.json` | 顶层 models 对象 | 新增 flux2-klein-4b / qwen3-vl-8b / hunyuan-video-1.5 条目 | 小 |
-| P1 | `backend/services/inference/voice_engine.py` | `_VOICE_NAME_HINTS` (L88) + 新增 `_load_f5_tts()` + `_load_sovits()` (L617) | 新增 F5-TTS 后端 + CosyVoice2 识别 + 解除 SoVITS gate | 中 |
-| P1 | 新建 `backend/services/inference/hunyuan3d_engine.py` | 整个文件 | 参照 triposr_engine.py 实现 Hunyuan3D 2.1 引擎 | 中 |
-| P1 | `backend/api/manga.py` | `director_text_to_3d()` (L3115) | 新增 Hunyuan3D 引擎选择逻辑（优先 Hunyuan3D，兜底 TripoSR） | 小 |
+| P1 | `src/services/inference/voice_engine.py` | `_VOICE_NAME_HINTS` (L88) + 新增 `_load_f5_tts()` + `_load_sovits()` (L617) | 新增 F5-TTS 后端 + CosyVoice2 识别 + 解除 SoVITS gate | 中 |
+| P1 | 新建 `src/services/inference/hunyuan3d_engine.py` | 整个文件 | 参照 triposr_engine.py 实现 Hunyuan3D 2.1 引擎 | 中 |
+| P1 | `src/api/manga.py` | `director_text_to_3d()` (L3115) | 新增 Hunyuan3D 引擎选择逻辑（优先 Hunyuan3D，兜底 TripoSR） | 小 |
 | P1 | `models/models_manifest.json` | 顶层 models 对象 | 新增 bge-m3 / cosyvoice2 / f5-tts / hunyuan3d-2.1 条目 | 小 |
-| P2 | `backend/services/inference/paint_engine.py` | 新增 `load_controlnet()` | FLUX ControlNet-Union 支持 | 中 |
-| P2 | `backend/services/inference/dialog_engine.py` | `DIALOG_MODEL_CANDIDATES` (L48) | 确认 qwen3-vl-8b 条目已存在（仅需硬件分级表修复） | 无 |
+| P2 | `src/services/inference/paint_engine.py` | 新增 `load_controlnet()` | FLUX ControlNet-Union 支持 | 中 |
+| P2 | `src/services/inference/dialog_engine.py` | `DIALOG_MODEL_CANDIDATES` (L48) | 确认 qwen3-vl-8b 条目已存在（仅需硬件分级表修复） | 无 |
 | P3 | 全部引擎文件 | `_preferred_load_dtype()` | 新增 `torch.float4_e2m1_fn` (NVFP4) 支持 | 中 |
 
 ### 代码修改依赖关系
@@ -448,7 +448,7 @@ NVFP4 是 Blackwell Tensor Core 原生支持的 4-bit 浮点格式：
 
 **步骤 1：修复硬件分级表**
 
-编辑 `backend/data/models.py`，在 `HARDWARE_TIER_TABLE` 新增 `rtx5070ti` 档位，修改 `detect_hardware_tier()` 的 VRAM 回退顺序。
+编辑 `src/data/models.py`，在 `HARDWARE_TIER_TABLE` 新增 `rtx5070ti` 档位，修改 `detect_hardware_tier()` 的 VRAM 回退顺序。
 
 验证：启动后端，`GET /api/v1/hardware/info` 返回 `tier.id == "rtx5070ti"`
 

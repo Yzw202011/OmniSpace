@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Rust Coding 真实需求基准数据集 (v2, v0.8.4 P2 扩充: 100 → 500 段)
 
@@ -1130,7 +1129,7 @@ def stratified_split(samples: list, train_ratio: float = 0.75,
     for s in samples:
         by_label.setdefault(s["label"], []).append(s)
     train, val = [], []
-    for label, items in sorted(by_label.items()):
+    for _, items in sorted(by_label.items()):
         idx = rng.permutation(len(items))
         n_train = max(1, int(round(len(items) * train_ratio)))
         train.extend(items[i] for i in idx[:n_train])
@@ -1151,7 +1150,7 @@ def stratified_kfold(samples: list, n_folds: int = 5, seed: int = 0):
     by_label = {}
     for s in samples:
         by_label.setdefault(s["label"], []).append(s)
-    for label, items in sorted(by_label.items()):
+    for _, items in sorted(by_label.items()):
         idx = rng.permutation(len(items))
         for pos, i in enumerate(idx):
             folds[pos % n_folds].append(items[i])

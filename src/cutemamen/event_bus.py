@@ -10,7 +10,8 @@
 
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 
 class EventBus:
@@ -19,13 +20,13 @@ class EventBus:
     WILDCARD = "*"
 
     def __init__(self, history_capacity: int = 256):
-        self._subscribers: Dict[str, List[Callable[[Dict], None]]] = {}
-        self.history: Deque[Dict] = deque(maxlen=history_capacity)
-        self.errors: List[Dict] = []
+        self._subscribers: dict[str, list[Callable[[dict], None]]] = {}
+        self.history: deque[dict] = deque(maxlen=history_capacity)
+        self.errors: list[dict] = []
 
     # ── 订阅 ────────────────────────────────────────────────
     def subscribe(self, topic: str,
-                  handler: Callable[[Dict], None]) -> Callable[[], None]:
+                  handler: Callable[[dict], None]) -> Callable[[], None]:
         """订阅主题, 返回退订函数"""
         self._subscribers.setdefault(topic, []).append(handler)
 
@@ -36,7 +37,7 @@ class EventBus:
                 pass
         return _unsubscribe
 
-    def unsubscribe(self, topic: str, handler: Callable[[Dict], None]) -> None:
+    def unsubscribe(self, topic: str, handler: Callable[[dict], None]) -> None:
         try:
             self._subscribers.get(topic, []).remove(handler)
         except ValueError:
@@ -58,16 +59,16 @@ class EventBus:
         return delivered
 
     # ── 查询 ────────────────────────────────────────────────
-    def topics(self) -> List[str]:
+    def topics(self) -> list[str]:
         return sorted(self._subscribers)
 
     def subscriber_count(self, topic: str) -> int:
         return len(self._subscribers.get(topic, []))
 
-    def recent(self, n: int = 10) -> List[Dict]:
+    def recent(self, n: int = 10) -> list[dict]:
         return list(self.history)[-n:]
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {
             "topics": len(self._subscribers),
             "published": len(self.history),

@@ -21,7 +21,7 @@ API 与经典 CubeGPT 保持一致 (step / faces / export_face / ...)。
 import os
 import time
 from collections import deque
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -49,9 +49,9 @@ class WorkingMemory:
         from ..core.distributedformer import KVStack
         self.kv_stack = KVStack(capacity=capacity, dim=dim)
         self.dim = dim
-        self.recent_events: Deque[Dict] = deque(maxlen=events_capacity)
+        self.recent_events: deque[dict] = deque(maxlen=events_capacity)
 
-    def remember_event(self, event: Dict[str, Any]) -> None:
+    def remember_event(self, event: dict[str, Any]) -> None:
         self.recent_events.append({
             "t": time.time(),
             "topic": event.get("topic"),
@@ -63,7 +63,7 @@ class WorkingMemory:
     def push(self, entry_id: str, key: np.ndarray, value: np.ndarray) -> None:
         self.kv_stack.push(entry_id, key, value)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         kv = self.kv_stack.get_stats()
         return {"recent_events": len(self.recent_events), "kv": kv}
 
@@ -80,21 +80,21 @@ class CuteMamenKernel:
     """
 
     def __init__(self, dim: int = 16, working_memory_capacity: int = 10000,
-                 memory_budget_mb: Optional[float] = None,
+                 memory_budget_mb: float | None = None,
                  pkg_dir: str = DEFAULT_PKG_DIR):
         self.dim = dim
         self.memory_budget_mb = memory_budget_mb
         self.pkg_dir = pkg_dir
 
         # 插件注册表: 已加载 (name → plugin) + 已注册未加载 (name → pkg 路径)
-        self.plugins: Dict[str, ExpertPlugin] = {}
-        self.registry: Dict[str, str] = {}
+        self.plugins: dict[str, ExpertPlugin] = {}
+        self.registry: dict[str, str] = {}
         # 路由主题索引 (route → name): 已注册未加载的包按路由主题
         # 随用随载 (topic 不等于插件名时也能热加载)
-        self.route_index: Dict[str, str] = {}
+        self.route_index: dict[str, str] = {}
 
         # 路由表: 主题 → 插件名 (mount 时自动登记 plugin.route)
-        self.routes: Dict[str, str] = {}
+        self.routes: dict[str, str] = {}
 
         # 工作记忆 + 事件总线
         self.working_memory = WorkingMemory(capacity=working_memory_capacity,
@@ -107,7 +107,7 @@ class CuteMamenKernel:
         self.total_thinks = 0
 
     # ── 生命周期管理 ────────────────────────────────────────
-    def mount(self, plugin: ExpertPlugin, route: Optional[str] = None) -> Dict:
+    def mount(self, plugin: ExpertPlugin, route: str | None = None) -> dict:
         """挂载插件: on_load → 登记路由 → 广播 plugin.loaded"""
         if plugin.name in self.plugins:
             raise ValueError(f"插件 {plugin.name!r} 已挂载")
@@ -120,7 +120,7 @@ class CuteMamenKernel:
         self._enforce_budget(protect=plugin.name)
         return plugin.stats()
 
-    def unmount(self, name: str, pkg_path: Optional[str] = None) -> str:
+    def unmount(self, name: str, pkg_path: str | None = None) -> str:
         """卸载插件: on_unload (蒸馏记忆) → 存档 .CuteMamen (可恢复) → 广播"""
         plugin = self._require(name)
         if pkg_path is None:
@@ -137,9 +137,9 @@ class CuteMamenKernel:
                          {"name": name, "pkg": pkg_path})
         return pkg_path
 
-    def register_pkg(self, path: str, name: Optional[str] = None) -> Dict:
+    def register_pkg(self, path: str, name: str | None = None) -> dict:
         """注册 .CuteMamen / .dfpkg 到随用随载注册表 (只记路径, 不加载)"""
-        from .pkg import read_manifest, check_core_version
+        from .pkg import check_core_version, read_manifest
         manifest = read_manifest(path)
         check_core_version(manifest.get("min_core_version", "0.7.0"),
                            _kernel_version())
@@ -151,7 +151,7 @@ class CuteMamenKernel:
         return manifest
 
     def discover_plugins(self,
-                         plugin_dir: str = DEFAULT_PLUGIN_DIR) -> Dict[str, Dict]:
+                         plugin_dir: str = DEFAULT_PLUGIN_DIR) -> dict[str, dict]:
         """.CuteMamen 插件标准落地 (v0.8.5): 扫描插件目录并注册全部包
 
         标准布局: ./plugin/<Name>.CuteMamen (思考插件以独立包文件交付,
@@ -160,7 +160,7 @@ class CuteMamenKernel:
         返回 {插件名: manifest}。
         """
         from .pkg import CUTEMAMEN_SUFFIX, DFPKG_SUFFIX
-        discovered: Dict[str, Dict] = {}
+        discovered: dict[str, dict] = {}
         if not os.path.isdir(plugin_dir):
             return discovered
         for fn in sorted(os.listdir(plugin_dir)):
@@ -188,7 +188,7 @@ class CuteMamenKernel:
         return self.mount(plugin)
 
     # ── 路由与思考 ──────────────────────────────────────────
-    def think(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def think(self, event: dict[str, Any]) -> list[dict[str, Any]]:
         """通用内核入口: 路由一个事件 → 目标插件 on_think → 结果发布总线
 
         event: {"topic": 主题, "data": 数据, ...元信息}
@@ -207,7 +207,7 @@ class CuteMamenKernel:
         self._enforce_budget(protect=plugin.name)
         return [result] if result is not None else []
 
-    def _resolve(self, topic: Optional[str]) -> Optional[ExpertPlugin]:
+    def _resolve(self, topic: str | None) -> ExpertPlugin | None:
         """路由器: 主题 → 插件 (未加载但已注册 → 热加载)
 
         卸载会移除路由表项, 查找顺序:
@@ -231,7 +231,7 @@ class CuteMamenKernel:
         return self.plugins.get(name)
 
     def _dispatch(self, plugin: ExpertPlugin,
-                  event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                  event: dict[str, Any]) -> dict[str, Any] | None:
         result = plugin.on_think(event, self._ctx_for(plugin))
         self.bus.publish(f"plugin.{plugin.name}.output",
                          {"result": result} if result is not None else None)
@@ -248,13 +248,13 @@ class CuteMamenKernel:
     def total_footprint_mb(self) -> float:
         return round(sum(p.footprint_mb() for p in self.plugins.values()), 6)
 
-    def _enforce_budget(self, protect: Optional[str] = None) -> List[str]:
+    def _enforce_budget(self, protect: str | None = None) -> list[str]:
         """内存预算 LRU 淘汰: 超预算时逐个存档并卸载最久未用插件
 
         protect 指向本轮刚被激活的插件 (绝不淘汰正在思考的专家)。
         淘汰前自动存档 .CuteMamen (注册表可热加载恢复)。
         """
-        evicted: List[str] = []
+        evicted: list[str] = []
         if self.memory_budget_mb is None:
             return evicted
         while (self.total_footprint_mb() > self.memory_budget_mb
@@ -285,12 +285,12 @@ class CuteMamenKernel:
         for topic in [t for t, n in self.routes.items() if n == plugin.name]:
             del self.routes[topic]
 
-    def list_plugins(self) -> Dict[str, List[str]]:
+    def list_plugins(self) -> dict[str, list[str]]:
         return {"loaded": list(self.plugins),
                 "registered": [n for n in self.registry
                                if n not in self.plugins]}
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {
             "kernel": "CuteMamen",
             "dim": self.dim,
@@ -336,9 +336,9 @@ class CubeGPTKernel(CuteMamenKernel):
     CUBE_RING = ("numeric", "text", "timeseries", "image")
 
     def __init__(self, depth: int = 2, dim: int = 16,
-                 modalities: Optional[List[str]] = None,
+                 modalities: list[str] | None = None,
                  kv_capacity: int = 10000,
-                 memory_budget_mb: Optional[float] = None,
+                 memory_budget_mb: float | None = None,
                  training_mode: bool = False):
         super().__init__(dim=dim, working_memory_capacity=kv_capacity,
                          memory_budget_mb=memory_budget_mb)
@@ -369,17 +369,17 @@ class CubeGPTKernel(CuteMamenKernel):
         return self.working_memory.kv_stack
 
     @property
-    def faces(self) -> Dict[str, Any]:
+    def faces(self) -> dict[str, Any]:
         from .face_bridge import FacePlugin
         return {p.modality: p.face for p in self.plugins.values()
                 if isinstance(p, FacePlugin) and p.face is not None}
 
     @property
-    def ring(self) -> List[str]:
+    def ring(self) -> list[str]:
         return [m for m in self.CUBE_RING if m in self.faces]
 
     @property
-    def _face_registry(self) -> Dict[str, str]:
+    def _face_registry(self) -> dict[str, str]:
         # v0.7.0 随用随载注册表兼容视图: {模态: pkg 路径}
         from .face_bridge import FacePlugin
         reg = {}
@@ -391,7 +391,7 @@ class CubeGPTKernel(CuteMamenKernel):
         return reg
 
     @property
-    def _all_units(self) -> List[Any]:
+    def _all_units(self) -> list[Any]:
         units = []
         for face in self.faces.values():
             units.extend(face.get_units())
@@ -399,12 +399,12 @@ class CubeGPTKernel(CuteMamenKernel):
         return units
 
     @property
-    def _units_map(self) -> Dict[str, Any]:
+    def _units_map(self) -> dict[str, Any]:
         return {u.unit_id: u for u in self._all_units}
 
     # ── 模态面插件挂载 ──────────────────────────────────────
-    def mount_face(self, modality: str, face: Optional[Any] = None,
-                   depth: Optional[int] = None) -> "Any":
+    def mount_face(self, modality: str, face: Any | None = None,
+                   depth: int | None = None) -> "Any":
         """挂载一个模态面思考插件 (face=None 时新建 CubeFace)"""
         from .face_bridge import FacePlugin
         plugin = FacePlugin(modality, depth=depth or self.depth, dim=self.dim,
@@ -413,12 +413,12 @@ class CubeGPTKernel(CuteMamenKernel):
         return plugin
 
     def export_face(self, modality: str, path: str,
-                    **manifest_kwargs: Any) -> Dict:
+                    **manifest_kwargs: Any) -> dict:
         """模态面 → .dfpkg 存档 (v0.7.0 API, 权重逐位可复现)"""
         from ..core import face_pkg
         return face_pkg.export_face(self, modality, path, **manifest_kwargs)
 
-    def import_face(self, path: str, modality: Optional[str] = None) -> Dict:
+    def import_face(self, path: str, modality: str | None = None) -> dict:
         """导入 .dfpkg / .CuteMamen 面存档 → 挂载为思考插件 (替换语义)"""
         from ..core import face_pkg
         from ..core.distributedformer import CubeFace
@@ -452,7 +452,7 @@ class CubeGPTKernel(CuteMamenKernel):
         self.mount(plugin)
 
     def unload_face(self, modality: str,
-                    pkg_path: Optional[str] = None) -> str:
+                    pkg_path: str | None = None) -> str:
         """卸载模态面 (默认先存档保证可恢复, v0.7.0 API)"""
         if modality not in self.faces:
             raise KeyError(f"模态面 {modality!r} 未加载 (已加载: "
@@ -473,7 +473,7 @@ class CubeGPTKernel(CuteMamenKernel):
         return pkg_path
 
     def load_face(self, modality: str,
-                  pkg_path: Optional[str] = None) -> Dict:
+                  pkg_path: str | None = None) -> dict:
         """从 pkg 热加载模态面 (v0.7.0 API)"""
         path = pkg_path or self._face_registry.get(modality)
         if not path:
@@ -481,12 +481,12 @@ class CubeGPTKernel(CuteMamenKernel):
         return self.import_face(path, modality)
 
     def register_face_pkg(self, path: str,
-                          modality: Optional[str] = None) -> Dict:
+                          modality: str | None = None) -> dict:
         """注册面 pkg 到随用随载注册表 (v0.7.0 API)"""
         manifest = self.register_pkg(path, name=modality)
         return manifest
 
-    def list_faces(self) -> Dict[str, List[str]]:
+    def list_faces(self) -> dict[str, list[str]]:
         loaded = list(self.faces)
         return {"loaded": loaded,
                 "registered": [m for m in self._face_registry
@@ -500,7 +500,7 @@ class CubeGPTKernel(CuteMamenKernel):
         progress = (self.cycle_phase - self.think_phase) / self.inhibit_phase
         return 0.5 - 0.4 * progress
 
-    def step(self, inputs: Optional[Dict[str, Any]]) -> List[Any]:
+    def step(self, inputs: dict[str, Any] | None) -> list[Any]:
         """单步: 只做路由/记忆/读出/节律, 皮层计算全部在插件里
 
         与经典 CubeGPT.step 同构:
@@ -537,7 +537,7 @@ class CubeGPTKernel(CuteMamenKernel):
         attn = self.kv_stack.retrieve(self._last_input)
 
         # 3. 路由到各面思考插件 (持续思考: 无输入面消费侧向脉冲)
-        results: Dict[str, Optional[Dict]] = {}
+        results: dict[str, dict | None] = {}
         for name in self.ring:
             plugin = self.plugins.get(name)
             if not isinstance(plugin, FacePlugin):
@@ -560,7 +560,7 @@ class CubeGPTKernel(CuteMamenKernel):
         # 4. 立方体棱路由: 本面 outgoing → 邻面下一拍 inbox
         #    (未思考的面复用上一拍脉冲聚合, 与经典 CubeGPT 行为一致)
         ring = self.ring
-        outgoing_all: Dict[str, np.ndarray] = {}
+        outgoing_all: dict[str, np.ndarray] = {}
         for name in ring:
             res = results.get(name)
             outgoing_all[name] = (
@@ -616,7 +616,7 @@ class CubeGPTKernel(CuteMamenKernel):
             if unit.spike_times:
                 unit.apply_stdp(now, units_map)
 
-    def get_stdp_stats(self) -> Dict[str, Any]:
+    def get_stdp_stats(self) -> dict[str, Any]:
         units = self._all_units
         total_ltp = sum(u.ltp_count for u in units)
         total_ltd = sum(u.ltd_count for u in units)
@@ -630,7 +630,7 @@ class CubeGPTKernel(CuteMamenKernel):
     def get_output_pattern(self) -> np.ndarray:
         return self.output_module.get_pattern()
 
-    def get_network_stats(self) -> Dict[str, Any]:
+    def get_network_stats(self) -> dict[str, Any]:
         units = self._all_units
         faces = self.faces
         return {

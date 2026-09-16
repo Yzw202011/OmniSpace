@@ -9,7 +9,7 @@
   (把任一插件的读出权重导出为 LoRA 形态, 供 Transformer 宿主挂载)
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -62,7 +62,7 @@ class LoRAAdapter:
                 f"输入维度 {x.shape[0]} != 适配器 in_dim {self.in_dim}")
         return self.scale * (self.b @ (self.a @ x))
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {"target": self.target, "rank": self.rank,
                 "in_dim": self.in_dim, "out_dim": self.out_dim,
                 "alpha": self.alpha,
@@ -105,13 +105,13 @@ class LoRABridgePlugin(ExpertPlugin):
     BASE_MODEL = "lora.adapter"
     CAPABILITY = "LoRA 低秩适配器桥接 (ΔW·x 低秩贡献计算)"
 
-    def __init__(self, name: str, adapter: Optional[LoRAAdapter] = None,
+    def __init__(self, name: str, adapter: LoRAAdapter | None = None,
                  **kwargs):
         super().__init__(name, **kwargs)
         self.adapter = adapter
 
     @classmethod
-    def from_pkg(cls, manifest: Dict[str, Any]) -> "LoRABridgePlugin":
+    def from_pkg(cls, manifest: dict[str, Any]) -> "LoRABridgePlugin":
         # 权重 (A/B/alpha/target) 由 load_weights 注入, 这里先建壳
         return cls(manifest["name"], adapter=None,
                    route=manifest.get("route"),
@@ -125,8 +125,8 @@ class LoRABridgePlugin(ExpertPlugin):
             raise ValueError(
                 f"LoRA 插件 {self.name!r} 缺少适配器 (load_weights 未注入?)")
 
-    def on_think(self, event: Dict[str, Any],
-                 ctx: PluginContext) -> Optional[Dict[str, Any]]:
+    def on_think(self, event: dict[str, Any],
+                 ctx: PluginContext) -> dict[str, Any] | None:
         base = super().on_think(event, ctx)
         data = event.get("data")
         if data is None or self.adapter is None:
@@ -145,7 +145,7 @@ class LoRABridgePlugin(ExpertPlugin):
         self.memory.consolidate()
         super().on_unload()
 
-    def save_weights(self) -> Dict[str, np.ndarray]:
+    def save_weights(self) -> dict[str, np.ndarray]:
         if self.adapter is None:
             return {}
         return {
@@ -154,8 +154,8 @@ class LoRABridgePlugin(ExpertPlugin):
             "lora_alpha": np.array([self.adapter.alpha]),
         }
 
-    def load_weights(self, weights: Dict[str, np.ndarray],
-                     manifest: Dict[str, Any]) -> None:
+    def load_weights(self, weights: dict[str, np.ndarray],
+                     manifest: dict[str, Any]) -> None:
         if "lora_a" not in weights:
             raise ValueError("LoRA 插件包缺少 lora_a/lora_b 权重")
         self.adapter = LoRAAdapter(
@@ -164,7 +164,7 @@ class LoRABridgePlugin(ExpertPlugin):
             alpha=float(weights["lora_alpha"][0])
             if "lora_alpha" in weights else 1.0)
 
-    def build_manifest(self, **extra: Any) -> Dict[str, Any]:
+    def build_manifest(self, **extra: Any) -> dict[str, Any]:
         extra2 = dict(extra)
         if self.adapter is not None:
             extra2.setdefault("lora_target", self.adapter.target)
@@ -185,7 +185,7 @@ class LoRABridgePlugin(ExpertPlugin):
         return round((self.adapter.a.nbytes + self.adapter.b.nbytes
                       + self.memory.footprint_bytes()) / (1024 * 1024), 6)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         s = super().stats()
         if self.adapter is not None:
             s["adapter"] = self.adapter.stats()

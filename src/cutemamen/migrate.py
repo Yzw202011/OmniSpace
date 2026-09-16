@@ -25,22 +25,27 @@ import os
 import sys
 import tarfile
 import time
-from typing import Dict, List, Optional, Tuple
 
-from .pkg import (CUTEMAMEN_SUFFIX, MANIFEST_PATH, V1_RENAMED_FIELDS,
-                  V1_REMOVED_FIELDS, V1_UNMAPPABLE_FIELDS,
-                  V1_RENAMED_HOOKS, REQUIRED_HOOKS, _version_tuple)
+from .pkg import (
+    CUTEMAMEN_SUFFIX,
+    MANIFEST_PATH,
+    V1_REMOVED_FIELDS,
+    V1_RENAMED_FIELDS,
+    V1_RENAMED_HOOKS,
+    V1_UNMAPPABLE_FIELDS,
+    _version_tuple,
+)
 
 EXIT_OK = 0
 EXIT_MANUAL = 1
 EXIT_SEVERE = 2
 
 
-def migrate_manifest(raw: Dict, to_version: str = "2.0.0",
-                     strict: bool = False) -> Tuple[Dict, List[str], List[str]]:
+def migrate_manifest(raw: dict, to_version: str = "2.0.0",
+                     strict: bool = False) -> tuple[dict, list[str], list[str]]:
     """v1 清单 → v2 清单, 返回 (新清单, 成功变更, 需人工项)"""
-    changes: List[str] = []
-    manual: List[str] = []
+    changes: list[str] = []
+    manual: list[str] = []
     manifest = dict(raw)  # 未知字段保留 (前向兼容)
 
     for old, new in V1_RENAMED_FIELDS.items():
@@ -75,10 +80,10 @@ def migrate_manifest(raw: Dict, to_version: str = "2.0.0",
     return manifest, changes, manual
 
 
-def migrate_pkg(path: str, output: Optional[str] = None,
+def migrate_pkg(path: str, output: str | None = None,
                 to_version: str = "2.0.0", dry_run: bool = False,
                 verbose: bool = False, strict: bool = False,
-                backup: bool = False) -> Tuple[bool, bool]:
+                backup: bool = False) -> tuple[bool, bool]:
     """迁移单个包, 返回 (是否成功, 是否需要人工)"""
     label = os.path.basename(path)
     try:
@@ -145,8 +150,8 @@ def migrate_pkg(path: str, output: Optional[str] = None,
     return True, bool(manual)
 
 
-def collect_targets(paths: List[str], recursive: bool) -> List[str]:
-    targets: List[str] = []
+def collect_targets(paths: list[str], recursive: bool) -> list[str]:
+    targets: list[str] = []
     for p in paths:
         if os.path.isdir(p):
             if recursive:
@@ -165,7 +170,7 @@ def collect_targets(paths: List[str], recursive: bool) -> List[str]:
     return targets
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="migrate-v1-to-v2",
         description="CuteMamen v1 插件包 → v2 标准自动迁移工具")

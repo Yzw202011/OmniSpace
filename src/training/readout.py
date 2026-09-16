@@ -15,7 +15,6 @@
 """
 
 import time
-from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -102,7 +101,7 @@ class LinearReadout:
         return float((self.predict(X) == y).mean())
 
 
-def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> Dict:
+def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> dict:
     """单种子验证 (真实 Rust 编码基准, P0 双模态注入):
     numeric=static_metrics 语法特征 + text=代码原文 → CubeGPT 水库特征
     → 线性读出。返回读出层/随机基线/多数类基线准确率。
@@ -146,7 +145,7 @@ def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> Dict
 
 
 def run_cross_validation(seed: int = 0, depth: int = 1, n_folds: int = 5,
-                         verbose: bool = False) -> Dict:
+                         verbose: bool = False) -> dict:
     """单种子分层 K 折交叉验证 (P2: 替代单次 75/25 划分)
 
     每个样本恰好作为一次验证样本 (训练集 = 其余折并集),
@@ -159,7 +158,7 @@ def run_cross_validation(seed: int = 0, depth: int = 1, n_folds: int = 5,
 
     extractor = CubeFeatureExtractor(depth=depth, seed=seed)
     t0 = time.time()
-    feat_cache: Dict[str, np.ndarray] = {}
+    feat_cache: dict[str, np.ndarray] = {}
 
     def _feat(s) -> np.ndarray:
         if s.sample_id not in feat_cache:

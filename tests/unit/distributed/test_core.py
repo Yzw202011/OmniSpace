@@ -1,9 +1,6 @@
 import numpy as np
-import pytest
 
-from src.core.distributedformer import (
-    DistributedFormer, KVStack, SpikingUnit, calculate_scale
-)
+from src.core.distributedformer import DistributedFormer, KVStack, SpikingUnit, calculate_scale
 
 
 def test_calculate_scale():

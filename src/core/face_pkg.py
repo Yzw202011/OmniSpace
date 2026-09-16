@@ -25,7 +25,6 @@ import json
 import os
 import tarfile
 import time
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -60,7 +59,7 @@ MODALITY_CAPABILITY = {
 }
 
 
-def _version_tuple(v: str) -> Tuple[int, ...]:
+def _version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(x) for x in v.split(".")[:3])
 
 
@@ -75,16 +74,15 @@ def check_core_version(min_core_version: str,
 
 # ── 序列化 ────────────────────────────────────────────────
 
-def _collect_units(face: CubeFace) -> List[SpikingUnit]:
+def _collect_units(face: CubeFace) -> list[SpikingUnit]:
     """确定性顺序: 端口 16 单元 → 皮层全部单元 (缓存序)"""
     return list(face.port.units) + list(face.cortex._all_units_cache)
 
 
-def _face_to_arrays(face: CubeFace) -> Tuple[Dict, Dict, Dict]:
+def _face_to_arrays(face: CubeFace) -> tuple[dict, dict, dict]:
     """CubeFace → (params npz 字典, connections json, state npz 字典)"""
     units = _collect_units(face)
-    n = len(units)
-    params: Dict[str, np.ndarray] = {}
+    params: dict[str, np.ndarray] = {}
     for p in UNIT_PARAM_NAMES:
         params[f"{p}"] = np.array([getattr(u, p) for u in units], dtype=np.float64)
     params["dim"] = np.array([face.dim])
@@ -109,8 +107,8 @@ def _face_to_arrays(face: CubeFace) -> Tuple[Dict, Dict, Dict]:
     return params, connections, state
 
 
-def _arrays_to_face(face: CubeFace, params: Dict, connections: Dict,
-                    state: Dict) -> None:
+def _arrays_to_face(face: CubeFace, params: dict, connections: dict,
+                    state: dict) -> None:
     """逐参数覆盖到 (新建的) CubeFace 上"""
     units = _collect_units(face)
     n_params = int(params["n_port_units"][0]) + int(params["n_cortex_units"][0])
@@ -137,10 +135,10 @@ def _arrays_to_face(face: CubeFace, params: Dict, connections: Dict,
 
 
 def build_manifest(face: CubeFace, *, author: str = "DistributedFormer",
-                   capability: Optional[str] = None,
-                   tags: Optional[List[str]] = None,
+                   capability: str | None = None,
+                   tags: list[str] | None = None,
                    version: str = PKG_FORMAT_VERSION,
-                   min_core_version: str = "0.7.0") -> Dict:
+                   min_core_version: str = "0.7.0") -> dict:
     """按 CuteMamen 规范 §4 生成模态面清单"""
     units = _collect_units(face)
     n_params = len(units) * 16
@@ -178,7 +176,7 @@ def build_manifest(face: CubeFace, *, author: str = "DistributedFormer",
     }
 
 
-def export_face(gpt, modality: str, path: str, **manifest_kwargs) -> Dict:
+def export_face(gpt, modality: str, path: str, **manifest_kwargs) -> dict:
     """把 gpt 的一个模态面导出为 .dfpkg 存档, 返回清单"""
     if modality not in gpt.faces:
         raise KeyError(
@@ -215,7 +213,7 @@ def _add_bytes(tar: tarfile.TarFile, arcname: str, data: bytes) -> None:
     tar.addfile(info, io.BytesIO(data))
 
 
-def read_manifest(path: str) -> Dict:
+def read_manifest(path: str) -> dict:
     """只读清单 (不加载权重, 注册表/预检用)"""
     with tarfile.open(str(path), "r:gz") as tar:
         member = _find_member(tar, MANIFEST_PATH)
@@ -231,7 +229,7 @@ def _find_member(tar: tarfile.TarFile, name: str) -> tarfile.TarInfo:
     raise ValueError(f"pkg 中缺少 {name}")
 
 
-def _read_members(path: str) -> Tuple[Dict, Dict, Dict, Dict]:
+def _read_members(path: str) -> tuple[dict, dict, dict, dict]:
     """读取 .dfpkg 全部内容 → (manifest, params, connections, state)"""
     with tarfile.open(str(path), "r:gz") as tar:
         manifest = json.loads(
@@ -247,7 +245,7 @@ def _read_members(path: str) -> Tuple[Dict, Dict, Dict, Dict]:
     return manifest, params, connections, state
 
 
-def import_face(gpt, path: str, modality: Optional[str] = None) -> Dict:
+def import_face(gpt, path: str, modality: str | None = None) -> dict:
     """把 .dfpkg 导入 gpt: 替换同模态面或新增模态面, 返回清单
 
     modality=None 时用清单里的模态名; 显式传入可把一个面导入为另一种
@@ -279,7 +277,7 @@ def import_face(gpt, path: str, modality: Optional[str] = None) -> Dict:
     return manifest
 
 
-def register_pkg(gpt, path: str, modality: Optional[str] = None) -> Dict:
+def register_pkg(gpt, path: str, modality: str | None = None) -> dict:
     """注册 pkg 路径到随用随载注册表 (不加载权重)"""
     import src as _pkg
     manifest = read_manifest(path)

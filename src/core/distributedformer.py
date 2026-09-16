@@ -14,19 +14,22 @@ DistributedFormer: 分布式脉冲神经网络核心
   分形深度2 => 4,368单元/层 / 69K参数
 """
 
-import numpy as np
 import json
+import math
 import os
+import random
+import threading
 import time
-from typing import Dict, List, Tuple, Optional, Callable, Any
+from collections import deque
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # 仅类型检查期导入，防运行时循环依赖
+    from ..cutemamen.kernel import CubeGPTKernel
+
+import numpy as np
 
 from ..codec.spike_codec import SpikeEncoder
-from dataclasses import dataclass, field
-from collections import deque
-import threading
-import random
-import math
-
 
 # ═══════════════════════════════════════════════════════════════
 # 1. 基础数据结构
@@ -48,13 +51,13 @@ class SpikeMessage:
     source_unit_id: str = ""      # 分形层级定位, e.g. "top_3_L1_7_L0_12"
     source_level: int = 0
     payload: SpikePayload = field(default_factory=lambda: SpikePayload(0.0, 0.0, 0.0, 0))
-    target_agents: List[str] = field(default_factory=list)
+    target_agents: list[str] = field(default_factory=list)
     hops_remaining: int = 3
     priority: str = "normal"
-    kv_query: Optional[Dict] = None
-    trace: List[str] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict:
+    kv_query: dict | None = None
+    trace: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
         return {
             "msg_type": self.msg_type,
             "source": {
@@ -92,7 +95,7 @@ class KVEntry:
     timestamp: float
     access_count: int = 0
     last_access: float = 0.0
-    
+
     def compute_score(self, query_signal: np.ndarray, key_w: np.ndarray) -> float:
         """计算query与当前条目的匹配分数"""
         if self.key_signal is None or query_signal is None:
@@ -124,15 +127,15 @@ class KVStack:
                  retention_policy: str = "lru_7d"):
         self.capacity = capacity
         self.dim = dim
-        self.entries: Dict[str, KVEntry] = {}
+        self.entries: dict[str, KVEntry] = {}
         self.retention_policy = retention_policy
         self.lock = threading.Lock()
         self.query_w = np.random.randn(dim) * 0.1
         self.key_w = np.random.randn(dim) * 0.1
         self.value_w = np.random.randn(dim) * 0.1
         # ── 向量化索引 (行号 ↔ entry_id 双向映射) ──
-        self._ids: List[str] = []            # 行号 -> entry_id
-        self._row: Dict[str, int] = {}       # entry_id -> 行号
+        self._ids: list[str] = []            # 行号 -> entry_id
+        self._row: dict[str, int] = {}       # entry_id -> 行号
         self._n = 0                          # 存活条目数
         self._alloc = 0                      # 已分配行数
         self._seq = 0                        # 插入序号 (单调递增, scan_limit 用)
@@ -281,7 +284,7 @@ class KVStack:
             sel = np.arange(m)
         return sel[np.argsort(-scores[sel], kind="stable")]
 
-    def query(self, query_signal: np.ndarray, top_k: int = 3) -> List[Tuple[str, np.ndarray, float]]:
+    def query(self, query_signal: np.ndarray, top_k: int = 3) -> list[tuple[str, np.ndarray, float]]:
         """
         注意力查询 (query_kv) — 向量化
         """
@@ -382,8 +385,8 @@ class KVStack:
             if expired:
                 self._rebuild_index()
             return len(expired)
-    
-    def get_stats(self) -> Dict:
+
+    def get_stats(self) -> dict:
         """获取KV堆统计信息"""
         with self.lock:
             total_access = sum(e.access_count for e in self.entries.values())
@@ -393,7 +396,7 @@ class KVStack:
                 "utilization": len(self.entries) / self.capacity,
                 "total_access": total_access
             }
-    
+
     def save_to_disk(self, path: str) -> None:
         """持久化到磁盘"""
         with self.lock:
@@ -408,13 +411,13 @@ class KVStack:
                 }
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False)
-    
+
     def load_from_disk(self, path: str) -> None:
         """从磁盘加载"""
         import os
         if not os.path.exists(path):
             return
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             data = json.load(f)
         with self.lock:
             self.entries.clear()
@@ -440,13 +443,13 @@ class SpikingUnit:
       state(t+1) = (input_gated + attn_retrieval + state_feedback + global_modulation) × decay
       output = mean(state) × w_out + b_out (若 ≥ threshold 则发射脉冲)
     """
-    
+
     UNIT_PARAMS = 16  # 每个单元恰好16个标量参数
-    
+
     def __init__(self, unit_id: str, dim: int = 16):
         self.unit_id = unit_id
         self.dim = dim
-        
+
         # 状态 (16维向量，但不是参数)
         self.state = np.zeros(dim)
         self.fatigue = 0.0    # 疲劳度 (0~1, 越高越难发射)
@@ -454,7 +457,7 @@ class SpikingUnit:
         # 感受野投影 (v0.5.0): 固定随机投影替代均值池化,
         # crc32(unit_id) 做种子保证跨进程可复现
         self._receptive = None
-        
+
         # ═══════════════════════════════════════════════════════════════
         # 16个标量参数
         # ═══════════════════════════════════════════════════════════════
@@ -478,15 +481,15 @@ class SpikingUnit:
         self.recovery_rate = 0.02 + np.random.random() * 0.03       # 14. 疲劳恢复率
         self.spontaneous_rate = 0.01 + np.random.random() * 0.02  # 15. 自发脉冲率
         self.w_lateral  = np.random.randn() * 0.1                 # 16. 侧向连接权重
-        
+
         # 连接 (动态，不计入16个固定参数)
-        self.outgoing: Dict[str, float] = {}  # target_id -> weight
+        self.outgoing: dict[str, float] = {}  # target_id -> weight
         self.incoming_history: deque = deque(maxlen=50)  # 输入历史
-        
+
         # 统计
         self.spike_count = 0
         self.last_spike_time = 0.0
-        
+
         # ═══════════════════════════════════════════════════════════════
         # STDP (Spike-Timing Dependent Plasticity) 学习机制
         # ═══════════════════════════════════════════════════════════════
@@ -499,30 +502,30 @@ class SpikingUnit:
         self.ltp_count = 0         # 长时程增强计数
         self.ltd_count = 0         # 长时程抑制计数
         self.total_weight_change = 0.0
-        
+
     def count_params(self) -> int:
         """返回该单元的参数数量（应始终为16）"""
         return 16
-        
+
     def record_spike_time(self, t: float) -> None:
         """记录脉冲发射时间"""
         self.spike_times.append(t)
-    
+
     def stdp_update(self, pre_spike_time: float, post_spike_time: float) -> float:
         """
         STDP 权重更新
-        
+
         Δt = t_post - t_pre
         若 Δt > 0 (后突触晚于前突触): LTP (权重增强)
             Δw = A+ * exp(-Δt / τ+)
         若 Δt < 0 (后突触早于前突触): LTD (权重减弱)
             Δw = -A- * exp(Δt / τ-)
-        
+
         Returns:
             权重变化量 Δw
         """
         dt = post_spike_time - pre_spike_time
-        
+
         if dt > 0:
             # LTP: 后突触晚于前突触，增强连接
             dw = self.stdp_A_plus * math.exp(-dt / self.stdp_tau_plus)
@@ -533,31 +536,31 @@ class SpikingUnit:
             self.ltd_count += 1
         else:
             dw = 0.0
-        
+
         self.total_weight_change += abs(dw)
         return dw
-    
-    def apply_stdp(self, current_time: float, all_units_map: Dict[str, 'SpikingUnit'] = None) -> int:
+
+    def apply_stdp(self, current_time: float, all_units_map: dict[str, 'SpikingUnit'] = None) -> int:
         """
         对该单元的所有传出连接应用 STDP 更新
-        
+
         Args:
             current_time: 当前时间
             all_units_map: 所有单元的映射表 (unit_id -> SpikingUnit)
-        
+
         Returns:
             更新的连接数
         """
         if not self.stdp_enabled or not self.outgoing:
             return 0
-        
+
         updated = 0
-        
+
         # 遍历所有传出连接
         for target_id, current_weight in list(self.outgoing.items()):
             # 获取目标单元的最近发射时间
             target_spike_time = None
-            
+
             if all_units_map and target_id in all_units_map:
                 target_unit = all_units_map[target_id]
                 if target_unit.spike_times:
@@ -565,28 +568,28 @@ class SpikingUnit:
             else:
                 # 简化：使用当前时间近似（目标单元在当前步也发射了）
                 target_spike_time = current_time
-            
+
             # 获取本单元最近发射时间
             if not self.spike_times:
                 continue
             my_spike_time = self.spike_times[-1]
-            
+
             # 如果目标单元没有发射记录，跳过
             if target_spike_time is None:
                 continue
-            
+
             # 计算 STDP
             dw = self.stdp_update(my_spike_time, target_spike_time)
-            
+
             # 应用权重更新
             new_weight = current_weight + dw
             new_weight = np.clip(new_weight, -1.0, 1.0)  # 限制范围
             self.outgoing[target_id] = new_weight
             updated += 1
-        
+
         return updated
-    
-    def get_stdp_stats(self) -> Dict:
+
+    def get_stdp_stats(self) -> dict:
         """获取 STDP 学习统计"""
         return {
             "ltp_count": self.ltp_count,
@@ -595,20 +598,20 @@ class SpikingUnit:
             "avg_weight_change": float(self.total_weight_change / max(1, self.ltp_count + self.ltd_count)),
             "spike_times_recorded": len(self.spike_times)
         }
-        
-    def step(self, raw_input: np.ndarray, 
+
+    def step(self, raw_input: np.ndarray,
              attn_retrieval: np.ndarray,
              global_modulation: float = 1.0,
-             dt: float = 1.0) -> Optional[SpikeMessage]:
+             dt: float = 1.0) -> SpikeMessage | None:
         """
         单步脉冲动力学
-        
+
         Args:
             raw_input: 外部输入信号 (dim维)
             attn_retrieval: KV堆注意力检索结果 (dim维)
             global_modulation: 全局调制强度 (节律控制)
             dt: 时间步长
-        
+
         Returns:
             SpikeMessage 如果发射脉冲，否则 None
         """
@@ -618,7 +621,7 @@ class SpikingUnit:
             self.fatigue = max(0.0, self.fatigue - self.recovery_rate)
             self.state *= self.decay  # 仅衰减
             return None
-        
+
         # 输入门控 (v0.5.0 感受野投影: 单元只"看到"自己固定的随机投影)
         if self._receptive is None:
             import zlib
@@ -627,44 +630,44 @@ class SpikingUnit:
         eff_input = float(self._receptive @ raw_input) if raw_input is not None else 0.0
         mean_input = eff_input
         input_gated = self.gain * np.tanh(self.w_in * mean_input + self.b_in)
-        
+
         # 注意力检索 (使用均值，标量权重)
         mean_attn = np.mean(attn_retrieval) if attn_retrieval is not None else 0.0
         attn_contrib = self.w_attn * mean_attn + self.b_attn
-        
+
         # 状态反馈 (使用状态均值，标量权重)
         mean_state = np.mean(self.state)
         state_feedback = self.w_state * mean_state
-        
+
         # 全局调制
         modulation = global_modulation * self.w_global
-        
+
         # 自发脉冲 (默认模式网络)
         spontaneous = np.random.random() < self.spontaneous_rate
-        
+
         # 状态更新: state(t+1) = (input_gated + attn + state_feedback + global) × decay
         total_input = input_gated + attn_contrib + state_feedback + modulation
         if spontaneous:
             total_input += 0.3  # 自发脉冲增加输入
-        
+
         self.state = total_input * self.decay + self.state * 0.1
-        
+
         # 输出计算: output = mean(state) * w_out + b_out
         output = mean_state * self.w_out + self.b_out
-        
+
         # 疲劳影响阈值
         effective_threshold = self.threshold + self.fatigue
-        
+
         # 检查是否发射脉冲
         if output >= effective_threshold or spontaneous:
             self.spike_count += 1
             self.last_spike_time = time.time()
             self.fatigue = min(1.0, self.fatigue + self.fatigue_rate)
             self.refractory = int(self.refractory_period)
-            
+
             # 记录脉冲发射时间 (STDP学习)
             self.record_spike_time(self.last_spike_time)
-            
+
             # 构建脉冲消息
             strength = min(1.0, abs(output))
             msg = SpikeMessage(
@@ -683,8 +686,8 @@ class SpikingUnit:
             # 疲劳恢复
             self.fatigue = max(0.0, self.fatigue - self.recovery_rate)
             return None
-    
-    def get_state_dict(self) -> Dict:
+
+    def get_state_dict(self) -> dict:
         return {
             "unit_id": self.unit_id,
             "spike_count": self.spike_count,
@@ -701,38 +704,38 @@ class SpikingUnit:
 class FractalLayer:
     """
     分形递归层: 每层16个单元，深度指数扩展能力
-    
+
     基础单元数 = 16 + 16^2 + ... + 16^(depth+1)
     总参数 = 16 × Σ(16^k for k=1 to depth+1)
-    
+
     v5.2 分形深度2 => 4,368单元/层 / 69K参数
     """
-    
+
     def __init__(self, layer_id: str, depth: int = 0, dim: int = 16):
         self.layer_id = layer_id
         self.depth = depth
         self.dim = dim
-        self.units: List[SpikingUnit] = []
-        self.sub_layers: List['FractalLayer'] = []
-        
+        self.units: list[SpikingUnit] = []
+        self.sub_layers: list[FractalLayer] = []
+
         # 创建16个单元
         for i in range(16):
             uid = f"{layer_id}_U{i}"
             self.units.append(SpikingUnit(uid, dim))
-        
+
         # 递归创建子层 (深度>0时)
         if depth > 0:
             for i in range(16):
                 sub_id = f"{layer_id}_L{i}"
                 self.sub_layers.append(FractalLayer(sub_id, depth - 1, dim))
-        
+
         # 层内连接 (小世界网络)
         self._build_connections()
-        
+
         # 缓存所有单元引用 (避免每步递归)
-        self._all_units_cache: List[SpikingUnit] = self._build_all_units_cache()
+        self._all_units_cache: list[SpikingUnit] = self._build_all_units_cache()
         self._build_vec_arrays()
-        
+
     def _build_vec_arrays(self):
         """构建向量化计算用的批量数组 (适配标量权重)"""
         units = self._all_units_cache
@@ -794,21 +797,21 @@ class FractalLayer:
             u.fatigue = float(self._vec_fatigue[i])
             u.refractory = int(self._vec_refractory[i])
 
-    def _build_all_units_cache(self) -> List[SpikingUnit]:
+    def _build_all_units_cache(self) -> list[SpikingUnit]:
         """一次性构建所有单元缓存"""
         all_units = self.units[:]
         for sub in self.sub_layers:
             all_units.extend(sub._all_units_cache)
         return all_units
-    
-    def get_all_units(self) -> List[SpikingUnit]:
+
+    def get_all_units(self) -> list[SpikingUnit]:
         """获取所有单元 (使用缓存)"""
         return self._all_units_cache
-    
+
     def get_unit_count(self) -> int:
         """获取总单元数"""
         return len(self._all_units_cache)
-    
+
     def _build_connections(self) -> None:
         """构建小世界网络连接"""
         n = len(self.units)
@@ -820,19 +823,19 @@ class FractalLayer:
                 if t != i:
                     weight = np.random.randn() * 0.1
                     u.outgoing[f"{self.layer_id}_U{t}"] = weight
-    
+
     def step(self, layer_input: np.ndarray,
              global_kv: KVStack,
              global_modulation: float = 1.0,
-             training_mode: bool = False) -> List[SpikeMessage]:
+             training_mode: bool = False) -> list[SpikeMessage]:
         """
         单步执行: 向量化并行计算 (标量权重版本)
         """
         if not hasattr(self, 'N') or self.N == 0:
             return []
-        
+
         self._sync_units_to_vec()
-        
+
         active = self._vec_refractory == 0
         input_signal = layer_input[:self.dim] if len(layer_input) >= self.dim else layer_input
         # KV 堆注意力检索真实接入主计算路径 (v0.5.0):
@@ -848,40 +851,40 @@ class FractalLayer:
             self._receptive = rng.randn(self.N, self.dim) / np.sqrt(self.dim)
         proj_input = self._receptive @ input_signal  # (N,)
         mean_attn = np.mean(attn_retrieval)
-        
+
         input_gated = self._vec_gain * np.tanh(self._vec_w_in * proj_input + self._vec_b_in)
         attn_contrib = self._vec_w_attn * mean_attn + self._vec_b_attn
         state_feedback = self._vec_w_state * np.mean(self._vec_state, axis=1)
         modulation = global_modulation * self._vec_w_global
-        
+
         total = input_gated + attn_contrib + state_feedback + modulation
         spontaneous = np.random.random(self.N) < self._vec_spontaneous_rate
-        
+
         total_exp = total[:, np.newaxis]
         decay_exp = self._vec_decay[:, np.newaxis]
         state_new = total_exp * decay_exp + self._vec_state * 0.1
         self._vec_state[active] = state_new[active]
-        
+
         # 输出: mean(state) * w_out + b_out
         mean_state = np.mean(self._vec_state, axis=1)
         output = mean_state * self._vec_w_out + self._vec_b_out
         eff_threshold = self._vec_threshold + self._vec_fatigue
         spike_mask = ((output >= eff_threshold) | spontaneous) & active
-        
+
         self._vec_fatigue[spike_mask] = np.minimum(1.0, self._vec_fatigue[spike_mask] + self._vec_fatigue_rate[spike_mask])
         self._vec_refractory[spike_mask] = self._vec_refractory_period[spike_mask].astype(np.int32)
-        
+
         not_spike = active & ~spike_mask
         self._vec_fatigue[not_spike] = np.maximum(0.0, self._vec_fatigue[not_spike] - self._vec_recovery_rate[not_spike])
         self._vec_refractory[not_spike] = np.maximum(0, self._vec_refractory[not_spike] - 1)
-        
+
         inactive = ~active
         self._vec_state[inactive] *= decay_exp[inactive]
         self._vec_refractory[inactive] = np.maximum(0, self._vec_refractory[inactive] - 1)
         self._vec_fatigue[inactive] = np.maximum(0.0, self._vec_fatigue[inactive] - self._vec_recovery_rate[inactive])
-        
+
         self._sync_vec_to_units()
-        
+
         spikes = []
         for idx in np.where(spike_mask)[0]:
             unit = self._all_units_cache[idx]
@@ -899,16 +902,16 @@ class FractalLayer:
             )
             msg.source_agent_id = self.layer_id
             spikes.append(msg)
-        
+
         return spikes
-    
-    def get_stats(self) -> Dict:
+
+    def get_stats(self) -> dict:
         """获取层统计"""
         all_units = self._all_units_cache
         total_spikes = sum(u.spike_count for u in all_units)
         avg_fatigue = np.mean([u.fatigue for u in all_units])
         active_units = sum(1 for u in all_units if u.fatigue < 0.5)
-        
+
         return {
             "layer_id": self.layer_id,
             "depth": self.depth,
@@ -943,7 +946,7 @@ class InputModule:
         self.dim = dim
         self.encoder = SpikeEncoder(dim=dim)
         self.units = [SpikingUnit(f"{modality}_U{i}", dim) for i in range(n_units)]
-        self.last_spikes: List[SpikeMessage] = []
+        self.last_spikes: list[SpikeMessage] = []
 
     def encode(self, raw: Any) -> np.ndarray:
         """原始数据 → dim 维脉冲信号 (数值向量直接透传)"""
@@ -963,7 +966,7 @@ class InputModule:
         return self.encoder.encode_image(np.asarray(raw, dtype=float))
 
     def step(self, raw: Any, modulation: float = 1.0,
-             attn: Optional[np.ndarray] = None) -> List[SpikeMessage]:
+             attn: np.ndarray | None = None) -> list[SpikeMessage]:
         """编码并单步执行本模块的所有单元 (attn: KV 检索向量)"""
         signal = self.encode(raw)
         attn_vec = attn if attn is not None else np.zeros(self.dim)
@@ -996,10 +999,10 @@ class OutputModule:
     def __init__(self, dim: int = 16, n_units: int = 16):
         self.dim = dim
         self.units = [SpikingUnit(f"output_U{i}", dim) for i in range(n_units)]
-        self.last_spikes: List[SpikeMessage] = []
+        self.last_spikes: list[SpikeMessage] = []
 
     def step(self, signal: np.ndarray, modulation: float = 1.0,
-             attn: Optional[np.ndarray] = None) -> List[SpikeMessage]:
+             attn: np.ndarray | None = None) -> list[SpikeMessage]:
         attn_vec = attn if attn is not None else np.zeros(self.dim)
         spikes = []
         for unit in self.units:
@@ -1028,7 +1031,7 @@ class OutputModule:
 # 6.5 CubeGPT: 立方体连接的多模态脉冲大模型
 # ═══════════════════════════════════════════════════════════════
 
-def calculate_cube_scale(depth: int, n_faces: int = 4) -> Dict:
+def calculate_cube_scale(depth: int, n_faces: int = 4) -> dict:
     """计算 CubeGPT 规模
 
     每个面 (CubeFace) = 输入端口 16 单元 + 分形皮层 Σ16^k (k=1..depth+1) 单元。
@@ -1070,11 +1073,11 @@ class CubeFace:
         self.port = InputModule(modality, dim=dim)
         self.cortex = FractalLayer(f"face_{modality}", depth, dim)
         self.inbox = np.zeros(dim)
-        self.last_spikes: List[SpikeMessage] = []
+        self.last_spikes: list[SpikeMessage] = []
 
     def step(self, raw: Any, kv_stack: "KVStack", modulation: float = 1.0,
              training_mode: bool = False,
-             attn: Optional[np.ndarray] = None) -> List[SpikeMessage]:
+             attn: np.ndarray | None = None) -> list[SpikeMessage]:
         """端口编码 → 皮层计算 (含侧向输入), 返回皮层脉冲 (attn: KV 检索)"""
         self.port.step(raw, modulation, attn)
         port_pattern = self.port.get_pattern()
@@ -1091,7 +1094,7 @@ class CubeFace:
             out[idx] += sp.payload.value * sp.payload.strength
         return np.tanh(out)
 
-    def get_units(self) -> List[SpikingUnit]:
+    def get_units(self) -> list[SpikingUnit]:
         """端口 + 皮层全部单元 (STDP/重置/统计用)"""
         return self.port.units + self.cortex._all_units_cache
 
@@ -1132,7 +1135,7 @@ class CubeGPT:
     def __init__(self, depth: int = 2, dim: int = 16,
                  kv_capacity: int = 100000,
                  training_mode: bool = False,
-                 modalities: Optional[List[str]] = None):
+                 modalities: list[str] | None = None):
         self.depth = depth
         self.dim = dim
         self.training_mode = training_mode
@@ -1140,12 +1143,12 @@ class CubeGPT:
         mods = list(modalities) if modalities else list(self.CUBE_RING)
         self.ring = [m for m in self.CUBE_RING if m in mods]
         # 面按立方体侧面顺序排列, face[i] 的"棱"指向 face[(i+1) % n]
-        self.faces: Dict[str, CubeFace] = {
+        self.faces: dict[str, CubeFace] = {
             m: CubeFace(m, depth=depth, dim=dim) for m in mods
         }
 
         # v0.7.0 随用随载注册表: 模态 → .dfpkg 路径 (面未加载, 用到时热加载)
-        self._face_registry: Dict[str, str] = {}
+        self._face_registry: dict[str, str] = {}
 
         # 顶层输出头部
         self.output_module = OutputModule(dim=dim)
@@ -1162,17 +1165,17 @@ class CubeGPT:
 
         self.total_steps = 0
         self.learning_enabled = True
-        self._units_map: Dict[str, SpikingUnit] = {}
-        self._all_units: List[SpikingUnit] = []
+        self._units_map: dict[str, SpikingUnit] = {}
+        self._all_units: list[SpikingUnit] = []
         self._build_units_map()
 
     # ── 兼容 v0.3.0 多模态接口 ──────────────────────────────
     @property
-    def input_modules(self) -> Dict[str, InputModule]:
+    def input_modules(self) -> dict[str, InputModule]:
         return {name: face.port for name, face in self.faces.items()}
 
     @property
-    def output_units(self) -> List[SpikingUnit]:
+    def output_units(self) -> list[SpikingUnit]:
         return self.output_module.units
 
     def _build_units_map(self) -> None:
@@ -1198,7 +1201,7 @@ class CubeGPT:
             if unit.spike_times:
                 unit.apply_stdp(time.time(), self._units_map)
 
-    def get_stdp_stats(self) -> Dict:
+    def get_stdp_stats(self) -> dict:
         total_ltp = sum(u.ltp_count for u in self._all_units)
         total_ltd = sum(u.ltd_count for u in self._all_units)
         total_weight_change = sum(u.total_weight_change for u in self._all_units)
@@ -1217,7 +1220,7 @@ class CubeGPT:
         progress = (self.cycle_phase - self.think_phase) / self.inhibit_phase
         return 0.5 - 0.4 * progress
 
-    def step(self, inputs: Dict[str, Any]) -> List[SpikeMessage]:
+    def step(self, inputs: dict[str, Any]) -> list[SpikeMessage]:
         """
         CubeGPT 单步执行 (多模态)
 
@@ -1255,7 +1258,7 @@ class CubeGPT:
         )
 
         # 1. 各面独立计算 (端口编码 + 皮层 + 收取环形棱传入的邻面脉冲)
-        face_spikes: Dict[str, List[SpikeMessage]] = {}
+        face_spikes: dict[str, list[SpikeMessage]] = {}
         for name, face in self.faces.items():
             raw = inputs.get(name)
             if raw is not None:
@@ -1299,7 +1302,7 @@ class CubeGPT:
     def get_output_pattern(self) -> np.ndarray:
         return self.output_module.get_pattern()
 
-    def get_network_stats(self) -> Dict:
+    def get_network_stats(self) -> dict:
         total_units = len(self._all_units)
         return {
             "model": "CubeGPT",
@@ -1341,22 +1344,22 @@ class CubeGPT:
         """按立方体侧面顺序重建环形棱 (加载/卸载面后调用)"""
         self.ring = [m for m in self.CUBE_RING if m in self.faces]
 
-    def export_face(self, modality: str, path: str, **manifest_kwargs) -> Dict:
+    def export_face(self, modality: str, path: str, **manifest_kwargs) -> dict:
         """把一个模态面导出为 .dfpkg 存档 (manifest + weights + memory)"""
         from . import face_pkg
         return face_pkg.export_face(self, modality, path, **manifest_kwargs)
 
-    def import_face(self, path: str, modality: Optional[str] = None) -> Dict:
+    def import_face(self, path: str, modality: str | None = None) -> dict:
         """导入 .dfpkg: 替换同模态面或新增模态面 (自由导出导入的另一半)"""
         from . import face_pkg
         return face_pkg.import_face(self, path, modality)
 
-    def register_face_pkg(self, path: str, modality: Optional[str] = None) -> Dict:
+    def register_face_pkg(self, path: str, modality: str | None = None) -> dict:
         """注册 pkg 到随用随载注册表 (只记路径, 不加载权重)"""
         from . import face_pkg
         return face_pkg.register_pkg(self, path, modality)
 
-    def unload_face(self, modality: str, pkg_path: Optional[str] = None) -> str:
+    def unload_face(self, modality: str, pkg_path: str | None = None) -> str:
         """卸载模态面释放内存; 默认先自动导出 pkg 保证可恢复 (随用随载)"""
         if modality not in self.faces:
             raise KeyError(f"模态面 {modality!r} 未加载")
@@ -1371,7 +1374,7 @@ class CubeGPT:
         self._face_registry[modality] = pkg_path
         return pkg_path
 
-    def load_face(self, modality: str, pkg_path: Optional[str] = None) -> Dict:
+    def load_face(self, modality: str, pkg_path: str | None = None) -> dict:
         """从 pkg 热加载一个模态面 (注册表里的路径或显式路径)"""
         path = pkg_path or self._face_registry.get(modality)
         if not path:
@@ -1380,7 +1383,7 @@ class CubeGPT:
                 f"请先 register_face_pkg() 或传入 pkg_path")
         return self.import_face(path, modality)
 
-    def list_faces(self) -> Dict[str, List[str]]:
+    def list_faces(self) -> dict[str, list[str]]:
         """已加载 / 已注册未加载的模态面"""
         return {
             "loaded": list(self.faces),
@@ -1389,16 +1392,18 @@ class CubeGPT:
 
     # ── v0.7.2 模型精简: 转换为内核形态 (必要思考 + 思考插件) ───
 
-    def to_kernel(self, memory_budget_mb: Optional[float] = None) -> "CubeGPTKernel":
+    def to_kernel(self, memory_budget_mb: float | None = None) -> "CubeGPTKernel":
+        # 局部导入防循环依赖 (cutemamen.kernel 不回引 core)
+        from ..cutemamen.kernel import CubeGPTKernel as _CubeGPTKernel
+
         """零拷贝转换为 CubeGPTKernel 精简形态 (v0.7.2)
 
         模态面皮层计算整体外移为 FacePlugin 思考插件 (同一 CubeFace
         对象, 权重/状态零拷贝); 内核只保留必要思考: 棱路由 / KV 工作
         记忆 / 输出头 / 节律。转换后 step() 行为与经典形态一致。
         """
-        from ..cutemamen import CubeGPTKernel
         from ..cutemamen.face_bridge import FacePlugin
-        kernel = CubeGPTKernel(
+        kernel = _CubeGPTKernel(
             depth=self.depth, dim=self.dim, modalities=[],
             kv_capacity=self.kv_stack.capacity,
             memory_budget_mb=memory_budget_mb,
@@ -1423,25 +1428,25 @@ class CubeGPT:
 class DistributedFormer:
     """
     DistributedFormer 完整网络
-    
+
     架构: 分形递归堆叠
     - 深度0: 16单元 (浅层输出)
     - 深度1: 16 + 16×16 = 272单元
     - 深度2: 16 + 16×16 + 16×16×16 = 4,368单元 (v5.2)
     - 深度3: 65,536单元 (远期)
-    
+
     包含:
     - 输入层: 接收编码后的环境脉冲
     - 思考层: num_think_layers层分形递归异步计算
     - 输出层: 生成动作脉冲
     - KV堆:  持久工作记忆
     """
-    
+
     def __init__(self, depth: int = 2, dim: int = 16,
                  kv_capacity: int = 100000,
                  num_think_layers: int = 1,
                  training_mode: bool = False,
-                 modalities: Optional[List[str]] = None):
+                 modalities: list[str] | None = None):
         self.depth = depth
         self.dim = dim
         self.num_think_layers = num_think_layers
@@ -1449,14 +1454,14 @@ class DistributedFormer:
 
         # 顶层多模态输入模块: 每种模态独立一组脉冲单元 + 编码器
         mods = list(modalities) if modalities else list(SUPPORTED_MODALITIES)
-        self.input_modules: Dict[str, InputModule] = {
+        self.input_modules: dict[str, InputModule] = {
             m: InputModule(m, dim=dim) for m in mods
         }
         # 模态融合权重 (后续可学习)
-        self.modality_weights: Dict[str, float] = {m: 0.5 for m in mods}
+        self.modality_weights: dict[str, float] = {m: 0.5 for m in mods}
 
         # 思考层: num_think_layers层分形递归
-        self.think_layers: List[FractalLayer] = []
+        self.think_layers: list[FractalLayer] = []
         for i in range(num_think_layers):
             self.think_layers.append(FractalLayer(f"think_L{i}", depth, dim))
 
@@ -1478,17 +1483,17 @@ class DistributedFormer:
 
         # STDP 全局学习开关
         self.learning_enabled = True
-        self._units_map: Dict[str, SpikingUnit] = {}
-        self._all_units: List[SpikingUnit] = []
+        self._units_map: dict[str, SpikingUnit] = {}
+        self._all_units: list[SpikingUnit] = []
         self._build_units_map()
 
     @property
-    def input_units(self) -> List[SpikingUnit]:
+    def input_units(self) -> list[SpikingUnit]:
         """向后兼容: numeric 模态模块的单元 (旧单输入层)"""
         return self.input_modules["numeric"].units
 
     @property
-    def output_units(self) -> List[SpikingUnit]:
+    def output_units(self) -> list[SpikingUnit]:
         """输出模块的单元 (保持旧属性名可用)"""
         return self.output_module.units
 
@@ -1508,13 +1513,13 @@ class DistributedFormer:
         for u in self.output_module.units:
             self._units_map[u.unit_id] = u
             self._all_units.append(u)
-    
+
     def enable_learning(self, enabled: bool = True) -> None:
         """启用/禁用 STDP 学习"""
         self.learning_enabled = enabled
         for u in self._all_units:
             u.stdp_enabled = enabled
-    
+
     def _apply_stdp_to_all(self) -> None:
         """对所有发射过脉冲的单元应用 STDP 更新"""
         if not self.learning_enabled:
@@ -1522,8 +1527,8 @@ class DistributedFormer:
         for unit in self._all_units:
             if unit.spike_times:
                 unit.apply_stdp(time.time(), self._units_map)
-    
-    def get_stdp_stats(self) -> Dict:
+
+    def get_stdp_stats(self) -> dict:
         """获取全局 STDP 统计"""
         total_ltp = sum(u.ltp_count for u in self._all_units)
         total_ltd = sum(u.ltd_count for u in self._all_units)
@@ -1535,13 +1540,13 @@ class DistributedFormer:
             "total_weight_change": float(total_weight_change),
             "avg_weight_change": float(total_weight_change / max(1, total_ltp + total_ltd))
         }
-        
+
     def set_rhythm(self, think_phase: int = 80, inhibit_phase: int = 40) -> None:
         """设置节律参数"""
         self.think_phase = think_phase
         self.inhibit_phase = inhibit_phase
         self.cycle_length = think_phase + inhibit_phase
-    
+
     def get_global_modulation(self) -> float:
         """根据当前节律相位计算全局调制强度"""
         if self.cycle_phase < self.think_phase:
@@ -1552,8 +1557,8 @@ class DistributedFormer:
             # 抑制期: 调制从0.5降低到0.1
             progress = (self.cycle_phase - self.think_phase) / self.inhibit_phase
             return 0.5 - 0.4 * progress
-    
-    def step(self, inputs: Dict[str, Any]) -> List[SpikeMessage]:
+
+    def step(self, inputs: dict[str, Any]) -> list[SpikeMessage]:
         """
         完整网络单步执行 (多模态)
 
@@ -1636,8 +1641,8 @@ class DistributedFormer:
             self._apply_stdp_to_all()
 
         return output_spikes
-    
-    def get_network_stats(self) -> Dict:
+
+    def get_network_stats(self) -> dict:
         """获取网络统计"""
         total_units = len(self._all_units)
         total_spikes = sum(u.spike_count for u in self._all_units)
@@ -1667,7 +1672,7 @@ class DistributedFormer:
     def get_output_pattern(self) -> np.ndarray:
         """获取输出模块激活模式 (用于动作解码)"""
         return self.output_module.get_pattern()
-    
+
     def get_think_layer_pattern(self) -> np.ndarray:
         """获取思考层聚合激活模式 (用于监督学习)"""
         pattern = np.zeros(self.dim)
@@ -1682,7 +1687,7 @@ class DistributedFormer:
         if norm > 0:
             pattern = pattern / norm
         return pattern
-    
+
     def reset_state(self) -> None:
         """重置所有单元的内部状态 (用于训练时每个样本独立)"""
         for module in self.input_modules.values():
@@ -1714,7 +1719,7 @@ class DistributedFormer:
                 'refractory': unit.refractory
             }
         return snapshot
-    
+
     def restore_state_snapshot(self, snapshot: dict) -> None:
         """从快照恢复单元状态"""
         for unit in self._all_units:
@@ -1729,7 +1734,7 @@ class DistributedFormer:
 # 7. 工具函数
 # ═══════════════════════════════════════════════════════════════
 
-def calculate_scale(depth: int) -> Dict:
+def calculate_scale(depth: int) -> dict:
     """计算给定分形深度的网络规模"""
     # 正确计算: 16 + 16^2 + ... + 16^(depth+1)
     base_units = sum(16 ** k for k in range(1, depth + 2))
@@ -1750,50 +1755,50 @@ if __name__ == "__main__":
     print("=" * 60)
     print("DistributedFormer v5.2 核心模块测试")
     print("=" * 60)
-    
+
     # 测试规模计算
     for d in range(4):
         info = calculate_scale(d)
         print(f"  {info['description']}")
-    
+
     print("\n" + "-" * 60)
-    
+
     # 测试KV堆
     kv = KVStack(capacity=100, dim=16)
     for i in range(20):
         kv.push(f"test_{i}", np.random.randn(16), np.random.randn(16))
     results = kv.query(np.random.randn(16), top_k=3)
     print(f"KV堆测试: 20条目中查询top-3, 命中{len(results)}条")
-    
+
     # 测试脉冲单元
     unit = SpikingUnit("test_unit")
     spike_count = 0
-    for i in range(100):
+    for _ in range(100):
         spike = unit.step(np.random.randn(16), np.zeros(16), 1.0)
         if spike:
             spike_count += 1
     print(f"脉冲单元测试: 100步中发射{spike_count}次脉冲")
-    
+
     # 测试完整网络
     print("\n" + "-" * 60)
     print("完整网络测试 (深度2, 1层)...")
     df = DistributedFormer(depth=2, dim=16, num_think_layers=1)
-    
+
     # 模拟10步
     for step in range(10):
         output_spikes = df.step({"numeric": np.random.randn(16) * 0.5})
         print(f"  Step {step+1}: 输出层发射{len(output_spikes)}个脉冲, "
               f"调制={df.global_modulation:.2f}, 相位={df.cycle_phase}")
-    
+
     stats = df.get_network_stats()
     print(f"\n网络统计: {stats['total_units']}单元, {stats['total_spikes']}脉冲, "
           f"疲劳={stats['avg_fatigue']:.3f}")
     print("KV堆: 利用率={:.1%}".format(stats['kv_stats']['utilization']))
-    
+
     # 测试思考层模式
     think_pattern = df.get_think_layer_pattern()
     print(f"\n思考层激活模式: 范数={np.linalg.norm(think_pattern):.3f}")
-    
+
     # 测试 STDP 学习
     print("\n" + "-" * 60)
     print("STDP 学习测试...")
@@ -1801,16 +1806,16 @@ if __name__ == "__main__":
     print(f"  LTP: {stdp_stats['total_ltp']}, LTD: {stdp_stats['total_ltd']}")
     print(f"  总权重变化: {stdp_stats['total_weight_change']:.4f}")
     print(f"  平均权重变化: {stdp_stats['avg_weight_change']:.6f}")
-    
+
     # 禁用学习再运行5步对比
     print("\n  禁用 STDP 学习后运行5步...")
     df.enable_learning(False)
-    for step in range(5):
+    for _ in range(5):
         df.step({"numeric": np.random.randn(16) * 0.5})
     stdp_stats2 = df.get_stdp_stats()
     print(f"  禁用后 LTP: {stdp_stats2['total_ltp']} (应不变)")
     print(f"  学习开关: {stdp_stats2['learning_enabled']}")
-    
+
     print("\n" + "=" * 60)
     print("核心模块测试通过!")
     print("=" * 60)

@@ -8,7 +8,7 @@ on_load 构建面 / on_think 驱动面皮层计算 / on_unload 由内核存档�
 """
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -30,7 +30,7 @@ class FacePlugin(ExpertPlugin):
     BASE_MODEL = "cubegpt.face"
 
     def __init__(self, modality: str, depth: int = 1, dim: int = 16,
-                 face: Optional[Any] = None, **kwargs):
+                 face: Any | None = None, **kwargs):
         kwargs.setdefault("route", modality)
         super().__init__(modality, **kwargs)
         self.modality = modality
@@ -47,8 +47,8 @@ class FacePlugin(ExpertPlugin):
         self.memory.set("depth", self.depth)
         super().on_load(ctx)
 
-    def on_think(self, event: Dict[str, Any],
-                 ctx: PluginContext) -> Optional[Dict[str, Any]]:
+    def on_think(self, event: dict[str, Any],
+                 ctx: PluginContext) -> dict[str, Any] | None:
         """驱动模态面皮层计算 (真正的思考在这里, 不在内核)"""
         if self.face is None:
             self.on_load(ctx)
@@ -77,7 +77,7 @@ class FacePlugin(ExpertPlugin):
         super().on_unload()
 
     # ── 权重序列化 (复用 v0.7.0 .dfpkg 逐位可复现格式) ────────
-    def save_weights(self) -> Dict[str, np.ndarray]:
+    def save_weights(self) -> dict[str, np.ndarray]:
         from ..core import face_pkg
         if self.face is None:
             return {}
@@ -93,8 +93,8 @@ class FacePlugin(ExpertPlugin):
             weights[f"mem_{key}"] = state[key]
         return weights
 
-    def load_weights(self, weights: Dict[str, np.ndarray],
-                     manifest: Dict[str, Any]) -> None:
+    def load_weights(self, weights: dict[str, np.ndarray],
+                     manifest: dict[str, Any]) -> None:
         from ..core import face_pkg
         from ..core.distributedformer import CubeFace
         self.depth = int(manifest.get("depth", 1))
@@ -119,8 +119,8 @@ class FacePlugin(ExpertPlugin):
         face_pkg._arrays_to_face(face, params, connections, state)
         self.face = face
 
-    def load_weights_dfpkg(self, params: Dict, connections: Dict,
-                           state: Dict) -> None:
+    def load_weights_dfpkg(self, params: dict, connections: dict,
+                           state: dict) -> None:
         """直接从 .dfpkg 的 (params, connections, state) 三元组还原"""
         from ..core import face_pkg
         from ..core.distributedformer import CubeFace
@@ -131,14 +131,14 @@ class FacePlugin(ExpertPlugin):
         self.face = face
 
     @classmethod
-    def from_pkg(cls, manifest: Dict[str, Any]) -> "FacePlugin":
+    def from_pkg(cls, manifest: dict[str, Any]) -> "FacePlugin":
         # .dfpkg 特例: manifest 字段为 modality/depth/dim
         modality = manifest.get("modality") or manifest.get("name")
         return cls(modality,
                    depth=int(manifest.get("depth", 1)),
                    dim=int(manifest.get("dim", 16)))
 
-    def build_manifest(self, **extra: Any) -> Dict[str, Any]:
+    def build_manifest(self, **extra: Any) -> dict[str, Any]:
         from ..core import face_pkg
         if self.face is not None:
             units = len(face_pkg._collect_units(self.face))
@@ -159,7 +159,7 @@ class FacePlugin(ExpertPlugin):
         return round(units * 16 * 8 / (1024 * 1024)
                      + self.memory.footprint_bytes() / (1024 * 1024), 6)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         s = super().stats()
         s["modality"] = self.modality
         s["depth"] = self.depth

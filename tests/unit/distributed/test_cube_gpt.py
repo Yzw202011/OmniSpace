@@ -1,10 +1,7 @@
 ﻿import numpy as np
 import pytest
 
-from src.core.distributedformer import CubeGPT
-from src.core.distributedformer import (
-    CubeFace, calculate_cube_scale
-)
+from src.core.distributedformer import CubeFace, CubeGPT, calculate_cube_scale
 
 
 def test_scale_formula_matches_281k_nominal():

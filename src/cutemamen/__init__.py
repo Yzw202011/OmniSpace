@@ -6,13 +6,11 @@
 v0.7.0 的 .dfpkg 模态面存档是本标准的首个特例 (face_bridge.FacePlugin)。
 """
 
-from .plugin import (
-    CURRENT_STANDARD_VERSION,
-    ExpertPlugin,
-    PluginContext,
-    PluginMemory,
-)
+from .bridge import LoRAAdapter, LoRABridgePlugin, apply_lora, lora_from_weight
 from .event_bus import EventBus
+from .face_bridge import FacePlugin
+from .kernel import CubeGPTKernel, CuteMamenKernel, WorkingMemory
+from .migrate import main as migrate_main
 from .pkg import (
     check_core_version,
     decode_manifest,
@@ -20,12 +18,14 @@ from .pkg import (
     read_manifest,
     save_pkg,
 )
-from .bridge import LoRAAdapter, LoRABridgePlugin, apply_lora, lora_from_weight
-from .face_bridge import FacePlugin
+from .plugin import (
+    CURRENT_STANDARD_VERSION,
+    ExpertPlugin,
+    PluginContext,
+    PluginMemory,
+)
 from .rust_coding import RustCodingPlugin
 from .video_making import VideoMakingPlugin
-from .kernel import CubeGPTKernel, CuteMamenKernel, WorkingMemory
-from .migrate import main as migrate_main
 
 __all__ = [
     "CURRENT_STANDARD_VERSION",

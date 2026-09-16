@@ -36,7 +36,6 @@ from src.cutemamen import (
 )
 from src.cutemamen.migrate import main as migrate_main
 
-
 # ── 测试用插件 ────────────────────────────────────────────
 
 class EchoPlugin(ExpertPlugin):
@@ -202,7 +201,6 @@ def test_plugin_to_plugin_communication(kernel):
     class ListenerPlugin(ExpertPlugin):
         def on_load(self, ctx):
             super().on_load(ctx)
-            ctx.emit  # 总线可达
             self._unsub = ctx.bus.subscribe(
                 "plugin.talker.output",
                 lambda e: received.append(e["payload"]["result"]))
@@ -322,8 +320,10 @@ def test_memory_budget_eviction_archives_and_registers(tmp_path):
 
 def test_budget_never_evicts_protected(kernel):
     kernel.memory_budget_mb = 5.0
-    a = EchoPlugin("a"); a.footprint_mb = lambda: 10.0
-    b = EchoPlugin("b"); b.footprint_mb = lambda: 10.0
+    a = EchoPlugin("a")
+    a.footprint_mb = lambda: 10.0
+    b = EchoPlugin("b")
+    b.footprint_mb = lambda: 10.0
     kernel.mount(a)
     kernel.mount(b)  # mount(b) protect=b → 淘汰 a
     assert "a" not in kernel.plugins and "b" in kernel.plugins
@@ -413,7 +413,7 @@ def test_face_plugin_pkg_roundtrip_state_exact(cube_kernel, tmp_path):
     src = plugin.face.cortex._all_units_cache
     dst = loaded.face.cortex._all_units_cache
     assert len(src) == len(dst)
-    for u1, u2 in zip(src, dst):
+    for u1, u2 in zip(src, dst, strict=True):
         assert u1.w_in == u2.w_in
         assert np.allclose(u1.state, u2.state)
         assert u1.outgoing.keys() == u2.outgoing.keys()

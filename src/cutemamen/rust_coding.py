@@ -15,7 +15,7 @@ route = "rust": on_think 把一段 Rust 代码分类到 5 类编译错误之一,
 并把结果发布到事件总线 ("rust.classified") 供其他插件订阅。
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -23,8 +23,7 @@ from .plugin import ExpertPlugin, PluginContext
 
 # 相对导入真实语料 (src.data.rust_coding)
 try:
-    from ..data.rust_coding import (
-        LABELS, RUST_SNIPPETS, static_metrics, structure_metrics)
+    from ..data.rust_coding import LABELS, RUST_SNIPPETS, static_metrics, structure_metrics
 except Exception:  # pragma: no cover - 极罕见时序问题, 见 _ensure_corpus
     LABELS, RUST_SNIPPETS = [], []
     static_metrics = structure_metrics = None
@@ -48,18 +47,18 @@ class RustCodingPlugin(ExpertPlugin):
                   "主模型 (CubeGPT 水库读出层) 迁移知识")
 
     def __init__(self, name: str = "rust-coding", *,
-                 route: Optional[str] = None, **kwargs):
+                 route: str | None = None, **kwargs):
         super().__init__(name, route=route or "rust", **kwargs)
         # 原型权重: label → 类别质心 (特征空间), 权重存档用
-        self.prototypes: Dict[str, np.ndarray] = {}
-        self._sample_counts: Dict[str, int] = {}
+        self.prototypes: dict[str, np.ndarray] = {}
+        self._sample_counts: dict[str, int] = {}
         self._corpus_loaded = False
         # 主模型迁移知识: {"W","mean","scale","depth","dim","seed"}
         # (线性读出层权重; None = 未迁移, on_think 回退原型路径)
-        self.readout: Optional[Dict[str, Any]] = None
+        self.readout: dict[str, Any] | None = None
         self._extractor: Any = None   # 冻结 CubeGPT 水库特征提取器 (惰性)
         self._dataset: Any = None     # 语料数据集 (numeric 通路归一化, 惰性)
-        self._feat_cache: Dict[str, np.ndarray] = {}  # 代码文本 → 水库特征
+        self._feat_cache: dict[str, np.ndarray] = {}  # 代码文本 → 水库特征
 
     # ── 真实训练材料 (填补训练数据空白) ─────────────────────
     def _ensure_corpus(self) -> None:
@@ -68,7 +67,7 @@ class RustCodingPlugin(ExpertPlugin):
             return
         if static_metrics is None:
             return
-        features: Dict[str, List[np.ndarray]] = {lab: [] for lab in LABELS}
+        features: dict[str, list[np.ndarray]] = {lab: [] for lab in LABELS}
         for s in RUST_SNIPPETS:
             lab = s["label"]
             if lab in features:
@@ -79,7 +78,7 @@ class RustCodingPlugin(ExpertPlugin):
                 self._sample_counts[lab] = len(arrs)
         self._corpus_loaded = True
 
-    def training_data(self) -> Tuple[np.ndarray, np.ndarray]:
+    def training_data(self) -> tuple[np.ndarray, np.ndarray]:
         """导出真实训练材料: (特征矩阵, 标签索引), 供端到端训练/评估"""
         self._ensure_corpus()
         xs, ys = [], []
@@ -93,7 +92,7 @@ class RustCodingPlugin(ExpertPlugin):
         return sum(self._sample_counts.values())
 
     # ── 主模型知识迁移 (v0.8.6 新阶段 · 分布式架构) ──────────
-    def migrate_from_main_model(self, train_samples: Optional[List] = None,
+    def migrate_from_main_model(self, train_samples: list | None = None,
                                 *, depth: int = 1, dim: int = 16,
                                 seed: int = 0) -> "RustCodingPlugin":
         """把主模型的 Rust 开发知识迁移进本插件 (可存档权重)
@@ -158,7 +157,7 @@ class RustCodingPlugin(ExpertPlugin):
             self._feat_cache[code] = self._extractor.features(inputs)
         return self._feat_cache[code]
 
-    def _classify_readout(self, code: str) -> Tuple[str, float]:
+    def _classify_readout(self, code: str) -> tuple[str, float]:
         """主模型迁移知识推理: 水库特征 → 线性读出 → (label, 置信度)"""
         f = self._reservoir_features(code)
         cfg = self.readout
@@ -177,8 +176,8 @@ class RustCodingPlugin(ExpertPlugin):
         self.memory.set("labels", LABELS)
         super().on_load(ctx)
 
-    def on_think(self, event: Dict[str, Any],
-                 ctx: PluginContext) -> Optional[Dict[str, Any]]:
+    def on_think(self, event: dict[str, Any],
+                 ctx: PluginContext) -> dict[str, Any] | None:
         """分类一段 Rust 代码 → 5 类编译错误之一
 
         推理路径: 主模型迁移读出层 (有迁移权重时) → 语料原型回退。
@@ -219,9 +218,9 @@ class RustCodingPlugin(ExpertPlugin):
         super().on_unload()
 
     # ── 权重序列化 (可学习权重 = 原型 + 主模型迁移读出层) ───
-    def save_weights(self) -> Dict[str, np.ndarray]:
+    def save_weights(self) -> dict[str, np.ndarray]:
         self._ensure_corpus()
-        out: Dict[str, np.ndarray] = {}
+        out: dict[str, np.ndarray] = {}
         for lab, proto in self.prototypes.items():
             out[f"proto_{lab}"] = np.asarray(proto, dtype=float)
         for lab, n in self._sample_counts.items():
@@ -236,8 +235,8 @@ class RustCodingPlugin(ExpertPlugin):
                  self.readout["seed"]], dtype=int)
         return out
 
-    def load_weights(self, weights: Dict[str, np.ndarray],
-                     manifest: Dict[str, Any]) -> None:
+    def load_weights(self, weights: dict[str, np.ndarray],
+                     manifest: dict[str, Any]) -> None:
         self.prototypes = {}
         self._sample_counts = {}
         for lab in LABELS:
@@ -259,7 +258,7 @@ class RustCodingPlugin(ExpertPlugin):
             self._extractor = None  # 惰性重建冻结水库
             self._feat_cache = {}
 
-    def build_manifest(self, **extra: Any) -> Dict[str, Any]:
+    def build_manifest(self, **extra: Any) -> dict[str, Any]:
         self._ensure_corpus()
         extra.setdefault("capability", self.CAPABILITY)
         extra.setdefault("corpus_size", self.corpus_size())
@@ -276,7 +275,7 @@ class RustCodingPlugin(ExpertPlugin):
             })
         return super().build_manifest(**extra)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         s = super().stats()
         s["labels"] = LABELS
         s["corpus_size"] = self.corpus_size()
@@ -289,7 +288,7 @@ class RustCodingPlugin(ExpertPlugin):
 
 # ── 辅助 ──────────────────────────────────────────────────
 
-def _extract_code(data: Any) -> Optional[str]:
+def _extract_code(data: Any) -> str | None:
     """从事件取代码文本: 支持 str 或 {"code": str}"""
     if isinstance(data, str):
         return data
@@ -301,7 +300,7 @@ def _extract_code(data: Any) -> Optional[str]:
 
 
 def _classify(feature: np.ndarray,
-              prototypes: Dict[str, np.ndarray]) -> np.ndarray:
+              prototypes: dict[str, np.ndarray]) -> np.ndarray:
     """最近原型 (欧氏距离) + softmax(-距离) 给出类别置信度分布"""
     labels = LABELS
     d = np.array([float(np.linalg.norm(np.asarray(feature, dtype=float)

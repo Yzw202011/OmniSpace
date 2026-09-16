@@ -23,11 +23,11 @@ import json
 import os
 import tarfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
-from .plugin import CURRENT_STANDARD_VERSION, ExpertPlugin, PluginMemory
+from .plugin import ExpertPlugin, PluginMemory
 
 # .CuteMamen 后缀 (v0.7.0 模态面特例后缀)
 CUTEMAMEN_SUFFIX = ".CuteMamen"
@@ -50,7 +50,7 @@ V1_RENAMED_HOOKS = {"on_init": "on_load"}
 REQUIRED_HOOKS = ("on_load", "on_think", "on_unload")
 
 
-def _version_tuple(v: str) -> Tuple[int, ...]:
+def _version_tuple(v: str) -> tuple[int, ...]:
     try:
         return tuple(int(x) for x in str(v).split(".")[:3])
     except ValueError:
@@ -70,7 +70,7 @@ def check_core_version(min_core_version: str,
 # 解码器: v1 → v2 集中适配 (规范 §2.1)
 # ═══════════════════════════════════════════════════════════════
 
-def decode_manifest(raw: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+def decode_manifest(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """原始 manifest → 统一内部格式, 返回 (解码后清单, 变更日志)
 
     - v1 字段重命名: model_type → base_model
@@ -79,7 +79,7 @@ def decode_manifest(raw: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     - 生命周期钩子重命名: on_init → on_load; 补缺失的 on_unload 桩
     - 未知字段一律保留不丢弃 (前向兼容)
     """
-    changes: List[str] = []
+    changes: list[str] = []
     manifest = dict(raw)  # 未知字段全部保留
 
     # 字段重命名
@@ -125,7 +125,7 @@ def decode_manifest(raw: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     return manifest, changes
 
 
-def is_legacy_manifest(manifest: Dict[str, Any]) -> bool:
+def is_legacy_manifest(manifest: dict[str, Any]) -> bool:
     """是否 v1 清单 (standard_version 主版本 < 2 或缺失)"""
     std = str(manifest.get("standard_version", "1.0.0"))
     return _version_tuple(std) < (2,)
@@ -136,7 +136,7 @@ def is_legacy_manifest(manifest: Dict[str, Any]) -> bool:
 # ═══════════════════════════════════════════════════════════════
 
 def save_pkg(plugin: ExpertPlugin, path: str,
-             **manifest_extra: Any) -> Dict[str, Any]:
+             **manifest_extra: Any) -> dict[str, Any]:
     """把插件存档为 .CuteMamen 包 (manifest + weights + 三级记忆), 返回清单"""
     manifest = plugin.build_manifest(**manifest_extra)
     manifest["memory_footprint_mb"] = plugin.footprint_mb()
@@ -170,21 +170,21 @@ def save_pkg(plugin: ExpertPlugin, path: str,
 # 加载: .CuteMamen → plugin
 # ═══════════════════════════════════════════════════════════════
 
-def read_raw_manifest(path: str) -> Dict[str, Any]:
+def read_raw_manifest(path: str) -> dict[str, Any]:
     """只读原始清单 (不经解码器, 特例分流用)"""
     with tarfile.open(str(path), "r:gz") as tar:
         member = _find_member(tar, MANIFEST_PATH)
         return json.loads(tar.extractfile(member).read().decode())
 
 
-def read_manifest(path: str) -> Dict[str, Any]:
+def read_manifest(path: str) -> dict[str, Any]:
     """只读清单 (注册表 / 预检用, 不加载权重); 已过解码器"""
     manifest, _ = decode_manifest(read_raw_manifest(path))
     return manifest
 
 
 def load_pkg(path: str,
-             plugin_cls: Optional[type] = None) -> Tuple[ExpertPlugin, Dict[str, Any]]:
+             plugin_cls: type | None = None) -> tuple[ExpertPlugin, dict[str, Any]]:
     """加载 .CuteMamen 包 → (插件实例, 解码后清单)
 
     plugin_cls=None 时按 manifest.base_model 从注册表分发:
@@ -218,9 +218,9 @@ def load_pkg(path: str,
 
 
 # 按 base_model 分发的原生插件注册表 (规范 §6 集成路径的宿主侧)
-def native_registry() -> Dict[str, type]:
-    from .face_bridge import FacePlugin
+def native_registry() -> dict[str, type]:
     from .bridge import LoRABridgePlugin
+    from .face_bridge import FacePlugin
     from .rust_coding import RustCodingPlugin
     from .video_making import VideoMakingPlugin
     return {
@@ -231,7 +231,7 @@ def native_registry() -> Dict[str, type]:
     }
 
 
-def _resolve_class(manifest: Dict[str, Any]) -> type:
+def _resolve_class(manifest: dict[str, Any]) -> type:
     fmt = manifest.get("format")
     if fmt == "dfpkg":
         from .face_bridge import FacePlugin
@@ -250,14 +250,14 @@ def _resolve_class(manifest: Dict[str, Any]) -> type:
 # 内部: tar 成员读写
 # ═══════════════════════════════════════════════════════════════
 
-def _read_members(path: str) -> Tuple[Dict, Dict, Dict]:
+def _read_members(path: str) -> tuple[dict, dict, dict]:
     """读取包全部内容 → (解码后 manifest, weights npz, memory archive)"""
     with tarfile.open(str(path), "r:gz") as tar:
         raw = json.loads(
             tar.extractfile(_find_member(tar, MANIFEST_PATH)).read().decode())
         manifest, _ = decode_manifest(raw)
 
-        weights: Dict[str, np.ndarray] = {}
+        weights: dict[str, np.ndarray] = {}
         member = _optional_member(tar, WEIGHTS_PATH)
         if member is not None:
             data = tar.extractfile(member).read()
@@ -291,7 +291,7 @@ def _find_member(tar: tarfile.TarFile, name: str) -> tarfile.TarInfo:
     raise ValueError(f"包中缺少 {name}")
 
 
-def _optional_member(tar: tarfile.TarFile, name: str) -> Optional[tarfile.TarInfo]:
+def _optional_member(tar: tarfile.TarFile, name: str) -> tarfile.TarInfo | None:
     for member in tar.getmembers():
         if not member.isdir() and (member.name == name
                                    or member.name.endswith("/" + name)):

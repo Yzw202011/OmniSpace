@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 真实训练数据集 (v0.8.4) — 训练数据真实化
 
@@ -33,14 +32,18 @@
     )
 """
 
-import numpy as np
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+
+import numpy as np
 
 from src.codec.spike_codec import SpikeEncoder
 from src.data.rust_coding import (
-    LABELS, LABEL_NAMES, load_rust_coding, static_metrics,
-    structure_metrics, stratified_split, stratified_kfold
+    LABELS,
+    load_rust_coding,
+    static_metrics,
+    stratified_kfold,
+    stratified_split,
+    structure_metrics,
 )
 
 
@@ -52,10 +55,10 @@ class TrainingSample:
     category_name: str
     input_signal: np.ndarray     # 16维文本脉冲 (代码原文 TF-IDF 编码)
     target_pattern: np.ndarray   # 16维期望输出模式
-    metadata: Dict
+    metadata: dict
     static_signal: np.ndarray = None  # 10维语法扫描特征 (numeric 通路)
 
-    def multimodal_input(self) -> Dict:
+    def multimodal_input(self) -> dict:
         """双模态输入字典: numeric=语法特征, text=代码原文 (P0 方案)
 
         供 CubeGPT.step() / CubeFeatureExtractor.features() 直接消费,
@@ -104,7 +107,7 @@ class RustCodingTrainingDataset:
             pattern[(category + 1) % self.N_CLASSES] = 0.15
         return np.clip(pattern, 0.0, 1.0)
 
-    def _to_sample(self, s: Dict, idx: int) -> TrainingSample:
+    def _to_sample(self, s: dict, idx: int) -> TrainingSample:
         """真实语料条目 → 脉冲训练样本 (双模态 + 结构感知特征)"""
         code = s["code"]
         # 语法扫描(10维) + 结构感知(6维) = 16 维, 恰好填满 numeric 通路
@@ -137,8 +140,8 @@ class RustCodingTrainingDataset:
         return np.clip(raw / np.maximum(self._static_max, 1e-8), 0.0, 1.0)
 
     def generate_dataset(self, train_ratio: float = 0.75,
-                         seed: int = 0) -> Tuple[List[TrainingSample],
-                                                 List[TrainingSample]]:
+                         seed: int = 0) -> tuple[list[TrainingSample],
+                                                 list[TrainingSample]]:
         """加载真实语料并分层划分训练/验证集
 
         Returns:
@@ -154,8 +157,8 @@ class RustCodingTrainingDataset:
         return train, val
 
     def kfold_datasets(self, n_folds: int = 5,
-                       seed: int = 0) -> List[Tuple[List[TrainingSample],
-                                                    List[TrainingSample]]]:
+                       seed: int = 0) -> list[tuple[list[TrainingSample],
+                                                    list[TrainingSample]]]:
         """分层 K 折交叉验证划分 (每类别轮流分配到各折)
 
         每个样本恰好作为一次验证样本, 训练集为其余折的并集;
@@ -176,14 +179,14 @@ class RustCodingTrainingDataset:
             splits.append((train, val))
         return splits
 
-    def get_class_distribution(self, samples: List[TrainingSample]) -> Dict:
+    def get_class_distribution(self, samples: list[TrainingSample]) -> dict:
         """统计类别分布"""
         counts = {name: 0 for name in self.CATEGORIES}
         for s in samples:
             counts[s.category_name] += 1
         return counts
 
-    def majority_baseline(self, samples: List[TrainingSample]) -> float:
+    def majority_baseline(self, samples: list[TrainingSample]) -> float:
         """多数类基线: 训练集最大类别占比"""
         if not samples:
             return 0.0
@@ -203,7 +206,7 @@ if __name__ == "__main__":
     dataset = RustCodingTrainingDataset(dim=16)
     train, val = dataset.generate_dataset(train_ratio=0.75)
 
-    print(f"\n[真实数据规模]")
+    print("\n[真实数据规模]")
     print(f"  训练集: {len(train)} 样本")
     print(f"  验证集: {len(val)} 样本")
     print(f"  训练集分布: {dataset.get_class_distribution(train)}")

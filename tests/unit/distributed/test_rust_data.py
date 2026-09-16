@@ -1,10 +1,13 @@
 import numpy as np
-import pytest
 
 from src.codec.spike_codec import SpikeEncoder
 from src.data.rust_coding import (
-    LABELS, RUST_SNIPPETS, load_rust_coding, static_metrics,
-    structure_metrics, stratified_split
+    LABELS,
+    RUST_SNIPPETS,
+    load_rust_coding,
+    static_metrics,
+    stratified_split,
+    structure_metrics,
 )
 from src.training.readout import LinearReadout
 

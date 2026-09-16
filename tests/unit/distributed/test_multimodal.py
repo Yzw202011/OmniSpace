@@ -2,7 +2,10 @@ import numpy as np
 import pytest
 
 from src.core.distributedformer import (
-    DistributedFormer, InputModule, OutputModule, SUPPORTED_MODALITIES
+    SUPPORTED_MODALITIES,
+    DistributedFormer,
+    InputModule,
+    OutputModule,
 )
 
 
@@ -53,7 +56,6 @@ def test_network_multimodal_step():
 
 def test_missing_modalities_stay_silent():
     df = DistributedFormer(depth=1, dim=16, num_think_layers=1)
-    before = {n: m.units[0].state.copy() for n, m in df.input_modules.items()}
     df.step({"text": "only text this time"})
     # numeric 模块未被喂入, 其状态不应因编码变化 (仅节律/自发影响)
     for name in df.input_modules:

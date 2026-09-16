@@ -32,8 +32,9 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import core  # noqa: E402 - updater 同目录共享核心（stdlib-only）
 import restore  # noqa: E402
+
+import core  # noqa: E402 - updater 同目录共享核心（stdlib-only）
 
 # ── 常量 ─────────────────────────────────────────────────────
 BACKEND_PORTS = range(5800, 5836)

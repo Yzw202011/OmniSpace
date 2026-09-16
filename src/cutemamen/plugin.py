@@ -12,8 +12,8 @@
 
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -53,11 +53,11 @@ class PluginMemory:
         self.episodic_capacity = episodic_capacity
         self.semantic_capacity = semantic_capacity
         # working: 插入序 key → value (JSON 安全), 超容量淘汰最旧
-        self.working: "OrderedDict[str, Any]" = OrderedDict()
+        self.working: OrderedDict[str, Any] = OrderedDict()
         # episodic: {"t": 时间戳, "topic": 主题, "summary": 摘要}
-        self.episodic: Deque[Dict] = deque(maxlen=episodic_capacity)
+        self.episodic: deque[dict] = deque(maxlen=episodic_capacity)
         # semantic: key → value, LRU
-        self.semantic: "OrderedDict[str, Any]" = OrderedDict()
+        self.semantic: OrderedDict[str, Any] = OrderedDict()
 
     # ── working ────────────────────────────────────────────
     def set(self, key: str, value: Any) -> None:
@@ -75,14 +75,14 @@ class PluginMemory:
         self.working.pop(key, None)
 
     # ── episodic ───────────────────────────────────────────
-    def record(self, topic: str, summary: Any = None, when: Optional[float] = None) -> Dict:
+    def record(self, topic: str, summary: Any = None, when: float | None = None) -> dict:
         """记录一条情景记忆 (on_think 被路由激活时由基类自动调用)"""
         event = {"t": when if when is not None else time.time(),
                  "topic": str(topic), "summary": _json_safe(summary)}
         self.episodic.append(event)
         return event
 
-    def recent(self, n: int = 10) -> List[Dict]:
+    def recent(self, n: int = 10) -> list[dict]:
         return list(self.episodic)[-n:]
 
     # ── semantic ───────────────────────────────────────────
@@ -104,9 +104,9 @@ class PluginMemory:
         self.semantic.pop(key, None)
 
     # ── 蒸馏: episodic → semantic ──────────────────────────
-    def consolidate(self) -> Dict[str, int]:
+    def consolidate(self) -> dict[str, int]:
         """情景记忆 → 语义记忆蒸馏: 按 topic 聚合计数写入语义层"""
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for ev in self.episodic:
             counts[ev["topic"]] = counts.get(ev["topic"], 0) + 1
         for topic, n in counts.items():
@@ -114,7 +114,7 @@ class PluginMemory:
         return counts
 
     # ── 存档 / 还原 (JSON 安全) ─────────────────────────────
-    def archive(self) -> Dict[str, Any]:
+    def archive(self) -> dict[str, Any]:
         return {
             "working": [{"key": k, "value": v} for k, v in self.working.items()],
             "episodic": list(self.episodic),
@@ -126,7 +126,7 @@ class PluginMemory:
             },
         }
 
-    def restore(self, data: Dict[str, Any]) -> None:
+    def restore(self, data: dict[str, Any]) -> None:
         self.working = OrderedDict()
         for item in data.get("working", []):
             self.working[item["key"]] = item.get("value")
@@ -143,7 +143,7 @@ class PluginMemory:
         while len(self.semantic) > self.semantic_capacity:
             self.semantic.popitem(last=False)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {
             "working": len(self.working),
             "episodic": len(self.episodic),
@@ -210,10 +210,10 @@ class ExpertPlugin:
     BASE_MODEL = "generic"        # manifest.base_model, 加载注册表按它分发
     CAPABILITY = ""               # 人类可读能力描述 (子类覆盖)
 
-    def __init__(self, name: str, *, route: Optional[str] = None,
+    def __init__(self, name: str, *, route: str | None = None,
                  capability: str = "", author: str = "DistributedFormer",
                  version: str = "0.1.0",
-                 memory: Optional[PluginMemory] = None):
+                 memory: PluginMemory | None = None):
         self.name = name
         # 路由主题: 内核按 route 把事件路由给本插件 (默认 = 插件名)
         self.route = route or name
@@ -228,7 +228,7 @@ class ExpertPlugin:
 
     # ── 从包构建 (pkg.load_pkg 入口, 子类按需覆盖) ───────────
     @classmethod
-    def from_pkg(cls, manifest: Dict[str, Any]) -> "ExpertPlugin":
+    def from_pkg(cls, manifest: dict[str, Any]) -> "ExpertPlugin":
         """按解码后清单构造插件实例 (load_weights 随后注入权重)"""
         return cls(manifest["name"],
                    route=manifest.get("route"),
@@ -242,8 +242,8 @@ class ExpertPlugin:
         self.loaded = True
         self.loaded_at = time.time()
 
-    def on_think(self, event: Dict[str, Any],
-                 ctx: PluginContext) -> Optional[Dict[str, Any]]:
+    def on_think(self, event: dict[str, Any],
+                 ctx: PluginContext) -> dict[str, Any] | None:
         """核心计算: 事件到达、插件被路由激活。
 
         event 为统一内部格式 (解码器产出):
@@ -262,19 +262,19 @@ class ExpertPlugin:
         self.loaded = False
 
     # ── 权重序列化 (.CuteMamen weights/) ────────────────────
-    def save_weights(self) -> Dict[str, np.ndarray]:
+    def save_weights(self) -> dict[str, np.ndarray]:
         """插件权重 → npz 字典 (无权重插件返回空字典)"""
         return {}
 
-    def load_weights(self, weights: Dict[str, np.ndarray],
-                     manifest: Dict[str, Any]) -> None:
+    def load_weights(self, weights: dict[str, np.ndarray],
+                     manifest: dict[str, Any]) -> None:
         """从 npz 字典还原权重 (manifest 携带构造所需的扩展字段)"""
 
     # ── 清单与占用 ──────────────────────────────────────────
-    def build_manifest(self, **extra: Any) -> Dict[str, Any]:
+    def build_manifest(self, **extra: Any) -> dict[str, Any]:
         """按规范 §4 生成 manifest (子类可扩展 extra 字段)"""
         from .pkg import CORE_VERSION
-        manifest: Dict[str, Any] = {
+        manifest: dict[str, Any] = {
             "standard_version": CURRENT_STANDARD_VERSION,
             "name": self.name,
             "base_model": self.BASE_MODEL,
@@ -299,7 +299,7 @@ class ExpertPlugin:
         m_bytes = self.memory.footprint_bytes()
         return round((w_bytes + m_bytes) / (1024 * 1024), 6)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "base_model": self.BASE_MODEL,
@@ -311,7 +311,7 @@ class ExpertPlugin:
         }
 
 
-def _event_summary(event: Dict[str, Any]) -> Any:
+def _event_summary(event: dict[str, Any]) -> Any:
     """情景记忆摘要: 只留 topic 与数据类型/形状, 不存大对象"""
     data = event.get("data")
     if data is None:

@@ -2,8 +2,8 @@
 
 本文件被三方共同使用，写法约束由此而来：
 - updater/updater.py（升级独立进程）——**只准标准库**，且绝不 import
-  backend/pydeps：升级落位时会替换 pydeps，运行中导入的 .pyd 会被锁死；
-- backend/services/upgrade_service.py——经 importlib 文件路径加载本文件
+  src/pydeps：升级落位时会替换 pydeps，运行中导入的 .pyd 会被锁死；
+- src/services/upgrade_service.py——经 importlib 文件路径加载本文件
   （先例：boot.py 加载 scripts/comfy_link/comfy_mount.py）；
 - tools/make_upgrade_package.py（开发侧打包工具）。
 

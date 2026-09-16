@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 硬件性能基准工具（CLI）
-- 基于 backend/services/scheduler/monitor.HardwareMonitor 真实采样
+- 基于 src/services/scheduler/monitor.HardwareMonitor 真实采样
   CPU/内存/磁盘/GPU，综合评分并识别硬件等级（文档B §4.2 六档，
-  经 backend/data/models.detect_hardware_tier 按 GPU 型号名匹配）
+  经 src/data/models.detect_hardware_tier 按 GPU 型号名匹配）
   （审计 BK-048 修复：原引用不存在的 backend.core.gpu_manager）
 - 评分结果缓存至 data/hardware_profile.json，供 VRAM 调度策略引用
 用法:
@@ -19,9 +19,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend import config  # noqa: E402
-from backend.data.models import detect_hardware_tier  # noqa: E402
-from backend.services.scheduler.monitor import HardwareMonitor  # noqa: E402
+from src import config  # noqa: E402
+from src.data.models import detect_hardware_tier  # noqa: E402
+from src.services.scheduler.monitor import HardwareMonitor  # noqa: E402
 
 CACHE_PATH = config.DATA_DIR / "hardware_profile.json"
 

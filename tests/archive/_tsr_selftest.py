@@ -10,7 +10,7 @@ import torch
 from PIL import Image, ImageDraw
 
 # 引擎同款 DINO 离线补丁
-from backend.services.inference.triposr_engine import (
+from src.services.inference.triposr_engine import (
     _patch_dino_offline_fallback,
     _write_dino_config_cache,
 )

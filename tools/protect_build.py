@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """发行包代码保护器 v2（P3）：Cython 编译整树 → .pyd 真二进制。
 
-大白话：把包里的自有 Python 代码（backend/launcher 可导入部分/skills）全部
+大白话：把包里的自有 Python 代码（src/launcher 可导入部分/skills）全部
 编译成 .pyd 二进制扩展——源码从包里消失，变成机器码。这是比字节码混淆更
 硬的保护（反编译工具面对的是机器码不是可还原字节码），且免费、无单文件
 大小限制。混淆完必须重跑金母版 verify，指纹一致才算保护成功。
@@ -58,8 +58,8 @@ def gcc_ready() -> tuple[bool, dict]:
 
 
 def _module_name(rel: Path) -> str:
-    """源相对路径 → 扩展模块名。__init__.py 归一为包名（backend/__init__.py
-    → backend.__init__：实验实证该命名产物正确落于 backend/__init__..pyd）。"""
+    """源相对路径 → 扩展模块名。__init__.py 归一为包名（src/__init__.py
+    → backend.__init__：实验实证该命名产物正确落于 src/__init__..pyd）。"""
     parts = list(rel.with_suffix("").parts)
     return ".".join(parts)
 
@@ -167,8 +167,8 @@ print('BUILD_OK', len(exts))
     #      这些标识符）——在 .c 清理之前执行
     #   ② 功能期：包内 python 双进程互斥实测——真锁真拒才算守卫入包
     SENTINEL_C_MARKERS = {
-        "backend/main": ["single_instance", "style_seed", "license_gate"],
-        "backend/single_instance": ["singleinstance", "CreateMutexW"],
+        "src/main": ["single_instance", "style_seed", "license_gate"],
+        "src/single_instance": ["singleinstance", "CreateMutexW"],
     }
     for mod_rel, markers in SENTINEL_C_MARKERS.items():
         cs = list((pkg / mod_rel).parent.glob(Path(mod_rel).name + ".c"))
@@ -194,11 +194,11 @@ print('BUILD_OK', len(exts))
         print("❌ 功能哨兵失败：包内缺 runtime/py310/python.exe")
         return 1
     _HOLD = ("import sys, time; sys.path.insert(0, '.'); "
-             "from backend import single_instance as si; "
+             "from src import single_instance as si; "
              "assert si.acquire(), 'holder 拿锁失败'; "
              "print('HELD', flush=True); time.sleep(120)")
     _PROBE = ("import sys; sys.path.insert(0, '.'); "
-              "from backend import single_instance as si; "
+              "from src import single_instance as si; "
               "print('PROBE', si.acquire())")
     # 预探测：开发机上若正有真实例持锁（互斥体是全机唯一），功能哨兵无法
     # 自建持锁态——降级跳过（编译期哨兵已把关源码新旧），不算失败

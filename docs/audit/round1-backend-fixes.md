@@ -33,11 +33,11 @@
 
 ### P0 — BK-002 `/system/diagnose` 真实探测
 
-文件：`backend/api/system.py`
+文件：`src/api/system.py`
 
 - 原实现：26 项检测结果全部硬编码 pass，属欺骗性假数据。
 - 现实现：`_DIAG_PROBES` 注册表驱动，每项调用真实探测函数：
-  - 7 项复用 `backend/startup_check.py`（GPU/驱动/显存/CUDA/CPU/内存/磁盘，经 `_from_startup` 适配 passed+level → pass/warn/fail）；
+  - 7 项复用 `src/startup_check.py`（GPU/驱动/显存/CUDA/CPU/内存/磁盘，经 `_from_startup` 适配 passed+level → pass/warn/fail）；
   - 12 项新增探测（DB 连接/WAL/加密标注、对话/绘画/视频/音色模型就绪、FFmpeg、4 个目录可写性、任务队列、WS Hub、调度引擎、功能互斥锁、断点续传扫描）；
   - 2 项诚实 warn（激活状态、机器指纹一致性——v2.3.1 无此子系统，如实标记，对应 BK-018）。
 - 单项探测异常不阻断整体，降级为 `warn + 探测异常: ...`。
@@ -46,7 +46,7 @@
 
 ### P1 — BK-028 路径安全校验
 
-文件：`backend/api/system.py`
+文件：`src/api/system.py`
 
 - 新增 `_resolve_safe_path()`：空值拒绝 → `Path.resolve()` 规范化 → 白名单根目录（项目根 `E:\OmniSpace`，覆盖 data/models/generated）包含性校验（`resolved == root or root in resolved.parents`）。
 - 越界抛 `SYSTEM_UNAUTHORIZED`，detail 携带 `allowed_roots`；无法解析抛 `SYSTEM_PARAM_INVALID`。
@@ -56,7 +56,7 @@
 
 ### P1 — BK-041/042 项目导出/导入真实化
 
-文件：`backend/api/system.py`
+文件：`src/api/system.py`
 
 - 导出：`POST /system/project/export` 采集 `_collect_project_bundle()`（projects + storyboards + storyboard_rows + director_stages/cameras/characters + 资产清单），打包为 `.omnispace`（ZIP 容器：manifest.json / project.json / storyboard.json / director.json / assets.json），写入 `data/generated/exports/`，返回真实 `file_path`/`file_exists`/`size_bytes`/行数统计；项目不存在如实返回 `SYSTEM_RESOURCE_NOT_FOUND`。
 - 导入：`POST /system/project/import` 经 BK-028 路径校验 → ZIP 解析（坏文件/缺清单/格式版本不符分别报错）→ 恢复 projects/storyboards/storyboard_rows/director_* 记录（新项目 id 避免冲突），返回 `imported:true` + 各项恢复计数；任何失败返回错误码，绝不谎报。
@@ -65,7 +65,7 @@
 
 ### P1 — BK-023 调度阈值对齐文档B §4.1
 
-文件：`backend/config.yaml`、`backend/services/scheduler/__init__.py`、`monitor.py`、`backend/services/learning_scheduler.py`
+文件：`src/config.yaml`、`src/services/scheduler/__init__.py`、`monitor.py`、`src/services/learning_scheduler.py`
 
 - config.yaml 阈值对齐：显存 >90% 降参、GPU 利用率 >95% 持续 10s 降质量、CPU >90% 停后台学习、内存 >85% 清缓存、磁盘 IO >80% 延迟写入。
 - `monitor.py`：GPU 2s / CPU 5s / 磁盘 10s TTL 分级采样（降低 psutil/NVML 开销）；新增磁盘 IO 忙碌占比计算（`_disk_prev` 增量口径，文档B「磁盘 IO >80%」的可计算定义）。
@@ -75,7 +75,7 @@
 
 ### P1 — BK-011 硬件等级按 GPU 型号名六档自适应
 
-文件：`backend/data/models.py`、`backend/api/hardware.py`、`backend/services/browser_service.py`、`backend/api/browser.py`、`backend/services/learning_scheduler.py`
+文件：`src/data/models.py`、`src/api/hardware.py`、`src/services/browser_service.py`、`src/api/browser.py`、`src/services/learning_scheduler.py`
 
 - `models.py`：`HARDWARE_TIER_TABLE` 六档（RTX 5090/4090/4070Ti/3060/RX6600/纯CPU），含 `name_patterns`、`models` 路由（dialog/paint/video）、`learn_tabs` 配额；`detect_hardware_tier()` 按型号名匹配，未命中按显存保守降档（12GB 档取 3060 而非 4070Ti，与文档B保守语义一致）。
 - 运行时接线（本轮补全）：
@@ -87,7 +87,7 @@
 
 ### P1 — BK-012/013/014 诚实降级标记
 
-文件：`backend/api/draw.py`、`backend/api/manga.py`
+文件：`src/api/draw.py`、`src/api/manga.py`
 
 - ControlNet 预览：原恒抛 501 空壳错误 → 成功信封携带 `degraded:true` + 中文 `degrade_reason`（区分"模型未随包"与"预处理管线未接入"两种原因）。
 - 语音试听：静音占位 WAV 响应新增 `degraded:true` + `degrade_reason`（"非真实音色；安装语音模型后可真实合成"）。
@@ -97,7 +97,7 @@
 
 ### P1 — BK-010 协同调度历史学习引擎
 
-文件：`backend/services/scheduler/history.py`（新增）、`decision.py`、`__init__.py`、`backend/data/database.py`
+文件：`src/services/scheduler/history.py`（新增）、`decision.py`、`__init__.py`、`src/data/database.py`
 
 - 新增 `schedule_history` 表（id/ts/mode_before/mode_after/trigger/vram_free_mb/wait_ms/success）。
 - 调度器模式切换时真实落库：触发源（hysteresis/critical 等）、滞回等待时长、前后模式。
@@ -110,8 +110,8 @@
 
 文件：`tools/init_db.py`、`tools/diagnostics.py`、`tools/benchmark.py`（全部重写）
 
-- `init_db.py`：`backend.core.db`（已删除）→ `backend.data.database.get_db`；核心表清单更新为现行 14 张（含 `schedule_history`）；移除 SQLCipher 虚假描述，诚实标注明文 SQLite。
-- `diagnostics.py`：`backend.routers.system.build_diagnostics`（不存在）→ `backend.startup_check.run_startup_check`，26 项真实检查，支持 `--export` 导出诊断包 zip。
+- `init_db.py`：`backend.core.db`（已删除）→ `src.data.database.get_db`；核心表清单更新为现行 14 张（含 `schedule_history`）；移除 SQLCipher 虚假描述，诚实标注明文 SQLite。
+- `diagnostics.py`：`backend.routers.system.build_diagnostics`（不存在）→ `src.startup_check.run_startup_check`，26 项真实检查，支持 `--export` 导出诊断包 zip。
 - `benchmark.py`：`backend.core.gpu_manager`（不存在）→ 基于 `HardwareMonitor` 真实采样 + `detect_hardware_tier` 档位识别 + 磁盘写速实测，综合评分缓存至 `data/hardware_profile.json`。
 
 **验证**：三脚本实跑通过——init_db 校验 14/14 表 OK；diagnostics 输出 26 项（2 项失败为模型目录缺失的预期告警）；benchmark 输出评分 80.8、档位识别与缓存落盘。
@@ -129,7 +129,7 @@
 | 验证项 | 结果 |
 |--------|------|
 | `python -m py_compile`（20 个修改文件） | ✅ 全部通过 |
-| `python -c "import backend.main"` | ✅ 无报错，11 个路由模块注册完成 |
+| `python -c "import src.main"` | ✅ 无报错，11 个路由模块注册完成 |
 | uvicorn 启动 + `/health` | ✅ `{"status":"healthy","version":"2.3.1","db":"ok"}` |
 | `POST /api/v1/system/diagnose` | ✅ 26 项真实探测（21 pass / 5 warn / 0 fail），warn 均为诚实降级 |
 | 项目导出 → 导入闭环 | ✅ 归档 5 成员落盘，导入恢复计数真实 |

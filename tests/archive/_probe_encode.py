@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, r"e:\OmniSpace")
 
-from backend.services.encoder_service import get_encoder_service
-from backend.services.inference.video_engine import render_kenburns_frames
+from src.services.encoder_service import get_encoder_service
+from src.services.inference.video_engine import render_kenburns_frames
 
 out = Path(tempfile.mkdtemp(prefix="enc_probe_"))
 frame_dir = out / "frames"
@@ -27,7 +27,7 @@ for f in first:
 # 逐个候选手动执行，捕捉 stderr 与校验细节
 import subprocess  # noqa: E402 - 探针脚本，诊断输出后按需导入
 
-from backend.services.encoder_service import MIN_OUTPUT_BYTES  # noqa: E402
+from src.services.encoder_service import MIN_OUTPUT_BYTES  # noqa: E402
 
 print("MIN_OUTPUT_BYTES =", MIN_OUTPUT_BYTES)
 

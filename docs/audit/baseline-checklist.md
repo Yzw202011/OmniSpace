@@ -57,7 +57,7 @@ B（可信） > E（细粒度补充） > D（布局+修正条款） > A（计划
 
 ## 1. 技术栈与版本基线
 
-验收总方法：核对 `backend/requirements.txt`（或 pyproject.toml）、`frontend/package.json`、`src-tauri/Cargo.toml` 中的版本约束；运行 `python -V`、`node -v`、`cargo --version`；`nvidia-smi` 查驱动。
+验收总方法：核对 `src/requirements.txt`（或 pyproject.toml）、`frontend/package.json`、`src-tauri/Cargo.toml` 中的版本约束；运行 `python -V`、`node -v`、`cargo --version`；`nvidia-smi` 查驱动。
 
 ### 1.1 后端技术栈（依据 B-8.2.2）
 
@@ -763,7 +763,7 @@ E-附录B 全量端点（7 模块 78 端点）为**端点级细粒度基线**：
 | # | 检查项 | 基线要求 | 依据 |
 |---|--------|----------|------|
 | 9.31 | 桌面壳 | Tauri 2.x (Rust)，Windows 安装包正常生成，壳体积 <500MB | A-1.5 SYS-005 |
-| 9.32 | 目录结构 | frontend/（components/hooks/services/utils/styles/types）、backend/app/（routers/services/models/db/core/tasks）、shared/、config/、scripts/ | B-8.1 |
+| 9.32 | 目录结构 | frontend/（components/hooks/services/utils/styles/types）、src/app/（routers/services/models/db/core/tasks）、shared/、config/、scripts/ | B-8.1 |
 | 9.33 | 共享类型 | `shared/api_types.ts` + `shared/constants.py` 前后端共享 | B-8.1 |
 | 9.34 | 硬件配置 | `config/hardware_profiles.json` 存六档映射 | B-8.1, A-4.2 |
 | 9.35 | 健康检查 | 根路径 `GET /health` 返回 ok（活性探针，B-5.1 SYS-002）；API 内 `GET /api/v1/system/health`（E-附录B.7）——两者并存，见 M-08 |
@@ -779,7 +779,7 @@ E-附录B 全量端点（7 模块 78 端点）为**端点级细粒度基线**：
 
 | # | 类型 | 主题 | 各文档/实现表述 | 裁决 | 理由 |
 |---|------|------|------------------|------|------|
-| M-01 | 文档vs实现 | API 前缀 | B-9.1/C-3.2.2/D-4.2.5/E-9.1 全部 `/api/v1`；实现 `backend/config.py: API_PREFIX="/v1"` | **以 `/api/v1` 为基线**；实现须迁移或增加 `/api/v1` 兼容挂载 | 四文档一致且 B 可信；实现为单点偏差 |
+| M-01 | 文档vs实现 | API 前缀 | B-9.1/C-3.2.2/D-4.2.5/E-9.1 全部 `/api/v1`；实现 `src/config.py: API_PREFIX="/v1"` | **以 `/api/v1` 为基线**；实现须迁移或增加 `/api/v1` 兼容挂载 | 四文档一致且 B 可信；实现为单点偏差 |
 | M-02 | 文档vs实现 | 服务端口 | B-9.1/C/E `localhost:8000`；实现 `config.yaml: 5800` | **以 8000 为基线**；实现须改默认端口或登记偏差 | B 可信且三文档一致 |
 | M-03 | 文档vs实现 | Python 版本 | B-8.2.2/C-一 要求 Python 3.12；项目内嵌运行时 3.10.11 | **基线 3.12**；3.10.11 登记为过渡偏差，升级前每次审计标记 | B/C 一致；运行时事实不可盲信为合规 |
 | M-04 | 文档vs实现 | PyTorch 版本 | B-1.4/8.2.2 要求 2.8 stable（cu124+cu128）；实际安装 2.11.0+cu128 | **基线 2.8 stable**；现版本登记偏差（功能验证通过可豁免，但须记录） | B 可信 |

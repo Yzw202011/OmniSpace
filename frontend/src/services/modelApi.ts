@@ -2,7 +2,7 @@
 /* ==========================================================================
  * OmniSpace AI v2.1 —— 模型管理 API（规格 §4.5 模型管理端点）
  * --------------------------------------------------------------------------
- * 严格对齐后端 backend/api/models.py 实际路由（/v1 前缀由 api.ts 拼接）：
+ * 严格对齐后端 src/api/models.py 实际路由（/v1 前缀由 api.ts 拼接）：
  * - GET    /models                  模型列表（groups + models + downloaded 标记）
  * - GET    /models/{model_id}       模型详情
  * - POST   /models/import           导入模型（body: {path}，ModelImportRequest）
@@ -105,7 +105,7 @@ export interface ReadinessModule {
   missing: string[];
 }
 
-/** 就绪总检响应（对齐 backend/services/model_manager/readiness.py） */
+/** 就绪总检响应（对齐 src/services/model_manager/readiness.py） */
 export interface ModelReadiness {
   manifest_found: boolean;
   models_root: string;

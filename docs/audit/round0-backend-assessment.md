@@ -1,7 +1,7 @@
 # OmniSpace AI v2.3.1 后端零信任评估报告（Round 0）
 
 - 评估日期：2026-08-07
-- 评估对象：`e:\OmniSpace\backend\`（71 个 .py + config.yaml）、`launcher\launcher.py`、`tools\*.py`（4 个）、`tests\*.py`（2 个）、`backend\tests\*`、`requirements.txt`、`backend\requirements.txt`
+- 评估对象：`e:\OmniSpace\src\`（71 个 .py + config.yaml）、`launcher\launcher.py`、`tools\*.py`（4 个）、`tests\*.py`（2 个）、`src\tests\*`、`requirements.txt`、`src\requirements.txt`
 - 对照文档（5 份，均位于 `e:\OmniSpace\`）：
   - 文档B：《OmniSpace AI v2.3.1中文版（修正版B）》（**权威文档，矛盾时以此为准**）
   - 文档E：《极致细粒度全量文档（修正版E）》（API 端点表 / 数据库 schema / ADR）
@@ -68,8 +68,8 @@
 | BK-017 | P2 | 功能缺失 | services/model_manager/predictor.py:6-15（诚实标注） | XGBoost 未装、无训练产物 data/ml/feature_model.json，ML 预加载预测恒走马尔可夫+时间回退 | 文档B §3.4 ML 预测 | 依赖+离线训练产物随包；当前诚实标注正确 |
 | BK-018 | P2 | 功能缺失 | 全库无 activation/license 实现 | 激活/授权/机器指纹体系不存在，但诊断 API 报告其"pass"（见 BK-002）；tools/init_db.py 仍引用 activation 表 | 文档B L537（未激活状态灯）暗示存在激活态 | 裁决：v2.3.1 是否需要激活体系；不需要则清除全部相关假状态 |
 | BK-019 | P2 | 功能缺失 | api/system.py:84-105 | /system/backup 仅导出设置 JSON，不含项目/知识库/数据库，非文档语义的"备份" | 文档B §4.7 系统 API | 实现 sqlite 备份 + data/ 打包（zip），或改名 settings_export |
-| BK-020 | P2 | 功能缺失 | config.yaml:47-63（诚实标注）；backend/requirements.txt:12-13 | Redis/Celery 目标架构未部署，现为进程内缓存/PriorityQueue 模拟 | 文档E §7.1 架构（Redis+Celery） | 维持现状则修订文档E 架构图；或落地 Redis/Celery 部署方案 |
-| BK-021 | P2 | 规范违背 | data/database.py 全文件；backend/requirements.txt:5 | 文档B §9.1.4 规定"Python↔SQLite：SQLAlchemy ORM，不写裸 SQL"；实现为 sqlite3 裸 SQL（手写 DDL/DML），sqlalchemy 依赖声明后从未 import | 文档B §9.1.4（L1380） | 裁决：接受裸 SQL（修订文档）或迁移 SQLAlchemy；至少删除未用依赖 |
+| BK-020 | P2 | 功能缺失 | config.yaml:47-63（诚实标注）；src/requirements.txt:12-13 | Redis/Celery 目标架构未部署，现为进程内缓存/PriorityQueue 模拟 | 文档E §7.1 架构（Redis+Celery） | 维持现状则修订文档E 架构图；或落地 Redis/Celery 部署方案 |
+| BK-021 | P2 | 规范违背 | data/database.py 全文件；src/requirements.txt:5 | 文档B §9.1.4 规定"Python↔SQLite：SQLAlchemy ORM，不写裸 SQL"；实现为 sqlite3 裸 SQL（手写 DDL/DML），sqlalchemy 依赖声明后从未 import | 文档B §9.1.4（L1380） | 裁决：接受裸 SQL（修订文档）或迁移 SQLAlchemy；至少删除未用依赖 |
 | BK-022 | P2 | 功能缺失 | main.py:193-195 | OpenAPI 文档端点全部关闭（docs_url/redoc_url/openapi_url=None），与文档B §9.1.4"Pydantic 校验，自动 OpenAPI 文档"的契约消费方式不符 | 文档B §9.1.4（L1373） | 开发模式开启 /docs（仅 127.0.0.1），或文档注明出货关闭 |
 | BK-023 | P1 | 调度机制 | config.yaml:17-33 vs 文档B §4.1 | 自适应阈值数值不一致：文档B "显存>90% 动作、GPU 利用率>95% 持续 10s 降质、CPU>90% 暂停学习"；实现为显存 70/85/95、利用率 80/90、CPU 70/85 | 文档B §4.1（L310-316） | 裁决阈值表：以实测安全值为原则更新文档B，或按文档改 config |
 | BK-024 | P2 | 调度机制 | services/learning_scheduler.py:35-42 | 学习标签数配额按用户状态（空闲5/创作2/低内存1）而非文档B §4.2 的硬件等级（5090→5、4070Ti→3、3060→2、RX6600→1） | 文档B §4.2 | 配额矩阵增加硬件等级维度（与 BK-011 的 GPU 型号识别共用基础设施） |
@@ -87,19 +87,19 @@
 | BK-036 | P2 | 规范违背 | services/lora_training_service.py:510；inference/dialog_engine.py:558；api/draw.py:244；api/manga.py:857 | threading.Thread 承载训练/生成等 CPU+GPU 密集工作；文档C 禁止 threading 做 CPU 密集（训练数据预处理为 CPU 密集段） | 文档C Python 铁律 | 训练迁移至独立进程（multiprocessing）；或文档C 增补"GPU 推理工作线程豁免"条款并逐处标注 |
 | BK-037 | P2 | 规范违背 | 全库 40+ 文件 docstring | 系统性版本标注漂移：大量模块自称"v2.1 规格 §x"，交付文档为 v2.3.1，"规格"出处不可追溯、无法回查 | 文档C（注释可追溯） | 全库替换为"文档B §x"可回查引用 |
 | BK-038 | P2 | 规范违背 | requirements.txt:1 vs runtime/py310 | 根 requirements 标注 Python 3.12、文档B §9.2.1 亦写 Python 3.12；出货 runtime 为 Python 3.10.11 embed | 文档B §9.2.1 | 统一：升级 runtime 至 3.12 或文档改 3.10 |
-| BK-039 | P2 | 规范违背 | backend/tests/（仅 1 个单测文件） | 测试覆盖严重不足：仅知识管线 8 个用例有自动化单测；文档定义的大量 TC-U/TC-S/TC-I 用例无对应自动化；tests/ 下两个脚本为手动集成测试 | 文档A/E 测试矩阵 | 按文档测试矩阵补 pytest 用例（至少 TC-S 安全组与调度组） |
+| BK-039 | P2 | 规范违背 | tests/unit/（仅 1 个单测文件） | 测试覆盖严重不足：仅知识管线 8 个用例有自动化单测；文档定义的大量 TC-U/TC-S/TC-I 用例无对应自动化；tests/ 下两个脚本为手动集成测试 | 文档A/E 测试矩阵 | 按文档测试矩阵补 pytest 用例（至少 TC-S 安全组与调度组） |
 | BK-040 | P2 | 规范违背 | api/hardware.py:71-170；startup_check.py:133-250；engines/gpu_backend.py:130-160；engines/vram_manager.py:56-211 等 80+ 处 | 大量 `except Exception: pass` 静默吞异常（部分无日志无注释），违反文档C 错误处理铁律；另有 ~30 处带注释的刻意降级（可接受） | 文档C 错误处理 | 静默处统一补 `log.debug`；无法避免处注明降级理由 |
 | BK-041 | P1 | 虚假实现 | api/system.py:126-149 | /system/project/export 仅写 3 字段 JSON 占位文件冒充 .omnispace 归档，不含任何项目数据 | 文档B §4.7 项目导出 | 实现真实归档（项目+分镜+资产引用打包 zip），或端点下架 |
 | BK-042 | P1 | 虚假实现 | api/system.py:152-173 | /system/project/import 不恢复任何数据；解析失败也返回 `imported: true` 成功 | 文档B §4.7 | 实现真实恢复流程；失败必须返回错误码 |
 | BK-043 | P1 | 虚假实现 | api/hardware.py:95-145 | 硬件画像/遥测采集失败时返回 "Mock CPU/8核16线程" 等模拟数据，**响应中无 degraded 标记**，前端无法区分真实与模拟 | 文档B §4.6 硬件 API（真实性要求） | 模拟回退必须带 `degraded: true` 字段 |
 | BK-044 | P2 | 虚假实现 | api/models.py:481 | /models/{id}/verify 在无本地文件时返回"确定性模拟指纹"冒充 SHA256 校验结果 | 文档B §5.4 SHA256 校验 | 无文件应返回 30001/校验跳过，不得伪造指纹 |
 | BK-045 | P2 | 虚假实现 | api/manga.py:103-104,1093-1112 | /manga/voices/preview 返回空 WAV 头占位音频（docstring 已注明"模拟"，诚实但功能为空） | 文档B §4.4 试听 | 接入 voice_engine 真实合成；响应带 degraded 标记 |
-| BK-046 | P1 | 死代码 | tools/init_db.py:5,19-30 | 引用已删除的 `backend.core.db`（v1.0 模块，backend/core 不存在），工具直接无法运行；docstring 仍宣传"SQLCipher 全库加密"（与现行明文 SQLite 矛盾）；CORE_TABLES 为 v1.0 表清单 | —（v1.0 残留） | 重写为现行 13 表 + knowledge_meta/kg_*/behavior_logs 等自建表校验，或删除 |
-| BK-047 | P1 | 死代码 | tools/diagnostics.py:5,23 | 引用不存在的 `backend.routers.system`（现行为 backend.api.system，且无 build_diagnostics），工具无法运行 | —（v1.0 残留） | 改接 startup_check 或删除 |
+| BK-046 | P1 | 死代码 | tools/init_db.py:5,19-30 | 引用已删除的 `backend.core.db`（v1.0 模块，src/core 不存在），工具直接无法运行；docstring 仍宣传"SQLCipher 全库加密"（与现行明文 SQLite 矛盾）；CORE_TABLES 为 v1.0 表清单 | —（v1.0 残留） | 重写为现行 13 表 + knowledge_meta/kg_*/behavior_logs 等自建表校验，或删除 |
+| BK-047 | P1 | 死代码 | tools/diagnostics.py:5,23 | 引用不存在的 `backend.routers.system`（现行为 src.api.system，且无 build_diagnostics），工具无法运行 | —（v1.0 残留） | 改接 startup_check 或删除 |
 | BK-048 | P1 | 死代码 | tools/benchmark.py:5,19 | 引用不存在的 `backend.core.gpu_manager`，工具无法运行 | —（v1.0 残留） | 改接 engines/scheduler monitor 或删除 |
-| BK-049 | P2 | 死代码 | launcher/launcher.py:237-244 | blake3 完整性校验清单指向不存在文件：backend/core/security.py、frontend/src/app.jsx、frontend/src/api.js（前端为 TS）——校验恒报 missing，完整性功能实效 | — | 更新为现行关键文件清单（backend/main.py、frontend/dist/index.html 等） |
+| BK-049 | P2 | 死代码 | launcher/launcher.py:237-244 | blake3 完整性校验清单指向不存在文件：src/core/security.py、frontend/src/app.jsx、frontend/src/api.js（前端为 TS）——校验恒报 missing，完整性功能实效 | — | 更新为现行关键文件清单（src/main.py、frontend/dist/index.html 等） |
 | BK-050 | P2 | 死代码 | api/dialog.py:52-53 及 20+ 引用点 | _mock_sessions/_mock_messages 内存存储与 SQLite 双写双读，数据源二义（同一会话可能一半在 DB 一半在内存） | — | 收敛单一数据源：DB 优先，内存仅在 DB 不可用时整体接管 |
-| BK-051 | P2 | 死代码 | backend/requirements.txt:5 | sqlalchemy==2.0.36 声明但全库零 import（仅 logger.py 降噪字符串提及） | — | 删除依赖或迁移 ORM（随 BK-021 裁决） |
+| BK-051 | P2 | 死代码 | src/requirements.txt:5 | sqlalchemy==2.0.36 声明但全库零 import（仅 logger.py 降噪字符串提及） | — | 删除依赖或迁移 ORM（随 BK-021 裁决） |
 | BK-052 | P2 | 死代码 | middleware/error_handler.py:33-40 | legacy 错误码 10001/10002/10003/99999 保留；99999 不在文档任何码段 | 文档B §9.1.2 | 前端确认无引用后删除 |
 | BK-053 | P1 | 文档矛盾 | middleware/error_handler.py:1-3 | docstring 声称"文档 §9.1 统一响应格式 {code, message, data}"——**文档B §9.1.1 原文为 {success,data,error,meta}，该引用系伪造文档依据**（零信任原则下最恶劣的一类问题：注释为错误实现背书） | 文档B §9.1.1 | 修正 docstring；随 BK-001 裁决统一 |
 | BK-054 | P2 | 文档矛盾 | services/behavior_service.py:40；lora_training_service.py:6 | 文档自身冲突：文档B §4.3"行为数据<50 条不触发微调" vs §3.3/TASK-035"≥100 条才允许训练"；代码取 100 | 文档B §4.3 vs §3.3 | 文档B 内部裁决统一阈值 |

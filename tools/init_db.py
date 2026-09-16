@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 数据库初始化/检查工具（CLI）
-- 初始化 SQLite 并校验核心业务表（backend/data/database.py _SCHEMA）
+- 初始化 SQLite 并校验核心业务表（src/data/database.py _SCHEMA）
 - 诚实标注：明文 SQLite，未启用 SQLCipher 全库加密；仅本地 127.0.0.1 运行
   （规格 §14 约束1/2；审计 BK-046 由 v1.0 残留重写为现行表清单）
 用法:
@@ -15,10 +15,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend import config  # noqa: E402
-from backend.data.database import get_db  # noqa: E402
+from src import config  # noqa: E402
+from src.data.database import get_db  # noqa: E402
 
-# 现行核心业务表（对齐 backend/data/database.py _SCHEMA；
+# 现行核心业务表（对齐 src/data/database.py _SCHEMA；
 # knowledge_meta/kg_*/behavior_logs/learning_* 等为各服务按需自建表，
 # 不属于核心 schema 校验范围）
 CORE_TABLES = [

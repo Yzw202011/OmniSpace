@@ -70,7 +70,7 @@ def main() -> int:
     if "--staged" in sys.argv:
         files = staged_py_files()
         if not files:
-            print("[mypy-gate] [4/4] 暂存区无 backend/launcher 的 .py，跳过")
+            print("[mypy-gate] [4/4] 暂存区无 src/launcher 的 .py，跳过")
             return 0
         print(f"[mypy-gate] [4/4] mypy 增量类型检查（{len(files)} 个暂存文件，基线冻结只增不减）...")
     else:

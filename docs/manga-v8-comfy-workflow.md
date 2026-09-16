@@ -30,7 +30,7 @@
 
 ## 双向集成测试记录（2026-08-29）
 
-1. **项目前端 → ComfyUI**：后端以 `runtime/py310/python.exe -m backend.main`
+1. **项目前端 → ComfyUI**：后端以 `runtime/py310/python.exe -m src.main`
    启动（5800，约 5s 就绪；直接 `python main.py` 会 relative import 报错）。引擎层
    实测：`h3_available()=True`、`comfy_paint_available()=True`、
    `H3Engine.is_alive()=True`（后端探活并**复用运行中的 8189 外部实例**）；

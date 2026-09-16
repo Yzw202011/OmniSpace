@@ -28,8 +28,8 @@
 | F-02 | 学习触发器框架：定时/空闲>5min/项目驱动/对话缺口（§1.3.5） | 🟨 | learning_scheduler.py L103-271 触发器注册（R2-B02：TRIGGER_IDLE/TRIGGER_SCHEDULED/TRIGGER_DIALOG_GAP 默认回调）+ L474-503 调度 tick 周期评估接线 | 2026-08-29 校准上调（原 ❌ 为 08-28 前口径）；触发器→学习会话全链路 E2E 验收待补 |
 | F-03 | LoRA 自动微调：数据≥100条/到频自动触发 | 🟨 | learning_scheduler.py L784-873 `_maybe_auto_finetune`（R2-B03）：周期判定+知识点阈值（config finetune_min_knowledge）+GPU 空闲（功能锁+显存双查）+防重入+§4.3 质量下降暂停 | 2026-08-29 校准上调；自动触发→训练→挂载 E2E 验收待补 |
 | F-04 | 知识 LoRA 接入推理（训练成果被对话加载） | 🟨 | backends/transformers_backend.py L187-233 `_attach_knowledge_lora`（R2-B04）：peft.PeftModel 挂载 current 版本+基座匹配校验+异常诚实回退基座；dialog_engine.refresh_knowledge_lora L1004 支持热刷新 | 2026-08-29 校准上调；真实 LoRA 产物端到端生成验收待补 |
-| F-05 | 学习进度 WebSocket 推送 /learn/session/progress | ✅ | backend/api/learning.py WS 端点（2026-08-28 装饰器扫描命中；已收录 api-endpoints.md WebSocket 4 清单） | 2026-08-28 校准上调 |
-| F-06 | 分镜四端点：list / reorder / ai-describe / preview | ✅ | backend/api/manga/storyboard.py（TASK-P2-01 拆包后路径）；reorder 真实持久化 sort_index（DB update per row） | 2026-08-20 核验上调：四端点齐备且 reorder 落库，前端 reorderRows 有测试守护 |
+| F-05 | 学习进度 WebSocket 推送 /learn/session/progress | ✅ | src/api/learning.py WS 端点（2026-08-28 装饰器扫描命中；已收录 api-endpoints.md WebSocket 4 清单） | 2026-08-28 校准上调 |
+| F-06 | 分镜四端点：list / reorder / ai-describe / preview | ✅ | src/api/manga/storyboard.py（TASK-P2-01 拆包后路径）；reorder 真实持久化 sort_index（DB update per row） | 2026-08-20 核验上调：四端点齐备且 reorder 落库，前端 reorderRows 有测试守护 |
 | F-07 | 导演台 /export 导出端点 | ❌ | 仅 panorama / screenshot-4in1 | |
 | F-08 | G1 解说漫剧（work_mode=narrative） | ✅ | projects.work_mode v2 迁移（2026-08-14 修复事故后验证通过） | 本表首个由测试守护的需求 |
 
@@ -86,7 +86,7 @@
 |----|------|------|------|
 | E-01 | 版本控制 | ✅ | git 仓库建立（960fbc2 起三提交；models/pydeps/runtime/keys 已排除） |
 | E-02 | 依赖锁定 | ✅ | requirements-lock.txt（154 包；记录 pydeps 空壳包与双 torch 元数据隐患） |
-| E-03 | 测试基线 | ✅ | pytest.ini + backend/tests（**2026-08-29 实测 156 passed / 5 skipped，28.31s**；skip 均为需 OMNISPACE_VLLM_STRESS/E2E 显式开启的 GPU 集成测试）+ 前端 vitest + 活后端 E2E（tools/run_tests.py 唯一入口） | 早期口径"16 用例"已大幅增长 |
+| E-03 | 测试基线 | ✅ | pytest.ini + tests/unit（**2026-08-29 实测 156 passed / 5 skipped，28.31s**；skip 均为需 OMNISPACE_VLLM_STRESS/E2E 显式开启的 GPU 集成测试）+ 前端 vitest + 活后端 E2E（tools/run_tests.py 唯一入口） | 早期口径"16 用例"已大幅增长 |
 | E-04 | schema 版本化迁移 | ✅ | PRAGMA user_version + _MIGRATION_GROUPS + 降级守护（**2026-08-28 实测 user_version=7**；本行旧口径 SCHEMA_VERSION=2 已过时，明细见 docs/design/database-er.md §6） |
 | E-05 | Lint 配置 | ✅ | ruff.toml + frontend/eslint.config.js 落地；**2026-08-29 实测 tools/ruff/ruff.exe 存在、node v24.19.0 / pnpm 11.22.0 在位**（原"二进制未安装"为 08-20 前口径） | 提交前三步门可实际执行 |
 | E-06 | CI 流水线 | ❌ | 仍无（无远端仓库；建议先建本地 pre-commit 钩子跑 pytest -m smoke） |

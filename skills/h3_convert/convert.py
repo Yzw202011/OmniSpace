@@ -47,7 +47,7 @@ _KIND_ZH = {"character": "角色", "scene": "场景", "prop": "道具"}
 
 
 # ────────────────────────── A/B/C 解析 ──────────────────────────
-# 口径对齐 backend/api/manga/common.py（_normalize_shot_line /
+# 口径对齐 src/api/manga/common.py（_normalize_shot_line /
 # _parse_abc_shots），超集：补台词提取（<d> 标签需要）。
 _TC = r"[\[【]?\s*(\d[\d.]*)s?\s*[-–~—]\s*(\d[\d.]*)s?\s*[\]】]?"
 

@@ -5,7 +5,7 @@ OmniSpace AI Launcher 守护进程
 - 端口冲突三级递进处理
 - 模型完整性校验 + 断点续传下载
 - 启动/监控后端主进程 + 心跳检测 + 崩溃自动重启
-- 就绪后打开系统浏览器访问后端同源前端（backend.main 静态托管 frontend/dist，
+- 就绪后打开系统浏览器访问后端同源前端（src.main 静态托管 frontend/dist，
   无独立前端端口；实际端口经 --port 传入 uvicorn，默认 8765）
 - 系统托盘图标 + 气泡通知
 - 首次安装引导（动画/轮播/偏好问卷）
@@ -49,7 +49,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 def _load_disk_start_min_gb(default: float = 20.0) -> float:
     """从 config.yaml `disk.start_min_gb` 读取启动磁盘门槛（P2 统一口径）。
 
-    Launcher 是独立启动进程，不 import backend.config（避免其目录创建 /
+    Launcher 是独立启动进程，不 import src.config（避免其目录创建 /
     回环校验副作用），直接轻量读取同一份 config.yaml；解析失败回退默认值。
     """
     try:
@@ -122,7 +122,7 @@ class PortManager:
             # 不含 python 字样，2026-09-02 品牌化后必须显式认领）
             is_python = (('python' in name) or ('omnispace' in name)
                          or ('uvicorn' in cmdline) or ('celery' in cmdline))
-            is_omnispace = ('omnispace' in name) or ('omnispace' in cmdline) or (project_marker in cwd and 'backend.main' in cmdline)
+            is_omnispace = ('omnispace' in name) or ('omnispace' in cmdline) or (project_marker in cwd and 'src.main' in cmdline)
             return is_python and is_omnispace
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
@@ -508,7 +508,7 @@ class BackendProcess:
             use_pipe_stderr = (not sys.stderr) or self.on_output is not None
 
             self.process = subprocess.Popen(
-                [self._backend_exe(), '-m', 'uvicorn', 'backend.main:app',
+                [self._backend_exe(), '-m', 'uvicorn', 'src.main:app',
                  '--host', self.config.backend_host, '--port', str(port),
                  '--log-level', 'info'],
                 cwd=str(PROJECT_ROOT),
@@ -747,7 +747,7 @@ class Launcher:
         print('OmniSpace AI Launcher')
         print('=' * 60)
 
-        # TASK-P0-05：非回环绑定硬拒绝（规格 §14 约束2，与 backend/config.py
+        # TASK-P0-05：非回环绑定硬拒绝（规格 §14 约束2，与 src/config.py
         # 导入期闸门构成双层防线；此处拦截避免拉起注定被拒的后端进程）
         import os
         if (self.config.backend_host not in ('127.0.0.1', 'localhost', '::1')
@@ -841,12 +841,12 @@ class Launcher:
     def _kill_comfyui_leftover(self) -> None:
         """清理 ComfyUI 子进程残留（2026-08-31 治理，第三道防线）。
 
-        后端侧已有 Job Object 共生死 + atexit 双保险（backend/
+        后端侧已有 Job Object 共生死 + atexit 双保险（src/
         services/inference/comfy_proc.py）；此处兜住外部手动实例或
         极端场景（job 绑定失败）。按 ComfyUI 端口查杀，严格校验
         cmdline 含 ComfyUI/main.py 且工作目录在本项目内——现有
         is_omnispace_process 匹配不到 ComfyUI（无 omnispace/
-        backend.main 关键字），且后端被强杀时 atexit 不执行。
+        src.main 关键字），且后端被强杀时 atexit 不执行。
         """
         port = int(os.environ.get('OMNISPACE_COMFYUI_PORT', '8189'))
         try:

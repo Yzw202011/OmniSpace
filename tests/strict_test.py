@@ -413,7 +413,7 @@ def x10_encoder() -> None:
     probe = subprocess.run(
         [py, "-c",
          f"import sys; sys.path.insert(0, {str(root)!r});"
-         "from backend.services.encoder_service import get_encoder_service as g;"
+         "from src.services.encoder_service import get_encoder_service as g;"
          "e = g(); print(int(e.available)); print(int(e.has_encoder('h264_nvenc')))"],
         capture_output=True, text=True, timeout=60, cwd=str(root))
     lines = (probe.stdout or "").strip().splitlines()
@@ -424,7 +424,7 @@ def x10_encoder() -> None:
     probe2 = subprocess.run(
         [py, "-c",
          f"import sys; sys.path.insert(0, {str(root)!r});"
-         "from backend.services.encoder_service import get_encoder_service as g, EncodeError;"
+         "from src.services.encoder_service import get_encoder_service as g, EncodeError;"
          "e = g();"
          "out = None;"
          "exec(\"try:\\n e.encode_frames_to_video('e:/nonexistent_dir_xyz', 'e:/tmp_x.mp4', timeout_s=30)\\n print('NO_RAISE')\\nexcept EncodeError:\\n print('ENCODE_ERR')\\nexcept Exception as ex:\\n print('OTHER', type(ex).__name__)\")"],

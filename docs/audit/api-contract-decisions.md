@@ -8,7 +8,7 @@
 
 文档B §7.1.4「系统设置 /info, /hardware, /update」中的 **/system/update**：
 RC 为免安装整体替换形态，在线更新端点**有意省略**；为消除契约 404 歧义，
-本次在 `backend/api/system.py` 新增 `GET /system/update`，如实返回
+本次在 `src/api/system.py` 新增 `GET /system/update`，如实返回
 `{"supported": false, "channel": "manual-replace"}`——端点存在、语义诚实，
 前端据此隐藏更新入口。裁定：**已实现（本次，语义化省略）**。
 
@@ -25,10 +25,10 @@ RC 为免安装整体替换形态，在线更新端点**有意省略**；为消�
 | art /styles | 保留缺口 | 前端无消费方，待需求驱动 |
 | art 任务取消 DELETE | 保留缺口 | 前端无消费方，待需求驱动 |
 | art 历史删除 DELETE | 保留缺口 | 前端无消费方，待需求驱动 |
-| art /segment | **已实现（本次）** | `backend/api/vision_tools.py` POST /art/segment（F-02 SAM 接线） |
-| art /depth | **已实现（本次）** | `backend/api/vision_tools.py` POST /art/depth（F-03 MiDaS 接线） |
-| art /detect | **已实现（本次）** | `backend/api/vision_tools.py` POST /art/detect（F-04 YOLOv8 接线） |
-| art /image-to-3d | **已实现（本次）** | `backend/api/vision_tools.py` POST /art/image-to-3d（F-01 TripoSR 接线） |
+| art /segment | **已实现（本次）** | `src/api/vision_tools.py` POST /art/segment（F-02 SAM 接线） |
+| art /depth | **已实现（本次）** | `src/api/vision_tools.py` POST /art/depth（F-03 MiDaS 接线） |
+| art /detect | **已实现（本次）** | `src/api/vision_tools.py` POST /art/detect（F-04 YOLOv8 接线） |
+| art /image-to-3d | **已实现（本次）** | `src/api/vision_tools.py` POST /art/image-to-3d（F-01 TripoSR 接线） |
 | model /download、/download/{task_id} | 文档废弃 | **离线 RC 有意省略**：交付形态为模型随包/离线导入，在线下载与定位冲突（R2-B11 已认定合理） |
 | model /config PUT | 保留缺口 | 前端无消费方，待需求驱动 |
 | style /{id} DELETE | 保留缺口 | 前端无消费方，待需求驱动 |

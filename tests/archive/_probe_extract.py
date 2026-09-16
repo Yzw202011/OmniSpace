@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, r"e:\OmniSpace")
 
-from backend.services.knowledge_service import get_knowledge_service
+from src.services.knowledge_service import get_knowledge_service
 
 svc = get_knowledge_service()
 _TOPIC = "短剧编剧技巧"

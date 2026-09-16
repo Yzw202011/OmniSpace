@@ -9,7 +9,7 @@
  *   - 技术日志：原始日志尾部（backend.log / error.log / vllm-server.log），
  *     供开发者诊断
  * 保留策略：所有日志仅保存 30 天，超期自动清除（也可手动触发清理）。
- * 数据源：GET /logs/*（backend/api/logs.py → services/event_log.py）。
+ * 数据源：GET /logs/*（src/api/logs.py → services/event_log.py）。
  * ========================================================================== */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';

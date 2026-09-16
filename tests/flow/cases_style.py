@@ -1,6 +1,6 @@
 """第八部分：视频风格模块 (VideoStyle) 操作流程测试（TC-FLOW-STYLE-001~032）。
 
-核心事实（诚实标注，与 backend/api/style.py 头注一致）：
+核心事实（诚实标注，与 src/api/style.py 头注一致）：
 LTX-2 风格训练基座未随包分发（models/ltx-2 不存在），因此：
 - POST /style/train 诚实门控返回 STYLE_BASE_NOT_READY(80010)，不伪造训练进度；
 - POST /style/preview 无版本时返回 STYLE_VERSION_NOT_FOUND(80012)，

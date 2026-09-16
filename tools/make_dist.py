@@ -8,8 +8,8 @@ r"""OmniSpace 发行打包器（P1）：白名单出包 + 哈希清单 + 包内�
   runtime/py310/python.exe tools/make_dist.py                 # 出包到 D:\ccd/
   runtime/py310/python.exe tools/make_dist.py --check-only <包目录>
                                                               # 只跑包内自检
-版本单一真源：backend/config.yaml 的 app.version；构建号 = 版本+git短哈希+日期，
-写入包内 backend/build_info.py（开发环境 config.BUILD_ID 回退 "+dev"）。
+版本单一真源：src/config.yaml 的 app.version；构建号 = 版本+git短哈希+日期，
+写入包内 src/build_info.py（开发环境 config.BUILD_ID 回退 "+dev"）。
 
 09-02 规则：发行产物不进开发目录——默认输出 D:\ccd（开发目录出 dist_out
 会被 scripts/dir_audit.py 审计报红；用户本机以 --out 覆盖不受限）。
@@ -153,8 +153,8 @@ BLACKLIST_RES = [
 ESSENTIALS = [
     "启动OmniSpace.exe", "启动OmniSpace.bat", "launcher/boot.py", "launcher/splash.html",
     "updater/updater.py",
-    "launcher/omnispace.ico", "backend/main.py", "backend/config.yaml",
-    "backend/build_info.py", "frontend/dist/index.html",
+    "launcher/omnispace.ico", "src/main.py", "src/config.yaml",
+    "src/build_info.py", "frontend/dist/index.html",
     "pydeps/fastapi/__init__.py", "pydeps/uvicorn/__init__.py",
     "runtime/py310/python.exe", "runtime/py310/python310._pth",
     # 进程品牌化副本（2026-09-02，tools/brand_exe.py 生成；boot 拉起链
@@ -368,7 +368,7 @@ def main() -> int:
         gate.write_text(patched, encoding="utf-8")
         print(f"已注入发行公钥（激活门禁生效）：{args.pubkey[:16]}…")
         # 资产加密（P6 锁4）：工作流明文出包即灭；风格种子入金库
-        from backend.asset_vault import encrypt_bytes
+        from src.asset_vault import encrypt_bytes
         enc_dir = dest / "backend" / "assets_enc"
         enc_dir.mkdir(parents=True, exist_ok=True)
         wf = dest / "backend" / "services" / "inference" / "h3_chain_workflow_api.json"

@@ -39,7 +39,7 @@ EVAL_SET: list[tuple[str, str | None]] = [
 
 
 def main() -> int:
-    from backend.services.injection_service import get_injection_service
+    from src.services.injection_service import get_injection_service
 
     svc = get_injection_service()
     passed = failed = 0

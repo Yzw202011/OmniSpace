@@ -5,8 +5,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, r"e:\OmniSpace")
-from backend.services.encoder_service import get_encoder_service
-from backend.services.inference.video_engine import render_kenburns_frames
+from src.services.encoder_service import get_encoder_service
+from src.services.inference.video_engine import render_kenburns_frames
 from tests.flow.harness import tiny_png_b64
 
 out = Path(tempfile.mkdtemp(prefix="enc_probe2_"))

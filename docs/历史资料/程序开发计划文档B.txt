@@ -574,7 +574,7 @@ omnispace-ai/
  │    │    ├── services/    # API封装
  │    │    └── stores/      # Zustand 5状态
  │    └── package.json
- ├── backend/              # FastAPI
+ ├── src/              # FastAPI
  │    ├── app/
  │    │    ├── api/         # 路由
  │    │    ├── core/        # 配置/安全

@@ -1,6 +1,6 @@
 // 本项目仅供学习使用，商业授权请+Q 3559331368
 /* ==========================================================================
- * OmniSpace AI v2.1 —— 绘画 API（后端真实端点契约，backend/api/draw.py）
+ * OmniSpace AI v2.1 —— 绘画 API（后端真实端点契约，src/api/draw.py）
  * --------------------------------------------------------------------------
  * - POST   /draw/generate           文生图：{"task_id"}，进度走 WS/轮询
  * - POST   /draw/img2img            图生图（init_image base64 + strength）

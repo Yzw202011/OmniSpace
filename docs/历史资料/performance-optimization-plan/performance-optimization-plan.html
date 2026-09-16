@@ -187,7 +187,7 @@ sup a:hover{text-decoration:underline}
 <!-- ============ 2 ============ -->
 <section id="s2">
   <h2>2 · 现状基线诊断</h2>
-  <p>以下诊断基于对 <code>backend/engines</code>、<code>backend/services</code>、<code>backend/data</code>、<code>frontend/src</code>、<code>launcher</code> 及 <code>docs/</code> 的只读盘点。每项给出结论与依据，并按对用户体验的影响排序。</p>
+  <p>以下诊断基于对 <code>src/engines</code>、<code>src/services</code>、<code>src/data</code>、<code>frontend/src</code>、<code>launcher</code> 及 <code>docs/</code> 的只读盘点。每项给出结论与依据，并按对用户体验的影响排序。</p>
 
   <h3>2.1 总体瓶颈分布</h3>
   <p>按影响面划分，后端最大的损耗集中在 <mark class="key">同步阻塞调用</mark>（vLLM 流式读取、图片 base64 编码、模型加载）与 <mark class="key">存储写串行化</mark>；前端最大的损耗集中在 <mark class="key">高频轮询叠加</mark>与 <mark class="key">主线程 3D 渲染</mark>；软硬件层则存在 <mark class="key">磁盘阈值口径不一致</mark>与 <mark class="key">进程生命周期内资源回收粒度偏粗</mark>。下图按“影响 × 修复成本”给出优先级分布。</p>
@@ -521,20 +521,20 @@ flowchart TD
         <a class="src-url" href="e:\OmniSpace\README.md" target="_blank" rel="noopener">e:\OmniSpace\README.md</a>
       </li>
       <li id="cite-2">
-        <span class="src-title">backend/engines · gpu_backend / vram_manager / memory_manager / vllm_service（引擎与资源层现状）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\engines" target="_blank" rel="noopener">e:\OmniSpace\backend\engines</a>
+        <span class="src-title">src/engines · gpu_backend / vram_manager / memory_manager / vllm_service（引擎与资源层现状）</span>
+        <a class="src-url" href="e:\OmniSpace\src\engines" target="_blank" rel="noopener">e:\OmniSpace\src\engines</a>
       </li>
       <li id="cite-3">
-        <span class="src-title">backend/services · resource_guard / thermal_guard / model_manager / scheduler（资源护栏、显存协调、调度现状）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\services" target="_blank" rel="noopener">e:\OmniSpace\backend\services</a>
+        <span class="src-title">src/services · resource_guard / thermal_guard / model_manager / scheduler（资源护栏、显存协调、调度现状）</span>
+        <a class="src-url" href="e:\OmniSpace\src\services" target="_blank" rel="noopener">e:\OmniSpace\src\services</a>
       </li>
       <li id="cite-4">
-        <span class="src-title">backend/services/inference · accelerator 与各 backends（推理加速与精度/量化现状）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\services\inference" target="_blank" rel="noopener">e:\OmniSpace\backend\services\inference</a>
+        <span class="src-title">src/services/inference · accelerator 与各 backends（推理加速与精度/量化现状）</span>
+        <a class="src-url" href="e:\OmniSpace\src\services\inference" target="_blank" rel="noopener">e:\OmniSpace\src\services\inference</a>
       </li>
       <li id="cite-5">
-        <span class="src-title">backend/data · database / vector_db / fts_store / crypto（SQLite WAL、ChromaDB、FTS5、加密现状）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\data" target="_blank" rel="noopener">e:\OmniSpace\backend\data</a>
+        <span class="src-title">src/data · database / vector_db / fts_store / crypto（SQLite WAL、ChromaDB、FTS5、加密现状）</span>
+        <a class="src-url" href="e:\OmniSpace\src\data" target="_blank" rel="noopener">e:\OmniSpace\src\data</a>
       </li>
       <li id="cite-6">
         <span class="src-title">frontend · package.json / vite.config.ts / src/three / stores（前端轮询、3D 渲染、构建体积现状）</span>
@@ -549,8 +549,8 @@ flowchart TD
         <a class="src-url" href="e:\OmniSpace\docs\design\architecture-overview.md" target="_blank" rel="noopener">e:\OmniSpace\docs\design\architecture-overview.md</a>
       </li>
       <li id="cite-9">
-        <span class="src-title">backend/config.yaml / config.py / main.py 与 backend/startup_check.py（配置项、uvicorn 参数、26 项启动自检）</span>
-        <a class="src-url" href="e:\OmniSpace\backend\config.yaml" target="_blank" rel="noopener">e:\OmniSpace\backend\config.yaml</a>
+        <span class="src-title">src/config.yaml / config.py / main.py 与 src/startup_check.py（配置项、uvicorn 参数、26 项启动自检）</span>
+        <a class="src-url" href="e:\OmniSpace\src\config.yaml" target="_blank" rel="noopener">e:\OmniSpace\src\config.yaml</a>
       </li>
     </ol>
   </div>

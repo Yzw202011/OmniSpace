@@ -21,7 +21,7 @@ R3F/drei/dnd-kit/Vercel AI SDK/shadcn-ui/ECharts/react-virtual/react-i18next/Rea
 Compiler（均未使用）；§8.5 指标"当前值"（TTFT 240ms/启动 4.2s 等）无实测来源（实测
 TTFT 461ms/冷启动 T+10s）；附录C 数据库 schema（users/assets/knowledge_entries 等表
 不存在，真实 31 张用户表见 docs/design/database-er.md）；附录B 端点清单大量不符
-（/model 单数、/comic/* 等）；474 条测试（实测 backend/tests 115 passed / 5 skipped）；
+（/model 单数、/comic/* 等）；474 条测试（实测 tests/unit 115 passed / 5 skipped）；
 AMD ROCm/纯 CPU 档（代码 CUDA-only）；mypy --strict（未安装）。
 
 结论：本文件的【仍有效需求】已抽取至 docs/requirements-baseline.md（RTM 附录 A）；
@@ -2057,7 +2057,7 @@ OmniSpace AI v2.3.1 采用分层架构：
    |    |    +-- services/    # API封装
    |    |    +-- stores/      # Zustand 5状态
    |    +-- package.json
-   +-- backend/              # FastAPI
+   +-- src/              # FastAPI
    |    +-- app/
    |    |    +-- api/         # 路由
    |    |    +-- core/        # 配置/安全
@@ -2795,7 +2795,7 @@ make dev
 OmniSpace_AI_v2.3.1_Full/
 ├── app/                # 应用程序 (~5GB)
 │   ├── frontend/       # 前端构建产物
-│   ├── backend/        # Python后端服务
+│   ├── src/        # Python后端服务
 │   └── config/         # 默认配置文件
 ├── cef/                # Chromium嵌入式框架 (~200MB)
 │   ├── libcef.dll      # CEF核心库

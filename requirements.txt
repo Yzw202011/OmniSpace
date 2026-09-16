@@ -4,7 +4,7 @@
 #   - requirements-lock.txt = 唯一权威：154 包精确钉版，实际运行环境导出
 #   - 本文件 = 开发意图参考：宽松下限约束，不保证与实际环境一致
 #   - 重建环境：pip install -r requirements-lock.txt（勿用本文件）
-#   - backend/requirements.txt 已删除（v2.1 陈旧版，声明了未使用的 sqlalchemy）
+#   - src/requirements.txt 已删除（v2.1 陈旧版，声明了未使用的 sqlalchemy）
 # --- Web 框架 ---
 fastapi>=0.115
 uvicorn[standard]>=0.32

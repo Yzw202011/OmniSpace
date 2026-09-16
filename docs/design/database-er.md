@@ -1,6 +1,6 @@
 # OmniSpace AI 数据库 ER 说明
 
-> 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：backend/data/database.py 及各服务层自建表 DDL 全量提取
+> 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：src/data/database.py 及各服务层自建表 DDL 全量提取
 > **2026-08-28 校准**：实测 `data/omnispace.db` 共 **31 张用户表**（37 个对象含 FTS5 影子表与 sqlite_sequence），本文档成文时为 30 张、漏记 `art_styles`（database.py `_SCHEMA` 建表，供漫剧漫画风格包使用）；`PRAGMA user_version` 实测为 **7**（原文 3），迁移组 4~7 详见 `database.py` `_MIGRATION_GROUPS`。
 > **2026-09-01 校准（只读实测）**：主库实测 **30 张用户表**（36 对象 = 30 用户表 + 6 张 knowledge_fts\* 影子表；加上 sqlite_sequence 为 37）。两处口径修正：① `flow_executions / flow_nodes` 实际建在**独立库 `logs/flow_trace.db`**（此前按主库口径计数系误差），两库合计 **32 张用户表**；② `paint_history` 一直在主库但历史计数从未包含。列级漂移已同步：art_styles 6 列（+pack/pack_def）、keyframes（+shot_seeds/consistency）、dialog_messages（+reasoning）、projects（+art_style）。全字段清单见 `docs/全量技术文档-2026-09-01.md` 附录 B。
 >
@@ -271,7 +271,7 @@ task_id PK / prompt / negative / params_json / file_path / seed（-1 表密码�
 
 ## 6. 迁移与加密机制
 
-**迁移**（P0-03 版本化机制）：`PRAGMA user_version` 携带版本号，当前 **SCHEMA_VERSION=7**（backend/data/database.py `SCHEMA_VERSION = 7`，2026-08-28 实测；本文档成文时为 3，组 4~7 为后续追加迁移，明细以 `_MIGRATION_GROUPS` 为准）。`_MIGRATION_GROUPS` 按版本分组声明增量列（组1：17 列，含 pinned/rating/favorite/sort_index/priority 等；组2：projects.work_mode——2026-08-14 事故后纳入；组3：无新增列，纯数据迁移）。`_migrate_columns()` 用 `PRAGMA table_info` 判存后 `ALTER TABLE ADD COLUMN`；`_DATA_MIGRATIONS` 声明版本→数据迁移函数映射（v3：`_migrate_encrypt_legacy_fields` 存量明文加密，迁移后 VACUUM 重建库文件清空闲页明文残留）。两条铁律：库版本高于代码版本直接 RuntimeError 拒绝启动（防旧程序写坏新库）；历史组禁止修改，只许追加新组。
+**迁移**（P0-03 版本化机制）：`PRAGMA user_version` 携带版本号，当前 **SCHEMA_VERSION=7**（src/data/database.py `SCHEMA_VERSION = 7`，2026-08-28 实测；本文档成文时为 3，组 4~7 为后续追加迁移，明细以 `_MIGRATION_GROUPS` 为准）。`_MIGRATION_GROUPS` 按版本分组声明增量列（组1：17 列，含 pinned/rating/favorite/sort_index/priority 等；组2：projects.work_mode——2026-08-14 事故后纳入；组3：无新增列，纯数据迁移）。`_migrate_columns()` 用 `PRAGMA table_info` 判存后 `ALTER TABLE ADD COLUMN`；`_DATA_MIGRATIONS` 声明版本→数据迁移函数映射（v3：`_migrate_encrypt_legacy_fields` 存量明文加密，迁移后 VACUUM 重建库文件清空闲页明文残留）。两条铁律：库版本高于代码版本直接 RuntimeError 拒绝启动（防旧程序写坏新库）；历史组禁止修改，只许追加新组。
 
 **加密**（data/crypto.py，字段级）：AES-256-GCM，密钥 32 字节随机，经 Windows DPAPI（CurrentUser）保护存 `data/keys/dbkey.bin`，非 Windows/DPAPI 不可用回退机器指纹 HKDK。密文格式 `enc:v1:` + base64(nonce12‖ct‖tag16)，无前缀明文原样透传（兼容存量）。加密范围：dialog_messages.content 与 behavior_logs 的 content/context/before/after；知识库正文不加密（FTS5/向量检索依赖明文）。注意这是字段级加密——整库仍是普通 SQLite 文件（P2-05 覆盖范围即此口径）。
 

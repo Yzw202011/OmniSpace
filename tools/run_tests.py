@@ -1,7 +1,7 @@
 """全量测试统一入口（TASK-P2-09，审计 P24：双测试入口整合）。
 
 三层测试体系唯一命令：
-    L1  后端 pytest   backend/tests（离线可跑：smoke / schema / unit 标记）
+    L1  后端 pytest   tests/unit（离线可跑：smoke / schema / unit 标记）
     L2  前端 vitest   frontend/src/**/*.test.ts（store / Zod / 枚举一致性 / 错误策略扫描）
     L3  E2E 流程编排  tests/flow（需活后端 http://127.0.0.1:5800，真实推理级）
 
@@ -12,7 +12,7 @@
 
 退出码：任一层失败即 1（供 CI / 提交钩子判定）。
 定位说明见 tests/README.md（root tests/ 是流程编排脚本，不是 pytest 用例，
-pytest.ini testpaths=backend/tests 即为此收口）。
+pytest.ini testpaths=tests/unit 即为此收口）。
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def main() -> int:
 
     results: dict[str, bool] = {}
 
-    # L1 后端 pytest（--smoke 时仅冒烟标记；默认全量，testpaths=backend/tests）
+    # L1 后端 pytest（--smoke 时仅冒烟标记；默认全量，testpaths=tests/unit）
     pytest_cmd = [str(PY), "-m", "pytest"] + (["-m", "smoke"] if SMOKE_ONLY else [])
     results["L1 backend pytest" + (" (smoke)" if SMOKE_ONLY else "")] = _run_layer(
         "L1 后端 pytest", pytest_cmd, ROOT

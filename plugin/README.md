@@ -1,61 +1,52 @@
 # plugin/ — CuteMamen 插件包
 
-OmniSpace 插件系统（路线图「规划中」）的首批插件包。插件以 `.CuteMamen`
-自包含包交付（tar.gz：manifest.json + weights/ + memory/），内核侧零源码
-改动即可加载。
+OmniSpace 插件系统的插件包目录。插件以 `.CuteMamen` 自包含包交付
+（tar.gz：manifest.json + weights/ + memory/ 三级记忆），由
+`src/cutemamen/` 内核加载与路由，源码与插件系统规范都在
+`src/cutemamen/`（扁平化重构后不再在 plugin/ 重复存放源码副本）。
+
+| 插件包 | 能力 | 资源需求 |
+| ------ | ---- | -------- |
+| RustCoding.CuteMamen | Rust 编译错误分类（move/borrow/lifetime/type/ok），携带主模型迁移知识（502 段真实语料训练的线性读出层） | 纯 numpy，零 GPU |
+| VideoMaking.CuteMamen | 轻量视频生成内核：关键帧 + 镜头运动曲线 → 帧序列 + 转场 | 纯 numpy，零 GPU |
+
+## RustCoding.CuteMamen — 主模型 Rust 知识迁移
+
+「新阶段 · 分布式架构」：主模型（`src/core/distributedformer.py`
+冻结 CubeGPT 水库）的 Rust 开发知识经 `src/training/readout.py`
+线性读出层蒸馏进插件，宿主无需加载主模型即可推理：
+
+```python
+from src.cutemamen import load_pkg
+
+plugin, manifest = load_pkg("plugin/RustCoding.CuteMamen")
+result = plugin.on_think({"topic": "rust", "data": {"code": "fn f() { let s = String::from(\"x\"); let t = s; let u = s; }"}}, ctx)
+# → {"label": "move", "confidence": 0.97, "source": "main-model-readout", ...}
+```
 
 ## VideoMaking.CuteMamen — 轻量视频生成内核
 
-**定位**：漫剧视频生成的**轻量档位**，与现有主力链路互补：
+漫剧视频生成的**轻量档位**，与 MiniMax H3 / Wan2.2-ti2v-5b 主力链路
+（本地 ComfyUI，需大显存）互补：预览、粗剪、低配机器、快速迭代分镜。
 
-| 档位 | 引擎 | 资源需求 | 适用场景 |
-| ---- | ---- | -------- | -------- |
-| 主力 | MiniMax H3 / Wan2.2-ti2v-5b（本地 ComfyUI） | NVIDIA GPU + 大显存 | 高质量多镜成片 |
-| 轻量（本插件） | 镜头运动曲线 + 缓动仿射帧合成 | 纯 numpy，零 GPU / 零额外依赖 | 预览、粗剪、低配机器、快速迭代分镜 |
-
-### 能力
-
-- 10 种镜头运动曲线：static / pan / tilt / zoom_in / zoom_out /
-  dolly_in / orbit（左右），参数化运镜（归一化平移 + 缩放 + 旋转）
+- 10 种镜头运动曲线（static / pan / tilt / zoom / dolly / orbit）
 - 缓动：smoothstep / linear / ease_out
-- 转场：cut / crossfade（叠化）/ dip_to_black（黑场）
-- 输入 = 漫剧关键帧（HxW 或 HxWx3 数组，uint8 / [0,1] 均可）+ 分镜
-  spec；输出 = 逐帧 ndarray 序列 + 镜头计划（JSON 安全）
-- 三级记忆（working / episodic / semantic）与运动曲线权重随包存档，
-  渲染统计（镜头数 / 总帧数）跨会话保留
-
-### 用法（宿主侧示例）
+- 转场：cut / crossfade / dip_to_black
 
 ```python
-from plugin.video_making import VideoMakingPlugin   # 或从包加载（见下）
+from src.cutemamen import load_pkg
 
-plugin = VideoMakingPlugin()
-frames, plan = plugin.render({
-    "keyframes": [kf1, kf2],        # np.ndarray 列表（漫剧关键帧）
+plugin, manifest = load_pkg("plugin/VideoMaking.CuteMamen")
+result = plugin.on_think({"topic": "video", "data": {
+    "keyframes": [kf1, kf2],   # np.ndarray 列表（漫剧关键帧）
     "fps": 12,
     "shots": [
         {"motion": "zoom_in", "duration_s": 1.5},
         {"motion": "pan_left", "duration_s": 1.0, "transition": "crossfade"},
     ],
-})
-```
-
-从 `.CuteMamen` 包加载（DistributedFormer 内核宿主，或任何实现
-CuteMamen 标准 v2 清单的宿主）：
-
-```python
-# DistributedFormer 宿主
-from src.cutemamen import load_pkg
-plugin, manifest = load_pkg("plugin/VideoMaking.CuteMamen")
-result = plugin.on_think({"topic": "video", "data": spec}, ctx)
+}}, ctx)
 frames = result["frames"]
 ```
 
-### 文件
-
-| 文件 | 说明 |
-| ---- | ---- |
-| VideoMaking.CuteMamen | 插件包（manifest + 运动曲线权重 + 三级记忆存档） |
-| video_making.py | 插件源码（与包内权重同源，供评审与二次开发） |
-
-来源：DistributedFormer CuteMamen 插件标准 v2.0.0（内核 ≥ 0.8.7）。
+插件源码：`src/cutemamen/rust_coding.py` / `src/cutemamen/video_making.py`。
+插件标准：CuteMamen v2.0.0（内核 ≥ 0.8.7，见 `src/cutemamen/pkg.py`）。

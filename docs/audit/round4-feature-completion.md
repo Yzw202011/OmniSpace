@@ -11,25 +11,25 @@
 ### M1（P0）随包模型接线 —— 4/4 完成并实测
 | 项 | 实现 | 实测证据 |
 |---|---|---|
-| F-01 TripoSR | 新建 [triposr_engine.py](file:///e:/OmniSpace/backend/services/inference/triposr_engine.py) + `POST /art/image-to-3d` | 真实推理 147.6s（含首载）产出 15882 顶点/31756 面 .glb；修复 autocast 混合精度（Half/Float 不匹配）与 HF 离线重试（省 ~40s） |
-| F-02 SAM ViT-H | 新建 [segment_engine.py](file:///e:/OmniSpace/backend/services/inference/segment_engine.py) + `POST /art/segment` | 2.0s 返回真实 mask（IoU 1.013） |
-| F-03 MiDaS | 新建 [depth_engine.py](file:///e:/OmniSpace/backend/services/inference/depth_engine.py) + `POST /art/depth` | 0.3s 返回 320×240 伪彩色深度图（ORT CPU） |
-| F-04 YOLOv8 | 新建 [detect_engine.py](file:///e:/OmniSpace/backend/services/inference/detect_engine.py) + `POST /art/detect` | 2.5s 真实推理（CUDA） |
-| 集成 | 新建 [vision_tools.py](file:///e:/OmniSpace/backend/api/vision_tools.py)（6 路由，含 `/art/assets/3d/{file}` 下载与 `/art/tools/status` 聚合），[main.py](file:///e:/OmniSpace/backend/main.py) 注册 | 路由核验 + 活体服务全端点冒烟通过 |
+| F-01 TripoSR | 新建 [triposr_engine.py](file:///e:/OmniSpace/src/services/inference/triposr_engine.py) + `POST /art/image-to-3d` | 真实推理 147.6s（含首载）产出 15882 顶点/31756 面 .glb；修复 autocast 混合精度（Half/Float 不匹配）与 HF 离线重试（省 ~40s） |
+| F-02 SAM ViT-H | 新建 [segment_engine.py](file:///e:/OmniSpace/src/services/inference/segment_engine.py) + `POST /art/segment` | 2.0s 返回真实 mask（IoU 1.013） |
+| F-03 MiDaS | 新建 [depth_engine.py](file:///e:/OmniSpace/src/services/inference/depth_engine.py) + `POST /art/depth` | 0.3s 返回 320×240 伪彩色深度图（ORT CPU） |
+| F-04 YOLOv8 | 新建 [detect_engine.py](file:///e:/OmniSpace/src/services/inference/detect_engine.py) + `POST /art/detect` | 2.5s 真实推理（CUDA） |
+| 集成 | 新建 [vision_tools.py](file:///e:/OmniSpace/src/api/vision_tools.py)（6 路由，含 `/art/assets/3d/{file}` 下载与 `/art/tools/status` 聚合），[main.py](file:///e:/OmniSpace/src/main.py) 注册 | 路由核验 + 活体服务全端点冒烟通过 |
 
 ### M2（P1）闭环与安全 —— 2/2 完成并实测
 | 项 | 实现 | 实测证据 |
 |---|---|---|
-| F-05 §4.3 自适应 | ①去重阈值 ≥9 万条 0.85→0.8（[knowledge_service.py](file:///e:/OmniSpace/backend/services/knowledge_service.py)）②连续 3 次质量下降暂停自动训练 + WS 通知 + 设置重开清除（[lora_training_service.py](file:///e:/OmniSpace/backend/services/lora_training_service.py)、[learning_scheduler.py](file:///e:/OmniSpace/backend/services/learning_scheduler.py)、[learning.py](file:///e:/OmniSpace/backend/api/learning.py)）③冷门功能学习主题降权（[predictor.py](file:///e:/OmniSpace/backend/services/model_manager/predictor.py)） | 阈值切换/连降判定/冷门检测单元冒烟全过 |
-| F-06 数据加密 | 新建 [crypto.py](file:///e:/OmniSpace/backend/data/crypto.py)：AES-256-GCM + DPAPI 保护数据密钥；接入 [dialog.py](file:///e:/OmniSpace/backend/api/dialog.py)（content）与 [behavior_service.py](file:///e:/OmniSpace/backend/services/behavior_service.py)（四列） | DB 原始值 `enc:v1:...` 密文，读取透明解密还原；历史明文透传兼容 |
+| F-05 §4.3 自适应 | ①去重阈值 ≥9 万条 0.85→0.8（[knowledge_service.py](file:///e:/OmniSpace/src/services/knowledge_service.py)）②连续 3 次质量下降暂停自动训练 + WS 通知 + 设置重开清除（[lora_training_service.py](file:///e:/OmniSpace/src/services/lora_training_service.py)、[learning_scheduler.py](file:///e:/OmniSpace/src/services/learning_scheduler.py)、[learning.py](file:///e:/OmniSpace/src/api/learning.py)）③冷门功能学习主题降权（[predictor.py](file:///e:/OmniSpace/src/services/model_manager/predictor.py)） | 阈值切换/连降判定/冷门检测单元冒烟全过 |
+| F-06 数据加密 | 新建 [crypto.py](file:///e:/OmniSpace/src/data/crypto.py)：AES-256-GCM + DPAPI 保护数据密钥；接入 [dialog.py](file:///e:/OmniSpace/src/api/dialog.py)（content）与 [behavior_service.py](file:///e:/OmniSpace/src/services/behavior_service.py)（四列） | DB 原始值 `enc:v1:...` 密文，读取透明解密还原；历史明文透传兼容 |
 
 ### M3（P2）中等工程 —— 4/4 完成（2 项经实测论证走门控）
 | 项 | 结果 |
 |---|---|
-| F-07 AnimateLCM | [video_engine.py](file:///e:/OmniSpace/backend/services/inference/video_engine.py) 探测链接入（MotionAdapter + AnimateDiffPipeline + LCMScheduler，ckpt 转换实测 unexpected=0）；**SD1.5 底座未随包 → 门控回落 Ken Burns**，status 如实上报 reason；底座补齐即解锁 |
-| F-08 GPT-SoVITS | 实测权重完好但**官方推理代码/音素符号表（732 映射）/中文 G2P 均未随包**，离线合成不可行 → 探测+门控（[voice_engine.py](file:///e:/OmniSpace/backend/services/inference/voice_engine.py) `sovits` 字段如实上报），SAPI5 链路不破坏（[manga.py](file:///e:/OmniSpace/backend/api/manga.py) degrade 文案分级） |
+| F-07 AnimateLCM | [video_engine.py](file:///e:/OmniSpace/src/services/inference/video_engine.py) 探测链接入（MotionAdapter + AnimateDiffPipeline + LCMScheduler，ckpt 转换实测 unexpected=0）；**SD1.5 底座未随包 → 门控回落 Ken Burns**，status 如实上报 reason；底座补齐即解锁 |
+| F-08 GPT-SoVITS | 实测权重完好但**官方推理代码/音素符号表（732 映射）/中文 G2P 均未随包**，离线合成不可行 → 探测+门控（[voice_engine.py](file:///e:/OmniSpace/src/services/inference/voice_engine.py) `sovits` 字段如实上报），SAPI5 链路不破坏（[manga.py](file:///e:/OmniSpace/src/api/manga.py) degrade 文案分级） |
 | F-09 契约 | `GET /system/update` 语义化返回（supported=false, channel=manual-replace）；新建 [api-contract-decisions.md](file:///e:/OmniSpace/docs/audit/api-contract-decisions.md) 30 项裁定 |
-| F-10 在途降参 | 新建 [quality_governor.py](file:///e:/OmniSpace/backend/services/quality_governor.py)；[analyzer.py](file:///e:/OmniSpace/backend/services/scheduler/analyzer.py) GPU>95%/10s 判定 → tick 置旗标 → [paint_engine.py](file:///e:/OmniSpace/backend/services/inference/paint_engine.py) 每 step 轮询 → diffusers 中断 + 元数据/WS 事件标注 |
+| F-10 在途降参 | 新建 [quality_governor.py](file:///e:/OmniSpace/src/services/quality_governor.py)；[analyzer.py](file:///e:/OmniSpace/src/services/scheduler/analyzer.py) GPU>95%/10s 判定 → tick 置旗标 → [paint_engine.py](file:///e:/OmniSpace/src/services/inference/paint_engine.py) 每 step 轮询 → diffusers 中断 + 元数据/WS 事件标注 |
 
 ### M4（P3）架构项 —— 按推荐路径文档降级
 《修正版E》末尾新增**附录D（实施偏差与降级决议）**：D.1 PPO→历史回归分析、D.2 Tauri→浏览器+原生启动器、D.3 vLLM→transformers、D.4 随包模型兑现状态、D.5 SQLCipher→字段级 AES-GCM。

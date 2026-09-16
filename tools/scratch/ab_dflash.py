@@ -7,7 +7,7 @@
 
 前置纪律（§16.6 GPU 活动门）：
   - 后端近 5 分钟无生成任务（logs/backend.log 尾部无 submit/generate）
-  - nvidia-smi 空闲显存 ≥14.5GB（9B 权重 10.7 + 草稿 2.6 + 开销）
+  - nvidia-smi 空闲显存 ≥13.0GB（2026-09-16 拍板降档：9B+草稿紧档试跑）
   - 脚本自带两道检查，不过即拒跑。
 
 口径：同模型（qwen35-9b-w4a16）/同种子/同三题（短 256 / 中 768 / 长
@@ -31,7 +31,7 @@ LLM_EXE = ROOT / "runtime" / "py313" / "OmniSpace-LLM.exe"
 TARGET = ROOT / "models" / "qwen35-9b-w4a16"
 DRAFT = ROOT / "models" / "dflash" / "qwen35-9b-draft"
 PORT = 8102
-MAX_LEN = 8192  # 压低 KV 预算给草稿让位（产线 9B 本就 4K 钳制档）
+MAX_LEN = 4096  # 压到 4K（拍板降档重试：KV 预算极限压缩，fp8 KV 4K ≈ 0.4G）
 READY_TIMEOUT_S = 420  # 与产线冷启动阈值同口径
 
 PROMPTS = [
@@ -116,7 +116,11 @@ def chat(max_tokens: int, prompt: str, stream: bool = False):
 def spec_config(variant: str) -> str:
     if variant == "mtp":
         return json.dumps({"method": "mtp", "num_speculative_tokens": 3})
-    return json.dumps({"method": "dflash", "model": str(DRAFT.resolve())})
+    # 2026-09-16 实弹勘误：0.27.1 校验要求显式 num_speculative_tokens
+    # （草稿 config block_size 的自动推导在校验点之后不生效）——块 16
+    # → 每步草拟 15 token（README 架构：1 锚 + 15 草拟）
+    return json.dumps({"method": "dflash", "model": str(DRAFT.resolve()),
+                       "num_speculative_tokens": 15})
 
 
 def run_variant(variant: str, results: dict) -> None:
@@ -125,24 +129,30 @@ def run_variant(variant: str, results: dict) -> None:
     if variant == "dflash" and not (DRAFT / "model.safetensors").is_file():
         sys.exit(f"草稿权重缺失: {DRAFT}")
 
+    # 自适应 util（2026-09-16 拍板「降门槛现在跑」）：后端常驻 ~2.5G 时
+    # 空闲 ~13.8G——固定 0.92 会超实际空闲导致启动 OOM；按实测空闲
+    # 收 0.5G 余量动态定 util（上限 0.92）
+    _free, _total = __import__("torch").cuda.mem_get_info(0)
+    _util = round(min(0.93, (_free - 0.4 * 2**30) / _total), 2)
+
     cmd = [
         str(LLM_EXE), "-m", "vllm.entrypoints.openai.api_server",
         "--model", str(TARGET),
         "--served-model-name", "qwen35-9b-w4a16",
         "--host", "127.0.0.1", "--port", str(PORT),
         "--max-model-len", str(MAX_LEN),
-        "--max-num-seqs", "32",
-        "--gpu-memory-utilization", "0.92",
+        "--max-num-seqs", "16",
+        "--gpu-memory-utilization", str(_util),
         "--enable-prefix-caching", "--no-enable-log-requests",
         "--seed", "42", "--kv-cache-dtype", "fp8",
         "--speculative-config", spec_config(variant),
     ]
+    print(f"[{variant}] util={_util} (free={_free / 2**30:.1f}G)", flush=True)
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = "0"
     env.setdefault("VLLM_DISABLE_COMPILE_CACHE", "1")
     print(f"[{variant}] 启动 vLLM …", flush=True)
-    log_fh = open(ROOT / "logs" / f"ab_dflash_{variant}.log", "ab",
-                  encoding="utf-8", buffering=1)
+    log_fh = open(ROOT / "logs" / f"ab_dflash_{variant}.log", "ab")
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT,
                             cwd=str(ROOT), env=env,
                             creationflags=subprocess.CREATE_NO_WINDOW)
@@ -180,8 +190,8 @@ def main() -> None:
         sys.exit("后端近 5 分钟有活动（logs/backend.log 新鲜）——按 "
                  "§16.6 活动门拒跑，稍后再试。")
     free = gpu_free_gb()
-    if free < 14.5:
-        sys.exit(f"空闲显存 {free:.1f}GB < 14.5GB（9B+草稿下限）——"
+    if free < 13.0:
+        sys.exit(f"空闲显存 {free:.1f}GB < 13.0GB（拍板降门槛 2026-09-16：9B+草稿 13.3G 紧档，接受 OOM 诚实失败）——"
                  "关闭占显存应用后重试。")
     print(f"活动门通过：显存空闲 {free:.1f}GB", flush=True)
     results = {}

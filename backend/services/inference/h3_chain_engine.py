@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 import hashlib
 import json
+import logging
 import re
 import shutil
 import time
@@ -34,6 +35,8 @@ from ...config import DATA_DIR, get_config
 from ...middleware.error_handler import ApiError
 from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
 from .h3_engine import _COMFY_OUTPUT, align_h3_frames, get_h3_engine
+
+log = logging.getLogger("omnispace.inference.h3_chain")
 
 # 2026-09-02 修复：comfy_proc 启动参数已把 input/output 重定向到
 # data/comfyui/（08-31 生命周期治理），h3_engine 已同步改 import，
@@ -315,6 +318,46 @@ def _prepare_refs(task_id: str, refs: list[dict]) -> list[dict]:
     return out
 
 
+def _dual_clock_enabled() -> bool:
+    """T8 双时钟采样门控（P-4 2026-09-16，默认 false 待 A/B 收口）。
+
+    config.yaml ``manga.h3_dual_clock``：true 时采样段换
+    MiniMaxH3DualClockSamplerT8（社区口径再提速 ~100%，未独立复验——
+    A/B 实测 ≥30% 且质量不降才转正）。节点包=
+    custom_nodes/comfyui-minimax-h3-audio-T8（零额外依赖）。
+    """
+    try:
+        from backend.config import get_config
+        raw = (get_config().get("manga") or {}).get("h3_dual_clock", False)
+        return bool(raw) and str(raw).strip().lower() not in ("false", "0", "")
+    except Exception:  # noqa: BLE001 - 配置异常保持关
+        return False
+
+
+def _apply_dual_clock(graph: dict) -> bool:
+    """采样段换 T8 双时钟（P-4）：插 t8_dual 节点并改写 124 的
+    sampler/sigmas 入口；其余（noise/guider/latent/模型链）不动。
+    返回是否生效（模板结构不符时 False=按原样，诚实降级不硬改）。
+    """
+    sca = graph.get("124")
+    if not isinstance(sca, dict) \
+            or sca.get("class_type") != "SamplerCustomAdvanced":
+        return False
+    graph["t8_dual"] = {
+        "class_type": "MiniMaxH3DualClockSamplerT8",
+        "inputs": {
+            "model": ["1961", 0],      # Turbo LoRA 后模型（与 SigmaShift 同源）
+            "av_latent": ["1703", 3],  # ChainContext 的 AV latent（同 124）
+            "steps": ["1702", 7],      # ChainCurrent 的动态步数（同 123）
+            "shift_video": 12.0,       # 与 MiniMaxH3SigmaShift 同值
+            "shift_audio": 3.0,
+        },
+    }
+    sca["inputs"]["sampler"] = ["t8_dual", 1]
+    sca["inputs"]["sigmas"] = ["t8_dual", 2]
+    return True
+
+
 def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
                   start_clip: int = 1) -> dict:
@@ -325,6 +368,12 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
     graph["3"]["inputs"]["vae_name"] = _CHAIN_H3_FILES["video_vae"]
     graph["4"]["inputs"]["vae_name"] = _CHAIN_H3_FILES["audio_vae"]
     graph["1961"]["inputs"]["lora_name"] = _CHAIN_H3_FILES["turbo_lora"]
+    # P-4（2026-09-16）：T8 双时钟采样门控改写（关=原 Turbo 采样链原样）
+    if _dual_clock_enabled():
+        if _apply_dual_clock(graph):
+            log.info("H3 采样段: T8 双时钟（MiniMaxH3DualClockSamplerT8）")
+        else:
+            log.warning("H3 双时钟改写未生效（模板结构不符），按原采样链")
     p = graph["1700"]["inputs"]
     p["plan_json"] = plan_json
     p["run_name"] = run_name

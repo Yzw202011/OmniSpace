@@ -160,6 +160,11 @@ manga:
   # （README 口径）。6 = 标准档（现行，大动态镜头更稳）；4 = 快速档
   # （采样段再省 ~33%，大动态有 ghosting 风险）。改完重启后端生效。
   h3_steps: 6
+  # T8 双时钟采样器（P-4 2026-09-16，默认 false 待 A/B 收口）：true=H3
+  # 采样段换 MiniMaxH3DualClockSamplerT8（社区口径再提速 ~100% 未独立
+  # 复验；节点包 custom_nodes/comfyui-minimax-h3-audio-T8 零额外依赖）。
+  # 实测 ≥30% 且质量不降才转正。改完重启后端生效。
+  h3_dual_clock: false
   # 四视图引擎档（v3-W3-C 2026-09-13）：与全局 paint.gen_engine 解耦。
   # comfy 蒸馏 9B 四格构图格数遵循度实测仅 33~40% 且与步数无关
   # （丢格为构图级失败，VL 修复环不可修）——保持 legacy 直至 comfy

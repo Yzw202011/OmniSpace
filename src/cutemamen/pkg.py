@@ -136,8 +136,13 @@ def is_legacy_manifest(manifest: dict[str, Any]) -> bool:
 # ═══════════════════════════════════════════════════════════════
 
 def save_pkg(plugin: ExpertPlugin, path: str,
+             source_py: str | None = None,
              **manifest_extra: Any) -> dict[str, Any]:
-    """把插件存档为 .CuteMamen 包 (manifest + weights + 三级记忆), 返回清单"""
+    """把插件存档为 .CuteMamen 包 (manifest + weights + 三级记忆), 返回清单
+
+    source_py（v2.1，可选）：插件源码文本——内嵌为 source/plugin.py，
+    供宿主单文件导入新类型插件（开发者分发推荐带此条目）。
+    """
     manifest = plugin.build_manifest(**manifest_extra)
     manifest["memory_footprint_mb"] = plugin.footprint_mb()
     manifest["archived_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -163,6 +168,9 @@ def save_pkg(plugin: ExpertPlugin, path: str,
                                        "capacity": memory["capacities"]["episodic"]})
         _add_json(tar, SEMANTIC_PATH, {"entries": memory["semantic"],
                                        "capacity": memory["capacities"]["semantic"]})
+        if source_py:
+            _add_bytes(tar, "source/plugin.py",
+                       source_py.encode("utf-8"))
     return manifest
 
 

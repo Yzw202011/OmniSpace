@@ -40,11 +40,9 @@ export default function PluginSection() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pkgFile, setPkgFile] = useState<File | null>(null);
-  const [srcFile, setSrcFile] = useState<File | null>(null);
-  // 含源码确认门：暂存待确认的导入（用户点确认才真正上传）
+  // 含源码确认门：包内带源码时后端要求确认，前端弹门后重试
   const [pendingConfirm, setPendingConfirm] = useState(false);
   const pkgInputRef = useRef<HTMLInputElement>(null);
-  const srcInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     setLoadFailed(false);
@@ -69,20 +67,14 @@ export default function PluginSection() {
     setPkgFile(file);
     e.target.value = '';
   };
-  const onPickSrc = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setSrcFile(file);
-    e.target.value = '';
-  };
 
   const doImport = async (confirmSource: boolean) => {
     if (!pkgFile) return;
     setBusy(true);
     try {
-      const result = await importPlugin(pkgFile, srcFile, confirmSource);
+      const result = await importPlugin(pkgFile, confirmSource);
       showToast(`插件已导入：${result.name}（${result.trust_label}）`, 'success');
       setPkgFile(null);
-      setSrcFile(null);
       setPendingConfirm(false);
       await refresh();
     } catch (err) {
@@ -102,11 +94,7 @@ export default function PluginSection() {
   };
 
   const onImportClick = () => {
-    if (srcFile) {
-      setPendingConfirm(true); // 含源码档：先过确认门
-      return;
-    }
-    void doImport(false);
+    void doImport(false); // 包内是否带源码由后端判定，需要确认会回弹
   };
 
   const onToggle = async (p: PluginInfo) => {
@@ -166,13 +154,6 @@ export default function PluginSection() {
           </button>
           <button
             type="button"
-            className="btn btn-outline"
-            onClick={() => srcInputRef.current?.click()}
-          >
-            <Upload size={14} /> {srcFile ? srcFile.name : '附源码(.py，新类型必附)'}
-          </button>
-          <button
-            type="button"
             className="btn btn-primary"
             disabled={!pkgFile || busy}
             onClick={onImportClick}
@@ -182,14 +163,13 @@ export default function PluginSection() {
           </button>
         </div>
         <input ref={pkgInputRef} type="file" accept=".CuteMamen" hidden onChange={onPickPkg} />
-        <input ref={srcInputRef} type="file" accept=".py" hidden onChange={onPickSrc} />
         {pendingConfirm && (
           <div className="settings-row" style={{ border: '1px solid var(--color-warning)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)' }}>
             <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'flex-start' }}>
               <ShieldAlert size={18} style={{ color: 'var(--color-warning)', flexShrink: 0, marginTop: 2 }} />
               <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
                 <span>
-                  你正在导入<strong>含源码</strong>的插件「{pkgFile?.name}」。此插件将在软件内部直接运行，
+                  「{pkgFile?.name}」这个插件包<strong>内含源码</strong>。它将在软件内部直接运行，
                   权限与软件本身相同——<strong>请只安装信任来源的插件</strong>。
                 </span>
                 <div style={{ display: 'flex', gap: 'var(--space-2)' }}>

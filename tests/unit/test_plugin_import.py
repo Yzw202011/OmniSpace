@@ -61,8 +61,8 @@ def _tar_add(tar: tarfile.TarFile, name: str, data: bytes) -> None:
 
 
 def _make_pkg(name: str, base_model: str = "video.making",
-              route: str = "video") -> bytes:
-    """手工构造合法 .CuteMamen 包（空权重+空记忆）。"""
+              route: str = "video", source: str | None = None) -> bytes:
+    """手工构造合法 .CuteMamen 包（空权重+空记忆，可选内嵌源码 v2.1）。"""
     manifest = {
         "standard_version": "2.0.0", "name": name, "base_model": base_model,
         "capability": "测试用", "route": route,
@@ -80,6 +80,8 @@ def _make_pkg(name: str, base_model: str = "video.making",
         _tar_add(tar, "memory/working.json", b'{"entries": {}}')
         _tar_add(tar, "memory/episodic.json", b'{"entries": {}}')
         _tar_add(tar, "memory/semantic.json", b'{"entries": {}}')
+        if source is not None:
+            _tar_add(tar, "source/plugin.py", source.encode("utf-8"))
     return buf.getvalue()
 
 
@@ -258,3 +260,37 @@ def test_user_registry_persists_across_restart(api_client, tmp_path,
     monkeypatch.setattr(pr_registry, "_runtime", None)
     fresh = pr_registry.PluginRuntime()
     assert fresh.is_registered("demo-video")
+
+
+# ── v2.1 内嵌源码（单文件交付，2026-09-17 用户拍板简化） ──────
+def test_import_embedded_source_single_file_flow(api_client):
+    """包内带源码：确认门拒→确认过→invoke 真跑（用户全程只选一个文件）。"""
+    pkg = _make_pkg("embed-echo", base_model="echo.demo", source=ECHO_SRC)
+    r = _post_import(api_client, pkg, "embed.CuteMamen")
+    body = r.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "PLUGIN_SOURCE_CONFIRM_REQUIRED"
+    r2 = _post_import(api_client, pkg, "embed.CuteMamen", confirm=True)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["data"]["trust"] == "user_source"
+    r3 = api_client.post("/api/v1/plugins/embed-echo/invoke",
+                         json={"data": {"v": "21"}})
+    assert r3.json()["data"]["data"]["echo"]["v"] == "21"
+
+
+def test_import_embedded_source_still_scanned(api_client):
+    """内嵌源码同样过 AST 安检（禁用导入照样拒）。"""
+    bad = "import socket" + chr(10) + ECHO_SRC
+    pkg = _make_pkg("embed-bad", base_model="echo.demo", source=bad)
+    r = _post_import(api_client, pkg, "embed.CuteMamen", confirm=True)
+    body = r.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "PLUGIN_SOURCE_FORBIDDEN"
+    assert "socket" in body["error"]["suggestion"]
+
+
+def test_import_known_base_with_embedded_source_is_user_source(api_client):
+    """已知 base_model 但包内带源码 → 仍按含源码档（源码在场即审查）。"""
+    pkg = _make_pkg("embed-video", base_model="video.making", source=ECHO_SRC)
+    r = _post_import(api_client, pkg, "embed.CuteMamen", confirm=True)
+    assert r.json()["data"]["trust"] == "user_source"

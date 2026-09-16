@@ -307,6 +307,11 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
                        f"manifest.name 不合规: {name!r}",
                        suggestion="规则 ^[a-z0-9][a-z0-9_-]{0,63}$（docs/插件开发规范.md §4）")
     base_model = str(manifest.get("base_model") or "")
+    # v2.1 内嵌源码：包里带 source/plugin.py 即视为含源码档（用户只选
+    # 一个文件）；外部分开上传的 .py 仅为兼容旧流程保留，内嵌优先
+    if source_bytes is None and pkg.source:
+        source_bytes = pkg.source.encode("utf-8")
+        source_filename = f"{name}.py"
 
     rt = get_plugin_runtime()
     if rt.is_registered(name):

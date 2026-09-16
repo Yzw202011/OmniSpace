@@ -84,31 +84,28 @@ describe('listPlugins', () => {
 });
 
 describe('importPlugin multipart 组装', () => {
-  it(' FormData 字段：package 必带；source/confirm_source 按需', async () => {
+  it(' FormData 字段：package 必带；confirm_source 按需（v2.1 单文件）', async () => {
     mockedUpload.mockResolvedValue({
       name: 'demo', trust: 'user_data', trust_label: '用户·纯数据',
       base_model: 'video.making', route: 'video', capability: '',
       origin: 'user', imported_at: '2026-09-16T12:00:00',
     });
     const pkg = new File([new Uint8Array([1, 2, 3])], 'demo.CuteMamen');
-    const src = new File([new Uint8Array([4])], 'demo.py');
 
-    await pluginApi.importPlugin(pkg, null, false);
+    await pluginApi.importPlugin(pkg, false);
     const fd1 = mockedUpload.mock.calls[0][1] as FormData;
     expect(fd1.get('package')).toBeInstanceOf(File);
-    expect(fd1.get('source')).toBeNull();
     expect(fd1.get('confirm_source')).toBeNull();
 
-    await pluginApi.importPlugin(pkg, src, true);
+    await pluginApi.importPlugin(pkg, true);
     const fd2 = mockedUpload.mock.calls[1][1] as FormData;
-    expect(fd2.get('source')).toBeInstanceOf(File);
     expect(fd2.get('confirm_source')).toBe('true');
   });
 
   it('非法导入结果载荷抛 FRONTEND_PARSE_ERROR', async () => {
     mockedUpload.mockResolvedValue({ name: 123 }); // name 必须是字符串
     const pkg = new File([new Uint8Array([1])], 'demo.CuteMamen');
-    const err = await extractApiError(() => pluginApi.importPlugin(pkg, null, false));
+    const err = await extractApiError(() => pluginApi.importPlugin(pkg, false));
     expect((err as ApiError).code).toBe('FRONTEND_PARSE_ERROR');
   });
 });

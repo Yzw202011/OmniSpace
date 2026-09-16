@@ -31,9 +31,11 @@ _MODULE_PREFIX = "omnispace_plugin_"
 # CuteMamen 包条目白名单与上限（防御性：内存读天然免疫穿越，仍卡规模）
 _PKG_MAX_ENTRIES = 64
 _PKG_MAX_BYTES = 64 * 1024 * 1024
+# 源码条目上限（规范 §2：插件源码 ≤256KB；v2.1 起源码可内嵌进包）
+_PKG_SOURCE_MAX_BYTES = 256 * 1024
 _PKG_ALLOWED = ("manifest.json", "weights/weights.npz",
                 "memory/working.json", "memory/episodic.json",
-                "memory/semantic.json")
+                "memory/semantic.json", "source/plugin.py")
 
 
 class PluginLoadError(RuntimeError):
@@ -42,10 +44,11 @@ class PluginLoadError(RuntimeError):
 
 @dataclass
 class CuteMamenPkg:
-    """内存态插件包（manifest + 权重 + 三级记忆）。"""
+    """内存态插件包（manifest + 权重 + 三级记忆 + 可选内嵌源码）。"""
     manifest: dict[str, Any] = field(default_factory=dict)
     weights: dict[str, np.ndarray] = field(default_factory=dict)
     memory: dict[str, dict[str, Any]] = field(default_factory=dict)
+    source: str = ""
 
 
 def _ensure_host_module() -> None:
@@ -137,13 +140,19 @@ def read_cutemamen_pkg(pkg_path: Path) -> CuteMamenPkg:
 
 
 def _parse_pkg_entry(pkg: CuteMamenPkg, name: str, raw: bytes) -> None:
-    """单条目解析：manifest / 权重 / 三级记忆。"""
+    """单条目解析：manifest / 权重 / 三级记忆 / 内嵌源码。"""
     if name == "manifest.json":
         pkg.manifest = json.loads(raw.decode("utf-8"))
     elif name == "weights/weights.npz":
         # allow_pickle=False：npy/npz 安全体（无任意代码执行面）
         with np.load(io.BytesIO(raw), allow_pickle=False) as arrs:
             pkg.weights = {k: arrs[k] for k in arrs.files}
+    elif name == "source/plugin.py":
+        # v2.1 内嵌源码（新类型插件单文件交付；上限卡规范 §2 的 256KB）
+        if len(raw) > _PKG_SOURCE_MAX_BYTES:
+            raise PluginLoadError(
+                f"内嵌源码超限: {len(raw)}B > {_PKG_SOURCE_MAX_BYTES}B")
+        pkg.source = raw.decode("utf-8")  # 非 UTF-8 → UnicodeDecodeError 统一收口
     elif name.startswith("memory/"):
         level = name.split("/", 1)[1].rsplit(".", 1)[0]
         data = json.loads(raw.decode("utf-8"))

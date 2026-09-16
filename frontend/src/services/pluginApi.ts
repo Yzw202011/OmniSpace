@@ -53,19 +53,17 @@ export async function listPlugins(): Promise<PluginInfo[]> {
 }
 
 /**
- * 导入用户插件。
- * @param pkgFile    .CuteMamen 插件包（必填）
- * @param sourceFile 可选 .py 源码（新类型插件必附；后端有 AST 安检闸）
- * @param confirmSource 含源码档的显式确认（用户勾选后前端才置 true）
+ * 导入用户插件（单文件：源码内嵌在 .CuteMamen 包里，v2.1 规范）。
+ * @param pkgFile        .CuteMamen 插件包（新类型插件的源码由开发者打进包内）
+ * @param confirmSource  含源码包的显式确认（用户勾选后前端才置 true；
+ *                       后端对带源码包未确认会回 PLUGIN_SOURCE_CONFIRM_REQUIRED）
  */
 export async function importPlugin(
   pkgFile: File,
-  sourceFile: File | null,
   confirmSource: boolean,
 ): Promise<ImportResult> {
   const fd = new FormData();
   fd.append('package', pkgFile);
-  if (sourceFile) fd.append('source', sourceFile);
   if (confirmSource) fd.append('confirm_source', 'true');
   const res = await upload<unknown>('/plugins/import', fd);
   return parseWith(ImportResultSchema, res, '插件导入');

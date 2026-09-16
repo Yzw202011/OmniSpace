@@ -244,3 +244,5 @@ src/data/vector_db.py|Incompatible types in assignment (expression has type "Cli
 src/services/inference/qwen_gguf_stream.py|"Tensor" has no attribute "quant_type"  [attr-defined]
 src/services/inference/qwen_gguf_stream.py|Cannot assign to a method  [method-assign]
 src/services/inference/video_engine.py|Incompatible import of "_TECls" (imported name has type "type[T5EncoderModel]", local name has type "type[UMT5EncoderModel]")  [assignment]
+src/cutemamen/rust_coding.py|Name "ExpertPlugin" already defined (possibly by an import)  [no-redef]
+src/cutemamen/rust_coding.py|Name "PluginContext" already defined (possibly by an import)  [no-redef]

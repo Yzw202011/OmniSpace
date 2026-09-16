@@ -290,3 +290,44 @@ def test_api_load_unload_cycle(api_client):
     assert r.json()["data"]["state"] == "loaded"
     r = api_client.post("/api/v1/plugins/video-making/unload")
     assert r.json()["data"]["state"] == "unloaded"
+
+
+# ── RustCoding 登记 + 通用 invoke 形态（2026-09-16 拍板） ──────
+def test_api_rust_invoke_generic_form(api_client):
+    """rust-coding 经通用 data 形态 invoke：出 label/confidence 透传。"""
+    r = api_client.post("/api/v1/plugins/rust-coding/invoke", json={
+        "data": {"code": 'fn f() { let s = String::from("x"); '
+                         'let t = s; let u = s; }'}})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True, body
+    label = body["data"]["data"]["label"]
+    assert label in ("move", "borrow", "lifetime", "type", "ok")
+    assert 0.0 <= body["data"]["data"]["confidence"] <= 1.0
+
+
+def test_api_invoke_requires_keyframes_or_data(api_client):
+    r = api_client.post("/api/v1/plugins/video-making/invoke", json={})
+    body = r.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "PLUGIN_SPEC_MISMATCH"
+
+
+def test_api_kernel_status_and_think(api_client):
+    """内核接线端点：状态轻量可用 + think 路由 rust 主题出分类。"""
+    r = api_client.get("/api/v1/plugins/kernel")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["success"] is True, body
+    assert "kernel" in body["data"] and "plugins" in body["data"]
+
+    r2 = api_client.post("/api/v1/plugins/kernel/think", json={
+        "topic": "rust",
+        "data": {"code": 'fn f() { let s = String::from("x"); '
+                         'let t = s; let u = s; }'}})
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["success"] is True, body2
+    assert body2["data"]["routed"] is True
+    label = body2["data"]["results"][0]["label"]
+    assert label in ("move", "borrow", "lifetime", "type", "ok")

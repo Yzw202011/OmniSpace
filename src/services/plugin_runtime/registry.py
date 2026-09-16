@@ -55,6 +55,15 @@ _SEED_PLUGINS: dict[str, dict[str, str]] = {
         "pkg": "plugin/VideoMaking.CuteMamen",
         "trust": "repo_curated",
     },
+    "rust-coding": {
+        # Rust 报错分类器（2026-09-16 登记拍板）：342 行逐行审查在案——
+        # 纯 numpy 数值分类，无 IO/网络/子进程/eval；审查修复两处：
+        # ①on_think 工作记忆写入加宿主形态护栏 ②推理路径相对导入补
+        # 双路垫片（对齐 video_making 惯例）。读出层权重随包注入。
+        "source_py": "src/cutemamen/rust_coding.py",
+        "pkg": "plugin/RustCoding.CuteMamen",
+        "trust": "repo_curated",
+    },
 }
 
 STATE_UNLOADED = "unloaded"
@@ -93,6 +102,42 @@ class PluginRuntimeError(RuntimeError):
         self.code = code
         self.message = message
         self.suggestion = suggestion
+
+
+def _passthrough_data(raw: dict[str, Any]) -> dict[str, Any]:
+    """插件 on_think 结果的通用透传清洗。
+
+    - 剔除 video 形态专用键（frames/summary/plan 已单列）；
+    - ndarray → 形状/ dtype 摘要（帧本体铁律不进 JSON）；
+    - numpy 标量 → Python 标量；列表截断到 32 项防膨胀；
+    - 其余类型原样（str/int/float/bool/None/小 dict）。
+    """
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        if key in ("frames", "summary", "plan"):
+            continue
+        out[key] = _json_summary(value)
+    return out
+
+
+def _json_summary(value: Any, _depth: int = 0) -> Any:
+    """递归 JSON 安全化（深度/列表长度封顶）。"""
+    import numpy as np
+    if isinstance(value, np.ndarray):
+        return {"shape": list(value.shape), "dtype": str(value.dtype)}
+    if isinstance(value, (np.floating, np.integer, np.bool_)):
+        return value.item()
+    if isinstance(value, dict) and _depth < 6:
+        return {str(k): _json_summary(v, _depth + 1)
+                for k, v in list(value.items())[:64]}
+    if isinstance(value, (list, tuple)):
+        items = [_json_summary(v, _depth + 1) for v in value[:32]]
+        if len(value) > 32:
+            items.append(f"...(共 {len(value)} 项，截断)")
+        return items
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 class PluginRuntime:
@@ -282,6 +327,10 @@ class PluginRuntime:
             "summary": raw.get("summary"),
             "plan": raw.get("plan"),
         }
+        # 通用数据透传（基类统一 2026-09-16）：非 video 形态插件的结果键
+        # 原样出线（如 rust-coding 的 label/confidence）；帧本体仍被拒之
+        # 门外，ndarray 压成形状摘要防 JSON 膨胀
+        result["data"] = _passthrough_data(raw)
         frames = raw.get("frames")
         if save_dir is not None and isinstance(frames, list) and frames:
             names = frames_to_png_files(frames, save_dir)

@@ -26,8 +26,13 @@ from pydantic import BaseModel, Field
 from ..middleware.error_handler import ApiError, ok
 from ..services.offload import run_blocking
 from ..services.plugin_runtime import get_plugin_runtime
+from ..services.plugin_runtime.kernel_gateway import get_plugin_kernel
 from ..services.plugin_runtime.loader import read_image_as_frame
-from ..services.plugin_runtime.registry import PluginRuntimeError
+from ..services.plugin_runtime.registry import (
+    MIN_FREE_RAM_GB,
+    PluginRuntimeError,
+    _json_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,11 @@ class ShotSpec(BaseModel):
 
 
 class PluginInvokeRequest(BaseModel):
-    """invoke 请求（P1 为 video-making 形态；P3 标准化时再抽通用 spec）。"""
+    """invoke 请求：video 形态（keyframes/shots）或通用形态（data）。
+
+    keyframes/shots 给值走 video-making 规格校验；否则 data 原样作为
+    插件 spec（如 rust-coding 的 {"code": ...}）。两态至少其一。
+    """
     keyframes: list[str] = Field(
         default_factory=list,
         description="服务端图片路径列表（漫剧关键帧/资产图）")
@@ -52,6 +61,9 @@ class PluginInvokeRequest(BaseModel):
     save_to: str | None = Field(
         default=None, description="帧输出目录名（仅名字，落 data/plugins/output 下）")
     timeout_s: float = Field(default=180.0, ge=1.0, le=600.0)
+    data: dict[str, Any] | None = Field(
+        default=None,
+        description="通用形态插件 spec（非 video 插件用，如 {\"code\": ...}）")
 
 
 def _translate(exc: PluginRuntimeError) -> ApiError:
@@ -105,8 +117,25 @@ def _read_frames(paths: list[str]) -> list[Any]:
 @router.post("/plugins/{name}/invoke")
 async def invoke_plugin(name: str, req: PluginInvokeRequest
                         ) -> dict[str, Any]:
-    """执行插件任务：spec 校验 → 自动加载 → 渲染 → 统计+可选落盘。"""
+    """执行插件任务：video 形态（keyframes）或通用形态（data）。
+
+    video 形态：spec 校验 → 自动加载 → 渲染 → 统计+可选落盘；
+    通用形态：data 原样作 spec → 自动加载 → 结果键透传（label 等）。
+    """
     rt = get_plugin_runtime()
+    if not req.keyframes and req.data is None:
+        raise ApiError("PLUGIN_SPEC_MISMATCH",
+                       "keyframes 与 data 至少提供其一",
+                       suggestion="video 形态传关键帧图片路径；"
+                                  "通用形态传 data（如 {\"code\": ...}）")
+    if req.data is not None and not req.keyframes:
+        # 通用形态：data 原样作 spec（无 video 校验、无读图）
+        try:
+            result = await rt.invoke(name, dict(req.data),
+                                     timeout_s=req.timeout_s)
+        except PluginRuntimeError as exc:
+            raise _translate(exc) from exc
+        return ok(result)
     if not req.keyframes:
         raise ApiError("PLUGIN_SPEC_MISMATCH", "keyframes 不能为空",
                        suggestion="至少提供 1 张关键帧图片路径")
@@ -145,3 +174,43 @@ async def invoke_plugin(name: str, req: PluginInvokeRequest
     except PluginRuntimeError as exc:
         raise _translate(exc) from exc
     return ok(result)
+
+
+# ── 内核接线（2026-09-16 拍板：CuteMamen 内核产品入口） ──────────
+
+class KernelThinkRequest(BaseModel):
+    """内核 think 请求：按主题路由到插件（未加载自动热加载）。"""
+    topic: str = Field(min_length=1, max_length=64,
+                       description="路由主题（如 rust / video）")
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="事件数据（如 rust 传 {\"code\": ...}）")
+
+
+@router.get("/plugins/kernel")
+async def kernel_status() -> dict[str, Any]:
+    """内核状态：统计 + 已挂载/已登记插件（轻量，无加载副作用）。"""
+    kernel = get_plugin_kernel()
+    return ok({"kernel": kernel.stats(),
+               "plugins": kernel.list_plugins()})
+
+
+@router.post("/plugins/kernel/think")
+async def kernel_think(req: KernelThinkRequest) -> dict[str, Any]:
+    """内核路由一次事件 → 目标插件 on_think → 结果（JSON 安全化出线）。
+
+    纯 CPU 轻量内核（numpy），帧本体等大数组压成形状摘要；
+    RAM 闸口径与 registry.invoke 一致。
+    """
+    import psutil
+    avail_gb = psutil.virtual_memory().available / (1 << 30)
+    if avail_gb < MIN_FREE_RAM_GB:
+        raise ApiError("PLUGIN_RAM_LOW",
+                       f"系统可用内存不足（{avail_gb:.1f}GB < {MIN_FREE_RAM_GB}GB）",
+                       suggestion="关闭其他大内存任务后重试")
+    kernel = get_plugin_kernel()
+    results = await run_blocking(
+        kernel.think, {"topic": req.topic, "data": req.data})
+    safe = [_json_summary(r) for r in results if r is not None]
+    routed = len(safe) > 0
+    return ok({"topic": req.topic, "routed": routed, "results": safe})

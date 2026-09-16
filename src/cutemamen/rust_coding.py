@@ -19,11 +19,16 @@ from typing import Any
 
 import numpy as np
 
-from .plugin import ExpertPlugin, PluginContext
+try:  # cutemamen 内核直连 (DistributedFormer 包内相对导入)
+    from .plugin import ExpertPlugin, PluginContext
+except ImportError:  # 宿主独立执行 (OmniSpace plugin_runtime 注入 omnispace.plugin)
+    from omnispace.plugin import ExpertPlugin, PluginContext
 
 # 相对导入真实语料 (src.data.rust_coding)
 try:
     from ..data.rust_coding import LABELS, RUST_SNIPPETS, static_metrics, structure_metrics
+except ImportError:  # 宿主独立执行：绝对路径（仓库内单一语料真源）
+    from src.data.rust_coding import LABELS, RUST_SNIPPETS, static_metrics, structure_metrics
 except Exception:  # pragma: no cover - 极罕见时序问题, 见 _ensure_corpus
     LABELS, RUST_SNIPPETS = [], []
     static_metrics = structure_metrics = None
@@ -134,8 +139,12 @@ class RustCodingPlugin(ExpertPlugin):
         .CuteMamen 包只存读出权重与配置 (depth/dim/seed), 不存水库
         本体 —— 水库由 seed 确定性重建, 特征与训练时逐位一致。
         """
-        from ..data.real_dataset import RustCodingTrainingDataset
-        from ..training.readout import CubeFeatureExtractor
+        try:
+            from ..data.real_dataset import RustCodingTrainingDataset
+            from ..training.readout import CubeFeatureExtractor
+        except ImportError:  # 宿主独立执行 (OSP loader 注入形态)
+            from src.data.real_dataset import RustCodingTrainingDataset
+            from src.training.readout import CubeFeatureExtractor
         cfg = self.readout
         if self._dataset is None:
             self._dataset = RustCodingTrainingDataset(dim=cfg["dim"])
@@ -199,10 +208,13 @@ class RustCodingPlugin(ExpertPlugin):
             return {"label": "ok", "label_name": "合法代码 (可编译)",
                     "rustc": "-", "confidence": 0.0, "needs_corpus": True}
         # 触发一次工作记忆写入 + 事件总线广播 (插件间通信)
+        # 工作记忆是内核侧设施——宿主(OSP)形态的 ctx 没有它, 缺席时跳过
         if ctx is not None:
-            ctx.working_memory.push(
-                f"rust_{ctx.kernel_version}_{len(ctx.working_memory.recent_events)}",
-                f.astype(float), np.array([confidence]))
+            wm = getattr(ctx, "working_memory", None)
+            if wm is not None:
+                wm.push(
+                    f"rust_{ctx.kernel_version}_{len(wm.recent_events)}",
+                    f.astype(float), np.array([confidence]))
             ctx.emit("rust.classified",
                      {"label": label, "confidence": confidence,
                       "code_len": len(code),

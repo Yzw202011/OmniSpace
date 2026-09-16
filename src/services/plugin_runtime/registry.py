@@ -56,6 +56,7 @@ _SEED_PLUGINS: dict[str, dict[str, str]] = {
         "source_py": "src/cutemamen/video_making.py",
         "pkg": "plugin/VideoMaking.CuteMamen",
         "trust": "repo_curated",
+        "capability": "轻量视频生成内核：关键帧+运镜曲线→帧序列（纯 numpy 零 GPU）",
     },
     "rust-coding": {
         # Rust 报错分类器（2026-09-16 登记拍板）：342 行逐行审查在案——
@@ -65,6 +66,7 @@ _SEED_PLUGINS: dict[str, dict[str, str]] = {
         "source_py": "src/cutemamen/rust_coding.py",
         "pkg": "plugin/RustCoding.CuteMamen",
         "trust": "repo_curated",
+        "capability": "Rust 编译错误分类器（move/borrow/lifetime/type/ok 五类）",
     },
 }
 
@@ -179,7 +181,8 @@ class PluginRuntime:
                 name=name,
                 source_py=ROOT_DIR / spec["source_py"],
                 pkg_path=ROOT_DIR / spec["pkg"] if spec.get("pkg") else None,
-                trust=spec["trust"])
+                trust=spec["trust"],
+                manifest={"capability": spec.get("capability", "")})
         self._load_user_registry()
 
     def _load_user_registry(self) -> None:

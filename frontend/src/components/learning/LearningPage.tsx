@@ -6,10 +6,11 @@
  *   2. TopicManager       学习主题管理列表
  *   3. BrowserView        内置浏览器窗口（可展开/收起）
  *   4. BehaviorStats      行为学习面板
- *   5. KnowledgeBrowser   知识库管理
- *   6. ImportDoc          导入文档区域
- *   7. LearningSettings   学习设置
- *   8. TrainTaskSection   训练任务（沿用既有 LearnView，零回归）
+ *   5. AnalysisReport     学习分析报表（效率/来源/趋势/主题对比，2026-09-17）
+ *   6. KnowledgeBrowser   知识库管理
+ *   7. ImportDoc          导入文档区域
+ *   8. LearningSettings   学习设置
+ *   9. TrainTaskSection   训练任务（沿用既有 LearnView，零回归）
  * ========================================================================== */
 
 import React from 'react';
@@ -18,9 +19,11 @@ import LearningDashboard from './LearningDashboard';
 import TopicManager from './TopicManager';
 import BrowserView from './BrowserView';
 import BehaviorStatsPanel from './BehaviorStats';
+import AnalysisReport from './AnalysisReport';
 import KnowledgeBrowser from './KnowledgeBrowser';
 import ImportDoc from './ImportDoc';
 import LearningSettingsPanel from './LearningSettings';
+import LoRAVersionManager from './LoRAVersionManager';
 import LearnView from '@/components/learn/LearnView';
 
 export const LearningPage: React.FC = () => {
@@ -34,6 +37,7 @@ export const LearningPage: React.FC = () => {
         <TopicManager />
         <BrowserView />
         <BehaviorStatsPanel />
+        <AnalysisReport />
         <KnowledgeBrowser />
         <ImportDoc />
         <LearningSettingsPanel />
@@ -43,6 +47,9 @@ export const LearningPage: React.FC = () => {
           <h3 className="card-title"><Dumbbell size={16} aria-hidden="true" /> 训练任务</h3>
           <LearnView />
         </section>
+
+        {/* 训练域 LoRA 版本管理（LEARN-035，2026-09-17 接线） */}
+        <LoRAVersionManager />
       </div>
     </div>
   );

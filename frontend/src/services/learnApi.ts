@@ -16,6 +16,8 @@
  * - POST /learn/crawl /learn/auto  网页爬取 / 自动学习
  * ========================================================================== */
 
+import { z } from 'zod';
+import { parseWith } from './schema';
 import { get, post, del, upload } from './api';
 import type { QueryParams } from './api';
 import type {
@@ -243,3 +245,46 @@ export default {
   getCapability,
 };
 // 本项目仅供学习使用，商业授权请+Q 3559331368
+
+/* ── LoRA 版本管理（LEARN-035；2026-09-17 前端接线，Zod 校验） ── */
+
+export interface LoraVersion {
+  version: string;
+  quality_score?: number | null;
+  data_count?: number;
+  status?: string;
+  created_at?: number;
+  [k: string]: unknown;
+}
+
+/** 版本列表（GET /learn/lora/versions） */
+export async function listLoraVersions(): Promise<{
+  items: LoraVersion[];
+  current: string;
+}> {
+  const res = await get<unknown>('/learn/lora/versions');
+  return parseWith(
+    z.object({
+      items: z.array(z.object({ version: z.string() }).passthrough()),
+      current: z.string().optional().default(''),
+    }).passthrough(),
+    res, 'LoRA 版本',
+  );
+}
+
+/** 版本对比（GET /learn/lora/versions/compare?a=&b=）：字段级差异 */
+export async function compareLoraVersions(
+  a: string,
+  b: string,
+): Promise<{ fields: Record<string, { a: unknown; b: unknown; diff?: unknown }> }> {
+  const res = await get<unknown>('/learn/lora/versions/compare', { a, b });
+  return parseWith(
+    z.object({ fields: z.record(z.string(), z.unknown()) }).passthrough(),
+    res, '版本对比',
+  ) as { fields: Record<string, { a: unknown; b: unknown; diff?: unknown }> };
+}
+
+/** 版本回滚（POST /learn/lora/rollback） */
+export async function rollbackLoraVersion(version: string): Promise<void> {
+  await post<unknown>('/learn/lora/rollback', { version });
+}

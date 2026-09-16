@@ -15,7 +15,9 @@
  * 说明：路径前缀 /v1 由 services/api.ts 的 API_BASE 提供。
  * ========================================================================== */
 
+import { z } from 'zod';
 import { get, post, put, del, upload, request } from './api';
+import { parseWith } from './schema';
 import type { QueryParams } from './api';
 
 /* ------------------------------ 类型定义 ------------------------------ */
@@ -404,6 +406,100 @@ export function trackBehavior(
   void postBehaviorEvent({ event_type: eventType, ...opts }).catch(() => {
     /* 后端未就绪时静默丢弃 */
   });
+}
+
+/* ── 学习分析报表（LEARN-049~052；2026-09-17 前端接线，Zod 校验） ── */
+
+/** 学习效率（GET /learn/analysis/efficiency?days=N） */
+const LearnEfficiencySchema = z
+  .object({
+    days: z.number(),
+    sessions: z.number(),
+    pages_visited: z.number(),
+    knowledge_extracted: z.number(),
+    extraction_rate: z.number(),
+    per_hour: z.number(),
+    hours: z.number(),
+  })
+  .passthrough();
+export type LearnEfficiency = z.infer<typeof LearnEfficiencySchema>;
+
+export async function getLearnEfficiency(days = 30): Promise<LearnEfficiency> {
+  const res = await get<unknown>('/learn/analysis/efficiency', { days });
+  return parseWith(LearnEfficiencySchema, res, '学习效率');
+}
+
+/** 来源分析（GET /learn/analysis/sources?limit=N） */
+const LearnSourceSchema = z.object({
+  domain: z.string(),
+  count: z.number(),
+  avg_quality_score: z.number(),
+}).passthrough();
+
+export type LearnSourceItem = z.infer<typeof LearnSourceSchema>;
+
+export async function getLearnSources(limit = 10): Promise<LearnSourceItem[]> {
+  const res = await get<unknown>('/learn/analysis/sources', { limit });
+  return parseWith(z.array(LearnSourceSchema),
+    (res as { items?: unknown } | null)?.items ?? [], '来源分析');
+}
+
+/** 学习趋势（GET /learn/analysis/trend?days=N） */
+const LearnTrendItemSchema = z.object({
+  date: z.string(),
+  count: z.number(),
+  avg_quality_score: z.number(),
+}).passthrough();
+export type LearnTrendItem = z.infer<typeof LearnTrendItemSchema>;
+
+export async function getLearnTrend(days = 30): Promise<LearnTrendItem[]> {
+  const res = await get<unknown>('/learn/analysis/trend', { days });
+  return parseWith(z.array(LearnTrendItemSchema),
+    (res as { items?: unknown } | null)?.items ?? [], '学习趋势');
+}
+
+/** 主题对比（GET /learn/analysis/topic-compare?topics=A,B） */
+const LearnTopicCompareItemSchema = z.object({
+  topic: z.string(),
+  knowledge_count: z.number(),
+  avg_quality_score: z.number(),
+  latest_at: z.number(),
+}).passthrough();
+export type LearnTopicCompareItem = z.infer<typeof LearnTopicCompareItemSchema>;
+
+export async function getLearnTopicCompare(
+  topics?: string[],
+): Promise<LearnTopicCompareItem[]> {
+  const query = topics && topics.length > 0 ? { topics: topics.join(',') } : undefined;
+  const res = await get<unknown>('/learn/analysis/topic-compare', query);
+  return parseWith(z.array(LearnTopicCompareItemSchema),
+    (res as { items?: unknown } | null)?.items ?? [], '主题对比');
+}
+
+/** 行为训练数据对预览（GET /behavior/training-pairs?limit=N） */
+const TrainingPairSchema = z.object({
+  instruction: z.string().optional().default(''),
+  input: z.string().optional().default(''),
+  output: z.string().optional().default(''),
+}).passthrough();
+export type TrainingPair = z.infer<typeof TrainingPairSchema>;
+
+export async function getBehaviorTrainingPairs(limit = 5): Promise<{
+  items: TrainingPair[];
+  total: number;
+  should_trigger_finetune: boolean;
+}> {
+  const res = await get<unknown>('/behavior/training-pairs', { limit });
+  const parsed = parseWith(
+    z.object({
+      items: z.array(TrainingPairSchema),
+      total: z.number(),
+      should_trigger_finetune: z.boolean(),
+    }).passthrough(),
+    res,
+    '行为训练对',
+  );
+  return parsed;
 }
 
 /** 行为学习统计 */

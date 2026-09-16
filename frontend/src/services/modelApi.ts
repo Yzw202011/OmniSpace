@@ -43,6 +43,71 @@ export async function listModels(query?: QueryParams): Promise<ModelInfo[]> {
   return parseWith(z.array(ModelItemSchema), raw, '模型列表') as ModelInfo[];
 }
 
+/* ── 性能基准与导出（MODEL-037/038；2026-09-17 前端接线，Zod 校验） ── */
+
+/** 跑分结果（POST /models/benchmark） */
+const BenchmarkResultSchema = z
+  .object({
+    model_id: z.string(),
+    engine: z.string().optional().default(''),
+    runs: z.number().optional().default(0),
+    tokens_per_s: z.number(),
+    first_token_ms: z.number(),
+    total_ms: z.number().optional().default(0),
+    output_tokens: z.number().optional().default(0),
+    vram_peak_gb: z.number().optional().default(0),
+  })
+  .passthrough();
+export type BenchmarkResult = z.infer<typeof BenchmarkResultSchema>;
+
+export async function runBenchmark(
+  modelId: string,
+  runs = 3,
+): Promise<BenchmarkResult> {
+  const res = await post<unknown>('/models/benchmark', {
+    model_id: modelId, runs, max_new_tokens: 32,
+  });
+  return parseWith(BenchmarkResultSchema, res, '模型跑分');
+}
+
+/** 跑分历史条目（GET /models/benchmark/history） */
+const BenchmarkHistoryItemSchema = z
+  .object({
+    model_id: z.string(),
+    engine: z.string().optional().default(''),
+    runs: z.number().optional().default(0),
+    tokens_per_s: z.number(),
+    first_token_ms: z.number(),
+    total_ms: z.number().optional().default(0),
+    vram_peak_gb: z.number().optional().default(0),
+    created_at: z.number().optional().default(0),
+  })
+  .passthrough();
+export type BenchmarkHistoryItem = z.infer<typeof BenchmarkHistoryItemSchema>;
+
+export async function getBenchmarkHistory(
+  modelId = '',
+): Promise<BenchmarkHistoryItem[]> {
+  const res = await get<unknown>('/models/benchmark/history',
+    modelId ? { model_id: modelId } : undefined);
+  const raw = (res as { items?: unknown } | null)?.items ?? [];
+  return parseWith(z.array(BenchmarkHistoryItemSchema), raw, '跑分历史');
+}
+
+/** 模型导出（POST /models/export：模型目录 → tar.gz + SHA256 侧车） */
+const ModelExportResultSchema = z
+  .object({
+    model_id: z.string(),
+    export_path: z.string(),
+  })
+  .passthrough();
+export type ModelExportResult = z.infer<typeof ModelExportResultSchema>;
+
+export async function exportModel(modelId: string): Promise<ModelExportResult> {
+  const res = await post<unknown>('/models/export', { model_id: modelId });
+  return parseWith(ModelExportResultSchema, res, '模型导出');
+}
+
 /** 模型详情（Zod 校验） */
 export async function getModelDetail(modelId: string): Promise<ModelInfo> {
   const res = parseWith(

@@ -52,6 +52,7 @@ import type { VllmStatus } from '@/services/modelApi';
 import { formatDuration, truncate } from '@/utils/format';
 import { MODEL_RUNTIME_STATUS_LABELS } from '@/constants/statusLabels';
 import { Modal } from '@/components/common/Modal';
+import BenchmarkCard from './BenchmarkCard';
 import { ModuleModelConfig } from '@/components/model/ModuleModelConfig';
 import { ReadinessBanner } from '@/components/model/ReadinessBanner';
 import type { ModelInfo } from '@/types';
@@ -830,6 +831,9 @@ export const ModelManager: React.FC = () => {
 
       {/* 模型就绪总检（体验流 #3）：模块级绿/灰+缺件指路，置顶当验收门面 */}
       <ReadinessBanner />
+
+      {/* 性能基准（MODEL-038，2026-09-17 接线）：跑分 + 历史 + 导出 */}
+      <BenchmarkCard />
 
       {/* 本机配置推荐：按本机 GPU 显存筛选可流畅运行的模型，并给出各类型最佳型号 */}
       <section className="mm-reco" aria-label="本机配置推荐">

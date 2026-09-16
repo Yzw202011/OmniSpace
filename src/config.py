@@ -165,7 +165,7 @@ UI_PRIMARY_COLOR = _cfg["ui"]["primary_color"]
 UI_FONT = _cfg["ui"]["font"]
 UI_AI_GENERATED_BG = _cfg["ui"]["ai_generated_bg"]
 
-APP_VERSION = str(_cfg.get("app", {}).get("version", "2.3.1"))
+APP_VERSION = str(_cfg.get("app", {}).get("version", "2.5.0"))
 
 # 构建号（P1 单一真源方案）：config.yaml 的 app.version 是唯一手写处；
 # make_dist.py 出包时在包内生成 src/build_info.py（版本+git 短哈希+日期），

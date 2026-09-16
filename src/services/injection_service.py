@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 RAG 混合检索注入对话（TASK-034 + TASK-051）。
+"""OmniSpace AI v2.5.0 RAG 混合检索注入对话（TASK-034 + TASK-051）。
 
 混合检索（TASK-051）：
   路1 向量召回 — ChromaDB 语义相似度（bge-large-zh 嵌入）。

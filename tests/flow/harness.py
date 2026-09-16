@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 全功能模块测试 harness（极致颗粒细度增强版）。
+"""OmniSpace AI v2.5.0 全功能模块测试 harness（极致颗粒细度增强版）。
 
 用法：
     runtime/py310/python.exe -m tests.flow.run <模块名|all> [--write]

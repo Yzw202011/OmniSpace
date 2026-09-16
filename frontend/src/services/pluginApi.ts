@@ -1,5 +1,5 @@
 /**
- * OmniSpace AI v2.3.1 —— 插件系统 API（对齐后端 src/api/plugins.py）
+ * OmniSpace AI v2.5.0 —— 插件系统 API（对齐后端 src/api/plugins.py）
  * --------------------------------------------------------------------------
  * - GET    /plugins                       插件清单（含信任档/来源/状态）
  * - POST   /plugins/import                导入用户插件（multipart，2026-09-16）

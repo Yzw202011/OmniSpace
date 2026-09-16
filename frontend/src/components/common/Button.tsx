@@ -1,6 +1,6 @@
 /**
  * Button 通用按钮组件
- * OmniSpace AI v2.3.1 — Sakura 暗色主题（主色 var(--color-primary-500)，规格 §6.3.1）
+ * OmniSpace AI v2.5.0 — Sakura 暗色主题（主色 var(--color-primary-500)，规格 §6.3.1）
  * --------------------------------------------------------------------------
  * 支持 4 种样式变体（primary / secondary / danger / ghost）、3 种尺寸
  * （sm / md / lg）以及 loading 加载态（显示旋转图标并禁用交互）。

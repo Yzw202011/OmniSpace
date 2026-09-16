@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 知识图谱存储（TASK-055）。
+"""OmniSpace AI v2.5.0 知识图谱存储（TASK-055）。
 
 职责：保存知识处理管线抽取的实体关系三元组（实体1, 关系, 实体2），
 为 GET /v1/learn/knowledge/graph 提供节点/边查询。

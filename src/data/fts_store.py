@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 全文检索存储（TASK-051 混合检索 · 关键词路）。
+"""OmniSpace AI v2.5.0 全文检索存储（TASK-051 混合检索 · 关键词路）。
 
 实现：SQLite FTS5（trigram 分词器，中文按 3 字滑窗索引）。
 - 入库/删除与 knowledge_service 的知识生命周期同步（同步写入/移除）。

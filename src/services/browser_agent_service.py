@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 AI 浏览 Agent 决策循环（TASK-032/040/042/052）。
+"""OmniSpace AI v2.5.0 AI 浏览 Agent 决策循环（TASK-032/040/042/052）。
 
 主循环：感知(perceive)→理解(understand)→决策(decide)→执行(execute)
        →知识提取(extract)→评估(evaluate)，每 5 分钟保存检查点。

@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 SQLite 数据库管理（规格 §7 数据库 / §14 约束1 本地存储）。
+"""OmniSpace AI v2.5.0 SQLite 数据库管理（规格 §7 数据库 / §14 约束1 本地存储）。
 
 敏感字段级加密（P2-05 / RTM A-02，2026-08-20）：dialog_messages.content 与
 behavior_logs.content/context/before/after 经 crypto.py AES-256-GCM 加密落盘

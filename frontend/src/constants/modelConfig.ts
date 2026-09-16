@@ -1,6 +1,6 @@
 import { mirrorPref } from '@/services/uiPrefs';
 /* ==========================================================================
- * OmniSpace AI v2.3.1 —— 漫剧模型配置持久化（TASK-P2-07 迁出 ModelConfigModal）
+ * OmniSpace AI v2.5.0 —— 漫剧模型配置持久化（TASK-P2-07 迁出 ModelConfigModal）
  * --------------------------------------------------------------------------
  * localStorage 键「omnispace.manga.modelConfig」：
  * 结构 {dialogModel,paintModel,videoModel,aspect,duration}；

@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 视频风格 LoRA 服务（文档 §8.3.7 视频风格模块 / §7.1.4 /v1/style）。
+"""OmniSpace AI v2.5.0 视频风格 LoRA 服务（文档 §8.3.7 视频风格模块 / §7.1.4 /v1/style）。
 
 职责：
 - 素材管理：用户上传视频/图片 → data/style/datasets/{dataset_id}/（视频经

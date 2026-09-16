@@ -621,9 +621,9 @@ _DIAG_PROBES = [
     ("训练数据目录", lambda: _probe_dir_writable(DATA_DIR / "training", "训练数据目录")),
     ("导出目录可写", lambda: _probe_dir_writable(EXPORT_DIR, "导出目录")),
     ("日志目录可写", lambda: _probe_dir_writable(LOGS_DIR, "日志目录")),
-    # 诚实标注（审计 BK-018）：激活/机器指纹子系统 v2.3.1 未实现，如实告知
-    ("激活状态", lambda: ("warn", "v2.3.1 未实现激活体系（无 license 子系统），本项如实标记")),
-    ("机器指纹一致性", lambda: ("warn", "v2.3.1 未实现机器指纹体系，本项如实标记")),
+    # 诚实标注（审计 BK-018）：激活/机器指纹子系统 v2.5.0 未实现，如实告知
+    ("激活状态", lambda: ("warn", "v2.5.0 未实现激活体系（无 license 子系统），本项如实标记")),
+    ("机器指纹一致性", lambda: ("warn", "v2.5.0 未实现机器指纹体系，本项如实标记")),
     ("任务队列运行", _probe_task_queue),
     ("WS Hub 运行", _probe_ws_hub),
     ("调度引擎运行", _probe_scheduler),

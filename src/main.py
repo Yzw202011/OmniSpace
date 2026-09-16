@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 后端主入口（文档 §7.1 后端架构 / §6.4 启动时序）。
+"""OmniSpace AI v2.5.0 后端主入口（文档 §7.1 后端架构 / §6.4 启动时序）。
 
 启动时序：端口绑定 → 数据库初始化 → 文件存储/缓存 → 调度引擎 → WebSocket → 就绪。
 文档引用：§7.1 路由层 BASE_URL=/api/v1（ADR-03 由 /v1 迁移）, §8.4 模块间协调, §14 约束2: 绑定127.0.0.1:5800
@@ -56,7 +56,7 @@ except Exception:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("=" * 60)
-    log.info("OmniSpace AI v2.3.1 后端启动 (%s:%s)", config.HOST, config.PORT)
+    log.info("OmniSpace AI v2.5.0 后端启动 (%s:%s)", config.HOST, config.PORT)
     log.info("版本: %s", config.APP_VERSION)
     log.info("=" * 60)
     # 全机单实例限制（2026-08-31）：双栈叠载会塞爆显存（当日实测关键帧采样
@@ -461,7 +461,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="OmniSpace AI",
         version=config.APP_VERSION,
-        description="OmniSpace AI v2.3.1 — 全模态创作工作站",
+        description="OmniSpace AI v2.5.0 — 全模态创作工作站",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,

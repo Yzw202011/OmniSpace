@@ -3,7 +3,7 @@
  * HelpPage.tsx —— 帮助页（/help）
  * --------------------------------------------------------------------------
  * 静态中文使用指南：
- *   六大模块简介 / 快速上手 5 步 / 快捷键表 / 常见问题 6 条 / 关于卡片 v2.3.1
+ *   六大模块简介 / 快速上手 5 步 / 快捷键表 / 常见问题 6 条 / 关于卡片 v2.5.0
  * 纯静态内容，使用 Sakura 主题样式（card / badge / input 等）。
  * ========================================================================== */
 
@@ -193,7 +193,7 @@ export const HelpPage: React.FC = () => {
               <div style={{ fontWeight: 'var(--font-weight-semibold)' }}>OmniSpace AI</div>
               <div className="text-secondary text-sm">本地优先的一站式 AI 创作工作台</div>
             </div>
-            <span className="badge info">v2.3.1</span>
+            <span className="badge info">v2.5.0</span>
           </div>
           <div className="text-tertiary mt-3" style={{ fontSize: 'var(--font-size-xs)' }}>
             Sakura 主题 · React 19 + Vite 6 · 全部数据本地存储

@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 LoRA 增量微调服务（TASK-038 / TASK-053 训练加速）。
+"""OmniSpace AI v2.5.0 LoRA 增量微调服务（TASK-038 / TASK-053 训练加速）。
 
 职责：
 - 训练数据准备：合并 ChromaDB 知识（QA 格式，try import knowledge_service 容错）

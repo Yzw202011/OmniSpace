@@ -51,7 +51,7 @@ def main() -> None:
 
     lines: list[str] = []
     w = lines.append
-    w("# OmniSpace AI v2.3.1 全功能模块操作流程测试报告")
+    w("# OmniSpace AI v2.5.0 全功能模块操作流程测试报告")
     w("")
     w("测试计划：《OmniSpace_AI_v2.3.1_全功能模块操作流程测试计划"
       "（极致颗粒细度增强版）》474 条用例，逐条执行。")

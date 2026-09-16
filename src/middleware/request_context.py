@@ -1,4 +1,4 @@
-"""OmniSpace AI v2.3.1 请求上下文（文档B/D：统一响应 meta 字段支撑）。
+"""OmniSpace AI v2.5.0 请求上下文（文档B/D：统一响应 meta 字段支撑）。
 
 为统一响应信封的 meta{request_id, timestamp, duration_ms} 提供请求级上下文：
   - 每个 HTTP 请求进入时生成 uuid4 request_id 并记录起始时间；

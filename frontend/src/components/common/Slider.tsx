@@ -1,7 +1,7 @@
 // 本项目仅供学习使用，商业授权请+Q 3559331368
 /**
  * Slider 滑块组件
- * OmniSpace AI v2.3.1 — Sakura 暗色主题
+ * OmniSpace AI v2.5.0 — Sakura 暗色主题
  * --------------------------------------------------------------------------
  * 受控滑块，支持 min / max / step / value / onChange，
  * 轨道以 Sakura 主色（var(--color-primary-500)）填充、底色 var(--color-input-bg)，并在标签行展示当前数值。

@@ -333,10 +333,12 @@ def _clamp_size(value: Any, default: int = 1024) -> int:
 
 def _parse_common(body: dict) -> dict:
     """解析并归一化绘画公共参数。"""
+    # 缺省 8 步（2026-09-16 拍板 balanced 档，与 DrawRequest/config 对齐；
+    # 旧 30 为历史口径）
     try:
-        steps = int(body.get("steps", 30))
+        steps = int(body.get("steps", 8))
     except (TypeError, ValueError):
-        steps = 30
+        steps = 8
     try:
         cfg = float(body.get("cfg", body.get("cfg_scale",
                                              body.get("guidance_scale", 7.5))))

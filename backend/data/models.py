@@ -534,7 +534,9 @@ class DrawRequest(BaseModel):
     negative_prompt: str = ""
     width: int = Field(default=1024, ge=512, le=2688)
     height: int = Field(default=1024, ge=512, le=2688)
-    steps: int = Field(default=20, ge=4, le=50)
+    # 默认 8 步（2026-09-16 拍板 balanced 档）：A/B 实证与 36 步平齐、
+    # 快 4.2×；旧默认 20 为 legacy diffusers 时代口径
+    steps: int = Field(default=8, ge=4, le=50)
     guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
     model: str | None = None
     controlnet: dict | None = None

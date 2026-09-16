@@ -115,13 +115,16 @@ paint:
   default_steps: 20
   default_guidance: 7.5
   max_batch_size: 4
-  # 出图档位（批1a 2026-09-12）：fast = klein 蒸馏系原生 4 步 + cfg1.0
-  # （叠 SageAttention 双重加速，A/B 实测 1280x720 46.5s→4.1s ≈11 倍，
-  # 目验质量与 36 步基本无差，见 tools/scratch/paint_preset_ab.py 与
-  # data/comfyui/output/ab_preset_0000*.png）；quality = 历史 36 步/
-  # cfg4.0。显式传 steps/cfg 的调用方（漫剧关键帧链）不受此档影响。
-  # 默认 quality：默认档切换须先过漫剧关键帧全链一致性 A/B 再拍板。
-  preset: quality
+  # 出图档位（批1a 2026-09-12；**2026-09-16 拍板扩三档**）：
+  # fast = klein 蒸馏系原生 4 步 + cfg1.0（叠 SageAttention 双重加速，
+  # A/B 实测 1280x720 46.5s→4.1s ≈11 倍，4 步有可感细节损失）；
+  # balanced = 8 步 / cfg4.0（**默认档，2026-09-16 拍板**：A/B 实证
+  # 8 步与 36 步目验平齐 8.2 分、快 4.2×——同种子同题 36 步 58.5s vs
+  # 8 步 14.1s，证据 data/generated/images/01fb088e*/33c6acbb* +
+  # logs/ab_steps_p1.json）；quality = 历史 36 步/cfg4.0。显式传
+  # steps/cfg 的调用方（漫剧关键帧链 36 步）不受此档影响——关键帧
+  # PuLID+多参考组合的 8 步 A/B 未做，维持 36 待验。
+  preset: balanced
   # 生图引擎档（v3-W3-C 2026-09-13）：comfy=ComfyUI klein-9b-fp8 新栈
   # （分镜行预览/资产生成图/draw 链走 comfy_paint_generate，steps/cfg
   # 走上面 preset 档）；legacy=旧 diffusers klein-4b 栈。**默认 comfy

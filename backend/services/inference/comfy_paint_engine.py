@@ -96,32 +96,41 @@ _TASK_TIMEOUT_MARGIN_S = 240.0      # 任务超时 = ETA + 固定余量（含模
 _MAX_WF_REFS = 8
 
 
-def _fast_preset(params: dict) -> bool:
-    """绘画步数/CFG 档位（批1a 2026-09-12）：fast = klein 蒸馏系原生
-    4 步 + cfg1.0（叠 SageAttention = 双重加速）；quality = 历史
+def _preset_name(params: dict) -> str:
+    """绘画步数/CFG 档位（批1a 2026-09-12；2026-09-16 拍板扩三档）：
+    fast = klein 蒸馏系原生 4 步 + cfg1.0（叠 SageAttention = 双重
+    加速）；balanced = 8 步 / cfg4.0（**默认档，2026-09-16 拍板**：
+    A/B 实证 8 步与 36 步目验平齐 8.2 分、快 4.2×）；quality = 历史
     36 步 / cfg4.0 原样。调用方显式传 steps/cfg 时优先级最高（不破坏
-    既有调用与单测）；config paint.preset 门控，默认 quality（A/B
-    实证后可改 fast）。"""
+    既有调用与单测）；config paint.preset 门控。"""
     preset = str(params.get("preset") or "").strip().lower()
-    if preset in ("fast", "quality"):
-        return preset == "fast"
+    if preset in ("fast", "quality", "balanced"):
+        return preset
     try:
         from backend.config import get_config
         _cfg = str((get_config().get("paint") or {}).get(
-            "preset", "quality")).strip().lower()
-        return _cfg == "fast"
-    except Exception:  # noqa: BLE001 - 配置异常按 quality 处理
-        return False
+            "preset", "balanced")).strip().lower()
+        return _cfg if _cfg in ("fast", "quality", "balanced") else "balanced"
+    except Exception:  # noqa: BLE001 - 配置异常按 balanced 处理
+        return "balanced"
+
+
+def _fast_preset(params: dict) -> bool:
+    """fast 档判定（保留原签名——test_keyframe_multiref 的 shim 提取
+    依赖此名）。"""
+    return _preset_name(params) == "fast"
 
 
 def _effective_steps_cfg(params: dict) -> tuple[int, float]:
-    """档位感知的有效 (steps, cfg)：fast = 4 步 / cfg1.0，quality =
-    36 步 / cfg4.0（历史口径）；调用方显式传值优先。所有消费
-    steps/cfg 默认值的点位（工作流构造 / 日志 / ETA 超时）统一走此
-    函数，避免档位间口径漂移。"""
-    if _fast_preset(params):
-        return int(params.get("steps") or 4), float(params.get("cfg") or 1.0)
-    return int(params.get("steps") or 36), float(params.get("cfg") or 4.0)
+    """档位感知的有效 (steps, cfg)：fast = 4 步 / cfg1.0；balanced =
+    8 步 / cfg4.0（默认，2026-09-16 拍板）；quality = 36 步 / cfg4.0
+    （历史口径）；调用方显式传值优先。所有消费 steps/cfg 默认值的
+    点位（工作流构造 / 日志 / ETA 超时）统一走此函数，避免档位间
+    口径漂移。"""
+    defaults = {"fast": (4, 1.0), "balanced": (8, 4.0),
+                "quality": (36, 4.0)}[_preset_name(params)]
+    return (int(params.get("steps") or defaults[0]),
+            float(params.get("cfg") or defaults[1]))
 
 
 def _ref_megapixels(n_refs: int) -> float:

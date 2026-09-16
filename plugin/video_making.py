@@ -25,8 +25,7 @@ route = "video": on_think 渲染帧序列并发布 "video.rendered"
 from typing import Any
 
 import numpy as np
-
-from .plugin import ExpertPlugin, PluginContext
+from omnispace.plugin import ExpertPlugin, PluginContext
 
 # ── 内置镜头运动曲线 (真实运镜惯例参数: 每镜头归一化位移/缩放/旋转) ──
 # dx/dy: 归一化平移 (画面宽高比例), zoom: 1.0 = 不缩放,

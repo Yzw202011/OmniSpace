@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = ROOT / "backend" / "torch_contract.json"
+CONTRACT = ROOT / "src" / "torch_contract.json"
 
 
 def read_torch_version(version_py: Path) -> str | None:

@@ -19,8 +19,9 @@ fi
 cd "$REPO_ROOT" || exit 1
 
 echo "[pre-commit] [1/4] compileall 语法基线..."
-# -x 排除 ComfyUI 便携目录（第三方 site-packages 含 py312 语法，py3.10 编译必炸）
-"$PY" -m compileall -q backend launcher tools -x "ComfyUI_windows_portable|musubi-tuner"
+# src 扁平化（2026-09-15）：后端真源=src/；backend/ 仅剩兼容 shim 仍纳入编译
+# -x 排除 ComfyUI 便携目录（第三方 site-packages 含 py312 语法，编译必炸）
+"$PY" -m compileall -q src backend launcher tools -x "ComfyUI_windows_portable|musubi-tuner"
 if [ $? -ne 0 ]; then
   echo ""
   echo "[pre-commit] ✗ 语法错误，提交被拦截（修复后重试）"

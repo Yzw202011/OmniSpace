@@ -94,7 +94,7 @@ def _read_app_version() -> str:
     版本是单一真源（make_dist 同源）；解析失败回退 1.0.0.0。
     """
     try:
-        text = (REPO / 'backend' / 'config.yaml').read_text(encoding='utf-8')
+        text = (REPO / 'src' / 'config.yaml').read_text(encoding='utf-8')
         m = re.search(r'^\s*version:\s*["\']?(\d+(?:\.\d+)+)', text, re.M)
         if m:
             parts = m.group(1).split('.')

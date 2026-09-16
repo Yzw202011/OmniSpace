@@ -406,13 +406,13 @@ class EnvironmentChecker:
             hash_func = _blake2b_factory
             hash_name = 'blake2b-256'
 
-        # 完整性校验清单：现行生效的核心文件（dist 双轨已剔除；sandbox 功能位于 core/security.py）
+        # 完整性校验清单（2026-09-16 src 扁平化勘误：旧 backend/core/security.py
+        # 与 app.jsx/api.js 均为不存在的史前引用，校验恒 missing）——现行真源四件
         critical_files = files or [
-            PROJECT_ROOT / 'backend' / 'main.py',
-            PROJECT_ROOT / 'backend' / 'core' / 'security.py',
-            PROJECT_ROOT / 'frontend' / 'index.html',
-            PROJECT_ROOT / 'frontend' / 'src' / 'app.jsx',
-            PROJECT_ROOT / 'frontend' / 'src' / 'api.js',
+            PROJECT_ROOT / 'src' / 'main.py',
+            PROJECT_ROOT / 'src' / 'config.yaml',
+            PROJECT_ROOT / 'launcher' / 'boot.py',
+            PROJECT_ROOT / 'frontend' / 'dist' / 'index.html',
         ]
         results = {}
         all_ok = True

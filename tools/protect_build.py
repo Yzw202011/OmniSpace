@@ -34,8 +34,8 @@ REPO = Path(__file__).resolve().parent.parent
 BUILD_TOOLS = REPO / "build_tools"
 sys.path.insert(0, str(REPO / "tools"))
 
-# 编译目标（相对包根）
-TARGETS = ["backend", "launcher", "skills"]
+# 编译目标（相对包根）；src 扁平化（2026-09-15）后后端真源=src/
+TARGETS = ["src", "launcher", "skills"]
 # 被当脚本运行（python xxx.py 直启）的文件——编译成 .pyd 就没人能启动它了
 SCRIPT_RUN = {"launcher/boot.py", "launcher/stop.py", "launcher/make_shortcut.py"}
 GCC_FLAGS = ["-DMS_WIN64", "-O1"]

@@ -89,7 +89,9 @@ def _comfy_filter(parts: tuple[str, ...]) -> bool:
 
 
 COPY_DIRS: list[tuple[str, str, object]] = [
-    ("backend", "backend", _backend_filter),
+    # src 扁平化（2026-09-15）：后端真源 backend/→src/，backend/ 仅剩
+    # 兼容 shim 不随包（包内启动链 = uvicorn src.main:app）
+    ("src", "src", _backend_filter),
     ("launcher", "launcher", _plain_filter),
     # 升级小医生（升级机制批3 2026-09-11）：独立进程换文件，随包出厂
     ("updater", "updater", _plain_filter),
@@ -131,7 +133,7 @@ SCAN_EXT = {".py", ".bat", ".ps1", ".cmd", ".yaml", ".yml", ".toml",
 # 只扫自有代码区：第三方树（runtime/pydeps）的文档示例、压缩 JS 的
 # 三元/正则语法（`a:/b/`）都会造成盘符误伤；它们的真源在出包前已由
 # portability_check.py 把过关
-SCAN_ZONES = ["backend", "launcher", "skills", "scripts/comfy_link",
+SCAN_ZONES = ["src", "launcher", "skills", "scripts/comfy_link",
               "frontend/dist/index.html", "models/models_manifest.json"]
 
 # 黑名单：包内出现任何一条即 FAIL（路径小写匹配，支持 * 通配）
@@ -192,7 +194,7 @@ ESSENTIALS = [
 
 def read_version() -> str:
     import yaml
-    cfg = yaml.safe_load((REPO / "backend" / "config.yaml").read_text("utf-8"))
+    cfg = yaml.safe_load((REPO / "src" / "config.yaml").read_text("utf-8"))
     return str(cfg["app"]["version"])
 
 
@@ -243,7 +245,7 @@ def copy_all(dest: Path) -> tuple[int, int]:
 
 
 def write_build_info(dest: Path, build_id: str) -> None:
-    (dest / "backend" / "build_info.py").write_text(
+    (dest / "src" / "build_info.py").write_text(
         '"""由 make_dist.py 生成的构建号文件（勿手改、勿提交）。"""\n'
         f'BUILD_ID = "{build_id}"\n', encoding="utf-8")
 

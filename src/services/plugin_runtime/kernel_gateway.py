@@ -75,3 +75,34 @@ def reset_plugin_kernel() -> None:
     global _kernel
     with _kernel_lock:
         _kernel = None
+
+
+def register_user_pkg(pkg_path: Any) -> bool:
+    """把用户导入的纯数据包登记进内核（think 路由即可达）。
+
+    失败不拦导入主流程（OSP invoke 仍可用），仅告警。
+    """
+    kernel = get_plugin_kernel()
+    try:
+        kernel.register_pkg(str(pkg_path))
+        return True
+    except Exception:  # noqa: BLE001 - 内核登记失败不拦导入
+        logger.warning("用户包内核登记失败: %s", pkg_path, exc_info=True)
+        return False
+
+
+def unregister_plugin(name: str) -> None:
+    """从内核移除插件登记（删除插件时同步收尾）。"""
+    global _kernel
+    with _kernel_lock:
+        kernel = _kernel
+    if kernel is None:
+        return
+    kernel.registry.pop(name, None)
+    kernel.plugins.pop(name, None)
+    for topic, target in list(kernel.route_index.items()):
+        if target == name:
+            kernel.route_index.pop(topic, None)
+    for topic, target in list(kernel.routes.items()):
+        if target == name:
+            kernel.routes.pop(topic, None)

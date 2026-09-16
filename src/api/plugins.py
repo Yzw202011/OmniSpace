@@ -16,18 +16,35 @@
 """
 from __future__ import annotations
 
+import ast
+import inspect
 import logging
+import re
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, Form, UploadFile
 from pydantic import BaseModel, Field
 
+from ..cutemamen.pkg import native_registry
 from ..middleware.error_handler import ApiError, ok
 from ..services.offload import run_blocking
 from ..services.plugin_runtime import get_plugin_runtime
-from ..services.plugin_runtime.kernel_gateway import get_plugin_kernel
-from ..services.plugin_runtime.loader import read_image_as_frame
+from ..services.plugin_runtime import registry as pr_registry
+from ..services.plugin_runtime.kernel_gateway import (
+    get_plugin_kernel,
+    register_user_pkg,
+    unregister_plugin,
+)
+from ..services.plugin_runtime.loader import (
+    PluginLoadError,
+    find_plugin_classes,
+    load_plugin_module,
+    read_cutemamen_pkg,
+    read_image_as_frame,
+)
 from ..services.plugin_runtime.registry import (
     MIN_FREE_RAM_GB,
     PluginRuntimeError,
@@ -214,3 +231,221 @@ async def kernel_think(req: KernelThinkRequest) -> dict[str, Any]:
     safe = [_json_summary(r) for r in results if r is not None]
     routed = len(safe) > 0
     return ok({"topic": req.topic, "routed": routed, "results": safe})
+
+
+# ── 用户导入（2026-09-16 拍板；规范=docs/插件开发规范.md） ────────
+
+# 源码静态安检（机器闸，规范 §2）：AST 级查禁，命中即拒
+_FORBIDDEN_MODULES = {
+    "subprocess", "socket", "urllib", "urllib3", "requests", "http",
+    "httpx", "ctypes", "pickle", "cpickle", "multiprocessing",
+    "importlib", "webbrowser", "ftplib", "smtplib", "telnetlib",
+}
+_BARE_FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "open"}
+# 属性调用黑名单：名字本身几乎不可能是良性方法（防 os.system/Path.unlink 等）
+_STRICT_ATTR_FORBIDDEN = {
+    "system", "popen", "unlink", "rmdir", "removedirs", "makedirs",
+    "mkdir", "startfile", "execv", "execve", "execvp", "execvpe",
+    "spawnl", "spawnle", "spawnv", "spawnve", "fork", "forkpty",
+    "kill", "killpg", "write_text", "write_bytes", "read_text",
+    "read_bytes",
+}
+
+
+def _scan_source_violations(code_text: str) -> list[str]:
+    """AST 静态安检：返回违规清单（行号+原因），空列表=通过。"""
+    violations: list[str] = []
+    tree = ast.parse(code_text)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in _FORBIDDEN_MODULES:
+                    violations.append(f"第 {node.lineno} 行：禁用导入 {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            root = module.split(".")[0]
+            if root in _FORBIDDEN_MODULES:
+                violations.append(f"第 {node.lineno} 行：禁用导入 from {module}")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in _BARE_FORBIDDEN_CALLS:
+                violations.append(f"第 {node.lineno} 行：禁用调用 {func.id}()")
+            elif isinstance(func, ast.Attribute) and \
+                    func.attr in _STRICT_ATTR_FORBIDDEN:
+                violations.append(f"第 {node.lineno} 行：禁用调用 .{func.attr}()")
+    return violations
+
+
+def _import_plugin_core(package_bytes: bytes, package_filename: str,
+                        source_bytes: bytes | None,
+                        source_filename: str | None,
+                        confirm_source: bool) -> dict[str, Any]:
+    """导入管线（线程体）：校验链 → 落盘 → 登记（失败清场）。"""
+    if not package_filename.lower().endswith(".cutemamen"):
+        raise ApiError("PLUGIN_PACKAGE_INVALID",
+                       f"插件包必须是 .CuteMamen 文件: {package_filename}",
+                       suggestion="选择 .CuteMamen 插件包（见 docs/插件开发规范.md §4）")
+    if len(package_bytes) > 64 * 1024 * 1024:
+        raise ApiError("PLUGIN_PACKAGE_INVALID", "插件包超过 64MB 上限")
+    if package_bytes[:2] != b"\x1f\x8b":
+        raise ApiError("PLUGIN_PACKAGE_INVALID",
+                       "插件包不是合法的 gzip 归档（魔数校验失败）")
+
+    # 内存直读校验（条目白名单/上限/manifest 必备全在 loader 闸内）
+    tmp = tempfile.NamedTemporaryFile(suffix=".CuteMamen", delete=False)
+    try:
+        tmp.write(package_bytes)
+        tmp.close()
+        pkg = read_cutemamen_pkg(Path(tmp.name))
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+    manifest = pkg.manifest
+    name = str(manifest.get("name") or "")
+    if not re.match(pr_registry.PLUGIN_NAME_RE, name):
+        raise ApiError("PLUGIN_PACKAGE_INVALID",
+                       f"manifest.name 不合规: {name!r}",
+                       suggestion="规则 ^[a-z0-9][a-z0-9_-]{0,63}$（docs/插件开发规范.md §4）")
+    base_model = str(manifest.get("base_model") or "")
+
+    rt = get_plugin_runtime()
+    if rt.is_registered(name):
+        raise ApiError("PLUGIN_ALREADY_REGISTERED",
+                       f"插件名已存在: {name}",
+                       suggestion="换一个名字，或先删除同名旧插件")
+
+    native = native_registry()
+    source_path: Path
+    written: list[Path] = []
+    if source_bytes is None:
+        # 纯数据档：base_model 必须是已知类型，源码复用原生实现
+        if base_model not in native:
+            raise ApiError(
+                "PLUGIN_SOURCE_REQUIRED",
+                f"新类型插件（base_model={base_model!r}）必须附 .py 源码",
+                suggestion="上传源码文件（见 docs/插件开发规范.md §1/§2）")
+        trust = "user_data"
+        source_path = Path(inspect.getfile(native[base_model])).resolve()
+    else:
+        # 含源码档：安检 → 确认门 → 试装载
+        if not (source_filename or "").lower().endswith(".py"):
+            raise ApiError("PLUGIN_SOURCE_INVALID", "源码必须是 .py 文件")
+        if len(source_bytes) > pr_registry.MAX_SOURCE_BYTES:
+            raise ApiError("PLUGIN_SOURCE_INVALID",
+                           f"源码超过 {pr_registry.MAX_SOURCE_BYTES // 1024}KB 上限")
+        try:
+            source_text = source_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ApiError("PLUGIN_SOURCE_INVALID",
+                           "源码不是 UTF-8 文本") from None
+        violations = _scan_source_violations(source_text)
+        if violations:
+            raise ApiError(
+                "PLUGIN_SOURCE_FORBIDDEN",
+                f"源码静态安检未通过（{len(violations)} 处违规）",
+                suggestion="；".join(violations[:8])
+                           + "（禁用清单见 docs/插件开发规范.md §2）")
+        if not confirm_source:
+            raise ApiError(
+                "PLUGIN_SOURCE_CONFIRM_REQUIRED",
+                "含源码插件需用户显式确认后才能导入",
+                suggestion="此插件将在软件内部直接运行，请只安装信任来源；"
+                           "确认信任请带 confirm_source=true 重试")
+        tmp_src = tempfile.NamedTemporaryFile(suffix=".py", delete=False)
+        try:
+            tmp_src.write(source_bytes)
+            tmp_src.close()
+            module = load_plugin_module(Path(tmp_src.name))
+            if not find_plugin_classes(module):
+                raise ApiError("PLUGIN_SOURCE_INVALID",
+                               "源码内没有 ExpertPlugin 子类",
+                               suggestion="参照 src/cutemamen/video_making.py 的写法")
+        except PluginLoadError as exc:
+            raise ApiError("PLUGIN_SOURCE_INVALID",
+                           f"源码试装载失败: {exc}") from exc
+        finally:
+            Path(tmp_src.name).unlink(missing_ok=True)
+        trust = "user_source"
+
+    # 落盘 + 登记（登记失败清场）
+    pr_registry.USER_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
+    pkg_path = pr_registry.USER_PLUGIN_DIR / f"{name}.CuteMamen"
+    pkg_path.write_bytes(package_bytes)
+    written.append(pkg_path)
+    if source_bytes is not None:
+        source_path = pr_registry.USER_PLUGIN_DIR / f"{name}.py"
+        source_path.write_bytes(source_bytes)
+        written.append(source_path)
+    imported_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        rt.register(name, source_path, pkg_path, trust,
+                    imported_at=imported_at)
+        rt.save_user_registry()
+    except PluginRuntimeError as exc:
+        for f in written:
+            f.unlink(missing_ok=True)
+        raise _translate(exc) from exc
+    if trust == "user_data":
+        register_user_pkg(pkg_path)
+    return {
+        "name": name, "trust": trust,
+        "trust_label": pr_registry._TRUST_LABELS.get(trust, trust),
+        "base_model": base_model,
+        "route": str(manifest.get("route") or ""),
+        "capability": str(manifest.get("capability") or ""),
+        "origin": "user", "imported_at": imported_at,
+    }
+
+
+@router.post("/plugins/import")
+async def import_plugin(
+        package: UploadFile = File(..., description=".CuteMamen 插件包"),
+        source: UploadFile | None = File(
+            default=None, description="可选 .py 源码（新类型插件必附）"),
+        confirm_source: bool = Form(
+            default=False,
+            description="含源码插件的显式确认（用户勾选后前端才置 true）"),
+) -> dict[str, Any]:
+    """导入用户插件：校验链（规范=docs/插件开发规范.md）→ 登记 → 持久化。"""
+    package_bytes = await package.read()
+    source_bytes = await source.read() if source is not None else None
+    result = await run_blocking(
+        _import_plugin_core, package_bytes,
+        package.filename or "package.CuteMamen",
+        source_bytes, source.filename if source else None,
+        confirm_source)
+    return ok(result)
+
+
+@router.post("/plugins/{name}/enable")
+async def enable_plugin(name: str) -> dict[str, Any]:
+    """启用插件（停用件恢复可用）。"""
+    rt = get_plugin_runtime()
+    try:
+        await run_blocking(rt.set_enabled, name, True)
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
+    return ok({"name": name, "enabled": True})
+
+
+@router.post("/plugins/{name}/disable")
+async def disable_plugin(name: str) -> dict[str, Any]:
+    """停用插件（即卸载释放内存；重启后保持停用状态）。"""
+    rt = get_plugin_runtime()
+    try:
+        await run_blocking(rt.set_enabled, name, False)
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
+    return ok({"name": name, "enabled": False})
+
+
+@router.delete("/plugins/{name}")
+async def delete_plugin(name: str) -> dict[str, Any]:
+    """删除用户插件（出厂插件拒删；文件与登记一并清理）。"""
+    rt = get_plugin_runtime()
+    try:
+        await run_blocking(rt.remove, name)
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
+    unregister_plugin(name)
+    return ok({"name": name, "deleted": True})

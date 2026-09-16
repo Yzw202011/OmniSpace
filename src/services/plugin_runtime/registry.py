@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,6 +72,22 @@ STATE_UNLOADED = "unloaded"
 STATE_LOADED = "loaded"
 STATE_FAULTY = "faulty"
 
+# ── 用户插件持久化（data/ 运行时区，git 不跟踪、发行包不带） ──
+USER_PLUGIN_DIR = ROOT_DIR / "data" / "plugins" / "imported"
+USER_REGISTRY_PATH = ROOT_DIR / "data" / "plugins" / "user_registry.json"
+MAX_USER_PLUGINS = 32
+MAX_SOURCE_BYTES = 256 * 1024
+# 插件名规则（manifest.name 与登记名共用；防路径花活）
+PLUGIN_NAME_RE = r"^[a-z0-9][a-z0-9_-]{0,63}$"
+# 用户档集合（repo_curated 之外都是用户档；user_installed 为 P1 旧别名）
+_USER_TIERS = ("user_data", "user_source", "user_installed")
+_TRUST_LABELS = {
+    "repo_curated": "出厂·已审查",
+    "user_data": "用户·纯数据",
+    "user_source": "用户·含源码",
+    "user_installed": "用户导入",
+}
+
 
 @dataclass
 class _PluginEntry:
@@ -83,7 +101,16 @@ class _PluginEntry:
     instance: ExpertPlugin | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
     last_error: str = ""
+    imported_at: str = ""
     lock: threading.RLock = field(default_factory=threading.RLock)
+
+
+def _rel_or_abs(path: Path) -> str:
+    """登记表/清单路径序列化：仓库内相对、仓库外（如测试 tmp）绝对。"""
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
 
 
 def _display_path(path: Path) -> str:
@@ -153,18 +180,145 @@ class PluginRuntime:
                 source_py=ROOT_DIR / spec["source_py"],
                 pkg_path=ROOT_DIR / spec["pkg"] if spec.get("pkg") else None,
                 trust=spec["trust"])
+        self._load_user_registry()
 
-    # ── 登记（代码级入口；HTTP 暴露属 P4 设置页治理） ──────────
+    def _load_user_registry(self) -> None:
+        """启动时读用户登记表（容错：坏文件备份改名后空表起步）。"""
+        try:
+            raw = json.loads(USER_REGISTRY_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except Exception:
+            corrupt = USER_REGISTRY_PATH.with_suffix(".json.corrupt")
+            try:
+                USER_REGISTRY_PATH.replace(corrupt)
+            except OSError:
+                pass
+            logger.warning("用户插件登记表损坏，已备份为 %s，从空表起步",
+                           corrupt)
+            return
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "")
+            source = ROOT_DIR / str(item.get("source") or "")
+            pkg_raw = item.get("pkg")
+            pkg = ROOT_DIR / str(pkg_raw) if pkg_raw else None
+            trust = str(item.get("trust") or "")
+            if (not re.match(PLUGIN_NAME_RE, name)
+                    or trust not in _USER_TIERS or not source.is_file()):
+                logger.warning("用户插件登记跳过（不合格）: %r", name)
+                continue
+            self._registry[name] = _PluginEntry(
+                name=name, source_py=source, pkg_path=pkg, trust=trust,
+                enabled=bool(item.get("enabled", True)),
+                imported_at=str(item.get("imported_at") or ""))
+
+    def _save_user_registry(self) -> None:
+        """用户登记表原子回写（锁内调用；只写用户档条目）。"""
+        items = []
+        for entry in self._registry.values():
+            if entry.trust not in _USER_TIERS:
+                continue
+            items.append({
+                "name": entry.name,
+                "source": _rel_or_abs(entry.source_py),
+                "pkg": _rel_or_abs(entry.pkg_path) if entry.pkg_path else None,
+                "trust": entry.trust,
+                "enabled": entry.enabled,
+                "imported_at": entry.imported_at,
+            })
+        USER_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = USER_REGISTRY_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        tmp.replace(USER_REGISTRY_PATH)
+
+    # ── 登记（导入端点/代码级入口；HTTP 导入闸见 api/plugins.py） ──
     def register(self, name: str, source_py: Path,
                  pkg_path: Path | None = None,
-                 trust: str = "user_installed") -> None:
+                 trust: str = "user_installed",
+                 imported_at: str = "") -> None:
         """登记新插件（未登记不可加载——治理闸，非安全沙箱）。"""
         with self._global:
             if name in self._registry:
                 raise PluginRuntimeError(
                     "PLUGIN_ALREADY_REGISTERED", f"插件已登记: {name}")
+            if trust != "repo_curated" and trust not in _USER_TIERS:
+                raise PluginRuntimeError(
+                    "PLUGIN_TRUST_INVALID", f"未知信任档: {trust}")
+            if trust in _USER_TIERS:
+                user_count = sum(1 for e in self._registry.values()
+                                 if e.trust in _USER_TIERS)
+                if user_count >= MAX_USER_PLUGINS:
+                    raise PluginRuntimeError(
+                        "PLUGIN_LIMIT_REACHED",
+                        f"用户插件已达上限（{MAX_USER_PLUGINS} 个）",
+                        "在设置页删除不再使用的插件后重试")
             self._registry[name] = _PluginEntry(
-                name=name, source_py=source_py, pkg_path=pkg_path, trust=trust)
+                name=name, source_py=source_py, pkg_path=pkg_path,
+                trust=trust, imported_at=imported_at)
+
+    def save_user_registry(self) -> None:
+        """显式持久化用户登记表（导入流程收尾调用）。"""
+        with self._global:
+            self._save_user_registry()
+
+    def is_registered(self, name: str) -> bool:
+        with self._global:
+            return name in self._registry
+
+    def set_enabled(self, name: str, enabled: bool) -> None:
+        """启停用户/出厂插件（停用即卸载释放内存；用户档持久化）。"""
+        with self._global:
+            entry = self._registry.get(name)
+            if entry is None:
+                raise PluginRuntimeError(
+                    "PLUGIN_NOT_REGISTERED", f"插件未登记: {name}")
+            entry.enabled = enabled
+            if not enabled and entry.instance is not None:
+                try:
+                    entry.instance.on_unload()
+                except Exception:  # noqa: BLE001 - 卸载钩子炸不拦停用
+                    logger.warning("插件 on_unload 异常: %s", name,
+                                   exc_info=True)
+                entry.instance = None
+                entry.state = STATE_UNLOADED
+            if entry.trust in _USER_TIERS:
+                self._save_user_registry()
+
+    def remove(self, name: str) -> None:
+        """删除用户插件（卸载+清登记+删文件；出厂档拒删）。"""
+        with self._global:
+            entry = self._registry.get(name)
+            if entry is None:
+                raise PluginRuntimeError(
+                    "PLUGIN_NOT_REGISTERED", f"插件未登记: {name}")
+            if entry.trust not in _USER_TIERS:
+                raise PluginRuntimeError(
+                    "PLUGIN_FACTORY_PROTECTED",
+                    f"出厂插件不可删除: {name}",
+                    "出厂插件随软件版本管理")
+            if entry.instance is not None:
+                try:
+                    entry.instance.on_unload()
+                except Exception:  # noqa: BLE001
+                    logger.warning("插件 on_unload 异常: %s", name,
+                                   exc_info=True)
+            self._registry.pop(name, None)
+            # 只删 data/plugins/imported/ 区内文件（防误删仓库/系统文件）
+            try:
+                zone = USER_PLUGIN_DIR.resolve()
+                for f in (entry.source_py, entry.pkg_path):
+                    if f is None:
+                        continue
+                    p = f.resolve()
+                    if p.is_relative_to(zone):
+                        p.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("用户插件文件清理失败: %s", name,
+                               exc_info=True)
+            self._save_user_registry()
 
     def _entry(self, name: str) -> _PluginEntry:
         entry = self._registry.get(name)
@@ -193,8 +347,12 @@ class PluginRuntime:
                         stats = {"error": "stats() 调用失败"}
                 info.append({
                     "name": entry.name, "trust": entry.trust,
+                    "trust_label": _TRUST_LABELS.get(entry.trust, entry.trust),
+                    "origin": ("user" if entry.trust in _USER_TIERS
+                               else "factory"),
+                    "imported_at": entry.imported_at,
                     "enabled": entry.enabled, "state": entry.state,
-                    "source": str(entry.source_py.relative_to(ROOT_DIR)),
+                    "source": _rel_or_abs(entry.source_py),
                     "capability": entry.manifest.get("capability", ""),
                     "last_error": entry.last_error, "stats": stats})
         return info

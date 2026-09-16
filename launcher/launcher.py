@@ -52,7 +52,7 @@ def _load_disk_start_min_gb(default: float = 20.0) -> float:
     回环校验副作用），直接轻量读取同一份 config.yaml；解析失败回退默认值。
     """
     try:
-        cfg_path = PROJECT_ROOT / 'backend' / 'config.yaml'
+        cfg_path = PROJECT_ROOT / 'src' / 'config.yaml'
         with open(cfg_path, encoding='utf-8') as f:
             cfg = yaml.safe_load(f)
         return float(cfg['disk']['start_min_gb'])
@@ -216,7 +216,7 @@ class EnvironmentChecker:
         import os as _os
         import re as _re
 
-        contract_path = PROJECT_ROOT / 'backend' / 'torch_contract.json'
+        contract_path = PROJECT_ROOT / 'src' / 'torch_contract.json'
         try:
             contract = _json.loads(contract_path.read_text(encoding='utf-8'))
         except Exception as e:

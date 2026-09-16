@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import subprocess
 import threading
 import time
@@ -645,6 +646,10 @@ class ComfyPaintEngine:
              pulid_image: Image.Image | None = None,
              ref_megapixels: list[float] | None = None,
              pulid_image_b: Image.Image | None = None) -> dict:
+        # 种子契约（draw.py：随机种子 -1 各任务独立随机）：ComfyUI
+        # noise_seed 下限 0，负值进工作流前解析为真随机
+        if int(params.get("seed") or 0) < 0:
+            params["seed"] = random.randint(0, 2 ** 31 - 1)
         # 生成期间标记忙碌：空闲自动关闭计时暂停（mark/mark_idle 配对）
         proc_mgr = get_comfy_proc()
         proc_mgr.mark_busy()
@@ -848,7 +853,10 @@ class ComfyPaintEngine:
             p["steps"] = 8
             p["cfg"] = 1.0
         steps, cfg = _effective_steps_cfg(p)
+        # 同 _run 种子契约：inpaint 独立建工作流，负种子在此解析
         seed = int(p.get("seed") or 0)
+        if seed < 0:
+            seed = random.randint(0, 2 ** 31 - 1)
         prompt = str(p.get("prompt") or "")
         negative = str(p.get("negative") or "")
 

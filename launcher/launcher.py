@@ -604,6 +604,18 @@ class BackendProcess:
         env.setdefault('PYTHONUTF8', '1')
         env['OMNISPACE_PORT'] = str(port)
         env['OMNISPACE_LAUNCHER'] = '1'
+        # 工具缓存钉死 E 盘（2026-09-17 用户令：项目产物不离开项目目录）：
+        # pip/HF/triton/torchinductor/playwright 默认全落 C:\Users\...，
+        # 实测累积 27G+（pip 13G/HF 13G/浏览器 0.7G）。setdefault 不覆盖
+        # 外部显式设置，只补默认值。
+        cache_root = PROJECT_ROOT / '.cache'
+        env.setdefault('PIP_CACHE_DIR', str(cache_root / 'pip'))
+        env.setdefault('HF_HOME', str(cache_root / 'huggingface'))
+        env.setdefault('TRITON_CACHE_DIR', str(cache_root / 'triton'))
+        env.setdefault('TORCHINDUCTOR_CACHE_DIR',
+                       str(cache_root / 'torchinductor'))
+        env.setdefault('PLAYWRIGHT_BROWSERS_PATH',
+                       str(cache_root / 'ms-playwright'))
         return env
 
     # 管道日志轮转阈值（_drain_pipe 用）

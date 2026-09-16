@@ -12,7 +12,7 @@
 
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -127,19 +127,29 @@ class PluginMemory:
         }
 
     def restore(self, data: dict[str, Any]) -> None:
+        # 容错两种入参形态（基类统一 2026-09-16）：本类 archive() 的
+        # [{key, value}] 列表，或宿主 loader 归一出的 {key: value} 字典；
+        # episodic 只认事件列表（dict 形态无事件语义，跳过）
         self.working = OrderedDict()
-        for item in data.get("working", []):
-            self.working[item["key"]] = item.get("value")
+        for k, v in _level_items(data.get("working")):
+            self.working[k] = v
         cap = data.get("capacities", {})
-        self.working_capacity = int(cap.get("working", self.working_capacity))
-        episodic = [dict(e) for e in data.get("episodic", [])]
-        self.episodic_capacity = int(cap.get("episodic", self.episodic_capacity))
+        if isinstance(cap, dict):
+            self.working_capacity = int(
+                cap.get("working", self.working_capacity))
+        episodic = [dict(e) for e in data.get("episodic", [])
+                    if isinstance(e, dict)]
+        self.episodic_capacity = int(
+            cap.get("episodic", self.episodic_capacity)
+            if isinstance(cap, dict) else self.episodic_capacity)
         self.episodic = deque(episodic[-self.episodic_capacity:],
                               maxlen=self.episodic_capacity)
         self.semantic = OrderedDict()
-        for item in data.get("semantic", []):
-            self.semantic[item["key"]] = item.get("value")
-        self.semantic_capacity = int(cap.get("semantic", self.semantic_capacity))
+        for k, v in _level_items(data.get("semantic")):
+            self.semantic[k] = v
+        self.semantic_capacity = int(
+            cap.get("semantic", self.semantic_capacity)
+            if isinstance(cap, dict) else self.semantic_capacity)
         while len(self.semantic) > self.semantic_capacity:
             self.semantic.popitem(last=False)
 
@@ -173,22 +183,50 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _level_items(incoming: Any) -> list[tuple[str, Any]]:
+    """记忆单层入参容错：[{key, value}] 列表或 {key: value} 字典 → 键值对"""
+    if isinstance(incoming, dict):
+        return [(str(k), v) for k, v in incoming.items()]
+    if isinstance(incoming, list):
+        return [(str(e.get("key")), e.get("value"))
+                for e in incoming if isinstance(e, dict) and "key" in e]
+    return []
+
+
 # ═══════════════════════════════════════════════════════════════
 # 插件上下文: on_load / on_think 收到的内核门面
 # ═══════════════════════════════════════════════════════════════
 
-@dataclass
 class PluginContext:
-    """内核提供给插件的受限门面 (事件总线 + 工作记忆 + 元信息)"""
-    bus: Any                      # EventBus (event_bus.py)
-    working_memory: Any           # WorkingMemory (kernel.py)
-    kernel_version: str
-    dim: int
-    plugin_name: str = ""
+    """插件运行上下文（基类统一版 2026-09-16：OSP 宿主与 cutemamen 内核共用）。
+
+    双构造形态等价：
+    - 内核形态：PluginContext(bus=..., working_memory=..., kernel_version=..., dim=...)
+    - 宿主形态：PluginContext(emit_fn=..., plugin_name=...)
+    emit() 优先走事件总线，无总线时走 emit_fn（宿主桥），两者皆无时
+    静默降级——插件在单测/内核/宿主三种环境行为一致，失败不连累主流程。
+    """
+
+    def __init__(self, bus: Any = None, working_memory: Any = None,
+                 kernel_version: str = "", dim: int = 0,
+                 plugin_name: str = "",
+                 emit_fn: Callable[[str, Any], None] | None = None) -> None:
+        self.bus = bus
+        self.working_memory = working_memory
+        self.kernel_version = kernel_version
+        self.dim = dim
+        self.plugin_name = plugin_name
+        self._emit_fn = emit_fn
 
     def emit(self, topic: str, payload: Any) -> None:
-        """插件 → 事件总线发布 (插件间通信)"""
-        self.bus.publish(topic, payload)
+        """插件 → 事件总线/宿主桥发布 (插件间通信)"""
+        try:
+            if self.bus is not None:
+                self.bus.publish(topic, payload)
+            elif callable(self._emit_fn):
+                self._emit_fn(topic, payload)
+        except Exception:  # noqa: BLE001 - 事件失败不连累插件主流程
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -221,6 +259,8 @@ class ExpertPlugin:
         self.author = author
         self.version = version
         self.memory = memory or PluginMemory()
+        # 宿主附加位（OSP 运行时填写来源/信任级等，插件只读）
+        self.runtime_meta: dict[str, Any] = {}
         self.loaded = False
         self.think_count = 0
         self.last_used = 0.0

@@ -60,14 +60,25 @@ def fresh_runtime(tmp_path):
 
 # ── 基类 ─────────────────────────────────────────────────────
 def test_plugin_memory_levels():
+    # 统一版（2026-09-16）：单一真源 = src/cutemamen/plugin.py 的记忆模型
     mem = pr_base.PluginMemory()
+    # working：键值（set/get）
     mem.set("a", 1)
+    assert mem.get("a") == 1
+    # semantic：蒸馏知识（remember/recall，LRU）
     mem.remember("b", 2)
-    assert mem.get("a") == 1 and mem.get("b", level="episodic") == 2
-    mem.consolidate()
-    assert mem.get("b", level="semantic") == 2
-    snap = mem.snapshot()
-    assert snap["working"] == {"a": 1} and snap["episodic"] == {"b": 2}
+    assert mem.recall("b") == 2
+    # episodic：事件流水（record/recent），consolidate 蒸馏到 semantic
+    mem.record("demo", summary="s1")
+    counts = mem.consolidate()
+    assert counts == {"demo": 1}
+    assert mem.recall("topic:demo") == {"activations": 1}
+    # archive/restore 往返（archive 列表形态）
+    arc = mem.archive()
+    mem2 = pr_base.PluginMemory()
+    mem2.restore(arc)
+    assert mem2.get("a") == 1 and mem2.recall("b") == 2
+    # restore 容错：宿主 loader 的 {key: value} 字典形态 + 坏层级跳过
     mem.restore({"working": {"a": 9}, "bogus": 1})
     assert mem.get("a") == 9
 
@@ -79,6 +90,18 @@ def test_plugin_context_emit_silent_without_fn():
     ctx2 = pr_base.PluginContext(emit_fn=lambda t, p: caught.append((t, p)))
     ctx2.emit("t", {"x": 1})
     assert caught == [("t", {"x": 1})]
+    # 内核形态：总线优先于 emit_fn（统一后双构造等价）
+    class _Bus:
+        def __init__(self):
+            self.published = []
+
+        def publish(self, topic, payload):
+            self.published.append((topic, payload))
+
+    bus = _Bus()
+    ctx3 = pr_base.PluginContext(bus=bus, plugin_name="p")
+    ctx3.emit("k", {"v": 1})
+    assert bus.published == [("k", {"v": 1})]
 
 
 def test_expert_plugin_defaults():

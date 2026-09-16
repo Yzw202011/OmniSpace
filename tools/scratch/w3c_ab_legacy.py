@@ -8,7 +8,7 @@ import time
 
 sys.path.insert(0, r"E:\OmniSpace")
 
-from backend.services.inference.paint_engine import get_paint_engine  # noqa: E402
+from src.services.inference.paint_engine import get_paint_engine  # noqa: E402
 
 PROMPT = ("A. 全局风格：3D卡通、皮克斯质感、黏土材质渲染、柔和电影光、"
           "干净明亮，细节刻画精致，光影层次丰富")

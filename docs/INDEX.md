@@ -26,7 +26,7 @@
 | `design/frontend-error-policy.md` | 前端错误策略 | 错误呈现三分法（TOAST/CONSOLE/SILENT 白名单），代码载体 @/utils/errors |
 | `deployment-manual.md` | 部署 | 硬件门槛/环境装配/模型资产配置表（2026-09-02 诚实化重写 §3）/RC 交付 |
 | `troubleshooting.md` | 故障排查 | OOM/端口冲突/DB 版本冲突/模型探测失败四大故障（DB 版本口径已校准 v7） |
-| ~~`model-deployment-plan.md`~~ → 移归档 | **归档（2026-09-02 诚实化裁定）**：5070Ti 档已修/Hunyuan 已否决/体积基数失真，被现实超越 | 现行真源：`models/models_manifest.json` v3 + `backend/data/models.py` + `deployment-manual.md` §3 |
+| ~~`model-deployment-plan.md`~~ → 移归档 | **归档（2026-09-02 诚实化裁定）**：5070Ti 档已修/Hunyuan 已否决/体积基数失真，被现实超越 | 现行真源：`models/models_manifest.json` v3 + `src/data/models.py` + `deployment-manual.md` §3 |
 | `全量技术文档-2026-09-02-代码级复核版.md` | **全量技术快照（现行全景版）** | 2026-09-02 应用户「基于诚实、代码级别」要求，四路只读取证重核（后端 / 前端+桌面壳 / 封装授权链 / 规模统计+文档对照）：真实能力边界（3D 已移除、语音权重已隔离）、319 HTTP+4 WS、三库 31+2+1 表口径分歧、六道锁与发码台实况、已知问题与 **§15 旧文档勘误表**；新协作者上手优先看这份（取代 09-01 版） |
 | `omnispace-tech-doc/`（HTML） | 全量技术文档（协作者上手版，08-26 时点） | 2026-08-26 基于代码实测编写：架构 / 技术栈 / 前后端详解 / 漫剧管线 / 资源治理 / 数据与模型 / 部署 / 协作指南，含 CLAUDE.md 与代码现实差异对照；**08-26 之后的演进以 `全量技术文档-2026-09-02-代码级复核版.md` 为准** |
 | `audit-task-checklist.md` | 工程治理 | P0/P1/P2 任务清单与完成记录 |

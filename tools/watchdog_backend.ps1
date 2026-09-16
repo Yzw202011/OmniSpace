@@ -25,7 +25,7 @@ while ($true) {
 
     if (-not $alive) {
         Log '探测失败:后端失联,执行自动重启'
-        Start-Process -FilePath $py -ArgumentList '-m', 'backend.main' `
+        Start-Process -FilePath $py -ArgumentList '-m', 'src.main' `
             -WorkingDirectory $root -WindowStyle Hidden
         Start-Sleep -Seconds 12
         $check = try { Invoke-WebRequest -Uri 'http://127.0.0.1:5800/' -TimeoutSec 6 -UseBasicParsing } catch { $null }

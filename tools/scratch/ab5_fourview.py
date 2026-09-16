@@ -21,7 +21,7 @@ PROMPT = ("生成角色4视图：正面全身、侧面全身、背面全身、�
 SEED = 20260914
 OUT = Path(r"E:\OmniSpace\data\generated\images")
 
-from backend.services.inference.paint_engine import get_paint_engine
+from src.services.inference.paint_engine import get_paint_engine
 pe = get_paint_engine()
 assert pe.ensure_loaded("flux2-klein-4b"), pe.get_status().get("last_error")
 t0 = time.perf_counter()
@@ -31,8 +31,8 @@ r = pe.generate({"prompt": PROMPT, "negative": "", "seed": SEED,
 r["images"][0].save(OUT / "ab5_4view_4b.png", "PNG")
 print(f"[4b 四视图 1280x720] wall={time.perf_counter()-t0:.1f}s", flush=True)
 
-from backend.services.inference.comfy_paint_engine import get_comfy_paint_engine
-from backend.services.inference.comfy_proc import get_comfy_proc
+from src.services.inference.comfy_paint_engine import get_comfy_paint_engine
+from src.services.inference.comfy_proc import get_comfy_proc
 eng = get_comfy_paint_engine()
 t0 = time.perf_counter()
 r = eng.generate({"prompt": PROMPT, "negative": "", "seed": SEED,

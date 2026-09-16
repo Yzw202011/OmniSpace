@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 系统诊断工具（CLI）
-- 数据基础：backend/startup_check.run_startup_check() 的真实 26 项检查
+- 数据基础：src/startup_check.run_startup_check() 的真实 26 项检查
   （审计 BK-047 修复：原引用不存在的 backend.routers.system.build_diagnostics）
 - 检查项：Python/OS/GPU/CUDA/显存/驱动/CPU/内存/磁盘/依赖/FFmpeg/模型目录等
 - 可导出诊断包（zip），供技术支持分析
@@ -19,8 +19,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend import config  # noqa: E402
-from backend.startup_check import run_startup_check  # noqa: E402
+from src import config  # noqa: E402
+from src.startup_check import run_startup_check  # noqa: E402
 
 EXPORT_DIR = config.DATA_DIR / "generated" / "exports"
 

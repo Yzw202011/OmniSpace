@@ -102,7 +102,7 @@ tasklist /FI "PID eq <pid>"
 
 Launcher 自带三级递进，通常无需人工干预：
 
-1. **第一级（自动）**：占用者是 OmniSpace/python 残留 → launcher 自动 terminate/kill（严格匹配进程名 + 命令行含 omnispace + backend.main，**不会误杀**其他 Python 服务）；
+1. **第一级（自动）**：占用者是 OmniSpace/python 残留 → launcher 自动 terminate/kill（严格匹配进程名 + 命令行含 omnispace + src.main，**不会误杀**其他 Python 服务）；
 2. **第二级（自动）**：外部占用 → 扫描 5800~5835 取第一个空闲端口，动态写前端 `config.js`，界面地址随之更新；
 3. **第三级（人工）**：区间全满 → 手动清理：
 
@@ -130,7 +130,7 @@ runtime\py310\python.exe launcher\launcher.py --port 5900
 RuntimeError: 数据库 schema 版本 v<N> 高于程序 v7，请升级程序后再打开（data\omnispace.db）
 ```
 
-（`backend/data/database.py` 版本守护；`N > 7`。）
+（`src/data/database.py` 版本守护；`N > 7`。）
 
 ### 根因
 
@@ -197,7 +197,7 @@ runtime\py310\python.exe -c "import torch; print(torch.cuda.is_available(), torc
 
 ### 处置步骤
 
-1. **嵌套快照布局**：在 `backend/services/model_manager/__init__.py` 的 `_MODEL_PATH_HINTS` 补一条 `"模型id": "相对路径"`（qwen3-vl-8b 已登记，可作范本），重启后端；
+1. **嵌套快照布局**：在 `src/services/model_manager/__init__.py` 的 `_MODEL_PATH_HINTS` 补一条 `"模型id": "相对路径"`（qwen3-vl-8b 已登记，可作范本），重启后端；
 2. **未接线模型**：接线需要改引擎候选表（`PAINT_MODEL_CANDIDATES` / video_engine `_VIDEO_PIPELINE_CLASSES` 等）并加显存估算条目——查 `docs/requirements-traceability.md` 该模型（M-xx）的决策（接线排期 or 删除），不要自行下载未接线的模型；
 3. **探测降级（degraded_probes 非空）**：先修驱动（重装 NVIDIA 驱动 → `nvidia-smi` 正常），重启后端，确认 `degraded_probes` 清空；
 4. **权重不完整**：launcher 的模型完整性校验支持断点续传——重跑 launcher 让它补齐，或删除残缺目录重新放置。

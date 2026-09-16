@@ -12,8 +12,8 @@ PROMPT = ("美术风格：3D GC 游戏风格、高精度 3D 建模、PBR 物理�
           "额前有轻薄碎发。气质关键词：干净、清秀、朴素、带初入社会的青涩感。"
           "上身穿白色棉质圆领短袖T恤，衣摆自然垂至胯部；下身穿浅蓝色高腰直筒九分牛仔裤，"
           "裤脚微微卷起。脚穿白色帆布鞋，平底，鞋面干净。空手。常态平静表情，眼睛平视镜头。")
-from backend.services.inference.comfy_paint_engine import get_comfy_paint_engine
-from backend.services.inference.comfy_proc import get_comfy_proc
+from src.services.inference.comfy_paint_engine import get_comfy_paint_engine
+from src.services.inference.comfy_proc import get_comfy_proc
 eng = get_comfy_paint_engine()
 t0 = time.perf_counter()
 r = eng.generate({"prompt": PROMPT, "negative": "", "seed": 20260914,

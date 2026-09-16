@@ -30,7 +30,7 @@
 |---|---|---|
 | ruff | ✅ All checks passed | — |
 | scripts/dir_audit.py | ✅ 干净（musubi-tuner 已入编译豁免） | — |
-| mypy 第 4 闸 | ✗ 基线外新增 1 条 | `backend/tests/eval/uno_smoke.py`（未提交新文件）→ P2-1 |
+| mypy 第 4 闸 | ✗ 基线外新增 1 条 | `tests/unit/eval/uno_smoke.py`（未提交新文件）→ P2-1 |
 | pytest -m smoke | ✗ 1 failed / 92 passed | 登记表幽灵条目 → P1-D |
 
 **两条红闸均会拦截下一次 commit**（pre-commit 三闸+1 全串行）。
@@ -55,7 +55,7 @@
 > A/B/C 共性：上轮 P1-6 立下的"路径名必须消毒"内部不变量，在三个新端点上执行不一致——非系统性缺失，是同一条规矩没抄全。
 
 **P1-D【提交闸红】模型登记表幽灵条目，smoke 闸当前必拦 commit**
-`pytest -m smoke` 实跑 1 failed：`backend/tests/unit/test_model_registry.py:70`——`deepseek-r1-14b-w4a16` 登记在册但磁盘无权重（"幽灵条目（登记但磁盘无权重，禁止回潮）"断言失败）。权重疑在历次体积清理/隔离区批处理中移走而登记表未同步。**当前任何人 commit 都会被 pre-commit 拦截，或被迫 --no-verify 破坏闸门纪律。** 修复 = 登记表对账（删条目或回补权重标记）。
+`pytest -m smoke` 实跑 1 failed：`tests/unit/unit/test_model_registry.py:70`——`deepseek-r1-14b-w4a16` 登记在册但磁盘无权重（"幽灵条目（登记但磁盘无权重，禁止回潮）"断言失败）。权重疑在历次体积清理/隔离区批处理中移走而登记表未同步。**当前任何人 commit 都会被 pre-commit 拦截，或被迫 --no-verify 破坏闸门纪律。** 修复 = 登记表对账（删条目或回补权重标记）。
 
 **P1-E【验收工具链断】未提交的 `project_type` 必传收口打断了 flow E2E 套件**
 工作区改动（backend 必传收口）本身正确、backend 单测已全量同步（test_comic_script/test_comic_export 均带参）✅；但根目录活编排层漏改：
@@ -69,7 +69,7 @@
 ### P2（12 条）
 
 **后端**
-- **P2-1【闸门】uno_smoke.py 死代码 + 类型错误**【亲核】：`backend/tests/eval/uno_smoke.py:38-41` `_load_image` 全文件零调用且返回类型不符（mypy 报 `Incompatible return value type`）——一提交即被第 4 闸拦。修复 = 删函数（工作流图内已内联 LoadImage 引用）。
+- **P2-1【闸门】uno_smoke.py 死代码 + 类型错误**【亲核】：`tests/unit/eval/uno_smoke.py:38-41` `_load_image` 全文件零调用且返回类型不符（mypy 报 `Incompatible return value type`）——一提交即被第 4 闸拦。修复 = 删函数（工作流图内已内联 LoadImage 引用）。
 - **P2-2【二阶路径污染】资产 name 的两个写入口未消毒**：改名端点 `comic_asset.py:622-644`（`AssetUpdateRequest.name` 仅限长 100）与 infer-entities 的 LLM 输出 `nm`（:1803-1807）直接落库；事后被 `_asset_dir_for`（:775-783）、图替换（:1090）、P1-C copytree 拼进磁盘路径。LLM 实体名含 `/`、`..` 即二阶穿越写。
 - **P2-3【F-008 边缘】async 端点内同步图像解码/落盘**：`comic_asset.py:822/826/1114/1187`（最大 10MB 图 PIL 解码）、`keyframe.py:2107/2128`、`system.py:203`。与"秒级以上一律走 services/offload.py"约定有张力（数十毫秒级，不阻塞主流程）。
 - **P2-4【反序列化】缓存层 pickle.loads**：`data/cache.py:75,182`、`services/model_manager/cache.py:279`。数据源为本机缓存，攻击者需已有本机写权限；与全库 JSON 风格不一致，建议换 JSON 或注明信任边界。

@@ -211,17 +211,17 @@ details .inner { padding: 12px 4px 4px; font-size: 13px; color: var(--muted); }
 
   <div class="card">
     <h3>修复代码索引（ruff 全绿 + 全量单测 146 passed）</h3>
-    <pre><span class="c"># backend/api/manga/video.py —— 关键帧前置校验（锁获取后、任务落库前）</span>
+    <pre><span class="c"># src/api/manga/video.py —— 关键帧前置校验（锁获取后、任务落库前）</span>
 if (req.storyboard_row_id and req.model_override != "local" and not req.audio_path):
     kf = _db.query_one(<span class="s">"SELECT id FROM keyframes WHERE row_id=? AND is_current=1"</span>, ...)
     <span class="k">if not kf:</span>
         <span class="k">raise</span> ApiError(<span class="s">40005</span>, <span class="s">"该分镜行尚无分镜图（关键帧），无法生成视频，请先生成分镜图"</span>, ...)
 
-<span class="c"># backend/api/manga/video.py —— 失败状态回写</span>
+<span class="c"># src/api/manga/video.py —— 失败状态回写</span>
 d.update(<span class="s">"video_tasks"</span>, {<span class="s">"status"</span>: <span class="s">"error"</span>, <span class="s">"progress"</span>: 1.0,
                     <span class="s">"generation_time_ms"</span>: int((time.time()-t0)*1000)}, <span class="s">"id=?"</span>, (task_id,))
 
-<span class="c"># backend/api/manga/video.py —— 缺陷#4：flow 判空守卫（入口拒绝时 flow 未建立）</span>
+<span class="c"># src/api/manga/video.py —— 缺陷#4：flow 判空守卫（入口拒绝时 flow 未建立）</span>
 lock = <span class="k">await</span> acquire_or_raise(<span class="s">"video_gen"</span>, ...)
 started = <b>False</b>; flow = <b>None</b>          <span class="c"># 前置初始化</span>
 <span class="k">try:</span> ... flow = start_flow(...) ...
@@ -229,7 +229,7 @@ started = <b>False</b>; flow = <b>None</b>          <span class="c"># 前置初�
     <span class="k">if</span> flow <span class="k">is not</span> <b>None</b>:        <span class="c"># 判空守卫，拒绝路径不再 500</span>
         flow.end(<span class="s">"error"</span>, error_code=<span class="s">"SUBMIT_FAILED"</span>, ...)
 
-<span class="c"># backend/services/inference/{comfy_paint_engine,h3_engine}.py —— 两处 spawn 同款</span>
+<span class="c"># src/services/inference/{comfy_paint_engine,h3_engine}.py —— 两处 spawn 同款</span>
 ff_bin = ROOT_DIR / <span class="s">"runtime"</span> / <span class="s">"ffmpeg"</span> / <span class="s">"bin"</span>
 <span class="k">if</span> ff_bin.is_dir():
     env[<span class="s">"PATH"</span>] = str(ff_bin) + os.pathsep + env.get(<span class="s">"PATH"</span>, <span class="s">""</span>)
@@ -420,8 +420,8 @@ ff_bin = ROOT_DIR / <span class="s">"runtime"</span> / <span class="s">"ffmpeg"<
       <tr><td>失败任务段视频（修复前采样产物）</td><td class="mono">tools\ComfyUI_windows_portable\...\output\h3_chains\h3chain_{a7d19c83,d37a05e6}\segments\</td></tr>
       <tr><td>关键帧（镜1/镜2 各 v1/v2）</td><td class="mono">e:\OmniSpace\data\keyframes\{267f7f29…,4cff9bf3…}\</td></tr>
       <tr><td>测试脚本</td><td class="mono">e:\OmniSpace\temp_uat\manga_F1{a2,b1,b3,c2,c3,d,d2,d3,d4}*.js · verify_flow_fix.py</td></tr>
-      <tr><td>修复文件</td><td class="mono">backend\api\manga\video.py · backend\services\inference\{comfy_paint_engine,h3_engine}.py</td></tr>
-      <tr><td>回归验证</td><td class="mono">ruff check 全绿 · backend/tests/unit 146 passed</td></tr>
+      <tr><td>修复文件</td><td class="mono">src\api\manga\video.py · src\services\inference\{comfy_paint_engine,h3_engine}.py</td></tr>
+      <tr><td>回归验证</td><td class="mono">ruff check 全绿 · tests/unit/unit 146 passed</td></tr>
     </table>
   </div>
 </section>

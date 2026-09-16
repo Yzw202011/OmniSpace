@@ -1151,7 +1151,7 @@ OmniSpaceAI/
 │   ├── tsconfig.json
 │   └── package.json
 │
-├── backend/                     # Python后端
+├── src/                     # Python后端
 │   ├── app/
 │   │   ├── main.py              # FastAPI入口
 │   │   ├── config.py            # 配置管理

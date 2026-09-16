@@ -30,16 +30,16 @@
   - 动作：写 `tools/build_rc.py`，从 e:\OmniSpace 生成 E:\RC1002（robocopy 排除 .git / data / logs / __pycache__）；此后 RC 目录只允许由脚本产出，禁止手工改动
   - 完成标准：脚本一键执行成功；RC 目录与源码树 diff 为零（排除清单内项）；矩阵 E-07 状态改 ✅
   - 工时：半天
-  - **完成记录（2026-08-19）**：脚本落地并实测——排除清单用绝对路径防误杀 backend/data（.gitignore 同款教训）；全量同步 198.86GB（22,678 文件）2 分 11 秒；robocopy /L 列表模式校验零差异；矩阵 E-07 已改 ✅。收尾增量同步待全部代码任务结束后重跑
+  - **完成记录（2026-08-19）**：脚本落地并实测——排除清单用绝对路径防误杀 src/data（.gitignore 同款教训）；全量同步 198.86GB（22,678 文件）2 分 11 秒；robocopy /L 列表模式校验零差异；矩阵 E-07 已改 ✅。收尾增量同步待全部代码任务结束后重跑
   - **勘误（2026-08-19，随 P0-06）**：当时据审计 P23 错误前提把 pydeps 加入排除清单，致 RC1002 缺 fastapi/numpy 等而无法启动（零差异校验未拦截——排除清单对比对两侧同时生效，属校验盲区）。已移出排除清单并重同步（1.36GB），RC 恢复可启动。教训：排除清单每项都必须有独立证据，"审计说它是垃圾"不算
 
 - [x] **P0-02 三套依赖声明归一**（对应 P10）
-  - 动作：删除 `backend/requirements.txt`（陈旧 v2.1，声明的 sqlalchemy 实际未使用）；根 `requirements.txt` 顶部声明"精确版本以 requirements-lock.txt 为准"
-  - 完成标准：仓库内只剩两份依赖文件且权威关系明确；`runtime/py310/python.exe -c "import backend.main"` 启动自检通过
+  - 动作：删除 `src/requirements.txt`（陈旧 v2.1，声明的 sqlalchemy 实际未使用）；根 `requirements.txt` 顶部声明"精确版本以 requirements-lock.txt 为准"
+  - 完成标准：仓库内只剩两份依赖文件且权威关系明确；`runtime/py310/python.exe -c "import src.main"` 启动自检通过
   - 工时：10 分钟
 
 - [x] **P0-03 上传端点类型校验**（对应 P27）
-  - 动作：三个端点补后缀白名单 + 文件头魔数嗅验——`api/knowledge.py:208-225`、`api/learn.py:272-289`、`api/style.py:49-72`；白名单集中定义一处（如 backend/security.py 或各文件常量）
+  - 动作：三个端点补后缀白名单 + 文件头魔数嗅验——`api/knowledge.py:208-225`、`api/learn.py:272-289`、`api/style.py:49-72`；白名单集中定义一处（如 src/security.py 或各文件常量）
   - 完成标准：上传 .exe 改名 .jsonl 被 400 拒绝；正常 .jsonl/.md/.txt/.pdf 上传不受影响；补 1 条冒烟测试
   - 工时：半天
   - **完成记录（2026-08-19，3eaa837）**：新增 middleware/upload_guard.py（后缀白名单 + PE/ELF/Mach-O 黑名单 + 魔数嗅验 + UTF-16 BOM 检测），三端点接线；拒绝走 ADR-01 统一失败信封（项目无 HTTP 4xx 约定，"400 拒绝"按信封语义执行）；16 单元 + 4 API 测试全过
@@ -57,13 +57,13 @@
   - 动作：`launcher/launcher.py` 启动时校验 host，非 127.0.0.1/localhost 直接拒绝拉起（替代 main.py 现有的仅日志告警）；保留环境变量显式豁免开关（如 OMNISPACE_ALLOW_LAN=1，豁免时打印大字告警）
   - 完成标准：host 配错时 launcher 报错退出且错误信息可读；豁免开关可用；补 1 条单元测试
   - 工时：1 小时
-  - **完成记录（2026-08-19）**：双层防线——①闸门前移到 `backend/config.py` 导入期（原 main.py lifespan 告警发生在 socket 绑定后，为时已晚），任何方式启动均无法绕过；②launcher initialize() 提前拦截避免拉起注定失败的后端。注意：launcher 的 backend_host 为硬编码默认值从不读 config.yaml，真实配置错误的拦截靠①（后端进程导入即崩，launcher 报启动失败）。5 条单元测试 + 端到端三场景实测（0.0.0.0 拒绝/豁免放行/127.0.0.1 正常）全过；总测试数 41
+  - **完成记录（2026-08-19）**：双层防线——①闸门前移到 `src/config.py` 导入期（原 main.py lifespan 告警发生在 socket 绑定后，为时已晚），任何方式启动均无法绕过；②launcher initialize() 提前拦截避免拉起注定失败的后端。注意：launcher 的 backend_host 为硬编码默认值从不读 config.yaml，真实配置错误的拦截靠①（后端进程导入即崩，launcher 报启动失败）。5 条单元测试 + 端到端三场景实测（0.0.0.0 拒绝/豁免放行/127.0.0.1 正常）全过；总测试数 41
 
 - [x] **P0-06 清退 pydeps 历史残留**（对应 P23）
   - 动作：确认 PythonPath 解析不再依赖 pydeps 后整目录删除（lock 文件已记录 37 个空壳包隐患）；删除后跑全量冒烟测试
   - 完成标准：pydeps/ 不存在；`pytest -m smoke` 全过；对话/绘画/视频三条链路手工各验证一次
   - 工时：半天（含验证）
-  - **完成记录（2026-08-19，前提证伪 + 定向清退）**：审计 P23"pydeps=37 空壳残留"结论不成立——实测 pydeps 承载 161 个真实包（fastapi/numpy/scipy/diffusers/chromadb/modelscope/pytest 等 156 个仅存于此），与 runtime/site-packages 构成双站点互补架构（._pth 挂载，pydeps 优先）；删除整个目录 = 后端当场瘫痪。原"37 空壳"系 pip 分发名 ≠ import 名的系统性误判（pillow→PIL、scikit-learn→sklearn 等），仅 torch/sympy/tokenizers 3 条属实。已执行定向清退：删 pydeps/torch（40MB 死目录+命名空间陷阱）、sympy、tokenizers、tests（遮蔽根 tests/ 的第三方测试套件）及 4 个幽灵 dist-info；实测 12 关键包 import + backend.main + 41 测试全过；连带修复 P0-01 遗留缺陷——build_rc.py 曾据错误前提排除 pydeps 致 RC1002 后端无法启动，已移出排除清单并重同步（1.36GB，零差异校验过）。requirements-lock.txt 头部勘误同步
+  - **完成记录（2026-08-19，前提证伪 + 定向清退）**：审计 P23"pydeps=37 空壳残留"结论不成立——实测 pydeps 承载 161 个真实包（fastapi/numpy/scipy/diffusers/chromadb/modelscope/pytest 等 156 个仅存于此），与 runtime/site-packages 构成双站点互补架构（._pth 挂载，pydeps 优先）；删除整个目录 = 后端当场瘫痪。原"37 空壳"系 pip 分发名 ≠ import 名的系统性误判（pillow→PIL、scikit-learn→sklearn 等），仅 torch/sympy/tokenizers 3 条属实。已执行定向清退：删 pydeps/torch（40MB 死目录+命名空间陷阱）、sympy、tokenizers、tests（遮蔽根 tests/ 的第三方测试套件）及 4 个幽灵 dist-info；实测 12 关键包 import + src.main + 41 测试全过；连带修复 P0-01 遗留缺陷——build_rc.py 曾据错误前提排除 pydeps 致 RC1002 后端无法启动，已移出排除清单并重同步（1.36GB，零差异校验过）。requirements-lock.txt 头部勘误同步
 
 ---
 
@@ -75,7 +75,7 @@
   - 动作：不碰 GPU，直测可脱离权重的纯函数——对话候选路由表（dialog_engine.py:49-54）、显存估算 `_dir_load_bytes_fp16`、模型路径解析（含 modelscope 嵌套快照结构）、LTX 参数校验（分辨率整除 32、帧数 ≡1 mod 8）；参考 test_knowledge_pipeline.py 的注入手法
   - 完成标准：新增 ≥ 12 个测试函数全部通过；`pytest` 总数从 16 升至 28+
   - 工时：2 天
-  - **完成记录（2026-08-19）**：新增 `backend/tests/unit/test_engine_logic.py` 共 43 个测试函数全过（含 7 组参数化不变式），总数 41→84。覆盖：对话候选 tier 路由 4（含 12.0 边界含/11.9 不触发）、硬件档位表 6（含 5070Ti 先于 5070 的表序依赖、未登记型号按显存保守降档）、模型路径解析 4（扁平/modelscope 嵌套/.incomplete 残留/缺失）、后端判定+显存估算+目录发现 7、`_dir_load_bytes_fp16` 7（F32 减半/F16·BF16 原值/混合保守/同名 bin 跳过/损坏头保守/递归子目录）、LTX 校验 6、候选表一致性 2。附带重构：video_engine.py 内联 LTX 约束抽取为纯函数 `_ltx_align_params`（行为不变，生成路径改调它）
+  - **完成记录（2026-08-19）**：新增 `tests/unit/unit/test_engine_logic.py` 共 43 个测试函数全过（含 7 组参数化不变式），总数 41→84。覆盖：对话候选 tier 路由 4（含 12.0 边界含/11.9 不触发）、硬件档位表 6（含 5070Ti 先于 5070 的表序依赖、未登记型号按显存保守降档）、模型路径解析 4（扁平/modelscope 嵌套/.incomplete 残留/缺失）、后端判定+显存估算+目录发现 7、`_dir_load_bytes_fp16` 7（F32 减半/F16·BF16 原值/混合保守/同名 bin 跳过/损坏头保守/递归子目录）、LTX 校验 6、候选表一致性 2。附带重构：video_engine.py 内联 LTX 约束抽取为纯函数 `_ltx_align_params`（行为不变，生成路径改调它）
 
 - [x] **P1-02 pre-commit 钩子**（对应 P18）
   - 动作：写 `.git/hooks/pre-commit`（或 pre-commit 框架配置），提交前跑 `pytest -m smoke` + `compileall` 语法基线；ruff 装好后追加 check
@@ -87,7 +87,7 @@
   - 动作：
     1. 前端：`npm install -D @eslint/js eslint`，package.json 加 `"lint": "eslint src/"`（node 运行时已就绪于 runtime/node20）
     2. 后端：下载 ruff 单文件二进制到 `tools/ruff/ruff.exe`（ruff.toml 注释已引用该路径）
-  - 完成标准：`npm run lint` 与 `tools/ruff/ruff.exe check backend/` 均可执行；存量违规允许 --baseline 化但命令退出码可判
+  - 完成标准：`npm run lint` 与 `tools/ruff/ruff.exe check src/` 均可执行；存量违规允许 --baseline 化但命令退出码可判
   - 工时：1 小时
   - **完成记录（2026-08-19）**：
     - 前端：@eslint/js + typescript-eslint + eslint-plugin-react-hooks 实装（eslint 9 flat config）；typescript-eslint 仅作解析器（TS 语法支持），语义检查仍由 tsc --noEmit 承担；react-hooks 只开 rules-of-hooks/exhaustive-deps 两条经典规则（v7 编译器系规则对存量代码误报多）。`npm run lint` 0 错误 10 警告（全部 no-console，降为可接受底噪）；`--fix` 清掉 12 处冗余 disable 指令与 prefer-const；tsc --noEmit 同步通过
@@ -101,7 +101,7 @@
   - 工时：2 天
   - **完成记录（2026-08-19）**：
     - vitest 2.1.8 实配落地：vitest.config.ts（别名与 vite/tsconfig 同步，node 环境，fileParallelism=false 防 store 交叉污染）；package.json test 脚本 `vitest` → `vitest run`（CI 单次退出），另留 test:watch
-    - 三个测试文件 34 用例全绿：useMangaStore.test.ts（13，项目/分镜/视频全链路状态流转：openProject/autoSplit 乐观追加/reorderRows 乐观重排+失败回滚/generateVideo 全流程 generating→done 收敛/功能互斥拒绝/取消/轮询失败收敛，fake timers 驱动真实 2s 轮询节拍）；mangaApi.test.ts（14，mock 请求层直测 Zod 解析：合法/passthrough 宽容/缺字段/类型错/枚举漂移/progress 越界全维度）；videoStatus.test.ts（7，**直读 backend/api/manga.py 源码文本正则提取 status 字面量，与前端 VIDEO_TASK_STATUSES/标签/Zod schema 三方双向核对**，后端加状态前端没跟上时立即红）
+    - 三个测试文件 34 用例全绿：useMangaStore.test.ts（13，项目/分镜/视频全链路状态流转：openProject/autoSplit 乐观追加/reorderRows 乐观重排+失败回滚/generateVideo 全流程 generating→done 收敛/功能互斥拒绝/取消/轮询失败收敛，fake timers 驱动真实 2s 轮询节拍）；mangaApi.test.ts（14，mock 请求层直测 Zod 解析：合法/passthrough 宽容/缺字段/类型错/枚举漂移/progress 越界全维度）；videoStatus.test.ts（7，**直读 src/api/manga.py 源码文本正则提取 status 字面量，与前端 VIDEO_TASK_STATUSES/标签/Zod schema 三方双向核对**，后端加状态前端没跟上时立即红）
     - 顺带完成 P2-07 首步：VIDEO_STATUS_LABELS 从 MangaWorkspace.tsx 抽到 src/constants/videoStatus.ts 单一真源（store 类型 VideoTaskStatus 同源引用）
     - **测试逼出 1 个真实缺陷并修复**：视频轮询连续失败 3 次放弃后，任务永久停留 generating → video_gen 功能锁与 videoGenerating 永不释放（挂死，只能刷新页面）。修复：放弃轮询时任务收敛 error 终态、行状态同步 error、failTask + 释放功能锁，回归用例锁死该行为
     - 验证：npm run test 34/34 过；tsc --noEmit 过（补装 @types/node，测试文件用 node:fs 读后端源码）；npm run lint 0 错误；npm run build 生产构建过（常量抽取不影响打包）
@@ -145,7 +145,7 @@
     - 后端 manga.py（4521 行 / 95 路由）拆为 `api/manga/` 包 9 模块：common（共享层：内存态兜底/行辅助/引擎单例/出图规格铁律，无路由）/ storyboard（23 路由）/ keyframe（7）/ director（17）/ video（15）/ voice（6）/ comic（8）/ comic_asset（19）/ comic_gen（0 路由，管线层由 comic_asset 调用）；`__init__.py` 聚合 9 个子 router，main.py 经 importlib 挂载零改动。拆分用 AST 一次性脚本（tools/_tmp_split_manga.py，已删）：顶层块解析 → 按路由路径钉死域归属（行号边界对路由组起点不精确）→ 共享名定点迭代提升 common → 跨域导入环检测（环上最小非路由名提升解环）
     - 路由对等性机器验证：拆分前后各 95 路由（path+methods）集合完全相等（FastAPI 0.141 惰性挂载，经 `_IncludedRouter.effective_candidates()` 递归物化枚举）；create_app() 13 模块全注册、全 app 295 路由
     - 前端 useMangaStore（744 行）拆为 `stores/manga/` 六切片：project/rows/asset/keyframe/voice/video + types.ts（切片契约与后端能力边界注释）+ helpers.ts + videoPoller.ts（轮询定时器模块级单例，可见性降频）；useMangaStore.ts 仅作组装点（32 行），对外接口与切片前完全一致，22 个消费方零改动
-    - videoStatus.test.ts 同步更新：一致性测试改扫描 `backend/api/manga/` 整包（拆包后状态字面量分散于 common/keyframe/video/comic_asset 四模块，合并提取集合仍为 pending/generating/done/error/cancelled 五值，与拆分前一致）
+    - videoStatus.test.ts 同步更新：一致性测试改扫描 `src/api/manga/` 整包（拆包后状态字面量分散于 common/keyframe/video/comic_asset 四模块，合并提取集合仍为 pending/generating/done/error/cancelled 五值，与拆分前一致）
     - 验证：后端 100/100 过 + 17 冒烟过；ruff check 新包全绿；前端 34/34 过、tsc --noEmit 过、npm run build 生产构建过（3.4s）；各模块行数 max 718（comic_asset）全部 < 1000；临时拆分脚本与路由对等快照已清理
 
 - [x] **P2-02 设计文档补齐**（对应 P03）
@@ -205,7 +205,7 @@
     - 新建 `src/constants/statusLabels.ts`（状态文案集中营）：TRAIN/ROW_GEN/SAVE/MODEL_RUNTIME/MODEL_AVAILABLE/LEARN_SESSION 六域标签 + 转发 P1-04 的 VIDEO 域，各 Record 键与前端类型字面量绑定（Record<TrainTask['status'], string> 等编译期完备约束）
     - 新建 `src/constants/modelConfig.ts`：漫剧模型配置持久化 helper（loadModelConfig/writeModelConfig/DEFAULT_MODEL_CONFIG）自 ModelConfigModal 迁出（跨组件共享逻辑归位常量层）
     - 13 个组件收编：MangaWorkspace/StoryboardTable（含 ShotSaveStatus 类型迁至 @/types）/VideoDrawer/InspectorPanel/RecordsModal/BatchConfirmModal/ModelConfigModal/VideoConfirmModal/LearnView/StylePage/RightPanel×2/ModelManager/LearningDashboard/BottomStatusBar/TopBar；清理 55 处散落状态标签字面量至 2 处合理残留（导演台完成态布尔标签、AssetDetailPanel 错误兜底文案——非枚举域）
-    - 一致性测试 `statusLabels.test.ts` 9 例入套件：直读 backend/data/models.py 提取 TrainStatus/ModelStatus/GenerationStatus 枚举真值 + learnApi TRAIN_STATUS_MAP 适配层覆盖核对（后端 queued/training/evaluating → 前端 pending/running 漂移即红）；标签 Record 键集完备、值非空
+    - 一致性测试 `statusLabels.test.ts` 9 例入套件：直读 src/data/models.py 提取 TrainStatus/ModelStatus/GenerationStatus 枚举真值 + learnApi TRAIN_STATUS_MAP 适配层覆盖核对（后端 queued/training/evaluating → 前端 pending/running 漂移即红）；标签 Record 键集完备、值非空
     - 验证：tsc 0 错、ESLint 0 错（10 个既有 console warning 与本任务无关）、vitest 43/43（34→43）、生产构建通过；组件散落字面量扫描归零（枚举域）
 
 - [x] **P2-08 前端错误呈现统一**（对应 P16）
@@ -222,14 +222,14 @@
     - 验证：tsc 0 错、ESLint 0 错（仅剩 6 个存量 console warning，非本任务引入；errors.ts 新增 1 处为 CONSOLE 入口本体已加豁免注释）、vitest 55/55（43→55）、生产构建通过（3.47s）；全站静默 catch 扫描归零
 
 - [x] **P2-09 双测试入口整合**（对应 P24）
-  - 动作：根目录 tests/（流程编排脚本）与 backend/tests/ 关系明确化——迁移或注明定位，pytest.ini testpaths 收口
+  - 动作：根目录 tests/（流程编排脚本）与 tests/unit/ 关系明确化——迁移或注明定位，pytest.ini testpaths 收口
   - 完成标准：一处命令跑全量测试；入口唯一
   - 工时：半天
   - **完成记录（2026-08-20）**：
-    - 定位落档 `tests/README.md`：三层测试体系——L1 `backend/tests/`（pytest 离线）｜ L2 `frontend/src/**/*.test.ts`（vitest）｜ L3 `tests/`（E2E 流程编排，需活后端 5800，含真实模型推理）；附目录清单（flow 主套件 / e2e_realmachine / strict_test / Playwright UI 批次 / 历史 smoke_batch1~6 已被 pytest 冒烟取代 / _probe_* 调试探针）与新用例归位规则（禁止再新增散装批次脚本）
+    - 定位落档 `tests/README.md`：三层测试体系——L1 `tests/unit/`（pytest 离线）｜ L2 `frontend/src/**/*.test.ts`（vitest）｜ L3 `tests/`（E2E 流程编排，需活后端 5800，含真实模型推理）；附目录清单（flow 主套件 / e2e_realmachine / strict_test / Playwright UI 批次 / 历史 smoke_batch1~6 已被 pytest 冒烟取代 / _probe_* 调试探针）与新用例归位规则（禁止再新增散装批次脚本）
     - 唯一入口 `tools/run_tests.py`：默认 L1+L2；`--smoke` 提交前最小集；`--e2e` 追加 L3（tests.flow.run 自带 /health 预检）；任一层失败退出码 1；npm 缺失时 L2 显式 SKIP 不误报
-    - pytest.ini 收口注释：testpaths=backend/tests 设计意图写明（根目录脚本无 test_ 前缀 + 依赖活后端，双保险不被收集）；README 开发工作流改为统一入口三命令
-    - 事实核验：`pytest --collect-only` 102 用例全部来自 backend/tests，根目录 tests/ 零收集；`tools/run_tests.py` 实跑 L1+L2 全绿（后端全量 pytest PASS + 前端 vitest 55/55 PASS）；ruff 检查通过
+    - pytest.ini 收口注释：testpaths=tests/unit 设计意图写明（根目录脚本无 test_ 前缀 + 依赖活后端，双保险不被收集）；README 开发工作流改为统一入口三命令
+    - 事实核验：`pytest --collect-only` 102 用例全部来自 tests/unit，根目录 tests/ 零收集；`tools/run_tests.py` 实跑 L1+L2 全绿（后端全量 pytest PASS + 前端 vitest 55/55 PASS）；ruff 检查通过
     - 未做迁移裁定：flow/e2e/ui 脚本依赖活后端与 GPU 真实推理，与 pytest 离线定位本质不同，强行迁移会制造「离线跑不动」的假测试——保留脚本形态 + 定位声明即为正解（用户任务书「迁移或注明定位」二选一，取后者）
 
 ---

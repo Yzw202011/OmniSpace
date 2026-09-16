@@ -1,7 +1,7 @@
 /* ==========================================================================
  * OmniSpace AI v2.3.1 —— 知识学习 API（对齐后端 /v1/learn/* 实际契约）
  * --------------------------------------------------------------------------
- * 已对接（后端 backend/api/learn.py 实际存在）：
+ * 已对接（后端 src/api/learn.py 实际存在）：
  * - POST /learn/train            发起训练（TrainTaskCreate：base_model/超参数/dataset_path）
  * - GET  /learn/tasks            训练任务列表（创建时间倒序，{items,total}）
  * - GET  /learn/tasks/{id}       训练任务详情
@@ -96,7 +96,7 @@ export interface CreateTrainBody {
   hyperparams?: Record<string, unknown>;
 }
 
-/** 后端默认可训练基座（与 backend/api/learn.py _TRAINABLE_BASE_MODELS 对齐） */
+/** 后端默认可训练基座（与 src/api/learn.py _TRAINABLE_BASE_MODELS 对齐） */
 const DEFAULT_BASE_MODEL = 'qwen3-vl-4b';
 
 /** 发起训练（阈值校验 + 引擎就绪门控；数据不足 40009 / GPU 占用 40007） */

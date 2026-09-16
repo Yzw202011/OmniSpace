@@ -1,9 +1,9 @@
 """升级独立进程「小医生」（升级机制批3，docs/升级机制方案-2026-09-08.md §2.3）。
 
 为什么独立：软件运行中自己的 .pyd 被锁——换文件必须由软件完全关机后
-仍在运行的进程执行。本文件 **只准标准库** 且绝不 import backend/pydeps。
+仍在运行的进程执行。本文件 **只准标准库** 且绝不 import src/pydeps。
 
-时序（方案 §2.3 步骤 5-9，由 backend/api/upgrade.py 三道预检+深验之后拉起）：
+时序（方案 §2.3 步骤 5-9，由 src/api/upgrade.py 三道预检+深验之后拉起）：
   ① 等 2 秒让后端把 HTTP 响应发完
   ② POST splash /api/quit → 等整链退净（后端 5800-5835+启动页 5850-5869
      +ComfyUI 8189，宽限 90s）→ 退不净则放弃升级、零改动
@@ -32,8 +32,9 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import core  # noqa: E402 - updater 同目录共享核心（stdlib-only）
 import restore  # noqa: E402
+
+import core  # noqa: E402 - updater 同目录共享核心（stdlib-only）
 
 # ── 常量 ─────────────────────────────────────────────────────
 BACKEND_PORTS = range(5800, 5836)

@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-F = "backend/config.yaml"
+F = "src/config.yaml"
 head = subprocess.run(["git", "show", f"HEAD:{F}"], capture_output=True).stdout
 work = Path(F).read_bytes()
 

@@ -201,7 +201,7 @@ sup a:hover { text-decoration: underline; }
   <p>RTX 5070 Ti 基于 Blackwell 架构（Compute 12.0），Tensor Core 原生支持 FP8 混合精度运算。相比 FP16，FP8 带来 <strong>~2x 显存缩减</strong> 和 <strong>~2x 推理加速</strong>，精度损失 &lt;1%<sup><a href="#cite-1">[1]</a></sup>。当前 torch 2.11.0+cu128 已原生支持 FP8，无需额外配置。</p>
 
   <div class="callout">
-    <strong>关键发现</strong>：项目当前 <code>HARDWARE_TIER_TABLE</code>（<code>backend/data/models.py</code> 第 113-164 行）<strong>不包含 RTX 5070 Ti</strong>。该 GPU 会被 VRAM 回退逻辑误判为 <code>rtx3060</code> 档位（dialog 降到 2B、paint 降到 SDXL），严重浪费硬件能力。必须在部署前新增 <code>rtx5070ti</code> 档位。
+    <strong>关键发现</strong>：项目当前 <code>HARDWARE_TIER_TABLE</code>（<code>src/data/models.py</code> 第 113-164 行）<strong>不包含 RTX 5070 Ti</strong>。该 GPU 会被 VRAM 回退逻辑误判为 <code>rtx3060</code> 档位（dialog 降到 2B、paint 降到 SDXL），严重浪费硬件能力。必须在部署前新增 <code>rtx5070ti</code> 档位。
   </div>
 
   <h3>核心约束：16GB 显存</h3>
@@ -355,7 +355,7 @@ def _preferred_load_dtype(self):
     <strong>现有代码已部分支持</strong>：<code>dialog_engine.py</code> 第 48-54 行 <code>DIALOG_MODEL_CANDIDATES</code> 已有 <code>qwen3-vl-8b</code> 条目，但条件为 <code>GPU tier &gt;= 12GB VRAM</code>。由于 RTX 5070 Ti 被误判为 rtx3060 档，8B 永不入选。<strong>修复硬件分级表即可解锁</strong>。
   </div>
 
-  <h4>代码修改 — backend/data/models.py</h4>
+  <h4>代码修改 — src/data/models.py</h4>
   <pre><code># HARDWARE_TIER_TABLE 新增 rtx5070ti 档位（第 113-164 行之间）
 "rtx5070ti": {
     "label": "RTX 5070 Ti 16GB",
@@ -386,7 +386,7 @@ def _preferred_load_dtype(self):
   </div>
 
   <h4>唯一需要的修改 — VIDEO_ROUTING_TABLE</h4>
-  <pre><code># backend/data/models.py 第 79 行
+  <pre><code># src/data/models.py 第 79 行
 # 新增 VideoModel 枚举值 + 路由表条目
 class VideoModel(str, Enum):
     # ... 现有 ...
@@ -413,7 +413,7 @@ VIDEO_ROUTING_TABLE = [
   <p>Hunyuan3D 2.1 的 PBR 纹理通道在 16GB 卡上可跑（低显存路径约 13GB），输出带物理纹理的电影级 3D 模型<sup><a href="#cite-5">[5]</a></sup>。几何生成仅需 6GB，可与常驻层共存。</p>
 
   <h4>代码修改 — 新增 3D 引擎文件</h4>
-  <pre><code># 新文件: backend/services/inference/hunyuan3d_engine.py
+  <pre><code># 新文件: src/services/inference/hunyuan3d_engine.py
 # 参照现有 triposr_engine.py 结构
 from diffusers import Hunyuan3DDiTFlowMatchingPipeline
 
@@ -566,21 +566,21 @@ def load_controlnet(self, controlnet_path: str):
       <tbody>
         <tr>
           <td><span class="badge badge-p0">P0</span></td>
-          <td><code>backend/data/models.py</code></td>
+          <td><code>src/data/models.py</code></td>
           <td><code>HARDWARE_TIER_TABLE</code> (L113)</td>
           <td>新增 <code>rtx5070ti</code> 档位 + VRAM 回退顺序</td>
           <td>小</td>
         </tr>
         <tr>
           <td><span class="badge badge-p0">P0</span></td>
-          <td><code>backend/data/models.py</code></td>
+          <td><code>src/data/models.py</code></td>
           <td><code>VideoModel</code> 枚举 + <code>VIDEO_ROUTING_TABLE</code> (L79)</td>
           <td>新增 <code>hunyuan-video-1.5</code> + 14GB 路由</td>
           <td>小</td>
         </tr>
         <tr>
           <td><span class="badge badge-p0">P0</span></td>
-          <td><code>backend/services/inference/paint_engine.py</code></td>
+          <td><code>src/services/inference/paint_engine.py</code></td>
           <td><code>PAINT_MODEL_CANDIDATES</code> (L54) + <code>load_model()</code> (L295)</td>
           <td>新增 FLUX.2 Klein 4B + FluxPipeline + FP8 dtype</td>
           <td>中</td>
@@ -594,21 +594,21 @@ def load_controlnet(self, controlnet_path: str):
         </tr>
         <tr>
           <td><span class="badge badge-p1">P1</span></td>
-          <td><code>backend/services/inference/voice_engine.py</code></td>
+          <td><code>src/services/inference/voice_engine.py</code></td>
           <td><code>_VOICE_NAME_HINTS</code> (L88) + <code>_load_f5_tts()</code> 新增 + <code>_load_sovits()</code> (L617)</td>
           <td>新增 F5-TTS 后端 + CosyVoice2 识别 + 解除 SoVITS gate</td>
           <td>中</td>
         </tr>
         <tr>
           <td><span class="badge badge-p1">P1</span></td>
-          <td>新建 <code>backend/services/inference/hunyuan3d_engine.py</code></td>
+          <td>新建 <code>src/services/inference/hunyuan3d_engine.py</code></td>
           <td>整个文件</td>
           <td>参照 triposr_engine.py 实现 Hunyuan3D 2.1 引擎</td>
           <td>中</td>
         </tr>
         <tr>
           <td><span class="badge badge-p1">P1</span></td>
-          <td><code>backend/api/manga.py</code></td>
+          <td><code>src/api/manga.py</code></td>
           <td><code>director_text_to_3d()</code> (L3115)</td>
           <td>新增 Hunyuan3D 引擎选择逻辑（优先 Hunyuan3D，兜底 TripoSR）</td>
           <td>小</td>
@@ -622,14 +622,14 @@ def load_controlnet(self, controlnet_path: str):
         </tr>
         <tr>
           <td><span class="badge badge-p2">P2</span></td>
-          <td><code>backend/services/inference/paint_engine.py</code></td>
+          <td><code>src/services/inference/paint_engine.py</code></td>
           <td>新增 <code>load_controlnet()</code></td>
           <td>FLUX ControlNet-Union 支持</td>
           <td>中</td>
         </tr>
         <tr>
           <td><span class="badge badge-p2">P2</span></td>
-          <td><code>backend/services/inference/dialog_engine.py</code></td>
+          <td><code>src/services/inference/dialog_engine.py</code></td>
           <td><code>DIALOG_MODEL_CANDIDATES</code> (L48)</td>
           <td>确认 qwen3-vl-8b 条目已存在（仅需硬件分级表修复）</td>
           <td>无</td>
@@ -790,7 +790,7 @@ flowchart LR
     <div class="step-num">1</div>
     <div class="step-body">
       <h4>修复硬件分级表</h4>
-      <p>编辑 <code>backend/data/models.py</code>，在 <code>HARDWARE_TIER_TABLE</code> 新增 <code>rtx5070ti</code> 档位，修改 <code>detect_hardware_tier()</code> 的 VRAM 回退顺序。</p>
+      <p>编辑 <code>src/data/models.py</code>，在 <code>HARDWARE_TIER_TABLE</code> 新增 <code>rtx5070ti</code> 档位，修改 <code>detect_hardware_tier()</code> 的 VRAM 回退顺序。</p>
       <p>验证：启动后端，<code>GET /api/v1/hardware/info</code> 返回 <code>tier.id == "rtx5070ti"</code></p>
     </div>
   </div>

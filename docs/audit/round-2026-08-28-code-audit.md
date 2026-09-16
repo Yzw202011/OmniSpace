@@ -4,7 +4,7 @@
 > 前端 35,467 行中逐行覆盖安全关键路径（约 6,000 行：App/router/api/ws/schema/errors/Task store/videoPoller/DialogPage/DirectorStage/构建配置），其余按引用方抽查。
 > 发现分级：P0 = 显存/数据破坏级；P1 = 真实可触发的高危缺陷；P2 = 值得修但影响有限。
 > 证据规则：每条发现含 文件:行号 + 原文引用。标注【已亲核】的条目由主审计者二次读取源码确认；其余为逐行审计代理报告（原文引用逐条可查）。
-> 本报告不覆盖：根目录测试脚本（tests/ 46 文件，属活后端编排）、backend/vendor、frontend 其余 UI 组件、ComfyUI 便携版内部。
+> 本报告不覆盖：根目录测试脚本（tests/ 46 文件，属活后端编排）、src/vendor、frontend 其余 UI 组件、ComfyUI 便携版内部。
 
 ## 0. 覆盖率
 

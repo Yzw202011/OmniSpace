@@ -6,7 +6,7 @@
   - 基线外新增错误 → 退出码 1 拦截提交；
   - 基线漂移（重构导致行号/消息变化）→ 人工确认后 --rebaseline 重生成。
 基线键 = 相对路径|错误消息（含 [错误码]，不含行号——行号漂移不误报）。
-范围 = backend + launcher（用户令：packaging_console / license_console 冻结）。
+范围 = src + launcher（用户令：packaging_console / license_console 冻结）。
 
 用法（cwd 任意，内部归位仓库根）:
     runtime/py310/python.exe tools/run_mypy.py             # 全量对比基线
@@ -23,7 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "tools" / "mypy.ini"
 BASELINE = ROOT / "tools" / "mypy_baseline.txt"
-SCOPE = ("backend", "launcher")
+# src 扁平化重构（2026-09-15）：backend/ → src/，闸门范围随之迁移
+SCOPE = ("src", "launcher")
 
 ERR_RE = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): (?P<kind>error|note): (?P<msg>.*)$")
 
@@ -88,7 +89,7 @@ def main() -> int:
     if "--staged" in sys.argv:
         files = staged_py_files()
         if not files:
-            print("[mypy-gate] [4/4] 暂存区无 backend/launcher 的 .py，跳过")
+            print("[mypy-gate] [4/4] 暂存区无 src/launcher 的 .py，跳过")
             return 0
         print(f"[mypy-gate] [4/4] mypy 增量类型检查（{len(files)} 个暂存文件，基线冻结只增不减）...")
     else:

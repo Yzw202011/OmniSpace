@@ -60,7 +60,7 @@
 
 ### C2「AI 写分格」本地路（2026-09-08 凌晨，✅ 全链实弹通过）
 
-- **后端** `backend/api/manga/comic_script.py`（新模块，注册入 manga 包）：`POST /manga/comic/script-generate`，入参 {project_id, story(1~2000), panels(1~12), replace}；dialog 功能锁 + ensure_loaded 全自动装载（UX 铁律）+ run_blocking 推理 + **顶层数组截断抢救器**（`_salvage_json_array`：novel 的 repair_json_prefix 只回退嵌套边界，顶层数组永不触发，此处自带数组版）。落库走 `_make_row`/`_public_row_to_db` 既有链（追加/清空重填双语义）。坏请求体经 ValidationError 捕获包成 PARAM_INVALID 友好错误（05:29:47 修复；当时运行中实例早 11 秒启动未含此修复，下次自然重启生效——仅影响坏参数报错文案，不影响功能）。
+- **后端** `src/api/manga/comic_script.py`（新模块，注册入 manga 包）：`POST /manga/comic/script-generate`，入参 {project_id, story(1~2000), panels(1~12), replace}；dialog 功能锁 + ensure_loaded 全自动装载（UX 铁律）+ run_blocking 推理 + **顶层数组截断抢救器**（`_salvage_json_array`：novel 的 repair_json_prefix 只回退嵌套边界，顶层数组永不触发，此处自带数组版）。落库走 `_make_row`/`_public_row_to_db` 既有链（追加/清空重填双语义）。坏请求体经 ValidationError 捕获包成 PARAM_INVALID 友好错误（05:29:47 修复；当时运行中实例早 11 秒启动未含此修复，下次自然重启生效——仅影响坏参数报错文案，不影响功能）。
 - **前端**：mangaApi.generateComicScript + 工作台「AI 写分格」按钮+弹窗（故事梗概 textarea + 格数下拉 2/4/6/8/12 + 「清空现有分格后填充」勾选，默认追加）。
 - **测试**：test_comic_script.py 9 项（提示词注入/裸数组/围栏/截断抢救/钳制/坏输出/追加+清空双语义/坏输出诚实报错/冷启动自动装载）+ 全仓 440 passed + ruff/mypy/tsc/vite 构建全绿。
 - **实弹**（真引擎）：API 路 4 格 6s（引擎热）出稿——起承转合/画面动作/情绪构图俱全（项目「C2实弹-晨测」e4635553）；真浏览器路：开弹窗→填钟楼续篇→选 2 格→提交→网格 4+2=6 格新描述回显、弹窗净关。
@@ -69,7 +69,7 @@
 ### C3 角色上传 + C4 台词气泡/整页导出（2026-09-08 晨，✅ 全链实弹通过）
 
 - **C3（发现式零后端）**：体检发现 `POST /comic/asset/upload` 早已存在（comic_asset.py:1116：multipart 校验+落盘+建资产行+后台 VLM 按图自动补写描述词）——C3 缩为纯前端：角色栏「上传角色图」弹窗（名称+图片）+ 角色卡「升级四视图（人脸锁）」按钮（无 meta.turnaround 的角色才显示，走 regenerateAsset {mode:'four_views'}，打通「手画/外部图 → 参考锚 → 可选升级 PuLID 人脸锁」）。
-- **C4 后端** `backend/api/manga/comic_export.py`：`POST /manga/comic/export-page`——PNG 单列长图（面板等宽 1280）/ PDF 每格一页；**零依赖极简 PDF 1.4 写入器**（JPEG 直嵌 DCTDecode，离线铁律不引 reportlab/fpdf）；台词气泡 PIL 烘焙（微软雅黑系统字体，缺字体如实降级）；台词源=storyboard_rows.original_dialogue（与前端覆盖层同源）；无关键帧分格诚实跳过并列明。media 白名单补 .pdf 类型。落盘 generated/exports/（白名单目录）。
+- **C4 后端** `src/api/manga/comic_export.py`：`POST /manga/comic/export-page`——PNG 单列长图（面板等宽 1280）/ PDF 每格一页；**零依赖极简 PDF 1.4 写入器**（JPEG 直嵌 DCTDecode，离线铁律不引 reportlab/fpdf）；台词气泡 PIL 烘焙（微软雅黑系统字体，缺字体如实降级）；台词源=storyboard_rows.original_dialogue（与前端覆盖层同源）；无关键帧分格诚实跳过并列明。media 白名单补 .pdf 类型。落盘 generated/exports/（白名单目录）。
 - **C4 前端**：分格「台词/旁白」输入（失焦存 original_dialogue）+ 面板图上气泡覆盖层（即时渲染）+「导出成册」菜单（PNG 长图/PDF 多页）→ 浏览器直下（/manga/media 回读）。
 - **测试**：test_comic_export.py 6 项（PDF 结构头/页数/xref 回解析、长图高度数学、气泡需字体/烘焙、tmp 库+tmp DATA_DIR 双格式端点冒烟、空项目诚实报错）；全仓 446 passed + tsc + 构建 + ruff 全绿。
 - **实弹**（真浏览器+真文件）：台词填两格→气泡即时渲染；**页面内 canvas 构造 File 注入上传链**（绕 IAB 文件选择器不支持的限制）→「阿澄」手绘图成功登记+升级按钮判定正确（有四视图的小漫不显示）；导出 PNG（1328×3000，4.7MB，气泡烘入=视觉验证）与 PDF（2.1MB，%PDF-1.4）双格式落盘+浏览器自动下载。

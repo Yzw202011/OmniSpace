@@ -10,14 +10,14 @@
 
 ### R2-B01 对话被动补全流程缺失 → ✅ 已修复
 - **改动文件**：
-  - `backend/api/dialog.py`：新增被动补全完整链路——`_UNCERTAINTY_MARKERS`（24 个中文不确定性标记）、`_detect_uncertainty()`（首 800 字 + 尾 400 字探测）、`_extract_keywords()`（无 NLP 依赖的轻量提取：拉丁/数字词 + 停用片段过滤后的中文段）、`_quick_search_supplement()`（浏览器池快速搜索 ≤3 页、25s 时间预算、每页截 1500 字/总量 3000 字上限，仅直接导航搜索 URL 不填表单，遵守 TC-S-012）、`_passive_reinfer()`（补充上下文重推理一次）、`_maybe_passive_completion()` 编排（全程容错，任何子步骤失败回退原回复）。
+  - `src/api/dialog.py`：新增被动补全完整链路——`_UNCERTAINTY_MARKERS`（24 个中文不确定性标记）、`_detect_uncertainty()`（首 800 字 + 尾 400 字探测）、`_extract_keywords()`（无 NLP 依赖的轻量提取：拉丁/数字词 + 停用片段过滤后的中文段）、`_quick_search_supplement()`（浏览器池快速搜索 ≤3 页、25s 时间预算、每页截 1500 字/总量 3000 字上限，仅直接导航搜索 URL 不填表单，遵守 TC-S-012）、`_passive_reinfer()`（补充上下文重推理一次）、`_maybe_passive_completion()` 编排（全程容错，任何子步骤失败回退原回复）。
   - 三条推理路径全部接入：非流式 `dialog_send`（响应携带 `passive_completion` 字段）、SSE `_stream_response`（[DONE] 前追加改进回复 token + `passive_completion` 事件）、WS `_ws_handle_message`（追加 token 推送后落库，meta 标注）。
-  - `backend/services/learning_scheduler.py`：注册 `TRIGGER_DIALOG_GAP` 默认动作 `_default_dialog_gap_trigger`——缺口关键词沉淀为学习主题（source=auto），后续由空闲/定时触发器按正常门控拾起学习；不同步启动会话（对话 P0 进行中学习 P3 必须让行，§8.4.2）。
+  - `src/services/learning_scheduler.py`：注册 `TRIGGER_DIALOG_GAP` 默认动作 `_default_dialog_gap_trigger`——缺口关键词沉淀为学习主题（source=auto），后续由空闲/定时触发器按正常门控拾起学习；不同步启动会话（对话 P0 进行中学习 P3 必须让行，§8.4.2）。
 - **验证**：`_detect_uncertainty("我不确定…")=True`、肯定句=False；`_extract_keywords("请问 Qwen3-VL 的最大上下文长度是多少？")=['Qwen3','VL','最大上下文长度是']`；三触发器回调注册确认。
 
 ### R2-B02 学习触发器框架未接线 → ✅ 已修复（前序会话 + 本次补全）
 - 前序已完成：`learning_scheduler.tick()` 周期评估（30s 节流）由调度引擎 1s tick 驱动（`services/scheduler/__init__.py:139`），空闲 >5 分钟 fire TRIGGER_IDLE、学习时段内 fire TRIGGER_SCHEDULED，默认动作 `_default_learn_trigger` 自动为最近活跃主题启动学习会话。
-- 本次补全：`backend/middleware/request_context.py` 新增 `_report_user_activity()`——变更类 HTTP 请求（POST/PUT/DELETE/PATCH /api/*）视为真实用户操作刷新空闲计时；GET 轮询不计，避免状态栏轮询误判活跃。至此 5 个触发器（手动/定时/空闲/项目驱动/对话缺口）全部接线。
+- 本次补全：`src/middleware/request_context.py` 新增 `_report_user_activity()`——变更类 HTTP 请求（POST/PUT/DELETE/PATCH /api/*）视为真实用户操作刷新空闲计时；GET 轮询不计，避免状态栏轮询误判活跃。至此 5 个触发器（手动/定时/空闲/项目驱动/对话缺口）全部接线。
 
 ### R2-B03 LoRA 自动微调未接线 → ✅ 已修复（前序会话）
 - `learning_scheduler._maybe_auto_finetune()`：消费 `auto_finetune_frequency` 设置（off/daily/weekly/monthly），知识点达阈值 + GPU 空闲 + 过周期窗口 → 排队微调；防重入旗标 + 拒绝后 600s 节流。本次补充 monthly 周期映射（文档B §4.4 四档）。
@@ -26,7 +26,7 @@
 - `dialog_engine._attach_knowledge_lora()`：基座加载后查询 current LoRA 版本，`PeftModel.from_pretrained` 挂载（基座匹配校验，失败回退纯基座）；`refresh_knowledge_lora()` 热更新（训练完成回调）；`get_status()` 上报 `knowledge_lora` 字段。
 
 ### R2-B05 学习进度 WS 推送端点缺失 → ✅ 已修复（本次）
-- `backend/api/learning.py`：新增 `@router.websocket("/learn/session/progress")`，每 2 秒推送会话状态快照（与 GET /learn/session/status 同构），无会话推 `{"status":"idle"}`；快照为内存读不阻塞事件循环。路由注册已验证（`/learn/session/progress`）。
+- `src/api/learning.py`：新增 `@router.websocket("/learn/session/progress")`，每 2 秒推送会话状态快照（与 GET /learn/session/status 同构），无会话推 `{"status":"idle"}`；快照为内存读不阻塞事件循环。路由注册已验证（`/learn/session/progress`）。
 
 ### R2-B06 分镜列表/排序端点缺失 → ✅ 已修复（前序会话）
 - `GET /manga/storyboard/list`（+顶层别名）、`POST /manga/storyboard/reorder`（row_ids 有序数组批量更新 sort_index）。
@@ -70,7 +70,7 @@
 |---|---|---|
 | 改动文件语法 | ast.parse ×7 文件 | ✅ |
 | 模块导入 | import dialog/learning/manga/system/learning_scheduler/browser_agent_service/request_context | ✅ |
-| 应用装配 | backend.main app 创建，11 个路由模块注册 | ✅ |
+| 应用装配 | src.main app 创建，11 个路由模块注册 | ✅ |
 | WS 端点注册 | learning.router 含 /learn/session/progress | ✅ |
 | 触发器注册 | list_triggers 含 scheduled/idle/dialog_gap 回调 | ✅ |
 | 不确定性检测 | 标记句=True / 肯定句=False | ✅ |

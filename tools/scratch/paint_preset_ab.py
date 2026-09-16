@@ -1,6 +1,6 @@
 """批1a 绘画档位 A/B 实弹（2026-09-12）：36步/cfg4 vs 4步/cfg1 vs 4步+consistency LoRA。
 
-镜像 backend/services/inference/comfy_paint_engine.py 的 _build_workflow
+镜像 src/services/inference/comfy_paint_engine.py 的 _build_workflow
 节点图（无参考图/无 PuLID），直接提交 8189，同 seed 同 prompt 三组计时。
 产物落 data/comfyui/output/，供用户目验。只读探测 + 生成提交，不动任何代码。
 """

@@ -29,7 +29,7 @@
 e:\OmniSpace\
 ├── runtime\py310\   内嵌 Python 3.10（python310._pth 挂载双站点）
 ├── pydeps\          承重依赖站点（fastapi/torch/diffusers/chromadb 等 170+ 包仅存于此，dist-info 实测 181 个）
-├── backend\ frontend\ launcher\ tools\ docs\ ...
+├── src\ frontend\ launcher\ tools\ docs\ ...
 └── models\          模型资产（见 §3，可后置下载）
 ```
 
@@ -94,7 +94,7 @@ npm install
 
 最小可跑集（对话 + 绘画 + 视频）：qwen3-vl-4b + flux2-klein-9b + AnimateLCM + sd15 + 小模型组 ≈ **55G**。
 
-### 3.2 显存路由表（硬编码于 `backend/data/models.py`，2026-09-02 实读）
+### 3.2 显存路由表（硬编码于 `src/data/models.py`，2026-09-02 实读）
 
 加载时按当前可用显存自动选档（`model_manager.ensure_loaded`）：
 
@@ -121,7 +121,7 @@ Launcher 启动序列：
 1. **环境自检**：OS / CUDA / 磁盘余量（≥20GB，不足直接拒绝）；
 2. **端口冲突三级处理**（详见故障手册 §2）；
 3. **模型完整性校验**：缺失模型走断点续传下载；
-4. **拉起后端**：`python -m uvicorn backend.main:app --host 127.0.0.1 --port <N> --log-level info`（cwd = 项目根）；
+4. **拉起后端**：`python -m uvicorn src.main:app --host 127.0.0.1 --port <N> --log-level info`（cwd = 项目根）；
 5. **心跳监控**：每 5 秒探测 `GET /health`，崩溃自动重启（最多 5 次，冷却 30 秒）；
 6. **打开浏览器** `http://127.0.0.1:<port>`（2026-09-02 核实：无"动态写 config.js"机制，launcher 不写任何前端配置文件）。
 

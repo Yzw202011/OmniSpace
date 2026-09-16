@@ -6,8 +6,8 @@ import sys
 sys.path.insert(0, r"e:\OmniSpace")
 import requests  # noqa: E402
 
-from backend.engines.vllm_service import CHAT_URL  # noqa: E402
-from backend.services.inference.dialog_engine import (  # noqa: E402
+from src.engines.vllm_service import CHAT_URL  # noqa: E402
+from src.services.inference.dialog_engine import (  # noqa: E402
     DEFAULT_SYSTEM_PROMPT,
     THINKING_SYSTEM_SUFFIX,
 )

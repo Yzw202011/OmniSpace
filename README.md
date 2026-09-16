@@ -166,17 +166,22 @@
 
 ```
 OmniSpace/
-├── backend/               # FastAPI 后端
+├── src/               # 后端 + 内核统一扁平包（原 src/ + DistributedFormer 内核）
 │   ├── api/               # 路由层（dialog / comic / manga / novel / learn / models …）
-│   ├── services/          # 业务层 + 推理引擎 + 模型管理
+│   ├── services/          # 业务层 + 推理引擎 + 模型管理（含 Transformers 后端）
 │   ├── engines/           # 资源层（GPU / VRAM / 内存管理）
-│   ├── data/              # 存储层（DB / 向量 / 全文 / 图谱 / 加密）
-│   └── middleware/        # 横切层（错误处理 / 限流 / 互斥锁 / CORS）
+│   ├── data/              # 存储层（DB / 向量 / 全文 / 图谱 / 加密）+ Rust 训练语料
+│   ├── middleware/        # 横切层（错误处理 / 限流 / 互斥锁 / CORS）
+│   ├── core/              # 内核层：DistributedFormer 脉冲主模型（CubeGPT）
+│   ├── cutemamen/         # 内核层：CuteMamen 插件内核（路由/生命周期/三级记忆/包格式）
+│   ├── codec/             # 内核层：脉冲 / 多模态编解码
+│   └── training/          # 内核层：主模型 → 插件 知识迁移读出层
+├── plugin/            # CuteMamen 插件包（.CuteMamen，自包含：manifest+权重+记忆）
 ├── frontend/              # React SPA
 ├── launcher/              # 启动守护进程（自检/端口/心跳/重启/启动页）
-├── docs/                  # 完整文档
+├── docs/                  # 完整文档（含 AGENTS.md / CLAUDE.md）
 ├── tools/                 # 构建与诊断脚本（第三方工具树不入库）
-└── tests/                 # E2E 流程编排
+└── tests/                 # tests/unit 单元测试 + E2E 流程编排
 ```
 
 ---
@@ -211,7 +216,7 @@ runtime\py310\python.exe launcher\launcher.py
 
 ```powershell
 # 后端（端口 5800）
-runtime\py310\python.exe -m uvicorn backend.main:app --reload
+runtime\py310\python.exe -m uvicorn src.main:app --reload
 
 # 前端（端口 5173，自动代理 API）
 cd frontend

@@ -28,9 +28,9 @@ shutil.copy(FACE, OUT / "ab2_reference.png")
 print("reference:", face.size, flush=True)
 
 # ── Phase B: comfy 9b + PuLID ────────────────────────────────────────
-from backend.services.inference.comfy_paint_engine import (
+from src.services.inference.comfy_paint_engine import (
     get_comfy_paint_engine, pulid_available)
-from backend.services.inference.comfy_proc import get_comfy_proc
+from src.services.inference.comfy_proc import get_comfy_proc
 
 assert pulid_available(), "PuLID 权重/节点不在位——comfy 路线身份锁不可用"
 eng = get_comfy_paint_engine()
@@ -45,7 +45,7 @@ get_comfy_proc().shutdown()
 print("comfy shut down", flush=True)
 
 # ── Phase A: legacy 4b + 像素 img2img 软锁 ───────────────────────────
-from backend.services.inference.paint_engine import get_paint_engine
+from src.services.inference.paint_engine import get_paint_engine
 pe = get_paint_engine()
 assert pe.ensure_loaded("flux2-klein-4b"), pe.get_status().get("last_error")
 params_a = {"prompt": PROMPT, "negative": NEG, "seed": SEED, "steps": 20,

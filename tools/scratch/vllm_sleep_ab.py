@@ -11,7 +11,7 @@ import urllib.request
 
 sys.path.insert(0, r"E:\OmniSpace")
 
-from backend.engines.vllm_service import (  # noqa: E402
+from src.engines.vllm_service import (  # noqa: E402
     VLLM_HOST,
     VLLM_PORT,
     get_vllm_service,

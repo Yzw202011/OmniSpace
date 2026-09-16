@@ -2,7 +2,7 @@
 """修 test_comfy_paint_zimage 的 mypy arg-type（构造真实例/真 Image）。"""
 from pathlib import Path
 
-p = Path("E:/OmniSpace/backend/tests/unit/test_comfy_paint_zimage.py")
+p = Path("E:/OmniSpace/tests/unit/unit/test_comfy_paint_zimage.py")
 s = p.read_text(encoding="utf-8")
 
 s = s.replace(

@@ -312,7 +312,7 @@ flowchart TB
   </table>
   </div>
 
-  <h3><span class="hash">2.2</span>后端（backend/）</h3>
+  <h3><span class="hash">2.2</span>后端（src/）</h3>
   <div class="table-wrap">
   <table>
     <thead><tr><th style="width:170px">技术</th><th style="width:110px">版本</th><th>用途与说明</th></tr></thead>
@@ -352,7 +352,7 @@ flowchart TB
 
   <h3><span class="hash">3.1</span>启动时序</h3>
   <p>后端通过 <code>asynccontextmanager lifespan</code> 完成启动装配，典型耗时约 10 秒：</p>
-  <pre class="code"><span class="c"># backend/main.py lifespan 装配顺序（日志时标）</span>
+  <pre class="code"><span class="c"># src/main.py lifespan 装配顺序（日志时标）</span>
 T+0s    数据库初始化（SQLite WAL）
 T+3s    文件存储与缓存
 T+4s    嵌入模型预加载（bge-large-zh，常驻 CUDA 低位显存段）
@@ -423,7 +423,7 @@ data/           存储层 —— database(SQLite/WAL) / file_store / cache / vec
 
   <figure class="chart-figure">
     <div class="chart-title">API 路由注册分布（按路由文件）</div>
-    <div class="chart-sub">数据来源：对 backend/api/ 全部 19 个文件的 @router.get/post/put/delete/websocket 装饰器机器统计</div>
+    <div class="chart-sub">数据来源：对 src/api/ 全部 19 个文件的 @router.get/post/put/delete/websocket 装饰器机器统计</div>
     <div id="chart-endpoints" style="width:100%;min-height:560px"></div>
     <figcaption>图 2：models / system / draw / storyboard / knowledge 为端点密度最高的五个模块；漫剧域（storyboard + comic_asset + video + director + comic + keyframe + voice）合计约 107 个注册，占全站三分之一。</figcaption>
   </figure>
@@ -712,7 +712,7 @@ flowchart LR
     <li><strong>首帧来源</strong>：<code>_load_shot_frames</code> 优先读取逐镜落盘首帧 <code>v{N}_shot{i}.png</code>；缺失才回退到拆格（把网格图切成单镜画面）</li>
     <li><strong>逐镜分段</strong>：<code>_segment_prompt</code> 按镜切分提示词，逐镜 I2V 生成视频段</li>
     <li><strong>裁时拼接</strong>：<code>_trim_concat_segments</code> 用 ffmpeg 逐段裁时、统一编码 H.264 / AAC 44.1kHz 立体声后 concat；音频缺失时 <code>anullsrc</code> 补静音轨</li>
-    <li><strong>模型路由</strong>（<code>backend/data/models.py</code> 的 VIDEO_ROUTING_TABLE）：LTX-2（int8）、Wan2.1 14B FP8 / INT4 / 1.3B、Wan2.2 TI2V 5B、LTX-Video 0.9.5、CogVideoX 2B（含 CPU 降级）、AnimateLCM（SD1.5 底座 + 运动模块，2GB 显存档）、MiniMax H3（ComfyUI 管线）</li>
+    <li><strong>模型路由</strong>（<code>src/data/models.py</code> 的 VIDEO_ROUTING_TABLE）：LTX-2（int8）、Wan2.1 14B FP8 / INT4 / 1.3B、Wan2.2 TI2V 5B、LTX-Video 0.9.5、CogVideoX 2B（含 CPU 降级）、AnimateLCM（SD1.5 底座 + 运动模块，2GB 显存档）、MiniMax H3（ComfyUI 管线）</li>
   </ul>
   <p>产物落 <code>data/generated/videos/</code>，任务状态经 <code>video_tasks</code> 表与 WS Hub 广播（前端 useTaskStore 消费）。</p>
 
@@ -864,7 +864,7 @@ flowchart TB
     </tbody>
   </table>
   </div>
-  <p class="table-note">模型路由表硬编码于 <code>backend/data/models.py</code>（含 VIDEO_ROUTING_TABLE），按显存档位自动路由；无 GPU 时对话路由 CPU 档（qwen3-vl-2b-int4-cpu / sdxl-cpu / cogvideox-cpu）。</p>
+  <p class="table-note">模型路由表硬编码于 <code>src/data/models.py</code>（含 VIDEO_ROUTING_TABLE），按显存档位自动路由；无 GPU 时对话路由 CPU 档（qwen3-vl-2b-int4-cpu / sdxl-cpu / cogvideox-cpu）。</p>
 </section>
 
 <!-- ================= CH11 部署与运行 ================= -->
@@ -891,7 +891,7 @@ flowchart TB
   <pre class="code">e:\OmniSpace\
 ├── runtime\py310\    内嵌 Python 3.10（python310._pth 挂载双站点）
 ├── pydeps\           承重依赖站点（fastapi / torch / diffusers / chromadb 等 154 包仅存于此）
-├── backend\ frontend\ launcher\ tools\ docs\ models\ data\
+├── src\ frontend\ launcher\ tools\ docs\ models\ data\
 └── runtime\py313\    vLLM 子进程专用（0.26.0+cu128 wheel）</pre>
   <div class="callout law"><span class="tag">目录铁律</span>
     1. <code>runtime/</code> 与 <code>pydeps/</code> 勿删勿动——<code>python310._pth</code> 将两者挂载为双站点（pydeps 优先），删除 pydeps 即后端瘫痪。<br>
@@ -900,7 +900,7 @@ flowchart TB
   </div>
 
   <h3><span class="hash">11.3</span>启动与守护（launcher）</h3>
-  <p><code>launcher/launcher.py</code> 是独立守护进程，职责链：环境自检（OS / Python 版本 / 磁盘 ≥ 20GB / CUDA / 依赖关键项与可选项）→ 端口管理三级递进（首选 5800 → taskkill OmniSpace 残留进程 → 扫描 5800–5835 → 全占用抛异常）→ 以子进程拉起 <code>uvicorn backend.main:app</code>（stdout/stderr 管道消费 + 日志文件）→ 5s 心跳（GET /health，校验 <code>data.db == 'ok'</code>）→ 就绪后打开浏览器与系统托盘。</p>
+  <p><code>launcher/launcher.py</code> 是独立守护进程，职责链：环境自检（OS / Python 版本 / 磁盘 ≥ 20GB / CUDA / 依赖关键项与可选项）→ 端口管理三级递进（首选 5800 → taskkill OmniSpace 残留进程 → 扫描 5800–5835 → 全占用抛异常）→ 以子进程拉起 <code>uvicorn src.main:app</code>（stdout/stderr 管道消费 + 日志文件）→ 5s 心跳（GET /health，校验 <code>data.db == 'ok'</code>）→ 就绪后打开浏览器与系统托盘。</p>
   <div class="callout warn"><span class="tag">crash_permanent</span>
     后端崩溃自动重启上限 5 次，达限进入 <code>crash_permanent</code> 放弃状态。若在 RAM 高压期 kill 后端导致 launcher 进入该状态：<strong>恢复方法是重启 launcher 进程本身</strong>（kill launcher PID 后以同命令重新拉起）；ComfyUI（8189）独立存活不受影响。另注意：PowerShell 查 uvicorn 进程时，查询命令自身的包装进程命令行含 "uvicorn" 字样会自匹配造成「崩溃循环」假象，需用 <code>CommandLine -like "*-m uvicorn*"</code> 精确过滤。
   </div>
@@ -910,7 +910,7 @@ flowchart TB
 runtime\py310\python.exe launcher\launcher.py        <span class="c"># → http://127.0.0.1:5800</span>
 
 <span class="c"># 开发模式：前后端分离热更新</span>
-runtime\py310\python.exe -m uvicorn backend.main:app --reload   <span class="c"># 后端 5800</span>
+runtime\py310\python.exe -m uvicorn src.main:app --reload   <span class="c"># 后端 5800</span>
 cd frontend; pnpm install; pnpm dev                              <span class="c"># 前端 5173 + API 代理</span>
 
 <span class="c"># 依赖校验 / 重建（requirements-lock.txt 为唯一真源）</span>
@@ -949,7 +949,7 @@ runtime\py310\python.exe -m pip install -r requirements-lock.txt --target pydeps
     <div class="card"><h5><span class="dot">Day 2-3</span>定向深潜</h5><ul>
       <li>前端向：第 5 章 + <code>src/stores/</code> 任选一个 store 通读</li>
       <li>后端向：第 4 章 + 挑一个路由模块对照 <code>docs/design/api-endpoints.md</code></li>
-      <li>AI 管线向：第 7、8 章 + <code>backend/api/manga/common.py</code></li>
+      <li>AI 管线向：第 7、8 章 + <code>src/api/manga/common.py</code></li>
     </ul></div>
     <div class="card"><h5><span class="dot">Day 4+</span>领任务</h5><ul>
       <li>查 <code>docs/requirements-traceability.md</code> 找未完成项</li>
@@ -977,7 +977,7 @@ runtime\py310\python.exe -m pip install -r requirements-lock.txt --target pydeps
   <h3><span class="hash">12.3</span>Git 与测试</h3>
   <ul class="plain">
     <li>提交格式 <code>type(scope): description</code>，type 取 feat / fix / docs / style / refactor / test / chore，如 <code>feat(chat): 实现Qwen3-VL多模态对话流式输出</code>；分支命名 <code>feature/xxx</code></li>
-    <li>测试入口唯一：<code>tools/run_tests.py</code>（定位说明见 <code>tests/README.md</code>）；后端 pytest（<code>backend/tests/</code>：API 冒烟、引擎纯逻辑、异步边界、host 守卫、上传守卫、遥测诚实性、vLLM 热切换压力与多模态）</li>
+    <li>测试入口唯一：<code>tools/run_tests.py</code>（定位说明见 <code>tests/README.md</code>）；后端 pytest（<code>tests/unit/</code>：API 冒烟、引擎纯逻辑、异步边界、host 守卫、上传守卫、遥测诚实性、vLLM 热切换压力与多模态）</li>
     <li>纯函数验证用 AST 沙箱单测：ast 解析目标函数及模块内依赖，exec 到隔离命名空间（补 re / logging / 类型注解桩），不触发 torch / FastAPI 重型导入——适合 common.py 归一化逻辑这类热点</li>
     <li>前端 vitest（<code>pnpm test</code>）；E2E 流程编排见 <code>tests/</code> 与根目录 <code>e2e_manga_test.py</code></li>
   </ul>

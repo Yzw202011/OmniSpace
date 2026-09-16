@@ -76,8 +76,8 @@ skills/_extracted/
 _mcfg.py
 _sandbox_*.py
 _v25_resp.json
-backend/_planA*
-backend/_repro.py
+src/_planA*
+src/_repro.py
 %SystemDrive%/
 license_console/vault/
 

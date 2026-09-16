@@ -89,7 +89,7 @@ BRAND_MANIFEST: list[dict] = [
 
 
 def _read_app_version() -> str:
-    """从 backend/config.yaml 的 app.version 读版本号（避免引 yaml，纯正则）。
+    """从 src/config.yaml 的 app.version 读版本号（避免引 yaml，纯正则）。
 
     版本是单一真源（make_dist 同源）；解析失败回退 1.0.0.0。
     """

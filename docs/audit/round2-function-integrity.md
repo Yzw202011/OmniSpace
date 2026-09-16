@@ -1,7 +1,7 @@
 # 第二轮审计：功能完整性与需求符合性（后端）
 
 - 日期：2026-08-07
-- 范围：`e:\OmniSpace\backend\` 对照需求文档逐条核查（只做审计，未改动任何代码）
+- 范围：`e:\OmniSpace\src\` 对照需求文档逐条核查（只做审计，未改动任何代码）
 - 基线文档：文档B《OmniSpace AI v2.3.1中文版（修正版B）》（可信基线）；文档E《极致细粒度全量文档（修正版E）》（细粒度任务清单，冲突时以 B 为准）
 - 既有结论：Round0/Round1 已修复项（BK-002/010/011/012/013/014/018/023/027/028/041/042/046/047/048 等）不重复报告；"诚实降级"（明确 degraded 标记）计为符合。
 
@@ -48,7 +48,7 @@
 
 **R2-B01 对话"被动补全"流程缺失**
 - 文档依据：文档B §7.1.6.1 步骤4「被动补全：检测不确定性标记 → 提取关键词 → 快速搜索1~3页 → 补充上下文重新推理」；§7.1.5 ChatService 职责含"被动补全"
-- 代码现状：全后端无"被动补全/不确定性/passive"任何实现（`backend/api/dialog.py:224` dialog_send 流程为 RAG注入→组装→推理→落库，无补全分支）；`learning_scheduler.py:106` 仅定义 `TRIGGER_DIALOG_GAP` 常量，无触发逻辑
+- 代码现状：全后端无"被动补全/不确定性/passive"任何实现（`src/api/dialog.py:224` dialog_send 流程为 RAG注入→组装→推理→落库，无补全分支）；`learning_scheduler.py:106` 仅定义 `TRIGGER_DIALOG_GAP` 常量，无触发逻辑
 - 差距：对话发现知识缺口后即时补搜重推理的能力整体缺失
 - 严重度：**P1**
 - 修复建议：在 dialog 推理后对回复做不确定性标记检测（如"我不确定/没有相关信息"），命中时提取关键词调 browser_agent 快速搜索 1~3 页，注入上下文重推理一次；同时 fire `dialog_gap` 触发器沉淀长期学习
@@ -57,7 +57,7 @@
 
 **R2-B02 学习触发器框架未接线（5 个触发器仅"手动"生效）**
 - 文档依据：文档B TASK-014/学习时机「手动/定时/空闲>5分钟/项目驱动/对话缺口」
-- 代码现状：`backend/services/learning_scheduler.py:153/170` 定义了 `register_trigger`/`fire_trigger`，但**全后端无任何调用方**；`is_user_idle()`（:194）与 `notify_user_activity()`（:185）同样无调用方；`evaluate()` 仅被 `/learn/quota` API（`learning.py:553`）用于展示，无后台周期循环驱动
+- 代码现状：`src/services/learning_scheduler.py:153/170` 定义了 `register_trigger`/`fire_trigger`，但**全后端无任何调用方**；`is_user_idle()`（:194）与 `notify_user_activity()`（:185）同样无调用方；`evaluate()` 仅被 `/learn/quota` API（`learning.py:553`）用于展示，无后台周期循环驱动
 - 差距：定时/空闲/项目驱动/对话缺口 4 个自动学习触发不生效，学习会话只能手动 POST /learn/session/start 启动
 - 严重度：**P1**
 - 修复建议：在 main 启动时注册 5 触发器回调（空闲触发调 `evaluate()` 的 start 动作）；增加后台协程周期评估；在对话/绘画 API 入口上报 `notify_user_activity()`
@@ -84,7 +84,7 @@
 
 **R2-B05 学习进度 WebSocket 推送端点缺失**
 - 文档依据：文档B §7.1.2 line 761「/api/v1/learn/session/progress WS 实时进度 WebSocket推送」
-- 代码现状：`backend/api/learning.py` 全部为 HTTP 端点；全后端 WS 仅 /hardware/realtime（`hardware.py:279`）与对话流（`dialog.py:843`）；前端只能轮询 GET /learn/session/status（`learning.py:379`）
+- 代码现状：`src/api/learning.py` 全部为 HTTP 端点；全后端 WS 仅 /hardware/realtime（`hardware.py:279`）与对话流（`dialog.py:843`）；前端只能轮询 GET /learn/session/status（`learning.py:379`）
 - 差距：学习过程无实时推送通道，进度/日志只能轮询，与文档契约不符
 - 严重度：**P1**
 - 修复建议：新增 `@router.websocket("/learn/session/progress")`，复用 browser_agent_service 的进度回调向连接端推送（参照 hardware/realtime 的 2s 推送模式）
@@ -93,7 +93,7 @@
 
 **R2-B06 分镜列表与排序端点缺失（/storyboard/list、/reorder）**
 - 文档依据：文档B §7.1.4 line 788「漫剧分镜 /create, /list, /reorder, /ai-describe, /preview」；TASK-COMIC-001 验收「分镜CRUD+拖拽排序」
-- 代码现状：`backend/api/manga.py` 有 create（:235）/get（:252）/行更新（:270）/整体保存（:310）/auto-split/import/export，但**无全量分镜列表端点**；`StoryboardRowUpdate`（`data/models.py:357`）**不含 sort_index 字段**，行序无法通过任何 API 持久化
+- 代码现状：`src/api/manga.py` 有 create（:235）/get（:252）/行更新（:270）/整体保存（:310）/auto-split/import/export，但**无全量分镜列表端点**；`StoryboardRowUpdate`（`data/models.py:357`）**不含 sort_index 字段**，行序无法通过任何 API 持久化
 - 差距：前端无法枚举已有分镜项目；拖拽排序结果无法保存
 - 严重度：**P1**
 - 修复建议：新增 GET /storyboard/list（联 projects 表分页）；PUT /storyboard/{project_id}/reorder（接收 row_id 有序数组批量更新 sort_index）

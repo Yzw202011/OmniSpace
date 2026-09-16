@@ -2,7 +2,7 @@
 /* ==========================================================================
  * 视频状态枚举前后端一致性测试（TASK-P1-04，审计 P13 前置）
  * --------------------------------------------------------------------------
- * 直读 backend/api/manga/ 包源码文本（TASK-P2-01 拆包后状态字面量
+ * 直读 src/api/manga/ 包源码文本（TASK-P2-01 拆包后状态字面量
  * 分散于 common/keyframe/video/comic_asset 多模块，故整包扫描），
  * 提取 video_tasks.status 全部字面量取值，与前端常量
  * （VIDEO_TASK_STATUSES / VIDEO_STATUS_LABELS）及 Zod schema 枚举
@@ -21,7 +21,7 @@ import {
 import { VideoStatusRespSchema } from '@/services/schema';
 
 /** 后端 manga 包源码目录（vitest cwd = frontend/；TASK-P2-01 拆包后为目录） */
-const BACKEND_MANGA_DIR = path.resolve(process.cwd(), '../backend/api/manga');
+const BACKEND_MANGA_DIR = path.resolve(process.cwd(), '../src/api/manga');
 
 /** 读取包内全部 .py 模块源码合并为单一文本 */
 function readBackendMangaSrc(): string {

@@ -13,9 +13,9 @@ FACE = Path(r"E:\OmniSpace\data\generated\images\ab2_reference_real.png")
 OUT = FACE.parent
 face = Image.open(FACE).convert("RGB")
 
-from backend.services.inference.comfy_paint_engine import (
+from src.services.inference.comfy_paint_engine import (
     get_comfy_paint_engine, pulid_available)
-from backend.services.inference.comfy_proc import get_comfy_proc
+from src.services.inference.comfy_proc import get_comfy_proc
 assert pulid_available()
 eng = get_comfy_paint_engine()
 t0 = time.perf_counter()
@@ -27,7 +27,7 @@ r["images"][0].save(OUT / "ab2_comfy9b_pulid_real.png", "PNG")
 print(f"[B2 comfy9b+PuLID·真人特写] wall={time.perf_counter()-t0:.1f}s", flush=True)
 get_comfy_proc().shutdown()
 
-from backend.services.inference.paint_engine import get_paint_engine
+from src.services.inference.paint_engine import get_paint_engine
 pe = get_paint_engine()
 assert pe.ensure_loaded("flux2-klein-4b"), pe.get_status().get("last_error")
 t0 = time.perf_counter()

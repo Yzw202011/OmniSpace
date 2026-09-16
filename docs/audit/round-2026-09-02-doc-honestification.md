@@ -67,13 +67,13 @@
 | requirements-traceability.md | ❌ M 域多行"本地路径"因 09-02 清理失效（8B 空壳/32b/codestral/语音四套/bge-m3/hunyuan3d/TripoSR 均已隔离）；M-01 高档已由 8b-awq 承接、M-02 主力已易主 klein-9b、sd15 已清冗余 | 加 09-02 全节复核横幅；M 域降级为决策史，真源改指 manifest |
 | 全量技术文档-2026-09-01.md | ✅ 快照自洽（319 口径与本次实测一致并自释 328 差异） | 加"09-02 后事记"横幅（清理/license/pytest 207/桌面全家桶裁定） |
 | ADR-001 / ADR-002 | ✅ 决策记录自洽（002 重启条件 #1 已被封装计划触发，属正常演化非失实） | 不动 |
-| ADR-003 | ✅ BaseEngine（services/inference/base_engine.py，video/voice/dialog 引用）+ backend/data/model_registry.py + backend/tests/unit/test_base_engine.py 亲验在位 | 不动 |
+| ADR-003 | ✅ BaseEngine（services/inference/base_engine.py，video/voice/dialog 引用）+ src/data/model_registry.py + tests/unit/unit/test_base_engine.py 亲验在位 | 不动 |
 | manga-v8-comfy-workflow.md | ✅ 真源脚本 tools/build_manga_v8_workflow.py 在位 | 不动 |
-| h3-chain-plan-contract-v1.md | ✅ backend/services/inference/h3_chain_engine.py 在位 | 不动 |
+| h3-chain-plan-contract-v1.md | ✅ src/services/inference/h3_chain_engine.py 在位 | 不动 |
 | 项目目录规范.md | ✅ §2.3 comfy_link 真源在位 | 不动 |
 | 日志机制完善方案-2026-09-01.md | ✅ 轮转机制实码在位（logger.py maxBytes/backupCount 常量轮转） | 不动 |
 | CLAUDE.md 残余项 | ✅ stores 11+manga 切片/9 一级路由/tokens.css/middleware 七件 逐项亲验全真 | 不动（此前已修 15 模块/license 行） |
-| 近期执行记录（收尾/拍板/体积/目录清理/隔离区/ComfyUI 改造 六份） | ✅ 抽验属实：隔离区两目录结构与 MANIFEST 在位、"已移除"文件确实不在开发目录（backend/_planA*、frontend/libs、tools/git、codestral 等模型目录、data 遗留 DB） | 不动（记录类，保持原貌） |
+| 近期执行记录（收尾/拍板/体积/目录清理/隔离区/ComfyUI 改造 六份） | ✅ 抽验属实：隔离区两目录结构与 MANIFEST 在位、"已移除"文件确实不在开发目录（src/_planA*、frontend/libs、tools/git、codestral 等模型目录、data 遗留 DB） | 不动（记录类，保持原貌） |
 | README.md | ✅（第一轮已修 328/115/328 三处） | 完成 |
 
 ## 第二轮修改清单

@@ -22,7 +22,7 @@
 
 ### 1.2 数据库变更
 
-**文件**：`backend/data/database.py`
+**文件**：`src/data/database.py`
 
 ```python
 # 在 projects 表新增字段
@@ -34,7 +34,7 @@
 
 ### 1.3 后端数据模型变更
 
-**文件**：`backend/data/models.py`
+**文件**：`src/data/models.py`
 
 ```python
 class WorkMode(str, Enum):
@@ -71,7 +71,7 @@ class VideoNarrativeRequest(BaseModel):
 
 ### 1.4 后端 API 端点新增
 
-**文件**：`backend/api/manga.py`
+**文件**：`src/api/manga.py`
 
 | 方法 | 路径 | 函数名 | 说明 |
 |------|------|--------|------|
@@ -157,7 +157,7 @@ async def list_available_models(task_type: str):
 
 ### 1.5 后端服务层新增
 
-**文件**：`backend/services/inference/dialog_engine.py`（新增方法）
+**文件**：`src/services/inference/dialog_engine.py`（新增方法）
 
 ```python
 async def generate_story_description(
@@ -183,7 +183,7 @@ async def generate_video_description(
     """
 ```
 
-**文件**：`backend/services/inference/paint_engine.py`（新增方法）
+**文件**：`src/services/inference/paint_engine.py`（新增方法）
 
 ```python
 async def generate_with_reference(
@@ -764,7 +764,7 @@ export async function batchKeyframes(
 
 ### 2.3 后端 API 变更
 
-**文件**：`backend/api/manga.py`
+**文件**：`src/api/manga.py`
 
 现有端点扩展以接受 `model_override` 和 `resolution`：
 
@@ -900,14 +900,14 @@ class BatchKeyframeRequest(BaseModel):
   └─ ④ mangaApi.ts: 新增 API 函数（故事/视频生词/生图 + 可用模型列表）
 
 第二阶段：G2 工序弹窗增强（先做，因为 G1 的 batchOps 复用）
-  ├─ ⑤ backend/api/manga.py: GET /manga/models/available + 现有端点扩展 model_override
-  ├─ ⑥ backend/services/model_manager.py: 新增 get_models_by_category 方法
+  ├─ ⑤ src/api/manga.py: GET /manga/models/available + 现有端点扩展 model_override
+  ├─ ⑥ src/services/model_manager.py: 新增 get_models_by_category 方法
   ├─ ⑦ BatchConfirmModal.tsx: 全面重构（范围选择 + 模型选择 + 分辨率 + 预计耗时）
   ├─ ⑧ batchOps.ts: 所有执行器增加 ModelConfig 参数
   └─ ⑨ app.css: 新增弹窗相关样式
 
 第三阶段：G1 解说漫剧模式
-  ├─ ⑩ backend/api/manga.py: 新增 story/narrative, story/keyframe, video/narrative 端点
+  ├─ ⑩ src/api/manga.py: 新增 story/narrative, story/keyframe, video/narrative 端点
   ├─ ⑪ dialog_engine.py: 新增 generate_story_description, generate_video_description
   ├─ ⑫ paint_engine.py: 新增 generate_with_reference
   ├─ ⑬ MangaLibrary.tsx: 创建弹窗增加 work_mode 选择
@@ -931,13 +931,13 @@ class BatchKeyframeRequest(BaseModel):
 
 | # | 文件 | 修改类型 | 修改内容 |
 |---|------|---------|---------|
-| 1 | `backend/data/database.py` | 编辑 | projects 表加 `work_mode TEXT DEFAULT 'regular'` |
-| 2 | `backend/data/models.py` | 编辑 | 新增 `WorkMode` 枚举、`StoryNarrativeRequest`、`StoryKeyframeRequest`、`VideoNarrativeRequest` |
-| 3 | `backend/api/manga.py` | 编辑 | 新增 4 个端点 + 扩展现有端点 model_override/resolution |
-| 4 | `backend/services/inference/dialog_engine.py` | 编辑 | 新增 `generate_story_description`、`generate_video_description` |
-| 5 | `backend/services/inference/paint_engine.py` | 编辑 | 新增 `generate_with_reference`（降级回退） |
-| 6 | `backend/services/model_manager.py` | 编辑 | 新增 `get_models_by_category(task_type)` |
-| 7 | `backend/api/manga.py` | 编辑 | `ProjectCreate`/`ProjectResponse` 扩展 `work_mode` |
+| 1 | `src/data/database.py` | 编辑 | projects 表加 `work_mode TEXT DEFAULT 'regular'` |
+| 2 | `src/data/models.py` | 编辑 | 新增 `WorkMode` 枚举、`StoryNarrativeRequest`、`StoryKeyframeRequest`、`VideoNarrativeRequest` |
+| 3 | `src/api/manga.py` | 编辑 | 新增 4 个端点 + 扩展现有端点 model_override/resolution |
+| 4 | `src/services/inference/dialog_engine.py` | 编辑 | 新增 `generate_story_description`、`generate_video_description` |
+| 5 | `src/services/inference/paint_engine.py` | 编辑 | 新增 `generate_with_reference`（降级回退） |
+| 6 | `src/services/model_manager.py` | 编辑 | 新增 `get_models_by_category(task_type)` |
+| 7 | `src/api/manga.py` | 编辑 | `ProjectCreate`/`ProjectResponse` 扩展 `work_mode` |
 
 ### 前端文件（8 个）
 

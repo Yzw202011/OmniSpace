@@ -1,6 +1,6 @@
 // 本项目仅供学习使用，商业授权请+Q 3559331368
 /* ==========================================================================
- * OmniSpace AI v2.3.1 —— 漫剧创作 API（对齐后端 backend/api/manga/ 包真实端点）
+ * OmniSpace AI v2.3.1 —— 漫剧创作 API（对齐后端 src/api/manga/ 包真实端点）
  * --------------------------------------------------------------------------
  * 一、分镜表（/manga/storyboard/*，200 行上限 STORYBOARD_MAX_ROWS）
  *    - GET    /manga/storyboard/{projectId}            获取分镜表
@@ -425,7 +425,7 @@ export async function previewVoice(
 /* ============================== 五、项目 CRUD（/comic/project/*） ==============================
  * 漫剧重构（2026-08-12）接线：后端项目 CRUD 一直存在（COMIC-001~004），
  * 旧版前端「后端无项目端点」注释系陈旧结论，本轮全量接线。
- * 响应形状经 backend/api/manga/ 包端点逐一核对（信封内 data 直取）。
+ * 响应形状经 src/api/manga/ 包端点逐一核对（信封内 data 直取）。
  * ============================================================================================== */
 
 /** 新建项目（POST /comic/project/create；template=comic_drama 预置 5 行漫剧分镜；workMode=narrative 解说漫剧；artStyle=预置画风 key；

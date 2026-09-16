@@ -27,7 +27,7 @@ pydeps 必须交付（2026-08-19 TASK-P0-06 实测裁定，推翻审计 P23 结�
   审计报告"37 空壳包"仅描述其中 dist-info 残壳；真死目录（pydeps/torch、
   pydeps/sympy、pydeps/tokenizers、pydeps/tests）已随 TASK-P0-06 删除。
 
-注意（教训）: /XD 若用裸名 "data" 会连带排除 backend/data 源码包
+注意（教训）: /XD 若用裸名 "data" 会连带排除 src/data 源码包
 （.gitignore 同款事故），故顶层目录一律绝对路径，仅 __pycache__/node_modules
 这类全树同名目录用裸名。
 

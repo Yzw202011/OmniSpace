@@ -356,14 +356,14 @@ footer .foot-note { font-size: 12.5px; color: var(--muted); }
 
   <div class="panel warn-border">
     <h4>C1 · pickle.loads() 反序列化风险</h4>
-    <p>位置：<code>backend/data/cache.py:75,182</code>、<code>backend/services/model_manager/cache.py:279</code></p>
+    <p>位置：<code>src/data/cache.py:75,182</code>、<code>src/services/model_manager/cache.py:279</code></p>
     <p>三处直接使用 <code>pickle.loads(data)</code> 反序列化缓存内容。虽然当前为本地单机部署、缓存内容主要来自自身写入，但 pickle 反序列化本质上是<b>任意代码执行原语</b>——一旦缓存文件被污染（如恶意导入的模型包携带构造缓存），后果是宿主机级别任意代码执行。</p>
     <p><mark class="key">建议</mark>：缓存序列化改为 JSON + base64(bytes)；至少为缓存文件增加 HMAC 签名校验，加载前先验签。</p>
   </div>
 
   <div class="panel warn-border">
     <h4>C2 · DAO 层 where 条件直接拼接 SQL</h4>
-    <p>位置：<code>backend/data/database.py:653-680</code>（update / delete / count 三个方法）</p>
+    <p>位置：<code>src/data/database.py:653-680</code>（update / delete / count 三个方法）</p>
     <pre class="code"><span class="cm"># 现状：where 参数直接拼入 SQL 字符串</span>
 db.execute(f<span class="st">"UPDATE {table} SET {set_str} WHERE {where}"</span>, params)</pre>
     <p>当前调用方多用固定条件（<code>id=?</code>、<code>session_id=?</code>），暂无实际注入，但这是<b>典型的注入型接口设计</b>——安全性完全依赖每个调用方的自觉，任何一处将用户输入拼进 where 就会立刻变成漏洞。</p>
@@ -597,7 +597,7 @@ flowchart TB
   </div>
 
   <h3><span class="h-tag">6.2</span>测试覆盖——最大的结构性短板</h3>
-  <p>backend/tests 共 14 个文件 / 1,624 行，估算覆盖率 <mark class="key">15%–25%</mark>。已有的测试质量不错（vLLM 热切换压力测试、TorchDynamo 健康测试、上传守卫、seed 一致性 7/7 通过），但<b>核心生成链路的关键组件几乎裸奔</b>：</p>
+  <p>tests/unit 共 14 个文件 / 1,624 行，估算覆盖率 <mark class="key">15%–25%</mark>。已有的测试质量不错（vLLM 热切换压力测试、TorchDynamo 健康测试、上传守卫、seed 一致性 7/7 通过），但<b>核心生成链路的关键组件几乎裸奔</b>：</p>
   <div class="table-wrap">
     <table>
       <thead><tr><th>缺失测试</th><th>风险</th><th>建议优先级</th></tr></thead>
@@ -826,7 +826,7 @@ flowchart LR
 
 <footer>
   <div class="foot-note">
-    审计方法：三路并行静态审计（后端 / 前端 / 生成链路架构），交叉验证项目记忆中的演进历史。行数与文件统计基于 backend/（除 vendor）与 frontend/src/（除 node_modules、dist、libs）。严重度评级为审计判断，建议结合实际运行负载复核。· OmniSpace Code Audit · 2026-08-27
+    审计方法：三路并行静态审计（后端 / 前端 / 生成链路架构），交叉验证项目记忆中的演进历史。行数与文件统计基于 src/（除 vendor）与 frontend/src/（除 node_modules、dist、libs）。严重度评级为审计判断，建议结合实际运行负载复核。· OmniSpace Code Audit · 2026-08-27
   </div>
 </footer>
 

@@ -1,7 +1,7 @@
 /* ==========================================================================
  * OmniSpace AI v2.1 —— 系统 API（规格 §4.7 系统端点）
  * --------------------------------------------------------------------------
- * 严格对齐后端 backend/api/system.py 与 main.py 实际路由：
+ * 严格对齐后端 src/api/system.py 与 main.py 实际路由：
  * - GET  /health                  健康检查（根路径，不带 /v1 前缀，root 模式）
  * - GET  /system/settings         读取设置
  * - PUT  /system/settings         更新设置
@@ -223,7 +223,7 @@ export function getLocalSavings() {
 
 /* ------------------------------ 一键体检与修复（自愈批4） ------------------------------ */
 
-/** 单项体检结果（对齐 backend/services/health_check.py 输出） */
+/** 单项体检结果（对齐 src/services/health_check.py 输出） */
 export const HealthCheckItemSchema = z.object({
   key: z.string(),
   level: z.enum(['ok', 'warn', 'fail', 'unknown']),

@@ -61,6 +61,11 @@ def main() -> int:
     window = webview.create_window(
         'OmniSpace AI', base,
         width=1440, height=900, min_size=(1024, 680))
+    if window is None:
+        # pywebview 类型签名 Window | None：None=后端不可用（如 WebView2
+        # 运行时缺失），事件挂接会 AttributeError——诚实退出非硬崩
+        _log('create_window 返回 None（webview 后端不可用），PoC 退出')
+        return 1
 
     def on_closing() -> bool:
         _log('CLOSE_HOOK_FIRED（closing 事件触发）')

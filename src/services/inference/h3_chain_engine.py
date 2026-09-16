@@ -327,7 +327,6 @@ def _dual_clock_enabled() -> bool:
     custom_nodes/comfyui-minimax-h3-audio-T8（零额外依赖）。
     """
     try:
-        from backend.config import get_config
         raw = (get_config().get("manga") or {}).get("h3_dual_clock", False)
         return bool(raw) and str(raw).strip().lower() not in ("false", "0", "")
     except Exception:  # noqa: BLE001 - 配置异常保持关

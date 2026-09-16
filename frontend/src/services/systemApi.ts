@@ -106,8 +106,9 @@ export function updateSettings(body: Record<string, unknown>) {
 /* ------------------------ 界面偏好镜像（2026-09-12） ------------------------ */
 
 /** 读取界面偏好镜像（localStorage 键值对；选型持久化回放用） */
-export function getUiPrefs() {
-  return get<Record<string, unknown>>('/system/ui_prefs');
+export function getUiPrefs(timeoutMs?: number) {
+  return get<Record<string, unknown>>(
+    '/system/ui_prefs', undefined, timeoutMs ? { timeout: timeoutMs } : {});
 }
 
 /** 写入界面偏好镜像（前端读合并写整包提交） */

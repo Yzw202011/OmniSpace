@@ -39,6 +39,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import tarfile
 import time
 import uuid
@@ -1552,6 +1553,71 @@ def models_delete(model_id: str) -> dict[str, Any]:
         if mid == model_id:
             _selections.pop(feat, None)
     return ok({"deleted": model_id})
+
+
+@router.delete("/models/{model_id}/files")
+def models_purge_files(model_id: str) -> dict[str, Any]:
+    """彻底删除模型磁盘文件（卸载+注销+删盘；前端「彻底删除」按钮）。
+
+    与 DELETE /models/{id}（仅移除注册）相对：连盘上文件一起清。
+    2026-09-16 补路由：此前前端 modelApi.purgeModelFiles 调用必 404。
+    安全闸：只删注册表登记的 file_path，且要求解析后位于 MODELS_DIR
+    之内或为登记的绝对外部路径（导入功能写入），路径深度必须 >2 层
+    （挡盘根/一级目录误删）；硬链接架构下删除 models/ 侧名称不影响
+    ComfyUI 侧链接（同 inode 多名，删一名不断链）。
+    """
+    model = _find_model(model_id)
+    if model is None:
+        raise ApiError(30001, "模型文件未找到，请导入模型",
+                       detail={"model_id": model_id})
+    raw_path = str(model.get("file_path") or "").strip()
+    if not raw_path:
+        raise ApiError(30002, "该模型无磁盘路径（仅注册条目），请用普通删除",
+                       detail={"model_id": model_id})
+    from ..config import MODELS_DIR
+    resolved = Path(raw_path).resolve()
+    models_root = MODELS_DIR.resolve()
+    in_models_dir = resolved == models_root or models_root in resolved.parents
+    external_ok = Path(raw_path).is_absolute() and not raw_path.startswith("\\\\")
+    if not (in_models_dir or external_ok) or len(resolved.parts) <= 2:
+        raise ApiError(30003, "路径安全闸拒绝删除（不在模型目录且非登记外部路径）",
+                       detail={"path": raw_path})
+
+    def _dir_size(p: Path) -> int:
+        if p.is_file():
+            try:
+                return p.stat().st_size
+            except OSError:
+                return 0
+        total = 0
+        for f in p.rglob("*"):
+            try:
+                if f.is_file():
+                    total += f.stat().st_size
+            except OSError:
+                continue
+        return total
+
+    freed = _dir_size(resolved) if resolved.exists() else 0
+    mgr = get_model_manager()
+    mgr.unload_model(model_id)  # 已加载先卸载（未加载时 no-op）
+    if resolved.is_dir():
+        shutil.rmtree(resolved)
+    elif resolved.exists():
+        resolved.unlink()
+    # 注销（复用 models_delete 语义：db 删除 → 内存兜底 → 清手动选择）
+    db = get_db_safe()
+    if db is not None:
+        try:
+            db.delete("models", "id=?", (model_id,))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("purge 后注册表删除失败: %s", exc)
+    _models.pop(model_id, None)
+    for feat, mid in list(_selections.items()):
+        if mid == model_id:
+            _selections.pop(feat, None)
+    return ok({"deleted": model_id, "path": raw_path,
+               "freed_gb": round(freed / 1024 ** 3, 2)}, message="已彻底删除模型文件")
 
 
 @router.put("/models/select")

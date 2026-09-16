@@ -22,10 +22,10 @@ let putTimer: number | null = null;
 /** 启动渲染前回放：把服务端镜像写回 localStorage（≤2s 超时，失败按本地值） */
 export async function replayUiPrefs(): Promise<void> {
   try {
-    const ctl = new AbortController();
-    const timer = window.setTimeout(() => ctl.abort(), 2000);
-    const prefs = await getUiPrefs();
-    window.clearTimeout(timer);
+    // 超时经 api.ts 的 timeout 通道下发（2026-09-16 修复：此前
+    // AbortController 建了但 signal 从未接线，「≤2s」契约是死代码，
+    // 后端冷启动慢时 main.tsx 的阻塞式 await 会无限拖住首屏）
+    const prefs = await getUiPrefs(2000);
     cache = prefs && typeof prefs === 'object' ? prefs : {};
     for (const [key, value] of Object.entries(cache)) {
       try {

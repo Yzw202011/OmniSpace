@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 
 from .error_handler import ApiError
@@ -80,6 +81,12 @@ class FeatureLockManager:
         # 实证路径）。release 递减，归零才真正放锁。批1 起计数按域
         # 分桶（_hold_counts），语义不变。
         self._lock = asyncio.Lock()
+        # 跨线程状态锁（2026-09-16 P1 根修）：acquire_sync/release_sync
+        # 由训练工作线程调用（lora/style_lora），与事件循环的 async
+        # acquire/release 共享上述四个 dict——asyncio.Lock 挡不住别的
+        # 线程，此前两路 read-modify-write 无互斥，计数漂移会导致
+        # 假释放/永久卡锁。全部读写临界区统一过本 RLock。
+        self._state_lock = threading.RLock()
         # 最近一次用户功能活动时间（acquire/release 均刷新，含任意域），
         # 供调度器空闲显存回收判定；进程启动即开始计空闲。
         self._last_activity_at: float = time.time()
@@ -151,20 +158,21 @@ class FeatureLockManager:
                                    "valid": list(_VALID_FEATURES)})
         dom = domain if domain is not None else _domain_of(feature)
         async with self._lock:
-            holder = self._holders.get(dom)
-            if holder is not None and holder != feature:
-                return False
-            if holder == feature:
-                self._hold_counts[dom] = self._hold_counts.get(dom, 1) + 1
-            else:
-                self._holders[dom] = feature
-                self._hold_counts[dom] = 1
-                self._acquired_ats[dom] = time.time()
-            self._holder_task_ids[dom] = task_id
-            self._last_activity_at = time.time()
-            log.info("功能锁获取: %s (域=%s, task=%s, 重入=%d)",
-                     feature, dom, task_id, self._hold_counts[dom])
-            return True
+            with self._state_lock:
+                holder = self._holders.get(dom)
+                if holder is not None and holder != feature:
+                    return False
+                if holder == feature:
+                    self._hold_counts[dom] = self._hold_counts.get(dom, 1) + 1
+                else:
+                    self._holders[dom] = feature
+                    self._hold_counts[dom] = 1
+                    self._acquired_ats[dom] = time.time()
+                self._holder_task_ids[dom] = task_id
+                self._last_activity_at = time.time()
+                log.info("功能锁获取: %s (域=%s, task=%s, 重入=%d)",
+                         feature, dom, task_id, self._hold_counts[dom])
+                return True
 
     async def release(self, feature: str,
                       *,
@@ -176,28 +184,29 @@ class FeatureLockManager:
         """
         dom = domain if domain is not None else _domain_of(feature)
         async with self._lock:
-            found: str = dom
-            if self._holders.get(found) != feature:
-                # 域配置热切换兜底（批3：远程开关切换瞬间 acquire/release
-                # 解析出的域可能不一致）——从任意域找该功能的持有记录
-                alt = next((d for d, f in self._holders.items()
-                            if f == feature), None)
-                if alt is None or self._holders.get(alt) != feature:
-                    return
-                found = alt
-            held = time.time() - self._acquired_ats.get(found, time.time())
-            self._hold_counts[found] = max(
-                0, self._hold_counts.get(found, 1) - 1)
-            if self._hold_counts[found] == 0:
-                log.info("功能锁释放: %s (域=%s, 持有 %.1fs)",
-                         feature, found, held)
-                self._holders.pop(found, None)
-                self._hold_counts.pop(found, None)
-                self._holder_task_ids.pop(found, None)
-                self._last_activity_at = time.time()
-            else:
-                log.info("功能锁递减: %s (域=%s, 剩余重入=%d)",
-                         feature, found, self._hold_counts[found])
+            with self._state_lock:
+                found: str = dom
+                if self._holders.get(found) != feature:
+                    # 域配置热切换兜底（批3：远程开关切换瞬间 acquire/release
+                    # 解析出的域可能不一致）——从任意域找该功能的持有记录
+                    alt = next((d for d, f in self._holders.items()
+                                if f == feature), None)
+                    if alt is None or self._holders.get(alt) != feature:
+                        return
+                    found = alt
+                held = time.time() - self._acquired_ats.get(found, time.time())
+                self._hold_counts[found] = max(
+                    0, self._hold_counts.get(found, 1) - 1)
+                if self._hold_counts[found] == 0:
+                    log.info("功能锁释放: %s (域=%s, 持有 %.1fs)",
+                             feature, found, held)
+                    self._holders.pop(found, None)
+                    self._hold_counts.pop(found, None)
+                    self._holder_task_ids.pop(found, None)
+                    self._last_activity_at = time.time()
+                else:
+                    log.info("功能锁递减: %s (域=%s, 剩余重入=%d)",
+                             feature, found, self._hold_counts[found])
 
     def acquire_sync(self, feature: str,
                      task_id: str | None = None) -> bool:
@@ -207,39 +216,41 @@ class FeatureLockManager:
         if feature not in _VALID_FEATURES:
             return False
         dom = _domain_of(feature)
-        holder = self._holders.get(dom)
-        if holder is not None and holder != feature:
-            return False
-        if holder == feature:
-            self._hold_counts[dom] = self._hold_counts.get(dom, 1) + 1
-        else:
-            self._holders[dom] = feature
-            self._hold_counts[dom] = 1
-            self._acquired_ats[dom] = time.time()
-        self._holder_task_ids[dom] = task_id
-        self._last_activity_at = time.time()
-        log.info("功能锁获取(同步降级): %s (域=%s, task=%s, 重入=%d)",
-                 feature, dom, task_id, self._hold_counts[dom])
-        return True
+        with self._state_lock:
+            holder = self._holders.get(dom)
+            if holder is not None and holder != feature:
+                return False
+            if holder == feature:
+                self._hold_counts[dom] = self._hold_counts.get(dom, 1) + 1
+            else:
+                self._holders[dom] = feature
+                self._hold_counts[dom] = 1
+                self._acquired_ats[dom] = time.time()
+            self._holder_task_ids[dom] = task_id
+            self._last_activity_at = time.time()
+            log.info("功能锁获取(同步降级): %s (域=%s, task=%s, 重入=%d)",
+                     feature, dom, task_id, self._hold_counts[dom])
+            return True
 
     def release_sync(self, feature: str) -> None:
         """同步降级释放（与 acquire_sync 对称；计数归零才放锁）。"""
-        found: str = _domain_of(feature)
-        if self._holders.get(found) != feature:
-            # 域配置热切换兜底（同 release）
-            alt = next((d for d, f in self._holders.items()
-                        if f == feature), None)
-            if alt is None or self._holders.get(alt) != feature:
-                return
-            found = alt
-        self._hold_counts[found] = max(
-            0, self._hold_counts.get(found, 1) - 1)
-        if self._hold_counts[found] == 0:
-            log.info("功能锁释放(同步降级): %s (域=%s)", feature, found)
-            self._holders.pop(found, None)
-            self._hold_counts.pop(found, None)
-            self._holder_task_ids.pop(found, None)
-            self._last_activity_at = time.time()
+        with self._state_lock:
+            found: str = _domain_of(feature)
+            if self._holders.get(found) != feature:
+                # 域配置热切换兜底（同 release）
+                alt = next((d for d, f in self._holders.items()
+                            if f == feature), None)
+                if alt is None or self._holders.get(alt) != feature:
+                    return
+                found = alt
+            self._hold_counts[found] = max(
+                0, self._hold_counts.get(found, 1) - 1)
+            if self._hold_counts[found] == 0:
+                log.info("功能锁释放(同步降级): %s (域=%s)", feature, found)
+                self._holders.pop(found, None)
+                self._hold_counts.pop(found, None)
+                self._holder_task_ids.pop(found, None)
+                self._last_activity_at = time.time()
 
     def status(self) -> dict:
         """返回当前互斥状态快照。

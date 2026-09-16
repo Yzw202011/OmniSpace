@@ -51,7 +51,7 @@ def _sha(data: str) -> str:
 def fake_install(tmp_path: Path) -> Path:
     """假安装根：两个将被替换的文件 + 一个被删除清单条目 + 用户数据。"""
     root = tmp_path / "install"
-    (root / "backend").mkdir(parents=True)
+    (root / "src").mkdir(parents=True)
     (root / "frontend" / "dist").mkdir(parents=True)
     (root / "data").mkdir(parents=True)
     (root / "launcher").mkdir(parents=True)  # boot 钩子的 BOOT_DIR 锚点
@@ -81,7 +81,7 @@ def _manifest() -> dict:
 @pytest.fixture()
 def work_dir(tmp_path: Path) -> Path:
     w = tmp_path / "work" / core.PAYLOAD_DIR
-    (w / "backend").mkdir(parents=True)
+    (w / "src").mkdir(parents=True)
     (w / "frontend" / "dist").mkdir(parents=True)
     (w / "src" / "main.py").write_text(NEW_MAIN, encoding="utf-8")
     (w / "frontend" / "dist" / "index.js").write_text(NEW_JS, encoding="utf-8")
@@ -129,7 +129,7 @@ def test_boot_hook_recovers_interrupted_upgrade(
     # 造中断现场：升级已把 main.py 换成新版但被中断（verifying_start）
     (fake_install / "src" / "main.py").write_text(NEW_MAIN, encoding="utf-8")
     backup_dir = fake_install / "updates" / "backup" / "20260911_120000"
-    (backup_dir / "backend").mkdir(parents=True)
+    (backup_dir / "src").mkdir(parents=True)
     (backup_dir / "src" / "main.py").write_text(OLD_MAIN, encoding="utf-8")
     state = {"phase": "verifying_start", "package": "x.upg",
              "to_version": "2.9.9"}

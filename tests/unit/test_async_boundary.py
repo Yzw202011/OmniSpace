@@ -20,7 +20,7 @@ import pytest
 
 from src.services.offload import run_blocking, sync_core
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[2] / "src"
 # 义务性契约短语（"调用方必须做 X 否则出事"）——必须为 0
 _OBLIGATION_PHRASES = (
     "调用方须放线程池",

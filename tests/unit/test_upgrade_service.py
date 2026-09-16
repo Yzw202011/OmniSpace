@@ -199,7 +199,7 @@ def test_read_package_rejects_garbage(tmp_path: Path) -> None:
 
 def test_verify_extracted_problems(tmp_path: Path) -> None:
     work = tmp_path / "work"
-    (work / "payload" / "backend").mkdir(parents=True)
+    (work / "payload" / "src").mkdir(parents=True)
     (work / "payload" / "src" / "a.py").write_bytes(b"hello")
     m = _manifest([_replace_entry("src/a.py")])
     assert core.verify_extracted(work, m) == []

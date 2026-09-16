@@ -43,7 +43,7 @@ def test_golden_preset_zh_lines():
 
 
 def test_golden_seed_cards():
-    seed = json.loads((_HERE.parents[2] / "src" / "data" / "art_styles_seed_final.json")
+    seed = json.loads((_HERE.parents[1] / "data" / "art_styles_seed_final.json")
                       .read_text("utf-8"))
     want = dict(GOLDEN["seed_cards"])
     drift = [it["name"] for it in seed

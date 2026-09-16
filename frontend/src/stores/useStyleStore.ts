@@ -89,6 +89,8 @@ export interface StyleState {
   startTraining: () => Promise<boolean>;
   /** 轮询训练进度 */
   pollTask: () => Promise<void>;
+  /** 训练控制（STYLE-017：暂停/恢复/取消；后端四端点已在） */
+  controlTask: (action: 'pause' | 'resume' | 'cancel') => Promise<void>;
   /** 拉取 LoRA 版本列表 */
   fetchVersions: () => Promise<void>;
   /** 回滚到指定版本（POST /style/rollback 真实生效） */
@@ -229,6 +231,33 @@ export const useStyleStore = create<StyleState>((set, get) => ({
     } catch {
       /* 轮询失败静默，下一周期重试 */
     }
+  },
+
+  controlTask: async (action) => {
+    const { task } = get();
+    if (!task) {
+      return;
+    }
+    const appStore = useAppStore.getState();
+    const labels = { pause: '暂停', resume: '恢复', cancel: '取消' } as const;
+    try {
+      if (action === 'pause') {
+        await styleApi.pauseStyleTask(task.id);
+      } else if (action === 'resume') {
+        await styleApi.resumeStyleTask(task.id);
+      } else {
+        await styleApi.cancelStyleTask(task.id);
+      }
+      appStore.showToast(`已发送${labels[action]}指令`, 'success');
+    } catch (err) {
+      appStore.showToast(
+        `${labels[action]}失败：${err instanceof Error ? err.message : '未知错误'}`,
+        'error',
+      );
+    }
+    // 指令即时刷新一次任务态（暂停/取消在 epoch 检查点生效，
+    // 轮询周期内状态会自行跟上）
+    await get().pollTask();
   },
 
   fetchVersions: async () => {

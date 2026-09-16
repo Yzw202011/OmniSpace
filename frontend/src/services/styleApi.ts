@@ -165,13 +165,42 @@ export function getStyleTask(taskId: string): Promise<StyleTask> {
   return get<StyleTask>(`/style/tasks/${encodeURIComponent(taskId)}`);
 }
 
-/** 后端风格任务状态 → 前端 TrainTask.status */
+/** 训练控制端点返回行（STYLE-017：_task_control） */
+export interface StyleTaskControlResult {
+  task_id: string;
+  action: 'pause' | 'resume' | 'cancel';
+  status: string;
+}
+
+/** 暂停训练任务（epoch 检查点挂起，状态 → paused） */
+export function pauseStyleTask(taskId: string): Promise<StyleTaskControlResult> {
+  return post<StyleTaskControlResult>(
+    `/style/tasks/${encodeURIComponent(taskId)}/pause`, {});
+}
+
+/** 恢复已暂停任务（清除挂起旗标，状态 → training） */
+export function resumeStyleTask(taskId: string): Promise<StyleTaskControlResult> {
+  return post<StyleTaskControlResult>(
+    `/style/tasks/${encodeURIComponent(taskId)}/resume`, {});
+}
+
+/** 取消训练任务（训练中下个 epoch 检查点中断；已终结任务幂等） */
+export function cancelStyleTask(taskId: string): Promise<StyleTaskControlResult> {
+  return post<StyleTaskControlResult>(
+    `/style/tasks/${encodeURIComponent(taskId)}/cancel`, {});
+}
+
+/** 后端风格任务状态 → 前端 TrainTask.status
+ *  （2026-09-16 批6：补 paused/cancelled——此前两态漏映射，
+ *  取消后的任务在进度卡片被错误显示为「排队中」） */
 const STYLE_STATUS_MAP: Record<string, TrainTask['status']> = {
   queued: 'pending',
   training: 'running',
   evaluating: 'running',
+  paused: 'paused',
   done: 'done',
   error: 'error',
+  cancelled: 'cancelled',
 };
 
 /** StyleTask → 前端通用 TrainTask（复用进度卡片 UI） */

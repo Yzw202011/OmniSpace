@@ -25,6 +25,8 @@ import {
   RefreshCw,
   Rocket,
   Play,
+  Pause,
+  X,
   AlertTriangle,
   LineChart,
   Layers,
@@ -73,7 +75,7 @@ export const StylePage: React.FC = () => {
     status,
     setStylePrompt, setRank, setAlpha, setLearningRate, setEpochs,
     uploadMaterial, fetchDatasets, selectDataset, fetchStatus,
-    startTraining, fetchVersions, rollback,
+    startTraining, fetchVersions, rollback, controlTask,
   } = useStyleStore();
   const activeFeature = useAppStore((s) => s.activeFeature);
   /** VRAM/GPU 实时遥测（WS hardware/realtime；训练进度卡片展示用） */
@@ -408,9 +410,40 @@ export const StylePage: React.FC = () => {
           <section className="card hoverable" aria-label="训练进度">
             <div className="flex items-center justify-between mb-3">
               <h3 className="card-title" style={{ marginBottom: 0 }}><LineChart size={16} aria-hidden="true" /> 训练进度</h3>
+            <div className="flex items-center gap-2">
               <span className={`badge ${task.status === 'done' ? 'success' : task.status === 'error' ? 'error' : 'info'}`}>
                 {TRAIN_STATUS_LABELS[task.status] ?? task.status}
               </span>
+              {/* 训练控制（STYLE-017 后端已在：暂停=epoch 检查点挂起/恢复/取消） */}
+              {(task.status === 'running' || task.status === 'pending' || task.status === 'paused') && (
+                <>
+                  {task.status === 'paused' ? (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void controlTask('resume')}
+                      title="从 epoch 检查点恢复训练"
+                    >
+                      <Play size={14} aria-hidden="true" /> 恢复
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void controlTask('pause')}
+                      title="挂起到 epoch 检查点（不丢进度）"
+                    >
+                      <Pause size={14} aria-hidden="true" /> 暂停
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void controlTask('cancel')}
+                    title="取消训练（下个 epoch 检查点中断）"
+                  >
+                    <X size={14} aria-hidden="true" /> 取消
+                  </button>
+                </>
+              )}
+            </div>
             </div>
             <div className="progress">
               <div

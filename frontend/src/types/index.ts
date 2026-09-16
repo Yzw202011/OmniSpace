@@ -864,7 +864,8 @@ export interface TrainTask {
   type: TrainType;
   /** 任务名称 */
   name: string;
-  status: 'pending' | 'running' | 'done' | 'error' | 'cancelled';
+  /** paused=风格训练 STYLE-017 挂起态（epoch 检查点可恢复） */
+  status: 'pending' | 'running' | 'paused' | 'done' | 'error' | 'cancelled';
   /** 进度 0-1 */
   progress: number;
   priority: TrainPriority;

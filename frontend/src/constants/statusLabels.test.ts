@@ -38,7 +38,7 @@ function extractBackendEnum(enumName: string): string[] {
 }
 
 /** 前端 TrainTask['status'] 字面量集合（编译期类型，运行时手写镜像） */
-const FRONTEND_TRAIN_STATUSES = ['pending', 'running', 'done', 'error', 'cancelled'] as const;
+const FRONTEND_TRAIN_STATUSES = ['pending', 'running', 'paused', 'done', 'error', 'cancelled'] as const;
 
 describe('训练状态：前端 TrainTask ↔ 后端 TrainStatus', () => {
   it('后端每个枚举值都能经 TRAIN_STATUS_MAP 适配到前端状态', async () => {

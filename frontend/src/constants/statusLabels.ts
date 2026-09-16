@@ -28,6 +28,7 @@ export type TrainStatusKey = TrainTask['status'];
 export const TRAIN_STATUS_LABELS: Record<TrainTask['status'], string> = {
   pending: '排队中',
   running: '训练中',
+  paused: '已暂停',
   done: '已完成',
   error: '失败',
   cancelled: '已取消',
@@ -37,6 +38,7 @@ export const TRAIN_STATUS_LABELS: Record<TrainTask['status'], string> = {
 export const TRAIN_STATUS_CLASSES: Record<TrainTask['status'], string> = {
   pending: 'learn-status-queued',
   running: 'learn-status-running',
+  paused: 'learn-status-queued',
   done: 'learn-status-completed',
   error: 'learn-status-failed',
   cancelled: 'learn-status-cancelled',

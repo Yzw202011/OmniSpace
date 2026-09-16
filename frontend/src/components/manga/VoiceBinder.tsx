@@ -17,6 +17,8 @@ import { Mic, Star, Wrench } from 'lucide-react';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { useAppStore } from '@/stores/useAppStore';
 import type { VoiceItem } from '@/services/schema';
+import { uploadCustomVoice } from '@/services/mangaApi';
+import { Upload } from 'lucide-react';
 
 /** 试听示例文本（后端合成内容的输入） */
 const PREVIEW_TEXT = '你好，这是一段音色试听。';
@@ -38,7 +40,9 @@ export const VoiceBinder: React.FC = () => {
   const [selectedChar, setSelectedChar] = useState('');
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [bindingId, setBindingId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceFileRef = useRef<HTMLInputElement>(null);
 
   // 挂载时拉取真实音色列表
   useEffect(() => {
@@ -61,6 +65,30 @@ export const VoiceBinder: React.FC = () => {
     rows.forEach((r) => r.characters.forEach((c) => c && set.add(c)));
     return Array.from(set);
   }, [rows]);
+
+  /** 上传自定义音色（FileList 先快照再清 value，2026-09-08 教训） */
+  const handleUploadVoice = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = '';
+    if (!file) return;
+    const stem = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || '自定义音色';
+    const name = window.prompt('给这个音色起个名字：', stem);
+    if (name === null) return;
+    setUploading(true);
+    try {
+      const res = await uploadCustomVoice(name || stem, file);
+      showToast(`音色「${res.name}」已上传，可在列表中绑定`, 'success');
+      await fetchVoices();
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? (err as { message: string }).message
+          : '上传失败';
+      showToast(msg, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   /** 角色 → 已绑定音色 */
   const boundVoiceOf = (charName: string): VoiceItem | undefined =>
@@ -140,6 +168,21 @@ export const VoiceBinder: React.FC = () => {
         <span className="text-xs text-[var(--color-text-tertiary)]">
           角色来自分镜行「角色」列；音色来自后端 voice_profiles（预置音色首启自动种子化）
         </span>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm ml-auto"
+          disabled={uploading}
+          onClick={() => voiceFileRef.current?.click()}
+        >
+          <Upload size={13} aria-hidden="true" /> {uploading ? '上传中…' : '上传音色'}
+        </button>
+        <input
+          ref={voiceFileRef}
+          type="file"
+          accept=".wav,.mp3,.flac,.m4a"
+          hidden
+          onChange={(e) => void handleUploadVoice(e)}
+        />
       </div>
 
       <div className="flex flex-1 min-h-0">

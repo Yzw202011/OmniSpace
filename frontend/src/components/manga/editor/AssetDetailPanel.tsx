@@ -29,7 +29,9 @@ import {
   Sparkles,
   Trash2,
   Volume2,
+  Scissors,
 } from 'lucide-react';
+import ArtSegmentDialog from './ArtSegmentDialog';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import { useWarmupStore } from '@/stores/useWarmupStore';
@@ -83,7 +85,9 @@ export default function AssetDetailPanel() {
   const [nameDraft, setNameDraft] = useState('');
   const [promptDraft, setPromptDraft] = useState('');
   /** 操作忙碌（describe/upload/regenerate/refUp/refDel 互斥） */
-  const [busy, setBusy] = useState<'' | 'describe' | 'upload' | 'regenerate' | 'refUp' | 'refDel' | 'toGlobal'>('');
+  const [busy, setBusy] = useState<'' | 'describe' | 'upload' | 'regenerate' | 'refUp' | 'refDel' | 'toGlobal' | 'segment'>('');
+  /** AI 抠图对话框开关（SAM /art/segment，2026-09-17 接线） */
+  const [segmentOpen, setSegmentOpen] = useState(false);
   /** 灯箱（null 关闭；srcs 为点击时快照，idx 为 srcs 索引） */
   const [lightbox, setLightbox] = useState<{ srcs: string[]; idx: number } | null>(null);
   /** 历史记录折叠区 */
@@ -503,6 +507,16 @@ export default function AssetDetailPanel() {
         <button
           type="button"
           className="btn btn-secondary btn-sm flex-1"
+          disabled={busy !== '' || !mainUrl}
+          title="SAM 交互式抠图：点选主体 → 蒙版预览/下载（需 sam-vit-h 权重）"
+          onClick={() => setSegmentOpen(true)}
+        >
+          <Scissors size={13} />
+          AI 抠图
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm flex-1"
           disabled={busy !== ''}
           title="转为全局资产：脱离当前项目，全部项目可复用（删除项目时全局资产保留）"
           onClick={handleToGlobal}
@@ -716,6 +730,11 @@ export default function AssetDetailPanel() {
       {/* 灯箱（四视图整图 / 主图） */}
       {lightbox !== null && (
         <AssetLightbox srcs={lightbox.srcs} initialIndex={lightbox.idx} onClose={() => setLightbox(null)} />
+      )}
+
+      {/* AI 抠图对话框（SAM /art/segment，2026-09-17 接线） */}
+      {segmentOpen && mainUrl && (
+        <ArtSegmentDialog imageUrl={mainUrl} assetName={asset.name} onClose={() => setSegmentOpen(false)} />
       )}
     </aside>
   );

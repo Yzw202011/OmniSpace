@@ -30,11 +30,16 @@ import {
   AlertTriangle,
   LineChart,
   Layers,
+  Copy,
+  Download,
+  Combine,
+  Bookmark,
 } from 'lucide-react';
 import { useStyleStore } from '@/stores/useStyleStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import * as styleApi from '@/services/styleApi';
+import { isApiError } from '@/services/api';
 import { TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
 import { formatPercent, formatRelativeTime, formatVRAM } from '@utils/format';
 import Slider from '@/components/common/Slider';
@@ -78,6 +83,7 @@ export const StylePage: React.FC = () => {
     startTraining, fetchVersions, rollback, controlTask,
   } = useStyleStore();
   const activeFeature = useAppStore((s) => s.activeFeature);
+  const showToast = useAppStore((s) => s.showToast);
   /** VRAM/GPU 实时遥测（WS hardware/realtime；训练进度卡片展示用） */
   const realtime = useHardwareStore((s) => s.realtime);
 
@@ -88,6 +94,94 @@ export const StylePage: React.FC = () => {
   const [previewFrames, setPreviewFrames] = useState<string[]>([]);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  /* ── 版本高级操作（2026-09-17 接线）：克隆/导出/融合/模板 ── */
+  const [rowBusy, setRowBusy] = useState('');
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeA, setMergeA] = useState('');
+  const [mergeB, setMergeB] = useState('');
+  const [mergeWa, setMergeWa] = useState(0.6);
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [templates, setTemplates] = useState<styleApi.StyleTemplate[]>([]);
+
+  useEffect(() => {
+    styleApi.listStyleTemplates().then(setTemplates).catch(() => setTemplates([]));
+  }, []);
+
+  /** 行级：克隆（复制数据集+配置为新训练任务） */
+  const handleClone = async (version: string) => {
+    setRowBusy(`clone:${version}`);
+    try {
+      const res = await styleApi.cloneStyleVersion(version);
+      showToast(`已克隆为新训练任务（${res.new_task_id.slice(0, 8)}…），到训练区查看`, 'success');
+    } catch (err) {
+      showToast(isApiError(err) ? err.message : '克隆失败', 'error');
+    } finally {
+      setRowBusy('');
+    }
+  };
+
+  /** 行级：导出（tar.gz + SHA256 侧车） */
+  const handleExport = async (version: string) => {
+    setRowBusy(`export:${version}`);
+    try {
+      const res = await styleApi.exportStyleVersion(version);
+      showToast(`已导出：${String(res.export_path ?? '见 data/generated/exports')}`, 'success');
+    } catch (err) {
+      showToast(isApiError(err) ? err.message : '导出失败', 'error');
+    } finally {
+      setRowBusy('');
+    }
+  };
+
+  /** 两两融合（后端支持 N 版本，UI 收敛两版常用态） */
+  const handleMerge = async () => {
+    if (!mergeA || !mergeB || mergeA === mergeB) {
+      showToast('请选择两个不同版本', 'warning');
+      return;
+    }
+    setMergeBusy(true);
+    try {
+      await styleApi.mergeStyleVersions(
+        [mergeA, mergeB], [mergeWa, Number((1 - mergeWa).toFixed(2))]);
+      showToast('融合完成，新版本已生成', 'success');
+      setMergeOpen(false);
+      fetchVersions();
+    } catch (err) {
+      showToast(isApiError(err) ? err.message : '融合失败', 'error');
+    } finally {
+      setMergeBusy(false);
+    }
+  };
+
+  /** 模板：保存当前表单配置 */
+  const handleSaveTemplate = async () => {
+    const name = window.prompt('模板名称：', '');
+    if (!name) return;
+    try {
+      await styleApi.saveStyleTemplate({
+        name,
+        style_prompt: stylePrompt,
+        lora_rank: rank,
+        lora_alpha: alpha,
+        learning_rate: learningRate,
+        epochs,
+      });
+      showToast(`模板「${name}」已保存`, 'success');
+      setTemplates(await styleApi.listStyleTemplates());
+    } catch (err) {
+      showToast(isApiError(err) ? err.message : '保存模板失败', 'error');
+    }
+  };
+
+  /** 模板：应用到表单 */
+  const handleApplyTemplate = (tpl: styleApi.StyleTemplate) => {
+    if (tpl.style_prompt != null) setStylePrompt(String(tpl.style_prompt));
+    if (tpl.lora_rank != null) setRank(Number(tpl.lora_rank));
+    if (tpl.lora_alpha != null) setAlpha(Number(tpl.lora_alpha));
+    if (tpl.learning_rate != null) setLearningRate(Number(tpl.learning_rate));
+    if (tpl.epochs != null) setEpochs(Number(tpl.epochs));
+    showToast(`已应用模板「${tpl.name}」到训练表单`, 'success');
+  };
 
   useEffect(() => {
     fetchVersions();
@@ -555,8 +649,38 @@ export const StylePage: React.FC = () => {
         <section className="card hoverable" aria-label="LoRA 版本">
           <div className="flex items-center justify-between mb-3">
             <h3 className="card-title" style={{ marginBottom: 0 }}><Layers size={16} aria-hidden="true" /> LoRA 版本</h3>
+          <div className="flex gap-2">
+            {versions.length >= 2 && (
+              <button className="btn btn-outline btn-sm" onClick={() => setMergeOpen((v) => !v)}>
+                <Combine size={14} aria-hidden="true" /> 融合
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={fetchVersions}><RefreshCw size={14} aria-hidden="true" /> 刷新</button>
           </div>
+          </div>
+
+          {/* 融合面板（两版线性加权，后端支持 N 版） */}
+          {mergeOpen && versions.length >= 2 && (
+            <div className="flex gap-2 items-center flex-wrap mb-3" style={{ padding: 'var(--space-2)', border: '1px solid var(--color-border-light)', borderRadius: 'var(--radius-md)' }}>
+              <select className="form-select" style={{ width: 100 }} value={mergeA} onChange={(e) => setMergeA(e.target.value)} aria-label="融合版本 A">
+                {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
+              </select>
+              <span className="text-secondary text-sm">×</span>
+              <input type="number" min={0.1} max={0.9} step={0.1} value={mergeWa}
+                     style={{ width: 64 }} className="form-input"
+                     onChange={(e) => setMergeWa(Number(e.target.value) || 0.5)}
+                     aria-label="A 权重" />
+              <span className="text-secondary text-sm">+</span>
+              <select className="form-select" style={{ width: 100 }} value={mergeB} onChange={(e) => setMergeB(e.target.value)} aria-label="融合版本 B">
+                {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
+              </select>
+              <span className="text-secondary text-sm">×</span>
+              <span className="text-secondary text-sm">{(1 - mergeWa).toFixed(2)}</span>
+              <button className="btn btn-primary btn-sm" disabled={mergeBusy} onClick={() => void handleMerge()}>
+                {mergeBusy ? '融合中…' : '执行融合'}
+              </button>
+            </div>
+          )}
           {!versionsLoaded ? (
             <div className="loading-block"><div className="spinner" /></div>
           ) : versions.length === 0 ? (
@@ -608,9 +732,53 @@ export const StylePage: React.FC = () => {
                     >
                       回滚
                     </button>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      disabled={rowBusy === `clone:${v.version}`}
+                      title="复制此版本的数据集与配置为新训练任务"
+                      onClick={() => void handleClone(v.version)}
+                    >
+                      <Copy size={13} aria-hidden="true" /> {rowBusy === `clone:${v.version}` ? '…' : '克隆'}
+                    </button>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      disabled={rowBusy === `export:${v.version}`}
+                      title="导出 tar.gz（含 adapter + meta + SHA256 校验）"
+                      onClick={() => void handleExport(v.version)}
+                    >
+                      <Download size={13} aria-hidden="true" /> {rowBusy === `export:${v.version}` ? '…' : '导出'}
+                    </button>
                   </div>
                 );
               })}
+            </div>
+          )}
+        </section>
+
+        {/* 7. 风格模板（STYLE-032，2026-09-17 接线） */}
+        <section className="card hoverable" aria-label="风格模板">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="card-title" style={{ marginBottom: 0 }}><Bookmark size={16} aria-hidden="true" /> 风格模板</h3>
+            <button className="btn btn-outline btn-sm" onClick={() => void handleSaveTemplate()}>
+              把当前配置存为模板
+            </button>
+          </div>
+          {templates.length === 0 ? (
+            <div className="text-secondary text-sm">
+              暂无模板——调好训练参数后点「把当前配置存为模板」，下次一键复用。
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {templates.map((t) => (
+                <button
+                  key={String(t.name)}
+                  className="btn btn-outline btn-sm"
+                  title={String(t.style_prompt ?? '')}
+                  onClick={() => handleApplyTemplate(t)}
+                >
+                  {String(t.name)}
+                </button>
+              ))}
             </div>
           )}
         </section>

@@ -17,6 +17,8 @@
  * 前端如实透出错误文案，不伪造进度或预览图。
  * ========================================================================== */
 
+import { z } from 'zod';
+import { parseWith } from './schema';
 import { get, post, upload } from './api';
 import type { TrainTask } from '@/types';
 
@@ -270,3 +272,63 @@ export default {
   previewStyle,
   getStyleStatus,
 };
+
+/* ── 版本高级操作（STYLE-024/025/032；2026-09-17 前端接线，Zod 校验） ── */
+
+/** 克隆风格版本为新训练任务（POST /style/clone） */
+export async function cloneStyleVersion(
+  version: string,
+  name = '',
+): Promise<{ version: string; new_task_id: string }> {
+  const res = await post<unknown>('/style/clone', { version, name });
+  return parseWith(
+    z.object({ version: z.string(), new_task_id: z.string() }).passthrough(),
+    res, '克隆风格',
+  );
+}
+
+/** 导出风格包（POST /style/export：tar.gz 含 adapter+meta+SHA256） */
+export async function exportStyleVersion(
+  version = '',
+): Promise<{ export_path?: string; [k: string]: unknown }> {
+  const res = await post<unknown>('/style/export',
+    version ? { version } : {});
+  return parseWith(z.object({}).passthrough(), res, '导出风格包');
+}
+
+/** 多版本权重线性融合（POST /style/merge：versions[] + weights[]） */
+export async function mergeStyleVersions(
+  versions: string[],
+  weights: number[],
+  name = '',
+): Promise<{ [k: string]: unknown }> {
+  const res = await post<unknown>('/style/merge', { versions, weights, name });
+  return parseWith(z.object({}).passthrough(), res, '融合风格');
+}
+
+/** 风格模板（GET/POST /style/templates） */
+export interface StyleTemplate {
+  name: string;
+  style_prompt?: string;
+  lora_rank?: number;
+  lora_alpha?: number;
+  learning_rate?: number;
+  epochs?: number;
+  [k: string]: unknown;
+}
+
+export async function listStyleTemplates(): Promise<StyleTemplate[]> {
+  const res = await get<unknown>('/style/templates');
+  const raw = (res as { items?: unknown } | null)?.items ?? [];
+  return parseWith(
+    z.array(z.object({ name: z.string() }).passthrough()),
+    raw, '风格模板',
+  ) as StyleTemplate[];
+}
+
+export async function saveStyleTemplate(
+  tpl: StyleTemplate,
+): Promise<StyleTemplate> {
+  const res = await post<unknown>('/style/templates', tpl);
+  return parseWith(z.object({ name: z.string() }).passthrough(), res, '保存模板');
+}

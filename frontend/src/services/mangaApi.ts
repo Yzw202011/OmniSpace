@@ -25,6 +25,7 @@
  * 注：响应统一经 services/schema.ts 的 Zod schema 运行时校验（FE-033）。
  * ========================================================================== */
 
+import { z } from 'zod';
 import { get, post, put, del, upload, API_BASE } from './api';
 import {
   StoryboardRowsRespSchema,
@@ -1115,3 +1116,40 @@ export default {
   // 媒体
   getMediaUrl,
 };
+
+/* ── 自定义音色（2026-09-17 前端接线，Zod 校验） ── */
+
+/** 上传自定义音色音频（POST /manga/voices/upload?name= multipart；
+ *  wav/mp3/flac/m4a ≤20MB，落库后即可绑定/试听） */
+/** SAM 图像分割（POST /art/segment）：点选前景提示点 → 蒙版 PNG */
+export async function segmentImage(
+  imageBase64: string,
+  points: number[][],
+): Promise<{ mask_png_b64: string; score: number; elapsed_s?: number }> {
+  const res = await post<unknown>('/art/segment', {
+    image: imageBase64, points,
+  });
+  return parseWith(
+    z.object({
+      mask_png_b64: z.string(),
+      score: z.number(),
+    }).passthrough(),
+    res,
+    'AI 抠图',
+  );
+}
+
+export async function uploadCustomVoice(
+  name: string,
+  file: File,
+): Promise<{ voice_id: string; name: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await upload<unknown>(
+    `/manga/voices/upload?name=${encodeURIComponent(name)}`, fd);
+  return parseWith(
+    z.object({ voice_id: z.string(), name: z.string() }).passthrough(),
+    res,
+    '上传音色',
+  );
+}

@@ -26,7 +26,10 @@ from typing import Any
 
 import numpy as np
 
-from .plugin import ExpertPlugin, PluginContext
+try:  # cutemamen 内核直连 (DistributedFormer 包内相对导入)
+    from .plugin import ExpertPlugin, PluginContext
+except ImportError:  # 宿主独立执行 (OmniSpace plugin_runtime 注入 omnispace.plugin)
+    from omnispace.plugin import ExpertPlugin, PluginContext
 
 # ── 内置镜头运动曲线 (真实运镜惯例参数: 每镜头归一化位移/缩放/旋转) ──
 # dx/dy: 归一化平移 (画面宽高比例), zoom: 1.0 = 不缩放,

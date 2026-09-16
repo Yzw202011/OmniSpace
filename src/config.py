@@ -12,7 +12,11 @@ import yaml
 
 # ── 路径 ──────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parent.parent
-BACKEND_DIR = ROOT_DIR / "backend"
+SRC_DIR = ROOT_DIR / "src"
+# 兼容别名：backend→src 扁平化重构后，旧代码/外部进程可能仍引用
+# config.BACKEND_DIR。指向 SRC_DIR（backend/ 目录已不存在），避免
+# 干净环境下 import 期 FileNotFoundError。
+BACKEND_DIR = SRC_DIR
 FRONTEND_DIR = ROOT_DIR / "frontend"
 MODELS_DIR = ROOT_DIR / "models"
 DATA_DIR = ROOT_DIR / "data"
@@ -24,7 +28,11 @@ for _d in (DATA_DIR, LOGS_DIR, MODELS_DIR):
 DB_PATH = DATA_DIR / "omnispace.db"
 
 # ── 加载 YAML ────────────────────────────────────────────────────
-_yaml_path = BACKEND_DIR / "config.yaml"
+_yaml_path = SRC_DIR / "config.yaml"
+if not _yaml_path.is_file():
+    raise FileNotFoundError(
+        f"配置文件不存在: {_yaml_path}（src 扁平化后 config.yaml 位于 src/ 下；"
+        "若从旧布局升级请确认已拉取 src/config.yaml）")
 with open(_yaml_path, encoding="utf-8") as _f:
     _cfg: dict[str, Any] = yaml.safe_load(_f)
 

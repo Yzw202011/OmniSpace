@@ -53,6 +53,16 @@ const FONT_SIZE_OPTIONS: Array<{ value: FontSize; label: string; desc: string }>
   { value: 'lg', label: '大', desc: '16px' },
 ];
 
+const SETTINGS_TABS = [
+  { key: 'general', label: '通用' },
+  { key: 'appearance', label: '外观' },
+  { key: 'ai', label: 'AI 服务' },
+  { key: 'data', label: '数据' },
+  { key: 'plugins', label: '插件' },
+  { key: 'maintenance', label: '维护' },
+] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number]['key'];
+
 export default function Settings() {
   const fontSize = useAppStore((s) => s.fontSize);
   const setFontSize = useAppStore((s) => s.setFontSize);
@@ -69,6 +79,9 @@ export default function Settings() {
   const refreshProfile = useHardwareStore((s) => s.refreshProfile);
 
   // 本地算力 · 省钱账本（2026-09-08 用户拍板：保守口径只算 AI 输出侧）
+  // P2 设置页 tab 化（2026-09-17 用户拍板 4A）：11 区块归 6 签终结长滚动；
+  // 未选中的区块不挂载（其数据拉取随挂载发生）
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [savings, setSavings] = useState<systemApi.LocalSavings | null>(null);
   const [savingsLoaded, setSavingsLoaded] = useState(false);
 
@@ -124,8 +137,26 @@ export default function Settings() {
   return (
     <div className="page settings-page">
       <h1 className="page-title"><SettingsIcon size={20} aria-hidden="true" /> 设置</h1>
-      <p className="page-subtitle">外观 · 全局参数 · 功能开关规则 · 硬件信息</p>
+      <p className="page-subtitle">通用 · 外观 · AI 服务 · 数据 · 插件 · 维护</p>
 
+      <div className="settings-tabs" role="tablist" aria-label="设置分区">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={settingsTab === t.key}
+            className={`training-tab${settingsTab === t.key ? ' active' : ''}`}
+            onClick={() => setSettingsTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* P2 tab 化：各签独立挂载（通用=全局+互斥+硬件） */}
+      {settingsTab === 'appearance' && (
+        <>
       {/* ============ 外观设置 ============ */}
       <div className="settings-section card">
         <h2 className="settings-section-title">外观</h2>
@@ -183,7 +214,11 @@ export default function Settings() {
           </div>
         </div>
       </div>
+        </>
+      )}
 
+      {settingsTab === 'general' && (
+        <>
       {/* ============ 全局设置（后端 /system/settings） ============ */}
       <div className="settings-section card">
         <div className="settings-section-header">
@@ -296,15 +331,6 @@ export default function Settings() {
         )}
       </div>
 
-      {/* ============ 云端 API 服务（批1：用户自带 Key，多服务商） ============ */}
-      <CloudApiSettings />
-
-      {/* ============ 联网搜索（架构升级计划 B-阶段一，默认关） ============ */}
-      <WebSearchSettings />
-
-      {/* ============ 插件（2026-09-16 拍板：用户导入/启停/删除） ============ */}
-      <PluginSection />
-
       {/* ============ 功能互斥规则（规格 §6.1） ============ */}
       <div className="settings-section card">
         <h2 className="settings-section-title">功能互斥规则</h2>
@@ -327,73 +353,6 @@ export default function Settings() {
           })}
         </div>
       </div>
-
-      {/* ============ 本地算力 · 省钱账本 ============ */}
-      <div className="settings-section card">
-        <div className="settings-section-header">
-          <h2 className="settings-section-title">本地算力 · 省钱账本</h2>
-        </div>
-        <p className="settings-section-desc">
-          使用本地 GPU 生成 = 不消耗云端 token = 直接省钱。
-          以下为本地产出统计，金额按云端参考价估算（保守口径，宁少报不多报）。
-        </p>
-        {!savingsLoaded ? (
-          <div className="settings-loading">统计中…</div>
-        ) : !savings ? (
-          <div className="settings-empty">
-            <p>账本数据暂不可用：重启后端后此处会显示本地算力统计。</p>
-          </div>
-        ) : (
-          <>
-            <div className="settings-hardware-grid">
-              <div className="settings-hw-item">
-                <span className="settings-hw-label">本地生成文本</span>
-                <span className="settings-hw-value">
-                  {savings.text.tokens_est >= 10000
-                    ? `${(savings.text.tokens_est / 10000).toFixed(1)} 万 tokens`
-                    : `${savings.text.tokens_est} tokens`}
-                </span>
-              </div>
-              <div className="settings-hw-item">
-                <span className="settings-hw-label">文本回复</span>
-                <span className="settings-hw-value">{savings.text.messages} 条</span>
-              </div>
-              <div className="settings-hw-item">
-                <span className="settings-hw-label">本地生图</span>
-                <span className="settings-hw-value">
-                  {savings.images.count} 张
-                  <span className="text-xs text-[var(--color-text-tertiary)]">
-                    （关键帧 {savings.images.keyframes} / 漫画资产 {savings.images.comic_assets} / 绘画 {savings.images.paint}）
-                  </span>
-                </span>
-              </div>
-              <div className="settings-hw-item">
-                <span className="settings-hw-label">本地视频</span>
-                <span className="settings-hw-value">{savings.videos.count} 条</span>
-              </div>
-              <div className="settings-hw-item">
-                <span className="settings-hw-label">累计省约</span>
-                <span className="settings-hw-value" style={{ color: 'var(--color-success)' }}>
-                  ¥{savings.money.cny_est.toFixed(2)}
-                </span>
-              </div>
-            </div>
-            <p className="text-xs text-[var(--color-text-tertiary)] mt-2">
-              {savings.scope_note}；参考价：文本 ¥{savings.money.prices.text_cny_per_mtok}/百万 tokens、
-              图 ¥{savings.money.prices.image_cny_each}/张、视频 ¥{savings.money.prices.video_cny_each}/条。
-            </p>
-          </>
-        )}
-      </div>
-
-      {/* ============ 软件升级（升级机制批2） ============ */}
-      <UpgradeSection />
-
-      {/* ============ 体检与修复（自愈批4） ============ */}
-      <HealthCheckCard />
-
-      {/* ============ 数据管理（备份/恢复/项目导入导出，接线四项 2026-09-17） ============ */}
-      <DataManagementSection />
 
       {/* ============ 硬件信息 ============ */}
       <div className="settings-section card">
@@ -464,6 +423,101 @@ export default function Settings() {
           </>
         )}
       </div>
+        </>
+      )}
+
+      {settingsTab === 'ai' && (
+        <>
+      {/* ============ 云端 API 服务（批1：用户自带 Key，多服务商） ============ */}
+      <CloudApiSettings />
+
+      {/* ============ 联网搜索（架构升级计划 B-阶段一，默认关） ============ */}
+      <WebSearchSettings />
+        </>
+      )}
+
+      {settingsTab === 'data' && (
+        <>
+      {/* ============ 本地算力 · 省钱账本 ============ */}
+      {/* ============ 数据管理（备份/恢复/项目导入导出，接线四项 2026-09-17） ============ */}
+      <DataManagementSection />
+      <div className="settings-section card">
+        <div className="settings-section-header">
+          <h2 className="settings-section-title">本地算力 · 省钱账本</h2>
+        </div>
+        <p className="settings-section-desc">
+          使用本地 GPU 生成 = 不消耗云端 token = 直接省钱。
+          以下为本地产出统计，金额按云端参考价估算（保守口径，宁少报不多报）。
+        </p>
+        {!savingsLoaded ? (
+          <div className="settings-loading">统计中…</div>
+        ) : !savings ? (
+          <div className="settings-empty">
+            <p>账本数据暂不可用：重启后端后此处会显示本地算力统计。</p>
+          </div>
+        ) : (
+          <>
+            <div className="settings-hardware-grid">
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">本地生成文本</span>
+                <span className="settings-hw-value">
+                  {savings.text.tokens_est >= 10000
+                    ? `${(savings.text.tokens_est / 10000).toFixed(1)} 万 tokens`
+                    : `${savings.text.tokens_est} tokens`}
+                </span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">文本回复</span>
+                <span className="settings-hw-value">{savings.text.messages} 条</span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">本地生图</span>
+                <span className="settings-hw-value">
+                  {savings.images.count} 张
+                  <span className="text-xs text-[var(--color-text-tertiary)]">
+                    （关键帧 {savings.images.keyframes} / 漫画资产 {savings.images.comic_assets} / 绘画 {savings.images.paint}）
+                  </span>
+                </span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">本地视频</span>
+                <span className="settings-hw-value">{savings.videos.count} 条</span>
+              </div>
+              <div className="settings-hw-item">
+                <span className="settings-hw-label">累计省约</span>
+                <span className="settings-hw-value" style={{ color: 'var(--color-success)' }}>
+                  ¥{savings.money.cny_est.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <p className="text-xs text-[var(--color-text-tertiary)] mt-2">
+              {savings.scope_note}；参考价：文本 ¥{savings.money.prices.text_cny_per_mtok}/百万 tokens、
+              图 ¥{savings.money.prices.image_cny_each}/张、视频 ¥{savings.money.prices.video_cny_each}/条。
+            </p>
+          </>
+        )}
+      </div>
+
+        </>
+      )}
+
+      {settingsTab === 'plugins' && (
+        <>
+      {/* ============ 插件（2026-09-16 拍板：用户导入/启停/删除） ============ */}
+      <PluginSection />
+        </>
+      )}
+
+      {settingsTab === 'maintenance' && (
+        <>
+      {/* ============ 软件升级（升级机制批2） ============ */}
+      <UpgradeSection />
+
+      {/* ============ 体检与修复（自愈批4） ============ */}
+      <HealthCheckCard />
+        </>
+      )}
+
     </div>
   );
 }

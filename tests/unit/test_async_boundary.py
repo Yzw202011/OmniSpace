@@ -151,3 +151,76 @@ async def test_dialog_passive_helpers_are_self_scheduling():
 
     assert asyncio.iscoroutinefunction(dialog._quick_search_supplement)
     assert asyncio.iscoroutinefunction(dialog._passive_reinfer)
+
+
+# ── 契约 5：async 函数零同步 SQLite 直调（2026-09-17 重构批 1）─────
+
+_DB_METHODS = {"query", "execute", "execute_in_transaction", "insert",
+               "update", "delete", "one", "sql", "executemany",
+               "query_one", "query_value", "upsert"}
+_DB_GETTERS = {"get_db_safe", "get_db"}
+
+
+def test_async_functions_have_no_direct_sqlite_calls():
+    """async def 体内不得直调 Database 同步方法——busy_timeout 竞争时
+    会卡住整个事件循环（09-16 审计 P2，09-17 重构批 1 清偿 64 处）。
+
+    合法形态：await run_blocking(lambda: db.xxx(...))（已包在
+    run_blocking 参数内的调用不算违规）。同步内函数体内的调用随外层
+    整体卸载，同样合规。
+    """
+    import ast as _ast
+
+    offenders: list[str] = []
+
+    class _V(_ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.fn = ""
+            self.db_names: set[str] = set()
+
+        def visit_AsyncFunctionDef(self, node) -> None:
+            prev_fn, prev_names = self.fn, set(self.db_names)
+            self.fn, self.db_names = node.name, set()
+            self.generic_visit(node)
+            self.fn, self.db_names = prev_fn, prev_names
+
+        def visit_FunctionDef(self, node) -> None:
+            # 同步内函数：随外层卸载，不检查
+            prev_fn, prev_names = self.fn, set(self.db_names)
+            self.fn, self.db_names = "", set()
+            self.generic_visit(node)
+            self.fn, self.db_names = prev_fn, prev_names
+
+        def visit_Assign(self, node) -> None:
+            if (isinstance(node.value, _ast.Call)
+                    and isinstance(node.value.func, _ast.Name)
+                    and node.value.func.id in _DB_GETTERS):
+                for t in node.targets:
+                    if isinstance(t, _ast.Name):
+                        self.db_names.add(t.id)
+            self.generic_visit(node)
+
+        def visit_Call(self, node) -> None:
+            f = node.func
+            if isinstance(f, _ast.Name) and f.id == "run_blocking":
+                return  # 卸载面内合规
+            if isinstance(f, _ast.Attribute) and f.attr in _DB_METHODS:
+                v = f.value
+                is_db = (
+                    (isinstance(v, _ast.Name)
+                     and (v.id == "db" or v.id in self.db_names))
+                    or (isinstance(v, _ast.Call)
+                        and isinstance(v.func, _ast.Name)
+                        and v.func.id in _DB_GETTERS))
+                if is_db and self.fn:
+                    offenders.append(f"{self.fn}():{node.lineno} {f.attr}")
+            self.generic_visit(node)
+
+    for p in _py_sources(BACKEND_ROOT / "api", BACKEND_ROOT / "services"):
+        tree = _ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        _V().visit(tree)
+
+    assert offenders == [], (
+        f"async 函数内存在同步 SQLite 直调（应包 await run_blocking）:\n"
+        f"{chr(10).join(offenders)}\n"
+        f"→ 改法见 scripts/codemod_async_sqlite.py（AST codemod，幂等）")

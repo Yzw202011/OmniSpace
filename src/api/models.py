@@ -1076,31 +1076,31 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
 
     if db is not None:
         try:
-            row = db.query_one(
-                "SELECT id, file_path FROM models WHERE id = ?", (model_id,))
+            row = await run_blocking(lambda: db.query_one(
+                "SELECT id, file_path FROM models WHERE id = ?", (model_id,)))
             if row is not None and row.get("file_path") not in ("", None, resolved):
                 # 同 id 已被其他路径占用：语义化 id 兜底防撞
                 model_id = result.model_id
                 info["id"] = model_id
-                row = db.query_one(
-                    "SELECT id FROM models WHERE id = ?", (model_id,))
+                row = await run_blocking(lambda: db.query_one(
+                    "SELECT id FROM models WHERE id = ?", (model_id,)))
             if row is not None:
                 # 预置/既有行撞名（models/ 内导入常见）：只回填物理字段，
                 # category/purpose 等身份字段保持登记原值
-                db.update("models", {
+                await run_blocking(lambda: db.update("models", {
                     "size_gb": info["size_gb"],
                     "min_vram_gb": info["min_vram_gb"],
                     "status": info["status"],
                     "file_path": info["file_path"],
                     "sha256": info["sha256"],
-                }, "id = ?", (model_id,))
-                full = db.query_one(
+                }, "id = ?", (model_id,)))
+                full = await run_blocking(lambda: db.query_one(
                     "SELECT id, name, category, purpose, size_gb, params,"
                     " min_vram_gb, associated_features, status, file_path, sha256"
-                    " FROM models WHERE id = ?", (model_id,))
+                    " FROM models WHERE id = ?", (model_id,)))
                 info = _row_to_model(full) if full else info
             else:
-                db.insert("models", info)
+                await run_blocking(lambda: db.insert("models", info))
             info["imported"] = True
             return ok(info, message="模型已导入")
         except Exception as exc:  # noqa: BLE001
@@ -1519,7 +1519,7 @@ async def models_verify(model_id: str) -> dict[str, Any]:
     db = get_db_safe()
     if db is not None:
         try:
-            db.update("models", {"sha256": digest}, "id=?", (model_id,))
+            await run_blocking(lambda: db.update("models", {"sha256": digest}, "id=?", (model_id,)))
         except Exception as exc:  # noqa: BLE001
             log.warning("指纹持久化失败: %s", exc)
     if model_id in _models:
@@ -1923,7 +1923,7 @@ async def models_benchmark(req: ModelBenchmarkRequest) -> dict[str, Any]:
     if db is not None:
         try:
             db.executescript(_BENCH_DDL)
-            db.insert("model_benchmarks", {
+            await run_blocking(lambda: db.insert("model_benchmarks", {
                 "id": uuid.uuid4().hex, "model_id": result["model_id"],
                 "engine": result["engine"], "runs": result["runs"],
                 "tokens_per_s": result["tokens_per_s"],
@@ -1931,7 +1931,7 @@ async def models_benchmark(req: ModelBenchmarkRequest) -> dict[str, Any]:
                 "total_ms": result["total_ms"],
                 "output_tokens": result["output_tokens"],
                 "vram_peak_gb": result["vram_peak_gb"],
-                "created_at": time.time()})
+                "created_at": time.time()}))
             persisted = True
         except Exception as exc:  # noqa: BLE001
             log.warning("基准结果落库失败: %s", exc)

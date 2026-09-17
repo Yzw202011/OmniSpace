@@ -1101,10 +1101,10 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         _dup = None
         if _dup_db is not None:
             try:
-                _dup = _dup_db.query_one(
+                _dup = await run_blocking(lambda: _dup_db.query_one(
                     "SELECT id FROM video_tasks WHERE storyboard_row_id=? "
                     "AND status IN ('generating','pending') LIMIT 1",
-                    (req.storyboard_row_id,))
+                    (req.storyboard_row_id,)))
             except Exception as exc:  # noqa: BLE001 - 查重失败放行不阻断
                 log.warning("视频任务连点查重失败（放行）: %s", exc)
         if _dup:
@@ -1130,9 +1130,9 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         _row = None
         if _db is not None:
             try:
-                _row = _db.query_one(
+                _row = await run_blocking(lambda: _db.query_one(
                     "SELECT description, asset_ids FROM storyboard_rows "
-                    "WHERE id=?", (req.storyboard_row_id,))
+                    "WHERE id=?", (req.storyboard_row_id,)))
             except Exception as exc:  # noqa: BLE001
                 log.warning("H3 入口前置校验查询失败: %s", exc)
         if _row is None:
@@ -1156,10 +1156,10 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         if _ids and _db is not None:
             _ph = ",".join("?" * len(_ids))
             try:
-                _n_img = int((_db.query_one(
+                _n_img = int((await run_blocking(lambda: _db.query_one(
                     f"SELECT COUNT(*) AS n FROM comic_assets "
                     f"WHERE id IN ({_ph}) AND file_path!=''",
-                    _ids) or {}).get("n") or 0)
+                    _ids)) or {}).get("n") or 0)
             except Exception as exc:  # noqa: BLE001
                 log.warning("绑定资产计数失败（放行交引擎校验）: %s", exc)
         if _n_img == 0:
@@ -1774,9 +1774,9 @@ async def story_narrative_generate(req: StoryNarrativeRequest) -> dict[str, Any]
                 continue
             try:
                 if db is not None:
-                    db.update("storyboard_rows",
+                    await run_blocking(lambda desc=desc, r=r: db.update("storyboard_rows",
                               {"description": desc},
-                              "id=?", (r["id"],))
+                              "id=?", (r["id"],)))
                 r["description"] = desc
                 updated_rows.append(r)
                 done += 1
@@ -1866,9 +1866,9 @@ async def video_narrative_generate(req: VideoNarrativeRequest) -> dict[str, Any]
                     skipped += 1
                     continue
                 if db is not None:
-                    db.update("storyboard_rows",
+                    await run_blocking(lambda new_desc=new_desc, r=r: db.update("storyboard_rows",
                               {"description": new_desc},
-                              "id=?", (r["id"],))
+                              "id=?", (r["id"],)))
                 r["description"] = new_desc
                 updated_rows.append(r)
                 done += 1
@@ -1923,10 +1923,10 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
         _dup = None
         if _dup_db is not None:
             try:
-                _dup = _dup_db.query_one(
+                _dup = await run_blocking(lambda: _dup_db.query_one(
                     "SELECT id FROM video_tasks WHERE storyboard_row_id=? "
                     "AND status IN ('generating','pending') LIMIT 1",
-                    (req.storyboard_row_id,))
+                    (req.storyboard_row_id,)))
             except Exception as exc:  # noqa: BLE001
                 log.warning("H3 链式连点查重失败（放行）: %s", exc)
         if _dup:

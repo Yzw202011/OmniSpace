@@ -710,34 +710,34 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
     # 落库：旧大纲树与待写章清掉重建（人在回路 = 生成后逐节点可改）
     pid = job.project_id
     now = _now()
-    db.delete("novel_chapters", "project_id=? AND status='pending'", (pid,))
-    db.delete("novel_outlines", "project_id=?", (pid,))
+    await run_blocking(lambda: db.delete("novel_chapters", "project_id=? AND status='pending'", (pid,)))
+    await run_blocking(lambda: db.delete("novel_outlines", "project_id=?", (pid,)))
     book_id = uuid.uuid4().hex
-    db.insert("novel_outlines", {
+    await run_blocking(lambda: db.insert("novel_outlines", {
         "id": book_id, "project_id": pid, "parent_id": "", "level": "book",
         "sort_index": 0, "title": data["title"],
-        "content": data["logline"], "created_at": now, "updated_at": now})
+        "content": data["logline"], "created_at": now, "updated_at": now}))
     ch_no = 0
     for vi, vol in enumerate(data["volumes"]):
         vol_id = uuid.uuid4().hex
-        db.insert("novel_outlines", {
+        await run_blocking(lambda vi=vi, vol=vol, vol_id=vol_id: db.insert("novel_outlines", {
             "id": vol_id, "project_id": pid, "parent_id": book_id,
             "level": "volume", "sort_index": vi, "title": vol["title"],
             "content": vol["summary"], "created_at": now,
-            "updated_at": now})
+            "updated_at": now}))
         for ci, ch in enumerate(vol.get("chapters") or []):
             ch_no += 1
             node_id = uuid.uuid4().hex
-            db.insert("novel_outlines", {
+            await run_blocking(lambda ch=ch, ci=ci, node_id=node_id, vol_id=vol_id: db.insert("novel_outlines", {
                 "id": node_id, "project_id": pid, "parent_id": vol_id,
                 "level": "chapter_outline", "sort_index": ci,
                 "title": ch["title"], "content": ch["outline"],
-                "created_at": now, "updated_at": now})
-            db.insert("novel_chapters", {
+                "created_at": now, "updated_at": now}))
+            await run_blocking(lambda ch=ch, ch_no=ch_no, node_id=node_id: db.insert("novel_chapters", {
                 "id": uuid.uuid4().hex, "project_id": pid,
                 "outline_id": node_id, "chapter_index": ch_no,
                 "title": ch["title"], "status": "pending",
-                "created_at": now, "updated_at": now})
+                "created_at": now, "updated_at": now}))
     req["stage"] = "done"
     req["detail"] = f"完成：{len(data['volumes'])} 卷 {ch_no} 章"
     from ..services.event_log import log_event
@@ -749,27 +749,27 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
 async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
     """章节正文生成：四件套注入 → 正文 → 摘要链回写。"""
     db = _db()
-    ch = db.query_one("SELECT * FROM novel_chapters WHERE id=?",
-                      (job.chapter_id,))
+    ch = await run_blocking(lambda: db.query_one("SELECT * FROM novel_chapters WHERE id=?",
+                      (job.chapter_id,)))
     if ch is None:
         raise RuntimeError(f"章节不存在: {job.chapter_id}")
     project = _get_project(db, job.project_id)
     if project is None:
         raise RuntimeError(f"项目不存在: {job.project_id}")
-    db.update("novel_chapters",
+    await run_blocking(lambda: db.update("novel_chapters",
               {"status": "generating", "progress": 0.05, "error": ""},
-              "id=?", (job.chapter_id,))
+              "id=?", (job.chapter_id,)))
     try:
         await run_blocking(_ensure_engine_sync)
-        outline = (db.query_one(
+        outline = (await run_blocking(lambda: db.query_one(
             "SELECT * FROM novel_outlines WHERE id=?",
-            (ch.get("outline_id") or "",))
+            (ch.get("outline_id") or "",)))
             if ch.get("outline_id") else None)
-        prev_rows = db.query(
+        prev_rows = await run_blocking(lambda: db.query(
             "SELECT id, chapter_index, title, summary, content, status "
             "FROM novel_chapters WHERE project_id=? AND chapter_index<? "
             "ORDER BY chapter_index",
-            (job.project_id, ch.get("chapter_index") or 0))
+            (job.project_id, ch.get("chapter_index") or 0)))
         summaries = [(r["chapter_index"], r.get("summary") or "")
                      for r in prev_rows
                      if r.get("status") == "done" and (r.get("summary") or "").strip()]
@@ -778,9 +778,9 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
             last = prev_rows[-1]
             if last.get("status") == "done":
                 prev_tail = (last.get("content") or "")[-PREV_TAIL_CHARS:]
-        characters = db.query(
+        characters = await run_blocking(lambda: db.query(
             "SELECT name, role, summary FROM novel_characters "
-            "WHERE project_id=? ORDER BY created_at", (job.project_id,))
+            "WHERE project_id=? ORDER BY created_at", (job.project_id,)))
 
         outline_text = (outline.get("content") if outline else "") or \
             str((parse_json_field(ch.get("meta")) or {}).get("outline") or "")
@@ -789,8 +789,8 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
             ch.get("title") or "", outline_text) if x)
         worldview = await run_blocking(retrieve_worldview_sync, query)
         queue.raise_if_cancelled(job.task_id)
-        db.update("novel_chapters", {"progress": 0.3}, "id=?",
-                  (job.chapter_id,))
+        await run_blocking(lambda: db.update("novel_chapters", {"progress": 0.3}, "id=?",
+                  (job.chapter_id,)))
 
         prompt = build_chapter_prompt(
             project_name=project.get("name") or "",
@@ -830,8 +830,8 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
                 "模型连续多次陷入复读循环（同段反复抄写），已拒绝把低"
                 "质量正文入库；请点「重新生成本章」再试一次，若反复出现"
                 "建议把本章细纲拆得更细或降低目标篇幅")
-        db.update("novel_chapters", {"progress": 0.7}, "id=?",
-                  (job.chapter_id,))
+        await run_blocking(lambda: db.update("novel_chapters", {"progress": 0.7}, "id=?",
+                  (job.chapter_id,)))
         summary = ""
         if content:
             try:
@@ -844,22 +844,23 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
             except Exception as exc:  # noqa: BLE001 - 摘要失败不影响正文
                 log.warning("章节摘要生成失败（正文已保留）: %s", exc)
         word_count = len(content)
-        db.update("novel_chapters", {
+        await run_blocking(lambda content=content: db.update("novel_chapters", {
             "content": content, "summary": summary,
             "word_count": word_count, "status": "done", "progress": 1.0,
-            "updated_at": _now()}, "id=?", (job.chapter_id,))
+            "updated_at": _now()}, "id=?", (job.chapter_id,)))
         log.info("章节生成完成: %s《%s》%d 字",
                  job.chapter_id, ch.get("title"), word_count)
     except NovelJobCancelled:
-        db.update("novel_chapters", {
+        await run_blocking(lambda: db.update("novel_chapters", {
             "status": "error", "progress": 0.0,
             "error": "已取消（可重新生成）", "updated_at": _now()},
-            "id=?", (job.chapter_id,))
+            "id=?", (job.chapter_id,)))
     except Exception as exc:
-        db.update("novel_chapters", {
+        err_msg = str(exc)[:300]  # exc 出 except 块即被删——先快照进闭包
+        await run_blocking(lambda: db.update("novel_chapters", {
             "status": "error", "progress": 0.0,
-            "error": str(exc)[:300], "updated_at": _now()},
-            "id=?", (job.chapter_id,))
+            "error": err_msg, "updated_at": _now()},
+            "id=?", (job.chapter_id,)))
         raise
 
 
@@ -881,11 +882,11 @@ async def run_characters_job(job: NovelJob, queue: NovelJobQueue) -> None:
     items = await run_blocking(parse_characters_json, raw)
     now = _now()
     for it in items:
-        db.insert("novel_characters", {
+        await run_blocking(lambda it=it: db.insert("novel_characters", {
             "id": uuid.uuid4().hex, "project_id": job.project_id,
             "name": it["name"], "role": it["role"],
             "summary": it["summary"], "created_at": now,
-            "updated_at": now})
+            "updated_at": now}))
     _JOB_PROGRESS[job.task_id] = {"stage": "done",
                                   "detail": f"完成：{len(items)} 个角色"}
 

@@ -302,9 +302,9 @@ def novel_chapter_delete(chapter_id: str) -> dict[str, Any]:
 
 async def _enqueue_chapter(db, project_id: str, chapter_id: str) -> str:
     task_id = f"novel-ch-{chapter_id}-{uuid.uuid4().hex[:6]}"
-    db.update("novel_chapters",
+    await run_blocking(lambda: db.update("novel_chapters",
               {"status": "pending", "progress": 0.0, "error": ""},
-              "id=?", (chapter_id,))
+              "id=?", (chapter_id,)))
     await get_job_queue().submit(NovelJob(
         task_id=task_id, kind="chapter", project_id=project_id,
         chapter_id=chapter_id, run=svc.run_chapter_job))
@@ -315,8 +315,8 @@ async def _enqueue_chapter(db, project_id: str, chapter_id: str) -> str:
 async def novel_chapter_generate(chapter_id: str) -> dict[str, Any]:
     """单章生成：入队即返回（排队位次 + task_id）。"""
     db = _db()
-    ch = db.query_one("SELECT * FROM novel_chapters WHERE id=?",
-                      (chapter_id,))
+    ch = await run_blocking(lambda: db.query_one("SELECT * FROM novel_chapters WHERE id=?",
+                      (chapter_id,)))
     if ch is None:
         raise ApiError("NOVEL_CHAPTER_NOT_FOUND", detail={"id": chapter_id})
     if ch.get("status") == "generating":
@@ -337,9 +337,9 @@ async def novel_chapters_generate_batch(body: dict = Body(...)) -> dict[str, Any
     db = _db()
     project = _require_project(db, str(body.get("project_id") or ""))
     skip_completed = bool(body.get("skip_completed", False))
-    rows = db.query(
+    rows = await run_blocking(lambda: db.query(
         "SELECT id, status FROM novel_chapters WHERE project_id=? "
-        "ORDER BY chapter_index", (project["id"],))
+        "ORDER BY chapter_index", (project["id"],)))
     if not rows:
         raise ApiError("NOVEL_NO_CHAPTERS", "项目还没有章节，先生成大纲")
     tasks: list[dict] = []
@@ -372,10 +372,10 @@ async def novel_generate_progress(
     chapter_states: list[dict] = []
     if project_id:
         db = _db()
-        rows = db.query(
+        rows = await run_blocking(lambda: db.query(
             "SELECT id, status, progress, error FROM novel_chapters "
             "WHERE project_id=? AND status IN ('generating','error') "
-            "ORDER BY chapter_index", (project_id,))
+            "ORDER BY chapter_index", (project_id,)))
         chapter_states = rows
     return ok({"current": current, "queue": items,
                "chapter_states": chapter_states,

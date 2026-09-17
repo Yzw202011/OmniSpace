@@ -672,8 +672,8 @@ async def comic_asset_regenerate(asset_id: str,
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法重生成资产")
-    row = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
         raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
@@ -743,8 +743,8 @@ async def comic_asset_regenerate_view(asset_id: str,
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法重生成视图")
-    row = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
         raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
@@ -810,8 +810,8 @@ async def comic_asset_reference_upload(asset_id: str,
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法上传参考图")
-    row = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
         raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
@@ -848,7 +848,7 @@ async def comic_asset_reference_upload(asset_id: str,
     meta = asset.get("meta") or {}
     meta["reference_image"] = True
     meta["reference_path"] = rel
-    db.update("comic_assets", {"meta": meta}, "id=?", (asset_id,))
+    await run_blocking(lambda: db.update("comic_assets", {"meta": meta}, "id=?", (asset_id,)))
     asset = {**asset, "meta": meta}
     return ok({"asset": asset, "reference": rel})
 
@@ -1084,8 +1084,8 @@ async def comic_asset_image_replace(asset_id: str,
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法替换图片")
-    arow = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    arow = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if arow is None:
         raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(arow)
@@ -1138,12 +1138,12 @@ async def comic_asset_image_replace(asset_id: str,
         # 后台 VLM 按新图重写描述词后解除（vLLM 未热备则保持 stale，
         # 由用户点「生成描述词」显式触发或手动编辑解除）
         meta["prompt_stale"] = True
-    db.update("comic_assets",
-              {"file_path": rel_path, "meta": meta}, "id=?", (asset_id,))
+    await run_blocking(lambda: db.update("comic_assets",
+              {"file_path": rel_path, "meta": meta}, "id=?", (asset_id,)))
     if kind == "character":
         _spawn_prompt_rewrite(asset_id)
-    nrow = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    nrow = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     return ok({"asset": _asset_row_to_dict(nrow)})
 
 
@@ -1215,14 +1215,14 @@ async def comic_asset_upload(project_id: str = Form(...),
         # P0 数据修复：新上传角色描述词为空 → stale 标记 + 后台 VLM
         # 按图生词（未就绪保持 stale，交由显式触发/手动编辑解除）
         meta["prompt_stale"] = True
-    db.insert("comic_assets", {
+    await run_blocking(lambda: db.insert("comic_assets", {
         "id": asset_id, "project_id": pid, "kind": kind,
         "name": asset_name, "file_path": rel_path, "prompt": "",
-        "meta": meta, "created_at": _now()})
+        "meta": meta, "created_at": _now()}))
     if kind == "character":
         _spawn_prompt_rewrite(asset_id)
-    row = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     return ok({"asset": _asset_row_to_dict(row)})
 
 
@@ -2312,8 +2312,8 @@ async def _rewrite_char_prompt_from_image(asset_id: str, *,
     db = get_db_safe()
     if db is None:
         return False
-    row = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
         return False
     asset = _asset_row_to_dict(row)
@@ -2336,7 +2336,7 @@ async def _rewrite_char_prompt_from_image(asset_id: str, *,
                 if engine.is_ready else _INFER_ERA_LINE)
     prompt = _build_character_prompt_v2(
         asset.get("name", ""), desc, _project_style_line(db, pid), era_line)
-    db.update("comic_assets", {"prompt": prompt[:2000]}, "id=?", (asset_id,))
+    await run_blocking(lambda: db.update("comic_assets", {"prompt": prompt[:2000]}, "id=?", (asset_id,)))
     _mark_prompt_stale(db, asset_id, asset.get("meta") or {}, False,
                        source="vlm_image")
     log.info("描述词已按资产图重写: asset=%s len=%d", asset_id, len(prompt))
@@ -2366,8 +2366,8 @@ async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法扩写描述词")
-    row = db.query_one(
-        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
         raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
@@ -2389,9 +2389,9 @@ async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
                     asset_id, wait_s=1.0, ignite=False):
                 raise ApiError("MODEL_INFERENCE_FAILED",
                                "VLM 按图重写描述词失败，请重试")
-            row = db.query_one(
+            row = await run_blocking(lambda: db.query_one(
                 f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?",
-                (asset_id,))
+                (asset_id,)))
             return ok({"asset": _asset_row_to_dict(row)})
     engine = get_dialog_engine()
     lock = await acquire_or_raise("dialog", task_id=asset_id)
@@ -2459,12 +2459,12 @@ async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
                 if asset.get("kind") == "scene"
                 else _build_prop_prompt_v2(
                     asset.get("name", ""), desc, style_line, era_line))
-        db.update("comic_assets", {"prompt": description[:2000]},
-                  "id=?", (asset_id,))
+        await run_blocking(lambda: db.update("comic_assets", {"prompt": description[:2000]},
+                  "id=?", (asset_id,)))
         _mark_prompt_stale(db, asset_id, asset.get("meta") or {}, False,
                            source="llm_text")
-        row = db.query_one(
-            f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+        row = await run_blocking(lambda: db.query_one(
+            f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
         return ok({"asset": _asset_row_to_dict(row)})
     finally:
         await lock.release("dialog")

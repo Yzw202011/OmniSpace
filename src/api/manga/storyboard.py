@@ -264,9 +264,9 @@ async def storyboard_save(project_id: str,
             # 被移除行的关键帧/视频任务须级联清理，否则孤儿 DB 记录与
             # 磁盘文件永久残留。必须先于 _persist_all 收集（之后旧行
             # 已从库里消失，无从关联）
-            old_ids = {str(r["id"]) for r in db.query(
+            old_ids = {str(r["id"]) for r in await run_blocking(lambda: db.query(
                 "SELECT id FROM storyboard_rows WHERE storyboard_id=?",
-                (sid,))}
+                (sid,)))}
 
             def _persist_all() -> None:
                 """DELETE + N INSERT + UPDATE 单事务落库（审计 R3-P2 写放大）。
@@ -1115,15 +1115,15 @@ async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str
         parsed.append(row)
         if db is not None and sb_id:
             try:
-                db.insert("storyboard_rows",
-                          _public_row_to_db(row, sb_id, sort_index=base + i))
+                await run_blocking(lambda i=i, row=row: db.insert("storyboard_rows",
+                          _public_row_to_db(row, sb_id, sort_index=base + i)))
             except Exception as exc:  # noqa: BLE001
                 log.warning("分镜行写入失败: %s", exc)
         else:
             existing_rows.append(row)
     if db is not None and sb_id:
         try:
-            db.update("storyboards", {"updated_at": _now()}, "id=?", (sb_id,))
+            await run_blocking(lambda: db.update("storyboards", {"updated_at": _now()}, "id=?", (sb_id,)))
         except Exception as exc:  # noqa: BLE001
             log.warning("分镜表更新时间写入失败: %s", exc)
     return ok({"project_id": project_id, "rows": parsed,

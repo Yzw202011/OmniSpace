@@ -2208,13 +2208,13 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
         return
     # 用户操作最高权限：该校验版本已不是当前版本（用户又手动重生
     # 成了）→ 让位，不做任何评分/重抽
-    kf = db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
-                      (kf_id,))
+    kf = await run_blocking(lambda: db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
+                      (kf_id,)))
     if not kf or not int(kf.get("is_current", 0)):
         log.info("一致性校验让位（已有更新版本）: row=%s v%d", row_id, version)
         return
-    row = db.query_one(
-        f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?", (row_id,))
+    row = await run_blocking(lambda: db.query_one(
+        f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?", (row_id,)))
     if row is None:
         return
     refs, char_anchor = _scoring_context(db, row)
@@ -2591,12 +2591,12 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
             and new_combined < old_combined):
         # 重抽更差 → 回置原版本为当前（用户操作最高权限：期间若
         # 用户又手动生成了更新版本，不动 is_current）
-        mx = db.query_one(
+        mx = await run_blocking(lambda: db.query_one(
             "SELECT MAX(version) AS mv FROM keyframes WHERE row_id=?",
-            (row_id,))
+            (row_id,)))
         if int((mx or {}).get("mv") or 0) <= new_version:
-            db.update("keyframes", {"is_current": 0}, "row_id=?", (row_id,))
-            db.update("keyframes", {"is_current": 1}, "id=?", (kf_id,))
+            await run_blocking(lambda: db.update("keyframes", {"is_current": 0}, "row_id=?", (row_id,)))
+            await run_blocking(lambda: db.update("keyframes", {"is_current": 1}, "id=?", (kf_id,)))
             picked = version
             note = "retry_worse_rollback"
     elif any(_failed(s, sim, ssim, _is_wide_shot(framing_ctx, i),
@@ -2678,9 +2678,9 @@ async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
     src_ver = 0
     if req.only_shots:
         _db = get_db_safe()
-        _cur = (_db.query_one(
+        _cur = (await run_blocking(lambda: _db.query_one(
             "SELECT version FROM keyframes WHERE row_id=? AND is_current=1",
-            (req.row_id,)) if _db else None)
+            (req.row_id,))) if _db else None)
         src_ver = int((_cur or {}).get("version") or 0)
         log.info("逐镜重抽请求: row=%s shots=%s src=v%d",
                  req.row_id, req.only_shots, src_ver)

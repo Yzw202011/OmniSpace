@@ -171,9 +171,9 @@ async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
     if db is not None:
         try:
             _seed_voices(db)
-            row = db.query_one(
+            row = await run_blocking(lambda: db.query_one(
                 f"SELECT {_VOICE_COLS} FROM voice_profiles WHERE id=?",
-                (req.voice_id,))
+                (req.voice_id,)))
             if row is None:
                 raise ApiError(71001, "音色文件缺失", detail={"voice_id": req.voice_id})
         except ApiError:
@@ -278,10 +278,10 @@ async def voices_upload(name: str = Query("自定义音色"),
     if db is not None:
         try:
             _seed_voices(db)
-            db.insert("voice_profiles", {
+            await run_blocking(lambda: db.insert("voice_profiles", {
                 "id": voice_id, "name": name[:100], "character_id": "",
                 "is_preset": 0, "file_path": rel_path, "emotion": "默认",
-                "created_at": _now()})
+                "created_at": _now()}))
         except Exception as exc:  # noqa: BLE001
             # 诚实失败（2026-09-17）：落库失败=音色不会出现在列表/无法绑定，
             # 返回 200 会让前端 toast 成功（审计四轮跨端遗留）——改为语义错误

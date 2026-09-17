@@ -35,6 +35,7 @@ from .middleware.cors import setup_cors
 from .middleware.error_handler import ApiError, error, ok
 from .middleware.logger import setup_logging
 from .middleware.rate_limit import setup_rate_limit
+from .services.offload import run_blocking
 
 # ── 日志初始化 ──────────────────────────────────────────────────
 log = setup_logging()
@@ -148,7 +149,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # T+0s: 数据库
     try:
         db = get_db()
-        db.query_one("SELECT 1 AS one")
+        await run_blocking(lambda: db.query_one("SELECT 1 AS one"))
         log.info("T+0s 数据库初始化完成: %s", config.DB_PATH)
     except Exception as exc:
         log.error("数据库初始化失败: %s", exc)
@@ -352,8 +353,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 随进程消失，遗留 generating 行永远无人收尾，/status 会无限
     # 回传旧进度——启动即改写为 error（与 flow_trace 孤儿恢复同时机）
     try:
-        n = get_db().update("video_tasks", {"status": "error"},
-                            "status=?", ("generating",))
+        n = await run_blocking(lambda: get_db().update("video_tasks", {"status": "error"},
+                            "status=?", ("generating",)))
         if n:
             log.warning("视频任务遗留恢复: %d 条 generating → error", n)
     except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
@@ -361,11 +362,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 小说章节遗留恢复（批2 MVP 2026-09-05）：生成 worker 随进程消失，
     # 遗留 generating 章节无人收尾 → 启动即改写 error（用户可重新生成）
     try:
-        n = get_db().update(
+        n = await run_blocking(lambda: get_db().update(
             "novel_chapters",
             {"status": "error", "progress": 0.0,
              "error": "后端重启中断，请重新生成"},
-            "status=?", ("generating",))
+            "status=?", ("generating",)))
         if n:
             log.warning("小说章节遗留恢复: %d 条 generating → error", n)
     except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
@@ -583,7 +584,7 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, Any]:
         db_status = "ok"
         try:
-            get_db().query_one("SELECT 1 AS one")
+            await run_blocking(lambda: get_db().query_one("SELECT 1 AS one"))
         except Exception:
             db_status = "error"
         return ok({"status": "healthy", "version": config.APP_VERSION,

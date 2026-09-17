@@ -1077,7 +1077,7 @@ class VLLMService:
         if sys.platform == "win32":
             r = subprocess.run(
                 ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                capture_output=True,
+                capture_output=True, timeout=10,
                 creationflags=subprocess.CREATE_NO_WINDOW
                 if os.name == "nt" else 0)
             if r.returncode != 0:
@@ -1185,7 +1185,7 @@ class VLLMService:
                     log.warning("清扫 vLLM 孤儿进程 pid=%d", p.info["pid"])
                     subprocess.run(
                         ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
-                        capture_output=True,
+                        capture_output=True, timeout=10,
                         creationflags=subprocess.CREATE_NO_WINDOW
                         if os.name == "nt" else 0)
                     killed += 1

@@ -379,35 +379,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log_event("system", "backend_stopped", "OmniSpace 后端已正常关闭",
                   level="info")
     except Exception:  # noqa: BLE001
-        pass
+        log.warning("关停事件落盘失败", exc_info=True)
     # 正常退出才摘心跳（残留 = 下次启动判定为异常退出）
     try:
         from .services import heartbeat
         heartbeat.stop()
     except Exception:  # noqa: BLE001
-        pass
+        log.warning("心跳取证停止失败", exc_info=True)
     try:
         from .services.browser_pool import get_browser_pool
         get_browser_pool().shutdown()
     except Exception:
-        pass
+        log.warning("浏览器池关停失败", exc_info=True)
     try:
         from .services.ws_hub import get_ws_hub
         await get_ws_hub().stop_telemetry()
     except Exception:
-        pass
+        log.warning("WS 遥测停止失败", exc_info=True)
     try:
         from .services.page_guard import get_page_guard
         await get_page_guard().stop()
     except Exception:
-        pass
+        log.warning("页面守卫停止失败", exc_info=True)
     if _SCHEDULER_AVAILABLE:
         try:
             scheduler = _get_scheduler()
             if hasattr(scheduler, "stop"):
                 await scheduler.stop()
         except Exception:
-            pass
+            log.warning("调度器停止失败", exc_info=True)
     log.info("后端已停止")
 
 

@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -30,6 +31,8 @@ from ..config import ROOT_DIR
 from ..middleware.error_handler import ApiError, ok
 from ..services import upgrade_service as usvc
 from ..services.upgrade_service import UpgradeError
+
+log = logging.getLogger("omnispace.upgrade")
 
 router = APIRouter()
 
@@ -64,7 +67,7 @@ def _busy_reason() -> str:
         if active:
             return f"有功能正在运行（{active}）"
     except Exception:  # noqa: BLE001 - 占用检查失败不阻断预检链
-        pass
+        log.warning("升级预检·功能锁占用检查失败", exc_info=True)
     try:
         from ..services.image_queue import ImageTaskQueue
         from ..services.video_queue import VideoTaskQueue
@@ -75,7 +78,7 @@ def _busy_reason() -> str:
         if busy:
             return f"生成队列还有 {busy} 个任务"
     except Exception:  # noqa: BLE001
-        pass
+        log.warning("升级预检·队列占用检查失败", exc_info=True)
     return ""
 
 

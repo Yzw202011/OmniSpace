@@ -261,7 +261,7 @@ class ComfyProcManager:
                     logger.warning("清扫 ComfyUI 孤儿进程 pid=%d", p.info["pid"])
                     subprocess.run(
                         ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
-                        capture_output=True, check=False,
+                        capture_output=True, check=False, timeout=10,
                         creationflags=subprocess.CREATE_NO_WINDOW
                         if os.name == "nt" else 0)
                     killed += 1

@@ -283,7 +283,14 @@ async def voices_upload(name: str = Query("自定义音色"),
                 "is_preset": 0, "file_path": rel_path, "emotion": "默认",
                 "created_at": _now()})
         except Exception as exc:  # noqa: BLE001
+            # 诚实失败（2026-09-17）：落库失败=音色不会出现在列表/无法绑定，
+            # 返回 200 会让前端 toast 成功（审计四轮跨端遗留）——改为语义错误
             log.warning("音色上传落库失败: %s", exc)
+            raise ApiError("VOICE_DB_WRITE",
+                           "音色文件已保存但登记失败，音色暂不可用",
+                           detail={"voice_id": voice_id},
+                           suggestion="请重试上传；若持续失败请查看后端日志"
+                           ) from None
     return ok({"voice_id": voice_id, "name": name, "file_path": rel_path,
                "size_bytes": len(raw)})
 

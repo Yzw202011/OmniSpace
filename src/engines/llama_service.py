@@ -111,7 +111,7 @@ class LlamaService:
                                 p.info["pid"])
                     subprocess.run(
                         ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
-                        capture_output=True,
+                        capture_output=True, timeout=10,
                         creationflags=subprocess.CREATE_NO_WINDOW
                         if os.name == "nt" else 0)
                     killed += 1
@@ -238,7 +238,7 @@ class LlamaService:
         try:
             subprocess.run(
                 ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                capture_output=True,
+                capture_output=True, timeout=10,
                 creationflags=subprocess.CREATE_NO_WINDOW
                 if os.name == "nt" else 0)
             log.info("llama-server 已停止")

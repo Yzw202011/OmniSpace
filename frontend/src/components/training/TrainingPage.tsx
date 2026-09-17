@@ -21,6 +21,9 @@ import {
 
 type Tab = 'knowledge' | 'style' | 'character';
 
+/** 统一队列显示上限（防历史任务刷屏；完整历史在各页签内） */
+const QUEUE_DISPLAY_CAP = 8;
+
 const TABS: { key: Tab; label: string; hint: string }[] = [
   { key: 'knowledge', label: '知识训练', hint: '喂文档，让对话更懂你（QLoRA）' },
   { key: 'style', label: '风格训练', hint: '喂素材，练视频画风 LoRA' },
@@ -91,7 +94,7 @@ const UnifiedQueueCard: React.FC<{
         </p>
       )}
       <ul className="training-queue">
-        {items.map((t) => (
+        {items.slice(0, QUEUE_DISPLAY_CAP).map((t) => (
           <li key={`${t.kind}:${t.id}`} className="training-queue-item">
             <span
               className="training-kind-chip"
@@ -132,6 +135,11 @@ const UnifiedQueueCard: React.FC<{
           </li>
         ))}
       </ul>
+      {items.length > QUEUE_DISPLAY_CAP && (
+        <p className="text-xs mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
+          仅显示最近 {QUEUE_DISPLAY_CAP} 项（共 {items.length} 项；完整历史在对应页签里看）
+        </p>
+      )}
     </section>
   );
 };

@@ -37,6 +37,7 @@ from .loader import (
     read_cutemamen_pkg,
 )
 from .sandbox import sandbox_enabled
+from .security_gate import gate_plugin_call
 
 logger = logging.getLogger(__name__)
 
@@ -571,6 +572,18 @@ class PluginRuntime:
             raise PluginRuntimeError(
                 "PLUGIN_FAULTY", f"插件处于故障态: {name}",
                 "先 unload 复位再重新 load 调用")
+        # 行为层安全门禁（2026-09-17 安全盾移植）：sandbox 管物理隔离，
+        # 本闸管语义行为（意图规则/行为指纹/全链路审计）——初始规则集与
+        # 现网插件名零交集=零行为变化；config plugins.security_gate 可关
+        ok, outcome, reason = gate_plugin_call(name, spec)
+        if not ok:
+            code = ("PLUGIN_SECURITY_REVIEW" if outcome == "review"
+                    else "PLUGIN_SECURITY_DENIED")
+            raise PluginRuntimeError(
+                code,
+                f"插件调用被安全门禁拦截（{outcome}）：{name}——{reason}",
+                "调用命中高危/逃逸规则被挂起；核查插件来源，或经 config "
+                "plugins.security_gate 关闭安全门禁后排查")
         avail_gb = psutil.virtual_memory().available / (1 << 30)
         if avail_gb < MIN_FREE_RAM_GB:
             raise PluginRuntimeError(

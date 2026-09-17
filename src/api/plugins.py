@@ -163,8 +163,11 @@ async def kernel_think(req: KernelThinkRequest) -> dict[str, Any]:
                        f"系统可用内存不足（{avail_gb:.1f}GB < {MIN_FREE_RAM_GB}GB）",
                        suggestion="关闭其他大内存任务后重试")
     kernel = get_plugin_kernel()
-    results = await run_blocking(
-        kernel.think, {"topic": req.topic, "data": req.data})
+    try:
+        results = await run_blocking(
+            kernel.think, {"topic": req.topic, "data": req.data})
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
     safe = [_json_summary(r) for r in results if r is not None]
     routed = len(safe) > 0
     return ok({"topic": req.topic, "routed": routed, "results": safe})

@@ -77,6 +77,34 @@ def _merge_instances(kernel: Any) -> None:
     kernel.hot_load = merged_hot_load  # type: ignore[method-assign]
 
 
+def _gate_kernel_think(kernel: Any) -> None:
+    """think 网关补丁（2026-09-17 安全盾接线）：内核路由事件先过安全门禁。
+
+    与 registry.invoke 共用同一 SecurityMonitor 单例（指纹基线/审计
+    环形互通）；拦截时抛 PluginRuntimeError，由 API 层统一翻译信封。
+    """
+    from . import security_gate
+    from .registry import PluginRuntimeError
+
+    original_think = kernel.think
+
+    def gated_think(event: dict[str, Any]) -> Any:
+        # 经模块属性调用（保持可 monkeypatch，测试拦截路径用）
+        ok, outcome, reason = security_gate.gate_kernel_event(event)
+        if not ok:
+            code = ("PLUGIN_SECURITY_REVIEW" if outcome == "review"
+                    else "PLUGIN_SECURITY_DENIED")
+            topic = str(event.get("topic", ""))
+            raise PluginRuntimeError(
+                code,
+                f"内核 think 被安全门禁拦截（{outcome}）：{topic}——{reason}",
+                "调用命中高危/逃逸规则被挂起；核查插件来源，或经 config "
+                "plugins.security_gate 关闭安全门禁后排查")
+        return original_think(event)
+
+    kernel.think = gated_think  # type: ignore[method-assign]
+
+
 def get_plugin_kernel() -> Any:
     """获取内核单例（懒初始化 + 首扫 plugin/ 目录 + 实例合流）。"""
     global _kernel
@@ -94,6 +122,7 @@ def get_plugin_kernel() -> Any:
                 except Exception:  # noqa: BLE001 - 发现失败不拦端点
                     logger.warning("内核插件目录扫描失败", exc_info=True)
                 _merge_instances(kernel)  # 合流：单实例双面服务
+                _gate_kernel_think(kernel)  # 安全盾：think 路由前置门禁
                 _kernel = kernel
     return _kernel
 

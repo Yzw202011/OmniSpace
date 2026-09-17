@@ -340,17 +340,19 @@ async def voices_clone(name: str = Query("克隆音色"),
                        suggestion="检查参考音频质量（清晰人声、5-10 秒、"
                                   "无背景噪音）后重试") from exc
 
-    # 落库（克隆音色登记）
+    # 落库（克隆音色登记；契约闸：async 体内 SQLite 一律 run_blocking）
     voice_id = uuid.uuid4().hex[:12]
     db = get_db_safe()
     if db is not None:
-        try:
+        def _persist_clone_voice() -> None:
             _seed_voices(db)
             db.insert("voice_profiles", {
                 "id": voice_id, "name": name[:100], "character_id": "",
                 "is_preset": 0,
                 "file_path": str(Path(result["output_path"]).name),
                 "emotion": "克隆", "created_at": _now()})
+        try:
+            await run_blocking(_persist_clone_voice)
         except Exception as exc:  # noqa: BLE001
             log.warning("克隆音色落库失败: %s", exc)
 

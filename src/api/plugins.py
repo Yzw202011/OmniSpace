@@ -255,7 +255,14 @@ _STRICT_ATTR_FORBIDDEN = {
 def _scan_source_violations(code_text: str) -> list[str]:
     """AST 静态安检：返回违规清单（行号+原因），空列表=通过。"""
     violations: list[str] = []
-    tree = ast.parse(code_text)
+    try:
+        tree = ast.parse(code_text)
+    except SyntaxError as exc:
+        # 2026-09-17 收口：此前 SyntaxError 直穿 → main.py 无兜底 → 500；
+        # 坏语法属用户输入错误，必须走语义错误码
+        raise ApiError("PLUGIN_SOURCE_INVALID",
+                       f"源码语法错误（第 {exc.lineno or '?'} 行）: {exc.msg}"
+                       ) from None
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:

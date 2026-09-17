@@ -38,6 +38,8 @@ WEIGHTS_PATH = "weights/weights.npz"
 WORKING_PATH = "memory/working.json"
 EPISODIC_PATH = "memory/episodic.json"
 SEMANTIC_PATH = "memory/semantic.json"
+# 权重物化上限（解压炸弹闸，2026-09-17，与 OSP loader 同值）
+_WEIGHTS_MAX_EXPANDED = 256 * 1024 * 1024
 
 # 内核版本 (min_core_version 检查用); 延迟读包版本避免循环导入
 CORE_VERSION = "0.8.7"
@@ -270,8 +272,16 @@ def _read_members(path: str) -> tuple[dict, dict, dict]:
         if member is not None:
             data = tar.extractfile(member).read()
             if len(data) > 0:
-                # allow_pickle=False：npy/npz 安全体，对齐 OSP loader 同款
-                weights = dict(np.load(io.BytesIO(data), allow_pickle=False))
+                # allow_pickle=False：npy/npz 安全体，对齐 OSP loader 同款；
+                # 解压炸弹闸（2026-09-17）同款：压缩比 ~1000:1 挡物化膨胀
+                with np.load(io.BytesIO(data), allow_pickle=False) as _arrs:
+                    _zipf = getattr(_arrs, "zip", None)
+                    if _zipf is not None and sum(
+                            i.file_size for i in _zipf.infolist()
+                    ) > _WEIGHTS_MAX_EXPANDED:
+                        raise ValueError(
+                            f"权重解压后超限（>{_WEIGHTS_MAX_EXPANDED}B）")
+                    weights = {k: _arrs[k] for k in _arrs.files}
 
         working = _read_json(tar, WORKING_PATH, {})
         episodic = _read_json(tar, EPISODIC_PATH, {})

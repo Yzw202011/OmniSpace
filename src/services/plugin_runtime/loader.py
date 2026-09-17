@@ -31,6 +31,10 @@ _MODULE_PREFIX = "omnispace_plugin_"
 # CuteMamen 包条目白名单与上限（防御性：内存读天然免疫穿越，仍卡规模）
 _PKG_MAX_ENTRIES = 64
 _PKG_MAX_BYTES = 64 * 1024 * 1024
+# 权重物化上限（解压炸弹闸，2026-09-17）：npz 内数组 deflate 压缩比可
+# 达 ~1000:1，64MB 压缩上限挡不住物化膨胀——读 zip 中央目录未压缩尺寸
+# 在物化之前拒绝
+_PKG_WEIGHTS_MAX_EXPANDED = 256 * 1024 * 1024
 # 源码条目上限（规范 §2：插件源码 ≤256KB；v2.1 起源码可内嵌进包）
 _PKG_SOURCE_MAX_BYTES = 256 * 1024
 _PKG_ALLOWED = ("manifest.json", "weights/weights.npz",
@@ -146,6 +150,13 @@ def _parse_pkg_entry(pkg: CuteMamenPkg, name: str, raw: bytes) -> None:
     elif name == "weights/weights.npz":
         # allow_pickle=False：npy/npz 安全体（无任意代码执行面）
         with np.load(io.BytesIO(raw), allow_pickle=False) as arrs:
+            zipf = getattr(arrs, "zip", None)
+            if zipf is not None:
+                expanded = sum(i.file_size for i in zipf.infolist())
+                if expanded > _PKG_WEIGHTS_MAX_EXPANDED:
+                    raise PluginLoadError(
+                        f"权重解压后超限: {expanded}B > "
+                        f"{_PKG_WEIGHTS_MAX_EXPANDED}B")
             pkg.weights = {k: arrs[k] for k in arrs.files}
     elif name == "source/plugin.py":
         # v2.1 内嵌源码（新类型插件单文件交付；上限卡规范 §2 的 256KB）

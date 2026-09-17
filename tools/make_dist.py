@@ -361,7 +361,10 @@ def main() -> int:
     n, total = copy_all(dest)
     write_build_info(dest, build_id)
     if args.pubkey:
-        gate = dest / "backend" / "license_gate.py"
+        # src 扁平化（2026-09-17 补修）：--pubkey 分支三处路径此前仍指
+        # backend/（批1 六件套的漏网分支）——带激活发行一出包即
+        # FileNotFoundError
+        gate = dest / "src" / "license_gate.py"
         src_txt = gate.read_text(encoding="utf-8")
         patched = src_txt.replace('PUBKEY_HEX = ""',
                                   f'PUBKEY_HEX = "{args.pubkey}"')
@@ -371,9 +374,10 @@ def main() -> int:
         print(f"已注入发行公钥（激活门禁生效）：{args.pubkey[:16]}…")
         # 资产加密（P6 锁4）：工作流明文出包即灭；风格种子入金库
         from src.asset_vault import encrypt_bytes
-        enc_dir = dest / "backend" / "assets_enc"
+        enc_dir = dest / "src" / "assets_enc"
         enc_dir.mkdir(parents=True, exist_ok=True)
-        wf = dest / "backend" / "services" / "inference" / "h3_chain_workflow_api.json"
+        wf = (dest / "src" / "services" / "inference"
+              / "h3_chain_workflow_api.json")
         if wf.is_file():
             (enc_dir / "h3_chain_workflow_api.json.enc").write_bytes(
                 encrypt_bytes(wf.read_bytes(), args.pubkey))

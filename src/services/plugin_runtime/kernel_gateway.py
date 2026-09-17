@@ -50,8 +50,35 @@ def _bridge_kernel_events(kernel: Any) -> None:
         kernel.bus.subscribe(topic, _on_kernel_event(topic))
 
 
+def _merge_instances(kernel: Any) -> None:
+    """合流补丁（2026-09-17 用户拍板③=合流为一）：单实例双面服务。
+
+    补丁内核 hot_load：OSP PluginRuntime 已加载的插件直接注入内核
+    plugins 表——不再重复装载、记忆/状态天然互通（同一 Python 对象）。
+    OSP 侧不补丁（ensure_loaded 有复杂状态机，侵入风险高）；内核先载
+    OSP 后 invoke 的场景（罕见：工厂件 OSP 启动即种子登记）OSP 会
+    自行装载一份，后续内核 think 时发现 OSP 实例并替换——最终收敛
+    为单实例。沙箱档（user_source）不经此路（子进程执行）。
+    """
+    from .registry import get_plugin_runtime
+
+    original_hot_load = kernel.hot_load
+
+    def merged_hot_load(name: str) -> Any:
+        rt = get_plugin_runtime()
+        entry = getattr(rt, "_registry", {}).get(name)
+        if entry is not None and getattr(entry, "instance", None) is not None:
+            if name not in kernel.plugins:
+                kernel.plugins[name] = entry.instance
+                logger.info("内核复用 OSP 实例: %s（合流）", name)
+            return entry.instance
+        return original_hot_load(name)
+
+    kernel.hot_load = merged_hot_load  # type: ignore[method-assign]
+
+
 def get_plugin_kernel() -> Any:
-    """获取内核单例（懒初始化 + 首扫 plugin/ 目录）。"""
+    """获取内核单例（懒初始化 + 首扫 plugin/ 目录 + 实例合流）。"""
     global _kernel
     if _kernel is None:
         with _kernel_lock:
@@ -66,6 +93,7 @@ def get_plugin_kernel() -> Any:
                     logger.info("内核插件发现: %s", sorted(discovered))
                 except Exception:  # noqa: BLE001 - 发现失败不拦端点
                     logger.warning("内核插件目录扫描失败", exc_info=True)
+                _merge_instances(kernel)  # 合流：单实例双面服务
                 _kernel = kernel
     return _kernel
 

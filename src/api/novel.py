@@ -250,8 +250,10 @@ async def novel_chapter_skill(chapter_id: str,
     数据最小化：只传本章正文，不带大纲/角色/其他章。
     """
     db = _db()
-    row = db.query_one("SELECT * FROM novel_chapters WHERE id=?",
-                       (chapter_id,))
+    # 契约闸第 5 条：async 函数内同步 SQLite 直调必须走 run_blocking
+    row = await run_blocking(
+        lambda: db.query_one("SELECT * FROM novel_chapters WHERE id=?",
+                             (chapter_id,)))
     if row is None:
         raise ApiError("NOVEL_CHAPTER_NOT_FOUND", detail={"id": chapter_id})
     if row.get("status") == "generating":

@@ -52,9 +52,13 @@ ROOT_FILE_WHITELIST = {
 # §1 顶层目录白名单
 DIR_WHITELIST = {
     # 源码与工具链（git）
-    "backend", "frontend", "launcher", "scripts", "skills",
+    "src", "frontend", "launcher", "scripts", "skills",
     "license_console", "packaging_console", "build_tools", "tests",
     "docs", "tools",
+    # src 扁平化后 backend/ 仅剩兼容 shim（git 跟踪两个转发文件）
+    "backend",
+    # 09-17 工具缓存钉 E 盘：项目缓存根（pip/HF/triton/playwright）
+    # .cache 在下方工具缓存免审区也有——此处移除避免 B033 重复
     # 09-08 升级机制批1：升级独立执行器（stdlib-only，随包出厂，
     # 方案=docs/升级机制方案-2026-09-08.md）
     "updater",

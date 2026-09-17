@@ -1,7 +1,7 @@
 
 <div align="center">
 
-# 🚀 OmniSpace AI
+# 🚀 OmniSpace AI v2.5.0
 
 **本地优先的全栈 AI 漫剧创作工作站**
 
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10.11-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Python-3.12.10-blue?logo=python" alt="Python">
   <img src="https://img.shields.io/badge/React-19.0-61dafb?logo=react" alt="React">
   <img src="https://img.shields.io/badge/FastAPI-0.141.1-009688?logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/PyTorch-2.13_cu130-ee4c2c?logo=pytorch" alt="PyTorch">
@@ -39,9 +39,9 @@
 | 🎯 **真·全模态** | 文本 / 图像 / 视频 / 语音 / 知识图谱，一站式创作管线 |
 | 🏠 **本地优先** | 默认所有模型推理跑在你自己的 GPU 上，数据不出本机；云端 API 是可选的自带 Key 档位 |
 | ⚡ **显存调度器** | 自研显存协调器（账本/准入/单一编排），16GB 消费级显卡可跑各条创作链路（自动加载/卸载/互斥/让档，持续调优中） |
-| 🩺 **自愈与体检** | 模型未加载自动加载并续跑、一键体检（8 项只读检查）+ 白名单修复、错误必带出路指引 |
-| 🏗️ **工程质量高** | ≈370 个 HTTP 端点（含别名，2026-09-11 静态统计）+ WebSocket 状态通道；pytest **690+ 用例**（GPU 集成显式开关）/ vitest **75 用例** / 活后端 E2E 三层测试体系 |
-| 🧩 **插件式推理引擎** | vLLM / llama.cpp (GGUF) / Transformers 多后端，可热切换、可自动降级 |
+| 🩺 **自愈与体检** | 模型未加载自动加载并续跑、一键体检（8 项只读检查）+ 深度体检（27 项环境级真实探测）、错误必带出路指引 |
+| 🏗️ **工程质量高** | ≈370 个 HTTP 端点（含别名）+ WebSocket 状态通道；pytest **936 用例**（GPU 集成显式开关）/ vitest **87 用例** / 活后端 E2E 三层测试体系 |
+| 🧩 **插件式推理引擎** | vLLM / llama.cpp (GGUF) / Transformers 多后端热切换；**CuteMamen 插件系统**（子进程沙箱隔离、AST 安检、三级信任徽章） |
 | 📚 **丰富文档** | 架构图、API 文档、部署手册、故障排查，新人友好 |
 
 ---
@@ -143,7 +143,15 @@
 
 ### 🔊 语音能力（Voice）
 - TTS 文字转语音（Windows SAPI5 本地语音）+ Whisper 本地语音识别
-- 已内置于漫剧配音链路；AI 声音克隆模型为门控实验功能（默认关闭）
+- 自定义音色上传（wav/mp3/flac/m4a ≤20MB），已内置于漫剧配音链路
+- AI 声音克隆为规划中功能（本地开源栈调研阶段）
+
+### 🧩 插件系统（Plugins）
+- **CuteMamen 包格式**：自包含 tar.gz（manifest + 权重 + 三级记忆），支持纯数据档与含源码档
+- **分级安全模型**：出厂件（进程内·已审查）/ 用户纯数据（进程内）/ 用户含源码（**子进程沙箱**——超时硬杀、内存上限、崩溃不连坐后端）
+- **导入链**：AST 静态安检 + 大白话确认门 + 试装载 + 失败清场
+- **信任徽章**：三档可视化（蓝盾出厂/绿库纯数据/橙盾含源码）
+- **产品接线**：漫剧「快速预览」（video-making 插件运镜→ffmpeg 封装）、Rust 编译错误分类
 
 ---
 
@@ -152,12 +160,12 @@
 | 层级 | 技术 |
 |------|------|
 | **前端** | React 19.0 + TypeScript + Vite 6 + Tailwind CSS v4 + Zustand 5 + React Router 7（Hash 路由，六主题族可切换） |
-| **后端** | FastAPI 0.141.1 + Pydantic v2 + uvicorn（Python 3.10.11 嵌入式 runtime） |
+| **后端** | FastAPI 0.141.1 + Pydantic v2 + uvicorn（Python 3.12.10 嵌入式 runtime） |
 | **AI 推理** | PyTorch 2.13 (cu130) + Diffusers + Transformers；对话引擎 vLLM 0.27.1 子进程（py313）与 llama.cpp GGUF / Transformers 热切换 |
 | **数据库** | SQLite (WAL) + ChromaDB + FTS5 全文检索 |
 | **存储加密** | AES-256-GCM 字段级加密（对话正文/行为日志）+ DPAPI 密钥保护 |
 | **交付形态** | launcher 守护进程 + 系统浏览器 / 内嵌 WebView 壳（设置页可选）；Tauri 已于 2026-08-20 经 [ADR-002](docs/ADR-002-tauri-shell-decision.md) 裁剪 |
-| **测试** | pytest（690+ 用例，GPU 集成显式开关）+ vitest（75 用例）+ 活后端 E2E 流程编排 |
+| **测试** | pytest（936 用例，GPU 集成显式开关）+ vitest（87 用例）+ 活后端 E2E 流程编排 |
 | **代码质量** | ruff + mypy 基线闸（只增不减）+ pre-commit hooks |
 
 ---
@@ -204,7 +212,7 @@ cd E:\OmniSpace
 # 方式一：双击 启动OmniSpace.bat（免黑窗可用桌面快捷方式）
 
 # 方式二：命令行启动（需先配置模型文件，详见部署手册）
-runtime\py310\python.exe launcher\launcher.py
+runtime\py312\python.exe launcher\launcher.py
 ```
 
 浏览器会自动打开 `http://127.0.0.1:8765`
@@ -216,7 +224,7 @@ runtime\py310\python.exe launcher\launcher.py
 
 ```powershell
 # 后端（端口 5800）
-runtime\py310\python.exe -m uvicorn src.main:app --reload
+runtime\py312\python.exe -m uvicorn src.main:app --reload
 
 # 前端（端口 5173，自动代理 API）
 cd frontend
@@ -280,24 +288,29 @@ pnpm dev
 ### 🧩 当前已具备的能力（不代表完成，持续打磨中）
 - [x] 基础架构搭建（FastAPI + React）
 - [x] AI 对话模块（多引擎本地推理 + RAG 混合检索 + 排队与降级明示）
-- [x] AI 漫画模块（参考图一致性 / 角色 LoRA / AI 分格 / 台词气泡 / 整页导出 / 资产库）
+- [x] AI 漫画模块（参考图一致性 / 角色 LoRA / AI 分格 / 台词气泡 / 整页导出 / 资产库 / SAM AI 抠图）
 - [x] 漫剧创作模块（分镜→资产→关键帧→视频链路已可跑通，MiniMax H3 链式生成主力）
 - [x] 写作台（小说/剧本创作，剧本直通漫画与漫剧）
-- [x] 知识学习与 RAG（ChromaDB + FTS5 + RRF 融合，图片知识入库）
-- [x] 显存协调器（账本/准入/编排重构）与功能互斥锁
-- [x] 一键体检与自愈机制（错误出路指引 / 事件日志自动兜底 / 模型自动加载）
-- [x] 可选云端 API 接入（文本 / 图像可用，视频适配器为 DashScope 形态、MiniMax 通道待通，自带 Key）
+- [x] 知识学习与 RAG（ChromaDB + FTS5 + RRF 融合，图片知识入库，学习分析报表）
+- [x] 显存协调器（账本/准入/编排重构）与功能互斥锁（跨线程安全）
+- [x] 一键体检与自愈机制（8 项只读 + 27 项深度体检、错误出路指引、崩溃取证快照、自动备份）
+- [x] 可选云端 API 接入（文本 / 图像可用，自带 Key）
 - [x] 多主题族界面（含治愈系「Dali·风花雪月」六态主题）
+- [x] 模型性能基准与 LoRA 版本管理（BenchmarkCard / 版本对比/回滚）
+- [x] 风格训练控制（暂停/恢复/取消，epoch 检查点挂起不丢进度）
+- [x] 插件系统 P1/P2/P3（导入/启停/删除/子进程沙箱/AST 安检/漫剧快速预览）
 
-> 注：图生 3D（TripoSR）后端管线与 3D 导演台曾实现，后者已于 2026-08-29 裁定整链路剔除；/art 视觉工具端点后端保留、暂无前端入口。上表各项均为"可运行"状态，效果与稳定性仍在迭代。
+> 注：图生 3D（TripoSR）后端管线与 3D 导演台曾实现，后者已于 2026-08-29 裁定整链路剔除；/art 视觉工具端点后端保留。上表各项均为"可运行"状态，效果与稳定性仍在迭代。
 
 ### 🔄 进行中
 - [ ] 联网搜索 v1（免费双通道：无头浏览器自搜 + SearXNG 自建）
+- [ ] 模型下载管理器（/models/download 前端接线）
+- [ ] 项目导入导出与备份恢复 UI
+- [ ] 语音克隆本地实现（开源栈调研中）
 - [ ] 多显卡实机验证
-- [ ] 语音克隆门控开放评估
 
 ### 🔮 规划中
-- [~] 插件系统（第三方模型/功能扩展）——OSP v1 已上线 P1/P2：插件运行时 + 漫剧关键帧快速预览（2026-09-16）；外轨契约与插件管理页推进中
+- [ ] OSP↔内核插件实例合流（单实例双面服务）
 - [ ] 多人协作创作
 - [ ] 社区素材共享平台
 - [ ] Linux / macOS 支持

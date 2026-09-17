@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta
@@ -49,6 +50,16 @@ logger = logging.getLogger("omnispace.event_log")
 
 # 事件日志根目录（按天切分文件）
 EVENTS_DIR = LOGS_DIR / "events"
+# 测试流量隔离（2026-09-17 依赖文档审计批1）：pytest 态下事件 jsonl 默认
+# 分流到独立目录——错误面板（query_events / /logs/errors/summary 聚合）
+# 从此只见真实用户流量，不再被 pytest/TestClient 流量污染（definitely/
+# 三连/pytest/mock 四簇两轮实锤）。与 single_instance._exempt 同款
+# PYTEST_VERSION 判据（进程全生命周期含 fixture 期）；tests/unit conftest
+# 的 B9 只重定向了 logging 文件 handler，本目录是裸 open() 写、此前漏网。
+# 需要观察产品真实落点的测试可置 OMNISPACE_OBSERVE_IN_TESTS=1 逃逸。
+if (os.environ.get("PYTEST_VERSION")
+        and os.environ.get("OMNISPACE_OBSERVE_IN_TESTS") != "1"):
+    EVENTS_DIR = LOGS_DIR / "events-test"
 # 保留天数（用户裁定 2026-08-21：每个日志只保存 30 天）
 RETENTION_DAYS = 30
 # 一次性调试日志残留的过期天数与清扫模式（2026-09-17 拍板：自动过期

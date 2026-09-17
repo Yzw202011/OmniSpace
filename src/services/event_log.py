@@ -51,6 +51,16 @@ logger = logging.getLogger("omnispace.event_log")
 EVENTS_DIR = LOGS_DIR / "events"
 # 保留天数（用户裁定 2026-08-21：每个日志只保存 30 天）
 RETENTION_DAYS = 30
+# 一次性调试日志残留的过期天数与清扫模式（2026-09-17 拍板：自动过期
+# 替代手动清——boot 冒烟/A-B 对比/诊断/补丁脚本等会话产物实测一轮
+# 堆 87 个/11MB；仅 logs/ 一级文件，白名单模式绝不误伤轮转系）
+DEBUG_RESIDUE_DAYS = 14
+_DEBUG_RESIDUE_PATTERNS = (
+    "boot_smoke_*", "boot_test_*", "boot_out*", "boot_err*",
+    "boot_relaunch_*", "_boot_live*", "_e2e*", "c2_e2e*",
+    "ab_*", "diag_*", "_qa_*", "_patch_*", "smoke*", "describe_test*",
+    "fake_searxng*", "test*_out.log", "test*_err.log",
+)
 # 清理巡检间隔（24h；启动时另执行一次）
 _CLEANUP_INTERVAL_S = 24 * 3600
 
@@ -452,6 +462,23 @@ def cleanup_expired(now: datetime | None = None) -> dict[str, Any]:
             except OSError:
                 continue
             if mtime < cutoff:
+                freed += f.stat().st_size
+                f.unlink(missing_ok=True)
+                deleted.append(f.name)
+
+    # 3) 一次性调试日志残留（2026-09-17 拍板=自动过期）：boot 冒烟/A-B
+    # 对比/诊断/补丁脚本等会话产物会反复堆积（实测 87 个/11MB 一轮），
+    # 超 14 天按模式清扫；仅清 logs/ 一级文件（不递归、不碰目录）
+    debug_cutoff = now - timedelta(days=DEBUG_RESIDUE_DAYS)
+    for pattern in _DEBUG_RESIDUE_PATTERNS:
+        for f in LOGS_DIR.glob(pattern):
+            if not f.is_file():
+                continue
+            try:
+                mtime = datetime.fromtimestamp(f.stat().st_mtime)
+            except OSError:
+                continue
+            if mtime < debug_cutoff:
                 freed += f.stat().st_size
                 f.unlink(missing_ok=True)
                 deleted.append(f.name)

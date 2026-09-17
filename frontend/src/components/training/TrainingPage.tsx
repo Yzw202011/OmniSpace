@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BrainCircuit, RefreshCw } from 'lucide-react';
 
+import CharacterTrainPanel from '@/components/training/CharacterTrainPanel';
 import LearnView from '@/components/learn/LearnView';
 import LoRAVersionManager from '@/components/learning/LoRAVersionManager';
 import { StylePage } from '@/components/style/StylePage';
@@ -27,7 +28,7 @@ const QUEUE_DISPLAY_CAP = 8;
 const TABS: { key: Tab; label: string; hint: string }[] = [
   { key: 'knowledge', label: '知识训练', hint: '喂文档，让对话更懂你（QLoRA）' },
   { key: 'style', label: '风格训练', hint: '喂素材，练视频画风 LoRA' },
-  { key: 'character', label: '人物训练', hint: '即将推出（P3）：喂角色图练专属脸蛋' },
+  { key: 'character', label: '人物训练', hint: '喂角色图（主图+四视图）练专属脸蛋 LoRA' },
 ];
 
 /** 状态 → 语义色令牌（芯片左条） */
@@ -175,7 +176,7 @@ export const TrainingPage: React.FC = () => {
         <BrainCircuit size={20} aria-hidden="true" /> 训练中心
       </h1>
       <p className="page-subtitle">
-        所有训练一个屋檐下：知识 · 风格 · 人物（人物为 P3 规划，未实装）
+        所有训练一个屋檐下：知识 · 风格 · 人物
       </p>
 
       <UnifiedQueueCard
@@ -192,15 +193,13 @@ export const TrainingPage: React.FC = () => {
             type="button"
             role="tab"
             aria-selected={tab === t.key}
-            disabled={t.key === 'character'}
+            disabled={false}
             title={t.hint}
             className={`training-tab${tab === t.key ? ' active' : ''}`}
             onClick={() => setTab(t.key)}
           >
             {t.label}
-            {t.key === 'character' && (
-              <span className="training-tab-soon">即将推出</span>
-            )}
+
           </button>
         ))}
       </div>
@@ -213,7 +212,7 @@ export const TrainingPage: React.FC = () => {
           </>
         )}
         {tab === 'style' && <StylePage embedded />}
-        {tab === 'character' && null}
+        {tab === 'character' && <CharacterTrainPanel />}
       </div>
     </div>
   );

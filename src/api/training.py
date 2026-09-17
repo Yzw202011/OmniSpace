@@ -20,13 +20,15 @@ from typing import Any
 from fastapi import APIRouter
 
 from ..middleware.error_handler import ApiError, ok
+from .character_lora import character_lora_tasks
 from .learn import learn_tasks
 from .style import style_tasks
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.training")
 
-_KIND_LABELS: dict[str, str] = {"knowledge": "知识训练", "style": "风格训练"}
+_KIND_LABELS: dict[str, str] = {"knowledge": "知识训练", "style": "风格训练",
+                           "character": "人物训练"}
 
 
 def _norm(item: dict[str, Any], kind: str) -> dict[str, Any]:
@@ -64,7 +66,8 @@ def training_tasks() -> dict[str, Any]:
     """统一训练任务队列（知识 + 风格两源聚合，按创建时间倒序）。"""
     sources: dict[str, Any] = {}
     merged = (_collect("knowledge", learn_tasks, sources)
-              + _collect("style", style_tasks, sources))
+              + _collect("style", style_tasks, sources)
+              + _collect("character", character_lora_tasks, sources))
     # created_at 缺失（None）者沉底，避免 None 比较炸排序
     merged.sort(key=lambda t: (t["created_at"] is None,
                                -(t["created_at"] or 0)))

@@ -27,6 +27,7 @@ def api_client(tmp_path, monkeypatch):
 def test_merged_and_sorted(api_client, monkeypatch):
     from src.api import training as tr
 
+    monkeypatch.setattr(tr, "character_lora_tasks", lambda: _envelope([]))
     monkeypatch.setattr(tr, "learn_tasks", lambda: _envelope([
         {"id": "k1", "status": "running", "progress": 40,
          "created_at": 200.0, "base_model": "qwen3-vl-4b"}]))
@@ -48,13 +49,15 @@ def test_merged_and_sorted(api_client, monkeypatch):
     assert items[0]["progress"] == 0.0 and items[1]["progress"] == 40.0
     assert body["data"]["sources"] == {
         "knowledge": {"ok": True, "count": 1, "error": None},
-        "style": {"ok": True, "count": 2, "error": None}}
+        "style": {"ok": True, "count": 2, "error": None},
+        "character": {"ok": True, "count": 0, "error": None}}
 
 
 def test_fail_soft_one_source_down(api_client, monkeypatch):
     from src.api import training as tr
     from src.middleware.error_handler import ApiError
 
+    monkeypatch.setattr(tr, "character_lora_tasks", lambda: _envelope([]))
     monkeypatch.setattr(tr, "learn_tasks", lambda: _envelope([
         {"id": "k9", "status": "pending", "created_at": 1.0}]))
     def _boom():
@@ -76,6 +79,7 @@ def test_empty_queue(api_client, monkeypatch):
 
     monkeypatch.setattr(tr, "learn_tasks", lambda: _envelope([]))
     monkeypatch.setattr(tr, "style_tasks", lambda: _envelope([]))
+    monkeypatch.setattr(tr, "character_lora_tasks", lambda: _envelope([]))
     r = api_client.get("/api/v1/training/tasks")
     body = r.json()
     assert body["success"] is True

@@ -26,6 +26,7 @@ import {
   Loader2,
   Play,
   Plus,
+  Puzzle,
   Save,
   Sparkles,
   Square,
@@ -40,6 +41,11 @@ import type {
   NovelForeshadow,
   NovelOutlineNode,
 } from '@/services/novelApi';
+import { invokeNovelSkill } from '@/services/novelApi';
+import type { NovelSkillResult } from '@/services/novelApi';
+import { listSkills } from '@/services/pluginApi';
+import type { PluginSkillInfo } from '@/services/pluginApi';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 
 /** 章节状态 → 视觉标记 */
 const STATUS_META: Record<
@@ -456,6 +462,55 @@ const ChapterPanel: React.FC = () => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [dirty, setDirty] = useState(false);
+  // 插件技能（技能插座批2）：清单懒取 + 建议对照（采纳进编辑器脏态，
+  // 用户过目后点「保存修改」落库——两步走，防手滑洗稿）
+  const [novelSkills, setNovelSkills] = useState<PluginSkillInfo[] | null>(null);
+  const [skillOpen, setSkillOpen] = useState(false);
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [suggest, setSuggest] = useState<NovelSkillResult | null>(null);
+  const [skillError, setSkillError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    listSkills('novel')
+      .then((list) => {
+        if (!cancelled) setNovelSkills(list);
+      })
+      .catch((err: unknown) => {
+        reportBgError('novel.skills.load', err);
+        if (!cancelled) setNovelSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const runSkill = async (s: PluginSkillInfo) => {
+    if (!chapter || skillBusy) return;
+    setSkillBusy(true);
+    setSkillError('');
+    try {
+      const result = await invokeNovelSkill(chapter.id, {
+        plugin: s.plugin,
+        skill_id: s.id,
+        text: content,
+      });
+      setSuggest(result);
+      setSkillOpen(false);
+    } catch (err) {
+      setSkillError(getErrorMessage(err, '插件技能执行失败'));
+    } finally {
+      setSkillBusy(false);
+    }
+  };
+
+  /** 采纳建议：填入编辑器并置脏（保存仍走既有「保存修改」按钮） */
+  const adoptSuggestion = () => {
+    if (!suggest) return;
+    setContent(suggest.suggestion);
+    setSuggest(null);
+    setDirty(true);
+  };
 
   // 切换选中章 → 同步编辑器内容
   useEffect(() => {
@@ -555,6 +610,18 @@ const ChapterPanel: React.FC = () => {
             >
               <Save size={12} aria-hidden="true" /> 保存修改
             </button>
+            {novelSkills && novelSkills.length > 0 && chapter.status !== 'generating' && (
+              <button
+                className="btn btn-secondary btn-sm"
+                title="插件技能：全章正文交插件处理，产出建议对照；采纳才写回"
+                onClick={() => {
+                  setSkillOpen((v) => !v);
+                  setSuggest(null);
+                }}
+              >
+                <Puzzle size={12} aria-hidden="true" /> 插件技能
+              </button>
+            )}
             <span className="flex-1" />
             {chapter.summary && (
               <span className="text-xs text-white/40 truncate max-w-[40%]" title={chapter.summary}>
@@ -570,6 +637,58 @@ const ChapterPanel: React.FC = () => {
               <Trash2 size={12} aria-hidden="true" />
             </button>
           </div>
+
+          {/* 插件技能选择（技能插座批2）：无技能=入口不渲染 */}
+          {skillOpen && novelSkills && novelSkills.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded border border-white/15 bg-white/5 p-2">
+              <span className="text-xs text-white/50">选技能处理本章：</span>
+              {novelSkills.map((s) => (
+                <button
+                  key={`${s.plugin}/${s.id}`}
+                  className="btn btn-ghost btn-sm border border-white/15"
+                  disabled={skillBusy}
+                  onClick={() => void runSkill(s)}
+                  title={`${s.description}（${s.trust_label}）`}
+                >
+                  {skillBusy ? <Loader2 size={12} className="animate-spin" aria-hidden="true" /> : <Puzzle size={12} aria-hidden="true" />}
+                  {s.title}
+                </button>
+              ))}
+              <button className="btn btn-ghost btn-sm" onClick={() => setSkillOpen(false)}>
+                收起
+              </button>
+            </div>
+          )}
+          {skillError && <div className="text-xs text-rose-300">{skillError}</div>}
+
+          {/* 建议对照浮层（批2：原文/建议并排，采纳才进编辑器） */}
+          {suggest && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+              <div className="card flex max-h-[85vh] w-full max-w-5xl flex-col gap-3 p-4">
+                <div className="flex items-center gap-2 text-sm">
+                  <Puzzle size={14} aria-hidden="true" />
+                  <span className="font-medium">{suggest.title || suggest.skill_id}</span>
+                  <span className="text-xs text-white/40">
+                    {suggest.plugin} · 原文 {suggest.original_chars} 字 · 相似度 {Math.round(suggest.similarity * 100)}%
+                  </span>
+                  <span className="flex-1" />
+                  <span className="text-xs text-white/40">采纳后进编辑器（未保存），过目再点「保存修改」</span>
+                </div>
+                <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-2">
+                  <textarea className="input w-full resize-none" readOnly value={content} title="原文" />
+                  <textarea className="input w-full resize-none" readOnly value={suggest.suggestion} title="建议" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSuggest(null)}>
+                    放弃
+                  </button>
+                  <button className="btn btn-primary btn-sm" onClick={adoptSuggestion}>
+                    采纳（进编辑器）
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-white/40 text-sm">选一章开始写作。</div>

@@ -233,6 +233,79 @@ def novel_chapter_get(chapter_id: str) -> dict[str, Any]:
     return ok(_chapter_row(row, with_content=True))
 
 
+# ── 插件技能（技能插座批2，方案 docs/插件技能层接线方案-2026-09-17）──
+_NOVEL_SKILL_MAX_CHARS = 30000
+_NOVEL_SKILL_TIMEOUT_S = 120.0
+
+
+@router.post("/novel/chapter/{chapter_id}/skill")
+async def novel_chapter_skill(chapter_id: str,
+                              body: dict = Body(
+                                  default_factory=dict)) -> dict[str, Any]:
+    """写作台插件技能（批2）：读章 → 插件处理 → 建议对照，**不写库**。
+
+    请求: {"plugin": str, "skill_id": str, "text"?: str（缺省=全章正文）}
+    产出由前端做「原文/建议」对照视图；用户点「采纳」才经既有
+    PUT /novel/chapter/{id} 写回，「放弃」零数据变化。
+    数据最小化：只传本章正文，不带大纲/角色/其他章。
+    """
+    db = _db()
+    row = db.query_one("SELECT * FROM novel_chapters WHERE id=?",
+                       (chapter_id,))
+    if row is None:
+        raise ApiError("NOVEL_CHAPTER_NOT_FOUND", detail={"id": chapter_id})
+    if row.get("status") == "generating":
+        raise ApiError(
+            "NOVEL_CHAPTER_BUSY",
+            "本章正在生成中，请等生成结束或先取消再使用插件技能")
+    plugin = str(body.get("plugin") or "").strip()
+    skill_id = str(body.get("skill_id") or "").strip()
+    if not plugin or not skill_id:
+        raise ApiError("PLUGIN_SPEC_MISMATCH", "plugin 与 skill_id 必填",
+                       suggestion="先经 GET /plugins/skills?feature=novel "
+                                  "获取可用技能清单")
+    text = str(body.get("text") or row.get("content") or "")
+    if not text.strip():
+        raise ApiError("NOVEL_CHAPTER_EMPTY",
+                       "本章正文为空，没有可处理的文本",
+                       suggestion="先生成或写入正文后再使用插件技能")
+    text = text[:_NOVEL_SKILL_MAX_CHARS]
+    from ..services.plugin_runtime import get_plugin_runtime
+    from ..services.plugin_runtime.registry import PluginRuntimeError
+    rt = get_plugin_runtime()
+    try:
+        skills = rt.skills_info("novel")
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion) from exc
+    match = next((s for s in skills
+                  if s["plugin"] == plugin and s["id"] == skill_id), None)
+    if match is None:
+        raise ApiError("PLUGIN_SKILL_NOT_FOUND",
+                       f"写作台技能不存在或已停用: {plugin}/{skill_id}",
+                       suggestion="刷新插件技能清单后重试")
+    try:
+        result = await rt.invoke(
+            plugin, {"kind": "skill", "skill_id": skill_id,
+                     "feature": "novel", "text": text},
+            timeout_s=_NOVEL_SKILL_TIMEOUT_S)
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion) from exc
+    data = result.get("data") if isinstance(result, dict) else None
+    data = data if isinstance(data, dict) else {}
+    output = data.get("text") or data.get("output")
+    if not isinstance(output, str) or not output.strip():
+        import json as _json
+        output = _json.dumps(data, ensure_ascii=False)[:8000] or "（无输出）"
+    import difflib
+    similarity = difflib.SequenceMatcher(None, text, output).quick_ratio()
+    return ok({"chapter_id": chapter_id, "plugin": plugin,
+               "skill_id": skill_id, "title": match.get("title", ""),
+               "original_chars": len(text), "suggestion": output,
+               "similarity": round(similarity, 3)})
+
+
 @router.post("/novel/chapter/create")
 def novel_chapter_create(body: dict = Body(...)) -> dict[str, Any]:
     """手工建章（可带细纲，落 outline 节点 + 章行）。"""

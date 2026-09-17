@@ -23,6 +23,7 @@
  * 高频读端点走 schema.ts Zod 校验（parseWith），其余信封已由 api.ts 兜底。
  * ========================================================================== */
 
+import { z } from 'zod';
 import { get, post, put, del } from './api';
 import {
   NovelChapterDetailSchema,
@@ -270,5 +271,32 @@ export function exportBook(pid: string, fmt: 'txt' | 'md') {
   return post<{ filename: string; content: string; chapter_total: number }>(
     '/novel/export',
     { project_id: pid, fmt },
+  );
+}
+
+/* ---------------- 插件技能（技能插座批2，2026-09-17） ---------------- */
+
+
+/** 写作台技能执行结果（POST /novel/chapter/{id}/skill，建议不落库） */
+export const NovelSkillResultSchema = z
+  .object({
+    chapter_id: z.string(),
+    plugin: z.string(),
+    skill_id: z.string(),
+    title: z.string().optional().default(''),
+    original_chars: z.number(),
+    suggestion: z.string(),
+    similarity: z.number(),
+  })
+  .passthrough();
+export type NovelSkillResult = z.infer<typeof NovelSkillResultSchema>;
+
+/** 跑写作台技能：全章正文进插件，产出建议文本（采纳与否由用户决定） */
+export function invokeNovelSkill(
+  chapterId: string,
+  payload: { plugin: string; skill_id: string; text?: string },
+): Promise<NovelSkillResult> {
+  return post<unknown>(`/novel/chapter/${chapterId}/skill`, payload).then(
+    (res) => parseWith(NovelSkillResultSchema, res, '写作台技能执行'),
   );
 }

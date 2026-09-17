@@ -230,11 +230,15 @@ def load_pkg(path: str,
 def native_registry() -> dict[str, type]:
     from .bridge import LoRABridgePlugin
     from .face_bridge import FacePlugin
+    from .llm_provider import LLMProviderPlugin
     from .rust_coding import RustCodingPlugin
     return {
         "cubegpt.face": FacePlugin,
         "lora.adapter": LoRABridgePlugin,
         "rust.coding": RustCodingPlugin,
+        # v0.9.1 跟版（2026-09-17）：外挂 OpenAI 兼容 LLM 插件——本地 vLLM
+        # /Ollama 等端点可作 .CuteMamen 包挂载进内核路由（key 只进记忆不进包）
+        "llm.provider": LLMProviderPlugin,
     }
 
 

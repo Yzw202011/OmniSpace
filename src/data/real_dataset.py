@@ -36,6 +36,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from src.codec.class_token import encode as _token_encode
 from src.codec.spike_codec import SpikeEncoder
 from src.data.rust_coding import (
     LABELS,
@@ -57,6 +58,7 @@ class TrainingSample:
     target_pattern: np.ndarray   # 16维期望输出模式
     metadata: dict
     static_signal: np.ndarray = None  # 10维语法扫描特征 (numeric 通路)
+    token_seq: list[int] | None = None  # 64比特 utf8-mb4 class-token 序列 (v0.11.0 跟版)
 
     def multimodal_input(self) -> dict:
         """双模态输入字典: numeric=语法特征, text=代码原文 (P0 方案)
@@ -127,6 +129,7 @@ class RustCodingTrainingDataset:
                 "code_len": len(code),
             },
             static_signal=self._normalize_static(raw_static),
+            token_seq=_token_encode(code),
         )
 
     def _normalize_static(self, raw: np.ndarray) -> np.ndarray:

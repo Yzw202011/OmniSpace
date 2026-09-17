@@ -36,7 +36,6 @@ import {
   ImportScriptRespSchema,
   ExportStoryboardRespSchema,
   VideoGenerateRespSchema,
-  VideoPreviewRespSchema,
   VideoStatusRespSchema,
   VideoResultRespSchema,
   VoiceListRespSchema,
@@ -45,7 +44,6 @@ import {
   VoicePreviewRespSchema,
   parseWith,
   type ExportStoryboardResp,
-  type VideoPreviewResp,
   type VideoResultResp,
   type VideoGenerateResp,
   type VideoStatusResp,
@@ -297,25 +295,6 @@ export async function generateVideo(
     VideoGenerateRespSchema,
     await post<unknown>('/manga/video/generate', body),
     '视频生成',
-  );
-}
-
-/** 快速预览参数（插件运镜草稿；motion 可选见后端 available_motions） */
-export interface VideoPreviewPayload {
-  row_id: string;
-  motion?: string;
-  duration_s?: number;
-  transition?: string;
-}
-
-/** 单镜快速预览（POST /manga/video/preview，秒级同步返回 mp4 URL） */
-export async function previewVideo(
-  body: VideoPreviewPayload,
-): Promise<VideoPreviewResp> {
-  return parseWith(
-    VideoPreviewRespSchema,
-    await post<unknown>('/manga/video/preview', body),
-    '视频快速预览',
   );
 }
 

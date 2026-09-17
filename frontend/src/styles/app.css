@@ -1291,16 +1291,8 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-gen-btn.done { border-color: var(--color-success); color: var(--color-success); text-decoration: none; }
 .manga-gen-btn.error { border-color: var(--color-error); color: var(--color-error); }
 
-/* 视频列操作组（生成 + 快速预览并排，插件系统 P2 2026-09-16） */
+/* 视频列操作组（生成入口，插件系统 P2 2026-09-16；快速预览已于 2026-09-17 移除） */
 .manga-video-ops { display: inline-flex; align-items: center; gap: 6px; }
-.manga-preview-btn {
-  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  width: 60px; height: 52px; border: 1px dashed var(--color-border-light); border-radius: var(--radius-sm);
-  background: transparent; color: var(--color-text-secondary); font-size: 10px; cursor: pointer;
-  transition: all var(--duration-hover) var(--ease-out);
-}
-.manga-preview-btn:hover:not(:disabled) { border-color: var(--color-warning); color: var(--color-warning); border-style: solid; }
-.manga-preview-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 视频进度（行内） */
 .manga-video-prog {

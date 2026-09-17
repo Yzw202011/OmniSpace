@@ -42,8 +42,7 @@ src/ 把原来的 backend/ 与 DistributedFormer 内核统一收拢到一个
 
 插件包 (自包含 tar.gz: manifest + weights + 三级记忆) 放 ./plugin/,
 RustCoding.CuteMamen 携带主模型迁移的 Rust 开发知识 (502 段真实
-语料, 5 类编译错误分类), VideoMaking.CuteMamen 是零 GPU 轻量视频
-生成内核。插件系统规范见 cutemamen/pkg.py 模块注释。
+语料, 5 类编译错误分类)。插件系统规范见 cutemamen/pkg.py 模块注释。
 
 各子包的 __init__.py 均有本包的架构说明, 逐层阅读即可。
 """

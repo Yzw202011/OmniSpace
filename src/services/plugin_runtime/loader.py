@@ -182,16 +182,6 @@ def _parse_pkg_entry(pkg: CuteMamenPkg, name: str, raw: bytes) -> None:
                 for e in entries if isinstance(e, dict) and "key" in e}
 
 
-def read_image_as_frame(img_path: Path) -> np.ndarray:
-    """读服务端图片为 HxWx3 uint8（值域归一化交给插件 _as_frame）。"""
-    img: Image.Image = Image.open(img_path)
-    img = img.convert("RGB")
-    frame: np.ndarray = np.asarray(img, dtype=np.uint8)
-    if frame.ndim != 3 or frame.shape[2] != 3:
-        raise PluginLoadError(f"图片维度不支持: {img_path} -> {frame.shape}")
-    return frame
-
-
 def frames_to_png_files(frames: list[np.ndarray], out_dir: Path,
                         prefix: str = "frame") -> list[str]:
     """帧序列逐帧 uint8 化落盘 PNG（内存红线：float64 即转即弃）。

@@ -161,13 +161,13 @@ src/
 ├── engines/      资源层：vllm/gpu/vram 等引擎适配
 ├── data/         资源层：数据库/模型 schema
 ├── core/         内核层：distributedformer.py（CubeGPT 脉冲主模型）
-├── cutemamen/    内核层：插件内核（plugin/pkg/video_making 等）
+├── cutemamen/    内核层：插件内核（plugin/pkg/rust_coding 等；video_making 已于 2026-09-17 移除）
 ├── middleware/   HTTP 中间件（error_handler/feature_lock/...）
 ├── config.py     配置（SRC_DIR 基准；config.yaml 同目录）
 └── main.py       FastAPI 入口（uvicorn src.main:app）
 
-plugin/           CuteMamen 插件包（*.CuteMamen tar.gz）——video_making.py
-                  评审副本已删除，单一源码 = src/cutemamen/video_making.py
+plugin/           CuteMamen 插件包（*.CuteMamen tar.gz；2026-09-17 起仅
+                  RustCoding——VideoMaking 随快速预览链移除）
 tests/unit/       单测（含 distributed/ 内核测试族）
 docs/             全部文档（AGENTS.md/CLAUDE.md 例外，居根目录作门卫）
 backend/          兼容 shim（仅 re-export src.main:app，救仓库外冻结进程）

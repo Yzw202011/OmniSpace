@@ -1,18 +1,19 @@
 # plugin/ — CuteMamen 插件包
 
 OmniSpace 插件系统的插件包目录。插件以 `.CuteMamen` 自包含包交付
-（tar.gz：manifest.json + weights/ + memory/ 三级记忆，**包内不含
-.py 源码**）。产品加载方 = `src/services/plugin_runtime/`（OSP v1，
-`plugin/` 为种子包登记目录）；`src/cutemamen/` 内核经 2026-09-16
-接线后亦可装载（拍板项③）。插件源码单一真源 =
-`src/cutemamen/{rust_coding,video_making}.py`（评审副本
-`plugin/video_making.py` 已删除，2026-09-16 勘误——此前本行错误
-指向已不存在的副本）。
+（tar.gz：manifest.json + weights/ + memory/ 三级记忆 + 可选
+source/plugin.py 内嵌源码 v2.1）。产品加载方 =
+`src/services/plugin_runtime/`（OSP v1，`plugin/` 为种子包登记目录）；
+`src/cutemamen/` 内核经 2026-09-16 接线后亦可装载。插件源码单一真源 =
+`src/cutemamen/rust_coding.py`。
 
 | 插件包 | 能力 | 资源需求 |
 | ------ | ---- | -------- |
 | RustCoding.CuteMamen | Rust 编译错误分类（move/borrow/lifetime/type/ok），携带主模型迁移知识（502 段真实语料训练的线性读出层） | 纯 numpy，零 GPU |
-| VideoMaking.CuteMamen | 轻量视频生成内核：关键帧 + 镜头运动曲线 → 帧序列 + 转场 | 纯 numpy，零 GPU |
+
+> 2026-09-17：VideoMaking.CuteMamen（单镜运镜快速预览插件）与
+> `/manga/video/preview` 产品链接用户令整链移除；`plugin/` 目录自此
+> 仅登记 RustCoding。
 
 ## RustCoding.CuteMamen — 主模型 Rust 知识迁移
 
@@ -25,32 +26,8 @@ from src.cutemamen import load_pkg
 
 plugin, manifest = load_pkg("plugin/RustCoding.CuteMamen")
 result = plugin.on_think({"topic": "rust", "data": {"code": "fn f() { let s = String::from(\"x\"); let t = s; let u = s; }"}}, ctx)
-# → {"label": "move", "confidence": 0.97, "source": "main-model-readout", ...}
+# → {"label": "move", "confidence": ..., "source": ...}
 ```
 
-## VideoMaking.CuteMamen — 轻量视频生成内核
-
-漫剧视频生成的**轻量档位**，与 MiniMax H3 / Wan2.2-ti2v-5b 主力链路
-（本地 ComfyUI，需大显存）互补：预览、粗剪、低配机器、快速迭代分镜。
-
-- 10 种镜头运动曲线（static / pan / tilt / zoom / dolly / orbit）
-- 缓动：smoothstep / linear / ease_out
-- 转场：cut / crossfade / dip_to_black
-
-```python
-from src.cutemamen import load_pkg
-
-plugin, manifest = load_pkg("plugin/VideoMaking.CuteMamen")
-result = plugin.on_think({"topic": "video", "data": {
-    "keyframes": [kf1, kf2],   # np.ndarray 列表（漫剧关键帧）
-    "fps": 12,
-    "shots": [
-        {"motion": "zoom_in", "duration_s": 1.5},
-        {"motion": "pan_left", "duration_s": 1.0, "transition": "crossfade"},
-    ],
-}}, ctx)
-frames = result["frames"]
-```
-
-插件源码：`src/cutemamen/rust_coding.py` / `src/cutemamen/video_making.py`。
-插件标准：CuteMamen v2.0.0（内核 ≥ 0.8.7，见 `src/cutemamen/pkg.py`）。
+插件源码：`src/cutemamen/rust_coding.py`。
+插件标准：CuteMamen v2.0.0+（内核 ≥ 0.8.7，见 `src/cutemamen/pkg.py`）。

@@ -60,8 +60,8 @@ def _tar_add(tar: tarfile.TarFile, name: str, data: bytes) -> None:
     tar.addfile(info, io.BytesIO(data))
 
 
-def _make_pkg(name: str, base_model: str = "video.making",
-              route: str = "video", source: str | None = None) -> bytes:
+def _make_pkg(name: str, base_model: str = "rust.coding",
+              route: str = "rust", source: str | None = None) -> bytes:
     """手工构造合法 .CuteMamen 包（空权重+空记忆，可选内嵌源码 v2.1）。"""
     manifest = {
         "standard_version": "2.0.0", "name": name, "base_model": base_model,
@@ -111,7 +111,7 @@ def _post_import(client: TestClient, pkg_bytes: bytes, pkg_name: str,
 
 # ── 纯数据档 ─────────────────────────────────────────────────
 def test_import_data_pkg_known_base(api_client, tmp_path):
-    r = _post_import(api_client, _make_pkg("demo-video"),
+    r = _post_import(api_client, _make_pkg("demo-rust"),
                      "demo.CuteMamen")
     assert r.status_code == 200, r.text
     body = r.json()
@@ -119,14 +119,14 @@ def test_import_data_pkg_known_base(api_client, tmp_path):
     assert body["data"]["trust"] == "user_data"
     assert body["data"]["trust_label"] == "用户·纯数据"
     # 文件与登记表落盘
-    assert (tmp_path / "imported" / "demo-video.CuteMamen").is_file()
+    assert (tmp_path / "imported" / "demo-rust.CuteMamen").is_file()
     reg = json.loads((tmp_path / "user_registry.json").read_text("utf-8"))
-    assert reg[0]["name"] == "demo-video"
+    assert reg[0]["name"] == "demo-rust"
     # 清单端点带用户档标识
     names = {p["name"]: p for p in
              api_client.get("/api/v1/plugins").json()["data"]["plugins"]}
-    assert names["demo-video"]["origin"] == "user"
-    assert names["demo-video"]["trust_label"] == "用户·纯数据"
+    assert names["demo-rust"]["origin"] == "user"
+    assert names["demo-rust"]["trust_label"] == "用户·纯数据"
 
 
 def test_import_unknown_base_requires_source(api_client):
@@ -146,7 +146,7 @@ def test_import_bad_magic_rejected(api_client):
 
 
 def test_import_name_collision_with_factory(api_client):
-    r = _post_import(api_client, _make_pkg("video-making"),
+    r = _post_import(api_client, _make_pkg("rust-coding"),
                      "dup.CuteMamen")
     body = r.json()
     assert body["success"] is False
@@ -234,20 +234,20 @@ def test_disable_blocks_invoke_and_enable_restores(api_client):
 
 
 def test_delete_user_plugin_cleans_files(api_client, tmp_path):
-    _post_import(api_client, _make_pkg("demo-video"), "demo.CuteMamen")
-    assert (tmp_path / "imported" / "demo-video.CuteMamen").is_file()
-    r = api_client.delete("/api/v1/plugins/demo-video")
+    _post_import(api_client, _make_pkg("demo-rust"), "demo.CuteMamen")
+    assert (tmp_path / "imported" / "demo-rust.CuteMamen").is_file()
+    r = api_client.delete("/api/v1/plugins/demo-rust")
     assert r.json()["data"]["deleted"] is True
-    assert not (tmp_path / "imported" / "demo-video.CuteMamen").exists()
+    assert not (tmp_path / "imported" / "demo-rust.CuteMamen").exists()
     reg = json.loads((tmp_path / "user_registry.json").read_text("utf-8"))
     assert reg == []
     names = [p["name"] for p in
              api_client.get("/api/v1/plugins").json()["data"]["plugins"]]
-    assert "demo-video" not in names
+    assert "demo-rust" not in names
 
 
 def test_delete_factory_plugin_protected(api_client):
-    r = api_client.delete("/api/v1/plugins/video-making")
+    r = api_client.delete("/api/v1/plugins/rust-coding")
     body = r.json()
     assert body["success"] is False
     assert body["error"]["code"] == "PLUGIN_FACTORY_PROTECTED"
@@ -255,11 +255,11 @@ def test_delete_factory_plugin_protected(api_client):
 
 def test_user_registry_persists_across_restart(api_client, tmp_path,
                                                monkeypatch):
-    _post_import(api_client, _make_pkg("demo-video"), "demo.CuteMamen")
+    _post_import(api_client, _make_pkg("demo-rust"), "demo.CuteMamen")
     # 模拟重启：丢弃单例，按登记表重建
     monkeypatch.setattr(pr_registry, "_runtime", None)
     fresh = pr_registry.PluginRuntime()
-    assert fresh.is_registered("demo-video")
+    assert fresh.is_registered("demo-rust")
 
 
 # ── v2.1 内嵌源码（单文件交付，2026-09-17 用户拍板简化） ──────
@@ -291,6 +291,6 @@ def test_import_embedded_source_still_scanned(api_client):
 
 def test_import_known_base_with_embedded_source_is_user_source(api_client):
     """已知 base_model 但包内带源码 → 仍按含源码档（源码在场即审查）。"""
-    pkg = _make_pkg("embed-video", base_model="video.making", source=ECHO_SRC)
+    pkg = _make_pkg("embed-rust", base_model="rust.coding", source=ECHO_SRC)
     r = _post_import(api_client, pkg, "embed.CuteMamen", confirm=True)
     assert r.json()["data"]["trust"] == "user_source"

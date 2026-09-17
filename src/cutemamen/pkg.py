@@ -200,7 +200,6 @@ def load_pkg(path: str,
     plugin_cls=None 时按 manifest.base_model 从注册表分发:
         "cubegpt.face"  → FacePlugin (v0.7.0 .dfpkg 模态面 pkg 的通用化)
         "lora.adapter"  → LoRABridgePlugin
-        "video.making"  → VideoMakingPlugin (v0.8.7 轻量视频生成内核)
     .dfpkg 包 (manifest.format == "dfpkg") 自动分流到 FacePlugin。
     """
     # v0.7.0 .dfpkg 特例: 成员结构不同, 走 face_pkg 原生读取
@@ -232,12 +231,10 @@ def native_registry() -> dict[str, type]:
     from .bridge import LoRABridgePlugin
     from .face_bridge import FacePlugin
     from .rust_coding import RustCodingPlugin
-    from .video_making import VideoMakingPlugin
     return {
         "cubegpt.face": FacePlugin,
         "lora.adapter": LoRABridgePlugin,
         "rust.coding": RustCodingPlugin,
-        "video.making": VideoMakingPlugin,
     }
 
 

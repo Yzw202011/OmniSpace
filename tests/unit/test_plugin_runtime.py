@@ -1,9 +1,9 @@
-"""插件运行时测试（OSP v1 P1，2026-09-16）。
+"""插件运行时测试（OSP v1 P1，2026-09-16；2026-09-17 适配 video-making 移除）。
 
 覆盖面：基类生命周期/记忆、加载器（真插件源码+真 CuteMamen 包）、
-登记闸/RAM 闸/软超时 faulty、invoke 全链（真渲染+帧落盘+路径防穿越）、
-API 四端点（TestClient，对齐 test_api_smoke 模式）。
-纯 CPU 小图（32×48），不触 GPU。
+登记闸/RAM 闸/软超时 faulty、invoke 帧落盘+路径防穿越（本地测试插件）、
+API 端点（TestClient，对齐 test_api_smoke 模式）。
+纯 CPU，不触 GPU。
 """
 from __future__ import annotations
 
@@ -24,8 +24,19 @@ from src.services.plugin_runtime import base as pr_base
 from src.services.plugin_runtime import loader as pr_loader
 from src.services.plugin_runtime import registry as pr_registry
 
-REAL_PLUGIN_PY = ROOT_DIR / "src" / "cutemamen" / "video_making.py"
-REAL_PKG = ROOT_DIR / "plugin" / "VideoMaking.CuteMamen"
+REAL_PLUGIN_PY = ROOT_DIR / "src" / "cutemamen" / "rust_coding.py"
+REAL_PKG = ROOT_DIR / "plugin" / "RustCoding.CuteMamen"
+
+# 本地测试插件：返回帧序列（验证运行时 save_dirname 落盘/防穿越通用能力）
+FRAMES_PLUGIN_PY = (
+    "import numpy as np\n"
+    "from omnispace.plugin import ExpertPlugin\n\n\n"
+    "class FramesPlugin(ExpertPlugin):\n"
+    "    CAPABILITY = 'test frames'\n\n"
+    "    def on_think(self, event, ctx):\n"
+    "        return {'frames': [np.zeros((4, 4, 3)) for _ in range(3)],\n"
+    "                'summary': {'n_frames': 3}}\n"
+)
 
 
 # ── 夹具 ─────────────────────────────────────────────────────
@@ -39,12 +50,10 @@ def api_client(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def keyframe_png(tmp_path) -> str:
-    """生成一张小关键帧图（32×48 渐变）。"""
-    img = Image.fromarray(
-        (np.random.rand(32, 48, 3) * 255).astype(np.uint8), mode="RGB")
-    path = tmp_path / "kf.png"
-    img.save(path, format="PNG")
+def frames_plugin_py(tmp_path) -> str:
+    """写入本地帧测试插件源码并返回路径。"""
+    path = tmp_path / "frames_plugin.py"
+    path.write_text(FRAMES_PLUGIN_PY, encoding="utf-8")
     return str(path)
 
 
@@ -121,16 +130,15 @@ def test_load_real_plugin_module_and_classes():
     classes = pr_loader.find_plugin_classes(mod)
     assert classes, "真插件内必须发现 ExpertPlugin 子类"
     instance = classes[0](name="test-plugin")
-    assert instance.route == "video"
-    motions = getattr(instance, "available_motions", None)
-    assert callable(motions) and "zoom_in" in motions()
+    assert instance.route == "rust"
 
 
 def test_read_real_cutemamen_pkg():
     pkg = pr_loader.read_cutemamen_pkg(REAL_PKG)
-    assert pkg.manifest.get("name") == "video-making"
+    assert pkg.manifest.get("name") == "rust-coding"
     assert pkg.manifest.get("format") == "CuteMamen"
-    assert "__stats__" in pkg.weights
+    # 读出层权重随包注入（proto_<类别> 原型向量）
+    assert any(k.startswith("proto_") for k in pkg.weights)
     assert set(pkg.memory) <= {"working", "episodic", "semantic"}
 
 
@@ -152,7 +160,7 @@ def test_frames_to_png_roundtrip(tmp_path):
 # ── 登记闸 / RAM 闸 / 软超时（独立运行时直测） ───────────────
 def test_registry_gate_rejects_unknown(fresh_runtime):
     with pytest.raises(pr_registry.PluginRuntimeError) as ei:
-        asyncio.run(fresh_runtime.invoke("ghost", {"keyframes": []}))
+        asyncio.run(fresh_runtime.invoke("ghost", {}))
     assert ei.value.code == "PLUGIN_NOT_REGISTERED"
 
 
@@ -162,7 +170,7 @@ def test_ram_gate_rejects_low_memory(fresh_runtime, monkeypatch):
         lambda: SimpleNamespace(available=int(0.5 * (1 << 30))))
     with pytest.raises(pr_registry.PluginRuntimeError) as ei:
         asyncio.run(fresh_runtime.invoke(
-            "video-making", {"keyframes": [np.zeros((8, 8, 3))]}))
+            "rust-coding", {"code": "fn main() {}"}))
     assert ei.value.code == "PLUGIN_RAM_LOW"
 
 
@@ -187,35 +195,28 @@ def test_invoke_timeout_marks_faulty(fresh_runtime, tmp_path):
     assert entry.state == pr_registry.STATE_UNLOADED
 
 
-# ── invoke 全链（真渲染 + 落盘 + 防穿越） ────────────────────
-def test_invoke_roundtrip_with_save(fresh_runtime, keyframe_png, tmp_path):
-    frame = pr_loader.read_image_as_frame(Path(keyframe_png))
+# ── invoke 帧落盘 + 防穿越（本地测试插件；运行时通用能力） ───
+def test_invoke_roundtrip_with_save(fresh_runtime, frames_plugin_py):
+    fresh_runtime.register("frames-demo", Path(frames_plugin_py))
     result = asyncio.run(fresh_runtime.invoke(
-        "video-making",
-        {"keyframes": [frame, frame], "fps": 12,
-         "shots": [{"motion": "zoom_in", "duration_s": 0.4},
-                   {"motion": "pan_left", "duration_s": 0.3,
-                    "transition": "crossfade"}]},
-        save_dirname="run1"))
-    assert result["summary"]["n_frames"] >= 4
-    assert len(result["saved_files"]) == result["summary"]["n_frames"]
+        "frames-demo", {}, save_dirname="run1"))
+    assert result["summary"]["n_frames"] == 3
+    assert len(result["saved_files"]) == 3
     out = Path(result["output_dir"])
-    assert out.is_dir() and out.parent.name == "video-making"
+    assert out.is_dir() and out.parent.name == "frames-demo"
     for name in result["saved_files"]:
         assert (out / name).is_file()
     assert "frames" not in result  # 帧本体绝不进返回值（内存红线）
 
 
 def test_invoke_save_dirname_traversal_sanitized(fresh_runtime,
-                                                 keyframe_png):
-    frame = pr_loader.read_image_as_frame(Path(keyframe_png))
+                                                 frames_plugin_py):
+    fresh_runtime.register("frames-demo", Path(frames_plugin_py))
     result = asyncio.run(fresh_runtime.invoke(
-        "video-making",
-        {"keyframes": [frame], "fps": 12, "shots": []},
-        save_dirname="../../evil"))
+        "frames-demo", {}, save_dirname="../../evil"))
     out = Path(result["output_dir"]).resolve()
     assert out.name == "evil" and ".." not in str(out)
-    assert out.parent.name == "video-making"
+    assert out.parent.name == "frames-demo"
     assert out.parent.parent == pr_registry.OUTPUT_ROOT.resolve()
 
 
@@ -226,69 +227,25 @@ def test_api_list_plugins(api_client):
     body = r.json()
     assert body["success"] is True
     names = [p["name"] for p in body["data"]["plugins"]]
-    assert "video-making" in names
-    vm = next(p for p in body["data"]["plugins"]
-              if p["name"] == "video-making")
-    assert vm["trust"] == "repo_curated" and vm["state"] in (
+    assert "rust-coding" in names
+    rc = next(p for p in body["data"]["plugins"]
+              if p["name"] == "rust-coding")
+    assert rc["trust"] == "repo_curated" and rc["state"] in (
         "unloaded", "loaded")
 
 
-def test_api_invoke_full_flow(api_client, keyframe_png):
-    r = api_client.post("/api/v1/plugins/video-making/invoke", json={
-        "keyframes": [keyframe_png, keyframe_png],
-        "fps": 12,
-        "shots": [{"motion": "zoom_in", "duration_s": 0.4},
-                  {"motion": "orbit_left", "duration_s": 0.3,
-                   "transition": "crossfade"}],
-        "save_to": "apitest"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["success"] is True, body
-    data = body["data"]
-    assert data["summary"]["n_frames"] >= 4
-    assert len(data["saved_files"]) == data["summary"]["n_frames"]
-    assert data["plan"][0]["motion"] == "zoom_in"
-
-
-def test_api_invoke_spec_mismatch_shots(api_client, keyframe_png):
-    r = api_client.post("/api/v1/plugins/video-making/invoke", json={
-        "keyframes": [keyframe_png],
-        "shots": [{"motion": "static"}, {"motion": "static"}]})
-    body = r.json()
-    assert body["success"] is False
-    assert body["error"]["code"] == "PLUGIN_SPEC_MISMATCH"
-
-
-def test_api_invoke_spec_mismatch_motion(api_client, keyframe_png):
-    r = api_client.post("/api/v1/plugins/video-making/invoke", json={
-        "keyframes": [keyframe_png],
-        "shots": [{"motion": "no_such_motion"}]})
-    body = r.json()
-    assert body["success"] is False
-    assert body["error"]["code"] == "PLUGIN_SPEC_MISMATCH"
-    assert "zoom_in" in body["error"]["suggestion"]  # 合法清单在出路提示里
-
-
-def test_api_invoke_missing_keyframe_file(api_client, tmp_path):
-    r = api_client.post("/api/v1/plugins/video-making/invoke", json={
-        "keyframes": [str(tmp_path / "nope.png")]})
-    body = r.json()
-    assert body["success"] is False
-    assert body["error"]["code"] == "PLUGIN_KEYFRAME_UNREADABLE"
-
-
-def test_api_invoke_unknown_plugin(api_client, keyframe_png):
+def test_api_invoke_unknown_plugin(api_client):
     r = api_client.post("/api/v1/plugins/ghost/invoke", json={
-        "keyframes": [keyframe_png]})
+        "data": {"code": "fn main() {}"}})
     body = r.json()
     assert body["success"] is False
     assert body["error"]["code"] == "PLUGIN_NOT_REGISTERED"
 
 
 def test_api_load_unload_cycle(api_client):
-    r = api_client.post("/api/v1/plugins/video-making/load")
+    r = api_client.post("/api/v1/plugins/rust-coding/load")
     assert r.json()["data"]["state"] == "loaded"
-    r = api_client.post("/api/v1/plugins/video-making/unload")
+    r = api_client.post("/api/v1/plugins/rust-coding/unload")
     assert r.json()["data"]["state"] == "unloaded"
 
 
@@ -306,8 +263,8 @@ def test_api_rust_invoke_generic_form(api_client):
     assert 0.0 <= body["data"]["data"]["confidence"] <= 1.0
 
 
-def test_api_invoke_requires_keyframes_or_data(api_client):
-    r = api_client.post("/api/v1/plugins/video-making/invoke", json={})
+def test_api_invoke_requires_data(api_client):
+    r = api_client.post("/api/v1/plugins/rust-coding/invoke", json={})
     body = r.json()
     assert body["success"] is False
     assert body["error"]["code"] == "PLUGIN_SPEC_MISMATCH"

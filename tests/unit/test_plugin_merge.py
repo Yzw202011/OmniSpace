@@ -55,7 +55,7 @@ def merged_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             info.size = len(data)
             tar.addfile(info, io.BytesIO(data))
         add("manifest.json", _json.dumps({
-            "name": "merge-test", "base_model": "video.making",
+            "name": "merge-test", "base_model": "rust.coding",
             "plugin_version": "1.0.0", "min_core_version": "0.8.0",
         }).encode())
         add("memory/working.json", b'{"entries": {}}')
@@ -129,8 +129,8 @@ def test_kernel_only_load_falls_back(merged_env) -> None:
             # instance=None → 合流不注入，走原 hot_load（需包存在）
             kernel.registry["merge-test"] = str(pkg_path)
             kernel.route_index["merge-test"] = "merge-test"
-            # 调用 think 触发 hot_load（base_model=video.making 分发到
-            # 原生 video_making 类——不是我们的测试类，但证明原路径活着）
+            # 调用 think 触发 hot_load（base_model=rust.coding 分发到
+            # 原生 rust_coding 类——不是我们的测试类，但证明原路径活着）
             results = kernel.think({"topic": "merge-test", "data": {}})
             # 无论结果如何，关键是没走合流注入（plugins 里的实例不是 OSP 的）
             if "merge-test" in kernel.plugins and results:

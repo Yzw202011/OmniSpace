@@ -45,9 +45,9 @@ describe('listPlugins', () => {
     mockedGet.mockResolvedValue({
       plugins: [
         {
-          name: 'video-making', trust: 'repo_curated',
+          name: 'rust-coding', trust: 'repo_curated',
           trust_label: '出厂·已审查', origin: 'factory',
-          enabled: true, state: 'unloaded', source: 'src/cutemamen/video_making.py',
+          enabled: true, state: 'unloaded', source: 'src/cutemamen/rust_coding.py',
         },
         {
           name: 'demo', trust: 'user_source', trust_label: '用户·含源码',
@@ -87,7 +87,7 @@ describe('importPlugin multipart 组装', () => {
   it(' FormData 字段：package 必带；confirm_source 按需（v2.1 单文件）', async () => {
     mockedUpload.mockResolvedValue({
       name: 'demo', trust: 'user_data', trust_label: '用户·纯数据',
-      base_model: 'video.making', route: 'video', capability: '',
+      base_model: 'rust.coding', route: 'rust', capability: '',
       origin: 'user', imported_at: '2026-09-16T12:00:00',
     });
     const pkg = new File([new Uint8Array([1, 2, 3])], 'demo.CuteMamen');

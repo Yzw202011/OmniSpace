@@ -25,7 +25,6 @@ from .plugin import (
     PluginMemory,
 )
 from .rust_coding import RustCodingPlugin
-from .video_making import VideoMakingPlugin
 
 __all__ = [
     "CURRENT_STANDARD_VERSION",
@@ -44,7 +43,6 @@ __all__ = [
     "lora_from_weight",
     "FacePlugin",
     "RustCodingPlugin",
-    "VideoMakingPlugin",
     "CubeGPTKernel",
     "CuteMamenKernel",
     "WorkingMemory",

@@ -154,20 +154,6 @@ export const VideoGenerateRespSchema = z
   .passthrough();
 export type VideoGenerateResp = z.infer<typeof VideoGenerateRespSchema>;
 
-/** POST /manga/video/preview 响应（插件系统 P2 快速预览，2026-09-16） */
-export const VideoPreviewRespSchema = z
-  .object({
-    row_id: z.string(),
-    /** 媒体回读 URL（/api/v1/manga/media/generated/preview_videos/...） */
-    video_url: z.string(),
-    n_frames: z.number().int().nonnegative(),
-    duration_s: z.number().nullable(),
-    motion: z.string(),
-    size_bytes: z.number().int().nonnegative().nullable(),
-  })
-  .passthrough();
-export type VideoPreviewResp = z.infer<typeof VideoPreviewRespSchema>;
-
 /** GET /manga/video/{taskId}/status 响应 */
 export const VideoStatusRespSchema = z
   .object({

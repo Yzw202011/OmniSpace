@@ -50,20 +50,13 @@ MIN_FREE_RAM_GB = 3.0
 DEFAULT_INVOKE_TIMEOUT_S = 180.0
 
 # 出厂预登记（repo_curated = 已过仓库逐行审查档；PR#2 插件实审在案）
+# 2026-09-17 用户令：video-making（单镜运镜快速预览）整链移除。
 _SEED_PLUGINS: dict[str, dict[str, str]] = {
-    "video-making": {
-        # 单一源码：src/cutemamen/video_making.py（内核直连/宿主 exec 双路导入，
-        # 旧 plugin/video_making.py 评审副本已删除）
-        "source_py": "src/cutemamen/video_making.py",
-        "pkg": "plugin/VideoMaking.CuteMamen",
-        "trust": "repo_curated",
-        "capability": "轻量视频生成内核：关键帧+运镜曲线→帧序列（纯 numpy 零 GPU）",
-    },
     "rust-coding": {
         # Rust 报错分类器（2026-09-16 登记拍板）：342 行逐行审查在案——
         # 纯 numpy 数值分类，无 IO/网络/子进程/eval；审查修复两处：
         # ①on_think 工作记忆写入加宿主形态护栏 ②推理路径相对导入补
-        # 双路垫片（对齐 video_making 惯例）。读出层权重随包注入。
+        # 双路垫片。读出层权重随包注入。
         "source_py": "src/cutemamen/rust_coding.py",
         "pkg": "plugin/RustCoding.CuteMamen",
         "trust": "repo_curated",

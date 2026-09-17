@@ -96,7 +96,7 @@ def _log_event(module: str, event: str, friendly: str, *,
         from .event_log import log_event
         log_event(module, event, friendly, level=level, detail=detail)
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("_log_event: 降级忽略", exc_info=True)
 
 
 # ── 模块级注入点：WebSocket 广播器 ──────────────────────────────
@@ -119,7 +119,7 @@ def _broadcast(event: str, data: dict) -> None:
         fn({"type": "status", "module": "learn",
             "data": {"event": event, **data}})
     except Exception:  # noqa: BLE001 - 推送异常不影响训练
-        pass
+        logger.debug("_broadcast: 降级忽略", exc_info=True)
 
 
 # ── 常量 ────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ def get_train_defaults() -> dict:
                         if k in user:
                             base[k] = user[k]
     except Exception:  # noqa: BLE001 - 读库失败按内置默认
-        pass
+        logger.debug("get_train_defaults: 降级忽略", exc_info=True)
     _train_defaults_cache.update({"value": dict(base), "ts": now})
     return base
 
@@ -446,7 +446,7 @@ class LoRATrainingService:
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
-            pass
+            logger.debug("trigger_finetune: 降级忽略", exc_info=True)
 
         cfg = {**DEFAULT_TRAIN_CONFIG, **get_train_defaults(),
                **(config or {})}
@@ -657,7 +657,7 @@ class LoRATrainingService:
                     self._clear_cancel(task_id)
                     return
             except Exception:  # noqa: BLE001 - 查询失败不阻断训练
-                pass
+                logger.debug("_run_task: 降级忽略", exc_info=True)
         with self._state_lock:
             self._training_task_id = task_id
         self._update_task(task_id, status="training")
@@ -706,7 +706,7 @@ class LoRATrainingService:
                     from .inference.dialog_engine import get_dialog_engine
                     get_dialog_engine().refresh_knowledge_lora()
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("_run_task: 降级忽略", exc_info=True)
             self._update_task(task_id, status="done", progress=1.0)
             _broadcast("training_completed", {
                 "task_id": task_id, "version": version,
@@ -926,7 +926,7 @@ class LoRATrainingService:
                     logger.info("注意力实现: flash_attention_2（探测通过）")
                     return "flash_attention_2"
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("_probe_attn_impl: 降级忽略", exc_info=True)
         # sdpa：PyTorch 内置 scaled_dot_product_attention，
         # 内核自动选 flash/mem_efficient，无需三方包
         logger.info("注意力实现: sdpa（flash_attn 不可用，FA2 跳过）")
@@ -1112,7 +1112,7 @@ class LoRATrainingService:
             try:
                 torch.cuda.empty_cache()
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("_train_impl: 降级忽略", exc_info=True)
             raise TrainingCancelled(f"任务已被用户取消: {task_id}")
 
         # 保存新版本（adapter_model.bin + adapter_config.json）
@@ -1152,7 +1152,7 @@ class LoRATrainingService:
         try:
             torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("_train_impl: 降级忽略", exc_info=True)
 
         logger.info("训练完成: %s (loss=%.4f, data=%d)",
                     version, meta["train_loss"], data["total"])
@@ -1251,7 +1251,7 @@ class LoRATrainingService:
                                  "step": state.global_step,
                                  "max_steps": max(1, state.max_steps)})
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("on_log: 降级忽略", exc_info=True)
         return _Cb()
 
     @staticmethod
@@ -1266,7 +1266,7 @@ class LoRATrainingService:
                 try:
                     torch.cuda.empty_cache()
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("on_epoch_end: 降级忽略", exc_info=True)
         return _Cb()
 
     @staticmethod
@@ -1365,7 +1365,7 @@ class LoRATrainingService:
             try:
                 torch.cuda.empty_cache()
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("evaluate: 降级忽略", exc_info=True)
             logger.info("版本 %s 评估: quality=%.3f ppl=%.2f → %s",
                         version, quality, ppl,
                         "registered" if passed else "pending_review")
@@ -1490,7 +1490,7 @@ class LoRATrainingService:
                 if current and (LORA_DIR / current).is_dir():
                     return current
         except (OSError, json.JSONDecodeError):
-            pass
+            logger.debug("get_current: 降级忽略", exc_info=True)
         registered = [v["version"] for v in self.list_versions()
                       if v.get("status") == "registered"]
         return registered[-1] if registered else ""
@@ -1568,7 +1568,7 @@ class LoRATrainingService:
             if p.is_file():
                 return json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            pass
+            logger.debug("_read_meta: 降级忽略", exc_info=True)
         return None
 
     @staticmethod

@@ -160,7 +160,7 @@ class SegmentEngine:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    pass
+                    logger.debug("load_model: 降级忽略", exc_info=True)
                 return False
 
     def unload_model(self) -> bool:
@@ -177,7 +177,7 @@ class SegmentEngine:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    pass
+                    logger.debug("unload_model: 降级忽略", exc_info=True)
             if had:
                 logger.info("分割模型已卸载，显存已释放")
             return had
@@ -289,7 +289,7 @@ class SegmentEngine:
                 try:
                     torch.cuda.empty_cache()
                 except Exception:
-                    pass
+                    logger.debug("segment: 降级忽略", exc_info=True)
 
     # ── 状态 ──────────────────────────────────────────────────────
 

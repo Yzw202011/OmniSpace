@@ -161,7 +161,7 @@ class H3Engine:
             if isinstance(body, dict):
                 return body
         except Exception:  # noqa: BLE001 - 错误体不是 JSON 时走兜底
-            pass
+            logger.debug("_parse_error_body: 降级忽略", exc_info=True)
         return {"error": {"message": f"HTTP {exc.code} {exc.reason}"}}
 
     def _api(self, method: str, path: str,
@@ -421,7 +421,7 @@ class H3Engine:
                 try:
                     (_COMFY_INPUT / frame_name).unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    logger.debug("_generate_locked: 降级忽略", exc_info=True)
 
     def _poll_history(self, prompt_id: str, *, width: int, height: int,
                       steps: int,
@@ -848,10 +848,10 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
             try:
                 fp.unlink(missing_ok=True)
             except OSError:
-                pass
+                logger.debug("_generate_director_locked: 降级忽略", exc_info=True)
         try:
             import shutil as _sh
             _sh.rmtree(input_dir, ignore_errors=True)
         except OSError:
-            pass
+            logger.debug("_generate_director_locked: 降级忽略", exc_info=True)
         engine.unload()

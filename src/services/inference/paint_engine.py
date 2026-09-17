@@ -153,7 +153,7 @@ def imported_paint_models() -> dict[str, dict]:
             if path.is_relative_to(MODELS_DIR):
                 continue
         except (OSError, ValueError):
-            pass
+            logger.debug("imported_paint_models: 降级忽略", exc_info=True)
         anchor = _imported_paint_family_anchor(str(row["id"]), path)
         if anchor is None:
             continue
@@ -227,9 +227,9 @@ def _cuda_free_gb() -> float:
             try:
                 pynvml.nvmlShutdown()
             except Exception:
-                pass
+                logger.debug("_cuda_free_gb: 降级忽略", exc_info=True)
     except Exception:
-        pass
+        logger.debug("_cuda_free_gb: 降级忽略", exc_info=True)
     torch = _try_import("torch")
     if torch is None or not torch.cuda.is_available():
         return 0.0
@@ -261,15 +261,15 @@ def _release_cuda_memory() -> None:
             try:
                 torch.cuda.ipc_collect()
             except Exception:
-                pass
+                logger.debug("_release_cuda_memory: 降级忽略", exc_info=True)
     except Exception:
-        pass
+        logger.debug("_release_cuda_memory: 降级忽略", exc_info=True)
     try:
         import ctypes
         psapi = ctypes.windll.psapi      # type: ignore[attr-defined]
         psapi.EmptyWorkingSet(ctypes.c_void_p(-1))
     except Exception:  # noqa: BLE001 - 非 Windows/权限不足时跳过
-        pass
+        logger.debug("_release_cuda_memory: 降级忽略", exc_info=True)
 
 
 # ── SDXL 原生分辨率分桶（2026-08-20 图片崩坏修复）─────────────────
@@ -935,7 +935,7 @@ class PaintEngine(BaseEngine):
                     try:
                         pipe = pipe.to("cuda")
                     except Exception:
-                        pass
+                        logger.debug("load_model: 降级忽略", exc_info=True)
                 # meta 空壳防御（2026-08-25 漫剧四视图连环失败实测）：
                 # offload 与 to("cuda") 双失败时管线可能停留在 meta 空壳
                 # （from_pretrained 权重未真正落位，0.9s "加载成功"假象），
@@ -982,13 +982,13 @@ class PaintEngine(BaseEngine):
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                     except Exception:
-                        pass
+                        logger.debug("load_model: 降级忽略", exc_info=True)
                     return False
                 for meth in ("enable_vae_slicing", "enable_vae_tiling"):
                     try:
                         getattr(pipe, meth)()
                     except Exception:
-                        pass
+                        logger.debug("load_model: 降级忽略", exc_info=True)
 
                 self._pipe = pipe
                 self._pipe_i2i = None  # 懒加载
@@ -1012,7 +1012,7 @@ class PaintEngine(BaseEngine):
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    pass
+                    logger.debug("load_model: 降级忽略", exc_info=True)
                 return False
 
     def unload_model(self) -> bool:
@@ -1034,7 +1034,7 @@ class PaintEngine(BaseEngine):
 
                         uninstall_streaming()
                     except Exception:
-                        pass
+                        logger.debug("unload_model: 降级忽略", exc_info=True)
                 self._pipe = None
                 self._pipe_i2i = None
                 self._model_id = ""
@@ -1074,7 +1074,7 @@ class PaintEngine(BaseEngine):
                 except Exception as exc:
                     logger.debug("model_manager.ensure_loaded 调用失败: %s", exc)
         except Exception:
-            pass
+            logger.debug("ensure_loaded: 降级忽略", exc_info=True)
         return self.load_model(model_id)
 
     def _get_img2img_pipe(self) -> Any:
@@ -1148,7 +1148,7 @@ class PaintEngine(BaseEngine):
                 try:  # 失败不留半挂载状态
                     self._pipe.unload_lora_weights()
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("attach_lora: 降级忽略", exc_info=True)
                 return False
             self._lora_name = adapter_name
             self._lora_scale = scale
@@ -1206,7 +1206,7 @@ class PaintEngine(BaseEngine):
                 except PaintCancelledError:
                     raise  # 取消信号不吞：中断推理向上传播
                 except Exception:
-                    pass
+                    logger.debug("_cb: 降级忽略", exc_info=True)
             return callback_kwargs
 
         return _cb
@@ -1360,7 +1360,7 @@ class PaintEngine(BaseEngine):
             try:
                 progress_cb(100, steps)
             except Exception:
-                pass
+                logger.debug("generate: 降级忽略", exc_info=True)
 
         if watch["reduced"]:
             logger.info("文生图降参完成: 原 %d 步实际 %d 步 seed=%d",
@@ -1510,7 +1510,7 @@ class PaintEngine(BaseEngine):
             try:
                 progress_cb(100, steps)
             except Exception:
-                pass
+                logger.debug("_img2img_impl: 降级忽略", exc_info=True)
 
         logger.info("图生图完成: strength=%.2f seed=%d %.0fms%s",
                     strength, seed, self.last_elapsed_ms,
@@ -1676,7 +1676,7 @@ class PaintEngine(BaseEngine):
                             and "distance" in r:
                         continue
                 except (TypeError, ValueError):
-                    pass
+                    logger.debug("optimize_prompt: 降级忽略", exc_info=True)
                 text = (r.get("text") or r.get("content") or "").strip()
                 if text:
                     extras.append(text[:120])

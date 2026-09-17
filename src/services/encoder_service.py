@@ -469,7 +469,7 @@ class EncoderService:
             try:
                 out_path.unlink(missing_ok=True)
             except OSError:
-                pass
+                logger.debug("encode_frames_to_video: 降级忽略", exc_info=True)
 
         raise EncodeError("全部候选编码器失败 → " + " | ".join(errors))
 
@@ -540,13 +540,13 @@ class EncoderService:
                 try:
                     out_path.unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    logger.debug("concat_clips: 降级忽略", exc_info=True)
             raise EncodeError("拼接导出失败 → " + " | ".join(errors))
         finally:
             try:
                 list_file.unlink(missing_ok=True)
             except OSError:
-                pass
+                logger.debug("concat_clips: 降级忽略", exc_info=True)
 
     # ═══════════════════════════════════════════════════════════
     #  内部：子进程执行 / 进度解析 / 输出校验
@@ -610,7 +610,7 @@ class EncoderService:
                 if proc.stderr:
                     proc.stderr.close()
             except Exception:
-                pass
+                logger.debug("_run_ffmpeg: 降级忽略", exc_info=True)
 
         if rc != 0:
             snippet = tail[-1] if tail else f"返回码 {rc}"
@@ -702,7 +702,7 @@ class EncoderService:
         try:
             cb(max(0.0, min(1.0, fraction)), msg)
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("_safe_progress: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════

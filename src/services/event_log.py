@@ -405,7 +405,7 @@ def event_stats(days: int = 7) -> dict[str, Any]:
                 if key in buckets:
                     buckets[key] += 1
         except ValueError:
-            pass
+            logger.debug("event_stats: 降级忽略", exc_info=True)
 
     hourly = [{"hour": k, "count": v} for k, v in buckets.items()]
     # 模块分布按量排序（Top 12）

@@ -78,7 +78,7 @@ def get_resource_quota(context: dict) -> dict:
             if tier_tabs is not None:
                 q["max_tabs"] = min(q["max_tabs"], max(0, int(tier_tabs)))
         except (TypeError, ValueError):
-            pass
+            log.debug("_quota: 降级忽略", exc_info=True)
         q["learning_enabled"] = enabled
         q["reason"] = reason
         return q
@@ -625,7 +625,7 @@ class LearningScheduler:
                           available_gb)
                 return False
         except Exception:  # noqa: BLE001 - psutil 缺失保守放行
-            pass
+            log.debug("_auto_resource_ok: 降级忽略", exc_info=True)
         # 显存闸门（2026-08-23）：Chromium 硬件合成会挤占 WDDM 共享
         # 预算，重模型驻留期（vRAM>88%）拉起爬虫易把推理 GPU 工作集
         # 挤爆（device lost）；auto 让位，手动触发不受限
@@ -639,7 +639,7 @@ class LearningScheduler:
                           used_mb / total_mb * 100)
                 return False
         except Exception:  # noqa: BLE001 - 探测失败保守放行
-            pass
+            log.debug("_auto_resource_ok: 降级忽略", exc_info=True)
         return True
 
     def _default_learn_trigger(self, payload: dict) -> None:
@@ -672,7 +672,7 @@ class LearningScheduler:
                               trigger)
                     return
             except Exception:  # noqa: BLE001 - 预检失败不阻断正常触发
-                pass
+                log.debug("_default_learn_trigger: 降级忽略", exc_info=True)
             agent = get_browser_agent_service()
             if agent.active_session() is not None:
                 return
@@ -825,7 +825,7 @@ class LearningScheduler:
                 last_trained_at = max(last_trained_at,
                                       float(v.get("created_at", 0) or 0))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_maybe_auto_finetune: 降级忽略", exc_info=True)
         if last_trained_at and now - last_trained_at < period:
             return
         # 知识点阈值（config.yaml 可配，缺省 = 规格 §3.3 最少训练样本数）
@@ -835,7 +835,7 @@ class LearningScheduler:
             threshold = int(THRESHOLDS.get("finetune_min_knowledge",
                                            MIN_TRAINING_SAMPLES))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_maybe_auto_finetune: 降级忽略", exc_info=True)
         try:
             from .knowledge_service import get_knowledge_service
             knowledge_count = get_knowledge_service().count()
@@ -897,7 +897,7 @@ class LearningScheduler:
                 },
             })
         except Exception:  # noqa: BLE001 - 通知失败不影响暂停生效
-            pass
+            log.debug("_pause_auto_train: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════

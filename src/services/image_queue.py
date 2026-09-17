@@ -168,7 +168,7 @@ class ImageTaskQueue:
             from .inference.gpu_budget import get_busy_registry
             get_busy_registry().unregister(token)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_cloud_busy_release: 降级忽略", exc_info=True)
 
     def _run_cloud_one(self, task: dict) -> None:
         """云端道单任务包装（Core 的 cloud_run_hook）：busy 登记簿上榜

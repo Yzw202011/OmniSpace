@@ -164,7 +164,7 @@ class PageGuardWatcher:
             try:
                 await task
             except asyncio.CancelledError:
-                pass
+                log.debug("stop: 降级忽略", exc_info=True)
 
     async def _loop(self) -> None:
         from .ws_hub import WsHub
@@ -202,7 +202,7 @@ class PageGuardWatcher:
                       "所有页面已关闭且无进行中任务，应用自动退出"
                       "（可在设置页调整或关闭该行为）", level="info")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_fire: 降级忽略", exc_info=True)
         url = f"http://127.0.0.1:{port}/api/quit"
 
         def _post() -> None:

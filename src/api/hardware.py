@@ -72,9 +72,9 @@ def _detect_gpu_info() -> dict:
             try:
                 pynvml.nvmlShutdown()
             except Exception:
-                pass
+                log.debug("_detect_gpu_info: 降级忽略", exc_info=True)
     except Exception:
-        pass
+        log.debug("_detect_gpu_info: 降级忽略", exc_info=True)
     # 降级：torch.cuda（无驱动级信息）
     try:
         import torch  # type: ignore
@@ -88,7 +88,7 @@ def _detect_gpu_info() -> dict:
                 "driver_version": "",
             }
     except Exception:
-        pass
+        log.debug("_detect_gpu_info: 降级忽略", exc_info=True)
     return {"vendor": "none", "name": "未检测到独立显卡",
             "vram_total_mb": 0, "vram_free_mb": 0,
             "compute_capability": "", "driver_version": ""}
@@ -126,7 +126,7 @@ def _build_hardware_profile() -> dict:
                 if battery is not None and not battery.power_plugged:
                     power = "battery"
             except Exception:
-                pass
+                log.debug("_build_hardware_profile: 降级忽略", exc_info=True)
             gpu_info = _detect_gpu_info()
             return {"gpu": gpu_info, "cpu": cpu_info, "ram": ram_info,
                     "disk": disk_info, "power": power}

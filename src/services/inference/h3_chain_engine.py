@@ -87,7 +87,7 @@ def _split_names(value: Any) -> list[str]:
         if isinstance(parsed, list):
             return [str(v).strip() for v in parsed if str(v).strip()]
     except Exception:  # noqa: BLE001 - 非 JSON 按分隔符切
-        pass
+        log.debug("_split_names: 降级忽略", exc_info=True)
     return [p.strip() for p in re.split(r"[、,，;；\n]+", text) if p.strip()]
 
 
@@ -114,7 +114,7 @@ def _parse_id_list(v: Any) -> list[str]:
             if isinstance(parsed, list):
                 return [str(x).strip() for x in parsed if str(x).strip()]
         except Exception:  # noqa: BLE001 - 非合法 JSON 按逗号分隔兜底
-            pass
+            log.debug("_parse_id_list: 降级忽略", exc_info=True)
         return [s.strip() for s in v.split(",") if s.strip()]
     return []
 
@@ -429,7 +429,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         try:
             engine_ref._api("POST", "/interrupt", timeout=5.0)
         except Exception:  # noqa: BLE001 - 中断失败不影响取消主流程
-            pass
+            log.debug("_cancel_interrupt: 降级忽略", exc_info=True)
 
     if quality not in _QUALITY:
         raise ApiError(60001, f"未知画质档位 {quality}")
@@ -444,7 +444,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
             try:
                 progress_cb(frac, stage)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("report: 降级忽略", exc_info=True)
 
     # 1. 分镜行 + 参考收集(多镜取并集,同项目优先去重;库瞬时锁重试)
     db = get_db_safe()
@@ -524,7 +524,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                 try:
                     body = exc.read().decode("utf-8", "ignore")[:500]
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("run_h3_chain_task: 降级忽略", exc_info=True)
                 raise ApiError(60003,
                                f"链式工作流被拒绝(HTTP {exc.code}): {body}") from exc
             if resp is None:

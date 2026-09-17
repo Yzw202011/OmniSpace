@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import logging
 import os
 import time
 
@@ -36,6 +37,8 @@ from .middleware.error_handler import ApiError, error, ok
 from .middleware.logger import setup_logging
 from .middleware.rate_limit import setup_rate_limit
 from .services.offload import run_blocking
+
+log = logging.getLogger(__name__)
 
 # ── 日志初始化 ──────────────────────────────────────────────────
 log = setup_logging()
@@ -144,7 +147,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "继续使用；关闭方法：不设 OMNISPACE_ALLOW_LAN 环境变量重启。",
                     level="warning")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("lifespan: 降级忽略", exc_info=True)
 
     # T+0s: 数据库
     try:
@@ -572,7 +575,7 @@ def create_app() -> FastAPI:
                 "相关功能可能暂时不可用，其他功能不受影响",
                 level="error", detail=str(exc)[:300])
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("unhandled_handler: 降级忽略", exc_info=True)
         return error("SYSTEM_INTERNAL_ERROR", "内部错误，请查看服务端日志",
                      {"type": type(exc).__name__})
 

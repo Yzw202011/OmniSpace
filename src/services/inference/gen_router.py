@@ -31,11 +31,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 
 from ..event_log import log_event
 from ..vram_policy import QWEN_GGUF_RAM_FLOOR_GB as _QWEN_RAM_FLOOR_GB
+
+log = logging.getLogger(__name__)
 
 # ── 通用质量块（写实向，v22 定稿原文——default/cg3d 包沿用保行为）──
 _QUALITY_REALISTIC = (
@@ -847,5 +850,5 @@ def resolve_route(
             trace_id=trace_id,
         )
     except Exception:  # noqa: BLE001 - 日志失败不影响路由
-        pass
+        log.debug("resolve_route: 降级忽略", exc_info=True)
     return decision

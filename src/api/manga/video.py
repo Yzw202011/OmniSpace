@@ -313,7 +313,7 @@ def _trim_concat_segments(seg_specs: list[tuple],
             try:
                 p.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("_trim_concat_segments: 降级忽略", exc_info=True)
 
 
 def _load_shot_frames(db: Database, row_id: str, layout: str, n: int) -> list | None:
@@ -459,7 +459,7 @@ def _generate_grid_video(req: VideoGenerateRequest, grid: dict,
                     shutil.rmtree(frame_dir, ignore_errors=True)
                 p.unlink(missing_ok=True)
             except OSError:
-                pass
+                log.debug("_generate_grid_video: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -728,7 +728,7 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
                     eta = float(stage.split("eta=")[1].split(";")[0])
                     _video_eta[task_id] = (eta, time.time())
                 except (ValueError, IndexError):
-                    pass
+                    log.debug("progress_cb: 降级忽略", exc_info=True)
             _video_update_task(task_id, {
                 "progress": round(min(0.99, max(0.0, fraction)), 4),
                 "status": "generating",
@@ -868,7 +868,7 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
             try:
                 out_path.unlink()
             except OSError:
-                pass
+                log.debug("_run_local_pipeline: 降级忽略", exc_info=True)
         # 真实管线已产出文件但完成后才检测到取消：探测清理孤本，
         # try/except 包裹不阻塞取消主流程
         if real_file and os.path.exists(real_file):
@@ -918,7 +918,7 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                     d.update("storyboard_rows",
                              {"generation_status": status}, "id=?", (rid,))
                 except Exception:  # noqa: BLE001 - 行状态回写失败不阻断任务终态
-                    pass
+                    log.debug("_set_rows: 降级忽略", exc_info=True)
 
         def cb(frac: float, stage: str = "") -> None:
             _video_update_task(task_id, {"progress": round(float(frac), 3)},
@@ -1234,7 +1234,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         if _w and _h and int(_h) > int(_w):
             _aspect_any = "9:16"
     except ValueError:
-        pass
+        log.debug("video_generate: 降级忽略", exc_info=True)
     if _cloud_ep is not None:
         _first_frame = _load_first_frame_for_row(req.storyboard_row_id)
         if _first_frame is None:
@@ -1258,7 +1258,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             if _w and _h and int(_h) > int(_w):
                 _aspect = "9:16"
         except ValueError:
-            pass
+            log.debug("video_generate: 降级忽略", exc_info=True)
         runner = _make_h3_chain_runner(
             row_ids=[req.storyboard_row_id], seconds=seconds,
             quality=quality, aspect=_aspect, flow=flow)
@@ -1292,7 +1292,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                 style_note = (f"风格版本 {req.style_lora_version} 未注册，"
                               "本次生成未应用风格")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("video_generate: 降级忽略", exc_info=True)
         resp["style_lora_version"] = req.style_lora_version
         resp["style_strength"] = req.style_strength
         resp["style_note"] = style_note

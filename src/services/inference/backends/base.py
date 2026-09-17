@@ -50,7 +50,7 @@ def _precision_pref() -> str:
                 return str((_json.loads(row["value"]) or {}).get(
                     "precision", "bf16")).lower()
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("_precision_pref: 降级忽略", exc_info=True)
     return "bf16"
 
 

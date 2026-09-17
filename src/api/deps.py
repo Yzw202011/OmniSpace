@@ -22,11 +22,14 @@
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..services.offload import run_blocking
+
+log = logging.getLogger(__name__)
 
 #: WS 进度广播的标签前缀（前端任务卡 task_id = engine-{module}-{kind}）
 _BROADCAST_KIND = "engine"
@@ -50,7 +53,7 @@ def _broadcast_progress(module: str, label: str, *,
             },
         })
     except Exception:  # noqa: BLE001 - 进度可见性失败不影响装载
-        pass
+        log.debug("_broadcast_progress: 降级忽略", exc_info=True)
 
 
 def _log_load_event(module: str, label: str, *,
@@ -67,7 +70,7 @@ def _log_load_event(module: str, label: str, *,
                       f"{label}自动加载失败：{err}",
                       level="error", detail=err[:300], duration_ms=duration_ms)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_log_load_event: 降级忽略", exc_info=True)
 
 
 def _last_error(engine: Any) -> str:

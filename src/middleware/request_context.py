@@ -10,11 +10,14 @@
 from __future__ import annotations
 
 import contextvars
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
 
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+log = logging.getLogger(__name__)
 
 _request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "omnispace_request_id", default=""
@@ -39,7 +42,7 @@ def _report_user_activity(scope: Scope) -> None:
         from ..services.learning_scheduler import get_learning_scheduler
         get_learning_scheduler().notify_user_activity()
     except Exception:  # noqa: BLE001 - 活动上报失败不影响请求
-        pass
+        log.debug("_report_user_activity: 降级忽略", exc_info=True)
 
 
 class RequestContextMiddleware:

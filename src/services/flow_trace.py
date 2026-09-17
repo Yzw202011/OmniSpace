@@ -123,7 +123,7 @@ def resource_snapshot() -> dict[str, Any]:
         snap["ram_percent"] = round(vm.percent, 1)
         snap["ram_used_gb"] = round(vm.used / 1024**3, 1)
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("resource_snapshot: 降级忽略", exc_info=True)
     try:
         m = _monitor()
         if m is not None:
@@ -135,7 +135,7 @@ def resource_snapshot() -> dict[str, Any]:
                 "temp_celsius": gpu.get("temp_celsius", 0.0),
             }
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("resource_snapshot: 降级忽略", exc_info=True)
     return snap
 
 
@@ -272,7 +272,7 @@ class _NodeCtx:
                     (now, self.flow.flow_id))
                 db.commit()
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("progress: 降级忽略", exc_info=True)
 
     def output(self, summary: str) -> None:
         """补充输出摘要（with 块内调用；退出时统一落库）。"""

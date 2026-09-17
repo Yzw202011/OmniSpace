@@ -127,5 +127,5 @@ def stop() -> None:
     try:
         HEARTBEAT_FILE.unlink(missing_ok=True)
     except OSError:
-        pass
+        logger.debug("stop: 降级忽略", exc_info=True)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

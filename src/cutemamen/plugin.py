@@ -10,12 +10,15 @@
 不包含任何专家计算 —— 全部思考由本模块的插件实现。
 """
 
+import logging
 import time
 from collections import OrderedDict, deque
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 # 当前实现的 CuteMamen 标准版本 (v1 → v2 迁移见 pkg.decode_manifest / migrate.py)
 CURRENT_STANDARD_VERSION = "2.0.0"
@@ -226,7 +229,7 @@ class PluginContext:
             elif callable(self._emit_fn):
                 self._emit_fn(topic, payload)
         except Exception:  # noqa: BLE001 - 事件失败不连累插件主流程
-            pass
+            log.debug("emit: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════

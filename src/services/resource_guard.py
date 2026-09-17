@@ -144,7 +144,7 @@ class ResourceGuard:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001 - torch 缺失时仅 gc
-            pass
+            log.debug("_soft_collect: 降级忽略", exc_info=True)
 
     # ── RAM 动作线：卸载空闲大模型 + 工作集收缩 ─────────────────
     def _shed_ram(self, percent: float) -> None:
@@ -161,7 +161,7 @@ class ResourceGuard:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_shed_ram: 降级忽略", exc_info=True)
         self._shrink_working_set()
         self._ram_shed_count += 1
         detail = (f"RAM {percent:.0f}% 越线，卸载 {freed} 个空闲模型并回收内存"
@@ -260,7 +260,7 @@ class ResourceGuard:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_shed_commit: 降级忽略", exc_info=True)
         self._shrink_working_set()
         self._commit_shed_count += 1
         detail = (f"提交内存 {ratio*100:.0f}% 越线（WER RADAR 同源口径），"
@@ -300,7 +300,7 @@ class ResourceGuard:
             if active:
                 keep_cats |= _FEATURE_KEEP_CATEGORIES.get(active, set())
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_evict_candidates: 降级忽略", exc_info=True)
 
         # 常驻对话模型保护（2026-08-22 ResourceGuard 误卸事故）：vLLM
         # 对话模型按设计常驻（gpu_memory_utilization=0.85 整卡预算，
@@ -315,7 +315,7 @@ class ResourceGuard:
             if st.get("state") == "ready" and st.get("model"):
                 resident_ids.add(str(st["model"]))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_evict_candidates: 降级忽略", exc_info=True)
 
         loaded = get_model_manager().get_loaded_models()
         candidates = [e for e in loaded
@@ -345,7 +345,7 @@ class ResourceGuard:
                         "_engine": "paint",
                     })
             except Exception:  # noqa: BLE001 - 引擎不可用时无兜底条目
-                pass
+                log.debug("_evict_candidates: 降级忽略", exc_info=True)
         # 低优先级数值小者先卸；同优先级大模型先卸（一次释放更多）
         candidates.sort(key=lambda e: (
             e.get("priority", 0), -float(e.get("vram_gb", 0.0))))
@@ -397,7 +397,7 @@ class ResourceGuard:
             if not ok:
                 log.debug("EmptyWorkingSet 调用失败（权限不足或非 Windows）")
         except Exception:  # noqa: BLE001 - 非 Windows/权限不足时跳过
-            pass
+            log.debug("_shrink_working_set: 降级忽略", exc_info=True)
 
     # ── 状态与广播 ──────────────────────────────────────────────
     def _record_event(self, event: str, detail: str) -> None:
@@ -489,7 +489,7 @@ def _log_event(event: str, friendly: str, level: str = "info") -> None:
         from .event_log import log_event
         log_event("system", event, friendly, level=level)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_log_event: 降级忽略", exc_info=True)
 
 
 # ── 模块级单例 ──────────────────────────────────────────────────

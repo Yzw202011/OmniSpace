@@ -137,7 +137,7 @@ def discover_voice_models() -> dict[str, dict]:
                     elif mt == "bark":
                         kind = "tts_bark"
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("_probe: 降级忽略", exc_info=True)
         if not kind:
             return
         ready, reason = True, ""
@@ -177,9 +177,9 @@ def discover_voice_models() -> dict[str, dict]:
                         if grand.is_dir():
                             _probe(grand)
                 except OSError:
-                    pass
+                    logger.debug("discover_voice_models: 降级忽略", exc_info=True)
     except OSError:
-        pass
+        logger.debug("discover_voice_models: 降级忽略", exc_info=True)
     return found
 
 
@@ -585,7 +585,7 @@ class VoiceEngine(BaseEngine):
                 try:
                     os.unlink(wav_path)
                 except OSError:
-                    pass
+                    logger.debug("transcribe: 降级忽略", exc_info=True)
 
     def _ensure_wav16k(self, audio_path: str) -> tuple[str, bool]:
         """确保得到 16kHz 单声道 WAV；非 WAV 经 ffmpeg 转码。
@@ -600,7 +600,7 @@ class VoiceEngine(BaseEngine):
             from ..encoder_service import get_encoder_service
             ffmpeg = get_encoder_service()._ffmpeg or ""
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("_ensure_wav16k: 降级忽略", exc_info=True)
         if not ffmpeg:
             raise ApiError(code=71004,
                            message="非 WAV 音频需要 FFmpeg 转码，当前环境 FFmpeg 不可用",
@@ -793,7 +793,7 @@ class VoiceEngine(BaseEngine):
                 try:
                     os.unlink(audio_path)
                 except OSError:
-                    pass
+                    logger.debug("_mock_synthesize: 降级忽略", exc_info=True)
 
         # 二级回退：静音占位 WAV（基于文本长度估算时长）
         audio_path = str(audio_dir / f"{uuid.uuid4()}_mock.wav")
@@ -840,11 +840,11 @@ class VoiceEngine(BaseEngine):
             try:
                 stream.Close()
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("_synthesize_sapi5: 降级忽略", exc_info=True)
             try:
                 speaker.AudioOutputStream = None
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("_synthesize_sapi5: 降级忽略", exc_info=True)
         if not os.path.isfile(output_path) or os.path.getsize(output_path) <= 44:
             raise RuntimeError("SAPI5 输出文件无效")
         return output_path

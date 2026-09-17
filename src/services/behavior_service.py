@@ -86,7 +86,7 @@ def _tokenize(text: str) -> list[str]:
                     if w.strip() and w.strip() not in _STOPWORDS
                     and len(w.strip()) > 1]
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_tokenize: 降级忽略", exc_info=True)
     return [w for w in _WORD_RE.findall(text.lower())
             if w not in _STOPWORDS and len(w) > 1]
 
@@ -245,7 +245,7 @@ class BehaviorLearningService:
             try:
                 total += self._db.count("behavior_logs")
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("count: 降级忽略", exc_info=True)
         with self._pending_lock:
             total += self._pending
         return total
@@ -448,7 +448,7 @@ class BehaviorLearningService:
         try:
             pairs_count = len(self.build_training_pairs())
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("stats: 降级忽略", exc_info=True)
         remaining = (max(0, FINETUNE_MIN_PAIRS - pairs_count)
                      if pairs_count is not None else None)
         # 下次微调时间估算：按最近 100 条事件的平均速率外推
@@ -515,7 +515,7 @@ class BehaviorLearningService:
         try:
             self._flush_once()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("shutdown: 降级忽略", exc_info=True)
 
 
 def e_context_of(events: list[dict], content: str) -> str:

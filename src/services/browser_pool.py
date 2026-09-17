@@ -245,7 +245,7 @@ class BrowserPool:
             try:
                 inst.shutdown()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("shutdown: 降级忽略", exc_info=True)
         log.info("浏览器池已关闭")
 
 

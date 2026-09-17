@@ -48,7 +48,7 @@ try:
     from sentence_transformers import SentenceTransformer  # type: ignore
     _EMBED_AVAILABLE = True
 except Exception:  # pragma: no cover - 降级路径
-    pass
+    log.debug("<module>: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -202,7 +202,7 @@ class VectorDB:
                 if torch.cuda.is_available():
                     device = "cuda"
             except Exception:  # noqa: BLE001 - torch 缺失时用 CPU
-                pass
+                log.debug("_get_embed_model: 降级忽略", exc_info=True)
             try:
                 self._embed_model = SentenceTransformer(
                     str(EMBED_MODEL_PATH), device=device
@@ -301,7 +301,7 @@ class VectorDB:
                 vecs = model.encode(texts, normalize_embeddings=True)
                 return [v.tolist() for v in vecs]
             except Exception:
-                pass  # 批量编码失败，回退逐条
+                log.debug("_embed_batch: 降级忽略", exc_info=True)
         return [self.embed(t) for t in texts]
 
     def add(self, documents: list[str], ids: list[str] | None = None,
@@ -399,7 +399,7 @@ class VectorDB:
             try:
                 return self._collection.count()
             except Exception:
-                pass
+                log.debug("count: 降级忽略", exc_info=True)
         return self._fallback.count()
 
     @property
@@ -435,7 +435,7 @@ class VectorDB:
                         except OSError:
                             continue
         except Exception:  # noqa: BLE001 - 统计失败不影响主流程
-            pass
+            log.debug("disk_usage_bytes: 降级忽略", exc_info=True)
         return total
 
 

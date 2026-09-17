@@ -282,7 +282,7 @@ def _task_create(task_type: str, params: dict) -> dict:
                           f" {task['model']} 优先级{task['priority']}",
             detail=f"task_id={task['task_id']}")
     except Exception:  # noqa: BLE001 - 追踪失败不影响业务
-        pass
+        log.debug("_task_create: 降级忽略", exc_info=True)
     with _tasks_lock:
         if len(_tasks) >= _TASK_KEEP:
             oldest = sorted(_tasks.values(),
@@ -312,7 +312,7 @@ def _end_flow(task_id: str, status: str, *,
             flow.end(status, error_code=error_code,
                      error_detail=error_detail)
         except Exception:  # noqa: BLE001 - 追踪失败不影响业务
-            pass
+            log.debug("_end_flow: 降级忽略", exc_info=True)
 
 
 def _task_get(task_id: str) -> dict | None:
@@ -950,7 +950,7 @@ def _submit_precheck() -> None:
     except ApiError:
         raise
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_submit_precheck: 降级忽略", exc_info=True)
 
 
 def _make_paint_queue_runner(

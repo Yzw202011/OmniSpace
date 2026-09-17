@@ -1564,7 +1564,7 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                             engine.detach_lora()
                             log.info("D-LoRA 已卸载（本镜无角色 LoRA）")
                     except Exception:  # noqa: BLE001 - 状态探测失败不阻断
-                        pass
+                        log.debug("_gen_one: 降级忽略", exc_info=True)
                 result = engine.img2img(
                     params, img_refs,
                     progress_cb=step_cb)
@@ -2135,7 +2135,7 @@ async def _wait_vllm_healthy(timeout_s: float = _CONSISTENCY_WAIT_S) -> bool:
                 ignited = True
                 svc.start_async()  # 幂等：已在运行/启动中则复用
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_wait_vllm_healthy: 降级忽略", exc_info=True)
         await asyncio.sleep(5.0)
     return False
 

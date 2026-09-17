@@ -299,7 +299,7 @@ class VramManager:
                     try:
                         u = max(u, _torch.cuda.memory_allocated(idx) / (1024 * 1024))
                     except Exception:  # noqa: BLE001 - 单卡探测失败按记账值
-                        pass
+                        logger.debug("get_usage: 降级忽略", exc_info=True)
                 devices.append({
                     "index": idx,
                     "total_mb": t,

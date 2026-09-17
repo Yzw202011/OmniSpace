@@ -147,5 +147,5 @@ def resolve_feature_domain(feature: str) -> str:
             if is_remote_dialog_enabled():
                 return REMOTE_DOMAIN
         except Exception:  # noqa: BLE001 - 探测失败按本地域
-            pass
+            logger.debug("resolve_feature_domain: 降级忽略", exc_info=True)
     return str(resolve_feature_device(feature))

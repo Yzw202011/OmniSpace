@@ -326,7 +326,7 @@ class TaskDispatcher:
             if holder:
                 keep.add(holder)
         except Exception:  # noqa: BLE001 - 锁查询失败不阻断卸载
-            pass
+            logger.debug("force_unload: 降级忽略", exc_info=True)
         keep_cats = {_FEATURE_TO_CATEGORY.get(f, f) for f in keep}
         mgr = self._get_model_manager()
         if mgr is not None:

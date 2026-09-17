@@ -133,7 +133,7 @@ def _load_or_create_key() -> tuple[bytes, str]:
             try:
                 os.chmod(_KEY_FILE, 0o600)
             except OSError:
-                pass
+                log.debug("_load_or_create_key: 降级忽略", exc_info=True)
             log.info("字段加密密钥已生成（DPAPI 保护）: %s", _KEY_FILE)
             return key, "dpapi"
         except Exception as exc:  # noqa: BLE001
@@ -179,7 +179,7 @@ def _report_encrypt_failure(detail: str) -> None:
                   "重启应用通常可恢复；如反复出现请联系售后。",
                   level="warning", detail=detail[:200])
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_report_encrypt_failure: 降级忽略", exc_info=True)
 
 
 def encrypt_text(plain: str | None) -> str | None:
@@ -210,7 +210,7 @@ def encrypt_text(plain: str | None) -> str | None:
                           "重启应用通常可恢复；如反复出现请联系售后。",
                           level="warning", detail=str(exc)[:200])
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("encrypt_text: 降级忽略", exc_info=True)
         log.warning("字段加密失败（明文落库）: %s", exc)
         return plain
 

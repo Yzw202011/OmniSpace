@@ -200,7 +200,7 @@ def _dir_load_bytes_fp16(model_dir: Path) -> int:
             if dtypes and all(d in ("F32", "F64") for d in dtypes):
                 return size // 2
         except Exception:  # noqa: BLE001 - 头部损坏按原字节保守计
-            pass
+            logger.debug("_file_bytes: 降级忽略", exc_info=True)
         return size
 
     total = 0
@@ -214,7 +214,7 @@ def _dir_load_bytes_fp16(model_dir: Path) -> int:
                 continue
             total += _file_bytes(f)
     except OSError:
-        pass
+        logger.debug("_dir_load_bytes_fp16: 降级忽略", exc_info=True)
     return total
 
 
@@ -363,9 +363,9 @@ def discover_video_models() -> dict[str, dict]:
                         if grand.is_dir():
                             _probe(grand)
                 except OSError:
-                    pass
+                    logger.debug("discover_video_models: 降级忽略", exc_info=True)
     except OSError:
-        pass
+        logger.debug("discover_video_models: 降级忽略", exc_info=True)
     return found
 
 
@@ -392,7 +392,7 @@ def _release_gpu_cache() -> None:
             if _torch.cuda.is_available():
                 _torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("_release_gpu_cache: 降级忽略", exc_info=True)
 
 
 def _evict_idle_models_for_video() -> float:
@@ -418,7 +418,7 @@ def _evict_idle_models_for_video() -> float:
             if active:
                 keep_cats |= _FEATURE_KEEP_CATEGORIES.get(active, set())
         except Exception:  # noqa: BLE001 - 锁探测失败按基础保留集
-            pass
+            logger.debug("_evict_idle_models_for_video: 降级忽略", exc_info=True)
         mgr = get_model_manager()
         for entry in mgr.get_loaded_models():
             if entry.get("category") in keep_cats:
@@ -889,7 +889,7 @@ def render_kenburns_frames(
             try:
                 progress_cb((i + 1) / total)
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("render_kenburns_frames: 降级忽略", exc_info=True)
     return total
 
 
@@ -1043,7 +1043,7 @@ class VideoEngine(BaseEngine):
                 if hint_cls is not None:
                     pipeline_classes.append((hint, hint_cls))
         except Exception:  # noqa: BLE001 - 提示读取失败走候选链
-            pass
+            logger.debug("load_model: 降级忽略", exc_info=True)
         for cls_name in (*_VIDEO_PIPELINE_CLASSES.keys(), "DiffusionPipeline"):
             cls = getattr(_diffusers, cls_name, None)
             if cls is not None and all(n != cls_name for n, _ in pipeline_classes):
@@ -1060,7 +1060,7 @@ class VideoEngine(BaseEngine):
                     from .accelerator import get_accelerator
                     self._pipeline = get_accelerator().enable_for_pipeline(self._pipeline)
                 except Exception:
-                    pass
+                    logger.debug("load_model: 降级忽略", exc_info=True)
 
                 self._model = model
                 self._model_name = model_path
@@ -1193,7 +1193,7 @@ class VideoEngine(BaseEngine):
                     get_vram_manager().track_alloc(
                         ANIMATELCM_MODEL_LABEL, required_gb * 1024.0)
                 except Exception:  # noqa: BLE001 - 记账失败不阻断加载
-                    pass
+                    logger.debug("load_animatelcm: 降级忽略", exc_info=True)
             logger.info("AnimateLCM 管线加载成功（SD1.5 底座: %s）",
                         status["sd15_path"])
             return True
@@ -1246,7 +1246,7 @@ class VideoEngine(BaseEngine):
             from ...engines.vram_manager import get_vram_manager
             get_vram_manager().track_free(ANIMATELCM_MODEL_LABEL)
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("unload_model: 降级忽略", exc_info=True)
         # 真实管线引用已置 None：对称清理其显存记账与 ModelManager 登记
         self._release_pipeline_bookkeeping()
         # 允许卸载后重新探测 AnimateLCM 分支（与 ModelManager 复位
@@ -1267,7 +1267,7 @@ class VideoEngine(BaseEngine):
                 from ...engines.vram_manager import get_vram_manager
                 get_vram_manager().track_free(self._pipeline_track_label)
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("_release_pipeline_bookkeeping: 降级忽略", exc_info=True)
             self._pipeline_track_label = ""
         if self._pipeline_registered_id:
             try:
@@ -1275,7 +1275,7 @@ class VideoEngine(BaseEngine):
                 get_model_manager().unregister_load(
                     self._pipeline_registered_id)
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("_release_pipeline_bookkeeping: 降级忽略", exc_info=True)
             self._pipeline_registered_id = ""
 
     def _ensure_video_loaded(self, prefer_i2v: bool = False) -> None:
@@ -1522,7 +1522,7 @@ class VideoEngine(BaseEngine):
                     from .accelerator import get_accelerator
                     pipe = get_accelerator().enable_for_pipeline(pipe)
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 # split 布局自愈（2026-08-22 审查防御）：accelerator 在
                 # xformers/SDP 均不可用时会回退 enable_model_cpu_offload，
                 # 把已上卡的 DiT+VAE 搬回 CPU 摧毁常驻编排——检测组件
@@ -1544,7 +1544,7 @@ class VideoEngine(BaseEngine):
                                     "split 布局自愈: %s 被移回 CPU，"
                                     "已搬回 cuda", _cn)
                         except Exception:  # noqa: BLE001 - device 探测失败跳过
-                            pass
+                            logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 self._pipeline = pipe
                 self._model_name = info["path"]
                 self._loaded = True
@@ -1557,7 +1557,7 @@ class VideoEngine(BaseEngine):
                 try:
                     self._model = VideoModel(name)
                 except ValueError:
-                    pass
+                    logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 # 显存记账 + ModelManager 加载台账登记（审计修复：自动
                 # 装载链此前绕过 ensure_loaded，loaded_models 与 GPU 实际
                 # 占用脱节）。上卡才占显存；CPU 装载登记 vram_gb=0。
@@ -1587,14 +1587,14 @@ class VideoEngine(BaseEngine):
                             label, reg_vram_gb * 1024.0)
                         self._pipeline_track_label = label
                     except Exception:  # noqa: BLE001 - 记账失败不阻断加载
-                        pass
+                        logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 try:
                     from ..model_manager import get_model_manager
                     if get_model_manager().register_external_load(
                             "video", name, info["path"], reg_vram_gb):
                         self._pipeline_registered_id = name
                 except Exception:  # noqa: BLE001 - 登记失败不阻断加载
-                    pass
+                    logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 logger.info("视频模型自动装载成功: %s (%s)", name,
                             info["class_name"])
                 return
@@ -1637,7 +1637,7 @@ class VideoEngine(BaseEngine):
             if h3_available():
                 return "pipeline"
         except Exception:  # noqa: BLE001 - 探测失败走 diffusers 判定
-            pass
+            logger.debug("prepare_generation: 降级忽略", exc_info=True)
         if light:
             # 轻探测（2026-08-22 乒乓装载修复）：models/ 存在可装载模型
             # 即报 pipeline，实际装载交由 generate() 内部完成——时序为
@@ -1648,7 +1648,7 @@ class VideoEngine(BaseEngine):
                        for i in discover_video_models().values()):
                     return "pipeline"
             except Exception:  # noqa: BLE001 - 探测失败走降级判定
-                pass
+                logger.debug("prepare_generation: 降级忽略", exc_info=True)
         else:
             self._ensure_video_loaded()
             if self.is_ready:
@@ -1657,7 +1657,7 @@ class VideoEngine(BaseEngine):
             try:
                 self.load_animatelcm()
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("prepare_generation: 降级忽略", exc_info=True)
         if self._animatelcm_pipe is not None:
             return "animatelcm"
         return "kenburns"
@@ -1760,7 +1760,7 @@ class VideoEngine(BaseEngine):
                         and str(info.get("class_name", "")).startswith("Wan"):
                     return True
         except Exception:  # noqa: BLE001 - 探测失败按需翻译处理
-            pass
+            logger.debug("_i2v_native_zh: 降级忽略", exc_info=True)
         return False
 
     # Qwen3-VL 视频提示词增强系统指令（2026-08-22 语义贴合修复）：
@@ -2318,7 +2318,7 @@ class VideoEngine(BaseEngine):
                         k: v for k, v in generation_kwargs.items()
                         if k in sig.parameters}
             except Exception:  # noqa: BLE001 - 内省失败按原参数尝试
-                pass
+                logger.debug("generate: 降级忽略", exc_info=True)
 
             # 外部 T5 编码（2026-08-22 团队审查重构）：
             # _split_te_needed：管线无 T5（DiT+VAE 常驻）。编码窗口编排
@@ -2403,7 +2403,7 @@ class VideoEngine(BaseEngine):
                         try:
                             del self._pipeline.text_encoder
                         except AttributeError:
-                            pass
+                            logger.debug("generate: 降级忽略", exc_info=True)
                         del _te_tmp
                         _release_gpu_cache()
                     if self._split_te_needed:
@@ -2480,7 +2480,7 @@ class VideoEngine(BaseEngine):
                         frames_list[0].save(video_path.replace(".mp4", ".png"))
                         video_path = video_path.replace(".mp4", ".png")
                     except Exception:
-                        pass
+                        logger.debug("generate: 降级忽略", exc_info=True)
             # 落盘校验：编码链全失败时不返回幽灵路径（诚实报错）
             if not Path(video_path).is_file():
                 raise RuntimeError(
@@ -2591,7 +2591,7 @@ class VideoEngine(BaseEngine):
                 from ...engines.vram_manager import get_vram_manager
                 get_vram_manager().track_free(ANIMATELCM_MODEL_LABEL)
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("_generate_animatelcm: 降级忽略", exc_info=True)
             _release_gpu_cache()
             return self._mock_generate(request, model, gen_id, start_time,
                                        progress_cb=progress_cb)

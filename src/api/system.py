@@ -156,7 +156,7 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
         from ..services.inference.backends.remote_backend import invalidate_remote_config_cache
         invalidate_remote_config_cache()
     except Exception:  # noqa: BLE001 - 缓存清理失败下个 TTL 自愈
-        pass
+        log.debug("system_settings_update: 降级忽略", exc_info=True)
     return ok(_settings, message="设置已更新")
 
 
@@ -470,7 +470,7 @@ def _find_model_dirs(*keywords: str) -> list[str]:
             except OSError:
                 continue
     except OSError:
-        pass
+        log.debug("_find_model_dirs: 降级忽略", exc_info=True)
     return hits
 
 
@@ -651,7 +651,7 @@ def system_health_check() -> dict[str, Any]:
                   level="info" if not warn else "warning",
                   detail=json.dumps(report["counts"], ensure_ascii=False))
     except Exception:  # noqa: BLE001 - 落档失败不影响体检
-        pass
+        log.debug("system_health_check: 降级忽略", exc_info=True)
     return ok(report)
 
 
@@ -673,7 +673,7 @@ async def system_health_repair(
                   f"一键修复（{action}）：{result.get('friendly', '')}",
                   level="success")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("system_health_repair: 降级忽略", exc_info=True)
     return ok(result)
 
 
@@ -1053,7 +1053,7 @@ def _restore_project_records(db: Database, project: dict, sb_pack: dict,
         try:
             db.delete("projects", "id=?", (project_id,))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_restore_project_records: 降级忽略", exc_info=True)
         raise ApiError("PROJECT_FILE_CORRUPTED",
                        "项目归档恢复失败，已回滚",
                        detail={"error": str(exc)}) from exc
@@ -1456,7 +1456,7 @@ def _write_full_export(dest: Path) -> str:
                 tmp.unlink()
                 tmp.parent.rmdir()
             except OSError:
-                pass
+                log.debug("_write_full_export: 降级忽略", exc_info=True)
         # 设置快照
         snapshot = json.dumps(_load_persisted_settings(),
                               ensure_ascii=False, indent=2).encode("utf-8")
@@ -1716,7 +1716,7 @@ def _dir_size(path: Path) -> int:
             except OSError:
                 continue
     except OSError:
-        pass
+        log.debug("_dir_size: 降级忽略", exc_info=True)
     return total
 
 
@@ -1755,7 +1755,7 @@ def system_disk(top: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
             except OSError:
                 continue
     except OSError:
-        pass
+        log.debug("system_disk: 降级忽略", exc_info=True)
     top_files.sort(key=lambda x: x[0], reverse=True)
     top_list = [{"path": str(f.relative_to(DATA_DIR)),
                  "size_mb": round(s / (1024 ** 2), 1)}

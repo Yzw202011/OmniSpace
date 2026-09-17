@@ -1208,7 +1208,7 @@ def _storyboard_export_visual(project_id: str, rows: list[dict],
                 images.append(Image.open(img_path).convert("RGB"))
                 continue
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_storyboard_export_visual: 降级忽略", exc_info=True)
         images.append(_placeholder_image(r))
 
     if fmt == "png-seq":

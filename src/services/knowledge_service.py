@@ -848,7 +848,7 @@ class KnowledgeProcessingService:
                 get_fts_store().add(kid, knowledge.content,
                                     knowledge.title, knowledge.topic)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("vectorize_and_store: 降级忽略", exc_info=True)
             # TASK-055: 抽取实体关系三元组 → 图谱存储（离线规则路径）
             try:
                 triples = extract_triples_rule(knowledge.content,
@@ -857,7 +857,7 @@ class KnowledgeProcessingService:
                 if triples:
                     get_graph_store().add_triples(kid, triples)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("vectorize_and_store: 降级忽略", exc_info=True)
         return kid
 
     def _meta_upsert(self, kid: str, knowledge: Knowledge) -> None:
@@ -915,20 +915,20 @@ class KnowledgeProcessingService:
             try:
                 self._vdb.delete([kid])
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_enforce_capacity: 降级忽略", exc_info=True)
             try:
                 get_fts_store().delete(kid)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_enforce_capacity: 降级忽略", exc_info=True)
             try:
                 get_graph_store().delete_by_kid(kid)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_enforce_capacity: 降级忽略", exc_info=True)
             if self._db is not None:
                 try:
                     self._db.delete("knowledge_meta", "id=?", (kid,))
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("_enforce_capacity: 降级忽略", exc_info=True)
             self._mem_meta.pop(kid, None)
         if victims:
             log.info("知识库容量上限触发，已清理最旧 %d 条", len(victims))
@@ -988,7 +988,7 @@ class KnowledgeProcessingService:
                              "access_count+1 WHERE id=?", (kid,))
                 return
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_bump_access: 降级忽略", exc_info=True)
         if kid in self._mem_meta:
             self._mem_meta[kid]["access_count"] = \
                 self._mem_meta[kid].get("access_count", 0) + 1
@@ -1023,7 +1023,7 @@ class KnowledgeProcessingService:
                 self._db.update("knowledge_meta", {"lifecycle": stage},
                                 "id=?", (kid,))
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("refresh_lifecycle: 降级忽略", exc_info=True)
         if kid in self._mem_meta:
             self._mem_meta[kid]["lifecycle"] = stage
         return stage
@@ -1036,7 +1036,7 @@ class KnowledgeProcessingService:
             try:
                 return self._db.count("knowledge_meta")
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("count: 降级忽略", exc_info=True)
         return len(self._mem_meta)
 
     def stats(self) -> dict:
@@ -1065,7 +1065,7 @@ class KnowledgeProcessingService:
         try:
             disk = self._vdb.disk_usage_bytes()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("stats: 降级忽略", exc_info=True)
         return {"total": self.count(),
                 "capacity": MAX_KNOWLEDGE_COUNT,
                 "disk_bytes": disk,
@@ -1160,7 +1160,7 @@ class KnowledgeProcessingService:
                             kid, row.get("content", ""),
                             row.get("title", ""), row.get("topic", ""))
                     except Exception:  # noqa: BLE001
-                        pass
+                        log.debug("update_knowledge: 降级忽略", exc_info=True)
                     return True
                 return False
             except Exception as exc:  # noqa: BLE001
@@ -1227,11 +1227,11 @@ class KnowledgeProcessingService:
         try:
             get_fts_store().delete(kid)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("delete_knowledge: 降级忽略", exc_info=True)
         try:
             get_graph_store().delete_by_kid(kid)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("delete_knowledge: 降级忽略", exc_info=True)
         if self._db is not None:
             try:
                 affected = self._db.delete("knowledge_meta", "id=?", (kid,))

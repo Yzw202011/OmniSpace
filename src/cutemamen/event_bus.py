@@ -8,10 +8,13 @@
 - 订阅回调抛出的异常被总线捕获并计入 errors, 不影响发布方
 """
 
+import logging
 import time
 from collections import deque
 from collections.abc import Callable
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class EventBus:
@@ -34,14 +37,14 @@ class EventBus:
             try:
                 self._subscribers.get(topic, []).remove(handler)
             except ValueError:
-                pass
+                log.debug("_unsubscribe: 降级忽略", exc_info=True)
         return _unsubscribe
 
     def unsubscribe(self, topic: str, handler: Callable[[dict], None]) -> None:
         try:
             self._subscribers.get(topic, []).remove(handler)
         except ValueError:
-            pass
+            log.debug("unsubscribe: 降级忽略", exc_info=True)
 
     # ── 发布 ────────────────────────────────────────────────
     def publish(self, topic: str, payload: Any = None) -> int:

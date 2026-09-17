@@ -162,7 +162,7 @@ def _dir_has_weight_file(p: Path) -> bool:
             except OSError:
                 continue
     except OSError:
-        pass
+        logger.debug("_dir_has_weight_file: 降级忽略", exc_info=True)
     return False
 
 

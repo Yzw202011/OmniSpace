@@ -128,7 +128,7 @@ def is_gpu_available() -> bool:
         try:
             return _torch_directml.is_available()
         except Exception:
-            pass
+            logger.debug("is_gpu_available: 降级忽略", exc_info=True)
     return False
 
 
@@ -150,14 +150,14 @@ def get_backend_info() -> dict:
             info["cuda_compute_capability"] = f"{props.major}.{props.minor}"
             info["cuda_vram_total_mb"] = int(props.total_memory // (1024 * 1024))
         except Exception:
-            pass
+            logger.debug("get_backend_info: 降级忽略", exc_info=True)
     elif info["directml_available"]:
         try:
             if _torch_directml.is_available():
                 info["recommended_backend"] = BACKEND_DIRECTML
                 info["directml_device_name"] = _torch_directml.device_name(0)
         except Exception:
-            pass
+            logger.debug("get_backend_info: 降级忽略", exc_info=True)
 
     return info
 
@@ -378,7 +378,7 @@ def enumerate_gpus() -> list[dict]:
             pynvml.nvmlShutdown()
         return devices
     except Exception:  # noqa: BLE001 - pynvml 缺失/失败降级 torch
-        pass
+        logger.debug("enumerate_gpus: 降级忽略", exc_info=True)
 
     if _torch is not None:
         try:
@@ -393,7 +393,7 @@ def enumerate_gpus() -> list[dict]:
                         "available": True,
                     })
         except Exception:  # noqa: BLE001
-            pass
+            logger.debug("enumerate_gpus: 降级忽略", exc_info=True)
     return devices
 
 

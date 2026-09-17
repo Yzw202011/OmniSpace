@@ -24,12 +24,15 @@ TrustedHost 之前 = 其内层；异常处理器在最内层先行渲染信封�
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..config import EVENT_LOG_SLOW_MS
+
+log = logging.getLogger(__name__)
 
 # 与 request_context._ACTIVITY_METHODS 同义（复用其语义，不 import 私有名）
 _ACTIVITY_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
@@ -197,7 +200,7 @@ class EventLogAutoMiddleware:
                         cap.done = True
                         self._record(scope, method, path, start, cap)
             except Exception:  # noqa: BLE001 - 观测层异常绝不影响响应
-                pass
+                log.debug("send_wrapper: 降级忽略", exc_info=True)
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
@@ -253,4 +256,4 @@ class EventLogAutoMiddleware:
             log_event(module, event, friendly, level=level, detail=detail,
                       duration_ms=duration_ms, trace_id=request_id)
         except Exception:  # noqa: BLE001 - 观测层异常绝不影响业务
-            pass
+            log.debug("_record: 降级忽略", exc_info=True)

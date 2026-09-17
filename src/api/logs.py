@@ -380,7 +380,7 @@ def logs_export(
             hardware["recent_resource_samples"] = \
                 get_resource_sampler().get_samples(limit=120)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("logs_export: 降级忽略", exc_info=True)
 
     # ── 打包（全部 writestr，无中间文件句柄）──
     fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="omnidiag_")

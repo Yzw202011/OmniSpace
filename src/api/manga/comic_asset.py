@@ -90,7 +90,7 @@ def _end_asset_flow(flow: Flow | None, status: str, *, error_code: str = "",
         flow.end(status, error_code=error_code,
                  error_detail=error_detail, output_summary=output_summary)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_end_asset_flow: 降级忽略", exc_info=True)
 
 
 
@@ -2277,7 +2277,7 @@ async def _wait_vllm_for_rewrite(timeout_s: float, *, ignite: bool) -> bool:
                 ignited = True
                 svc.start_async()  # 幂等：已在运行/启动中则复用
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_wait_vllm_for_rewrite: 降级忽略", exc_info=True)
         await asyncio.sleep(3.0)
     return False
 

@@ -156,7 +156,7 @@ class LlamaService:
                         return True
                     log.info("llama-server 端口被异模型占用，先收账重启")
                 except Exception:  # noqa: BLE001 - 探测失败走重启
-                    pass
+                    log.debug("start: 降级忽略", exc_info=True)
                 self._reap_orphans()
             # 软准入：空闲显存低于共存档需求 → 诚实拒绝（llama-server
             # OOM 自退的表现是进程起后秒死，前置拒绝更快更明确）

@@ -220,7 +220,7 @@ def select_pytorch_backend(gpu_info: dict) -> str:
                 logger.info("选择 DirectML 后端 (%s GPU)", vendor)
                 return "directml"
         except Exception:
-            pass
+            logger.debug("select_pytorch_backend: 降级忽略", exc_info=True)
 
     logger.info("GPU 不受支持，使用 CPU 后端")
     return "cpu"

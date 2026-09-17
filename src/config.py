@@ -5,10 +5,13 @@
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 # ── 路径 ──────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -113,7 +116,7 @@ for _fname, _fdev in (_cfg.get("gpu", {}).get("feature_devices") or {}).items():
         try:
             GPU_FEATURE_DEVICES[_fkey] = int(_fdev)
         except (TypeError, ValueError):
-            pass
+            log.debug("<module>: 降级忽略", exc_info=True)
 
 # ── 模型缓存 ─────────────────────────────────────────────────────
 CACHE_COMPRESSION = _cfg["model_cache"]["compression"]

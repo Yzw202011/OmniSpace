@@ -55,7 +55,7 @@ def _snapshot() -> dict:
         vm = psutil.virtual_memory()
         out["ram_pct"] = round(vm.percent, 1)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_snapshot: 降级忽略", exc_info=True)
 
     try:  # 显存（torch CUDA）
         import torch  # type: ignore
@@ -63,14 +63,14 @@ def _snapshot() -> dict:
             free, total = torch.cuda.mem_get_info()
             out["vram_pct"] = round((total - free) / total * 100, 1)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_snapshot: 降级忽略", exc_info=True)
 
     try:  # 磁盘（项目根所在盘）
         du = shutil.disk_usage(str(_PROJECT_ROOT))
         out["disk_pct"] = round(du.used / du.total * 100, 1) if du.total else None
         out["disk_free_gb"] = round(du.free / (1024 ** 3), 1)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_snapshot: 降级忽略", exc_info=True)
 
     return out
 
@@ -159,7 +159,7 @@ class ResourceSampler:
                 detail={k: {"value": v, "threshold": t}
                         for k, v, t in crossed})
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_patrol: 降级忽略", exc_info=True)
 
     # ── 查询 ──────────────────────────────────────────────────
 

@@ -528,7 +528,7 @@ def update_learning_settings(patch: dict) -> dict:
         if "ad_filter_enabled" in patch:
             svc.set_ad_filter(bool(patch["ad_filter_enabled"]))
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("update_learning_settings: 降级忽略", exc_info=True)
     return merged
 
 
@@ -701,7 +701,7 @@ def _unwrap_search_redirect(href: str) -> str:
             payload += "=" * (-len(payload) % 4)
             return base64.urlsafe_b64decode(payload).decode("utf-8", "ignore")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_unwrap_search_redirect: 降级忽略", exc_info=True)
     return ""
 
 
@@ -796,7 +796,7 @@ class BrowserAgentService:
             status = browser.get_status()
             data["url"] = status.get("current_url", "")
         except BrowserError:
-            pass
+            log.debug("perceive_page: 降级忽略", exc_info=True)
         try:
             data["text"] = browser.get_text()
             data["links"] = browser.get_links()
@@ -810,7 +810,7 @@ class BrowserAgentService:
             if isinstance(feats, dict):
                 data["dom_features"] = feats
         except Exception:  # noqa: BLE001 - 特征缺失时分类走启发式回退
-            pass
+            log.debug("perceive_page: 降级忽略", exc_info=True)
         try:
             tabs = browser.list_tabs()
             for t in tabs:
@@ -818,13 +818,13 @@ class BrowserAgentService:
                     data["title"] = t.get("title", "")
                     data["url"] = t.get("url", data["url"])
         except BrowserError:
-            pass
+            log.debug("perceive_page: 降级忽略", exc_info=True)
         if visual:
             try:
                 data["screenshot"] = browser.screenshot()
                 data["mode"] = "visual"
             except BrowserError:
-                pass
+                log.debug("perceive_page: 降级忽略", exc_info=True)
         log.debug("感知完成（%s 模式，%.0fms）", data["mode"],
                   (time.time() - t0) * 1000)
         return data
@@ -1447,7 +1447,7 @@ class BrowserAgentService:
         try:
             browser.go_back()
         except BrowserError:
-            pass
+            log.debug("check_walls_and_leave: 降级忽略", exc_info=True)
         return wall
 
     # ── 主循环（TASK-032）──────────────────────────────────────────────
@@ -1495,7 +1495,7 @@ class BrowserAgentService:
                 session.log_entry("takeover_reset",
                                   "清除遗留的用户接管标志", "新会话启动")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("run_learning_session: 降级忽略", exc_info=True)
         session.log_entry("session_start", f"开始学习主题「{session.goal}」",
                           f"预算: {session.budget.max_time_minutes}分钟/"
                           f"{session.budget.max_pages}页")
@@ -1631,7 +1631,7 @@ class BrowserAgentService:
             try:
                 self.save_checkpoint(session)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("run_learning_session: 降级忽略", exc_info=True)
             if pooled:
                 # 归还进程池：隔离清理（Cookie/缓存清除）+ 预建干净快照
                 pool.release(browser)
@@ -1639,7 +1639,7 @@ class BrowserAgentService:
                 try:
                     browser.end_session()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("run_learning_session: 降级忽略", exc_info=True)
             self._finalize_session(session)
             # 执行流程追踪收尾（2026-08-23）：reason 映射与
             # _finalize_session 同一裁定（正常达成→success；用户停→
@@ -1662,7 +1662,7 @@ class BrowserAgentService:
                              error_code=reason,
                              error_detail=f"会话中断: {reason}")
             except Exception:  # noqa: BLE001 - 追踪失败不影响业务
-                pass
+                log.debug("run_learning_session: 降级忽略", exc_info=True)
 
     @staticmethod
     def _sync_traffic(session: LearningSession) -> None:

@@ -714,7 +714,7 @@ def _vram_fragmentation() -> dict:
                 "显存碎片率超过 30%，建议卸载闲置模型（/models/unload）"
                 "触发缓存整理")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_vram_fragmentation: 降级忽略", exc_info=True)
     return out
 
 
@@ -824,7 +824,7 @@ def models_vram() -> dict[str, Any]:
             for e in get_busy_registry().entries()
         ]
     except Exception:  # noqa: BLE001 - 账本不可用保持旧契约字段
-        pass
+        log.debug("models_vram: 降级忽略", exc_info=True)
     return ok({
         "gpu": gpu,
         "reserved_vram_gb": gpu.get("reserved_vram_gb", 0.0),
@@ -894,7 +894,7 @@ def models_update_check() -> dict[str, Any]:
         from ..data.model_registry import load_manifest
         local_ver = str(load_manifest().get("version") or "")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("models_update_check: 降级忽略", exc_info=True)
 
     update_url = _kv_get("models.update_url", "")
     if not update_url:
@@ -1382,7 +1382,7 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
             try:
                 engine.ensure_loaded(want_model)
             except Exception:  # noqa: BLE001 - 预热失败静默（生成时如实报错）
-                pass
+                log.debug("_bg_warmup_paint: 降级忽略", exc_info=True)
             finally:
                 _warmup_inflight.discard("paint")
 
@@ -1429,7 +1429,7 @@ async def models_warmup(req: ModuleWarmupRequest) -> dict[str, Any]:
         try:
             engine.ensure_loaded(want_model)
         except Exception:  # noqa: BLE001 - 预热失败静默（发消息时如实报错）
-            pass
+            log.debug("_bg_warmup: 降级忽略", exc_info=True)
         finally:
             _warmup_inflight.discard("dialog")
 
@@ -1718,7 +1718,7 @@ async def _try_prefetch(feature: str, model_id: str) -> str:
         try:
             await lock_mgr.release(lock_feature)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_try_prefetch: 降级忽略", exc_info=True)
         return "skipped"
 
 
@@ -1879,7 +1879,7 @@ def _run_dialog_benchmark(req: ModelBenchmarkRequest) -> dict:
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats(0)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_run_dialog_benchmark: 降级忽略", exc_info=True)
 
     tot_tokens = 0
     tot_ms = 0.0
@@ -1898,7 +1898,7 @@ def _run_dialog_benchmark(req: ModelBenchmarkRequest) -> dict:
             vram_peak = round(
                 torch.cuda.max_memory_allocated(0) / (1024 ** 3), 2)
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_run_dialog_benchmark: 降级忽略", exc_info=True)
     tokens_per_s = round(tot_tokens / (tot_ms / 1000.0), 2) if tot_ms else 0.0
     return {
         "model_id": loaded_id, "engine": "dialog", "runs": runs,

@@ -229,7 +229,7 @@ class PluginRuntime:
             try:
                 USER_REGISTRY_PATH.replace(corrupt)
             except OSError:
-                pass
+                logger.debug("_load_user_registry: 降级忽略", exc_info=True)
             logger.warning("用户插件登记表损坏，已备份为 %s，从空表起步",
                            corrupt)
             return

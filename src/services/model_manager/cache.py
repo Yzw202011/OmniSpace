@@ -234,7 +234,7 @@ class ModelCache:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001 - 缓存回收失败不影响功能
-            pass
+            logger.debug("_release_cuda_cache: 降级忽略", exc_info=True)
 
     def keep_in_ram(self, key: str) -> None:
         """将指定条目标记为常驻内存（不被压缩/卸载）。"""

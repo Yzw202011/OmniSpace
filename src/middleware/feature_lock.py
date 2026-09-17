@@ -321,7 +321,7 @@ async def acquire_or_raise(feature: str,
     except ApiError:
         raise
     except Exception:  # noqa: BLE001 - 热保护探测失败不阻断正常流程
-        pass
+        log.debug("acquire_or_raise: 降级忽略", exc_info=True)
 
     mgr = get_feature_lock()
     success = await mgr.acquire(feature, task_id=task_id)

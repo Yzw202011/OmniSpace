@@ -387,7 +387,7 @@ class ModelManager:
                     status["temp_celsius"] = float(_pynvml.nvmlDeviceGetTemperature(
                         handle, _pynvml.NVML_TEMPERATURE_GPU))
                 except Exception:
-                    pass
+                    log.debug("get_gpu_status: 降级忽略", exc_info=True)
             except Exception as exc:  # noqa: BLE001
                 log.warning("NVML 采集失败: %s", exc)
         elif _torch is not None and getattr(_torch, "cuda", None) is not None:
@@ -405,7 +405,7 @@ class ModelManager:
                         "vram_free_mb": int((total - used) // (1024 * 1024)),
                     })
             except Exception:
-                pass
+                log.debug("get_gpu_status: 降级忽略", exc_info=True)
         status["vram_total_gb"] = round(status["vram_total_mb"] / 1024.0, 2)
         status["vram_used_gb"] = round(status["vram_used_mb"] / 1024.0, 2)
         status["vram_free_gb"] = round(status["vram_free_mb"] / 1024.0, 2)
@@ -543,7 +543,7 @@ class ModelManager:
                 if f.suffix in (".safetensors", ".gguf", ".ckpt", ".bin", ".onnx"):
                     return True
         except Exception:
-            pass
+            log.debug("_looks_like_model_dir: 降级忽略", exc_info=True)
         return False
 
     @staticmethod
@@ -554,7 +554,7 @@ class ModelManager:
                 if f.is_file() and ".cache" not in f.parts:
                     total += f.stat().st_size
         except Exception:
-            pass
+            log.debug("_dir_size_gb: 降级忽略", exc_info=True)
         return round(total / (1024 ** 3), 3)
 
     def registry_entry(self, model_id: str) -> dict | None:
@@ -615,7 +615,7 @@ class ModelManager:
                 if mid == model_id:
                     return float(vram)
         except Exception:  # noqa: BLE001 - 引擎表不可用时回退既有估计
-            pass
+            log.debug("estimate_vram_gb: 降级忽略", exc_info=True)
         for table in (DIALOG_ROUTING_TABLE, PAINT_ROUTING_TABLE, VIDEO_ROUTING_TABLE):
             for entry in table:
                 mid = entry["model"]
@@ -988,7 +988,7 @@ class ModelManager:
             try:
                 _detail = str(engine.last_error() or "").strip()
             except Exception:  # noqa: BLE001 - 访问器失败不影响主流程
-                pass
+                log.debug("ensure_loaded: 降级忽略", exc_info=True)
             self.last_error = (
                 f"引擎加载失败: {model_id}" + (f" {_detail}" if _detail else ""))
             log.warning("ensure_loaded 引擎加载失败: %s（%s）",
@@ -1124,7 +1124,7 @@ class ModelManager:
                 if hasattr(engine, "_video_autoload_attempted"):
                     engine._video_autoload_attempted = False
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("unload_model: 降级忽略", exc_info=True)
 
         # 审计 P0-5：预留量扣减持锁（与 allocate_memory 原子对应）
         with self._vram_lock:
@@ -1149,7 +1149,7 @@ class ModelManager:
                 if _torch.cuda.is_available():
                     _torch.cuda.empty_cache()
             except Exception:
-                pass
+                log.debug("unload_model: 降级忽略", exc_info=True)
         log.info("模型已卸载: %s", model_id)
         return True
 
@@ -1272,7 +1272,7 @@ class ModelManager:
                 locked_cats = (_FEATURE_KEEP_CATEGORIES.get(
                     self._normalize_feature(active), set()) - keep_cats)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("release_for_module: 降级忽略", exc_info=True)
 
         freed_models: list[str] = []
         freed_vram = 0.0
@@ -1306,7 +1306,7 @@ class ModelManager:
             from ...engines.memory_manager import get_memory_manager
             get_memory_manager().release()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("release_for_module: 降级忽略", exc_info=True)
 
         # vLLM 独立子进程（AWQ 对话模型）：不在 _loaded 台账，显存由
         # 子进程整卡持有。P3 §3.2 常驻热备 + 按需冷启双策略：
@@ -1330,7 +1330,7 @@ class ModelManager:
                 _vllm_same_card = (
                     resolve_feature_device("dialog") == target_device)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("release_for_module: 降级忽略", exc_info=True)
             if _VRAM_HEAVY_FEATURES.intersection({target}) and _vllm_same_card:
                 try:
                     from ...engines.vllm_service import get_vllm_service
@@ -1371,7 +1371,7 @@ class ModelManager:
                         log.info("vLLM 子进程热备保留(→%s): 复用已加载 worker"
                                  "免二次冷启动", target)
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("release_for_module: 降级忽略", exc_info=True)
         elif "dialog" in locked_cats:
             # 同上：跳过释放记账也用真实服务名（批1 修复 2026-09-10）
             _skip_name = "vllm-subprocess"
@@ -1383,7 +1383,7 @@ class ModelManager:
                 if _svc.served_name:
                     _skip_name = f"{_svc.served_name}(vllm)"
             except Exception:  # noqa: BLE001 - 查询失败用中性名
-                pass
+                log.debug("release_for_module: 降级忽略", exc_info=True)
             skipped.append(_skip_name)
             log.info("vLLM 子进程跳过释放（dialog 功能锁持有中）")
 
@@ -1402,7 +1402,7 @@ class ModelManager:
                 _comfy_same_card = (
                     resolve_feature_device("paint") == target_device)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("release_for_module: 降级忽略", exc_info=True)
             if _comfy_same_card:
                 # 视频任务进行中绝不杀 ComfyUI（2026-09-06 颗粒级实测
                 # 事故：training 切换在 H3 任务运行中杀掉其执行引擎，
@@ -1415,7 +1415,7 @@ class ModelManager:
                     _video_running = (
                         get_feature_lock().active_feature == "video_gen")
                 except Exception:  # noqa: BLE001 - 锁查询失败不阻断释放
-                    pass
+                    log.debug("release_for_module: 降级忽略", exc_info=True)
                 if _video_running:
                     skipped.append("comfyui-subprocess(video_gen 运行中)")
                     log.info("ComfyUI 子进程跳过释放（video_gen 功能锁持有"
@@ -1471,7 +1471,7 @@ class ModelManager:
                     level="warning",
                     detail=f"target={target}, skipped={skipped}")
         except Exception:  # noqa: BLE001 - 事件日志失败不影响释放
-            pass
+            log.debug("release_for_module: 降级忽略", exc_info=True)
         return {
             "module": target,
             "completed": completed,

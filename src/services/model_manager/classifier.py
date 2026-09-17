@@ -296,7 +296,7 @@ class ModelClassifier:
                             # seq2seq 架构（Whisper 除外，上面已拦截）按对话可用
                             return ModelCategory.DIALOG
             except Exception:
-                pass
+                logger.debug("_classify_by_metadata: 降级忽略", exc_info=True)
 
         # 读取 safetensors header（单个文件）
         if path.is_file() and path.suffix == ".safetensors":
@@ -314,6 +314,6 @@ class ModelClassifier:
                     if "unet" in key_lower or "vae" in key_lower:
                         return ModelCategory.VISION
             except Exception:
-                pass
+                logger.debug("_classify_by_metadata: 降级忽略", exc_info=True)
 
         return None

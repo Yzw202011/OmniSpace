@@ -308,7 +308,7 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
             existing_names = {r["name"] for r in db.query(
                 "SELECT name FROM learning_topics")}
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("topic_clone: 降级忽略", exc_info=True)
     existing_names |= {t.get("name", "") for t in _mem_topics.values()}
     name = base_name
     seq = 2
@@ -806,7 +806,7 @@ def learn_quota() -> dict[str, Any]:
                 f"知识库容量 {k_total}/{k_cap}（≥90%）")
         capacity["knowledge"] = {"total": k_total, "capacity": k_cap}
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("learn_quota: 降级忽略", exc_info=True)
     try:
         db = _db()
         t_count = db.count("learning_topics") if db is not None \
@@ -817,7 +817,7 @@ def learn_quota() -> dict[str, Any]:
                 f"主题数量 {t_count}/{MAX_TOPICS}（≥90%）")
         capacity["topics"] = {"total": t_count, "capacity": MAX_TOPICS}
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("learn_quota: 降级忽略", exc_info=True)
     quota["capacity"] = capacity
     return ok(quota)
 

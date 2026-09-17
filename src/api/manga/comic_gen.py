@@ -127,7 +127,7 @@ def _pick_turnaround_engine():
         if _v == "comfy":
             return _ComfyGenAdapter()
     except Exception:  # noqa: BLE001 - 配置异常按 legacy
-        pass
+        log.debug("_pick_turnaround_engine: 降级忽略", exc_info=True)
     return get_paint_engine()
 
 

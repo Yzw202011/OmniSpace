@@ -176,14 +176,14 @@ def _probe_gpu_brief() -> tuple[str, int]:
             name = name.decode("utf-8", errors="replace")
         return str(name), int(mem.total // (1024 * 1024))
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_probe_gpu_brief: 降级忽略", exc_info=True)
     try:
         import torch
         if torch.cuda.is_available():
             props = torch.cuda.get_device_properties(0)
             return str(props.name), int(props.total_memory // (1024 * 1024))
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_probe_gpu_brief: 降级忽略", exc_info=True)
     return "", 0
 
 
@@ -455,13 +455,13 @@ class _BrowserWorker(threading.Thread):
                 try:
                     obj.close()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("_cleanup: 降级忽略", exc_info=True)
                 setattr(self, obj_name, None)
         if self.pw is not None:
             try:
                 self.pw.stop()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_cleanup: 降级忽略", exc_info=True)
             self.pw = None
         self.pages.clear()
         self.current_tab = None
@@ -503,7 +503,7 @@ class _BrowserWorker(threading.Thread):
             try:
                 route.continue_()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("on_route: 降级忽略", exc_info=True)
 
     def on_context_page(self, page: Any) -> None:
         """window.open 弹窗自动关闭（自己 new_tab 创建的页除外）。"""
@@ -513,7 +513,7 @@ class _BrowserWorker(threading.Thread):
             log.info("检测到弹窗页面，自动关闭: %s", page.url[:120])
             page.close()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("on_context_page: 降级忽略", exc_info=True)
 
     def on_popup(self, page: Any) -> None:
         """源页面 window.open 触发的 popup 事件 → 关闭。"""
@@ -521,7 +521,7 @@ class _BrowserWorker(threading.Thread):
             log.info("弹窗已自动关闭: %s", (page.url or "")[:120])
             page.close()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("on_popup: 降级忽略", exc_info=True)
 
     def on_download(self, download: Any) -> None:
         """下载拦截：任何下载直接取消（TC-S-002）。"""
@@ -529,14 +529,14 @@ class _BrowserWorker(threading.Thread):
             log.warning("下载被拦截: %s", download.suggested_filename)
             download.cancel()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("on_download: 降级忽略", exc_info=True)
 
     def on_dialog(self, dialog: Any) -> None:
         """JS alert/confirm 自动关闭，避免阻塞。"""
         try:
             dialog.dismiss()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("on_dialog: 降级忽略", exc_info=True)
 
     def on_response(self, response: Any) -> None:
         """流量统计：按 content-length 头累计（估算值，供配额控制）。"""
@@ -546,7 +546,7 @@ class _BrowserWorker(threading.Thread):
             if length and length.isdigit():
                 self.traffic_bytes += int(length)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("on_response: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -566,7 +566,7 @@ def _w_new_context(w: _BrowserWorker) -> str:
         try:
             w.context.close()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_w_new_context: 降级忽略", exc_info=True)
         w.context = None
         w.pages.clear()
         w.current_tab = None
@@ -591,7 +591,7 @@ def _w_close_context(w: _BrowserWorker) -> str:
         try:
             w.context.close()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_w_close_context: 降级忽略", exc_info=True)
         w.context = None
     w.pages.clear()
     w.current_tab = None
@@ -625,7 +625,7 @@ def _w_goto(w: _BrowserWorker, page: Any, url: str) -> dict:
     try:
         status = resp.status if resp else 0
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_w_goto: 降级忽略", exc_info=True)
     return {"url": page.url, "title": _safe_title(page), "http_status": status}
 
 
@@ -674,7 +674,7 @@ def _w_close_tab(w: _BrowserWorker, tab_id: str) -> bool:
     try:
         page.close()
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("_w_close_tab: 降级忽略", exc_info=True)
     if w.current_tab == tab_id:
         w.current_tab = next(iter(w.pages), None)
     return True
@@ -733,7 +733,7 @@ def _w_click(w: _BrowserWorker, selector: str | None,
         except PageOperationError:
             raise
         except Exception:  # noqa: BLE001 - 检测失败不阻断普通点击
-            pass
+            log.debug("_w_click: 降级忽略", exc_info=True)
         page.click(selector)
         return f"clicked:{selector}"
     if coordinates:
@@ -835,7 +835,7 @@ def _w_close_popups(w: _BrowserWorker) -> int:
                 page.close()
                 closed += 1
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_w_close_popups: 降级忽略", exc_info=True)
     return closed
 
 
@@ -1040,7 +1040,7 @@ class BrowserService:
                 worker.cmd_queue.put(None)
                 worker.join(timeout=10)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("shutdown: 降级忽略", exc_info=True)
         log.info("浏览器已关闭，全部 Cookie/缓存数据已清除")
         return True
 
@@ -1165,7 +1165,7 @@ class BrowserService:
             try:
                 page.go_back(wait_until="domcontentloaded")
             except Exception:  # noqa: BLE001 - 无历史时忽略
-                pass
+                log.debug("_fn: 降级忽略", exc_info=True)
             return {"url": _safe_url(page), "title": _safe_title(page)}
         return dict(self._submit(_fn))
 
@@ -1177,7 +1177,7 @@ class BrowserService:
             try:
                 page.go_forward(wait_until="domcontentloaded")
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_fn: 降级忽略", exc_info=True)
             return {"url": _safe_url(page), "title": _safe_title(page)}
         return dict(self._submit(_fn))
 
@@ -1272,13 +1272,13 @@ class BrowserService:
             if total > 0:
                 return round(total / 1048576, 1)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_memory_usage_mb: 降级忽略", exc_info=True)
         tabs = 0
         try:
             if self._running and self._worker is not None:
                 tabs = len(self._worker.pages)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_memory_usage_mb: 降级忽略", exc_info=True)
         return round(200.0 + tabs * 300.0, 1)  # 估算：单标签 ~300MB
 
     def get_status(self) -> dict:
@@ -1294,7 +1294,7 @@ class BrowserService:
                     timeout=5)
                 tabs_count, current_url = info
             except BrowserError:
-                pass
+                log.debug("get_status: 降级忽略", exc_info=True)
         return {
             "running": self._running,
             "tabs_count": tabs_count,

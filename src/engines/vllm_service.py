@@ -78,7 +78,7 @@ def _estimate_model_dir_gb(mdir: str) -> float:
                     (".safetensors", ".gguf", ".bin", ".pth", ".npz")):
                 total += p.stat().st_size
     except OSError:
-        pass
+        log.debug("_estimate_model_dir_gb: 降级忽略", exc_info=True)
     gb = max(1.0, total / 2 ** 30)
     _DIR_SIZE_CACHE[mdir] = gb
     return gb
@@ -359,7 +359,7 @@ class VLLMService:
             if r.status_code == 200:
                 return bool(r.json().get("is_sleeping"))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_is_sleeping: 降级忽略", exc_info=True)
         return None
 
     def sleep_for_paint(self, settle_timeout_s: float = 90.0) -> bool:
@@ -533,7 +533,7 @@ class VLLMService:
                             self._last_error)
                 return False
         except Exception:  # noqa: BLE001 - 探测失败保持旧行为
-            pass
+            log.debug("_vram_admission_wait: 降级忽略", exc_info=True)
         return True
 
     def start(
@@ -621,7 +621,7 @@ class VLLMService:
                             self._last_error)
                 return False
         except Exception:  # noqa: BLE001 - 探测失败保持旧行为
-            pass
+            log.debug("start: 降级忽略", exc_info=True)
         # 显存准入闸门（2026-08-29 E2E 压测修复）：两次后端进程静默
         # 死亡（无 Python traceback，原生层崩溃特征）均发生于显存
         # ≥97% 时启动 vLLM——0.85 util 对整卡硬预分配，空闲不足即推
@@ -665,7 +665,7 @@ class VLLMService:
                         level="info",
                         detail=f"from={self._model_dir}, to={mdir_str}")
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("start: 降级忽略", exc_info=True)
                 if not self._kill_locked():
                     self._last_error = "热切换失败：旧 vLLM 子进程无法终止"
                     return False
@@ -834,7 +834,7 @@ class VLLMService:
                     VLLM_LOG.replace(VLLM_LOG.with_name(
                         VLLM_LOG.name + ".1"))
             except OSError:
-                pass
+                log.debug("start: 降级忽略", exc_info=True)
             self._log_fh = open(  # noqa: SIM115 - 生命周期随进程关闭
                 VLLM_LOG, "a", encoding="utf-8", buffering=1)
 
@@ -889,7 +889,7 @@ class VLLMService:
                             "（切换到了其他功能），显存已回收",
                             level="info", detail=self._last_error)
                     except Exception:  # noqa: BLE001
-                        pass
+                        log.debug("start: 降级忽略", exc_info=True)
                     self._kill_locked()
                     self._transition("unloaded", "start cancelled")
                     return False
@@ -925,7 +925,7 @@ class VLLMService:
                                         f"port={VLLM_PORT}, "
                                         f"served_name={served_name}"))
                         except Exception:  # noqa: BLE001
-                            pass
+                            log.debug("start: 降级忽略", exc_info=True)
                         # ── 启动预热（2026-08-21 超时事故修复）──────────
                         # 首条带图请求会触发视觉内核 Triton JIT 编译
                         # （编译期零 chunk 产出，实测可超 120s → 前端
@@ -947,7 +947,7 @@ class VLLMService:
                             return False
                         return True
                 except Exception:  # noqa: BLE001 - 未就绪继续轮询
-                    pass
+                    log.debug("start: 降级忽略", exc_info=True)
                 time.sleep(HEALTH_POLL_INTERVAL_S)
 
             # 超时：回收半启动进程，避免僵尸占显存
@@ -965,7 +965,7 @@ class VLLMService:
                     "若反复失败请查看技术日志",
                     level="error", detail=self._last_error)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("start: 降级忽略", exc_info=True)
             self._kill_locked()
             self._transition("unloaded", "startup timeout")
             return False
@@ -1018,7 +1018,7 @@ class VLLMService:
                 "如果还没好，页面会提示「模型加载中」，稍等片刻即可",
                 level="info", detail=f"model={mdir.name}")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("start_async: 降级忽略", exc_info=True)
         return True
 
     def stop(self, timeout_s: float = 5.0) -> bool:
@@ -1112,7 +1112,7 @@ class VLLMService:
                 + "，显存已全部回收",
                 level="info")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_kill_locked: 降级忽略", exc_info=True)
         return True
 
     def _adopt_if_healthy(self, target_mdir: str | None) -> bool:
@@ -1214,7 +1214,7 @@ class VLLMService:
             try:
                 self._log_fh.close()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_close_log: 降级忽略", exc_info=True)
             self._log_fh = None
 
     # ── 推理（OpenAI 兼容） ───────────────────────────────────
@@ -1266,7 +1266,7 @@ class VLLMService:
                     level="success", duration_ms=dur * 1000,
                     detail=f"image=448x448 png, model={model_name}")
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_warmup: 降级忽略", exc_info=True)
         except Exception as exc:  # noqa: BLE001 - 预热失败不阻断启动
             log.warning("vLLM 预热未完成（不阻断启动，编译缓存会自然落盘）: %s",
                         exc)
@@ -1410,7 +1410,7 @@ class VLLMService:
                     "已加载",
                     level="warning", detail=str(exc)[:200])
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("chat_stream: 降级忽略", exc_info=True)
             raise RuntimeError(
                 "AI 推理引擎连接中断（可能正在切换模型或已释放资源）。"
                 "请稍候重试，或到「模型管理」确认对话模型已加载") from exc
@@ -1429,7 +1429,7 @@ class VLLMService:
                 detail=(f"read_timeout={STREAM_READ_TIMEOUT_S}s, "
                         f"got_chunk={got_chunk}"))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_timeout_error: 降级忽略", exc_info=True)
         if got_chunk:
             return RuntimeError(
                 "这次回复生成到一半超时了（内容可能较长）。"

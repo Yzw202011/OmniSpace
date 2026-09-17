@@ -54,7 +54,7 @@ def _read_torch(device: int) -> tuple[bool, int, int]:
             free_b, total_b = torch.cuda.mem_get_info(device)
             return True, int(free_b), int(total_b)
     except Exception:  # noqa: BLE001 - 通道失败由调用方降级
-        pass
+        log.debug("_read_torch: 降级忽略", exc_info=True)
     return False, 0, 0
 
 
@@ -68,7 +68,7 @@ def _read_nvml(device: int) -> tuple[bool, int, int]:
         mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
         return True, int(mem.free), int(mem.total)
     except Exception:  # noqa: BLE001 - 通道失败由调用方降级
-        pass
+        log.debug("_read_nvml: 降级忽略", exc_info=True)
     return False, 0, 0
 
 
@@ -295,7 +295,7 @@ class GpuBudget:
             try:
                 hook(snap)
             except Exception:  # noqa: BLE001 - 单钩子失败不阻断其余
-                pass
+                log.debug("reconcile: 降级忽略", exc_info=True)
         return True
 
     # ── 准入编排（批2 顾问模式）────────────────────────────────
@@ -415,7 +415,7 @@ class GpuBudget:
             if get_vllm_service().is_running():
                 parts.append("L2 vLLM 在跑（可让渡 ~12GB，冷启成本 ~157s）")
         except Exception:  # noqa: BLE001 - 探测失败不列该项
-            pass
+            log.debug("_suggest_ladder: 降级忽略", exc_info=True)
         return "；".join(parts) or "无低代价让位项（须等待或降档）"
 
 
@@ -512,7 +512,7 @@ def heavy_generation_idle() -> bool:
                                                  "training"):
             return False
     except Exception:  # noqa: BLE001 - 锁查询失败交由登记簿判定
-        pass
+        log.debug("heavy_generation_idle: 降级忽略", exc_info=True)
     registry = get_busy_registry()
     return not (registry.is_busy("paint") or registry.is_busy("video_gen"))
 

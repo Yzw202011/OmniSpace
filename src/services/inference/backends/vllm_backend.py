@@ -96,7 +96,7 @@ class VLLMBackend(DialogBackend):
                     if _cfg_len >= 1024:
                         max_len = _cfg_len
                 except Exception:  # noqa: BLE001 - 配置异常保持默认档
-                    pass
+                    logger.debug("load: 降级忽略", exc_info=True)
             util = VLLM_UTIL_LARGE_WEIGHTS if big else VLLM_UTIL_DEFAULT
             # MTP/DFlash 开启时大权重 util 提至 0.92（V6 2026-09-09 冒烟
             # 实测：9B+MTP+前缀缓存 util 0.86 时 KV=-0.81 起不来、0.92
@@ -112,7 +112,7 @@ class VLLMBackend(DialogBackend):
                 _mtp_on = (not _dflash_on
                            and mtp_spec_enabled(Path(model_dir)))
             except Exception:  # noqa: BLE001 - 探测失败按 MTP 关
-                pass
+                logger.debug("load: 降级忽略", exc_info=True)
             if (_mtp_on or _dflash_on) and big:
                 util = max(util, VLLM_UTIL_MTP)
                 logger.info("%s 开启：大权重 util 提至 %.2f（轻载窗口档）",
@@ -152,7 +152,7 @@ class VLLMBackend(DialogBackend):
                             elif mtp_spec_enabled(Path(model_dir)):
                                 floor_budget += VLLM_MTP_EXTRA_GB
                         except Exception:  # noqa: BLE001 - 探测失败按原线
-                            pass
+                            logger.debug("load: 降级忽略", exc_info=True)
                         if free_gb < util * total_gb:
                             fit_util = (free_gb - 0.2) / total_gb
                             if fit_util >= floor_budget / total_gb:
@@ -171,7 +171,7 @@ class VLLMBackend(DialogBackend):
                                                self._last_error)
                                 return False
                 except Exception:  # noqa: BLE001 - 探测失败保持静态档
-                    pass
+                    logger.debug("load: 降级忽略", exc_info=True)
             logger.info("vLLM 启动参数: weights=%.1fGB → max_len=%d util=%.2f",
                         weight_gb, max_len, util)
             if not svc.start(model_dir=str(model_dir),
@@ -196,7 +196,7 @@ class VLLMBackend(DialogBackend):
             try:
                 svc.stop()
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("load: 降级忽略", exc_info=True)
             return False
 
     def unload(self) -> bool:

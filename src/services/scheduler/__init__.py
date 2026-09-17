@@ -93,7 +93,7 @@ class SchedulerEngine:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                log.debug("stop: 降级忽略", exc_info=True)
             self._task = None
         log.info("调度引擎已停止")
 

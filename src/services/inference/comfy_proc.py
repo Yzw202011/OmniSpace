@@ -204,7 +204,7 @@ def _mount_models_before_spawn() -> None:
                     yaml_path.unlink()
                     logger.info("检测到模型与引擎同盘，已撤销跨盘降级 yaml")
                 except OSError:
-                    pass
+                    logger.debug("_mount_models_before_spawn: 降级忽略", exc_info=True)
     except Exception:  # noqa: BLE001 - 挂接失败不阻断 ComfyUI 启动
         logger.warning("模型挂接跳过（不影响启动）", exc_info=True)
 
@@ -301,7 +301,7 @@ class ComfyProcManager:
                         and _log_path.stat().st_size > 10 * 1024 * 1024):
                     _log_path.replace(_log_path.with_name(_log_path.name + ".1"))
             except OSError:
-                pass
+                logger.debug("spawn: 降级忽略", exc_info=True)
             self._log_fp = open(_log_path, "ab")
             for d in (COMFY_OUTPUT_DIR, COMFY_INPUT_DIR,
                       COMFY_TEMP_DIR, COMFY_USER_DIR):
@@ -347,7 +347,7 @@ class ComfyProcManager:
                 logger.info("ComfyUI 绑卡: CUDA_VISIBLE_DEVICES=%s",
                             env["CUDA_VISIBLE_DEVICES"])
             except Exception:  # noqa: BLE001 - 分配失败回落 ComfyUI 默认
-                pass
+                logger.debug("spawn: 降级忽略", exc_info=True)
             proc = subprocess.Popen(
                 cmd, cwd=str(COMFY_DIR), stdout=self._log_fp,
                 stderr=subprocess.STDOUT,
@@ -388,7 +388,7 @@ class ComfyProcManager:
                 try:
                     proc.wait(timeout=10.0)
                 except subprocess.TimeoutExpired:  # noqa: PERF203 - 兜底
-                    pass
+                    logger.debug("shutdown: 降级忽略", exc_info=True)
             logger.info("ComfyUI 子进程已终止 (pid=%s)", proc.pid)
         finally:
             if log_fp is not None:
@@ -410,7 +410,7 @@ class ComfyProcManager:
             try:
                 os.rmdir(base / name)  # 仅空目录可删，非空抛 OSError 跳过
             except OSError:
-                pass
+                logger.debug("_sweep_engine_placeholders: 降级忽略", exc_info=True)
 
     # ── 空闲自动关闭 ──────────────────────────────────────────────
 
@@ -456,7 +456,7 @@ class ComfyProcManager:
             if get_feature_lock().active_feature in ("paint", "video_gen"):
                 return True
         except Exception:  # noqa: BLE001 - 锁查询失败交由登记簿判定
-            pass
+            logger.debug("_generation_active: 降级忽略", exc_info=True)
         try:
             from .gpu_budget import get_busy_registry
 

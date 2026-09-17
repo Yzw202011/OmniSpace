@@ -374,7 +374,7 @@ def _quick_search_supplement(keywords: list[str]) -> str:
             if page_text.strip():
                 texts.append(page_text)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_quick_search_supplement: 降级忽略", exc_info=True)
         # 依序读内容页（总量 ≤3 页，含搜索页；遵守时间预算）
         for link in links:
             if len(texts) >= _PASSIVE_MAX_PAGES:
@@ -399,7 +399,7 @@ def _quick_search_supplement(keywords: list[str]) -> str:
             if pool is not None:
                 pool.release(browser)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_quick_search_supplement: 降级忽略", exc_info=True)
 
     combined = "\n\n".join(t.strip() for t in texts if t.strip())
     combined = re.sub(r"[ \t]+", " ", combined)
@@ -814,7 +814,7 @@ async def dialog_send(request: Request,
                             raise ApiError("FRONTEND_REQUEST_ABORTED",
                                            "请求已取消（页面关闭或停止）")
                     except Exception:  # noqa: BLE001 - 探测失败不放弃排队
-                        pass
+                        log.debug("dialog_send: 降级忽略", exc_info=True)
                 try:
                     lock = await acquire_or_raise("dialog", task_id=sid)
                     break
@@ -1361,7 +1361,7 @@ async def dialog_prewarm(request: Request) -> dict[str, Any]:
                   "进入对话页，正在后台预热对话模型（发消息前会自动准备好）",
                   level="info")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("dialog_prewarm: 降级忽略", exc_info=True)
     return ok({"state": "loading", "prewarmed": True})
 
 
@@ -1747,7 +1747,7 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
                                 "就绪后立即回复"},
         })
     except Exception:  # noqa: BLE001 - 推送失败不阻断等待
-        pass
+        log.debug("_wait_vllm_booting: 降级忽略", exc_info=True)
     import asyncio
     deadline = asyncio.get_event_loop().time() + timeout_s
     while asyncio.get_event_loop().time() < deadline:
@@ -1763,7 +1763,7 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
             if websocket.client_state == 1:  # DISCONNECTED
                 return False
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("_wait_vllm_booting: 降级忽略", exc_info=True)
     log.warning("冷启动等待超时 %.0fs sid=%s", timeout_s, sid)
     return False
 
@@ -1938,7 +1938,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                     },
                 })
         except Exception:  # noqa: BLE001 - 状态推送失败不阻断对话
-            pass
+            log.debug("_ws_handle_message: 降级忽略", exc_info=True)
         # 审计 R1-04：同 dialog_send，ensure_loaded 阻塞调用经 run_blocking 卸载
         if not await run_blocking(engine.ensure_loaded, model_req):
             # P1 修复（2026-09-02 冷启动实测）：vLLM 正在 booting 时

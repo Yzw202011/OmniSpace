@@ -284,7 +284,7 @@ class TransformersBackend(DialogBackend):
                 tok = getattr(tokenizer, "tokenizer", tokenizer)
                 return len(tok(text, add_special_tokens=False).input_ids)
             except Exception:
-                pass
+                logger.debug("count_tokens: 降级忽略", exc_info=True)
         # 粗估：中英文混合约 1 token / 1.5 字符
         return max(1, int(len(text) / 1.5))
 
@@ -347,7 +347,7 @@ class TransformersBackend(DialogBackend):
                     try:
                         streamer.end()
                     except Exception:  # noqa: BLE001
-                        pass
+                        logger.debug("_generate_worker: 降级忽略", exc_info=True)
 
             thread = threading.Thread(target=_generate_worker, daemon=True)
             thread.start()

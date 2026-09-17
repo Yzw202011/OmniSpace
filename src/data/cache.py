@@ -31,7 +31,7 @@ try:
     import lz4.frame as lz4_frame  # type: ignore
     _LZ4_AVAILABLE = True
 except Exception:  # pragma: no cover - 降级路径
-    pass
+    log.debug("<module>: 降级忽略", exc_info=True)
 
 # ── B8 缓存完整性（HMAC 签名，2026-09-14）──────────────────
 # L2 落盘数据统一签名：非本机本应用写入（替换/伪造/他机拷贝）
@@ -78,7 +78,7 @@ try:
     import redis  # type: ignore
     _REDIS_AVAILABLE = True
 except Exception:  # pragma: no cover - 降级路径
-    pass
+    log.debug("<module>: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -119,7 +119,7 @@ class MemoryCache:
             try:
                 data = lz4_frame.decompress(data)
             except Exception:
-                pass
+                log.debug("_deserialize: 降级忽略", exc_info=True)
         return pickle.loads(data)
 
     def get(self, key: str) -> Any | None:
@@ -218,7 +218,7 @@ class RedisCache:
             try:
                 raw = lz4_frame.compress(raw)
             except Exception:
-                pass
+                log.debug("_wrap: 降级忽略", exc_info=True)
         return _wrap_signed(raw)
 
     def _unwrap(self, data: bytes, key: str = "") -> Any:
@@ -232,13 +232,13 @@ class RedisCache:
             try:
                 self._client.delete(key)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("_unwrap: 降级忽略", exc_info=True)
             return None
         if self._compress:
             try:
                 body = lz4_frame.decompress(body)
             except Exception:
-                pass
+                log.debug("_unwrap: 降级忽略", exc_info=True)
         return pickle.loads(body)
 
     def get(self, key: str) -> Any | None:

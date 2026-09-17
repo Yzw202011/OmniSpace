@@ -9,6 +9,7 @@
 - 单元 12-15: 时序通道
 """
 
+import logging
 import os
 import sys
 from collections import deque
@@ -16,7 +17,9 @@ from collections import deque
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.codec.spike_codec import SpikeEncoder
+from src.codec.spike_codec import SpikeEncoder  # noqa: E402 - sys.path 前置必须
+
+log = logging.getLogger(__name__)
 
 
 class MultimodalSpikeEncoder:
@@ -126,7 +129,7 @@ class MultimodalSpikeEncoder:
                     signal[dim_idx] = motion_signal[i % len(motion_signal)] * 0.5
 
             except Exception:
-                pass
+                log.debug("encode_video_frame: 降级忽略", exc_info=True)
 
         return signal
 

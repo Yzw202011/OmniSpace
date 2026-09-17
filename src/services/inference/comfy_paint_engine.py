@@ -245,7 +245,7 @@ class ComfyPaintEngine:
             if isinstance(body, dict):
                 return body
         except Exception:  # noqa: BLE001 - 错误体不是 JSON 时走兜底
-            pass
+            logger.debug("_parse_error_body: 降级忽略", exc_info=True)
         return {"error": {"message": f"HTTP {exc.code} {exc.reason}"}}
 
     # ── 进程生命周期 ──────────────────────────────────────────────
@@ -700,7 +700,7 @@ class ComfyPaintEngine:
             except ApiError:
                 raise
             except Exception:  # noqa: BLE001 - 探测失败放行（ComfyUI 侧自会报）
-                pass
+                logger.debug("_run_locked: 降级忽略", exc_info=True)
 
         # ReferenceLatent 模式提前解析：off 时不落参考图（省 IO，
         # 工作流不建 ref 链）
@@ -803,7 +803,7 @@ class ComfyPaintEngine:
                     try:
                         (_COMFY_INPUT / name).unlink(missing_ok=True)
                     except OSError:
-                        pass
+                        logger.debug("_run_locked: 降级忽略", exc_info=True)
 
     def inpaint(self, params: dict, image: Image.Image,
                 mask: Image.Image) -> dict:
@@ -954,7 +954,7 @@ class ComfyPaintEngine:
                 try:
                     (_COMFY_INPUT / name).unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    logger.debug("inpaint: 降级忽略", exc_info=True)
 
     def _poll_history(self, prompt_id: str,
                       params: dict) -> list[Image.Image]:
@@ -994,7 +994,7 @@ class ComfyPaintEngine:
                     try:
                         src.unlink(missing_ok=True)
                     except OSError:
-                        pass
+                        logger.debug("_poll_history: 降级忽略", exc_info=True)
             if images:
                 # 清理任务子目录（paint/<task_id> 前缀隔离）
                 return images

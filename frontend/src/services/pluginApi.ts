@@ -129,3 +129,29 @@ export async function invokeChatSkill(payload: {
   const res = await post<unknown>('/dialog/skill', payload);
   return parseWith(ChatSkillResultSchema, res, '插件技能执行');
 }
+
+/* ------------------- 漫画图像技能（技能插座批3） ------------------- */
+
+/** 漫画技能执行结果（POST /comic/skill：图像进图像出/文本兜底） */
+export const ComicSkillResultSchema = z
+  .object({
+    plugin: z.string(),
+    skill_id: z.string(),
+    title: z.string().optional().default(''),
+    /** /manga/media 可回读的相对路径（前端经 getMediaUrl 拼 URL） */
+    image_urls: z.array(z.string()),
+    text: z.string().optional().default(''),
+  })
+  .passthrough();
+export type ComicSkillResult = z.infer<typeof ComicSkillResultSchema>;
+
+/** 跑漫画图像技能：image_paths 为 DATA_DIR 相对路径（comic_assets/keyframes） */
+export async function invokeComicSkill(payload: {
+  plugin: string;
+  skill_id: string;
+  image_paths: string[];
+  text?: string;
+}): Promise<ComicSkillResult> {
+  const res = await post<unknown>('/comic/skill', payload);
+  return parseWith(ComicSkillResultSchema, res, '漫画技能执行');
+}

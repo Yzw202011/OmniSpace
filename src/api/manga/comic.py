@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,6 +26,7 @@ from ...data.models import (
 )
 from ...middleware.error_handler import ApiError, ok
 from ...services.inference.video_engine import VIDEO_OUT_DIR
+from ...services.offload import run_blocking
 from .comic_asset import (
     assets_to_global,
 )
@@ -436,6 +438,121 @@ def comic_project_batch_delete(req: ProjectBatchDelete) -> dict[str, Any]:
         raise ApiError(40005, "项目不存在", detail={"project_ids": missing_ids})
     return ok({"deleted": len(deleted_ids), "deleted_ids": deleted_ids,
                "missing_ids": missing_ids})
+
+
+# ── 插件技能（技能插座批3，方案 docs/插件技能层接线方案-2026-09-17）──
+
+_COMIC_SKILL_MAX_IMAGES = 4
+_COMIC_SKILL_MAX_SIDE = 4096
+_COMIC_SKILL_TIMEOUT_S = 180.0
+# 技能可读入的图片目录（与 /manga/media 回读白名单同口径）
+_COMIC_SKILL_INPUT_DIRS = ("comic_assets", "keyframes")
+
+
+def _read_skill_images(relpaths: list[str]) -> list[Any]:
+    """按 DATA_DIR 相对路径读图为 RGB uint8 ndarray（零信任闸同 media 口径）。"""
+    import numpy as np
+    from PIL import Image
+    out: list[Any] = []
+    for rel in relpaths[:_COMIC_SKILL_MAX_IMAGES]:
+        p = Path(rel)
+        if p.is_absolute() or ".." in p.parts:
+            raise ApiError(40008, "非法图片路径", detail={"path": rel[:200]})
+        base = (DATA_DIR / p).resolve()
+        allowed = [(DATA_DIR / d).resolve()
+                   for d in _COMIC_SKILL_INPUT_DIRS]
+        if not any(base.is_relative_to(a) for a in allowed):
+            raise ApiError(40008, "图片路径不在允许目录内",
+                           detail={"allowed": list(_COMIC_SKILL_INPUT_DIRS)})
+        if not base.is_file():
+            raise ApiError(40005, "图片不存在", detail={"path": rel[:200]})
+        try:
+            img = Image.open(base).convert("RGB")
+        except OSError as exc:
+            raise ApiError("PLUGIN_INPUT_INVALID",
+                           f"图片解码失败: {base.name}") from exc
+        if max(img.size) > _COMIC_SKILL_MAX_SIDE:
+            ratio = _COMIC_SKILL_MAX_SIDE / max(img.size)
+            img = img.resize((max(1, round(img.width * ratio)),
+                              max(1, round(img.height * ratio))))
+        out.append(np.asarray(img, dtype=np.uint8))
+    return out
+
+
+@router.post("/comic/skill")
+async def comic_skill(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
+    """AI 漫画插件技能（批3）：图像进图像出（后处理，不进图像队列）。
+
+    请求: {"plugin": str, "skill_id": str, "image_paths": [DATA_DIR 相对
+    路径（comic_assets/keyframes）], "text"?: str}
+    产出帧落 data/plugins/output/&lt;plugin&gt;/&lt;run&gt;/，返回
+    /manga/media 可回读的相对 URL 列表——前端作「新版本」显示，不覆盖
+    原图。沙箱档（user_source）不支持图像输入：子进程通道 JSON-only
+    （方案 B 兜底，如实报错不硬撑）。
+    """
+    plugin = str(body.get("plugin") or "").strip()
+    skill_id = str(body.get("skill_id") or "").strip()
+    if not plugin or not skill_id:
+        raise ApiError("PLUGIN_SPEC_MISMATCH", "plugin 与 skill_id 必填",
+                       suggestion="先经 GET /plugins/skills?feature=comic "
+                                  "获取可用技能清单")
+    relpaths = body.get("image_paths")
+    if not isinstance(relpaths, list) or not relpaths:
+        raise ApiError("SYSTEM_PARAM_INVALID", "image_paths 必须是非空列表")
+    from ...services.plugin_runtime import get_plugin_runtime
+    from ...services.plugin_runtime.registry import PluginRuntimeError, sandbox_enabled
+    rt = get_plugin_runtime()
+    try:
+        skills = rt.skills_info("comic")
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion) from exc
+    match = next((s for s in skills
+                  if s["plugin"] == plugin and s["id"] == skill_id), None)
+    if match is None:
+        raise ApiError("PLUGIN_SKILL_NOT_FOUND",
+                       f"漫画技能不存在或已停用: {plugin}/{skill_id}",
+                       suggestion="刷新插件技能清单后重试")
+    entry_trust = match.get("trust", "")
+    if entry_trust == "user_source" and sandbox_enabled():
+        raise ApiError(
+            "PLUGIN_IMAGE_SANDBOX_UNSUPPORTED",
+            f"含源码档（沙箱）插件暂不支持图像技能: {plugin}",
+            suggestion="图像技能需出厂或纯数据档插件；或等沙箱 IPC "
+                       "升级后开放")
+    images = await run_blocking(_read_skill_images,
+                                [str(p) for p in relpaths])
+    run_dir = f"skill-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    try:
+        result = await rt.invoke(
+            plugin,
+            {"kind": "skill", "skill_id": skill_id, "feature": "comic",
+             "text": str(body.get("text") or ""),
+             "images": images},
+            save_dirname=run_dir, timeout_s=_COMIC_SKILL_TIMEOUT_S)
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion) from exc
+    saved = result.get("saved_files") if isinstance(result, dict) else None
+    out_dir = result.get("output_dir") if isinstance(result, dict) else None
+    urls = []
+    if isinstance(saved, list) and out_dir:
+        for name in saved:
+            rel = Path(out_dir).resolve().relative_to(
+                DATA_DIR.resolve()) / str(name)
+            urls.append(str(rel).replace("\\", "/"))
+    if not urls:
+        # 插件未产出帧：文本结果如实透出（如纯分析类技能）
+        data = result.get("data") if isinstance(result, dict) else None
+        data = data if isinstance(data, dict) else {}
+        text_out = data.get("text") or data.get("output")
+        return ok({"plugin": plugin, "skill_id": skill_id,
+                   "title": match.get("title", ""),
+                   "image_urls": [],
+                   "text": str(text_out or "")[:8000] or "（无输出）"})
+    return ok({"plugin": plugin, "skill_id": skill_id,
+               "title": match.get("title", ""),
+               "image_urls": urls, "text": ""})
 
 
 # ═══════════════════════════════════════════════════════════════════

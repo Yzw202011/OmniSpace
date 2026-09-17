@@ -12,10 +12,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, BookOpenText, Download, Loader2, Plus, Sparkles, Trash2, Upload, UserPlus, Wand2, X,
+  ArrowLeft, BookOpenText, Download, Loader2, Plus, Puzzle, Sparkles, Trash2, Upload, UserPlus, Wand2, X,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import * as mangaApi from '@/services/mangaApi';
+import { invokeComicSkill, listSkills } from '@/services/pluginApi';
+import type { ComicSkillResult, PluginSkillInfo } from '@/services/pluginApi';
 import {
   ART_STYLES, type ComicAsset, type ComicProject, type KeyframeItem,
   type PanelBubble, type StoryboardRow,
@@ -61,6 +63,46 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const [batchRunning, setBatchRunning] = useState(false);
   const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState(false);
+  // 插件技能（技能插座批3）：图像技能清单 + 当前行技能会话与结果
+  const [comicSkills, setComicSkills] = useState<PluginSkillInfo[] | null>(null);
+  const [skillRowId, setSkillRowId] = useState<string | null>(null);
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [skillResult, setSkillResult] = useState<{ row: string; result: ComicSkillResult } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listSkills('comic')
+      .then((list) => {
+        if (!cancelled) setComicSkills(list);
+      })
+      .catch((err: unknown) => {
+        reportBgError('comic.skills.load', err);
+        if (!cancelled) setComicSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 跑本格图像技能：输入=该格关键帧图；产出独立落盘，不覆盖原图 */
+  const runComicSkill = async (rowId: string, s: PluginSkillInfo) => {
+    const kf = kfByRow[rowId];
+    if (!kf || skillBusy) return;
+    setSkillBusy(true);
+    try {
+      const result = await invokeComicSkill({
+        plugin: s.plugin,
+        skill_id: s.id,
+        image_paths: [kf.file_path],
+      });
+      setSkillResult({ row: rowId, result });
+      setSkillRowId(null);
+    } catch (err) {
+      showToast(getErrorMessage(err, '插件技能执行失败'), 'error');
+    } finally {
+      setSkillBusy(false);
+    }
+  };
 
   // 新建角色表单（四视图，1~3 分钟）
   const [charFormOpen, setCharFormOpen] = useState(false);
@@ -896,6 +938,16 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                         {generating || batchRunning ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />}
                         {kf ? '重新生成' : '生成画面'}
                       </button>
+                      {comicSkills && comicSkills.length > 0 && kf && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          title="插件技能：用本格画面跑插件图像处理；产图为新版本，不覆盖原图"
+                          onClick={() => setSkillRowId(row.id)}
+                        >
+                          <Puzzle size={14} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
@@ -1180,6 +1232,65 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
               </button>
               <button type="button" className="btn btn-primary" onClick={() => void regenerateAll()}>
                 <Sparkles size={14} /> 开始重生（{rows.length} 格）
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 插件技能选择（技能插座批3）：按格调用，产出为新版本 */}
+      {skillRowId && comicSkills && comicSkills.length > 0 && (
+        <Modal title="插件技能（本格画面）" onClose={() => !skillBusy && setSkillRowId(null)} width={480}>
+          <div className="flex flex-col gap-3">
+            <p className="text-sm opacity-70">
+              用本格已生成的画面跑插件图像处理。产出图独立落盘（不覆盖原图）。
+            </p>
+            <div className="flex flex-col gap-2">
+              {comicSkills.map((s) => (
+                <button
+                  key={`${s.plugin}/${s.id}`}
+                  type="button"
+                  className="btn btn-ghost btn-sm justify-start border border-white/15"
+                  disabled={skillBusy}
+                  onClick={() => void runComicSkill(skillRowId, s)}
+                >
+                  {skillBusy ? <Loader2 size={14} className="spin" /> : <Puzzle size={14} />}
+                  <span>{s.title}</span>
+                  <span className="ml-auto text-xs opacity-50">{s.trust_label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 插件技能产出（批3）：结果图/文本展示，原图不动 */}
+      {skillResult && (
+        <Modal title={`插件技能产出 · ${skillResult.result.title || skillResult.result.skill_id}`} onClose={() => setSkillResult(null)} width={720}>
+          <div className="flex flex-col gap-3">
+            {skillResult.result.image_urls.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {skillResult.result.image_urls.map((u) => (
+                  <img
+                    key={u}
+                    src={mangaApi.getMediaUrl(u)}
+                    alt="插件技能产出"
+                    className="w-full rounded border border-white/10"
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm opacity-70">该技能未产出图像（文本结果如下）。</p>
+            )}
+            {skillResult.result.text && (
+              <pre className="max-h-48 overflow-auto rounded bg-black/30 p-2 text-xs whitespace-pre-wrap">
+                {skillResult.result.text}
+              </pre>
+            )}
+            <p className="text-xs opacity-50">产出为独立文件，本格原图未被改动。</p>
+            <div className="flex justify-end">
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setSkillResult(null)}>
+                关闭
               </button>
             </div>
           </div>

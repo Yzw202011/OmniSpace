@@ -1546,7 +1546,8 @@ def video_task_list(project_id: str = Query("", description="项目ID"),
 # 允许回读的 DATA_DIR 子目录白名单（零信任：仅产物目录）
 _MEDIA_ALLOWED_DIRS = ("comic_assets", "keyframes",
                        str(Path("generated") / "exports"),
-                       str(Path("generated") / "preview_videos"))
+                       str(Path("generated") / "preview_videos"),
+                       str(Path("plugins") / "output"))
 _MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".webp": "image/webp", ".gif": "image/gif",

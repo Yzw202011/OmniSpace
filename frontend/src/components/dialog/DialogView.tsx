@@ -16,13 +16,16 @@ import type {
 } from 'react';
 import { Button } from '../common/Button';
 import { VirtualList } from '../common/VirtualList';
-import { Paperclip, X, MessageSquare, Flower2, FileText, Loader2 } from 'lucide-react';
+import { Paperclip, X, MessageSquare, Flower2, FileText, Loader2, Puzzle } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import type { ChatMessage } from './MessageBubble';
 import { SessionList } from './SessionList';
 import type { ChatSession } from './SessionList';
 import { useAppStore } from '@/stores/useAppStore';
 import dialogApi from '@/services/dialogApi';
+import { invokeChatSkill, listSkills } from '@/services/pluginApi';
+import type { PluginSkillInfo } from '@/services/pluginApi';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 
 /** 附件（图片 = 多模态理解；文档 = 解析成文本随消息注入） */
 export interface Attachment {
@@ -41,6 +44,14 @@ export interface Attachment {
   /** 解析进行中占位标记（chip 渲染加载态，2026-09-08 反馈闭环） */
   parsing?: boolean;
   size?: number;
+}
+
+/** 插件技能上下文（技能插座批1：随下一条消息单回合注入，即焚不落库） */
+export interface PluginSkillContext {
+  /** 来源标题（气泡标记与 prompt 来源行共用） */
+  title: string;
+  /** 技能产出文本（后端 8K 截断兜底） */
+  text: string;
 }
 
 export interface DialogViewProps {
@@ -88,6 +99,7 @@ export interface DialogViewProps {
   onSend: (
     text: string,
     attachments?: Attachment[],
+    pluginContext?: PluginSkillContext[],
   ) => void | boolean | Promise<void | boolean>;
   /** 停止生成 */
   onStop?: () => void;
@@ -187,6 +199,64 @@ export function DialogView({
     autoEnsureSession();
   }, [quoteRequest]);
 
+  // ---- 插件技能（技能插座批1，方案 docs/插件技能层接线方案-2026-09-17）----
+  // 清单挂载时拉取一次（轻量 GET）；无技能=入口不渲染（优雅置灰语义）
+  const [chatSkills, setChatSkills] = useState<PluginSkillInfo[] | null>(null);
+  const [skillPanel, setSkillPanel] = useState<'closed' | 'list' | 'run'>('closed');
+  const [skillPick, setSkillPick] = useState<PluginSkillInfo | null>(null);
+  const [skillInput, setSkillInput] = useState('');
+  const [skillBusy, setSkillBusy] = useState(false);
+  /** 已就绪、待随下一条消息注入的技能产出（单条；发送即消费） */
+  const [appliedSkill, setAppliedSkill] = useState<PluginSkillContext | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listSkills('chat')
+      .then((list) => {
+        if (!cancelled) setChatSkills(list);
+      })
+      .catch((err: unknown) => {
+        reportBgError('dialog.chatSkills.load', err);
+        if (!cancelled) setChatSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 打开技能面板（处理文本默认取当前输入框内容，可改） */
+  const openSkillPanel = () => {
+    setSkillPick(null);
+    setSkillInput(input.trim());
+    setSkillPanel('list');
+  };
+
+  /** 运行选中的对话技能：产出挂到 appliedSkill，随下一条消息注入 */
+  const runChatSkill = async () => {
+    if (!skillPick || !skillInput.trim() || skillBusy) return;
+    setSkillBusy(true);
+    try {
+      const result = await invokeChatSkill({
+        plugin: skillPick.plugin,
+        skill_id: skillPick.id,
+        text: skillInput,
+      });
+      setAppliedSkill({
+        title: `${result.title || skillPick.title}（${skillPick.plugin}）`,
+        text: result.output,
+      });
+      setSkillPanel('closed');
+      useAppStore
+        .getState()
+        .showToast('插件技能已就绪，将随下一条消息带给 AI', 'success');
+    } catch (err) {
+      useAppStore
+        .getState()
+        .showToast(getErrorMessage(err, '插件技能执行失败'), 'error');
+    } finally {
+      setSkillBusy(false);
+    }
+  };
+
   // 审计 R3-FE4：组件卸载时释放未发送的附件 blob: URL（经 ref 读取最新附件列表）
   const attachmentsRef = useRef<Attachment[]>([]);
   attachmentsRef.current = attachments;
@@ -262,7 +332,8 @@ export function DialogView({
         : `${docBlocks}\n\n请阅读以上文档内容。`;
     }
     const accepted = await onSend(
-      payload, attachments.length > 0 ? attachments : undefined);
+      payload, attachments.length > 0 ? attachments : undefined,
+      appliedSkill ? [appliedSkill] : undefined);
     // 同步拒绝（互斥/无会话等）：输入与附件全保留，用户处理后重发
     // 即可——不吞附件（2026-09-07 二测缺陷：被拒后重发不带附件）
     if (accepted === false) {
@@ -276,6 +347,8 @@ export function DialogView({
     });
     setInput('');
     setAttachments([]);
+    // 技能上下文单回合即焚：随本条消息消费，下一条不再携带
+    setAppliedSkill(null);
     // 重置输入框高度
     if (inputRef.current) inputRef.current.style.height = 'auto';
   }
@@ -694,6 +767,112 @@ export function DialogView({
             </div>
           ) : null}
 
+          {/* 已就绪的插件技能上下文（随下一条消息即焚注入；✕ 移除） */}
+          {appliedSkill ? (
+            <div className="flex mb-2">
+              <div className="flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-sakura-300 bg-sakura-50 text-xs text-sakura-700">
+                <Puzzle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span
+                  className="max-w-72 truncate font-medium"
+                  title={appliedSkill.text.slice(0, 200)}
+                >
+                  {appliedSkill.title} · 已就绪
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAppliedSkill(null)}
+                  aria-label="移除插件技能上下文"
+                  className="w-4 h-4 rounded-full flex items-center justify-center hover:text-red-500"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* 插件技能面板（技能插座批1：显式触发，选技能→处理文本→运行） */}
+          {skillPanel !== 'closed' && chatSkills && chatSkills.length > 0 ? (
+            skillPanel === 'list' ? (
+              <div className="mb-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] shadow-lg overflow-hidden">
+                <div className="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] border-b border-[var(--color-input-border)]">
+                  插件技能（产出将随下一条消息带给 AI 参考）
+                </div>
+                {chatSkills.map((s) => (
+                  <button
+                    key={`${s.plugin}/${s.id}`}
+                    type="button"
+                    onClick={() => {
+                      setSkillPick(s);
+                      setSkillPanel('run');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-[var(--color-text-primary)] hover:bg-sakura-50 transition-colors"
+                  >
+                    <Puzzle className="w-4 h-4 shrink-0 text-sakura-500" aria-hidden="true" />
+                    <span className="font-medium shrink-0">{s.title}</span>
+                    <span className="text-xs text-[var(--color-text-tertiary)] truncate flex-1">
+                      {s.description}
+                    </span>
+                    <span className="text-[10px] text-[var(--color-text-tertiary)] shrink-0">
+                      {s.trust_label}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSkillPanel('closed')}
+                  className="w-full px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                >
+                  收起
+                </button>
+              </div>
+            ) : (
+              skillPick && (
+                <div className="mb-2 p-3 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] shadow-lg space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Puzzle className="w-4 h-4 text-sakura-500" aria-hidden="true" />
+                    <span className="font-medium">{skillPick.title}</span>
+                    <span className="text-xs text-[var(--color-text-tertiary)]">
+                      {skillPick.plugin} · {skillPick.trust_label}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSkillPanel('list')}
+                      className="ml-auto text-xs text-sakura-600 hover:underline"
+                    >
+                      换一个
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSkillPanel('closed')}
+                      aria-label="关闭技能面板"
+                      className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    rows={3}
+                    placeholder="要处理的文本（默认取输入框内容，可修改）"
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button variant="ghost" onClick={() => setSkillPanel('closed')}>
+                      取消
+                    </Button>
+                    <Button
+                      onClick={() => void runChatSkill()}
+                      disabled={skillBusy || !skillInput.trim()}
+                    >
+                      {skillBusy ? '运行中…' : '运行技能'}
+                    </Button>
+                  </div>
+                </div>
+              )
+            )
+          ) : null}
+
           {/* 斜杠命令补全浮层（CHAT-046） */}
           {cmdVisible && (
             <div
@@ -767,6 +946,23 @@ export function DialogView({
               className="hidden"
               onChange={(e) => void onDocFilesChange(e)}
             />
+
+            {/* 插件技能入口（技能插座批1：无可用技能不渲染——优雅置灰） */}
+            {chatSkills && chatSkills.length > 0 ? (
+              <button
+                type="button"
+                onClick={openSkillPanel}
+                aria-label="插件技能"
+                title="插件技能（产出随下一条消息带给 AI）"
+                className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors ${
+                  skillPanel !== 'closed'
+                    ? 'bg-sakura-50 text-sakura-600'
+                    : 'text-[var(--color-text-secondary)] hover:bg-sakura-50 hover:text-sakura-600'
+                }`}
+              >
+                <Puzzle className="w-4 h-4" />
+              </button>
+            ) : null}
 
             {/* 输入框（输入即自动创建会话：无会话时不再禁用，
                 输入/粘贴/语音首内容自动新建，2026-08-23） */}

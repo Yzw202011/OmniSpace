@@ -13,7 +13,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { DialogView } from './DialogView';
-import type { Attachment } from './DialogView';
+import type { Attachment, PluginSkillContext } from './DialogView';
 import type { ChatSession } from './SessionList';
 import type { ChatMessage } from './MessageBubble';
 import { useDialogStore } from '@/stores/useDialogStore';
@@ -54,6 +54,7 @@ function mapMessage(m: DialogMessage, isStreaming: boolean): ChatMessage {
     reasoningMs: m.reasoning_ms,
     images: m.images,
     web_refs: m.web_refs,
+    pluginSkill: m.plugin_skill,
   };
 }
 
@@ -214,7 +215,8 @@ export default function DialogPage() {
   );
 
   const handleSend = useCallback(
-    (text: string, attachments?: Attachment[]) => {
+    (text: string, attachments?: Attachment[],
+     pluginContext?: PluginSkillContext[]) => {
       // 2026-09-07 附件分型：仅图片类走 images 多模态通道；
       // 文档类已在 DialogView.send 拼进 text（📎 标记块）。
       // 返回值透传（false=同步拒绝，DialogView 保留输入与附件）
@@ -223,7 +225,8 @@ export default function DialogPage() {
         .map((a) => a.dataUrl)
         .filter((d): d is string => Boolean(d));
       return sendMessage(
-        text, images && images.length > 0 ? images : undefined);
+        text, images && images.length > 0 ? images : undefined,
+        pluginContext);
     },
     [sendMessage],
   );

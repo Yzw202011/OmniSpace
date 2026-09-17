@@ -174,7 +174,7 @@ export interface DialogState {
    * @param images  关联图片（多模态）
    * @returns 是否成功发起（功能互斥被阻断时返回 false）
    */
-  sendMessage: (content: string, images?: string[]) => Promise<boolean>;
+  sendMessage: (content: string, images?: string[], pluginContext?: { title: string; text: string }[]) => Promise<boolean>;
   /** 停止当前会话进行中的流式生成 */
   stopGenerate: () => Promise<void>;
   /** 中断流式连接（前端主动） */
@@ -323,7 +323,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     set({ messages: [] });
   },
 
-  sendMessage: async (content, images) => {
+  sendMessage: async (content, images, pluginContext) => {
     const { currentSession } = get();
     if (!currentSession) {
       useAppStore.getState().showToast('请先选择或创建会话', 'warning');
@@ -353,7 +353,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
 
     const sessionId = currentSession.id;
 
-    // 1. 追加用户消息
+    // 1. 追加用户消息（plugin_skill=本地气泡标注，随 plugin_context 即焚）
     const userMsg: DialogMessage = {
       id: tempId(),
       session_id: sessionId,
@@ -361,6 +361,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       content,
       created_at: Date.now(),
       images,
+      plugin_skill: pluginContext?.map((c) => c.title).join('、'),
     };
     // 2. 占位 assistant 消息（流式逐 token 追加）
     const assistantId = tempId();
@@ -648,6 +649,10 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       temperature,
       context_tokens: contextTokens,
       thinking,
+      // 技能插座批1：插件技能产出单回合注入（后端 8K 截断/单条闸）
+      plugin_context: pluginContext && pluginContext.length > 0
+        ? pluginContext
+        : undefined,
     });
 
     return true;

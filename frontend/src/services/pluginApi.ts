@@ -83,3 +83,49 @@ export async function disablePlugin(name: string): Promise<void> {
 export async function deletePlugin(name: string): Promise<void> {
   await del<unknown>(`/plugins/${encodeURIComponent(name)}`);
 }
+
+/* --------------------- 插件技能（技能插座批1，2026-09-17） --------------------- */
+
+/** 技能索引项（对齐后端 registry.skills_info 返回字段） */
+export const PluginSkillSchema = z
+  .object({
+    plugin: z.string(),
+    id: z.string(),
+    feature: z.string(),
+    title: z.string(),
+    description: z.string().optional().default(''),
+    input: z.string().optional().default('text'),
+    trust: z.string(),
+    trust_label: z.string(),
+  })
+  .passthrough();
+export type PluginSkillInfo = z.infer<typeof PluginSkillSchema>;
+
+/** 按功能页拉技能清单（chat/novel/comic/manga；轻量无加载副作用） */
+export async function listSkills(feature: string): Promise<PluginSkillInfo[]> {
+  const res = await get<unknown>('/plugins/skills', { feature });
+  const raw = (res as { skills?: unknown } | null)?.skills ?? [];
+  return parseWith(z.array(PluginSkillSchema), raw, '插件技能清单');
+}
+
+/** 对话技能执行结果（POST /dialog/skill） */
+export const ChatSkillResultSchema = z
+  .object({
+    plugin: z.string(),
+    skill_id: z.string(),
+    title: z.string().optional().default(''),
+    output: z.string(),
+  })
+  .passthrough();
+export type ChatSkillResult = z.infer<typeof ChatSkillResultSchema>;
+
+/** 调用对话插件技能（文本进文本出，显式触发；产出由前端作 plugin_context 注入） */
+export async function invokeChatSkill(payload: {
+  plugin: string;
+  skill_id: string;
+  text: string;
+  timeout_s?: number;
+}): Promise<ChatSkillResult> {
+  const res = await post<unknown>('/dialog/skill', payload);
+  return parseWith(ChatSkillResultSchema, res, '插件技能执行');
+}

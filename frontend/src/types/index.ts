@@ -345,6 +345,8 @@ export interface DialogMessage {
   tokens?: number;
   /** 联网搜索来源（web_refs 事件；仅实时流式消息携带，回答带【n】引用标注） */
   web_refs?: WebRef[];
+  /** 已应用的插件技能标题（技能插座批1：仅本地气泡标注，不落库、单回合即焚） */
+  plugin_skill?: string;
 }
 
 /** 对话会话 */

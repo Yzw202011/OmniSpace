@@ -63,6 +63,8 @@ from ..services.inference.dialog_engine import (
     strip_think_tags,
 )
 from ..services.offload import run_blocking, sync_core
+from ..services.plugin_runtime import get_plugin_runtime
+from ..services.plugin_runtime.registry import PluginRuntimeError
 
 if TYPE_CHECKING:
     from ..services.flow_trace import Flow
@@ -787,6 +789,8 @@ async def dialog_send(request: Request,
         max_new_tokens = max(max_new_tokens, 2048)  # 思考通道独立预算
 
     images = _decode_images(body.get("images") or body.get("attachments"))
+    # 技能插座批1：插件技能结果（前端技能卡片产出）单回合注入
+    plugin_ctx = _parse_plugin_context(body.get("plugin_context"))
 
     engine = get_dialog_engine()
     lock = None
@@ -887,6 +891,16 @@ async def dialog_send(request: Request,
             # 联网搜索 v1（默认关；意图判定命中才搜，资料块并入上下文）
             knowledge_text, web_refs = await _web_search_augment(
                 message, knowledge_text)
+            # 技能插座批1：插件技能产出并入参考上下文（即焚——只进
+            # 本次 prompt，不落库、不进会话历史；气泡标记由前端凭
+            # 发送时携带的 plugin_context 展示）
+            if plugin_ctx:
+                plugin_block = "\n\n".join(
+                    f"【{c['title']}】（插件技能产出，供参考）\n{c['text']}"
+                    for c in plugin_ctx)
+                knowledge_text = (knowledge_text + "\n\n" + plugin_block
+                                  if knowledge_text else plugin_block)
+                n.output(f"插件技能注入 ×{len(plugin_ctx)}")
             # 组装上下文（系统 Prompt + 注入 + 历史 + 当前输入）；
             # 深度思考模式追加四步框架引导（THINKING_SYSTEM_SUFFIX）。
             # 2026-09-10 用户报「你好→一大段无关」根修：vLLM 后端
@@ -973,6 +987,87 @@ async def dialog_send(request: Request,
         # 流式路径下锁由 SSE 生成器持有至流结束；其余路径在此释放
         if not lock_handed_off:
             await lock.release("dialog")
+
+
+# ── 插件技能（技能插座批1，方案 docs/插件技能层接线方案-2026-09-17）──
+_PLUGIN_CONTEXT_MAX_ITEMS = 1
+_PLUGIN_CONTEXT_MAX_CHARS = 8000
+
+
+def _parse_plugin_context(raw: Any) -> list[dict[str, str]]:
+    """plugin_context 单回合注入解析（≤1 条、8K 截断、即焚不落库）。"""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise ApiError("SYSTEM_PARAM_INVALID", "plugin_context 必须是列表")
+    out: list[dict[str, str]] = []
+    for item in raw[:_PLUGIN_CONTEXT_MAX_ITEMS]:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        title = str(item.get("title") or "插件技能").strip()[:100]
+        out.append({"title": title, "text": text[:_PLUGIN_CONTEXT_MAX_CHARS]})
+    return out
+
+
+@router.post("/dialog/skill")
+async def dialog_skill(body: dict = Body(default_factory=dict)
+                       ) -> dict[str, Any]:
+    """对话插件技能（技能插座批1）：文本进文本出，显式触发（D1=A）。
+
+    请求: {"plugin": str, "skill_id": str, "text": str, "timeout_s"?: float}
+    产出由前端作为 plugin_context 随下一次 /chat/stream|/dialog/send
+    单回合注入（带可见标记，不落库）。
+    """
+    plugin = str(body.get("plugin") or "").strip()
+    skill_id = str(body.get("skill_id") or "").strip()
+    text = str(body.get("text") or "").strip()
+    if not plugin or not skill_id:
+        raise ApiError("PLUGIN_SPEC_MISMATCH", "plugin 与 skill_id 必填",
+                       suggestion="先经 GET /plugins/skills?feature=chat "
+                                  "获取可用技能清单")
+    if not text:
+        raise ApiError("SYSTEM_PARAM_INVALID", "text 不能为空")
+    if len(text) > DIALOG_MAX_INPUT_CHARS:
+        raise ApiError(40002,
+                       f"技能输入过长（{len(text)} 字符），"
+                       f"上限 {DIALOG_MAX_INPUT_CHARS} 字符")
+    try:
+        timeout_s = min(max(float(body.get("timeout_s", 60.0)), 5.0), 180.0)
+    except (TypeError, ValueError):
+        timeout_s = 60.0
+    rt = get_plugin_runtime()
+    # 技能存在性校验（enabled 面 × feature=chat；D3=A 出厂面为空）
+    try:
+        skills = rt.skills_info("chat")
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion) from exc
+    match = next((s for s in skills
+                  if s["plugin"] == plugin and s["id"] == skill_id), None)
+    if match is None:
+        raise ApiError("PLUGIN_SKILL_NOT_FOUND",
+                       f"对话技能不存在或已停用: {plugin}/{skill_id}",
+                       suggestion="刷新插件技能清单后重试")
+    try:
+        result = await rt.invoke(
+            plugin, {"kind": "skill", "skill_id": skill_id,
+                     "feature": "chat", "text": text},
+            timeout_s=timeout_s)
+    except PluginRuntimeError as exc:
+        raise ApiError(exc.code, exc.message,
+                       suggestion=exc.suggestion) from exc
+    data = result.get("data") if isinstance(result, dict) else None
+    data = data if isinstance(data, dict) else {}
+    output = data.get("text") or data.get("output")
+    if not isinstance(output, str) or not output.strip():
+        # 插件未按 text/output 约定出键：JSON 概要兜底（截 8K）
+        output = json.dumps(data, ensure_ascii=False)[:8000] or "（无输出）"
+    return ok({"plugin": plugin, "skill_id": skill_id,
+               "title": match.get("title", ""),
+               "output": output})
 
 
 @router.post("/chat/stream")
@@ -1803,6 +1898,13 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         return
 
     images = _decode_images(data.get("images"))
+    # 技能插座批1：插件技能结果单回合注入（前端 WS 主路径；与
+    # POST /dialog/send 同一道解析闸）
+    try:
+        plugin_ctx = _parse_plugin_context(data.get("plugin_context"))
+    except ApiError as exc:
+        await _ws_send_error(websocket, exc.code, exc.message)
+        return
     engine = get_dialog_engine()
 
     # 功能互斥锁（规格 §6.1）＋ 对话排队（2026-09-08 落地）：
@@ -1966,6 +2068,15 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         # web_refs 事件透出供前端来源卡片渲染）
         knowledge_text, web_refs = await _web_search_augment(
             content, knowledge_text)
+        # 技能插座批1：插件技能产出并入参考上下文（即焚——只进本次
+        # prompt，不落库；与 /dialog/send 注入块同款）
+        if plugin_ctx:
+            plugin_block = "\n\n".join(
+                f"【{c['title']}】（插件技能产出，供参考）\n{c['text']}"
+                for c in plugin_ctx)
+            knowledge_text = (knowledge_text + "\n\n" + plugin_block
+                              if knowledge_text else plugin_block)
+            log.info("对话插件技能注入 ×%d sid=%s", len(plugin_ctx), sid)
         history = _load_history(sid)
         messages = engine.build_context(
             content, history=history, knowledge_text=knowledge_text,

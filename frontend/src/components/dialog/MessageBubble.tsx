@@ -22,6 +22,7 @@ import {
   FileSearch,
   Globe,
   Lightbulb,
+  Puzzle,
   Scale,
   type LucideIcon,
 } from 'lucide-react';
@@ -57,6 +58,8 @@ export interface ChatMessage {
   reasoningMs?: number;
   /** 错误文案 */
   errorText?: string;
+  /** 已应用的插件技能标题（技能插座批1：用户气泡本地标注，即焚不回放） */
+  pluginSkill?: string;
   /** 引用消息 */
   quote?: { id: string; content: string } | null;
   /** 用户消息附带图片（多模态，dataUrl 格式） */
@@ -375,6 +378,16 @@ export const MessageBubble = memo(function MessageBubble({
           ) : null}
           <span>{formatTime(message.timestamp)}</span>
         </div>
+
+        {/* 已应用插件技能标记（技能插座批1：诚实可见——注入了什么） */}
+        {isUser && message.pluginSkill ? (
+          <div className="flex items-center gap-1 mb-1 text-xs text-sakura-600">
+            <Puzzle size={12} aria-hidden="true" />
+            <span className="truncate max-w-full" title={message.pluginSkill}>
+              已应用插件技能：{message.pluginSkill}
+            </span>
+          </div>
+        ) : null}
 
         {/* 引用块 */}
         {message.quote ? (

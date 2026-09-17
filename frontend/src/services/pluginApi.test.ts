@@ -19,11 +19,12 @@ vi.mock('./api', () => ({
   isApiError: vi.fn(() => false),
 }));
 
-import { get, upload } from './api';
+import { get, post, upload } from './api';
 import * as pluginApi from './pluginApi';
 import type { ApiError } from '@/types';
 
 const mockedGet = vi.mocked(get);
+const mockedPost = vi.mocked(post);
 const mockedUpload = vi.mocked(upload);
 
 /** 提取 parseWith 抛出的 ApiError（异步版：接住 Promise 拒绝） */
@@ -106,6 +107,60 @@ describe('importPlugin multipart 组装', () => {
     mockedUpload.mockResolvedValue({ name: 123 }); // name 必须是字符串
     const pkg = new File([new Uint8Array([1])], 'demo.CuteMamen');
     const err = await extractApiError(() => pluginApi.importPlugin(pkg, false));
+    expect((err as ApiError).code).toBe('FRONTEND_PARSE_ERROR');
+  });
+});
+
+/* ---------------- 插件技能（技能插座批1，2026-09-17） ---------------- */
+
+describe('listSkills', () => {
+  it('合法载荷通过并解包 skills 数组（feature 透传为查询参数）', async () => {
+    mockedGet.mockResolvedValue({
+      skills: [{
+        plugin: 'chat-demo', id: 'polish', feature: 'chat',
+        title: '台词润色', description: '润色当段对白',
+        input: 'text', trust: 'user_data', trust_label: '用户·纯数据',
+      }],
+      features: ['chat', 'novel', 'comic', 'manga'],
+    });
+    const list = await pluginApi.listSkills('chat');
+    expect(list).toHaveLength(1);
+    expect(list[0].title).toBe('台词润色');
+    expect(mockedGet).toHaveBeenCalledWith('/plugins/skills', { feature: 'chat' });
+  });
+
+  it('缺必需字段（plugin）抛 FRONTEND_PARSE_ERROR', async () => {
+    mockedGet.mockResolvedValue({ skills: [{ id: 'polish' }] });
+    const err = await extractApiError(() => pluginApi.listSkills('chat'));
+    expect((err as ApiError).code).toBe('FRONTEND_PARSE_ERROR');
+  });
+
+  it('skills 键缺失时按空清单处理（无技能=无入口）', async () => {
+    mockedGet.mockResolvedValue({});
+    const list = await pluginApi.listSkills('chat');
+    expect(list).toEqual([]);
+  });
+});
+
+describe('invokeChatSkill', () => {
+  it('合法载荷通过且请求体原样携带 plugin/skill_id/text', async () => {
+    mockedPost.mockResolvedValue({
+      plugin: 'chat-demo', skill_id: 'polish',
+      title: '台词润色', output: '已处理: 你好',
+    });
+    const result = await pluginApi.invokeChatSkill({
+      plugin: 'chat-demo', skill_id: 'polish', text: '你好',
+    });
+    expect(result.output).toBe('已处理: 你好');
+    expect(mockedPost).toHaveBeenCalledWith('/dialog/skill', {
+      plugin: 'chat-demo', skill_id: 'polish', text: '你好',
+    });
+  });
+
+  it('缺 output（必需）抛 FRONTEND_PARSE_ERROR', async () => {
+    mockedPost.mockResolvedValue({ plugin: 'chat-demo', skill_id: 'polish' });
+    const err = await extractApiError(() =>
+      pluginApi.invokeChatSkill({ plugin: 'chat-demo', skill_id: 'polish', text: 'hi' }));
     expect((err as ApiError).code).toBe('FRONTEND_PARSE_ERROR');
   });
 });

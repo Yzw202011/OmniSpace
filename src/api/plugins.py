@@ -240,6 +240,9 @@ _FORBIDDEN_MODULES = {
     "subprocess", "socket", "urllib", "urllib3", "requests", "http",
     "httpx", "ctypes", "pickle", "cpickle", "multiprocessing",
     "importlib", "webbrowser", "ftplib", "smtplib", "telnetlib",
+    # 2026-09-17 终态=A 补口（审计实证的绕过向量；黑名单仍属防呆层，
+    # 真正的隔离墙=含源码档子进程沙箱 sandbox.py）：
+    "builtins", "shutil", "runpy", "codeop", "code",
 }
 _BARE_FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "open"}
 # 属性调用黑名单：名字本身几乎不可能是良性方法（防 os.system/Path.unlink 等）
@@ -249,6 +252,8 @@ _STRICT_ATTR_FORBIDDEN = {
     "spawnl", "spawnle", "spawnv", "spawnve", "fork", "forkpty",
     "kill", "killpg", "write_text", "write_bytes", "read_text",
     "read_bytes",
+    # 2026-09-17 补口：io.open / os.remove / os.posix_spawn 系
+    "remove", "posix_spawn", "posix_spawnp", "spawn", "terminate",
 }
 
 

@@ -36,6 +36,7 @@ from .loader import (
     load_plugin_module,
     read_cutemamen_pkg,
 )
+from .sandbox import sandbox_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +476,11 @@ class PluginRuntime:
                 "PLUGIN_RAM_LOW",
                 f"系统可用内存不足（{avail_gb:.1f}GB < {MIN_FREE_RAM_GB}GB）",
                 "关闭其他大内存任务后重试；或用更低分辨率档")
+        # 分级隔离（2026-09-17 终态=A，用户拍板）：含源码档走子进程
+        # 沙箱——宿主进程不 exec 其源码（ensure_loaded 一并跳过），
+        # 超时/内存超限可硬杀、崩溃不连坐后端；出厂/纯数据档零改动
+        if entry.trust == "user_source" and sandbox_enabled():
+            return await self._invoke_sandboxed(entry, spec, timeout_s)
         self.ensure_loaded(name)
         event = {"topic": "invoke", "data": spec}
         # 目录名净化（纵深防御：API 层已剥，运行时层再剥一次——
@@ -504,6 +510,31 @@ class PluginRuntime:
                 "PLUGIN_INVOKE_FAILED", f"插件执行失败: {exc}",
                 "插件已标记故障态；unload 后重新 load 可复位") from exc
         return result
+
+    async def _invoke_sandboxed(self, entry: _PluginEntry,
+                                spec: dict[str, Any],
+                                timeout_s: float) -> dict[str, Any]:
+        """含源码档的沙箱 invoke：子进程执行 + 结果按进程内同构出线。
+
+        事件/结果只走 JSON（ndarray 不直传——帧类插件属出厂档进程内
+        直跑，不受此限）；失败统一置 faulty 与进程内路径同语义。
+        """
+        from .sandbox import SandboxError, invoke_sandboxed
+        event = {"topic": "invoke", "data": spec}
+        try:
+            raw = await run_blocking(
+                lambda: invoke_sandboxed(
+                    entry.name, entry.source_py, entry.pkg_path, event,
+                    timeout_s=min(float(timeout_s), 600.0)))
+        except SandboxError as exc:
+            with entry.lock:
+                entry.state = STATE_FAULTY
+                entry.last_error = str(exc)
+            raise PluginRuntimeError(
+                "PLUGIN_SANDBOX_FAILED", f"沙箱插件执行失败: {exc}",
+                "插件已标记故障态；停用→启用（或 unload）可复位") from None
+        raw = raw if isinstance(raw, dict) else {"value": raw}
+        return {"data": _passthrough_data(raw), "sandboxed": True}
 
     def _invoke_sync(self, entry: _PluginEntry, event: dict[str, Any],
                      save_dir: Path | None) -> dict[str, Any]:

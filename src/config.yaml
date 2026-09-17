@@ -16,6 +16,13 @@ server:
 # 观察期实证（09-13~09-17：5166 任务流零事故零回退）见
 # docs/audit/round-2026-09-16-root-cause-audit.md。回退=git revert。
 
+# 插件安全模型终态（2026-09-17 用户拍板=A 分级隔离）：含源码档
+# （user_source）invoke 走子进程沙箱（超时硬杀/内存上限/崩溃不连坐
+# 后端，sandbox_host.py）；出厂/纯数据档维持进程内。false=应急
+# 回退闸（含源码档回进程内信任，重启生效）。
+plugins:
+  sandbox: true
+
 scheduler:
   sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）
   # 分级采样间隔（秒）：低频指标不随 tick 重复采集，降低 psutil/NVML 开销

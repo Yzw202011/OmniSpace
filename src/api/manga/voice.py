@@ -297,15 +297,66 @@ async def voices_upload(name: str = Query("自定义音色"),
 
 @router.post("/manga/voices/clone")
 async def voices_clone(name: str = Query("克隆音色"),
-                       file: UploadFile = File(...)) -> dict[str, Any]:
-    """音色克隆（COMIC-053/054）。
+                       file: UploadFile = File(...),
+                       text: str = Query("你好，这是我的克隆音色。",
+                                         description="试听合成文本"),
+                       ) -> dict[str, Any]:
+    """音色克隆（COMIC-053/054，大四件④ 2026-09-17 真实现）。
 
-    GPT-SoVITS 权重随包但缺官方推理代码包与 pypinyin（中文 G2P），
-    如实返回 VOICE_CLONE_UNAVAILABLE（DEGRADED 转有依据错误），
-    不产生伪克隆结果。
+    F5-TTS 零样本克隆：上传 5-10 秒参考音频 → 克隆音色 → 用试听文本
+    合成语音。不可用时诚实降级（VOICE_CLONE_UNAVAILABLE），不产生
+    伪克隆结果。
     """
-    raise ApiError(
-        "VOICE_CLONE_UNAVAILABLE",
-        detail={"hint": "上传音频已接收，但 GPT-SoVITS 推理代码包未随包，"
-                        "无法执行真实音色克隆；请使用预置音色或 voices/upload"},
-        suggestion="安装 GPT-SoVITS 官方推理包与 pypinyin 后重试")
+    from ...services.inference.voice_clone_engine import clone_voice_to_speech, f5_tts_available
+
+    if not f5_tts_available():
+        raise ApiError(
+            "VOICE_CLONE_UNAVAILABLE",
+            detail={"hint": "F5-TTS 未安装（pip install f5-tts 后重启"
+                            "后端可启用音色克隆）"},
+            suggestion="执行 pip install f5-tts 并重启 OmniSpace；"
+                       "或使用预置音色 / voices/upload 通道")
+
+    # 保存上传的参考音频
+    raw = await file.read()
+    if len(raw) < 1024:
+        raise ApiError("VOICE_CLONE_REF_TOO_SHORT",
+                       "参考音频过短（<1KB），请上传 5-10 秒清晰人声")
+    suffix = Path(file.filename or "ref.wav").suffix or ".wav"
+    ref_dir = DATA_DIR / "voice_clones"
+    ref_dir.mkdir(parents=True, exist_ok=True)
+    ref_path = ref_dir / f"ref_{uuid.uuid4().hex[:8]}{suffix}"
+    ref_path.write_bytes(raw)
+
+    # 克隆推理（run_blocking 卸载，不卡事件循环）
+    from ...services.offload import run_blocking
+    try:
+        result = await run_blocking(
+            clone_voice_to_speech,
+            text, str(ref_path), "", "", speed=1.0)
+    except Exception as exc:
+        raise ApiError("VOICE_CLONE_FAILED",
+                       f"音色克隆推理失败: {exc}",
+                       suggestion="检查参考音频质量（清晰人声、5-10 秒、"
+                                  "无背景噪音）后重试") from exc
+
+    # 落库（克隆音色登记）
+    voice_id = uuid.uuid4().hex[:12]
+    db = get_db_safe()
+    if db is not None:
+        try:
+            _seed_voices(db)
+            db.insert("voice_profiles", {
+                "id": voice_id, "name": name[:100], "character_id": "",
+                "is_preset": 0,
+                "file_path": str(Path(result["output_path"]).name),
+                "emotion": "克隆", "created_at": _now()})
+        except Exception as exc:  # noqa: BLE001
+            log.warning("克隆音色落库失败: %s", exc)
+
+    return ok({"voice_id": voice_id, "name": name,
+               "cloned": True,
+               "output_path": result["output_path"],
+               "duration_s": result["duration_s"],
+               "ref_audio": str(ref_path),
+               "engine": "f5-tts"})

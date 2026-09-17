@@ -77,7 +77,7 @@ export function SplitProgressBar({ active, startedAt }: SplitProgressBarProps) {
           setInfo({ blocksDone: 0, blocksTotal: 1, mode: res.mode, etaMinutes: res.etaMinutes });
         }
       } catch {
-        /* 轮询失败静默（渐近曲线兜底） */
+        /* silent-intent: 轮询失败静默（渐近曲线兜底） */
       }
     };
     void poll();

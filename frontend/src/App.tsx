@@ -107,7 +107,7 @@ async function triggerModuleResourceRelease(feature: string): Promise<void> {
       }
     }
   } catch {
-    // 后端不可达（离线/启动中）静默，不打扰导航
+    /* silent-intent: 后端不可达（离线/启动中）静默，不打扰导航 */
   }
 }
 
@@ -299,7 +299,7 @@ export function AppShell() {
     try {
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
     } catch {
-      /* 隐私模式写入失败静默 */
+      /* silent-intent: 隐私模式写入失败静默 */
     }
   }, [collapsed]);
 
@@ -355,7 +355,7 @@ export function AppShell() {
             useWarmupStore.getState().begin(targetModel || undefined);
           }
         } catch {
-          // 后端不可达静默
+          /* silent-intent: 后端不可达静默 */
         }
       }
       // AI 绘画预热（2026-08-31，用户需求「跟 AI 对话一样的冷启动弹窗」）：
@@ -376,7 +376,7 @@ export function AppShell() {
             useWarmupStore.getState().begin(undefined, 'paint');
           }
         } catch {
-          // 后端不可达静默
+          /* silent-intent: 后端不可达静默 */
         }
       }
     })();

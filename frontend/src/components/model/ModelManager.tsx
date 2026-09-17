@@ -703,7 +703,7 @@ export const ModelManager: React.FC = () => {
     try {
       setVllmStatus(await getVllmStatus());
     } catch {
-      // 后端未就绪时静默，轮询会自动重试
+      /* silent-intent: 后端未就绪时静默，轮询会自动重试 */
     }
   };
 
@@ -715,7 +715,7 @@ export const ModelManager: React.FC = () => {
         const s = await getVllmStatus();
         if (!cancelled) setVllmStatus(s);
       } catch {
-        // 后端未就绪时静默
+        /* silent-intent: 后端未就绪时静默 */
       }
     };
     void poll();

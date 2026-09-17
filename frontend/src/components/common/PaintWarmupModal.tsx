@@ -84,7 +84,7 @@ export function PaintWarmupModal() {
           errorStreak = 0;
         }
       } catch {
-        /* 后端瞬时不可达：下轮重试 */
+        /* silent-intent: 后端瞬时不可达：下轮重试 */
       }
     }
     void poll();

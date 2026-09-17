@@ -41,7 +41,7 @@ export default function LicenseGate() {
       if (!s.activated) setOpen(true);
       else setOpen(false);
     } catch {
-      /* 后端未就绪时保持现状 */
+      /* silent-intent: 后端未就绪时保持现状 */
     }
   }, []);
 

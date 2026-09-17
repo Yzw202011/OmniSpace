@@ -61,7 +61,7 @@ export function DaliVerse() {
           try {
             revealed = (document.body.innerText || '').includes(CHAT_EMPTY_MARK);
           } catch {
-            /* innerText 不可用（极老内核）静默跳过 */
+            /* silent-intent: innerText 不可用（极老内核）静默跳过 */
           }
         }
         hostRef.current?.classList.toggle('dali-verse--revealed', revealed);

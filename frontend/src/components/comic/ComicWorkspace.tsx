@@ -363,7 +363,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     try {
       setAssets(await mangaApi.listAssets(pid));
     } catch {
-      /* 刷新失败静默，下次加载恢复 */
+      /* silent-intent: 刷新失败静默，下次加载恢复 */
     }
   };
   const chars = useMemo(
@@ -580,7 +580,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
-      // 指针已失活/合成事件时无法捕获——退化为 move/up 事件驱动
+      /* silent-intent: 指针已失活/合成事件时无法捕获——退化为 move/up 事件驱动 */
     }
     bubbleDragRef.current = { rowId, idx };
   };
@@ -635,7 +635,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch {
-      // 合成/失活指针无法捕获——move/up 经气泡本体的共享通道驱动
+      /* silent-intent: 合成/失活指针无法捕获——move/up 经气泡本体的共享通道驱动 */
     }
     bubbleResizeRef.current = { rowId, idx };
   };

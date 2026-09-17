@@ -356,7 +356,7 @@ export const ModuleModelConfig: React.FC = () => {
         const res = await getDialogModels();
         if (!cancelled) setDialogModels(res.models || []);
       } catch {
-        // 后端未就绪：清单空，下拉仅显示当前值
+        /* silent-intent: 后端未就绪：清单空，下拉仅显示当前值 */
       }
       try {
         const st = await getDialogEngineStatus();
@@ -365,7 +365,7 @@ export const ModuleModelConfig: React.FC = () => {
           setDialogEngineReady(st?.state === 'ready');
         }
       } catch {
-        // 引擎状态可选
+        /* silent-intent: 引擎状态可选 */
       }
     })();
     return () => {
@@ -384,7 +384,7 @@ export const ModuleModelConfig: React.FC = () => {
       try {
         await prewarmModel(modelId);
       } catch {
-        // 预热失败静默：进入对话页时 prewarm 链路会重试
+        /* silent-intent: 预热失败静默：进入对话页时 prewarm 链路会重试 */
       } finally {
         setDialogSwitching(false);
       }
@@ -441,7 +441,7 @@ export const ModuleModelConfig: React.FC = () => {
           });
         }
       } catch {
-        // 后端未就绪：下拉仅显示当前保存值
+        /* silent-intent: 后端未就绪：下拉仅显示当前保存值 */
       }
     })();
     return () => {
@@ -480,7 +480,7 @@ export const ModuleModelConfig: React.FC = () => {
         const res = await getModuleModelConfig();
         if (!cancelled) setScopeSlots(res.slots || []);
       } catch {
-        // 后端未就绪：范围按钮不渲染（行内现状不受影响）
+        /* silent-intent: 后端未就绪：范围按钮不渲染（行内现状不受影响） */
       }
     })();
     return () => {

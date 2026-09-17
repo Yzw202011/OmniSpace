@@ -363,7 +363,7 @@ export const useNovelStore = create<NovelState>((set, get) => ({
         });
       }
     } catch {
-      /* 轮询失败静默（下个周期再试） */
+      /* silent-intent: 轮询失败静默（下个周期再试） */
     }
   },
 

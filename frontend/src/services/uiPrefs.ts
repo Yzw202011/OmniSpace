@@ -31,11 +31,11 @@ export async function replayUiPrefs(): Promise<void> {
       try {
         localStorage.setItem(key, JSON.stringify(value));
       } catch {
-        /* 隐私模式写入失败：本地值兜底 */
+        /* silent-intent: 隐私模式写入失败：本地值兜底 */
       }
     }
   } catch {
-    /* 后端未就绪/超时：按本地 localStorage 值启动（原行为） */
+    /* silent-intent: 后端未就绪/超时：按本地 localStorage 值启动（原行为） */
   }
 }
 

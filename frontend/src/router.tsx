@@ -133,7 +133,7 @@ export function saveSidebarOrder(routes: string[]): void {
     localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(routes));
     mirrorPref(SIDEBAR_ORDER_KEY, routes); // 界面偏好镜像
   } catch {
-    /* 写入失败静默（隐私模式） */
+    /* silent-intent: 写入失败静默（隐私模式） */
   }
 }
 

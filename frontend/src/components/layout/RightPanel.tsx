@@ -70,7 +70,7 @@ function loadWidth(): number {
       return Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, n));
     }
   } catch {
-    /* 隐私模式读取失败静默 */
+    /* silent-intent: 隐私模式读取失败静默 */
   }
   return PANEL_DEFAULT_W;
 }
@@ -554,7 +554,7 @@ function LearningPanel() {
           setSession(s);
         }
       } catch {
-        /* 后端未就绪保持上次快照 */
+        /* silent-intent: 后端未就绪保持上次快照 */
       }
       try {
         const k = await learningApi.getKnowledgeStats();
@@ -562,7 +562,7 @@ function LearningPanel() {
           setKnowledgeCount(k.total ?? null);
         }
       } catch {
-        /* 同上 */
+        /* silent-intent: 同上 */
       }
       try {
         const models = await listLearnModels();
@@ -570,7 +570,7 @@ function LearningPanel() {
           setLoraList(models.map((m) => ({ name: m.name, ready: m.ready })));
         }
       } catch {
-        /* 同上 */
+        /* silent-intent: 同上 */
       }
     }
 
@@ -838,7 +838,7 @@ export function RightPanel() {
       localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
       mirrorPref(PANEL_COLLAPSED_KEY, collapsed); // 界面偏好镜像
     } catch {
-      /* 隐私模式写入失败静默 */
+      /* silent-intent: 隐私模式写入失败静默 */
     }
   }, [collapsed]);
 
@@ -848,7 +848,7 @@ export function RightPanel() {
       localStorage.setItem(PANEL_WIDTH_KEY, String(width));
       mirrorPref(PANEL_WIDTH_KEY, width); // 界面偏好镜像
     } catch {
-      /* 隐私模式写入失败静默 */
+      /* silent-intent: 隐私模式写入失败静默 */
     }
   }, [width]);
 

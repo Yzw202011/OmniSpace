@@ -112,7 +112,7 @@ export function BottomStatusBar() {
           setKnowledgeCount(stats.total ?? null);
         }
       } catch {
-        /* 后端未就绪保持上次快照 */
+        /* silent-intent: 后端未就绪保持上次快照 */
       }
       // LoRA 版本：取学习模型清单中最新一个可训练基座/LoRA 名
       try {
@@ -122,7 +122,7 @@ export function BottomStatusBar() {
           setLoraVersion(ready.length > 0 ? ready[ready.length - 1].name : '--');
         }
       } catch {
-        /* 同上 */
+        /* silent-intent: 同上 */
       }
       // 当前学习主题及进度
       try {
@@ -131,7 +131,7 @@ export function BottomStatusBar() {
           setSession(s);
         }
       } catch {
-        /* 同上 */
+        /* silent-intent: 同上 */
       }
       // AV1 编码器状态（编码服务遥测）
       try {
@@ -141,7 +141,7 @@ export function BottomStatusBar() {
           setEncoderHw(st.encoder_hw ?? '');
         }
       } catch {
-        /* 同上 */
+        /* silent-intent: 同上 */
       }
     }
 

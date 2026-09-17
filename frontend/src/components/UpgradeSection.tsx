@@ -78,7 +78,7 @@ export default function UpgradeSection() {
           window.location.reload();
         }
       } catch {
-        /* 升级期间后端下线属预期，继续等待 */
+        /* silent-intent: 升级期间后端下线属预期，继续等待 */
       }
     }, 3000);
     return () => window.clearInterval(timer);

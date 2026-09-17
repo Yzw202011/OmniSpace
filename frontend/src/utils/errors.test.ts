@@ -65,6 +65,34 @@ describe('静态扫描：禁止静默吞错（三分法铁律）', () => {
     expect(offenders, `发现空 catch 块：\n${offenders.join('\n')}`).toEqual([]);
   });
 
+  it('多行注释体 catch 必须带 silent-intent 标记（2026-09-17 重构批 3）', () => {
+    // 找多行 catch 块体仅含注释的——若注释中没有 silent-intent: 前缀则违规。
+    // 标记法：有意静默须写明理由（/* silent-intent: 后端不可达轮询静默 */），
+    // 新增无标记的静默吞错直接红——三分法铁律的执行穿透力补强。
+    const offenders: string[] = [];
+    for (const f of FILES) {
+      const text = readFileSync(f, 'utf-8');
+      for (const m of text.matchAll(
+        /catch\s*(?:\([^)]*\))?\s*\{([\s\S]*?)\n\s*\}/g,
+      )) {
+        const body = m[1];
+        const stripped = body
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/\/\/.*/g, '')
+          .trim();
+        if (stripped !== '') continue; // 非空体不管
+        if (body.includes('silent-intent:')) continue; // 已标记
+        const line = text.slice(0, m.index).split('\n').length;
+        offenders.push(`${path.relative(SRC_ROOT, f)}:${line}`);
+      }
+    }
+    expect(offenders, [
+      '发现无标记的多行注释体 catch（有意静默须加 /* silent-intent: 理由 */）:',
+      offenders.join('\n'),
+      '→ 用 reportActionError/reportBgError（@/utils/errors）或加 silent-intent 标记',
+    ].join('\n')).toEqual([]);
+  });
+
   it('错误消息提取真源唯一：无本地 getErrMessage/errMsg 副本', () => {
     const re = /(?:function\s+getErrMessage\s*\(|const\s+errMsg\s*=)/;
     const offenders: string[] = [];

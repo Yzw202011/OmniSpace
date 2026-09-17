@@ -348,7 +348,7 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
         });
         releaseVideoLockIfIdle();
       } catch {
-        /* 忽略：保留上次快照 */
+        /* silent-intent: 忽略：保留上次快照 */
       }
     },
 

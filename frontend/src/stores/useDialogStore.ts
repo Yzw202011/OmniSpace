@@ -109,7 +109,7 @@ function persistDialogParams(snapshot: DialogParamsSnapshot): void {
     localStorage.setItem(DIALOG_PARAMS_STORAGE_KEY, JSON.stringify(snapshot));
     mirrorPref(DIALOG_PARAMS_STORAGE_KEY, snapshot); // 界面偏好镜像（2026-09-12 修复重启回退）
   } catch {
-    /* 隐私模式等写入失败场景静默 */
+    /* silent-intent: 隐私模式等写入失败场景静默 */
   }
 }
 
@@ -672,7 +672,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       try {
         off();
       } catch {
-        /* 忽略 */
+        /* silent-intent: 忽略 */
       }
     });
     const streamSession = get()._streamSessionId;
@@ -689,7 +689,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       try {
         releaseDialogStream(streamSession);
       } catch {
-        /* 忽略 */
+        /* silent-intent: 忽略 */
       }
     }
     // 释放功能锁
@@ -773,7 +773,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
         get().setModelId(alt.model_id);
       }
     } catch {
-      /* 清单拉取失败静默：保留本地缺省，发送仍带 modelId 由引擎校验 */
+      /* silent-intent: 清单拉取失败静默：保留本地缺省，发送仍带 modelId 由引擎校验 */
     }
   },
 

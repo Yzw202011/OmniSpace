@@ -65,7 +65,7 @@ export function writeModelConfig(cfg: MangaModelConfig): void {
     localStorage.setItem(MODEL_CFG_KEY, JSON.stringify(cfg));
     mirrorPref(MODEL_CFG_KEY, cfg); // 界面偏好镜像（2026-09-12）
   } catch {
-    /* 静默：与 readPromptCfg 同策略 */
+    /* silent-intent: 静默：与 readPromptCfg 同策略 */
   }
 }
 // 本项目仅供学习使用，商业授权请+Q 3559331368

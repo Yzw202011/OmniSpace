@@ -62,7 +62,7 @@ function applyTheme(theme: Theme): void {
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {
-    /* 隐私模式写入失败静默 */
+    /* silent-intent: 隐私模式写入失败静默 */
   }
   if (typeof document !== 'undefined') {
     const el = document.documentElement;
@@ -211,7 +211,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       localStorage.setItem('omnispace.fontSize', size);
       mirrorPref('omnispace.fontSize', size);
     } catch {
-      /* 隐私模式写入失败：内存态仍生效（本次会话内） */
+      /* silent-intent: 隐私模式写入失败：内存态仍生效（本次会话内） */
     }
   },
 

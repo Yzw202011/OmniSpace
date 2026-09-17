@@ -242,7 +242,7 @@ const NovelWorkspace: React.FC = () => {
       const r = await exportBook(project.id, fmt);
       downloadText(r.filename, r.content);
     } catch {
-      /* 错误已由 api.ts 抛出，store 轮询侧不覆盖此处；静默即可 */
+      /* silent-intent: 错误已由 api.ts 抛出，store 轮询侧不覆盖此处；静默即可 */
     }
   };
 

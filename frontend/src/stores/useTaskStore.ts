@@ -252,7 +252,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       try {
         off();
       } catch {
-        /* 忽略 */
+        /* silent-intent: 忽略 */
       }
     });
     unsubscribers = [];

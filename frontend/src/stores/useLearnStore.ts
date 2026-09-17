@@ -97,7 +97,7 @@ export const useLearnStore = create<LearnState>((set) => ({
       const list = await learnApi.listLearnModels();
       set({ availableModels: list || [] });
     } catch {
-      /* 忽略 */
+      /* silent-intent: 忽略 */
     }
   },
 
@@ -106,7 +106,7 @@ export const useLearnStore = create<LearnState>((set) => ({
       const cap = await learnApi.getCapability();
       set({ capability: cap });
     } catch {
-      /* 忽略 */
+      /* silent-intent: 忽略 */
     }
   },
 
@@ -195,7 +195,7 @@ export const useLearnStore = create<LearnState>((set) => ({
         return { trainTasks: [...reordered, ...rest] };
       });
     } catch {
-      /* 忽略 */
+      /* silent-intent: 忽略 */
     }
   },
 

@@ -166,7 +166,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
           set({ realtime: rt });
         }
       } catch {
-        /* 后端未就绪保持末值 */
+        /* silent-intent: 后端未就绪保持末值 */
       }
     }, 5000);
     set({ _wsBackoffTimer: backoffTimer });
@@ -187,7 +187,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
       try {
         off();
       } catch {
-        /* 忽略 */
+        /* silent-intent: 忽略 */
       }
     });
     wsUnsubscribers = [];
@@ -246,7 +246,7 @@ export const useHardwareStore = create<HardwareState>((set, get) => ({
         lockedFeature: fl.active_feature ?? null,
       });
     } catch {
-      // 后端未就绪时静默，不阻塞界面
+      /* silent-intent: 后端未就绪时静默，不阻塞界面 */
     }
   },
 }));

@@ -162,7 +162,7 @@ export const useStyleStore = create<StyleState>((set, get) => ({
       const status = await styleApi.getStyleStatus();
       set({ status });
     } catch {
-      /* 后端未就绪保持上次快照 */
+      /* silent-intent: 后端未就绪保持上次快照 */
     }
   },
 
@@ -229,7 +229,7 @@ export const useStyleStore = create<StyleState>((set, get) => ({
         }
       }
     } catch {
-      /* 轮询失败静默，下一周期重试 */
+      /* silent-intent: 轮询失败静默，下一周期重试 */
     }
   },
 

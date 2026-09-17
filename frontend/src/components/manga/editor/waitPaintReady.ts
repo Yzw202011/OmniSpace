@@ -18,7 +18,7 @@ export async function waitPaintReady(
       const st = (await getStatus()) as { loaded?: boolean; state?: string };
       if (st && (st.loaded === true || st.state === 'ready')) return true;
     } catch {
-      /* 后端瞬时不可达：下轮重试 */
+      /* silent-intent: 后端瞬时不可达：下轮重试 */
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }

@@ -224,7 +224,7 @@ export const useLearningStore = create<LearningState>((set, get) => ({
       const status = await learningApi.getSessionStatus();
       set({ session: status });
     } catch {
-      /* 后端未就绪时保持旧状态，轮询静默 */
+      /* silent-intent: 后端未就绪时保持旧状态，轮询静默 */
     }
   },
 
@@ -259,7 +259,7 @@ export const useLearningStore = create<LearningState>((set, get) => ({
       const status = await learningApi.getBrowserStatus();
       set({ browserStatus: status });
     } catch {
-      /* 静默 */
+      /* silent-intent: 静默 */
     }
   },
 
@@ -293,7 +293,7 @@ export const useLearningStore = create<LearningState>((set, get) => ({
       const stats = await learningApi.getKnowledgeStats();
       set({ knowledgeStats: stats });
     } catch {
-      /* 静默 */
+      /* silent-intent: 静默 */
     }
   },
 
@@ -313,7 +313,7 @@ export const useLearningStore = create<LearningState>((set, get) => ({
         });
       }
     } catch {
-      /* 静默，保留旧列表 */
+      /* silent-intent: 静默，保留旧列表 */
     }
   },
 
@@ -392,7 +392,7 @@ export const useLearningStore = create<LearningState>((set, get) => ({
       const stats = await learningApi.getBehaviorStats();
       set({ behaviorStats: stats });
     } catch {
-      /* 静默 */
+      /* silent-intent: 静默 */
     }
   },
 

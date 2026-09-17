@@ -92,7 +92,7 @@ export class WsConnection {
       try {
         fn(status);
       } catch {
-        /* 单个订阅者异常不影响其他 */
+        /* silent-intent: 单个订阅者异常不影响其他 */
       }
     });
   }
@@ -235,7 +235,7 @@ export class WsConnection {
       try {
         fn(data);
       } catch {
-        /* 单个订阅者异常不影响其他 */
+        /* silent-intent: 单个订阅者异常不影响其他 */
       }
     });
   }
@@ -251,7 +251,7 @@ export class WsConnection {
       try {
         this.socket.close();
       } catch {
-        /* 忽略 */
+        /* silent-intent: 忽略 */
       }
       this.socket = null;
     }
@@ -318,7 +318,7 @@ export function releaseWsConnection(url: string): void {
   try {
     conn.destroy();
   } catch {
-    /* destroy 内部已兜底，防御性忽略 */
+    /* silent-intent: destroy 内部已兜底，防御性忽略 */
   }
 }
 

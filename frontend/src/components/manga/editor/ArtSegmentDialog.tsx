@@ -27,6 +27,11 @@ export default function ArtSegmentDialog({ imageUrl, assetName, onClose }: Props
   const [showMask, setShowMask] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
 
+  // onClose 入 ref：父层传内联箭头时（AssetDetailPanel 现状），把 onClose
+  // 放进依赖会让对话框开着时每次父组件重渲都重新取图重编码（09-17 审计竞态①）
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   // 取图转 dataURL（同源媒体直取）
   useEffect(() => {
     let alive = true;
@@ -41,13 +46,13 @@ export default function ArtSegmentDialog({ imageUrl, assetName, onClose }: Props
         reader.readAsDataURL(blob);
       } catch {
         showToast('资产图读取失败', 'error');
-        onClose();
+        onCloseRef.current();
       }
     })();
     return () => {
       alive = false;
     };
-  }, [imageUrl, showToast, onClose]);
+  }, [imageUrl, showToast]);
 
   /** 点选前景提示点（按显示尺寸换算回原图坐标） */
   const onImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
@@ -85,7 +90,7 @@ export default function ArtSegmentDialog({ imageUrl, assetName, onClose }: Props
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,.55)', zIndex: 1000 }}
+      style={{ background: 'var(--color-overlay)', zIndex: 1000 }}
       onClick={onClose}
     >
       <div
@@ -132,7 +137,7 @@ export default function ArtSegmentDialog({ imageUrl, assetName, onClose }: Props
             const left = (x / img.naturalWidth) * rect.width + (rect.left - host.left);
             const top = (y / img.naturalHeight) * rect.height + (rect.top - host.top);
             return (
-              <span key={i} style={{ position: 'absolute', left, top, width: 8, height: 8, borderRadius: 4, background: 'var(--color-warning)', border: '1px solid #fff', transform: 'translate(-50%,-50%)', pointerEvents: 'none' }} />
+              <span key={i} style={{ position: 'absolute', left, top, width: 8, height: 8, borderRadius: 4, background: 'var(--color-warning)', border: '1px solid var(--color-text-on-brand)', transform: 'translate(-50%,-50%)', pointerEvents: 'none' }} />
             );
           })}
         </div>

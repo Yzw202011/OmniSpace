@@ -6,7 +6,7 @@
  *      GET /behavior/training-pairs（LoRA 微调数据预览）。
  * 纯只读报表（无副作用），天数切换 7/30/90；数据为空时诚实空态。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarChart3, Loader2, RefreshCw } from 'lucide-react';
 import {
   getBehaviorTrainingPairs,
@@ -32,6 +32,8 @@ function formatTime(ts: number): string {
 export default function AnalysisReport() {
   const showToast = useAppStore((s) => s.showToast);
   const [days, setDays] = useState<number>(30);
+  /** 请求序号守卫：见 refresh 内注释 */
+  const refreshSeq = useRef(0);
   const [loading, setLoading] = useState(false);
   const [efficiency, setEfficiency] = useState<LearnEfficiency | null>(null);
   const [sources, setSources] = useState<LearnSourceItem[]>([]);
@@ -41,6 +43,9 @@ export default function AnalysisReport() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    // 请求序号守卫（09-17 审计竞态②）：快速切 7/30/90 天时防止
+    // 先发的旧响应覆盖后发的新选择（last-resolved 胜出改为 last-issued 胜出）
+    const seq = ++refreshSeq.current;
     try {
       const [eff, src, tr, tp, pr] = await Promise.all([
         getLearnEfficiency(days),
@@ -49,15 +54,22 @@ export default function AnalysisReport() {
         getLearnTopicCompare(),
         getBehaviorTrainingPairs(3),
       ]);
+      if (seq !== refreshSeq.current) {
+        return;
+      }
       setEfficiency(eff);
       setSources(src);
       setTrend(tr);
       setTopics(tp);
       setPairs({ items: pr.items, total: pr.total, should: pr.should_trigger_finetune });
     } catch {
-      showToast('学习分析加载失败，请重试', 'error');
+      if (seq === refreshSeq.current) {
+        showToast('学习分析加载失败，请重试', 'error');
+      }
     } finally {
-      setLoading(false);
+      if (seq === refreshSeq.current) {
+        setLoading(false);
+      }
     }
   }, [days, showToast]);
 

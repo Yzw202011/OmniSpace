@@ -5,7 +5,7 @@
  * - GET  /health                  健康检查（根路径，不带 /v1 前缀，root 模式）
  * - GET  /system/settings         读取设置
  * - PUT  /system/settings         更新设置
- * - POST /system/diagnose         26 项诊断检测
+ * - POST /system/diagnose         27 项诊断检测
  * - POST /system/backup           备份配置（写 data/backups/*.json）
  * - GET  /system/version          版本信息
  * - POST /system/project/export   项目导出（body: {project_id}，JSON 元数据）
@@ -53,6 +53,23 @@ export interface DiagnoseSummary {
   warn: number;
   fail: number;
 }
+
+/** 诊断响应 Zod 模板（宁松勿严：多余字段透传，核心结构必须齐） */
+const DiagnoseResultSchema = z.object({
+  items: z.array(z.object({
+    index: z.number(),
+    name: z.string(),
+    status: z.enum(['pass', 'warn', 'fail']),
+    detail: z.string(),
+  }).passthrough()),
+  summary: z.object({
+    total: z.number(),
+    pass: z.number(),
+    warn: z.number(),
+    fail: z.number(),
+  }).passthrough(),
+  checked_at: z.number(),
+}).passthrough();
 
 /** 诊断响应（POST /system/diagnose 返回 data） */
 export interface DiagnoseResult {
@@ -147,9 +164,10 @@ export function testDialogRemote(body: { base_url: string; api_key?: string }) {
 
 /* ------------------------------ 诊断/备份 ------------------------------ */
 
-/** 运行 26 项诊断检测（POST /system/diagnose） */
+/** 运行 27 项诊断检测（POST /system/diagnose） */
 export function runDiagnose() {
-  return post<DiagnoseResult>('/system/diagnose', {});
+  return post<unknown>('/system/diagnose', {}).then((res) =>
+    parseWith(DiagnoseResultSchema, res, '运行诊断'));
 }
 
 /** 备份配置（POST /system/backup，生成 JSON 备份文件） */

@@ -37,7 +37,7 @@ export default function HealthCheckCard() {
   const [report, setReport] = useState<HealthCheckReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [repairing, setRepairing] = useState('');
-  /** 深度体检（26 项环境级真实探测，审计 BK-002；2026-09-17 接线） */
+  /** 深度体检（27 项环境级真实探测，审计 BK-002；2026-09-17 接线） */
   const [deep, setDeep] = useState<DiagnoseResult | null>(null);
   const [deepLoading, setDeepLoading] = useState(false);
 
@@ -156,7 +156,7 @@ export default function HealthCheckCard() {
         </>
       )}
 
-      {/* 深度体检结果（26 项环境级；audit BK-002） */}
+      {/* 深度体检结果（27 项环境级；audit BK-002） */}
       {deep !== null && (
         <div style={{ marginTop: 'var(--space-3)', borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 'var(--space-2)' }}>
           <p className="settings-section-desc">

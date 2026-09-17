@@ -18,10 +18,13 @@ import {
 import type { ModelInfo } from '@/types';
 import { useAppStore } from '../../stores/useAppStore';
 import { isApiError } from '../../services/api';
+import { reportBgError } from '../../utils/errors';
 
 export default function BenchmarkCard() {
   const showToast = useAppStore((s) => s.showToast);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelsFailed, setModelsFailed] = useState(false);
+  const [historyFailed, setHistoryFailed] = useState(false);
   const [modelId, setModelId] = useState('');
   const [running, setRunning] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -32,20 +35,26 @@ export default function BenchmarkCard() {
     try {
       const list = await listModels();
       setModels(list);
+      setModelsFailed(false);
       if (!modelId && list.length > 0) {
         const dialog = list.find((m) => m.category === 'dialog') ?? list[0];
         setModelId(dialog.id ?? '');
       }
-    } catch {
-      /* 模型列表失败不阻断卡片（下拉给空态） */
+    } catch (err) {
+      // 失败如实上报（不伪装成空列表——用户无法区分「无模型」和「拉取失败」）
+      reportBgError('BenchmarkCard.refreshModels', err);
+      setModelsFailed(true);
     }
   }, [modelId]);
 
   const refreshHistory = useCallback(async (mid: string) => {
     try {
       setHistory(await getBenchmarkHistory(mid));
-    } catch {
+      setHistoryFailed(false);
+    } catch (err) {
+      reportBgError('BenchmarkCard.refreshHistory', err);
       setHistory([]);
+      setHistoryFailed(true);
     }
   }, []);
 
@@ -112,13 +121,13 @@ export default function BenchmarkCard() {
 
       <div className="flex gap-2 flex-wrap items-center">
         <select
-          className="form-select"
+          className="input"
           style={{ minWidth: 220 }}
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
           aria-label="选择模型"
         >
-          {models.length === 0 && <option value="">（模型列表为空）</option>}
+          {models.length === 0 && <option value="">{modelsFailed ? '（模型列表拉取失败）' : '（模型列表为空）'}</option>}
           {models.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name ?? m.id}（{m.category ?? '未知'}）
@@ -152,7 +161,7 @@ export default function BenchmarkCard() {
       <div className="mt-3">
         <div className="form-label">跑分历史（时间倒序）</div>
         {history.length === 0 ? (
-          <div className="text-secondary" style={{ fontSize: 12 }}>暂无历史记录。</div>
+          <div className="text-secondary" style={{ fontSize: 12 }}>{historyFailed ? '历史拉取失败（见控制台）。' : '暂无历史记录。'}</div>
         ) : (
           <table className="table" style={{ fontSize: 12 }}>
             <thead>

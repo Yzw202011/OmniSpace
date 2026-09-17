@@ -4,7 +4,7 @@
 - GET  /system/settings          获取设置
 - PUT  /system/settings          更新设置
 - POST /system/backup            备份
-- POST /system/diagnose          运行 26 项检测（真实探测，审计 BK-002）
+- POST /system/diagnose          运行 27 项检测（真实探测，审计 BK-002）
 - POST /system/project/export    打包 .omnispace（真实归档，审计 BK-041）
 - POST /system/project/import    导入项目（真实恢复，审计 BK-042）
 - GET  /system/version           版本信息
@@ -357,7 +357,7 @@ async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> di
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  系统诊断（审计 BK-002：26 项全部真实探测，不再硬编码）
+#  系统诊断（审计 BK-002：27 项全部真实探测，不再硬编码）
 # ═══════════════════════════════════════════════════════════════════
 #
 # 状态语义：pass=正常；warn=可用但有缺失/降级/未实现；fail=阻断性故障。
@@ -571,7 +571,7 @@ def _probe_resume_scan() -> tuple[str, str]:
     return "pass", "无未完成下载残留"
 
 
-# 26 项诊断注册表（名称 + 真实探测函数）
+# 27 项诊断注册表（名称 + 真实探测函数）
 def _probe_cloud_api() -> tuple[str, str]:
     """云端 API 配置诊断（2026-09-06 系统日志升级）：连接/绑定概览。
 
@@ -638,7 +638,7 @@ def system_health_check() -> dict[str, Any]:
     """一键体检（自愈批4，docs/自愈与横切内建方案-2026-09-10.md §批4）。
 
     运行时健康只读体检（显存余量/内存/磁盘/孤儿推理进程/模型对账/
-    生成队列/日志保留/激活状态），与 POST /system/diagnose（环境级 26 项）
+    生成队列/日志保留/激活状态），与 POST /system/diagnose（环境级 27 项）
     互补。同步 def 走线程池执行，psutil/torch 扫描不堵事件循环。
     """
     from ..services import health_check
@@ -679,7 +679,7 @@ async def system_health_repair(
 
 @router.post("/system/diagnose")
 async def system_diagnose() -> dict[str, Any]:
-    """运行 26 项检测（规格 §4.7，审计 BK-002 真实探测版）。
+    """运行 27 项检测（规格 §4.7，审计 BK-002 真实探测版）。
 
     每项实时探测硬件/数据库/引擎/目录真实状态；不存在的子系统
     如实返回 warn + "未实现"，绝不硬编码假 pass。

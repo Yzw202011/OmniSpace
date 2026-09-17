@@ -1119,8 +1119,6 @@ export default {
 
 /* ── 自定义音色（2026-09-17 前端接线，Zod 校验） ── */
 
-/** 上传自定义音色音频（POST /manga/voices/upload?name= multipart；
- *  wav/mp3/flac/m4a ≤20MB，落库后即可绑定/试听） */
 /** SAM 图像分割（POST /art/segment）：点选前景提示点 → 蒙版 PNG */
 export async function segmentImage(
   imageBase64: string,
@@ -1139,6 +1137,8 @@ export async function segmentImage(
   );
 }
 
+/** 上传自定义音色音频（POST /manga/voices/upload?name= multipart；
+ *  wav/mp3/flac/m4a ≤20MB，落库后即可绑定/试听） */
 export async function uploadCustomVoice(
   name: string,
   file: File,

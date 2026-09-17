@@ -293,7 +293,11 @@ export async function exportStyleVersion(
 ): Promise<{ export_path?: string; [k: string]: unknown }> {
   const res = await post<unknown>('/style/export',
     version ? { version } : {});
-  return parseWith(z.object({}).passthrough(), res, '导出风格包');
+  // 2026-09-17：export_path 锚定（此前 z.object({}).passthrough() 等于
+  // 只验「是对象」，下游只能靠 ?? 兜底文案）
+  return parseWith(
+    z.object({ export_path: z.string().optional() }).passthrough(),
+    res, '导出风格包');
 }
 
 /** 多版本权重线性融合（POST /style/merge：versions[] + weights[]） */
@@ -303,7 +307,14 @@ export async function mergeStyleVersions(
   name = '',
 ): Promise<{ [k: string]: unknown }> {
   const res = await post<unknown>('/style/merge', { versions, weights, name });
-  return parseWith(z.object({}).passthrough(), res, '融合风格');
+  // 融合产物锚定核心字段（版本/输出至少其一可见，不再全透传盲盒）
+  return parseWith(
+    z.object({
+      version: z.string().optional(),
+      merged_version: z.string().optional(),
+      output: z.string().optional(),
+    }).passthrough(),
+    res, '融合风格');
 }
 
 /** 风格模板（GET/POST /style/templates） */

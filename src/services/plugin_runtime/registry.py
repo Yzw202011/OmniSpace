@@ -77,6 +77,7 @@ STATE_FAULTY = "faulty"
 # ── 用户插件持久化（data/ 运行时区，git 不跟踪、发行包不带） ──
 USER_PLUGIN_DIR = ROOT_DIR / "data" / "plugins" / "imported"
 USER_REGISTRY_PATH = ROOT_DIR / "data" / "plugins" / "user_registry.json"
+FACTORY_OVERRIDE_PATH = ROOT_DIR / "data" / "plugins" / "factory_overrides.json"
 MAX_USER_PLUGINS = 32
 MAX_SOURCE_BYTES = 256 * 1024
 # 插件名规则（manifest.name 与登记名共用；防路径花活）
@@ -184,6 +185,37 @@ class PluginRuntime:
                 trust=spec["trust"],
                 manifest={"capability": spec.get("capability", "")})
         self._load_user_registry()
+        self._load_factory_overrides()
+
+    def _load_factory_overrides(self) -> None:
+        """出厂插件停用覆盖（2026-09-17：此前出厂档停用重启即复活，
+        UI 却提供开关——审计四轮 P2）。只记偏离默认（停用）的条目。"""
+        try:
+            raw = json.loads(FACTORY_OVERRIDE_PATH.read_text("utf-8"))
+        except Exception:  # noqa: BLE001 - 无文件/坏文件=无覆盖
+            return
+        if not isinstance(raw, dict):
+            return
+        for name, enabled in raw.items():
+            entry = self._registry.get(str(name))
+            if entry is not None and entry.trust not in _USER_TIERS:
+                entry.enabled = bool(enabled)
+
+    def _save_factory_overrides(self) -> None:
+        """回写出厂停用覆盖（锁内调用；全部恢复默认则删文件）。"""
+        overrides = {e.name: e.enabled for e in self._registry.values()
+                     if e.trust not in _USER_TIERS and not e.enabled}
+        try:
+            USER_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
+            if overrides:
+                tmp = FACTORY_OVERRIDE_PATH.with_suffix(".json.tmp")
+                tmp.write_text(
+                    json.dumps(overrides, ensure_ascii=False), "utf-8")
+                tmp.replace(FACTORY_OVERRIDE_PATH)
+            else:
+                FACTORY_OVERRIDE_PATH.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("出厂停用覆盖回写失败", exc_info=True)
 
     def _load_user_registry(self) -> None:
         """启动时读用户登记表（容错：坏文件备份改名后空表起步）。"""
@@ -289,6 +321,8 @@ class PluginRuntime:
                 entry.state = STATE_UNLOADED
             if entry.trust in _USER_TIERS:
                 self._save_user_registry()
+            else:
+                self._save_factory_overrides()
 
     def remove(self, name: str) -> None:
         """删除用户插件（卸载+清登记+删文件；出厂档拒删）。"""

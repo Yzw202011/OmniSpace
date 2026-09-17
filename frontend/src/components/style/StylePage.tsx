@@ -38,6 +38,7 @@ import {
 import { useStyleStore } from '@/stores/useStyleStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
+import { reportBgError } from '@/utils/errors';
 import * as styleApi from '@/services/styleApi';
 import { isApiError } from '@/services/api';
 import { TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
@@ -102,9 +103,17 @@ export const StylePage: React.FC = () => {
   const [mergeWa, setMergeWa] = useState(0.6);
   const [mergeBusy, setMergeBusy] = useState(false);
   const [templates, setTemplates] = useState<styleApi.StyleTemplate[]>([]);
+  const [templatesFailed, setTemplatesFailed] = useState(false);
 
   useEffect(() => {
-    styleApi.listStyleTemplates().then(setTemplates).catch(() => setTemplates([]));
+    // 失败如实上报（不伪装成「暂无模板」——否则用户会把拉取失败当成没存过模板）
+    styleApi.listStyleTemplates()
+      .then((t) => { setTemplates(t); setTemplatesFailed(false); })
+      .catch((err: unknown) => {
+        reportBgError('StylePage.listTemplates', err);
+        setTemplates([]);
+        setTemplatesFailed(true);
+      });
   }, []);
 
   /** 行级：克隆（复制数据集+配置为新训练任务） */
@@ -662,16 +671,16 @@ export const StylePage: React.FC = () => {
           {/* 融合面板（两版线性加权，后端支持 N 版） */}
           {mergeOpen && versions.length >= 2 && (
             <div className="flex gap-2 items-center flex-wrap mb-3" style={{ padding: 'var(--space-2)', border: '1px solid var(--color-border-light)', borderRadius: 'var(--radius-md)' }}>
-              <select className="form-select" style={{ width: 100 }} value={mergeA} onChange={(e) => setMergeA(e.target.value)} aria-label="融合版本 A">
+              <select className="input" style={{ width: 100 }} value={mergeA} onChange={(e) => setMergeA(e.target.value)} aria-label="融合版本 A">
                 {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
               </select>
               <span className="text-secondary text-sm">×</span>
               <input type="number" min={0.1} max={0.9} step={0.1} value={mergeWa}
-                     style={{ width: 64 }} className="form-input"
+                     style={{ width: 64 }} className="input"
                      onChange={(e) => setMergeWa(Number(e.target.value) || 0.5)}
                      aria-label="A 权重" />
               <span className="text-secondary text-sm">+</span>
-              <select className="form-select" style={{ width: 100 }} value={mergeB} onChange={(e) => setMergeB(e.target.value)} aria-label="融合版本 B">
+              <select className="input" style={{ width: 100 }} value={mergeB} onChange={(e) => setMergeB(e.target.value)} aria-label="融合版本 B">
                 {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
               </select>
               <span className="text-secondary text-sm">×</span>
@@ -765,7 +774,9 @@ export const StylePage: React.FC = () => {
           </div>
           {templates.length === 0 ? (
             <div className="text-secondary text-sm">
-              暂无模板——调好训练参数后点「把当前配置存为模板」，下次一键复用。
+              {templatesFailed
+                ? '模板列表拉取失败（详见控制台/诊断日志），可稍后重试。'
+                : '暂无模板——调好训练参数后点「把当前配置存为模板」，下次一键复用。'}
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">

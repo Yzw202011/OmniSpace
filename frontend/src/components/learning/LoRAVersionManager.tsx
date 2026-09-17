@@ -5,7 +5,7 @@
  * （GET /learn/lora/versions/compare，字段级差异表）+ 回滚。
  * 注意：与风格页（style 域）的版本库是两套独立存储。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { GitCompare, Loader2, History, RefreshCw } from 'lucide-react';
 import {
   compareLoraVersions,
@@ -25,6 +25,9 @@ export default function LoRAVersionManager() {
   const [loading, setLoading] = useState(false);
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
+  /** 选择镜像（供 refresh 回调读实时值，防闭包陈旧——见 refresh 注释） */
+  const compareRef = useRef({ a: '', b: '' });
+  compareRef.current = { a: compareA, b: compareB };
   const [comparing, setComparing] = useState(false);
   const [fields, setFields] = useState<Record<string, CompareField> | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState('');
@@ -35,7 +38,9 @@ export default function LoRAVersionManager() {
       const res = await listLoraVersions();
       setVersions(res.items);
       setCurrent(res.current);
-      if (res.items.length >= 2 && !compareA && !compareB) {
+      // 09-17 审计竞态③修复：经 ref 读实时选择（旧闭包捕获首渲染的空
+      // compareA/B，回滚后 refresh 会把用户手动选的对比版本重置回末两个）
+      if (res.items.length >= 2 && !compareRef.current.a && !compareRef.current.b) {
         setCompareA(res.items[res.items.length - 2].version);
         setCompareB(res.items[res.items.length - 1].version);
       }
@@ -135,11 +140,11 @@ export default function LoRAVersionManager() {
         <div className="mt-3" style={{ borderTop: '1px solid var(--color-border, rgba(128,128,128,.25))', paddingTop: 'var(--space-2)' }}>
           <div className="flex gap-2 items-center flex-wrap">
             <span className="form-label" style={{ margin: 0 }}>版本对比</span>
-            <select className="form-select" style={{ width: 110 }} value={compareA} onChange={(e) => setCompareA(e.target.value)} aria-label="版本 A">
+            <select className="input" style={{ width: 110 }} value={compareA} onChange={(e) => setCompareA(e.target.value)} aria-label="版本 A">
               {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
             </select>
             <span>vs</span>
-            <select className="form-select" style={{ width: 110 }} value={compareB} onChange={(e) => setCompareB(e.target.value)} aria-label="版本 B">
+            <select className="input" style={{ width: 110 }} value={compareB} onChange={(e) => setCompareB(e.target.value)} aria-label="版本 B">
               {versions.map((v) => <option key={v.version} value={v.version}>{v.version}</option>)}
             </select>
             <button type="button" className="btn btn-primary" style={{ padding: '2px 10px' }} disabled={comparing} onClick={() => void onCompare()}>

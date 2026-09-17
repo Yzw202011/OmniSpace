@@ -27,11 +27,15 @@ import {
 import { useAppStore } from '../stores/useAppStore';
 import { isApiError } from '../services/api';
 
-/** 信任徽章配色（CSS 变量令牌，禁止硬编码 hex） */
+/** 信任徽章配色（CSS 变量令牌，禁止硬编码 hex）
+ *  键=后端 trust 档（registry._TRUST_LABELS 同源四档）——2026-09-17 勘误：
+ *  此前误按 origin（factory|user 两值）查本表，「用户·含源码」的橙色
+ *  警示徽章从未渲染过（安全语义信号失真）。 */
 const BADGE_STYLE: Record<string, { color: string; icon: typeof ShieldCheck }> = {
-  factory: { color: 'var(--color-accent)', icon: ShieldCheck },
+  repo_curated: { color: 'var(--color-accent)', icon: ShieldCheck },
   user_data: { color: 'var(--color-success)', icon: Database },
   user_source: { color: 'var(--color-warning)', icon: ShieldAlert },
+  user_installed: { color: 'var(--color-primary)', icon: Package },
 };
 
 export default function PluginSection() {
@@ -205,7 +209,7 @@ export default function PluginSection() {
       ) : (
         <div style={{ display: 'grid', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
           {plugins.map((p) => {
-            const badge = BADGE_STYLE[p.origin] ?? BADGE_STYLE.user_data;
+            const badge = BADGE_STYLE[p.trust] ?? BADGE_STYLE.user_data;
             const BadgeIcon = badge.icon;
             return (
               <div

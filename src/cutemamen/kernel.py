@@ -29,7 +29,10 @@ from .event_bus import EventBus
 from .plugin import ExpertPlugin, PluginContext
 
 # 默认插件存档目录 (卸载/淘汰时自动存档)
-DEFAULT_PKG_DIR = "cutemamen_pkgs"
+# 2026-09-17 勘误：旧值 "cutemamen_pkgs"=仓库内目录，运行时存档会写脏
+# git 跟踪区（09-16 审计实锤 a/echo/x 三死档即此因）；迁 data/ 运行时
+# 区，与 kernel_gateway 的 data/plugins/pkgs 落位一致
+DEFAULT_PKG_DIR = "data/plugins/pkgs"
 
 # .CuteMamen 插件标准落地目录 (v0.8.5): 思考插件以独立包文件形式
 # 放在 ./plugin/<Name>.CuteMamen, 内核 discover_plugins() 扫描注册,

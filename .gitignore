@@ -112,3 +112,4 @@ packaging_console/
 # ===== 前端公共静态资源例外（风格缩略图被全局 *.png 误伤，types/index.ts 引用，2026-09-11 补录） =====
 !frontend/public/style-thumbs/*
 启动OmniSpace-开发版.exe
+cutemamen_pkgs/

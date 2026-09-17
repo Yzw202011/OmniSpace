@@ -10,6 +10,7 @@
  * ========================================================================== */
 import {
   BookOpen,
+  BrainCircuit,
   CircleQuestionMark,
   Clapperboard,
   Feather,
@@ -18,7 +19,6 @@ import {
   Package,
   ScrollText,
   Settings,
-  Video,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -54,8 +54,9 @@ export const NAV_ITEMS: NavItemMeta[] = [
   { route: 'novel', path: '/novel', icon: Feather, label: '写作台', group: 'create' },
   { route: 'learning', path: '/learning', icon: BookOpen, label: '知识学习', group: 'create' },
   { route: 'models', path: '/models', icon: Package, label: '模型管理', group: 'forge' },
-  // P0 正名：原「视频风格」——它是 LoRA 训练工场而非风格浏览页
-  { route: 'style', path: '/style', icon: Video, label: '风格训练', group: 'forge' },
+  // P1 训练中心（2026-09-17 拍板 2A）：知识+风格训练归一屋檐（人物=P3）；
+  // 旧 /style 路由保留重定向到 /training（书签不失效）
+  { route: 'training', path: '/training', icon: BrainCircuit, label: '训练中心', group: 'forge' },
   { route: 'settings', path: '/settings', icon: Settings, label: '设置', group: 'system' },
   { route: 'logs', path: '/logs', icon: ScrollText, label: '系统日志', group: 'system' },
   { route: 'help', path: '/help', icon: CircleQuestionMark, label: '帮助', group: 'system' },

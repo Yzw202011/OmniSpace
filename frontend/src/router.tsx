@@ -63,7 +63,9 @@ export const routes: RouteObject[] = [
       { path: 'novel', element: lazyPage(() => import('@/components/novel/NovelPage')) },
       { path: 'learning', element: lazyPage(() => import('@/components/learning/LearningPage')) },
       { path: 'models', element: lazyPage(() => import('@/components/model/ModelManager')) },
-      { path: 'style', element: lazyPage(() => import('@/components/style/StylePage')) },
+      // P1 训练中心（2026-09-17）：知识+风格训练归一；旧 /style 重定向保书签
+      { path: 'training', element: lazyPage(() => import('@/components/training/TrainingPage')) },
+      { path: 'style', element: <Navigate to="/training" replace /> },
       { path: 'settings', element: lazyPage(() => import('@/components/Settings')) },
       { path: 'logs', element: lazyPage(() => import('@/components/logs/LogsPage')) },
       { path: 'help', element: lazyPage(() => import('@/components/help/HelpPage')) },

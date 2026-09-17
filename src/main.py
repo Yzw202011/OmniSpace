@@ -440,6 +440,7 @@ _API_MODULES = [
     "cloud",     # 云端API服务商管理（批1 2026-09-06：Provider/绑定/测试，用户自带Key）
     "upgrade",   # 应用内升级API（升级机制批2 2026-09-11：包导入/扫描/开始升级）
     "plugins",   # 插件系统API（OSP v1 P1 2026-09-16：清单/加载/卸载/invoke）
+    "training",  # 训练中心聚合API（P1 2026-09-17：/training/tasks 统一队列）
 ]
 
 

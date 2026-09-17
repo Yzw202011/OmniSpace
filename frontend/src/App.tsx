@@ -71,7 +71,7 @@ const ROUTE_FEATURE: Record<string, Exclude<ActiveFeature, null>> = {
   paint: 'paint',
   storyboard: 'video_gen',
   learning: 'training',
-  style: 'training',
+  training: 'training', // P1 训练中心（原 style 路由重定向到 /training）
 };
 
 /* ============================== 模块切换资源调度（用户裁定 2026-08-21） ==============================

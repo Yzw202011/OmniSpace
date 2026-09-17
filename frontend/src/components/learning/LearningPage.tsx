@@ -10,11 +10,14 @@
  *   6. KnowledgeBrowser   知识库管理
  *   7. ImportDoc          导入文档区域
  *   8. LearningSettings   学习设置
- *   9. TrainTaskSection   训练任务（沿用既有 LearnView，零回归）
+ *
+ * P1 训练中心（2026-09-17 用户拍板 2A）：训练任务（LearnView）与 LoRA
+ * 版本管理（LoRAVersionManager）整体迁入 /training 训练中心；本页瘦身为
+ * 「用知识」（会话/主题/浏览/行为/知识库），训练去训练中心。
  * ========================================================================== */
 
 import React from 'react';
-import { BookOpen, Dumbbell } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import LearningDashboard from './LearningDashboard';
 import QuotaCard from './QuotaCard';
 import TopicManager from './TopicManager';
@@ -24,14 +27,12 @@ import AnalysisReport from './AnalysisReport';
 import KnowledgeBrowser from './KnowledgeBrowser';
 import ImportDoc from './ImportDoc';
 import LearningSettingsPanel from './LearningSettings';
-import LoRAVersionManager from './LoRAVersionManager';
-import LearnView from '@/components/learn/LearnView';
 
 export const LearningPage: React.FC = () => {
   return (
     <div className="page">
       <h1 className="page-title"><BookOpen size={20} aria-hidden="true" /> 知识学习</h1>
-      <p className="page-subtitle">AI 自主学习：主题管理 · 实时浏览 · 行为偏好 · 知识库 · 微调训练</p>
+      <p className="page-subtitle">AI 自主学习：主题管理 · 实时浏览 · 行为偏好 · 知识库（训练已迁入训练中心）</p>
 
       <div className="flex flex-col gap-4 mt-5">
         <LearningDashboard />
@@ -43,15 +44,6 @@ export const LearningPage: React.FC = () => {
         <KnowledgeBrowser />
         <ImportDoc />
         <LearningSettingsPanel />
-
-        {/* 既有训练任务功能（LearnView 原样嵌入，零回归） */}
-        <section className="card" aria-label="训练任务">
-          <h3 className="card-title"><Dumbbell size={16} aria-hidden="true" /> 训练任务</h3>
-          <LearnView />
-        </section>
-
-        {/* 训练域 LoRA 版本管理（LEARN-035，2026-09-17 接线） */}
-        <LoRAVersionManager />
       </div>
     </div>
   );

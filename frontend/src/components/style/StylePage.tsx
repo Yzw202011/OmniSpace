@@ -71,7 +71,8 @@ function estimateVramGb(rank: number, alpha: number, epochs: number): number {
   return 1.5 + rank * 0.11 + alpha * 0.02 + Math.min(epochs, 30) * 0.02 + 0.8;
 }
 
-export const StylePage: React.FC = () => {
+/** embedded：嵌入训练中心页签时隐藏页头（P1 训练中心，2026-09-17） */
+export const StylePage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const {
     datasetId, datasetName, uploading,
     datasets, datasetsLoaded,
@@ -246,8 +247,12 @@ export const StylePage: React.FC = () => {
 
   return (
     <div className="page">
-      <h1 className="page-title"><Wand2 size={20} aria-hidden="true" /> 视频风格</h1>
-      <p className="page-subtitle">上传素材，训练专属视频风格 LoRA（基座 LTX-2，QLoRA 4bit）</p>
+      {!embedded && (
+        <>
+          <h1 className="page-title"><Wand2 size={20} aria-hidden="true" /> 风格训练</h1>
+          <p className="page-subtitle">上传素材，训练专属视频风格 LoRA（基座 LTX-2，QLoRA 4bit）</p>
+        </>
+      )}
 
       {/* 训练中横幅：其他 AI 功能已置灰 */}
       {(training || globalTraining) && (

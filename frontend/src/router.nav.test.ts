@@ -31,12 +31,12 @@ describe('NAV_ITEMS 分组完备性', () => {
     expect(grouped.map((g) => g.label)).toEqual(['创作', '工场', '系统']);
   });
 
-  it('分组归属符合方案（创作5/工场2/系统3）', () => {
+  it('分组归属符合方案（创作5/工场2/系统3；P1 起工场=模型+训练中心）', () => {
     const grouped = regroupNavItems(NAV_ITEMS);
     expect(grouped[0].items.map((i) => i.route)).toEqual(
       ['chat', 'paint', 'storyboard', 'novel', 'learning'],
     );
-    expect(grouped[1].items.map((i) => i.route)).toEqual(['models', 'style']);
+    expect(grouped[1].items.map((i) => i.route)).toEqual(['models', 'training']);
     expect(grouped[2].items.map((i) => i.route)).toEqual(
       ['settings', 'logs', 'help'],
     );
@@ -54,7 +54,7 @@ describe('regroupNavItems 兼容解读', () => {
       NAV_ITEMS[8], // logs(system)
       NAV_ITEMS[2], // storyboard
       NAV_ITEMS[3], // novel
-      NAV_ITEMS[6], // style(forge)
+      NAV_ITEMS[6], // training(forge)
       NAV_ITEMS[4], // learning(create)
       NAV_ITEMS[9], // help(system)
     ];
@@ -73,6 +73,10 @@ describe('regroupNavItems 兼容解读', () => {
       'storyboard',
       'novel',
       'learning',
+    ]);
+    expect(grouped[1].items.map((i) => i.route)).toEqual([
+      'models',
+      'training',
     ]);
     // 不丢项
     expect(grouped.flatMap((g) => g.items)).toHaveLength(NAV_ITEMS.length);

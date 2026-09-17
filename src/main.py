@@ -543,6 +543,17 @@ def create_app() -> FastAPI:
                          {"path": str(_.url.path) if _ else "",
                           "method": getattr(_, "method", ""),
                           "http_status": 405})
+        if exc.status_code == 400 and "parsing the body" in str(exc.detail):
+            # 请求体解析失败（starlette 层 JSON 解码错）：客户端编码/格式
+            # 问题而非服务端故障——曾 7 天 923 次被误报成"内部错误"，
+            # 用户无从定位（2026-09-17 审计批3b 根修）
+            return error(
+                "SYSTEM_PARAM_INVALID",
+                "请求体无法解析（客户端发送的数据不是合法 UTF-8 JSON，"
+                "非服务端故障）",
+                {"http_status": 400},
+                suggestion="浏览器使用请刷新页面重试；脚本调用请确保"
+                           "发送 UTF-8 编码的 JSON 请求体")
         log.warning("HTTP 异常: status=%s detail=%s",
                     exc.status_code, exc.detail)
         return error("SYSTEM_INTERNAL_ERROR",

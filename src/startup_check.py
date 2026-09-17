@@ -17,7 +17,6 @@ import importlib
 import logging
 import os
 import platform
-import shutil
 import socket
 import sys
 import time
@@ -436,21 +435,21 @@ def _check_chromadb() -> CheckResult:
 
 
 def _check_ffmpeg() -> CheckResult:
-    """22. FFmpeg 可用性。"""
-    ffmpeg_path = shutil.which("ffmpeg")
+    """22. FFmpeg 可用性（2026-09-17 根修：复用编码服务同源发现链）。
+
+    旧探测只查 PATH + C 盘猜测路径，漏掉产品自带的
+    runtime/ffmpeg/bin——深度体检曾对随包 FFmpeg 误报「未安装」，
+    与实际能出片自相矛盾（诊断与产品逻辑不同源病根的实例）。
+    """
+    from .services.encoder_service import EncoderService
+    ffmpeg_path = EncoderService.discover_ffmpeg()
     if ffmpeg_path:
         return CheckResult(22, "FFmpeg", True,
-                           f"FFmpeg 已安装: {ffmpeg_path}", "info",
+                           f"FFmpeg 已就绪: {ffmpeg_path}", "info",
                            {"path": ffmpeg_path})
-    # 尝试常见安装路径（Windows）
-    for candidate in (r"C:\ffmpeg\bin\ffmpeg.exe",
-                      r"C:\Program Files\ffmpeg\bin\ffmpeg.exe"):
-        if os.path.isfile(candidate):
-            return CheckResult(22, "FFmpeg", True,
-                               f"FFmpeg 已安装: {candidate}", "info",
-                               {"path": candidate})
     return CheckResult(22, "FFmpeg", False,
-                       "FFmpeg 未安装（视频编码功能不可用）", "warning",
+                       "FFmpeg 未找到（runtime/ffmpeg、tools/downloads、"
+                       "PATH 三处均无；视频编码功能不可用）", "warning",
                        {"path": None})
 
 

@@ -379,8 +379,10 @@ def test_video_wiring_sentinels() -> None:
     assert '"cloud": _cloud_ep is not None' in video_src
     assert "没有当前关键帧" in video_src  # 无首帧拒绝带出路
     assert 'model_override or "") == "local"' in video_src  # local 回归口
-    queue_src = (_ROOT_DIR / "src/services/video_queue.py").read_text(
+    # B5 终态（2026-09-17 删 legacy）：云道派发/双道取队移居通用核心，
+    # 哨兵改盯 task_queue.py（video 宿主只留钩子面与状态机）
+    core_src = (_ROOT_DIR / "src/services/task_queue.py").read_text(
         encoding="utf-8")
-    assert "_pop_lane_locked" in queue_src
-    assert "_cloud_dispatcher_loop" in queue_src
+    assert "_pop_lane_locked" in core_src
+    assert "_cloud_dispatcher_loop" in core_src
 # 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -13,13 +13,11 @@ from collections.abc import Callable
 
 import pytest
 
-import src.services.video_queue as _vq
 from src.services.video_queue import VideoTaskQueue
 
 
 @pytest.fixture()
 def unified_queue(monkeypatch: pytest.MonkeyPatch) -> VideoTaskQueue:
-    monkeypatch.setattr(_vq, "_use_unified", lambda: True)
     return VideoTaskQueue()
 
 

@@ -11,8 +11,9 @@
   acquire/release 锁方法名、热保护与等锁轮询周期、优先级排序开关、
   云道并发函数、让渡/卸载/唤醒/预算钩子名、日志前缀。
 
-灰度：config ``task_queue.impl = legacy | unified``（默认 legacy，
-行为零变更合入；host 侧 __init__ 按开关选择走 Core 或既有内联实现）。
+终态（2026-09-17 用户拍板删 legacy）：host 侧 __init__ 无条件构造
+Core，灰度开关 ``task_queue.impl`` 与内联实现已删（观察期 09-13~17
+实证 5166 任务流零事故零回退；历史与回退见 git）。
 """
 from __future__ import annotations
 
@@ -206,6 +207,13 @@ class TaskQueueCore:
 
     def is_cancelled(self, task_id: str) -> bool:
         return str(task_id) in self._cancel_flags
+
+    def local_lane_idle(self) -> bool:
+        """本地道空闲判定（宿主 _local_lane_idle 钩子的数据源）：
+        无在跑本地任务且无本地排队（仅剩云端任务不算忙，云道不占 GPU）。"""
+        with self._cond:
+            return (self._current is None and not any(
+                not bool(t.get("cloud")) for t in self._queue))
 
     # ── 内部 ────────────────────────────────────────────────────
     def _position_locked(self, task_id: str) -> int | None:

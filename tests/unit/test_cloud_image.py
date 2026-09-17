@@ -361,8 +361,8 @@ def test_cloud_task_cancel_while_running() -> None:
               "cloud": True, "on_finish": on_finish})
     # 等任务进入 cloud_running 再取消
     for _ in range(100):
-        with q._cond:
-            if "cx" in q._cloud_running:
+        with q._core._cond:
+            if "cx" in q._core._cloud_running:
                 break
         time.sleep(0.02)
     assert q.cancel("cx") == "running"
@@ -389,8 +389,8 @@ def test_local_lane_not_blocked_by_cloud_backlog() -> None:
               "cloud": True, "on_finish": lambda e: cloud_done.set()})
     # 等 cb1 进入运行（云道满），再排入第二个云任务 + 一个本地任务
     for _ in range(100):
-        with q._cond:
-            if "cb1" in q._cloud_running:
+        with q._core._cond:
+            if "cb1" in q._core._cloud_running:
                 break
         time.sleep(0.02)
     q.submit({"task_id": "cb2", "kind": "paint", "runner": cloud_runner,
@@ -417,8 +417,8 @@ def test_snapshot_includes_cloud_state() -> None:
               "cloud": True})
     # 等 s1 进入云道运行（占住唯一名额）
     for _ in range(200):
-        with q._cond:
-            if "s1" in q._cloud_running:
+        with q._core._cond:
+            if "s1" in q._core._cloud_running:
                 break
         time.sleep(0.02)
     q.submit({"task_id": "s2", "kind": "paint",

@@ -10,17 +10,11 @@ server:
   # 提升至 300/min（≈5 req/s，仍可拦截失控重试循环）。
   rate_limit: 300  # requests/minute per endpoint
 
-# B5 统一任务子系统（2026-09-14 灰度翻转，拍板=A）：
-task_queue:
-  # impl: unified（现默认）= image/video 队列调度委托通用 TaskQueueCore
-  #       （src/services/task_queue.py；双实现以金标准测试逐比特对齐，
-  #       镜像见 tests/unit/test_image_queue_unified.py 与
-  #       test_video_queue_unified.py）；
-  #       legacy = 既有内联实现（保留为回退锚点，观察期满删除）。
-  #       任意异常拨回 legacy 即原行为（秒级回退，重启生效）。
-  # 观察期 3 天（2026-09-14~09-17）：核对 events 日志任务成功率/准入
-  # 失败率不劣化；无异常后删 legacy 内联实现（约 -400 行）。
-  impl: unified
+# B5 统一任务子系统终态（2026-09-17 观察期通过，用户拍板删 legacy）：
+# task_queue.impl 键已移除——image/video 队列调度一律委托通用
+# TaskQueueCore（src/services/task_queue.py），无灰度开关无回退分支；
+# 观察期实证（09-13~09-17：5166 任务流零事故零回退）见
+# docs/audit/round-2026-09-16-root-cause-audit.md。回退=git revert。
 
 scheduler:
   sample_interval_ms: 1000   # 调度循环 tick 间隔（基频）

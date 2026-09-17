@@ -111,9 +111,9 @@ def test_beta_wake_fires_when_idle(monkeypatch: pytest.MonkeyPatch) -> None:
     """排空后去抖窗内仍空闲 → 真唤醒。"""
     fired: list[str] = []
     q = _deb_queue(monkeypatch, 0.15, fired)
-    with q._cond:
-        q._current = None
-        q._queue.clear()
+    with q._core._cond:
+        q._core._current = None
+        q._core._queue.clear()
     q._schedule_wake_if_idle()
     _wait_until(lambda: fired == ["wake"], 2.0, "去抖后应唤醒")
     assert fired == ["wake"]
@@ -125,8 +125,8 @@ def test_beta_wake_skipped_when_local_task_running(
     fired: list[str] = []
     q = _deb_queue(monkeypatch, 0.2, fired)
     q._schedule_wake_if_idle()
-    with q._cond:  # 模拟紧邻的新任务：正在跑
-        q._current = {"task_id": "t2"}  # type: ignore[assignment]
+    with q._core._cond:  # 模拟紧邻的新任务：正在跑
+        q._core._current = {"task_id": "t2"}  # type: ignore[assignment]
     time.sleep(0.6)
     assert fired == []
 
@@ -136,10 +136,10 @@ def test_beta_cloud_only_backlog_does_not_block_wake(
     """去抖窗内仅剩云端任务（云道不占 GPU）→ 唤醒照常。"""
     fired: list[str] = []
     q = _deb_queue(monkeypatch, 0.15, fired)
-    with q._cond:
-        q._current = None
-        q._queue.clear()
-        q._queue.append({"task_id": "c1", "cloud": True})
+    with q._core._cond:
+        q._core._current = None
+        q._core._queue.clear()
+        q._core._queue.append({"task_id": "c1", "cloud": True})
     q._schedule_wake_if_idle()
     _wait_until(lambda: fired == ["wake"], 2.0, "云端积压不拦唤醒")
     assert fired == ["wake"]

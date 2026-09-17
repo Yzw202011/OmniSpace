@@ -34,10 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
-from collections import deque
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .task_queue import QueueSpec, TaskQueueCore
@@ -48,26 +45,12 @@ log = logging.getLogger("omnispace.services.image_queue")
 _WAIT_POLL_S = 1.0        # 等锁/热保护轮询周期（秒）
 _THERMAL_POLL_S = 2.0
 _DEFAULT_PRIORITY = 5     # 与 draw 既有语义一致：数值大者先跑
-_CLOUD_POOL_MAX = 8       # 云道线程池硬上限（实际并发由设置钳 1~8）
 # 排空→唤醒 vLLM 去抖窗（V9-β 2026-09-09）：客户端逐个提交（基准
 # 脚本/用户连点）时任务间隙即排空，旧实现排空即唤醒——唤醒重启会被
 # 紧邻的下一个任务撞死（15:37:04 实测：booting 被功能锁门禁拒绝且
 # 无人重试，state 卡 unloaded）。到点仍空闲才真唤醒。
 # （2026-09-10 批1 搬家 vram_policy 单源，本地名保留为别名）
 _WAKE_DEBOUNCE_S = WAKE_DEBOUNCE_S
-
-
-def _use_unified() -> bool:
-    """B5 灰度开关：config task_queue.impl（legacy|unified，默认 legacy）。
-    unified=调度委托 TaskQueueCore（行为以金标准测试逐比特对齐）；
-    legacy=既有内联实现。读取失败/异常一律 legacy（保守）。"""
-    try:
-        from src.config import get_config
-        raw = str((get_config().get("task_queue") or {}).get("impl", "")
-                  or "").strip().lower()
-        return raw == "unified"
-    except Exception:  # noqa: BLE001 - 配置异常保持 legacy
-        return False
 
 
 class ImageTaskCancelled(Exception):
@@ -81,40 +64,27 @@ class ImageTaskQueue:
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
-        # B5（2026-09-14）双模：config task_queue.impl=unified 时调度委托
-        # 通用 TaskQueueCore（本类保留全部宿主钩子方法，Core 经 host 回调
-        # ——金标准 Harness 的 monkeypatch 手法对 unified 同样生效）；
-        # 默认 legacy=下方内联实现零变更。legacy 字段两模都建（便宜，
-        # 且 Harness/外部对字段的手工探测不炸）。
-        self._core: TaskQueueCore | None = None
-        if _use_unified():
-            self._core = TaskQueueCore(host=self, spec=QueueSpec(
-                name="图像", label="图像",
-                acquire_hook="_acquire_paint_lock",
-                release_hook="_release_paint_lock",
-                thermal_hook="_thermal_paused",
-                vllm_sleep_hook="_sleep_vllm_for_generation",
-                unload_hook="_unload_paint_pipeline",
-                wake_hook="_schedule_wake_if_idle",
-                budget_admit_hook="_budget_admit",
-                budget_release_hook="_budget_release",
-                cloud_concurrency_hook="_cloud_concurrency",
-                wait_poll_s=_WAIT_POLL_S, thermal_poll_s=_THERMAL_POLL_S,
-                priority_sort=True, default_priority=_DEFAULT_PRIORITY))
-        self._queue: deque[dict] = deque()
-        self._cond = threading.Condition()
-        self._worker: threading.Thread | None = None
-        self._worker_lock = threading.Lock()
-        self._current: dict | None = None       # 正在运行的本地任务
-        self._cancel_flags: set[str] = set()    # 运行中取消旗标
-        self._lock_held = False                 # 本队列当前持有 paint 锁
-        self._wake_debounce_s = _WAKE_DEBOUNCE_S  # 实例化便于单测缩短（批3：协调器去抖窗入参）
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._reconciled = False
-        # 云端道（批2）：dispatcher 线程 + 并发池 + 运行中云端任务表
-        self._cloud_worker: threading.Thread | None = None
-        self._cloud_pool: ThreadPoolExecutor | None = None
-        self._cloud_running: dict[str, dict] = {}
+        # B5 终态（2026-09-17 用户拍板删 legacy）：调度一律委托通用
+        # TaskQueueCore（灰度开关与内联实现已删，历史见 git）。本类
+        # 保留全部宿主钩子方法，Core 经 host 回调——金标准 Harness 的
+        # monkeypatch 手法继续生效。
+        self._core = TaskQueueCore(host=self, spec=QueueSpec(
+            name="图像", label="图像",
+            acquire_hook="_acquire_paint_lock",
+            release_hook="_release_paint_lock",
+            thermal_hook="_thermal_paused",
+            vllm_sleep_hook="_sleep_vllm_for_generation",
+            unload_hook="_unload_paint_pipeline",
+            wake_hook="_schedule_wake_if_idle",
+            budget_admit_hook="_budget_admit",
+            budget_release_hook="_budget_release",
+            cloud_concurrency_hook="_cloud_concurrency",
+            # 云道执行体走带 busy 登记簿的包装层（保 legacy 语义：
+            # 云任务上榜「系统非空闲」）
+            cloud_run_hook="_run_cloud_one",
+            wait_poll_s=_WAIT_POLL_S, thermal_poll_s=_THERMAL_POLL_S,
+            priority_sort=True, default_priority=_DEFAULT_PRIORITY))
+        self._wake_debounce_s = _WAKE_DEBOUNCE_S  # 实例化便于单测缩短
 
     @classmethod
     def instance(cls) -> ImageTaskQueue:
@@ -133,22 +103,7 @@ class ImageTaskQueue:
         （排队等待期间周期回调 (task_id, position)）/ label（诊断用）/
         cloud（bool，True=云端道：跳过本地准入，见模块 docstring）。
         """
-        if self._core is not None:
-            return self._core.submit(task)
-        task.setdefault("priority", _DEFAULT_PRIORITY)
-        with self._cond:
-            self._queue.append(task)
-            # 稳定排序：priority 降序，同优先级保持入队序（deque 稳定）
-            self._queue = deque(sorted(
-                self._queue, key=lambda t: -int(t.get("priority", 5))))
-            self._loop = task.get("loop") or self._loop
-            position = self._position_locked(str(task.get("task_id")))
-            self._cond.notify_all()
-        self._ensure_worker()
-        log.info("图像任务入队: %s kind=%s 位次=%d pri=%s cloud=%s",
-                 task.get("task_id"), task.get("kind"), position,
-                 task.get("priority"), bool(task.get("cloud")))
-        return position
+        return self._core.submit(task)
 
     async def submit_and_wait(self, task: dict,
                               timeout_s: float = 3600.0) -> Any:
@@ -157,176 +112,30 @@ class ImageTaskQueue:
         入队 → 在 API 请求协程内等待完成 → 返回 runner 返回值
         （runner 异常/准入取消原样上抛，HTTP 错误语义与旧实现一致）。
         排队等待期间经 wait_progress_cb 广播「排队中·前N」。
-
-        实现：on_finish 完成钩子 + threading.Event，经
-        run_in_executor 阻塞等待（跨线程安全，worker 线程 set）；
-        runner 返回值由队列回填 task["_result"]。
         """
-        if self._core is not None:
-            return await self._core.submit_and_wait(task, timeout_s)
-        woken = threading.Event()
-        box: dict[str, Any] = {"error": None}
-
-        def on_finish(err: BaseException | None) -> None:
-            box["error"] = err
-            woken.set()
-
-        task = {**task, "on_finish": on_finish}
-        self.submit(task)
-        loop = asyncio.get_running_loop()
-        # B0 修复（2026-09-13 P1-1）：wait 必须带超时——原实现 wait()
-        # 无参永久阻塞，下方 woken.is_set 恒真，TimeoutError 分支不可达
-        # （timeout_s 成死代码），worker 卡死则关键帧/资产图 8 处调用
-        # 的 HTTP 请求无限悬挂。
-        woken_in_time = await loop.run_in_executor(
-            None, lambda: woken.wait(timeout_s))
-        if not woken_in_time:
-            # 尽力撤销：排队任务直接出队；运行中任务由检查点收割
-            tid = str(task.get("task_id") or "")
-            if tid:
-                self.cancel(tid)
-            raise TimeoutError(f"图像任务等待超时（>{timeout_s:.0f}s）")
-        err = box["error"]
-        if err is not None:
-            raise err
-        return task.get("_result")
+        return await self._core.submit_and_wait(task, timeout_s)
 
     def cancel(self, task_id: str) -> str:
         """取消：'queued'（已出队）/ 'running'（置旗标，runner 检查点
         收割——绘画页任务的引擎协作中断旗标由调用方自理）/ 'missing'。
         本地道与云端道同源判定（云端任务在轮询间隔收割取消）。"""
-        if self._core is not None:
-            return self._core.cancel(task_id)
-        with self._cond:
-            for i, t in enumerate(self._queue):
-                if str(t.get("task_id")) == task_id:
-                    del self._queue[i]
-                    log.info("排队图像任务取消出队: %s", task_id)
-                    return "queued"
-        if (self._current is not None
-                and str(self._current.get("task_id")) == task_id) \
-                or task_id in self._cloud_running:
-            self._cancel_flags.add(task_id)
-            log.info("运行中图像任务置取消旗标: %s", task_id)
-            return "running"
-        return "missing"
+        return self._core.cancel(task_id)
 
     def set_priority(self, task_id: str, priority: int) -> bool:
         """调整排队任务优先级并重排（0~9；未在队列返回 False）。"""
-        if self._core is not None:
-            return self._core.set_priority(task_id, priority)
-        with self._cond:
-            for t in self._queue:
-                if str(t.get("task_id")) == task_id:
-                    t["priority"] = int(priority)
-                    self._queue = deque(sorted(
-                        self._queue, key=lambda x: -int(x.get("priority", 5))))
-                    return True
-        return False
+        return self._core.set_priority(task_id, priority)
 
     def position(self, task_id: str) -> int | None:
         """排队位次（1 起，按调度序；仅排队中任务有值）。"""
-        if self._core is not None:
-            return self._core.position(task_id)
-        with self._cond:
-            return self._position_locked(task_id)
+        return self._core.position(task_id)
 
     def snapshot(self) -> dict:
         """队列状态快照（/paint/queue 与诊断用；本地道与云端道合并）。"""
-        if self._core is not None:
-            return self._core.snapshot()
-        with self._cond:
-            return {
-                "queued": [
-                    {"task_id": str(t.get("task_id")), "kind": t.get("kind"),
-                     "priority": int(t.get("priority", 5)),
-                     "cloud": bool(t.get("cloud"))}
-                    for t in self._queue],
-                "current": (self._current or {}).get("task_id"),
-                "cloud_running": list(self._cloud_running.keys()),
-                "lock_held": self._lock_held,
-            }
+        return self._core.snapshot()
 
     def is_cancelled(self, task_id: str) -> bool:
         """运行中任务的取消旗标查询（check_cancel 闭包数据源）。"""
-        if self._core is not None:
-            return self._core.is_cancelled(task_id)
-        return str(task_id) in self._cancel_flags
-
-    # ── worker ──────────────────────────────────────────────────
-
-    def _position_locked(self, task_id: str) -> int | None:
-        for i, t in enumerate(self._queue):
-            if str(t.get("task_id")) == task_id:
-                return i + 1
-        return None
-
-    def _pop_lane_locked(self, cloud: bool) -> dict | None:
-        """按道取队首任务（cloud=True 取首个云端任务，否则首个本地任务）。
-
-        跨道任务留在 deque 里等对方 worker 认领（priority 全局排序
-        保留；两道消费速率独立——本地单 worker 串行，云端并发池）。
-        """
-        for i, t in enumerate(self._queue):
-            if bool(t.get("cloud")) == cloud:
-                del self._queue[i]
-                return t
-        return None
-
-    def _ensure_worker(self) -> None:
-        with self._worker_lock:
-            if self._worker is not None and self._worker.is_alive():
-                pass
-            else:
-                self._worker = threading.Thread(
-                    target=self._worker_loop, daemon=True, name="image-queue")
-                self._worker.start()
-            if self._cloud_worker is not None \
-                    and self._cloud_worker.is_alive():
-                pass
-            else:
-                self._cloud_worker = threading.Thread(
-                    target=self._cloud_dispatcher_loop, daemon=True,
-                    name="image-queue-cloud")
-                self._cloud_worker.start()
-
-    def _worker_loop(self) -> None:
-        """本地道消费主循环：取本地任务 → 准入 → 执行；排空时释放锁并
-        收尾协商。云端任务不在此道（云道 dispatcher 独立消费）；仅剩
-        云端任务的积压不阻碍本地道释放 paint 锁（云端不需要本地锁）。"""
-        while True:
-            drain = False
-            with self._cond:
-                task = self._pop_lane_locked(cloud=False)
-                if task is not None:
-                    self._current = task
-                elif self._lock_held:
-                    # 旗标翻转在 cond 内（B0：写路径收敛，修跨线程竞态）；
-                    # 收尾动作挪到 cond 外——原实现持 _cond 做 empty_cache
-                    # + ComfyUI /free（60s 超时），事件循环侧任何要进
-                    # _cond 的 submit 全被卡 → 全站冻结（09-13 锁序普查
-                    # 冻结链 #1）。收尾仅本 worker 线程会做，无竞争。
-                    self._lock_held = False
-                    drain = True
-            if drain:
-                self._unload_paint_pipeline()
-                self._release_paint_lock(self._loop)
-                self._schedule_wake_if_idle()
-                continue  # 重取：收尾窗口内新入队任务立即消费
-            if task is None:
-                with self._cond:
-                    self._cond.wait()
-                continue
-            task_id = str(task.get("task_id"))
-            try:
-                self._run_one(task)
-            except Exception as exc:  # noqa: BLE001 - worker 永不退出
-                log.error("图像队列任务异常逃逸: %s: %s", task_id, exc)
-            finally:
-                with self._cond:
-                    if self._current is task:
-                        self._current = None
-                    self._cancel_flags.discard(task_id)
+        return self._core.is_cancelled(task_id)
 
     # ── 云端道（批2）────────────────────────────────────────────
 
@@ -337,29 +146,6 @@ class ImageTaskQueue:
             return int(get_image_concurrency())
         except Exception:  # noqa: BLE001 - 设置读取失败按默认
             return 2
-
-    def _cloud_dispatcher_loop(self) -> None:
-        """云端道派发循环：有空位时取首个云端任务 → 并发池执行。
-
-        与本地道共用 deque/cancel_flags/位次（用户视角一条队列）；
-        空位判定在 cond 内做（新任务入队/云任务完成都会 notify）。
-        """
-        while True:
-            with self._cond:
-                task = None
-                while task is None:
-                    if len(self._cloud_running) < self._cloud_concurrency():
-                        task = self._pop_lane_locked(cloud=True)
-                    if task is None:
-                        self._cond.wait()
-            task_id = str(task.get("task_id"))
-            if self._cloud_pool is None:
-                self._cloud_pool = ThreadPoolExecutor(
-                    max_workers=_CLOUD_POOL_MAX,
-                    thread_name_prefix="image-queue-cloud")
-            with self._cond:
-                self._cloud_running[task_id] = task
-            self._cloud_pool.submit(self._run_cloud_one, task)
 
     def _cloud_busy_admit(self, task: dict) -> str:
         """云任务上榜（批5，方案 §3.6）：不取本地锁但登记忙碌——空闲
@@ -385,8 +171,8 @@ class ImageTaskQueue:
             pass
 
     def _run_cloud_one(self, task: dict) -> None:
-        """云端道单任务：无本地准入（锁/热保护/vLLM 让渡全跳过），
-        直接执行 runner；完成回调与本地道同构（on_finish / 取消旗标）。"""
+        """云端道单任务包装（Core 的 cloud_run_hook）：busy 登记簿上榜
+        → 执行体 → 下榜（队列态清理由 Core 收尾，宿主不再碰）。"""
         task_id = str(task.get("task_id"))
         busy_token = self._cloud_busy_admit(task)
         try:
@@ -395,10 +181,6 @@ class ImageTaskQueue:
             log.error("云端图像任务异常逃逸: %s: %s", task_id, exc)
         finally:
             self._cloud_busy_release(busy_token)
-            with self._cond:
-                self._cloud_running.pop(task_id, None)
-                self._cancel_flags.discard(task_id)
-                self._cond.notify_all()
 
     def _run_one_cloud(self, task: dict) -> None:
         task_id = str(task.get("task_id"))
@@ -421,78 +203,13 @@ class ImageTaskQueue:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("on_finish 钩子异常: %s", exc)
 
-    def _run_one(self, task: dict) -> None:
-        """单任务全流程：准入 → runner；一切结局经 on_finish 钩子回传
-        （submit_and_wait 的等待方靠它唤醒，绝不悬挂）。"""
-        task_id = str(task.get("task_id"))
-        finish = task.get("on_finish")
-        err: BaseException | None = None
-        try:
-            self._wait_admission(task)
-        except ImageTaskCancelled as exc:
-            log.info("图像任务排队期间取消: %s", task_id)
-            err = exc
-        except Exception as exc:  # noqa: BLE001 - 准入失败（锁/事件循环等）
-            log.error("图像任务准入失败: %s: %s", task_id, exc)
-            err = exc
-        else:
-            log.info("图像任务开跑: %s kind=%s", task_id, task.get("kind"))
-            try:
-                task["_result"] = task["runner"](
-                    task, self._make_check_cancel(task_id))
-            except ImageTaskCancelled as exc:
-                log.info("图像任务已取消: %s", task_id)
-                err = exc
-            except Exception as exc:  # noqa: BLE001 - runner 异常兜底记录
-                log.error("图像任务执行异常: %s: %s", task_id, exc)
-                err = exc
-        finally:
-            self._budget_release(task)
-            if finish is not None:
-                try:
-                    finish(err)
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("on_finish 钩子异常: %s", exc)
-
     def _make_check_cancel(self, task_id: str) -> Callable[[], None]:
         def check_cancel() -> None:
             if self.is_cancelled(task_id):
                 raise ImageTaskCancelled(task_id)
         return check_cancel
 
-    # ── 准入协商（可覆写小方法，测试注入点）─────────────────────
-
-    def _wait_admission(self, task: dict) -> None:
-        """热保护等待 → 排队等待广播 → 功能锁等待 → vLLM 让渡。"""
-        task_id = str(task.get("task_id"))
-        check = self._make_check_cancel(task_id)
-        wait_cb = task.get("wait_progress_cb")
-        while self._thermal_paused():
-            check()
-            if wait_cb:
-                self._call_wait_cb(wait_cb, task_id)
-            time.sleep(_THERMAL_POLL_S)
-        held = False
-        with self._cond:
-            held = self._lock_held
-        if not held:
-            while True:
-                check()
-                if wait_cb:
-                    self._call_wait_cb(wait_cb, task_id)
-                if self._acquire_paint_lock(task_id, task.get("loop")):
-                    with self._cond:
-                        self._lock_held = True
-                    break
-                time.sleep(_WAIT_POLL_S)
-        else:
-            # 队列已持锁（接力）：仍广播一次排队位次供 UI 收敛
-            if wait_cb:
-                self._call_wait_cb(wait_cb, task_id)
-        self._sleep_vllm_for_generation()
-        # 批2 顾问接入（D3=A）：准入通过后记一帧供需判定 + 忙碌登记，
-        # 不拦截不让位（硬闸翻转=批3 实弹验证后）
-        self._budget_admit(task)
+    # ── 准入协商（宿主钩子；本地道编排/准入循环已由 Core 承担）──
 
     def _budget_admit(self, task: dict) -> None:
         """gpu_budget 顾问判定+登记（批2）：need_gb=0 登记式调用，
@@ -515,14 +232,6 @@ class ImageTaskQueue:
                 note=str(task.get("task_id")))
         except Exception as exc:  # noqa: BLE001 - 收尾失败不影响任务
             log.debug("gpu_budget 收尾跳过: %s", exc)
-
-    @staticmethod
-    def _call_wait_cb(wait_cb: Callable, task_id: str) -> None:
-        try:
-            pos = ImageTaskQueue.instance().position(task_id)
-            wait_cb(task_id, pos or 1)
-        except Exception:  # noqa: BLE001 - 广播失败不阻断
-            pass
 
     def _thermal_paused(self) -> bool:
         try:
@@ -568,10 +277,8 @@ class ImageTaskQueue:
 
     def _local_lane_idle(self) -> bool:
         """本地道空闲：无在跑任务且无本地排队（仅剩云端任务不算忙，
-        云道不占 GPU）。"""
-        with self._cond:
-            return (self._current is None and not any(
-                not bool(t.get("cloud")) for t in self._queue))
+        云道不占 GPU）。判定委托 Core（队列态真源在 Core 侧）。"""
+        return self._core.local_lane_idle()
 
     def _schedule_wake_if_idle(self) -> None:
         """排空后延迟唤醒 vLLM（V9-β 2026-09-09；批3 起判定逻辑转

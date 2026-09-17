@@ -17,13 +17,11 @@ from collections.abc import Callable
 
 import pytest
 
-import src.services.image_queue as _iq
 from src.services.image_queue import ImageTaskQueue
 
 
 @pytest.fixture()
 def unified_queue(monkeypatch: pytest.MonkeyPatch) -> ImageTaskQueue:
-    monkeypatch.setattr(_iq, "_use_unified", lambda: True)
     return ImageTaskQueue()
 
 

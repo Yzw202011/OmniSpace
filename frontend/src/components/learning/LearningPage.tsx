@@ -16,6 +16,7 @@
 import React from 'react';
 import { BookOpen, Dumbbell } from 'lucide-react';
 import LearningDashboard from './LearningDashboard';
+import QuotaCard from './QuotaCard';
 import TopicManager from './TopicManager';
 import BrowserView from './BrowserView';
 import BehaviorStatsPanel from './BehaviorStats';
@@ -34,6 +35,7 @@ export const LearningPage: React.FC = () => {
 
       <div className="flex flex-col gap-4 mt-5">
         <LearningDashboard />
+        <QuotaCard />
         <TopicManager />
         <BrowserView />
         <BehaviorStatsPanel />

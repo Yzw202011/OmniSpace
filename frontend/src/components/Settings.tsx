@@ -20,6 +20,7 @@ import WebSearchSettings from '@/components/WebSearchSettings';
 import HealthCheckCard from '@/components/HealthCheckCard';
 import UpgradeSection from '@/components/UpgradeSection';
 import PluginSection from '@/components/PluginSection';
+import DataManagementSection from '@/components/DataManagementSection';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
@@ -390,6 +391,9 @@ export default function Settings() {
 
       {/* ============ 体检与修复（自愈批4） ============ */}
       <HealthCheckCard />
+
+      {/* ============ 数据管理（备份/恢复/项目导入导出，接线四项 2026-09-17） ============ */}
+      <DataManagementSection />
 
       {/* ============ 硬件信息 ============ */}
       <div className="settings-section card">

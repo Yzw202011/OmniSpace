@@ -51,7 +51,7 @@ DEFAULT_INVOKE_TIMEOUT_S = 180.0
 
 # 出厂预登记（repo_curated = 已过仓库逐行审查档；PR#2 插件实审在案）
 # 2026-09-17 用户令：video-making（单镜运镜快速预览）整链移除。
-_SEED_PLUGINS: dict[str, dict[str, str]] = {
+_SEED_PLUGINS: dict[str, dict[str, Any]] = {
     "rust-coding": {
         # Rust 报错分类器（2026-09-16 登记拍板）：342 行逐行审查在案——
         # 纯 numpy 数值分类，无 IO/网络/子进程/eval；审查修复两处：
@@ -76,6 +76,10 @@ MAX_USER_PLUGINS = 32
 MAX_SOURCE_BYTES = 256 * 1024
 # 插件名规则（manifest.name 与登记名共用；防路径花活）
 PLUGIN_NAME_RE = r"^[a-z0-9][a-z0-9_-]{0,63}$"
+# ── 技能插座（批0 2026-09-17）：manifest.skills 声明 + 登记表索引 ──
+SKILL_FEATURES = ("chat", "novel", "comic", "manga")
+SKILL_INPUT_KINDS = ("text", "image")
+MAX_SKILLS_PER_PLUGIN = 4
 # 用户档集合（repo_curated 之外都是用户档；user_installed 为 P1 旧别名）
 _USER_TIERS = ("user_data", "user_source", "user_installed")
 _TRUST_LABELS = {
@@ -84,6 +88,52 @@ _TRUST_LABELS = {
     "user_source": "用户·含源码",
     "user_installed": "用户导入",
 }
+
+
+def validate_skills(raw: Any) -> list[dict[str, Any]]:
+    """manifest.skills 校验（导入闸，规范 §3.1）：非法即拒。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise PluginRuntimeError(
+            "PLUGIN_SPEC_MISMATCH", "manifest.skills 必须是列表",
+            "格式见 docs/插件开发规范.md §3.1")
+    if len(raw) > MAX_SKILLS_PER_PLUGIN:
+        raise PluginRuntimeError(
+            "PLUGIN_SPEC_MISMATCH",
+            f"技能数超过上限（{len(raw)} > {MAX_SKILLS_PER_PLUGIN}）",
+            f"单个插件最多声明 {MAX_SKILLS_PER_PLUGIN} 个技能")
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise PluginRuntimeError(
+                "PLUGIN_SPEC_MISMATCH", f"skills[{i}] 必须是对象")
+        sid = str(item.get("id") or "")
+        feature = str(item.get("feature") or "")
+        input_kind = str(item.get("input") or "text")
+        title = str(item.get("title") or "").strip()
+        if not re.match(PLUGIN_NAME_RE, sid):
+            raise PluginRuntimeError(
+                "PLUGIN_SPEC_MISMATCH", f"skills[{i}].id 不合规: {sid!r}",
+                "规则 ^[a-z0-9][a-z0-9_-]{0,63}$")
+        if feature not in SKILL_FEATURES:
+            raise PluginRuntimeError(
+                "PLUGIN_SPEC_MISMATCH", f"skills[{i}].feature 非法: {feature!r}",
+                f"feature 白名单: {'/'.join(SKILL_FEATURES)}")
+        if input_kind not in SKILL_INPUT_KINDS:
+            raise PluginRuntimeError(
+                "PLUGIN_SPEC_MISMATCH",
+                f"skills[{i}].input 非法: {input_kind!r}",
+                f"input 种类: {'/'.join(SKILL_INPUT_KINDS)}")
+        if not title:
+            raise PluginRuntimeError(
+                "PLUGIN_SPEC_MISMATCH", f"skills[{i}].title 不能为空")
+        description = str(item.get("description") or "").strip()
+        if len(description) > 500:
+            description = description[:500]
+        out.append({"id": sid, "feature": feature, "title": title,
+                    "description": description, "input": input_kind})
+    return out
 
 
 @dataclass
@@ -97,6 +147,7 @@ class _PluginEntry:
     state: str = STATE_UNLOADED
     instance: ExpertPlugin | None = None
     manifest: dict[str, Any] = field(default_factory=dict)
+    skills: list[dict[str, Any]] = field(default_factory=list)
     last_error: str = ""
     imported_at: str = ""
     lock: threading.RLock = field(default_factory=threading.RLock)
@@ -177,7 +228,8 @@ class PluginRuntime:
                 source_py=ROOT_DIR / spec["source_py"],
                 pkg_path=ROOT_DIR / spec["pkg"] if spec.get("pkg") else None,
                 trust=spec["trust"],
-                manifest={"capability": spec.get("capability", "")})
+                manifest={"capability": spec.get("capability", "")},
+                skills=list(spec.get("skills", [])))
         self._load_user_registry()
         self._load_factory_overrides()
 
@@ -241,6 +293,8 @@ class PluginRuntime:
             self._registry[name] = _PluginEntry(
                 name=name, source_py=source, pkg_path=pkg, trust=trust,
                 enabled=bool(item.get("enabled", True)),
+                skills=[s for s in item.get("skills") or []
+                        if isinstance(s, dict)],
                 imported_at=str(item.get("imported_at") or ""))
 
     def _save_user_registry(self) -> None:
@@ -255,6 +309,7 @@ class PluginRuntime:
                 "pkg": _rel_or_abs(entry.pkg_path) if entry.pkg_path else None,
                 "trust": entry.trust,
                 "enabled": entry.enabled,
+                "skills": entry.skills,
                 "imported_at": entry.imported_at,
             })
         USER_PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -267,7 +322,9 @@ class PluginRuntime:
     def register(self, name: str, source_py: Path,
                  pkg_path: Path | None = None,
                  trust: str = "user_installed",
-                 imported_at: str = "") -> None:
+                 imported_at: str = "",
+                 skills: list[dict[str, Any]] | None = None
+                 ) -> None:
         """登记新插件（未登记不可加载——治理闸，非安全沙箱）。"""
         with self._global:
             if name in self._registry:
@@ -286,7 +343,8 @@ class PluginRuntime:
                         "在设置页删除不再使用的插件后重试")
             self._registry[name] = _PluginEntry(
                 name=name, source_py=source_py, pkg_path=pkg_path,
-                trust=trust, imported_at=imported_at)
+                trust=trust, imported_at=imported_at,
+                skills=(skills or [])[:MAX_SKILLS_PER_PLUGIN])
 
     def save_user_registry(self) -> None:
         """显式持久化用户登记表（导入流程收尾调用）。"""
@@ -385,8 +443,40 @@ class PluginRuntime:
                     "enabled": entry.enabled, "state": entry.state,
                     "source": _rel_or_abs(entry.source_py),
                     "capability": entry.manifest.get("capability", ""),
+                    "skills": list(entry.skills),
                     "last_error": entry.last_error, "stats": stats})
         return info
+
+    # ── 技能索引（技能插座批0） ──────────────────────────────
+    def skills_info(self, feature: str | None = None
+                    ) -> list[dict[str, Any]]:
+        """技能索引：enabled 插件 × feature 过滤（轻量无加载副作用）。"""
+        if feature is not None and feature not in SKILL_FEATURES:
+            raise PluginRuntimeError(
+                "PLUGIN_SPEC_MISMATCH", f"feature 非法: {feature!r}",
+                f"feature 白名单: {'/'.join(SKILL_FEATURES)}")
+        out: list[dict[str, Any]] = []
+        with self._global:
+            for entry in sorted(self._registry.values(),
+                                key=lambda e: e.name):
+                if not entry.enabled or not entry.skills:
+                    continue
+                for skill in entry.skills:
+                    if (feature is not None
+                            and skill.get("feature") != feature):
+                        continue
+                    out.append({
+                        "plugin": entry.name,
+                        "id": str(skill.get("id") or ""),
+                        "feature": str(skill.get("feature") or ""),
+                        "title": str(skill.get("title") or ""),
+                        "description": str(skill.get("description") or ""),
+                        "input": str(skill.get("input") or "text"),
+                        "trust": entry.trust,
+                        "trust_label": _TRUST_LABELS.get(
+                            entry.trust, entry.trust),
+                    })
+        return out
 
     # ── 生命周期 ────────────────────────────────────────────
     def ensure_loaded(self, name: str) -> ExpertPlugin:
@@ -408,8 +498,10 @@ class PluginRuntime:
                     # 宿主标准：优先无参构造；插件类未提供缺省 name 时
                     # 以登记名实例化（基类 __init__ 需要 name）
                     instance = cls(name=entry.name)  # type: ignore[call-arg]
+                pkg_manifest: dict[str, Any] | None = None
                 if entry.pkg_path is not None and entry.pkg_path.is_file():
                     pkg = read_cutemamen_pkg(entry.pkg_path)
+                    pkg_manifest = pkg.manifest
                     if hasattr(instance, "load_weights"):
                         instance.load_weights(pkg.weights, pkg.manifest)
                     instance.memory.restore(pkg.memory)
@@ -421,6 +513,22 @@ class PluginRuntime:
                 entry.manifest = instance.build_manifest(
                     source=_display_path(entry.source_py),
                     trust=entry.trust, osp_version="1.0")
+                # 技能插座：登记面无技能时采纳类声明 SKILLS（manifest 出线）
+                # 或包 manifest.skills（旧包兜底；导入时已校验持久化），
+                # 用户档登记面回写。非法形状静默忽略（不拦加载）。
+                if not entry.skills:
+                    candidates: Any = entry.manifest.get("skills")
+                    if not candidates and pkg_manifest is not None:
+                        candidates = pkg_manifest.get("skills")
+                    try:
+                        adopted = validate_skills(candidates)
+                    except PluginRuntimeError:
+                        adopted = []
+                    if adopted:
+                        entry.skills = adopted
+                        if entry.trust in _USER_TIERS:
+                            with self._global:
+                                self._save_user_registry()
                 entry.instance = instance
                 entry.state = STATE_LOADED
                 entry.last_error = ""

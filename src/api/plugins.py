@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from ..cutemamen.pkg import native_registry
@@ -73,6 +73,22 @@ def _translate(exc: PluginRuntimeError) -> ApiError:
 async def list_plugins() -> dict[str, Any]:
     """已登记插件清单（轻量，无加载副作用）。"""
     return ok({"plugins": get_plugin_runtime().plugins_info()})
+
+
+@router.get("/plugins/skills")
+async def list_plugin_skills(
+        feature: str | None = Query(
+            default=None,
+            description="功能页过滤：chat/novel/comic/manga；缺省=全部")
+        ) -> dict[str, Any]:
+    """技能索引（技能插座批0）：各创作功能页「插件技能」入口的数据源。"""
+    rt = get_plugin_runtime()
+    try:
+        skills = rt.skills_info(feature)
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
+    return ok({"skills": skills,
+               "features": list(pr_registry.SKILL_FEATURES)})
 
 
 @router.post("/plugins/{name}/load")
@@ -240,6 +256,11 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
                        f"manifest.name 不合规: {name!r}",
                        suggestion="规则 ^[a-z0-9][a-z0-9_-]{0,63}$（docs/插件开发规范.md §4）")
     base_model = str(manifest.get("base_model") or "")
+    # 技能插座批0：manifest.skills 校验（非法即拒，规范 §3.1）
+    try:
+        skills = pr_registry.validate_skills(manifest.get("skills"))
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
     # v2.1 内嵌源码：包里带 source/plugin.py 即视为含源码档（用户只选
     # 一个文件）；外部分开上传的 .py 仅为兼容旧流程保留，内嵌优先
     if source_bytes is None and pkg.source:
@@ -317,7 +338,7 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
     imported_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     try:
         rt.register(name, source_path, pkg_path, trust,
-                    imported_at=imported_at)
+                    imported_at=imported_at, skills=skills)
         rt.save_user_registry()
     except PluginRuntimeError as exc:
         for f in written:
@@ -331,6 +352,7 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
         "base_model": base_model,
         "route": str(manifest.get("route") or ""),
         "capability": str(manifest.get("capability") or ""),
+        "skills": skills,
         "origin": "user", "imported_at": imported_at,
     }
 

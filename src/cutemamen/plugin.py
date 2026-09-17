@@ -14,7 +14,7 @@ import logging
 import time
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -250,6 +250,10 @@ class ExpertPlugin:
 
     BASE_MODEL = "generic"        # manifest.base_model, 加载注册表按它分发
     CAPABILITY = ""               # 人类可读能力描述 (子类覆盖)
+    # 技能声明（插件开发规范 §3.1，技能插座批0 2026-09-17）：
+    # [{id, feature(chat/novel/comic/manga), title, description, input(text/image)}]
+    # 登记面（包 manifest.json 的 skills 字段）优先；类声明在首次加载时采纳
+    SKILLS: ClassVar[list[dict[str, Any]]] = []
 
     def __init__(self, name: str, *, route: str | None = None,
                  capability: str = "", author: str = "DistributedFormer",
@@ -326,6 +330,7 @@ class ExpertPlugin:
             "version": self.version,
             "route": self.route,
             "lifecycle": ["on_load", "on_think", "on_unload"],
+            "skills": [dict(s) for s in self.SKILLS],
             "memory_budget": int(self.memory.footprint_bytes()),
             "min_core_version": "0.8.7",
             "memory_levels": list(PluginMemory.LEVELS),

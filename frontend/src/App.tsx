@@ -35,6 +35,7 @@ import {
   router,
   NAV_ITEMS,
   arrangedNavItems,
+  regroupNavItems,
   saveSidebarOrder,
 } from './router';
 import { trackBehavior } from './services/learningApi';
@@ -269,6 +270,8 @@ export function AppShell() {
         );
         const to = items.findIndex((it) => it.route === route);
         if (from < 0 || to < 0 || from === to) return items;
+        // P0 分组导航：组序固定，仅组内拖拽生效（跨组放下不移动）
+        if (items[from].group !== items[to].group) return items;
         const next = [...items];
         const [moved] = next.splice(from, 1);
         next.splice(to, 0, moved);
@@ -422,60 +425,68 @@ export function AppShell() {
         {/* 左侧导航（文档D §1.1.1：收起 64px 仅图标 / 展开 260px 图标+文字） */}
         <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
           <nav className="sidebar-nav" aria-label="主导航">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              // 功能互斥置灰：该路由对应重量级功能且被当前活跃功能阻断时置灰提示
-              const feature = ROUTE_FEATURE[item.route];
-              const blockedMsg = feature
-                ? canSwitchFeature(activeFeature, feature)
-                : null;
-              const link = (
-                <NavLink
-                  to={item.path}
-                  draggable
-                  onDragStart={handleNavDragStart(item.route)}
-                  onDragOver={handleNavDragOver(item.route)}
-                  onDragEnd={handleNavDragEnd}
-                  style={{ cursor: 'grab' }}
-                  className={({ isActive }) =>
-                    `nav-item${isActive ? ' active' : ''}${blockedMsg ? ' blocked' : ''}`
-                  }
-                  aria-disabled={blockedMsg ? true : undefined}
-                  onClick={() => {
-                    // 行为学习埋点（fire-and-forget）：导航为纯路由跳转
-                    // 不经过 setActiveFeature，在此直接埋模块切换事件
-                    if (feature) {
-                      trackBehavior('module_switch', {
-                        content: feature,
-                        context: location.pathname,
-                        feature,
-                      });
+            {regroupNavItems(navItems).map((group) => (
+              <div key={group.key} className="sidebar-group" data-group={group.key}>
+                {/* 分组标题（P0 重组）：折叠态由 CSS 隐藏、组间画细分隔线 */}
+                <div className="sidebar-group-title" aria-hidden="true">
+                  {group.label}
+                </div>
+                {group.items.map((item) => {
+                const Icon = item.icon;
+                // 功能互斥置灰：该路由对应重量级功能且被当前活跃功能阻断时置灰提示
+                const feature = ROUTE_FEATURE[item.route];
+                const blockedMsg = feature
+                  ? canSwitchFeature(activeFeature, feature)
+                  : null;
+                const link = (
+                  <NavLink
+                    to={item.path}
+                    draggable
+                    onDragStart={handleNavDragStart(item.route)}
+                    onDragOver={handleNavDragOver(item.route)}
+                    onDragEnd={handleNavDragEnd}
+                    style={{ cursor: 'grab' }}
+                    className={({ isActive }) =>
+                      `nav-item${isActive ? ' active' : ''}${blockedMsg ? ' blocked' : ''}`
                     }
-                  }}
-                >
-                  <span className="nav-icon">
-                    <Icon size={18} aria-hidden="true" />
-                  </span>
-                  <span className="nav-label">{item.label}</span>
-                </NavLink>
-              );
-              // 互斥置灰时悬停提示阻断原因（展开/收起态均提示，CROSS-002）
-              if (blockedMsg) {
-                return (
-                  <Tooltip key={item.route} content={blockedMsg} placement="right">
+                    aria-disabled={blockedMsg ? true : undefined}
+                    onClick={() => {
+                      // 行为学习埋点（fire-and-forget）：导航为纯路由跳转
+                      // 不经过 setActiveFeature，在此直接埋模块切换事件
+                      if (feature) {
+                        trackBehavior('module_switch', {
+                          content: feature,
+                          context: location.pathname,
+                          feature,
+                        });
+                      }
+                    }}
+                  >
+                    <span className="nav-icon">
+                      <Icon size={18} aria-hidden="true" />
+                    </span>
+                    <span className="nav-label">{item.label}</span>
+                  </NavLink>
+                );
+                // 互斥置灰时悬停提示阻断原因（展开/收起态均提示，CROSS-002）
+                if (blockedMsg) {
+                  return (
+                    <Tooltip key={item.route} content={blockedMsg} placement="right">
+                      {link}
+                    </Tooltip>
+                  );
+                }
+                // 收起态悬停显示功能名称 tooltip（§6.1.2 悬停行）；展开态标签已可见，不重复提示
+                return collapsed ? (
+                  <Tooltip key={item.route} content={item.label} placement="right">
                     {link}
                   </Tooltip>
+                ) : (
+                  <span key={item.route}>{link}</span>
                 );
-              }
-              // 收起态悬停显示功能名称 tooltip（§6.1.2 悬停行）；展开态标签已可见，不重复提示
-              return collapsed ? (
-                <Tooltip key={item.route} content={item.label} placement="right">
-                  {link}
-                </Tooltip>
-              ) : (
-                <span key={item.route}>{link}</span>
-              );
-            })}
+                })}
+              </div>
+            ))}
           </nav>
           <div className="sidebar-footer">
             {/* 自定义摆放：顺序与默认不同且展开态时提供恢复入口 */}

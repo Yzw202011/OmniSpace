@@ -256,8 +256,26 @@ a:hover { text-decoration: underline; }
 /* Logo 位于顶栏（文档D §1.1.1 顶栏左侧 Logo 区），侧栏首项即导航 */
 .sidebar-nav { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--space-4) var(--space-3) var(--space-2); }
 .sidebar.collapsed .sidebar-nav { padding: var(--space-2) var(--space-2); }
-/* Tooltip 包装 span 撑满导航宽度（收起态悬停 tooltip 的触发器） */
-.sidebar-nav > span { display: block; }
+/* Tooltip 包装 span 撑满导航宽度（收起态悬停 tooltip 的触发器；
+   P0 分组后 span 嵌在 .sidebar-group 内，两处选择器都命中） */
+.sidebar-nav > span, .sidebar-group > span { display: block; }
+
+/* ── 分组导航（P0 重组 2026-09-17，用户拍板 1A）：创作/工场/系统 ── */
+.sidebar-group-title {
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.08em;
+  white-space: nowrap; overflow: hidden;
+}
+/* 折叠态（64px 仅图标）：组标题无处安放，隐藏并以组间细分隔线示意分组 */
+.sidebar.collapsed .sidebar-group-title { display: none; }
+.sidebar.collapsed .sidebar-group + .sidebar-group {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
 
 .nav-item {
   display: flex; align-items: center; gap: var(--space-3);

@@ -761,7 +761,7 @@ def _load_row_reference(db: Database, row: dict) -> Image.Image | None:
     MAX_IMGS = 6     # 防过多资产把参考条件 token 挤爆（4 视图资产=1 张）
 
     assets = _fetch_bound_assets(db, row.get("asset_ids") or [])
-    by_kind = {"character": [], "scene": [], "prop": []}
+    by_kind: dict[str, list] = {"character": [], "scene": [], "prop": []}
     for a in assets:
         if a.get("file_path") and a.get("kind") in by_kind:
             by_kind[a["kind"]].append(a)
@@ -913,7 +913,7 @@ def _load_asset_references(db: Database, row: dict) -> list:
     from ...config import DATA_DIR as _DATA_DIR
 
     assets = _fetch_bound_assets(db, row.get("asset_ids") or [])
-    by_kind = {"character": [], "scene": [], "prop": []}
+    by_kind: dict[str, list] = {"character": [], "scene": [], "prop": []}
     for a in assets:
         if a.get("file_path") and a.get("kind") in by_kind:
             by_kind[a["kind"]].append(a)

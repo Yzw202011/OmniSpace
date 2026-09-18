@@ -241,7 +241,7 @@ class FileStore:
         """列出指定类型的文件信息。"""
         category = _TYPE_MAP.get(file_type.lower(), "temp")
         subdir = SUBDIRS[category]
-        items = []
+        items: list[dict] = []
         if not subdir.exists():
             return items
         for item in sorted(subdir.iterdir(), key=lambda p: p.stat().st_mtime,

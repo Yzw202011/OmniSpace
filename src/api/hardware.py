@@ -324,7 +324,7 @@ def hardware_synergy() -> dict[str, Any]:
     gpu = _realtime_gpu()
     total_mb = gpu.get("vram_total_mb") or 0
     used_mb = gpu.get("vram_used_mb") or 0
-    vram = {
+    vram: dict[str, Any] = {
         "used_mb": used_mb,
         "total_mb": total_mb,
         "free_mb": gpu.get("vram_free_mb") or 0,

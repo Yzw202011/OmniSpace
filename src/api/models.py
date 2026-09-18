@@ -135,7 +135,7 @@ def _register(model_id: str, name: str, category: ModelCategory,
               purpose: str, min_vram_gb: float, size_gb: float,
               status: ModelStatus = ModelStatus.READY) -> dict:
     """登记一个模型到内存注册表。"""
-    info = {
+    info: dict[str, Any] = {
         "id": model_id,
         "name": name,
         "category": category.value,

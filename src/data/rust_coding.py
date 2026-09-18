@@ -1125,10 +1125,11 @@ def stratified_split(samples: list, train_ratio: float = 0.75,
                      seed: int = 0):
     """分层划分训练/验证集 (每类别按比例抽取)"""
     rng = np.random.RandomState(seed)
-    by_label = {}
+    by_label: dict[str, list] = {}
     for s in samples:
         by_label.setdefault(s["label"], []).append(s)
-    train, val = [], []
+    train: list = []
+    val: list = []
     for _, items in sorted(by_label.items()):
         idx = rng.permutation(len(items))
         n_train = max(1, int(round(len(items) * train_ratio)))
@@ -1146,8 +1147,8 @@ def stratified_kfold(samples: list, n_folds: int = 5, seed: int = 0):
         不再依赖划分运气 (P2 交叉验证)。
     """
     rng = np.random.RandomState(seed)
-    folds = [[] for _ in range(n_folds)]
-    by_label = {}
+    folds: list = [[] for _ in range(n_folds)]
+    by_label: dict[str, list] = {}
     for s in samples:
         by_label.setdefault(s["label"], []).append(s)
     for _, items in sorted(by_label.items()):

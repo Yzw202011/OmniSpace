@@ -220,7 +220,7 @@ class EnvironmentChecker:
 
     def __init__(self, config: LauncherConfig) -> None:
         self.config = config
-        self.results = {}
+        self.results: dict[str, Any] = {}
 
     def check_all(self) -> tuple[bool, dict]:
         """执行所有环境检查"""

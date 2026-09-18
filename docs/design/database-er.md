@@ -1,5 +1,8 @@
 # OmniSpace AI 数据库 ER 说明
 
+> **2026-09-18 批3 文档对账勘误**：本页口径已落后——现网实测主库用户表 **35 张**（42 对象=35+6 FTS 影子+sqlite_sequence）、`PRAGMA user_version=13`（SCHEMA_VERSION=13，database.py:484）、较本页 30 表/uv7 多 5 表 6 个迁移组（含 style_tasks/comic_assets/train_tasks 等 09 月增量）。**表结构真源=database.py `_SCHEMA`+迁移组+生产库**，本页关系图仅作历史参考；全图重生成待专项。
+
+
 > 版本 v2.3.1 ｜ 生成于 2026-08-20（TASK-P2-02，对应审计 P03）｜ 事实来源：src/data/database.py 及各服务层自建表 DDL 全量提取
 > **2026-08-28 校准**：实测 `data/omnispace.db` 共 **31 张用户表**（37 个对象含 FTS5 影子表与 sqlite_sequence），本文档成文时为 30 张、漏记 `art_styles`（database.py `_SCHEMA` 建表，供漫剧漫画风格包使用）；`PRAGMA user_version` 实测为 **7**（原文 3），迁移组 4~7 详见 `database.py` `_MIGRATION_GROUPS`。
 > **2026-09-01 校准（只读实测）**：主库实测 **30 张用户表**（36 对象 = 30 用户表 + 6 张 knowledge_fts\* 影子表；加上 sqlite_sequence 为 37）。两处口径修正：① `flow_executions / flow_nodes` 实际建在**独立库 `logs/flow_trace.db`**（此前按主库口径计数系误差），两库合计 **32 张用户表**；② `paint_history` 一直在主库但历史计数从未包含。列级漂移已同步：art_styles 6 列（+pack/pack_def）、keyframes（+shot_seeds/consistency）、dialog_messages（+reasoning）、projects（+art_style）。全字段清单见 `docs/全量技术文档-2026-09-01.md` 附录 B。

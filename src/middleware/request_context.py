@@ -13,7 +13,7 @@ import contextvars
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -87,6 +87,13 @@ def current_duration_ms() -> int:
 
 
 def utc_now_iso() -> str:
-    """ISO 8601 UTC 时间戳（文档D：meta.timestamp 格式，如 2026-08-07T00:45:00Z）。"""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """信封时间戳（文档D：meta.timestamp）。
+
+    批3（2026-09-18）时区统一：**本地时间带偏移**（如
+    2026-09-18T00:40:05+08:00）——与后端日志/前端显示同口径，跨端对账
+    不再差 8 小时（audit-2026-09-18 P1：旧 UTC-Z 格式与本地日志日期都
+    对不上）。ISO 8601 带偏移对 new Date()/fromisoformat 均可解析。
+    函数名保留 utc_now_iso 仅减改动面，语义以本注记为准。
+    """
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 # 本项目仅供学习使用，商业授权请+Q 3559331368

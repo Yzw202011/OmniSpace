@@ -101,7 +101,11 @@ COPY_DIRS: list[tuple[str, str, object]] = [
     ("scripts/comfy_link", "modelxiazai", _plain_filter),
     ("pydeps", "pydeps", _pydeps_filter),
     ("frontend/dist", "frontend/dist", None),
-    ("runtime/py310", "runtime/py310", _plain_filter),
+    # 主链运行时（B1 2026-09-13 升 py312；批0-1 2026-09-18 出包对齐：
+    # 此前仍装 py310 而 启动bat 已指 py312 → 包出来双击即"启动异常退出"）。
+    # py310 不再随包（包内链路 py312 主链 + py313 vLLM + ComfyUI 自带）；
+    # py310 仅剩开发侧回退锚点与打包台/发码台自用。
+    ("runtime/py312", "runtime/py312", _plain_filter),
     ("runtime/py313", "runtime/py313", _plain_filter),  # vLLM 对话引擎运行时
     ("tools/ComfyUI_windows_portable", "tools/ComfyUI_windows_portable",
      _comfy_filter),  # 绘画/漫剧/视频管线引擎（代码+引擎小件）
@@ -158,26 +162,27 @@ ESSENTIALS = [
     "launcher/omnispace.ico", "src/main.py", "src/config.yaml",
     "src/build_info.py", "frontend/dist/index.html",
     "pydeps/fastapi/__init__.py", "pydeps/uvicorn/__init__.py",
-    "runtime/py310/python.exe", "runtime/py310/python310._pth",
+    "runtime/py312/python.exe", "runtime/py312/python312._pth",
     # 进程品牌化副本（2026-09-02，tools/brand_exe.py 生成；boot 拉起链
     # 优先取用，缺失会静默回退裸 python——哨兵防包内悄悄退化。
-    # C 后缀=控制台变体，供 bat 入口）
-    "runtime/py310/OmniSpace-Boot.exe",
-    "runtime/py310/OmniSpace-Backend.exe",
-    "runtime/py310/OmniSpace-Shell.exe",
-    "runtime/py310/OmniSpace-BootC.exe",
-    "runtime/py310/OmniSpace-BackendC.exe",
+    # C 后缀=控制台变体，供 bat 入口；批0-1 起随 py312 主链）
+    "runtime/py312/OmniSpace-Boot.exe",
+    "runtime/py312/OmniSpace-Backend.exe",
+    "runtime/py312/OmniSpace-Shell.exe",
+    "runtime/py312/OmniSpace-BootC.exe",
+    "runtime/py312/OmniSpace-BackendC.exe",
     "runtime/py313/OmniSpace-LLM.exe",
     "tools/ComfyUI_windows_portable/python_embeded/OmniSpace-Engine.exe",
     # MinGW 运行库哨兵（2026-09-01 测试机事故）：Cython .pyd 动态链接
-    # winpthread；缺它则异机启动即崩（本机有 WinLibs PATH 掩盖过问题）
-    "runtime/py310/libwinpthread-1.dll",
-    "runtime/py310/libgcc_s_seh-1.dll",
+    # winpthread；缺它则异机启动即崩（本机有 WinLibs PATH 掩盖过问题）。
+    # 批0-1 起四件随 py312（自 py310 复制入 runtime/py312/，2026-09-18）
+    "runtime/py312/libwinpthread-1.dll",
+    "runtime/py312/libgcc_s_seh-1.dll",
     # VC++ 运行库哨兵（2026-09-01 测试机事故二）：torch/c10 等依赖
     # msvcp140/vcomp140；干净机器无 VC Redist 时后端 import torch 即崩
-    # （本机 System32 有掩盖过问题）。py310/py313 两个运行时都要带
-    "runtime/py310/msvcp140.dll",
-    "runtime/py310/vcomp140.dll",
+    # （本机 System32 有掩盖过问题）。py312/py313 两个运行时都要带
+    "runtime/py312/msvcp140.dll",
+    "runtime/py312/vcomp140.dll",
     "runtime/py313/msvcp140.dll",
     # 引擎件哨兵（P8 全功能包）：vLLM 对话运行时 + ComfyUI 管线引擎
     "runtime/py313/python.exe",

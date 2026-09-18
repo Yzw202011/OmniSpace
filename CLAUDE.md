@@ -92,7 +92,8 @@ src/stores/：
 /novel     → components/novel/NovelPage.tsx
 /learning  → components/learning/LearningPage.tsx
 /models    → components/model/ModelManager.tsx
-/style     → components/style/StylePage.tsx
+/style     → 重定向 /training（P1 训练中心 2026-09-17：知识+风格+人物训练归一；StylePage 以 embedded 形态内嵌）
+/training  → components/training/TrainingPage.tsx（2026-09-17 新增）
 /settings  → components/Settings.tsx
 /logs      → components/logs/LogsPage.tsx（2026-08-21 新增）
 /help      → components/help/HelpPage.tsx

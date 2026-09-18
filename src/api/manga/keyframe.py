@@ -1545,9 +1545,11 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 if lora_refs:
                     # D-LoRA 底座对齐（2026-09-15 E2E 发现的断点④）：角色
                     # LoRA 按 klein base-4b 训练，而路由链首位 flux2-klein-9b
-                    # 的 diffusers 目录已不在盘（仅存 comfy fp8 单文件）→
-                    # 回落链滑到 SDXL 时 LoRA 无底座可挂。LoRA 行显式装载
-                    # 4b（幂等，已载秒过；失败则 attach 自会按软锁降级）。
+                    # 的 diffusers 分片已删（transformer/ 仅存骨架索引；GGUF
+                    # 单文件在盘但 _flux_model_dir_ready 不认，病历已批0-4
+                    # 修正入 manifest）→ 回落链滑到 SDXL 时 LoRA 无底座可挂。
+                    # LoRA 行显式装载 4b（幂等，已载秒过；失败则 attach 自会
+                    # 按软锁降级）。
                     if not engine.ensure_loaded("flux2-klein-4b"):
                         log.warning("D-LoRA 底座 flux2-klein-4b 装载失败"
                                     "（本镜按无 LoRA 软锁继续）")

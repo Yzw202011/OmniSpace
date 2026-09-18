@@ -339,10 +339,4 @@ def get_graph_store() -> GraphStore:
                 _gs_instance = GraphStore()
     return _gs_instance
 
-
-def reset_graph_store() -> None:
-    """重置单例（测试用）。"""
-    global _gs_instance
-    with _gs_lock:
-        _gs_instance = None
 # 本项目仅供学习使用，商业授权请+Q 3559331368

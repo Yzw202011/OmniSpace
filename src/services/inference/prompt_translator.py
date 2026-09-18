@@ -139,11 +139,3 @@ def translate_prompt_zh2en(prompt: str, max_tokens: int = 120,
                     len(prompt), len(translated))
         return translated
 
-
-def translate_batch_zh2en(prompts: list[str],
-                          max_tokens: int = 120) -> list[str]:
-    """批量翻译（单锁整批，配合端点层"先整批译、再整批生成"的调用约定）。
-
-    逐项复用 translate_prompt_zh2en 的降级语义；非中文项直通。
-    """
-    return [translate_prompt_zh2en(p, max_tokens) for p in prompts]

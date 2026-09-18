@@ -126,13 +126,6 @@ def decode_manifest(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     manifest["_decoded"] = True
     return manifest, changes
 
-
-def is_legacy_manifest(manifest: dict[str, Any]) -> bool:
-    """是否 v1 清单 (standard_version 主版本 < 2 或缺失)"""
-    std = str(manifest.get("standard_version", "1.0.0"))
-    return _version_tuple(std) < (2,)
-
-
 # ═══════════════════════════════════════════════════════════════
 # 存档: plugin → .CuteMamen
 # ═══════════════════════════════════════════════════════════════

@@ -2,7 +2,6 @@
  * OmniSpace AI v2.1 —— 系统 API（规格 §4.7 系统端点）
  * --------------------------------------------------------------------------
  * 严格对齐后端 src/api/system.py 与 main.py 实际路由：
- * - GET  /health                  健康检查（根路径，不带 /v1 前缀，root 模式）
  * - GET  /system/settings         读取设置
  * - PUT  /system/settings         更新设置
  * - POST /system/diagnose         27 项诊断检测
@@ -20,14 +19,6 @@ import { z } from 'zod';
 
 import { get, post, put } from './api';
 import { parseWith, SystemVersionRespSchema } from './schema';
-
-/** 健康检查响应（对齐 main.py /health 返回 data） */
-export interface HealthInfo {
-  status: string;
-  version: string;
-  uptime_s: number;
-  db: string;
-}
 
 /** 版本信息（对齐 system.py /system/version 返回 data） */
 export interface VersionInfo {
@@ -101,11 +92,6 @@ export interface ProjectImportResult {
   project_id: string;
   imported: boolean;
   source: string;
-}
-
-/** 健康检查（根路径 /health，无 /v1 前缀） */
-export function health() {
-  return get<HealthInfo>('/health', undefined, { root: true });
 }
 
 /* ------------------------------ 设置 ------------------------------ */
@@ -211,7 +197,6 @@ export function importProject(filePath: string) {
 }
 
 export default {
-  health,
   getSettings,
   updateSettings,
   runDiagnose,

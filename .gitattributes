@@ -1,0 +1,26 @@
+# CRLF 根修（问题总账 #8，2026-09-18）：文本件入库统一 LF，检出按平台
+# 注：本文件生效后不做立即 renormalize，存量文件待安静窗口一次性 git add --renormalize
+* text=auto
+
+# Windows 批处理保持 CRLF（cmd 解释器要求）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制类型显式声明（防换行转换损坏）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.webm binary
+*.safetensors binary
+*.onnx binary
+*.gguf binary
+*.exe binary
+*.lnk binary
+*.db binary
+*.CuteMamen binary

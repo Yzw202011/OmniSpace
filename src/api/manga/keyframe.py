@@ -98,7 +98,6 @@ router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.keyframe")
 
 
-
 def _ensure_source_mode_column(db: Database) -> None:
     """keyframes 补 source_mode 列（幂等，2026-09-03 方案A：兜底出图标注）。
 
@@ -165,65 +164,6 @@ def _image_prompt_from_abc(desc: str) -> str:
     parts = [p.strip("，。 ") for p in (a_text, b_text, c_text)
              if p.strip("，。 ")]
     return "，".join(parts) if parts else desc
-
-
-def _grid_image_prompt_from_abc(desc: str, grid: dict) -> str:
-    """A/B/C 描述词（含网格标记）→ 分镜网格拼图提示词。
-
-    竞品协议（2026-08-25）：一图多镜拼图，每格 = 对应视频镜头首帧。
-    A 段风格 + B 段世界观 + 逐格画面（格序 = 镜头时间序，阅读顺序
-    左上→右上→左下→右下）。运镜/音效对静帧无意义，剥除。
-
-    景别显式化（2026-08-26 竞品对齐）：竞品图 5 四格严格按 C 段
-    景别递进构图（远景→中景→近景→特写），FLUX 对画面文本中隐含
-    的「远景/特写」构图遵循度不足以稳定复现——升格为每格独立的
-    构图指令前缀，显式锚定格内镜头距离。
-    """
-    m = re.search(r"(?m)^B[.、．]", desc)
-    a_text = desc[:m.start()].strip() if m else desc.strip()
-    a_text = re.sub(r"^A[.、．]\s*全局风格[：:]\s*", "", a_text)
-    a_text = a_text.replace("全程无字幕、无背景音乐、只有音效。", "")
-    a_text = a_text.strip("，。 ")
-    m = re.search(
-        r"(?m)^B[.、．]\s*(?:高密度世界观构建|世界状态快照|世界观构建)?"
-        r"[：:]?\s*(.*?)(?=^C[.、．]|^\[?\d[\d.]*s?\s*[-–~]|\Z)",
-        desc, flags=re.S)
-    b_text = m.group(1).strip() if m else ""
-
-    # 景别 → FLUX 构图指令（按镜位递进，2 镜 1×2 / 4 镜 2×2）
-    framing = {
-        "1x2": ["Wide establishing shot",
-                "Medium shot"],
-        "2x2": ["Wide establishing shot",
-                "Medium shot",
-                "Medium close-up",
-                "Extreme close-up"],
-    }.get(grid.get("layout") or "")
-
-    pos = {"2x2": ["左上格", "右上格", "左下格", "右下格"],
-           "1x2": ["左格", "右格"]}.get(grid.get("layout") or "")
-    cells: list[str] = []
-    for i, shot in enumerate(grid.get("shots") or []):
-        if pos and i < len(pos):
-            head = pos[i]
-        else:
-            head = f"第{i + 1}格"
-        title = (shot.get("title") or "").strip()
-        body = shot.get("text", "").strip()
-        if framing and i < len(framing):
-            body = f"{framing[i]}，{body}"
-        cells.append(f"{head}{title}：{body}")
-    layout_zh = {"2x2": "2×2 四格", "1x2": "左右 1×2 两格"}.get(
-        grid.get("layout") or "", "")
-    parts = [p.strip("，。 ") for p in (a_text, b_text) if p.strip("，。 ")]
-    head = "。".join(parts)
-    return (f"{head}。分镜故事板拼图：同一画布内{layout_zh}"
-            f"（共{len(cells)}格），格间以清晰细线分隔，各格为独立完整"
-            "画面，各格构图严格按其景别指令（宽景/中景/近景/特写），"
-            "同一角色外貌、服装与场景风格在所有格中保持完全一致，"
-            "整体光影色调统一。按阅读顺序各格内容——"
-            + "；".join(cells) + "。")
-
 
 # 镜位 → 单帧构图指令（方案 A：逐镜生成时代码侧保证景别递进，
 # 不依赖底座对「故事板多格」的指令遵循——2026-08-26 实测 FLUX.2

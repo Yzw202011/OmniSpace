@@ -246,13 +246,4 @@ def is_encrypted(value: str | None) -> bool:
     return isinstance(value, str) and value.startswith(_PREFIX)
 
 
-def crypto_status() -> dict:
-    """加密能力状态（如实上报保护等级）。"""
-    key = _ensure_key()
-    return {
-        "enabled": key is not None,
-        "algorithm": "AES-256-GCM" if key is not None else "",
-        "key_protection": _protection,
-        "scope": "dialog_messages.content, behavior_logs.{content,context,before,after}",
-    }
 # 本项目仅供学习使用，商业授权请+Q 3559331368

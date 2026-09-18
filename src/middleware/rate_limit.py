@@ -115,17 +115,6 @@ class RateLimiter:
 _limiter: RateLimiter | None = None
 _limiter_lock = threading.Lock()
 
-
-def get_limiter() -> RateLimiter:
-    """获取全局限流器单例。"""
-    global _limiter
-    if _limiter is None:
-        with _limiter_lock:
-            if _limiter is None:
-                _limiter = RateLimiter()
-    return _limiter
-
-
 # ── 白名单路径（不限流）──────────────────────────────────────
 # Whitelist paths that bypass rate limiting (health checks, favicon)。
 # 审计 R1-14：静态资源经 _ApiAwareMount 挂载在根路径（main.py），

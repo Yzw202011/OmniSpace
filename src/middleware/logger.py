@@ -188,12 +188,6 @@ def setup_logging(level: str | None = None,
              log_level, LOGS_DIR / "backend.log", LOG_MAX_FILE_MB, LOG_MAX_FILES)
     return log
 
-
-def get_sensitive_filter() -> SensitiveDataFilter | None:
-    """获取已初始化的脱敏过滤器（供其他模块追加到自定义 handler）。"""
-    return _sensitive_filter
-
-
 def mask_value(field_name: str, value: Any) -> Any:
     """工具函数：检查字段名是否敏感，是则返回 *** 否则原值。"""
     if _sensitive_filter and field_name.lower() in _sensitive_filter._sensitive:

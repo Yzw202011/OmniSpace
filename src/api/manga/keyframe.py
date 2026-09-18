@@ -1268,6 +1268,9 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     use_comfy = False
                     log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
                              "权重——回落 diffusers（诚实降级）")
+                # W3-C Phase 2 完成（2026-09-18 e8d0590）：klein-4b 单文件
+                # 已转换落位 ComfyUI diffusion_models/，此闸正常放行——
+                # LoRA 行自动走 comfy+LoraLoader 路径（不再回落 diffusers）
             route_label = ("comfy+双PuLID" if use_comfy and dual_faces
                            else "comfy+PuLID" if use_comfy and len(char_assets) == 1
                            else "comfy+多参考" if use_comfy else "diffusers")

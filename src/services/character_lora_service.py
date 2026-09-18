@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import ROOT_DIR
+from .training_common import TrainingLockGuard, VersionStore
 
 logger = logging.getLogger("omnispace.services.character_lora")
 
@@ -91,6 +92,7 @@ class CharacterLoraService:
         self._queue_lock = threading.Lock()
         self._cancel_flags: set[str] = set()
         self._mem_tasks: dict[str, dict[str, Any]] = {}
+        self._lock_guard = TrainingLockGuard()
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
         self._table_ready = self._ensure_table()
@@ -247,7 +249,6 @@ class CharacterLoraService:
             self._worker.start()
 
     def _worker_loop(self) -> None:
-        from ..middleware.feature_lock import get_feature_lock
         while True:
             with self._queue_lock:
                 item = self._queue.pop(0) if self._queue else None
@@ -263,11 +264,7 @@ class CharacterLoraService:
             self._upsert_task(task)
             lock_held = False
             try:
-                lock = get_feature_lock()
-                # worker 线程为同步上下文：走 acquire_sync（与风格服务
-                # 的同步降级同一条状态，勿调 async acquire——协程对象
-                # 恒真会造成假持锁）
-                if not lock.acquire_sync("training", task_id=task["id"]):
+                if not self._lock_guard.acquire(task["id"]):
                     raise CharacterTrainingFailed(
                         "训练功能锁获取失败（互斥占用）")
                 lock_held = True
@@ -293,7 +290,7 @@ class CharacterLoraService:
             finally:
                 if lock_held:
                     try:
-                        get_feature_lock().release_sync("training")
+                        self._lock_guard.release()
                     except Exception:  # noqa: BLE001 - 释放失败仅记日志
                         logger.debug("训练锁释放异常", exc_info=True)
 
@@ -499,21 +496,16 @@ class CharacterLoraService:
     def _asset_root(self, asset_id: str) -> Path:
         return VERSIONS_ROOT / asset_id
 
+    def _asset_store(self, asset_id: str) -> VersionStore:
+        """批3 公共基座：每资产一个 VersionStore 实例。"""
+        from .training_common import VersionStore
+        return VersionStore(self._asset_root(asset_id), keep=KEEP_VERSIONS)
+
     def _next_version_dir(self, asset_id: str) -> tuple[Path, str]:
-        root = self._asset_root(asset_id)
-        root.mkdir(parents=True, exist_ok=True)
-        n = 1
-        while (root / f"v{n}").exists():
-            n += 1
-        d = root / f"v{n}"
-        d.mkdir(parents=True)
-        return d, f"v{n}"
+        return self._asset_store(asset_id).next_version_dir()
 
     def _set_current(self, asset_id: str, version: str) -> None:
-        root = self._asset_root(asset_id)
-        (root / "current.json").write_text(
-            json.dumps({"version": version, "updated_at": time.time()},
-                       ensure_ascii=False), encoding="utf-8")
+        self._asset_store(asset_id).set_current(version)
 
     def _deploy_to_asset(self, asset: dict[str, Any],
                          version_dir: Path) -> str:

@@ -43,6 +43,7 @@ from ..config import DATA_DIR, MODELS_DIR
 from ..data.database import get_db_safe
 from ..middleware.feature_lock import get_feature_lock
 from .priority import LEVEL_BY_NAME, Priority
+from .training_common import TrainingLockGuard
 
 logger = logging.getLogger("omnispace.style_lora")
 
@@ -162,6 +163,7 @@ class StyleLoraService:
     def __init__(self) -> None:
         self._queue: queue.PriorityQueue[tuple[int, int, dict]] = queue.PriorityQueue()
         self._seq = 0
+        self._lock_guard = TrainingLockGuard()
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -448,6 +450,7 @@ class StyleLoraService:
         """
         try:
             self._loop = asyncio.get_running_loop()
+            self._lock_guard.set_loop(self._loop)
         except RuntimeError:
             pass
 
@@ -650,38 +653,11 @@ class StyleLoraService:
     # ── 功能锁（training，与知识 LoRA 同一互斥域）────────────────
 
     def _acquire_training_lock(self, task_id: str) -> bool:
-        """获取 training 功能锁；事件循环可用时回投协程，否则同步降级。"""
-        mgr = get_feature_lock()
-        self._lock_via_fallback = False
-        loop = self._loop
-        if loop is not None:
-            try:
-                if not loop.is_closed() and loop.is_running():
-                    fut = asyncio.run_coroutine_threadsafe(
-                        mgr.acquire("training", task_id=task_id), loop)
-                    return bool(fut.result(timeout=10))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("经事件循环获取 training 锁失败，走同步降级: %s", exc)
-        # 同步降级：经 acquire_sync 与异步路径共享同一份按域状态
-        # （批1 多卡地基 2026-09-05，不再直写 _holder 私有字段）。
-        if not mgr.acquire_sync("training", task_id=task_id):
-            return False
-        self._lock_via_fallback = True
-        return True
+        """批3 公共基座：锁对转发（TrainingLockGuard 单源）。"""
+        return self._lock_guard.acquire(task_id)
 
     def _release_training_lock(self) -> None:
-        """释放 training 功能锁（与获取路径对称）。"""
-        mgr = get_feature_lock()
-        if not self._lock_via_fallback:
-            loop = self._loop
-            if loop is not None and not loop.is_closed() and loop.is_running():
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        mgr.release("training"), loop)
-                    return
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("经事件循环释放 training 锁失败: %s", exc)
-        mgr.release_sync("training")
+        self._lock_guard.release()
 
     # ═══════════════════════════════════════════════════════════
     #  训练执行（真实 QLoRA 管线钩子，诚实门控）

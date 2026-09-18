@@ -76,6 +76,7 @@ from ..config import DATA_DIR, MODELS_DIR
 from ..data.database import get_db_safe
 from ..middleware.feature_lock import get_feature_lock
 from .priority import LEVEL_BY_NAME, Priority
+from .training_common import TrainingLockGuard
 from .vram_policy import TRAINING_MIN_FREE_GB
 
 logger = logging.getLogger("omnispace.lora_training")
@@ -275,6 +276,7 @@ class LoRATrainingService:
     def __init__(self) -> None:
         self._queue: queue.PriorityQueue[tuple[int, int, dict]] = queue.PriorityQueue()
         self._seq = 0                          # 同优先级 FIFO 序号
+        self._lock_guard = TrainingLockGuard()
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -445,6 +447,7 @@ class LoRATrainingService:
         # 尽可能捕获事件循环（API async 上下文触发时），供功能锁协程回投
         try:
             self._loop = asyncio.get_running_loop()
+            self._lock_guard.set_loop(self._loop)
         except RuntimeError:
             logger.debug("trigger_finetune: 降级忽略", exc_info=True)
 
@@ -789,40 +792,12 @@ class LoRATrainingService:
     # ── 功能锁（training）────────────────────────────────────────
 
     def _acquire_training_lock(self, task_id: str) -> bool:
-        """获取 training 功能锁；事件循环可用时回投协程，否则同步降级。"""
-        mgr = get_feature_lock()
-        self._lock_via_fallback = False
-        loop = self._loop
-        if loop is not None:
-            try:
-                if not loop.is_closed() and loop.is_running():
-                    fut = asyncio.run_coroutine_threadsafe(
-                        mgr.acquire("training", task_id=task_id), loop)
-                    return bool(fut.result(timeout=10))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("经事件循环获取 training 锁失败，走同步降级: %s", exc)
-        # 同步降级：单机本地运行（规格 §14 约束1）。批1 多卡地基
-        # （2026-09-05）起经 acquire_sync 与异步路径共享同一份按域
-        # 状态，不再直写 _holder 私有字段（语义与 acquire 一致：同域
-        # 跨功能互斥、同功能可重入）。
-        if not mgr.acquire_sync("training", task_id=task_id):
-            return False
-        self._lock_via_fallback = True
-        return True
+        """批3 公共基座：锁对转发（TrainingLockGuard 单源）。"""
+        return self._lock_guard.acquire(task_id)
 
     def _release_training_lock(self) -> None:
-        """释放 training 功能锁（与获取路径对称）。"""
-        mgr = get_feature_lock()
-        if not self._lock_via_fallback:
-            loop = self._loop
-            if loop is not None and not loop.is_closed() and loop.is_running():
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        mgr.release("training"), loop)
-                    return
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("经事件循环释放 training 锁失败: %s", exc)
-        mgr.release_sync("training")
+        self._lock_guard.release()
+
 
     # ═══════════════════════════════════════════════════════════
     #  训练执行（真实 peft QLoRA 管线，TASK-038 train）

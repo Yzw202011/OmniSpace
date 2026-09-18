@@ -374,6 +374,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.warning("小说章节遗留恢复: %d 条 generating → error", n)
     except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
         log.warning("小说章节遗留恢复失败（忽略）", exc_info=True)
+
+    # 批5 数据修剪（30 天保留，24h 间隔后台线程）
+    try:
+        from pathlib import Path as _Path
+
+        from .services.data_prune import start_background_prune
+        start_background_prune(_Path(__file__).resolve().parents[1])
+    except Exception:  # noqa: BLE001 - 修剪失败不阻断启动
+        log.warning("数据修剪启动失败（忽略）", exc_info=True)
+
     yield
 
     # 关闭

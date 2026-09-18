@@ -88,6 +88,12 @@ def _comfy_filter(parts: tuple[str, ...]) -> bool:
     return parts[-1].endswith((".log", ".lock", ".db", ".whl", ".zip"))
 
 
+def _runtime_filter(src: Path, dst: Path) -> bool:
+    """runtime 树过滤：排 wheel（virtualenv 种子轮 + 安装残渣——黑名单
+    .whl 规则实锤两轮：numpy/scipy 残渣 2026-09-18 出包自检）。"""
+    return not src.name.endswith(".whl")
+
+
 COPY_DIRS: list[tuple[str, str, object]] = [
     # src 扁平化（2026-09-15）：后端真源 backend/→src/，backend/ 仅剩
     # 兼容 shim 不随包（包内启动链 = uvicorn src.main:app）
@@ -105,8 +111,8 @@ COPY_DIRS: list[tuple[str, str, object]] = [
     # 此前仍装 py310 而 启动bat 已指 py312 → 包出来双击即"启动异常退出"）。
     # py310 不再随包（包内链路 py312 主链 + py313 vLLM + ComfyUI 自带）；
     # py310 仅剩开发侧回退锚点与打包台/发码台自用。
-    ("runtime/py312", "runtime/py312", _plain_filter),
-    ("runtime/py313", "runtime/py313", _plain_filter),  # vLLM 对话引擎运行时
+    ("runtime/py312", "runtime/py312", _runtime_filter),
+    ("runtime/py313", "runtime/py313", _runtime_filter),  # vLLM 对话引擎运行时
     ("tools/ComfyUI_windows_portable", "tools/ComfyUI_windows_portable",
      _comfy_filter),  # 绘画/漫剧/视频管线引擎（代码+引擎小件）
     ("runtime/ffmpeg", "runtime/ffmpeg", None),

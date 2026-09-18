@@ -518,6 +518,11 @@ def create_app() -> FastAPI:
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]"],
     )
+    # 批2-1（2026-09-18）：LAN 令牌闸——纯 ASGI（http+websocket 双拦），
+    # 仅非回环绑定时生效（本机 127.0.0.1 零行为变化）；注册在 TrustedHost
+    # 之内层 = 非法 Host 先被 400，合法 Host 再过令牌闸。
+    from .middleware.lan_auth import LanAuthMiddleware
+    app.add_middleware(LanAuthMiddleware)
 
     # 异常处理（§6.1 / §8）
     @app.exception_handler(ApiError)

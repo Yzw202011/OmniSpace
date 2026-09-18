@@ -30,7 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import FileResponse
 
 from .. import startup_check
@@ -137,6 +137,19 @@ def _now_ts() -> str:
 def system_settings_get() -> dict[str, Any]:
     """获取系统设置（规格 §4.7，持久化 system_settings 表）。"""
     return ok(_mask_remote_key(_load_persisted_settings()))
+
+
+@router.get("/system/lan-token")
+def system_lan_token(request: Request) -> dict[str, Any]:
+    """LAN 访问令牌（批2-1 2026-09-18）：回环或持有效令牌可读。
+
+    持令牌者读令牌无提权面；远程无令牌请求到不了这里（中间件先拦）。
+    纯本地（回环绑定）模式下令牌无意义，返回 enabled=false + 空串。
+    """
+    from ..middleware.lan_auth import get_lan_token, lan_auth_enabled
+    enabled = lan_auth_enabled()
+    token = get_lan_token() if enabled else ""
+    return ok({"enabled": enabled, "token": token})
 
 
 @router.put("/system/settings")

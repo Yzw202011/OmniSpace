@@ -115,7 +115,13 @@ export class WsConnection {
     this.setStatus(this.retryCount > 0 ? 'reconnecting' : 'connecting');
     let sock: WebSocket;
     try {
-      sock = new WebSocket(this.url);
+      // LAN 令牌（批2-1）：远程设备 WS 鉴权（后端 ?token= 提取）
+      const _lt = (() => {
+        try { return localStorage.getItem('omnispace.lanToken') || ''; }
+        catch { return ''; }
+      })();
+      sock = new WebSocket(
+        _lt ? `${this.url}${this.url.includes('?') ? '&' : '?'}token=${encodeURIComponent(_lt)}` : this.url);
     } catch {
       this.scheduleReconnect();
       return;

@@ -287,3 +287,8 @@ export async function runHealthRepair(action: string): Promise<{ action: string;
   return res as { action: string; friendly: string };
 }
 // 本项目仅供学习使用，商业授权请+Q 3559331368
+
+/** LAN 访问令牌信息（批2-1：回环或持有效令牌可读；本机模式恒空） */
+export async function getLanTokenInfo(): Promise<{ enabled: boolean; token: string }> {
+  return get<{ enabled: boolean; token: string }>('/system/lan-token');
+}

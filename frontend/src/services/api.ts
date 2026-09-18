@@ -123,6 +123,10 @@ export async function request<T = unknown>(
 
   // 构造请求头与请求体
   const finalHeaders: Record<string, string> = { ...headers };
+  // LAN 令牌（批2-1 2026-09-18）：远程设备访问时随请求携带（本机回环
+  // 后端免检，多带无害）；localStorage 由设置页「局域网访问」写入
+  const lanToken = getLanToken();
+  if (lanToken) finalHeaders['X-Omni-Token'] = lanToken;
   let reqBody: BodyInit | undefined;
 
   if (body instanceof FormData) {
@@ -273,3 +277,22 @@ export default {
   API_ROOT,
 };
 // 本项目仅供学习使用，商业授权请+Q 3559331368
+
+/** 读取 LAN 访问令牌（远程设备模式；本机模式恒空=不带） */
+export function getLanToken(): string {
+  try {
+    return localStorage.getItem('omnispace.lanToken') || '';
+  } catch {
+    return '';
+  }
+}
+
+/** 写入/清除 LAN 访问令牌（设置页「局域网访问」节调用） */
+export function setLanToken(token: string): void {
+  try {
+    if (token) localStorage.setItem('omnispace.lanToken', token);
+    else localStorage.removeItem('omnispace.lanToken');
+  } catch {
+    /* silent-intent: 隐私模式写失败静默 */
+  }
+}

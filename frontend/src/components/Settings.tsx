@@ -24,6 +24,7 @@ import DataManagementSection from '@/components/DataManagementSection';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
+import { setLanToken } from '@/services/api';
 import { THEME_PALETTE } from '@/constants/themePalette';
 
 /** 主题六态配置（三主题体系 × 亮暗双模式；2026-09-11 增补 Dali 治愈系）
@@ -79,6 +80,18 @@ export default function Settings() {
   const refreshProfile = useHardwareStore((s) => s.refreshProfile);
 
   // 本地算力 · 省钱账本（2026-09-08 用户拍板：保守口径只算 AI 输出侧）
+  // 局域网访问令牌（批2-1 2026-09-18）
+  const [lanInfo, setLanInfo] = useState<{ loading: boolean; enabled: boolean; token: string }>(
+    { loading: true, enabled: false, token: '' });
+  const [lanTokenDraft, setLanTokenDraft] = useState('');
+  const [lanSaved, setLanSaved] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    systemApi.getLanTokenInfo().then((info) => {
+      if (alive) setLanInfo({ loading: false, enabled: info.enabled, token: info.token });
+    }).catch(() => { if (alive) setLanInfo({ loading: false, enabled: false, token: '' }); });
+    return () => { alive = false; };
+  }, []);
   // P2 设置页 tab 化（2026-09-17 用户拍板 4A）：11 区块归 6 签终结长滚动；
   // 未选中的区块不挂载（其数据拉取随挂载发生）
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
@@ -351,6 +364,64 @@ export default function Settings() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* ============ 局域网访问（批2-1 2026-09-18）============ */}
+      <div className="settings-section card">
+        <div className="settings-section-header">
+          <h2 className="settings-section-title">局域网访问</h2>
+        </div>
+        <p className="settings-section-desc">
+          仅当后端以局域网模式（非 127.0.0.1 绑定）启动时生效：远程设备需
+          输入访问令牌。本机访问不受影响。
+        </p>
+        {lanInfo.loading ? (
+          <div className="settings-loading">读取中…</div>
+        ) : !lanInfo.enabled ? (
+          <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
+            当前为纯本机模式（回环绑定），无需令牌。
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-2">
+              <code
+                className="text-sm"
+                style={{
+                  padding: '4px 10px',
+                  background: 'var(--color-bg)',
+                  borderRadius: 'var(--radius-sm)',
+                  userSelect: 'all',
+                }}
+              >
+                {lanInfo.token}
+              </code>
+              <button type="button" className="btn btn-secondary btn-sm"
+                onClick={() => void navigator.clipboard?.writeText(lanInfo.token || '')}>
+                复制
+              </button>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+              把令牌输入到远程设备本应用的「设置 → 局域网访问」即完成配对。
+            </p>
+          </>
+        )}
+        <div className="flex items-center gap-2 mt-3">
+          <input
+            className="input"
+            style={{ maxWidth: 340 }}
+            placeholder="远程设备：在此粘贴服务器令牌"
+            value={lanTokenDraft}
+            maxLength={64}
+            onChange={(e) => setLanTokenDraft(e.target.value)}
+          />
+          <button type="button" className="btn btn-primary btn-sm"
+            onClick={() => { setLanToken(lanTokenDraft.trim()); setLanSaved(true); }}>
+            保存到本机
+          </button>
+          {lanSaved && (
+            <span className="text-xs" style={{ color: 'var(--color-success)' }}>已保存</span>
+          )}
         </div>
       </div>
 

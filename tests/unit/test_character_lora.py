@@ -31,7 +31,15 @@ def api_client(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def fresh_svc(tmp_path, monkeypatch):
-    """独立服务实例：版本根与底座指到临时目录，互斥锁清空。"""
+    """独立服务实例：版本根与底座指到临时目录，互斥锁清空。
+
+    批2-1 补（2026-09-18）：DB 隔离——此前漏挂 tmp 库，任务行直写
+    生产 omnispace.db（"DB 测试隔离约定式"审计案的活体佐证：残留
+    training 态行导致重复入队测试连挂）。"""
+    from src.data import database as db_mod
+    from src.data.database import Database
+    monkeypatch.setattr(db_mod, "_db_instance", Database(tmp_path / "t.db"))
+    svc_mod.CharacterLoraService._instance = None
     monkeypatch.setattr(svc_mod, "VERSIONS_ROOT", tmp_path / "char_lora")
     monkeypatch.setattr(svc_mod, "BASE_MODEL_DIR", tmp_path / "base")
     (tmp_path / "base" / "transformer").mkdir(parents=True)

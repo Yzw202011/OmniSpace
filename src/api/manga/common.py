@@ -1479,18 +1479,12 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
                 from PIL import Image as _PILImage
                 image = image.resize((req.width, req.height), _PILImage.LANCZOS)
         except Exception as exc:  # noqa: BLE001 - comfy 失败落回 legacy 链
-            log.warning("comfy klein 资产出图失败，落回 legacy 链: %s", exc, exc_info=True)
+            log.warning("comfy klein 资产出图失败，落回 SDXL: %s", exc, exc_info=True)
 
-    if image is None and cloud_endpoint is None \
-            and engine.ensure_loaded("flux2-klein-4b"):
-        params = _flux_asset_gen_params(req, kind)
-        result = engine.generate(params)
-        image = result["images"][0]
-        gen_w, gen_h = params["width"], params["height"]
-        flux_used = True
-        if image.size != (req.width, req.height):
-            from PIL import Image as _PILImage
-            image = image.resize((req.width, req.height), _PILImage.LANCZOS)
+    # W3-C Phase 1（2026-09-18）：legacy klein-4b 中间层移除——
+    # comfy 失败直接落 SDXL 兜底（原三层 comfy→legacy 4b→SDXL 收窄为
+    # 两层）。legacy 栈仍保留给 D-LoRA（keyframe.py 显式装载）与
+    # 四视图回退档（comic_gen），此处只是砍冗余中间层。
 
     # ② SDXL 回退（FLUX.2 不可用）：中文描述词先译英（SDXL CLIP 不理
     # 解中文）；必须在 paint ensure_loaded 之前翻译的历史约束已由路径

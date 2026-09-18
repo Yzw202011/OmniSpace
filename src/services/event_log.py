@@ -398,7 +398,7 @@ def event_stats(days: int = 7) -> dict[str, Any]:
     by_module: dict[str, int] = {}
     hourly: list[dict[str, Any]] = []
 
-    now = datetime.now()
+    now = datetime.now().astimezone()
     # 24h 逐小时桶（含标签，旧→新）
     buckets: dict[str, int] = {}
     for h in range(23, -1, -1):
@@ -412,6 +412,9 @@ def event_stats(days: int = 7) -> dict[str, Any]:
         by_module[mod] = by_module.get(mod, 0) + 1
         try:
             ts = datetime.fromisoformat(e.get("ts", ""))
+            if ts.tzinfo is None:
+                # 历史 naive 事件（Q7 前的旧数据）：按本地时区归一后再比
+                ts = ts.replace(tzinfo=now.tzinfo)
             age_h = (now - ts).total_seconds() / 3600
             if 0 <= age_h < 24:
                 key = ts.strftime("%m-%d %H:00")

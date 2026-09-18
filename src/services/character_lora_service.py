@@ -309,7 +309,7 @@ class CharacterLoraService:
     # 管线级条件（latent 2×2 打包 + RoPE 位置 ID + Qwen3 真文本编码），
     # 裸调 transformer 仅能过形状（真火实测 mat1 2048x64 vs 128x3072），
     # 练出的是垃圾——拒绝盲训，防静默产出废 LoRA。接线完成后置 True。
-    _CONDITIONING_READY = False
+    _CONDITIONING_READY = True  # 2026-09-18 批1 接线完成（真火四连验：Qwen3 编码/patchify+BN/RoPE/timestep0~1）
 
     def _train_core(self, asset: dict[str, Any], images: list[Path],
                     progress_cb: Callable[..., None],
@@ -327,32 +327,65 @@ class CharacterLoraService:
                 "训练核心条件通路未接线（Flux2 打包+RoPE+真文本编码），"
                 "拒绝盲训防产出废 LoRA——队列/版本/部署/回滚链已就绪，"
                 "接线后即可开练")
+
+        # ── 条件通路（2026-09-18 批1 接线，契约源=Flux2KleinPipeline 源码解剖）──
+        # ① 真文本编码：Qwen3-4B 编码器（借 pipe.encode_prompt 拿 embeds+text_ids），
+        #    编码后立即释放 ~8GB 显存再装载 4bit transformer（峰值错峰）
+        # ② 打包 = 纯置换 (B,C,H,W)→(B,HW,C)（_pack_latents 源码实证，无 2×2 patchify）
+        # ③ RoPE：img_ids=_prepare_latent_ids(latents) (B,HW,4)；txt_ids 随编码返回
+        # ④ timestep 传 0~1（管线内 timestep/1000 实证——旧循环 *1000 是错的）
+        import gc
+
+        from diffusers import AutoencoderKLFlux2, Flux2KleinPipeline
+        from diffusers.pipelines.flux2.pipeline_flux2_klein import (
+            retrieve_latents as _retrieve_latents,
+        )
         from PIL import Image
+        from transformers import Qwen2TokenizerFast, Qwen3ForCausalLM
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         name = str(asset.get("name") or "character")
-        lr = 1e-4
-        accum = 2
 
+        tokenizer = Qwen2TokenizerFast.from_pretrained(
+            str(BASE_MODEL_DIR), subfolder="tokenizer")
+        text_encoder = Qwen3ForCausalLM.from_pretrained(
+            str(BASE_MODEL_DIR), subfolder="text_encoder",
+            torch_dtype=torch.bfloat16)
+        vae = AutoencoderKLFlux2.from_pretrained(
+            str(BASE_MODEL_DIR), subfolder="vae",
+            torch_dtype=torch.bfloat16)
+        pipe = Flux2KleinPipeline(
+            tokenizer=tokenizer, text_encoder=text_encoder, vae=vae,
+            transformer=None, scheduler=None)
+        text_encoder.to(device)
+        prompt_embeds, text_ids = self._encode_prompt(
+            torch, pipe, f"a photo of {name}, portrait", device)
+        # 释放文本编码器（训练循环不再需要；del pipe 引用链）
+        # 释放注册件（DiffusionPipeline 动态属性表，mypy 无静态声明故 setattr）
+        object.__setattr__(pipe, "text_encoder", None)
+        object.__setattr__(pipe, "tokenizer", None)
+        del text_encoder, tokenizer
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        prompt_embeds = prompt_embeds.detach()
+        text_ids = text_ids.detach()
+
+        # ⑤ 4bit 量化 transformer + peft LoRA（加载时 device_map 就位，勿 .to）
         from transformers import BitsAndBytesConfig
         bnb = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16)
-        # Flux2（二代）架构：model_index.json 声明 Flux2Transformer2DModel
-        # + AutoencoderKLFlux2（一代 FluxTransformer2DModel 权重名不匹配
-        # =静默随机初始化，真火冒烟实锤）
         transformer_cls = getattr(diffusers, "Flux2Transformer2DModel", None)
         if transformer_cls is None:
             raise CharacterTrainingFailed(
                 "当前 diffusers 版本无 Flux2Transformer2DModel（需 0.36+）")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        # bnb 4bit 参数不可 .to 迁移（meta tensor）：加载时直接就位目标卡
         transformer = transformer_cls.from_pretrained(
             str(BASE_MODEL_DIR), subfolder="transformer",
             quantization_config=bnb, torch_dtype=torch.bfloat16,
             **({"device_map": {"": device}} if device == "cuda" else {}))
         transformer.requires_grad_(False)
-        # Flux2 模块命名：attn.to_q/k/v/out + ff.linear_in/out（一代的
-        # ff.net.0.proj 在此架构不存在）
+        # Flux2 模块命名（一代 ff.net.0.proj 在此架构不存在）
         lora_cfg = peft.LoraConfig(
             r=16, lora_alpha=32, lora_dropout=0.05,
             target_modules=["to_q", "to_k", "to_v", "to_out.0",
@@ -361,24 +394,17 @@ class CharacterLoraService:
         transformer.train()
         if hasattr(transformer, "enable_gradient_checkpointing"):
             transformer.enable_gradient_checkpointing()
+        vae.requires_grad_(False)
+        vae.eval()
+        vae.to(device)
 
-        vae_cls = getattr(diffusers, "AutoencoderKLFlux2", None)
-        vae = vae_cls.from_pretrained(
-            str(BASE_MODEL_DIR), subfolder="vae",
-            torch_dtype=torch.bfloat16) if vae_cls else None
-        if vae is not None:
-            vae.requires_grad_(False)
-            vae.eval()
-
-        if vae is not None:
-            vae.to(device)  # 量化 transformer 已就位，勿再 .to（meta 崩）
-
+        lr = 1e-4
+        accum = 2
         optimizer = torch.optim.AdamW(
             (p for p in transformer.parameters() if p.requires_grad), lr=lr)
         steps_per_epoch = max(1, len(images))
         max_steps = epochs * ((steps_per_epoch + accum - 1) // accum)
         global_step = 0
-        prompt_embeds = self._encode_prompt(torch, name, device)
 
         for epoch in range(epochs):
             for i, img_path in enumerate(images):
@@ -389,20 +415,36 @@ class CharacterLoraService:
                 px = torch.tensor(list(img.getdata()), dtype=torch.bfloat16)
                 px = px.view(resolution, resolution, 3).permute(2, 0, 1)
                 px = (px / 127.5 - 1.0).unsqueeze(0).to(device)
+                # latent 备制=镜像 _encode_vae_image（img2img 真源）：
+                # encode(argmax) → patchify(32ch×2×2→128ch, H/2,W/2) → BN 归一化
                 with torch.no_grad():
-                    if vae is not None:
-                        latent = vae.encode(px).latent_dist.sample()
-                    else:
-                        latent = px
-                noise = torch.randn_like(latent)
+                    _lat = _retrieve_latents(
+                        vae.encode(px), sample_mode="argmax")
+                    _lat = Flux2KleinPipeline._patchify_latents(_lat)
+                    _mean = vae.bn.running_mean.view(1, -1, 1, 1).to(
+                        device=device, dtype=_lat.dtype)
+                    _std = torch.sqrt(
+                        vae.bn.running_var.view(1, -1, 1, 1)
+                        + vae.config.batch_norm_eps).to(
+                        device=device, dtype=_lat.dtype)
+                    latent = (_lat - _mean) / _std
+                # 打包=纯置换 (B,128,h,w)→(B,HW,128)；ids=32×32 网格 (B,HW,4)
+                b, c, h, w = latent.shape
+                packed = latent.reshape(b, c, h * w).permute(0, 2, 1)
+                img_ids = Flux2KleinPipeline._prepare_latent_ids(latent).to(
+                    device=device, dtype=packed.dtype)
+                noise = torch.randn_like(packed)
                 t = torch.rand(1, device=device, dtype=torch.bfloat16)
-                tv = t.view(-1, 1, 1, 1)
-                noisy = (1 - tv) * latent + tv * noise
-                target = noise - latent
-                pred = transformer(hidden_states=noisy,
-                                   encoder_hidden_states=prompt_embeds,
-                                   timestep=t * 1000,
-                                   return_dict=False)[0]
+                noisy = (1 - t) * packed + t * noise
+                target = noise - packed
+                pred = transformer(
+                    hidden_states=noisy,
+                    timestep=t,            # 0~1（Flux2 契约）
+                    guidance=None,
+                    encoder_hidden_states=prompt_embeds,
+                    txt_ids=text_ids.to(device=device),
+                    img_ids=img_ids,
+                    return_dict=False)[0]
                 loss = torch.nn.functional.mse_loss(pred.float(),
                                                     target.float())
                 loss = loss / accum
@@ -442,30 +484,18 @@ class CharacterLoraService:
         return {"version": version, "path": str(version_dir),
                 "data_count": len(images), "deployed": deployed}
 
-    def _encode_prompt(self, torch: Any, prompt: str, device: str) -> Any:
-        """文本条件（诚实降级）：角色名确定性哈希嵌入（与风格服务同口径）。
+    def _encode_prompt(self, torch: Any, pipe: Any, prompt: str,
+                       device: str) -> tuple[Any, Any]:
+        """真文本编码（批1 接线 2026-09-18）：借 Flux2KleinPipeline.
+        encode_prompt 走 Qwen3-4B 编码器，返回 (prompt_embeds, text_ids)。
 
-        klein 的 Qwen3-4B 编码器进显存代价高；同一角色名 → 同一嵌入，
-        身份特征训练信号一致。接真编码器为后续增强点。
+        编码完成后由调用方释放 text_encoder（~8GB bf16）再装载 4bit
+        transformer——峰值错峰，16GB 卡装得下。哈希嵌入降级版已随
+        条件通路接线退役。
         """
-        import hashlib
-
-        # 联合注意力维从底座 config 动态读（klein-4b=7680；硬编码必错型号）
-        import json as _json
-        dim = 7680
-        cfg = BASE_MODEL_DIR / "transformer" / "config.json"
-        if cfg.is_file():
-            try:
-                dim = int(_json.loads(
-                    cfg.read_text(encoding="utf-8")).get(
-                    "joint_attention_dim", dim))
-            except Exception:  # noqa: BLE001 - 读失败用保守默认
-                pass
-        seed = int.from_bytes(
-            hashlib.md5(prompt.encode("utf-8")).digest()[:8], "little")
-        gen = torch.Generator(device="cpu").manual_seed(seed)
-        emb = torch.randn(1, 128, dim, generator=gen)
-        return emb.to(device=device, dtype=torch.bfloat16)
+        embeds, text_ids = pipe.encode_prompt(
+            prompt=prompt, device=device, max_sequence_length=256)
+        return embeds, text_ids
 
     # ── 版本管理 ────────────────────────────────────────────
     def _asset_root(self, asset_id: str) -> Path:

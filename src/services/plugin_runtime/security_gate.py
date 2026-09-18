@@ -22,7 +22,7 @@ from typing import Any
 
 from .security import BehavioralFingerprint, SecurityMonitor
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("omnispace.services.plugin_runtime.security_gate")
 
 # 审计留痕的参数裁剪上限（spec 可能含长代码串；熵值与留痕同源同口径）
 _PARAMS_CLIP = 2000

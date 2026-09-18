@@ -29,7 +29,7 @@ from typing import Any
 
 from ..services.offload import run_blocking
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.api.deps")
 
 #: WS 进度广播的标签前缀（前端任务卡 task_id = engine-{module}-{kind}）
 _BROADCAST_KIND = "engine"

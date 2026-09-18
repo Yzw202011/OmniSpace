@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.cutemamen.event_bus")
 
 
 class EventBus:

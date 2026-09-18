@@ -17,7 +17,7 @@ from datetime import datetime
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.middleware.request_context")
 
 _request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "omnispace_request_id", default=""

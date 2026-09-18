@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from ..event_log import log_event
 from ..vram_policy import QWEN_GGUF_RAM_FLOOR_GB as _QWEN_RAM_FLOOR_GB
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.services.inference.gen_router")
 
 # ── 通用质量块（写实向，v22 定稿原文——default/cg3d 包沿用保行为）──
 _QUALITY_REALISTIC = (

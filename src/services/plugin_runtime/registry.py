@@ -39,7 +39,7 @@ from .loader import (
 from .sandbox import sandbox_enabled
 from .security_gate import gate_plugin_call
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("omnispace.services.plugin_runtime.registry")
 
 # 插件输出根目录（帧 PNG 落盘；P2 由 ffmpeg 合成后归 video_tasks）
 OUTPUT_ROOT = ROOT_DIR / "data" / "plugins" / "output"

@@ -32,7 +32,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..config import EVENT_LOG_SLOW_MS
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.middleware.event_log_auto")
 
 # 与 request_context._ACTIVITY_METHODS 同义（复用其语义，不 import 私有名）
 _ACTIVITY_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})

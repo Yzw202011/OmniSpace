@@ -48,7 +48,7 @@ from ..services.plugin_runtime.registry import (
     _json_summary,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("omnispace.api.plugins")
 
 router = APIRouter(tags=["plugins"])
 

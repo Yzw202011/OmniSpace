@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.config")
 
 # ── 路径 ──────────────────────────────────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parent.parent

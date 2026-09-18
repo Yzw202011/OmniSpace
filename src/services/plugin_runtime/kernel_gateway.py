@@ -22,7 +22,7 @@ from typing import Any
 from ...config import DATA_DIR
 from .bridge import get_event_bridge
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("omnispace.services.plugin_runtime.kernel_gateway")
 
 # 内核存档目录（data/ 为运行时区，git 不跟踪）
 KERNEL_PKG_DIR = DATA_DIR / "plugins" / "pkgs"

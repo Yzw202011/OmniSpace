@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.cutemamen.plugin")
 
 # 当前实现的 CuteMamen 标准版本 (v1 → v2 迁移见 pkg.decode_manifest / migrate.py)
 CURRENT_STANDARD_VERSION = "2.0.0"

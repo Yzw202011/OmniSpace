@@ -38,7 +38,7 @@ from .middleware.logger import setup_logging
 from .middleware.rate_limit import setup_rate_limit
 from .services.offload import run_blocking
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("omnispace.main")
 
 # ── 日志初始化 ──────────────────────────────────────────────────
 log = setup_logging()

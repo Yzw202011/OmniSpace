@@ -1,6 +1,6 @@
 """OmniSpace AI v2.1 WebSocket 消息中枢（规格 §2.2 / §5.3 断线重连配套）。
 
-前端协议（frontend/src/hooks/useWebSocket.ts）：
+前端协议（frontend/src/hooks/services/ws.ts）：
   URL: ws://host/ws
   客户端 → 服务端: {"type": "ping"|"subscribe_system"|"unsubscribe_system"|...}
   服务端 → 客户端: {"type": "pong"|"task_progress"|"task_complete"|"task_error"|
@@ -34,12 +34,15 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 log = logging.getLogger("omnispace.ws_hub")
 
-# 前端协议允许的 15 种服务端消息类型（与 useWebSocket.ts 保持一致）
+# 前端协议允许的服务端消息类型（批4-1 2026-09-18 契约清理：
+# 移除 7 个幻影型=后端零发送点的 task_preview/vram_warning/
+# download_progress/parallel_progress/collision_alert/segment_progress/
+# sync_complete；plugin_event 入列=plugin_runtime/bridge.py 实际广播
+# 的类型此前被 _translate 兜底改判 notification=协议降级断裂）
 _FRONTEND_TYPES = {
-    "pong", "task_progress", "task_preview", "task_complete", "task_error",
-    "system_status", "vram_warning", "download_progress", "notification",
-    "parallel_progress", "collision_alert", "segment_progress",
-    "update_available", "sync_complete", "quality_degraded",
+    "pong", "task_progress", "task_complete", "task_error",
+    "system_status", "notification", "plugin_event",
+    "update_available", "quality_degraded",
 }
 
 _TELEMETRY_INTERVAL_S = 2.0
@@ -105,6 +108,8 @@ class WsHub:
 
     def __init__(self) -> None:
         self._conns: set[WebSocket] = set()
+        # 批4-1 注记（2026-09-18）：subscribe_system 当前零前端消费者
+        # （硬件页走独立 /hardware/realtime WS）——协议合法但休眠
         self._sys_subs: set[WebSocket] = set()
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None

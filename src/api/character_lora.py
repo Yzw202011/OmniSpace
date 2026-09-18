@@ -50,7 +50,11 @@ def _load_asset(asset_id: str) -> dict[str, Any]:
 
 @router.get("/character/lora/assets")
 def character_lora_assets() -> dict[str, Any]:
-    """可训练角色资产（kind=character，含图片数与已部署版本）。"""
+    """可训练角色资产（kind=character，含图片数与已部署版本）。
+
+    同名去重（P3 收口）：跨项目同名角色只取最新一条（图最多者优先），
+    避免「17 个夏沐沐」刷屏——去重键=name，按 created_at DESC 取首条。
+    """
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用")
@@ -60,8 +64,14 @@ def character_lora_assets() -> dict[str, Any]:
         " WHERE kind='character' ORDER BY created_at DESC")
     import json as _json
     items = []
+    seen_names: set[str] = set()  # 批5 同名去重
     for r in rows:
         a = dict(r)
+        name = str(a.get("name") or "").strip()
+        if name and name in seen_names:
+            continue  # 同名旧版跳过
+        if name:
+            seen_names.add(name)
         try:
             a["meta"] = _json.loads(a.get("meta") or "{}")
         except Exception:  # noqa: BLE001

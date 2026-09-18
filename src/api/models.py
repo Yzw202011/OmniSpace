@@ -513,13 +513,6 @@ def module_default_model(slot: str) -> str:
     """模块默认模型 id（'' = 未配置，维持系统自动选择）。"""
     return get_module_model_scope(slot)[1]
 
-
-def module_model_allowed(slot: str, model_id: str) -> bool:
-    """模型是否在模块白名单内（未配置白名单 = 全量放行）。"""
-    allowed, _ = get_module_model_scope(slot)
-    return allowed is None or model_id in allowed
-
-
 def _slot_candidate_ids(slot: str) -> set[str]:
     """槽候选模型全集（注册表合并视图 ∪ 领域补充，含未下载模型）。
 
@@ -736,7 +729,6 @@ def _model_dependencies(model: dict) -> list[dict]:
         if key.lower() == mid.lower():
             return val
     return []
-
 
 
 # ═══════════════════════════════════════════════════════════════════

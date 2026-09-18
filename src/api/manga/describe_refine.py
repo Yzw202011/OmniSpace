@@ -92,23 +92,6 @@ def read_refine_config(db: Database | None) -> dict:
         log.warning("精修开关读取失败，按关闭处理", exc_info=True)
     return config
 
-
-def write_refine_config(enabled: bool, threshold: int = _DEFAULT_THRESHOLD) -> None:
-    """持久化精修开关（供运维/前端设置页调用）。"""
-    from ...data.database import get_db_safe
-
-    db = get_db_safe()
-    if db is not None:
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (_REFINE_KEY,
-             json.dumps({"enabled": bool(enabled),
-                         "threshold": min(max(int(threshold), 0), 100)}),
-             __import__("time").time()))
-
-
 def _assets_brief(assets: list[dict]) -> str:
     if not assets:
         return "（无绑定资产）"

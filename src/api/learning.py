@@ -617,7 +617,7 @@ def _session_progress_snapshot() -> dict:
         sessions = agent.list_sessions()
         session = max(sessions, key=lambda s: s.created_at) if sessions else None
     if session is None:
-        return {"status": "idle"}
+        return ok({"status": "idle"})
     return session.to_status_dict()
 
 

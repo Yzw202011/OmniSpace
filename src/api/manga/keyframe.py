@@ -2716,8 +2716,8 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
                 failed.append({"row_id": str(row_id),
                                "code": "PAINT_GENERATION_FAILED",
                                "message": str(exc)[:300]})
-        return {"succeeded": results, "failed": failed,
-                "total": len(req.row_ids), "success_count": len(results)}
+        return ok({"succeeded": results, "failed": failed,
+                "total": len(req.row_ids), "success_count": len(results)})
 
     data = await get_image_queue().submit_and_wait({
         "task_id": f"kfbatch:{req.project_id[:12]}:{time.time_ns():x}",
@@ -2862,9 +2862,9 @@ async def story_keyframe_generate(req: StoryKeyframeRequest) -> dict[str, Any]:
                 failed.append({"row_id": str(r["id"]),
                                "code": "PAINT_GENERATION_FAILED",
                                "message": str(exc)[:300]})
-        return {"succeeded": succeeded, "failed": failed,
+        return ok({"succeeded": succeeded, "failed": failed,
                 "success_count": len(succeeded), "total": len(targets),
-                "degraded": False, "degrade_reason": ""}
+                "degraded": False, "degrade_reason": ""})
 
     return ok(await get_image_queue().submit_and_wait({
         "task_id": f"kfstory:{req.project_id[:12]}:{time.time_ns():x}",

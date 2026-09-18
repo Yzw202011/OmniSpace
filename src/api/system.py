@@ -801,7 +801,7 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
             "size_bytes": p.stat().st_size if p.is_file() else 0,
         })
 
-    return {
+    return ok({
         "project": project,
         "storyboard": storyboard,
         "rows": rows,
@@ -811,7 +811,7 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
         "video_tasks": video_tasks,
         "voice_profiles": voices,
         "files_manifest": files_manifest,
-    }
+    })
 
 
 def _write_project_archive(path: Path, manifest: dict, bundle: dict) -> None:

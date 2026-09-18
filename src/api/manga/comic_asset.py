@@ -265,9 +265,9 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
                 failed.append({"name": sub.name,
                                "code": "PAINT_GENERATION_FAILED",
                                "message": str(exc)[:300]})
-        return {"project_id": req.project_id, "kind": kind,
+        return ok({"project_id": req.project_id, "kind": kind,
                 "succeeded": results, "failed": failed,
-                "total": len(req.items), "success_count": len(results)}
+                "total": len(req.items), "success_count": len(results)})
 
     data = await get_image_queue().submit_and_wait({
         "task_id": f"assetbatch:{req.project_id[:10]}:{time.time_ns():x}",
@@ -1869,7 +1869,7 @@ def _infer_entities_sync(project_id: str) -> dict:
         f"新增 {total_new} 个实体"
         f"（角色 {created['character']} · 场景 {created['scene']}"
         f" · 道具 {created['prop']}）")
-    return {"created": created, "items": items}
+    return ok({"created": created, "items": items})
 
 
 @router.post("/comic/asset/infer-entities")

@@ -319,10 +319,23 @@ def _prepare_refs(task_id: str, refs: list[dict]) -> list[dict]:
 
 
 # （dual_clock 函数族已删——批5 A/B 收口 2026-09-18，A/B 测伪入库 a9e50ed）
+# 引擎按编号注入参数的节点（缺号=注入静默落空→错图）。模板 JSON 被改动
+# 致编号漂移时由 _render_graph 入口卡死（问题总账 #30 防呆，2026-09-19 Q6）。
+_REQUIRED_NODES = frozenset({"1", "2", "3", "4", "110", "1700", "1701", "1706", "1961"})
+
+
 def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
                   start_clip: int = 1) -> dict:
     graph = json.loads(json.dumps(template))
+    missing = _REQUIRED_NODES - graph.keys()
+    if missing:
+        raise ApiError(
+            "H3_WORKFLOW_TEMPLATE_BROKEN",
+            f"H3 工作流模板缺节点 {sorted(missing)}——模板 JSON 被改动致节点"
+            "编号漂移（引擎按编号注入参数，缺号=静默错图，宁可失败不出错片）",
+            suggestion="对照 git 还原 h3_chain_workflow_api.json；若有意改模板，"
+                       "须同步更新引擎 _REQUIRED_NODES 与注入代码")
     # B6 步2：权重名从 _CHAIN_H3_FILES 单源注入（json 内同名值=占位默认）
     graph["1"]["inputs"]["unet_name"] = _CHAIN_H3_FILES["unet"]
     graph["2"]["inputs"]["clip_name"] = _CHAIN_H3_FILES["clip"]

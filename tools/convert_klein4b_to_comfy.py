@@ -1,13 +1,13 @@
 # 本项目仅供学习使用，商业授权请+Q 3559331368
-"""W3-C Phase 2（2026-09-18）：klein-4b diffusers → ComfyUI 格式转换。
+"""W3-C Phase 2（2026-09-18 二轮校准）：klein-4b diffusers → ComfyUI 格式。
 
-纯 CPU 权重键重映射+QKV 三合一（无 GPU 需求）：
-- 150 条简单重命名（linear→lin / x_embedder→img_in / transformer_blocks
-  →double_blocks / single_transformer_blocks→single_blocks / attn 层名）
-- 15 条 QKV 合并（to_q+to_k+to_v → img_attn.qkv 沿 dim=0 拼接）
-- 输出单文件 safetensors 落 ComfyUI diffusion_models/
+一轮产物被 ComfyUI 拒检（"Could not detect model type"）——根因：
+双流块内部注意力层名映射不完整（检测条件需要 img_attn.norm.key_norm
+等 comfy 专属命名，一轮只做了外层前缀替换）。
 
-用法：runtime/py312/python.exe tools/convert_klein4b_to_comfy.py
+二轮修正：完整映射表（双流 16 条+单流 4 条规则），涵盖 img_attn/
+txt_attn 分离、norm 拆分（norm_q→query_norm/norm_k→key_norm）、
+modulation 分 img/txt 路径。
 """
 from __future__ import annotations
 
@@ -22,26 +22,52 @@ DST = ROOT / "tools/ComfyUI_windows_portable/ComfyUI/models/diffusion_models/flu
 
 
 def map_key(k: str) -> str:
-    """diffusers Flux2 → comfy Flux2 键名映射（非 QKV 部分）。"""
+    """diffusers Flux2 klein-4b → comfy Flux2 完整键名映射。
+
+    依赖正则按序执行（先长后短防子串误吞）。
+    """
     nk = k
-    nk = nk.replace(".linear.", ".lin.")
+
+    # ── 外层组件 ──
     nk = nk.replace("x_embedder", "img_in")
+    nk = nk.replace("context_embedder", "vector_in")
+    nk = nk.replace("single_stream_modulation.linear.", "single_stream_modulation.lin.")
+    nk = nk.replace("double_stream_modulation_img.linear.", "double_stream_modulation_img.lin.")
+    nk = nk.replace("double_stream_modulation_txt.linear.", "double_stream_modulation_txt.lin.")
+
+    # ── 块前缀 ──
     nk = nk.replace("transformer_blocks.", "double_blocks.")
     nk = nk.replace("single_transformer_blocks.", "single_blocks.")
-    # 双流块内部（diffusers → comfy）
+
+    # ── 双流块内部（核心校准区）──
+    # img 侧（self-attention on image tokens）
     nk = nk.replace(".attn.to_out.0.", ".img_attn.proj.")
-    nk = nk.replace(".attn.add_q_proj.", ".img_attn.qkv.")  # context 侧
-    nk = nk.replace(".attn.add_k_proj.", ".img_attn.qkv.")
-    nk = nk.replace(".attn.add_v_proj.", ".img_attn.qkv.")
-    nk = nk.replace(".attn.to_add_out.", ".img_attn.proj.")
+    nk = nk.replace(".attn.norm_q.", ".img_attn.norm.query_norm.")
+    nk = nk.replace(".attn.norm_k.", ".img_attn.norm.key_norm.")
+    # txt 侧（cross-attention on text tokens）
+    nk = nk.replace(".attn.to_add_out.", ".txt_attn.proj.")
+    nk = nk.replace(".attn.norm_added_q.", ".txt_attn.norm.query_norm.")
+    nk = nk.replace(".attn.norm_added_k.", ".txt_attn.norm.key_norm.")
+    # add_q/k/v → txt_attn.qkv（QKV 三合一由 convert() 处理）
     # FF 层
     nk = nk.replace(".ff.linear_in.", ".img_mlp.0.")
     nk = nk.replace(".ff.linear_out.", ".img_mlp.2.")
     nk = nk.replace(".ff_context.linear_in.", ".txt_mlp.0.")
     nk = nk.replace(".ff_context.linear_out.", ".txt_mlp.2.")
-    # norm
-    nk = nk.replace(".norm1.linear.", ".modulation.lin.")
-    nk = nk.replace(".norm1_context.linear.", ".modulation.lin.")
+    # modulation（分 img/txt 路径）
+    nk = nk.replace(".norm1.linear.", ".modulation.lin.img.")
+    nk = nk.replace(".norm1_context.linear.", ".modulation.lin.txt.")
+
+    # ── 单流块内部 ──
+    # to_qkv_mlp_proj → linear1（已融合，直通但需改名）
+    nk = nk.replace(".attn.to_qkv_mlp_proj.", ".linear1.")
+    nk = nk.replace(".attn.to_out.", ".linear2.")  # 无 .0
+    nk = nk.replace(".attn.norm_q.", ".norm.query_norm.")  # 复用（但单流块无 img_attn 前缀）
+    nk = nk.replace(".attn.norm_k.", ".norm.key_norm.")
+    nk = nk.replace(".norm.linear.", ".modulation.lin.")
+
+    # 通用：残留 .linear. → .lin.（最短最后执行）
+    nk = nk.replace(".linear.", ".lin.")
     return nk
 
 
@@ -49,43 +75,69 @@ def convert() -> None:
     print(f"读入: {SRC}")
     sd = load_file(str(SRC))
     out: dict[str, torch.Tensor] = {}
-    qkv_buffer: dict[str, list[torch.Tensor]] = {}
+    qkv_img: dict[str, list[tuple[str, torch.Tensor]]] = {}
+    qkv_txt: dict[str, list[tuple[str, torch.Tensor]]] = {}
 
     for k, v in sd.items():
-        # QKV 三合一（双流块的 to_q/to_k/to_v → img_attn.qkv）
-        # 单流块的 to_qkv_mlp_proj 已是融合形态，直通
+        # ── 双流块 img QKV 三合一 ──
         if ".attn.to_q." in k:
             base = k.replace(".attn.to_q.weight", "")
-            qkv_buffer.setdefault(base, []).append(("q", v))
+            qkv_img.setdefault(base, []).append(("q", v))
             continue
         if ".attn.to_k." in k:
             base = k.replace(".attn.to_k.weight", "")
-            qkv_buffer.setdefault(base, []).append(("k", v))
+            qkv_img.setdefault(base, []).append(("k", v))
             continue
         if ".attn.to_v." in k:
             base = k.replace(".attn.to_v.weight", "")
-            qkv_buffer.setdefault(base, []).append(("v", v))
+            qkv_img.setdefault(base, []).append(("v", v))
+            continue
+        # ── 双流块 txt QKV 三合一 ──
+        if ".attn.add_q_proj." in k:
+            base = k.replace(".attn.add_q_proj.weight", "")
+            qkv_txt.setdefault(base, []).append(("q", v))
+            continue
+        if ".attn.add_k_proj." in k:
+            base = k.replace(".attn.add_k_proj.weight", "")
+            qkv_txt.setdefault(base, []).append(("k", v))
+            continue
+        if ".attn.add_v_proj." in k:
+            base = k.replace(".attn.add_v_proj.weight", "")
+            qkv_txt.setdefault(base, []).append(("v", v))
             continue
 
-        nk = map_key(k)
-        out[nk] = v
+        out[map_key(k)] = v
 
-    # QKV 合并
-    for base, parts in qkv_buffer.items():
+    # QKV 合并（img 侧）
+    for base, parts in qkv_img.items():
         order = {p[0]: p[1] for p in parts}
-        if not all(x in order for x in "qkv"):
-            print(f"  ⚠️ {base} 缺 Q/K/V，跳过")
-            continue
-        fused = torch.cat([order["q"], order["k"], order["v"]], dim=0)
-        comfy_base = map_key(base + ".dummy")
-        comfy_base = comfy_base.replace(".dummy", "")
-        comfy_key = f"{comfy_base}.img_attn.qkv.weight"
-        out[comfy_key] = fused
+        if all(x in order for x in "qkv"):
+            fused = torch.cat([order["q"], order["k"], order["v"]], dim=0)
+            comfy_base = map_key(base + ".dummy").replace(".dummy", "")
+            out[f"{comfy_base}.img_attn.qkv.weight"] = fused
+
+    # QKV 合并（txt 侧）
+    for base, parts in qkv_txt.items():
+        order = {p[0]: p[1] for p in parts}
+        if all(x in order for x in "qkv"):
+            fused = torch.cat([order["q"], order["k"], order["v"]], dim=0)
+            comfy_base = map_key(base + ".dummy").replace(".dummy", "")
+            out[f"{comfy_base}.txt_attn.qkv.weight"] = fused
 
     save_file(out, str(DST))
     size_gb = DST.stat().st_size / 1024**3
+    # 验证检测条件
+    detect1 = "double_blocks.0.img_attn.norm.key_norm.weight" in out
+    detect2 = "img_in.weight" in out
+    detect3 = "double_stream_modulation_img.lin.weight" in out
     print(f"输出: {DST} ({size_gb:.2f} GB, {len(out)} 键)")
-    print("✓ 转换完成——ComfyUI diffusion_models/ 下已就位")
+    print(f"检测条件 1 (double_blocks.0.img_attn.norm.key_norm): {detect1}")
+    print(f"检测条件 2 (img_in.weight): {detect2}")
+    print(f"检测条件 3 (double_stream_modulation_img.lin): {detect3}")
+    if detect1 and detect2:
+        print("✓ ComfyUI Flux2 检测条件全满足")
+    else:
+        print("✗ 检测条件不满足！需修正映射表")
 
 
 if __name__ == "__main__":

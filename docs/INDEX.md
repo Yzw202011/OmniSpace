@@ -174,6 +174,27 @@
 | `锁语义五连专项方案-2026-09-10.md` | 方案 | 已执行 |
 | `防遗忘机制方案-2026-09-10.md` | 方案 | 已收官（批1~4） |
 
+
+## 补登记（2026-09-18 深夜 · 监督审计会话 · 问题总账 #41 收尾）
+
+> 批3 补登记后仍游离的 29 份一次归位；审计 round 系按「记录」只读归档，竞品/技术档案为「参考」。
+
+| 文档 | 状态 | 说明 |
+| --- | --- | --- |
+| `audit/round0-backend-assessment.md`、`round0-frontend-assessment.md` | 记录 | round0 前后端基线评估（2026-08） |
+| `audit/round1-backend-fixes.md`、`round2-fixes.md`、`round3-fixes.md`、`round4-feature-completion.md`、`round5-audit-report.md`、`round5-completion-report.md` | 记录 | round1~5 历轮修复与验收实录 |
+| `audit/round2-function-integrity.md` | 记录 | round2 功能完整性核查 |
+| `audit/round-2026-09-10-code-audit.md`、`round-2026-09-12-code-audit.md`、`round-2026-09-12-full-audit.md` | 记录 | 09-10/09-12 两轮审计实录（P1×6/P2 清账与四闸绿证据） |
+| `audit/round-2026-09-16-root-cause-audit.md` | 记录 | 09-16 崩溃簇根因审计（PCIe AER/WER 定性，用户令「逐层扫透」产物） |
+| `audit/api-contract-decisions.md`、`baseline-checklist.md`、`feature-fix-plan.md`、`project-audit-report.md`、`project-completion-report.md` | 记录 | 早期 API 契约裁决/基线清单/功能修复计划与总结报告 |
+| `技术档案/01-漫剧多角色格生成.md`、`02-AI对话链路.md` | 参考 | 早期技术拆解素材 |
+| `测试记录/全功能测试-2026-09-11.md` | 记录 | 09-11 全功能测试轮实录 |
+| `competitor/竞品漫剧编辑器深度解析.md` | 参考 | 竞品抓取解析 |
+| `功能能力清单-2026-09-18-对账基线.md`、`功能能力清单-2026-09-18-深查版.md`、`功能能力清单-2026-09-18-根查版.md`、`对账总表-2026-09-18.md`、`散乱度审计-2026-09-18.md` | 记录 | 监督会话十轮只读审计系列（零文档依赖，355 端点消费交叉/42 表对账/三缝审计等） |
+| `问题总账-2026-09-18.md` | **现行** | 43 项问题唯一入口（带证据位，可直接转销账表） |
+| `问题清偿计划-2026-09-18.md` | **现行** | B0~B6 七批清偿计划（B0/B1 已执行） |
+
+
 ---
 
 *索引建立：2026-08-20（TASK-P2-04；2026-09-18 批3 文档对账批修复结构断裂+38 份补登记）*

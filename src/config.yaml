@@ -99,7 +99,10 @@ database:
 # 实现 = 进程内缓存（data/cache.py）+ 进程内 PriorityQueue，无外部依赖。
 
 video:
-  ltx2_max_audio_sync_seconds: 10
+  # 音画同步模式的时长上限（秒）。原名 ltx2_max_audio_sync_seconds 系
+  # LTX2 时代误名（引擎已剔除、键仍被 /manga/video 真实消费），2026-09-18
+  # 总账 #15 正名。改完重启后端生效。
+  audio_sync_max_duration_seconds: 10
   max_duration_seconds: 20
 
 dialog:

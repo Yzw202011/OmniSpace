@@ -83,7 +83,6 @@ MUTUAL_EXCLUSION_MATRIX: dict[str, list[str]] = {
     "paint":            ["dialog", "video_gen", "training"],
     "video_gen":        ["dialog", "paint", "training"],
     "training":         ["dialog", "paint", "video_gen"],
-    "ltx2_training":    ["dialog", "paint", "video_gen"],
     "browser_learning": [],
     "behavior_learning": [],
 }
@@ -104,7 +103,7 @@ _FEATURE_KEEP_CATEGORIES: dict[str, set[str]] = {
     "dialog":    {"dialog", "language", "omni"},
     "paint":     {"paint", "vision", "image"},
     "video_gen": {"video", "video_gen"},
-    "training":  {"training", "ltx2_training"},
+    "training":  {"training"},
 }
 
 # 跨模块共享的小体量类别（embedding 检索 / 语音 / 辅助）始终保留，
@@ -116,7 +115,7 @@ _SHARED_KEEP_CATEGORIES: set[str] = {"embedding", "voice", "auxiliary"}
 # 切换（设置/日志/学习视图等不加载重模型）保留 vLLM 热备、复用已加载
 # worker，切回对话免二次 ~157s 冷启动。
 _VRAM_HEAVY_FEATURES: frozenset[str] = frozenset(
-    {"paint", "video_gen", "training", "ltx2_training"})
+    {"paint", "video_gen", "training"})
 
 # 已知模型的磁盘相对路径提示（MODELS_DIR 下），磁盘扫描的权威补充
 _MODEL_PATH_HINTS: dict[str, str] = {

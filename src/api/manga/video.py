@@ -23,8 +23,8 @@ from fastapi.responses import FileResponse
 
 from ...config import (
     API_PREFIX,
+    AUDIO_SYNC_MAX_DURATION_S,
     DATA_DIR,
-    LTX2_MAX_AUDIO_SYNC,
     ROOT_DIR,
     VIDEO_MAX_DURATION,
 )
@@ -512,8 +512,9 @@ def _load_h3_convert() -> tuple[Callable[..., Any], Callable[..., Any]]:
     import sys
     sys.path.insert(0, str(_H3_CONVERT_DIR))
     try:
-        from convert import convert_row_to_project
-        from validate import assert_submittable
+        # 静态分析注：convert/validate 为运行时 sys.path 注入（skills/h3_convert）
+        from convert import convert_row_to_project  # type: ignore[import-not-found]
+        from validate import assert_submittable  # type: ignore[import-not-found]
     finally:
         sys.path.remove(str(_H3_CONVERT_DIR))
     return convert_row_to_project, assert_submittable
@@ -1078,7 +1079,7 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
 async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     """生成视频（规格 §4.4，TASK-010 真实产出）——入队即返回（B 方案）。
 
-    时长上限 VIDEO_MAX_DURATION；带音频同步时上限 LTX2_MAX_AUDIO_SYNC（60002）。
+    时长上限 VIDEO_MAX_DURATION；带音频同步时上限 AUDIO_SYNC_MAX_DURATION_S（60002）。
     2026-09-02 视频队列：校验+落库（pending）+入队即返回，单 worker
     顺序消费（准入协商/锁持有/vLLM 唤醒时机见 services/video_queue.py）；
     跨镜多任务凭 status=pending/generating 区分排队与生成中。
@@ -1088,9 +1089,9 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         raise ApiError("VIDEO_GENERATION_FAILED", "视频生成失败，时长超出上限",
                        detail={"max": VIDEO_MAX_DURATION,
                                "given": req.duration_seconds})
-    if req.audio_path and req.duration_seconds > LTX2_MAX_AUDIO_SYNC:
+    if req.audio_path and req.duration_seconds > AUDIO_SYNC_MAX_DURATION_S:
         raise ApiError("VIDEO_DURATION_EXCEEDED", "音画同步模式最长支持10秒",
-                       detail={"max": LTX2_MAX_AUDIO_SYNC,
+                       detail={"max": AUDIO_SYNC_MAX_DURATION_S,
                                "given": req.duration_seconds})
 
     # 连点去重（2026-08-31 实测事故：前端 POST 未返回期间连点 7 次 →

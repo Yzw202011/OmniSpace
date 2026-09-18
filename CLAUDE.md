@@ -83,7 +83,7 @@ src/stores/：
 （旧文档写的 useChatStore/useStoryboardStore/useSettingsStore/useModalStore/useWebSocketStore 不存在）
 ```
 
-### 2.3 路由（React Router 7，Hash 模式，实测 10 个一级路由；B1 2026-09-13 勘误）
+### 2.3 路由（React Router 7，Hash 模式，实测 11 个一级路由；2026-09-18 监督审计勘误：/training 入列后 10→11）
 
 ```
 /chat      → components/dialog/DialogPage.tsx

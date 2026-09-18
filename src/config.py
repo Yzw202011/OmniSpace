@@ -131,7 +131,8 @@ DB_SYNCHRONOUS = _cfg["database"].get("synchronous", "NORMAL")
 DB_CACHE_SIZE_KB = int(_cfg["database"].get("cache_size_kb", 16384))
 
 # ── 视频 ─────────────────────────────────────────────────────────
-LTX2_MAX_AUDIO_SYNC = _cfg["video"]["ltx2_max_audio_sync_seconds"]
+# 原名 LTX2_MAX_AUDIO_SYNC（死引擎误名，2026-09-18 总账 #15 正名）
+AUDIO_SYNC_MAX_DURATION_S = _cfg["video"]["audio_sync_max_duration_seconds"]
 VIDEO_MAX_DURATION = _cfg["video"]["max_duration_seconds"]
 
 # ── 对话 ─────────────────────────────────────────────────────────
@@ -162,7 +163,7 @@ APP_VERSION = str(_cfg.get("app", {}).get("version", "2.5.0"))
 # make_dist.py 出包时在包内生成 src/build_info.py（版本+git 短哈希+日期），
 # 开发环境无此文件时回退 "+dev"，用于区分开发跑的还是发行包跑的
 try:
-    from .build_info import BUILD_ID  # type: ignore[attr-defined]
+    from .build_info import BUILD_ID  # type: ignore
 except Exception:  # noqa: BLE001 - 开发环境无生成文件
     BUILD_ID = f"{APP_VERSION}+dev"
 

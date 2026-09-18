@@ -152,7 +152,7 @@ describe('invokeChatSkill', () => {
       plugin: 'chat-demo', skill_id: 'polish', text: '你好',
     });
     expect(result.output).toBe('已处理: 你好');
-    expect(mockedPost).toHaveBeenCalledWith('/dialog/skill', {
+    expect(mockedPost).toHaveBeenCalledWith('/chat/skill', {
       plugin: 'chat-demo', skill_id: 'polish', text: '你好',
     });
   });

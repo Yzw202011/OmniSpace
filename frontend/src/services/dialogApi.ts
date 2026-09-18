@@ -34,7 +34,7 @@ import type {
  *  热切换到引擎默认（显存紧时 GGUF 0.5B）再换回，双倍加载耗时） */
 export function prewarmModel(modelId?: string): void {
   void post<{ state: string; prewarmed: boolean }>(
-    '/dialog/prewarm', modelId ? { model_id: modelId } : {},
+    '/chat/prewarm', modelId ? { model_id: modelId } : {},
   ).catch(() => { /* 预热失败不打扰用户 */ });
 }
 
@@ -47,7 +47,7 @@ export interface DialogEngineStatus {
 
 /** 查询对话引擎状态（预热进度弹窗 2s 轮询） */
 export function getDialogEngineStatus() {
-  return get<DialogEngineStatus>('/dialog/status');
+  return get<DialogEngineStatus>('/chat/status');
 }
 
 /** 会话列表查询参数 */
@@ -128,7 +128,7 @@ export interface DialogModelInfo {
 /** 拉取对话可用模型清单（含可承载判定与已加载标记） */
 export function getDialogModels() {
   return get<{ models: DialogModelInfo[]; total_vram_gb: number }>(
-    '/dialog/models');
+    '/chat/models');
 }
 
 /** 批量删除会话（POST /chat/sessions/batch-delete，单批 ≤100）
@@ -208,7 +208,7 @@ export function parseDocument(file: File) {
   const formData = new FormData();
   formData.append('file', file);
   return upload<{ name: string; text: string; chars: number; kind: string; truncated: boolean }>(
-    '/dialog/parse-document',
+    '/chat/parse-document',
     formData,
   );
 }

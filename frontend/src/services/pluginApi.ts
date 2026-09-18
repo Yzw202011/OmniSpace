@@ -126,7 +126,7 @@ export async function invokeChatSkill(payload: {
   text: string;
   timeout_s?: number;
 }): Promise<ChatSkillResult> {
-  const res = await post<unknown>('/dialog/skill', payload);
+  const res = await post<unknown>('/chat/skill', payload);
   return parseWith(ChatSkillResultSchema, res, '插件技能执行');
 }
 

@@ -119,7 +119,9 @@ def log_event(
             时由 query_flows 按时间邻近性启发式聚合
     """
     entry: dict[str, Any] = {
-        "ts": datetime.now().isoformat(timespec="milliseconds"),
+        # 时区口径（2026-09-19 Q7）：对外发射的时间戳=本地带偏移（aware），
+        # 消除与 UTC 侧对比时的 8h 漂移；库内日界聚合仍用 naive 本地（自洽）。
+        "ts": datetime.now().astimezone().isoformat(timespec="milliseconds"),
         "level": level if level in _LEVELS else "info",
         "module": module,
         "event": event,

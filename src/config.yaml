@@ -159,7 +159,6 @@ manga:
   # 采样段换 MiniMaxH3DualClockSamplerT8（社区口径再提速 ~100% 未独立
   # 复验；节点包 custom_nodes/comfyui-minimax-h3-audio-T8 零额外依赖）。
   # 实测 ≥30% 且质量不降才转正。改完重启后端生效。
-  h3_dual_clock: false
   # 四视图引擎档（v3-W3-C 2026-09-13）：与全局 paint.gen_engine 解耦。
   # comfy 蒸馏 9B 四格构图格数遵循度实测仅 33~40% 且与步数无关
   # （丢格为构图级失败，VL 修复环不可修）——保持 legacy 直至 comfy
@@ -251,6 +250,4 @@ vllm:
   # + 9B 需近乎空卡，准入线诚实拒。重启后端生效。
   # ⚠️ 归位勘误（2026-09-15 深夜）：这两键曾被 Z1 提交时的 config 重写
   # 误挪进 manga 节（vllm. 前缀读取永远读不到=开关假死）——已移回。
-  dflash_speculative: false
   # DFlash 草稿权重目录（项目相对路径，须含 model.safetensors）
-  dflash_draft_model: "models/dflash/qwen35-9b-draft"

@@ -168,51 +168,14 @@ def mtp_spec_enabled(model_dir: Path) -> bool:
 
 
 def _dflash_draft_dir() -> Path | None:
-    """DFlash 草稿目录（config vllm.dflash_draft_model，项目相对路径）。
-
-    目录内须有 model.safetensors（z-lab/Qwen3.5-9B-DFlash 官方配对
-    草稿，~2.58GB）；缺权重返回 None（调用方视为关）。
-    """
-    try:
-        from src.config import ROOT_DIR, get_config
-        raw = str((get_config().get("vllm") or {}).get(
-            "dflash_draft_model", "models/dflash/qwen35-9b-draft")
-            or "models/dflash/qwen35-9b-draft")
-        p = ROOT_DIR / raw
-        return p if (p / "model.safetensors").is_file() else None
-    except Exception:  # noqa: BLE001 - 配置异常视为无草稿
-        return None
+    """已退役（批5 A/B 收口 2026-09-18：DFlash 3 天未收口+MTP 已主力）。"""
+    return None
 
 
 def dflash_spec_enabled(model_dir: Path) -> bool:
-    """DFlash 块扩散投机解码开关（P-5 2026-09-15，默认 false）。
+    """已退役（批5 A/B 收口 2026-09-18：3 天未收口+MTP +39% 已主力）。"""
+    return False
 
-    config.yaml ``vllm.dflash_speculative`` 且草稿权重在盘时生效。
-    仅对 qwen35-9b 家族目标放行——草稿按未消融 Qwen3.5-9B 隐状态
-    训练，跨家族配对实测反向劣化（abliterated 目标须换 guglxni 版
-    草稿）。与 MTP 同开时 DFlash 优先（显式 opt-in 试验档）。输出
-    数学无损：草稿只提议、目标模型验证全权裁决，对话行为不变。
-    显存：草稿+图画像 ~VLLM_DFLASH_EXTRA_GB，16GB 卡 + 9B 需近乎
-    空卡，不足由 vllm_backend 准入线诚实拒绝。
-    """
-    try:
-        from src.config import get_config
-        raw = (get_config().get("vllm") or {}).get(
-            "dflash_speculative", False)
-        on = bool(raw) and str(raw).strip().lower() not in ("false", "0", "")
-    except Exception:  # noqa: BLE001 - 配置异常保持关
-        return False
-    if not on:
-        return False
-    if "qwen35-9b" not in model_dir.name.lower():
-        log.warning("DFlash 配置被忽略：%s 非草稿配对目标（qwen35-9b）",
-                    model_dir.name)
-        return False
-    if _dflash_draft_dir() is None:
-        log.warning("DFlash 配置被忽略：草稿权重缺失"
-                    "（models/dflash/qwen35-9b-draft/）")
-        return False
-    return True
 
 def sleep_mode_enabled() -> bool:
     """vLLM sleep mode 门控（B0 2026-09-13；默认 false=杀进程让渡）。

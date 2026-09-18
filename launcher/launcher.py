@@ -562,6 +562,8 @@ class BackendProcess:
         # 后端，页面全关且无任务时经 /api/quit 正规退出；无此变量=非
         # boot 链（开发直启/测试实例）守卫整体不激活
         'OMNISPACE_SPLASH_PORT',
+        # 批2-4：副本路径指纹（/health 回显供接管闸跨副本拒绝）
+        'OMNISPACE_COPY_ID',
     )
 
     def _backend_exe(self) -> str:

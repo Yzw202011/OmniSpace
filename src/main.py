@@ -599,6 +599,8 @@ def create_app() -> FastAPI:
             db_status = "error"
         return ok({"status": "healthy", "version": config.APP_VERSION,
                     "build": config.BUILD_ID,
+                    # 批2-4：副本路径指纹回显（boot 接管闸跨副本拒绝用）
+                    "copy_id": os.environ.get("OMNISPACE_COPY_ID", ""),
                     "uptime_s": round(time.time() - _boot_ts, 1), "db": db_status})
 
     # WebSocket: 对话流式（§4.2 ws://127.0.0.1:5800/api/v1/dialog/stream/{session_id}）

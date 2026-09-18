@@ -910,6 +910,18 @@ class BootOrchestrator:
 
     # ── 跨版本接管闸门的判据三件套（2026-09-02）──
 
+    def _remote_copy_id(self, port: int) -> str:
+        """读运行中后端 /health 的 copy_id 字段（旧后端无此字段→''，
+        与本副本指纹必不相等=保守拒绝接管）。"""
+        try:
+            with urllib.request.urlopen(
+                    f'http://{self.config.backend_host}:{port}/health',
+                    timeout=3) as resp:
+                data = json.loads(resp.read().decode('utf-8')).get('data') or {}
+            return str(data.get('copy_id') or '')
+        except Exception:
+            return ''
+
     def _remote_build_id(self, port: int) -> str:
         """读运行中后端 /health 的 build 字段（读不到按 dev 处理，宁可拒接）"""
         try:
@@ -929,6 +941,17 @@ class BootOrchestrator:
             ).get('build_id', ''))
         except Exception:
             return ''
+
+    def _copy_fingerprint(self) -> str:
+        """副本路径指纹（批2-4 2026-09-18）：包根绝对路径 md5 前 8 位。
+
+        审计 1-1：开发副本 build_id 恒空串=所有开发目录互认"自己人"，
+        后启动者复用他人 splash 并接管他人后端（看到对方数据）。指纹经
+        环境变量 OMNISPACE_COPY_ID 注入自拉的后端，/health 回显，接管
+        闸据此拒绝跨副本收编。"""
+        import hashlib
+        return hashlib.md5(
+            str(BOOT_DIR.parent).encode('utf-8')).hexdigest()[:8]
 
     @staticmethod
     def _edition(build_id: str) -> str:
@@ -957,11 +980,35 @@ class BootOrchestrator:
                 self.state.set_phase('backend', 'error', msg)
                 self.state.log(msg, 'error')
                 return False
+            # 批2-4 同版异副本闸：开发版比对 /health 回显的 copy_id 指纹；
+            # 发行包比对 build 全串（防旧版包静默接管新版后端）。对不上
+            # 一律拒绝——宁可让用户先退出旧实例，不看错数据
+            remote_bid = self._remote_build_id(existing)
+            if self._edition(self._own_build_id()) == 'dev':
+                remote_copy = self._remote_copy_id(existing)
+                if remote_copy != self._copy_fingerprint():
+                    msg = (f'本机 :{existing} 是另一副本的开发实例'
+                           '（copy_id 不匹配）。不跨副本接管——请先在该'
+                           '副本完全退出；双实例联调请设'
+                           ' OMNISPACE_ALLOW_MULTI=1。')
+                    self.state.set_phase('backend', 'error', msg)
+                    self.state.log(msg, 'error')
+                    return False
+            elif remote_bid != self._own_build_id():
+                msg = (f'本机 :{existing} 是不同构建的发行实例'
+                       f'（{remote_bid or "?"}）。不跨版本接管——请先'
+                       '在该实例完全退出再启动本程序。')
+                self.state.set_phase('backend', 'error', msg)
+                self.state.log(msg, 'error')
+                return False
             url = f'http://{self.config.backend_host}:{existing}'
             self.state.backend.update({
                 'url': url, 'port': existing, 'attached': True, 'healthy': True})
             self.state.set_phase('backend', 'done', f'接管运行中实例 :{existing}')
             self.state.log(f'检测到健康后端实例，直接接管 {url}（不重复拉起）')
+            self.state.log(
+                '接管模式提示：关闭本窗口不会停止被接管的后端（属本副本'
+                '存量实例）；如需完全停止请运行 停止OmniSpace.bat')
             return True
 
         try:
@@ -978,6 +1025,8 @@ class BootOrchestrator:
         # stop.py，看门狗随启动页收尾放行）。仅自有的后端才传；接管
         # 模式不传（守卫不激活，不代他人链做退出决策）
         os.environ['OMNISPACE_SPLASH_PORT'] = str(self._splash_port)
+        # 批2-4：副本指纹随链注入（/health 回显供接管闸比对）
+        os.environ['OMNISPACE_COPY_ID'] = self._copy_fingerprint()
         # 端口先行记录：失败路径下 poller 也能探测真实端口（而非 :0）
         self.state.backend['port'] = port
         if not self.backend.start(port):

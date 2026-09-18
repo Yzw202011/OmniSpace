@@ -79,7 +79,7 @@ from .priority import LEVEL_BY_NAME, Priority
 from .training_common import TrainingLockGuard
 from .vram_policy import TRAINING_MIN_FREE_GB
 
-logger = logging.getLogger("omnispace.lora_training")
+log = logging.getLogger("omnispace.lora_training")
 
 
 def _try_import(name: str) -> Any:
@@ -97,7 +97,7 @@ def _log_event(module: str, event: str, friendly: str, *,
         from .event_log import log_event
         log_event(module, event, friendly, level=level, detail=detail)
     except Exception:  # noqa: BLE001
-        logger.debug("_log_event: 降级忽略", exc_info=True)
+        log.debug("_log_event: 降级忽略", exc_info=True)
 
 
 # ── 模块级注入点：WebSocket 广播器 ──────────────────────────────
@@ -120,7 +120,7 @@ def _broadcast(event: str, data: dict) -> None:
         fn({"type": "status", "module": "learn",
             "data": {"event": event, **data}})
     except Exception:  # noqa: BLE001 - 推送异常不影响训练
-        logger.debug("_broadcast: 降级忽略", exc_info=True)
+        log.debug("_broadcast: 降级忽略", exc_info=True)
 
 
 # ── 常量 ────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ def get_train_defaults() -> dict:
                         if k in user:
                             base[k] = user[k]
     except Exception:  # noqa: BLE001 - 读库失败按内置默认
-        logger.debug("get_train_defaults: 降级忽略", exc_info=True)
+        log.debug("get_train_defaults: 降级忽略", exc_info=True)
     _train_defaults_cache.update({"value": dict(base), "ts": now})
     return base
 
@@ -302,7 +302,7 @@ class LoRATrainingService:
         """
         with self._state_lock:
             self._cancel_flags.add(task_id)
-        logger.info("训练取消请求已置位（将在下一步边界中断）: %s", task_id)
+        log.info("训练取消请求已置位（将在下一步边界中断）: %s", task_id)
 
     def _is_cancelled(self, task_id: str) -> bool:
         """检查任务是否被请求取消。"""
@@ -365,7 +365,7 @@ class LoRATrainingService:
                     break
                 page += 1
         except Exception as exc:  # noqa: BLE001 - 数据源缺失不致命
-            logger.info("知识库训练样本不可用，跳过: %s", exc)
+            log.info("知识库训练样本不可用，跳过: %s", exc)
 
         # 来源 2：行为学习偏好对
         try:
@@ -382,7 +382,7 @@ class LoRATrainingService:
                 })
                 sources["behavior"] += 1
         except Exception as exc:  # noqa: BLE001
-            logger.info("行为偏好训练样本不可用，跳过: %s", exc)
+            log.info("行为偏好训练样本不可用，跳过: %s", exc)
 
         # 去重（instruction+input+output 的 MD5）
         seen: set[str] = set()
@@ -408,7 +408,7 @@ class LoRATrainingService:
             "sufficient": len(uniq) >= MIN_TRAINING_SAMPLES,
             "prepared_at": time.time(),
         }
-        logger.info("训练数据准备完成: 共 %d 条（知识 %d + 行为 %d），"
+        log.info("训练数据准备完成: 共 %d 条（知识 %d + 行为 %d），"
                     "训练 %d / 验证 %d",
                     len(uniq), sources["knowledge"], sources["behavior"],
                     len(train), len(valid))
@@ -449,7 +449,7 @@ class LoRATrainingService:
             self._loop = asyncio.get_running_loop()
             self._lock_guard.set_loop(self._loop)
         except RuntimeError:
-            logger.debug("trigger_finetune: 降级忽略", exc_info=True)
+            log.debug("trigger_finetune: 降级忽略", exc_info=True)
 
         cfg = {**DEFAULT_TRAIN_CONFIG, **get_train_defaults(),
                **(config or {})}
@@ -475,7 +475,7 @@ class LoRATrainingService:
             try:
                 db.insert("train_tasks", record)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("训练任务落库失败，降级内存镜像: %s", exc)
+                log.warning("训练任务落库失败，降级内存镜像: %s", exc)
                 self._mem_tasks[task_id] = record
         else:
             self._mem_tasks[task_id] = record
@@ -488,7 +488,7 @@ class LoRATrainingService:
         self._ensure_worker()
         _broadcast("training_queued", {"task_id": task_id, "priority": priority,
                                        "global_priority": GLOBAL_PRIORITY.name})
-        logger.info("微调任务入队: %s (priority=%s, global=%s)",
+        log.info("微调任务入队: %s (priority=%s, global=%s)",
                     task_id, priority, GLOBAL_PRIORITY.name)
         return task_id
 
@@ -518,7 +518,7 @@ class LoRATrainingService:
                 val = cast(DEFAULT_TRAIN_CONFIG.get(key, lo))
             clamped = max(lo, min(val, hi))
             if clamped != val:
-                logger.warning("训练超参越界已钳制: %s %r -> %r (边界 [%s, %s])",
+                log.warning("训练超参越界已钳制: %s %r -> %r (边界 [%s, %s])",
                                key, raw, clamped, lo, hi)
             out[key] = clamped
         return out
@@ -551,10 +551,10 @@ class LoRATrainingService:
             return None
         path = Path(dataset_path)
         if not cls._is_allowed_dataset_path(path):
-            logger.warning("外部训练集路径越出白名单，拒绝加载: %s", path)
+            log.warning("外部训练集路径越出白名单，拒绝加载: %s", path)
             return None
         if not path.is_file():
-            logger.warning("外部训练集不存在，回退自动构建: %s", path)
+            log.warning("外部训练集不存在，回退自动构建: %s", path)
             return None
         samples: list[dict] = []
         try:
@@ -566,7 +566,7 @@ class LoRATrainingService:
                     try:
                         obj = json.loads(line)
                     except json.JSONDecodeError:
-                        logger.debug("外部训练集第 %d 行非 JSON，跳过", ln)
+                        log.debug("外部训练集第 %d 行非 JSON，跳过", ln)
                         continue
                     output = str(obj.get("output") or "").strip()
                     if not output:
@@ -578,7 +578,7 @@ class LoRATrainingService:
                         "output": output,
                     })
         except OSError as exc:
-            logger.warning("外部训练集读取失败，回退自动构建: %s", exc)
+            log.warning("外部训练集读取失败，回退自动构建: %s", exc)
             return None
 
         # 去重 + 90/10 划分（与 prepare_training_data 一致，固定种子）
@@ -601,7 +601,7 @@ class LoRATrainingService:
             "sufficient": len(uniq) >= MIN_TRAINING_SAMPLES,
             "prepared_at": time.time(),
         }
-        logger.info("外部训练集加载完成: %s → %d 条（训练 %d / 验证 %d）",
+        log.info("外部训练集加载完成: %s → %d 条（训练 %d / 验证 %d）",
                     path, len(uniq), len(data["train"]), len(data["valid"]))
         return data
 
@@ -615,7 +615,7 @@ class LoRATrainingService:
                 for s in data["train"] + data["valid"]:
                     f.write(json.dumps(s, ensure_ascii=False) + "\n")
         except OSError as exc:
-            logger.warning("训练集落盘失败: %s", exc)
+            log.warning("训练集落盘失败: %s", exc)
             return ""
         return str(path)
 
@@ -635,7 +635,7 @@ class LoRATrainingService:
             try:
                 self._run_task(item[2])
             except Exception as exc:  # noqa: BLE001 - 工作线程不崩溃
-                logger.error("训练工作线程异常: %s", exc)
+                log.error("训练工作线程异常: %s", exc)
             finally:
                 self._queue.task_done()
 
@@ -654,13 +654,13 @@ class LoRATrainingService:
                 row = db.query_one(
                     "SELECT status FROM train_tasks WHERE id=?", (task_id,))
                 if row is not None and row.get("status") == "cancelled":
-                    logger.info("训练任务已取消，跳过执行: %s", task_id)
+                    log.info("训练任务已取消，跳过执行: %s", task_id)
                     _broadcast("training_cancelled", {"task_id": task_id,
                                                       "reason": "queued"})
                     self._clear_cancel(task_id)
                     return
             except Exception:  # noqa: BLE001 - 查询失败不阻断训练
-                logger.debug("_run_task: 降级忽略", exc_info=True)
+                log.debug("_run_task: 降级忽略", exc_info=True)
         with self._state_lock:
             self._training_task_id = task_id
         self._update_task(task_id, status="training")
@@ -712,7 +712,7 @@ class LoRATrainingService:
                     from .inference.dialog_engine import get_dialog_engine
                     get_dialog_engine().refresh_knowledge_lora()
                 except Exception:  # noqa: BLE001
-                    logger.debug("_run_task: 降级忽略", exc_info=True)
+                    log.debug("_run_task: 降级忽略", exc_info=True)
             self._update_task(task_id, status="done", progress=1.0)
             _broadcast("training_completed", {
                 "task_id": task_id, "version": version,
@@ -730,7 +730,7 @@ class LoRATrainingService:
                         f"score={report.get('quality_score')}"))
         except TrainingCancelled as exc:
             # 用户强制取消：真实中断（step 边界退出训练循环，未保存半成品）
-            logger.info("训练任务被用户强制取消: %s: %s", task_id, exc)
+            log.info("训练任务被用户强制取消: %s: %s", task_id, exc)
             self._update_task(task_id, status="cancelled")
             _broadcast("training_cancelled", {"task_id": task_id,
                                               "reason": "training"})
@@ -739,7 +739,7 @@ class LoRATrainingService:
                        "显存已释放，没有保存半成品",
                        level="warning", detail=f"task={task_id}, {exc}")
         except TrainingFailed as exc:
-            logger.error("训练失败: %s: %s", task_id, exc)
+            log.error("训练失败: %s: %s", task_id, exc)
             self._update_task(task_id, status="error")
             _broadcast("training_failed", {"task_id": task_id, "error": str(exc)})
             _log_event("training", "training_failed",
@@ -747,7 +747,7 @@ class LoRATrainingService:
                        "如果反复失败，请检查模型文件是否完整",
                        level="error", detail=f"task={task_id}")
         except Exception as exc:  # noqa: BLE001 - 未预期异常同失败处理
-            logger.exception("训练未预期异常: %s", task_id)
+            log.exception("训练未预期异常: %s", task_id)
             self._update_task(task_id, status="error")
             _broadcast("training_failed",
                        {"task_id": task_id, "error": f"未预期异常: {exc}"})
@@ -785,7 +785,7 @@ class LoRATrainingService:
                              if k in _TRAIN_TASK_COLUMNS}
                 db.update("train_tasks", db_fields, "id=?", (task_id,))
             except Exception as exc:  # noqa: BLE001
-                logger.debug("训练任务更新落库失败: %s", exc)
+                log.debug("训练任务更新落库失败: %s", exc)
         if task_id in self._mem_tasks:
             self._mem_tasks[task_id].update(fields)
 
@@ -873,7 +873,7 @@ class LoRATrainingService:
             raise TrainingFailed(
                 f"空闲显存不足：{free_gb:.1f}GB < {MIN_FREE_VRAM_GB}GB，"
                 f"请先释放其他模型后再训练")
-        logger.info("训练前显存: 空闲 %.1fGB / 总量 %.1fGB",
+        log.info("训练前显存: 空闲 %.1fGB / 总量 %.1fGB",
                     free_gb, total_bytes / (1024 ** 3))
 
         try:
@@ -901,13 +901,13 @@ class LoRATrainingService:
                     and torch.cuda.is_available():
                 major, _minor = torch.cuda.get_device_capability()
                 if major >= 8:
-                    logger.info("注意力实现: flash_attention_2（探测通过）")
+                    log.info("注意力实现: flash_attention_2（探测通过）")
                     return "flash_attention_2"
         except Exception:  # noqa: BLE001
-            logger.debug("_probe_attn_impl: 降级忽略", exc_info=True)
+            log.debug("_probe_attn_impl: 降级忽略", exc_info=True)
         # sdpa：PyTorch 内置 scaled_dot_product_attention，
         # 内核自动选 flash/mem_efficient，无需三方包
-        logger.info("注意力实现: sdpa（flash_attn 不可用，FA2 跳过）")
+        log.info("注意力实现: sdpa（flash_attn 不可用，FA2 跳过）")
         return "sdpa"
 
     @staticmethod
@@ -931,7 +931,7 @@ class LoRATrainingService:
             tuned["gradient_accumulation_steps"] = max(
                 8, int(cfg.get("gradient_accumulation_steps", 4)))
         if tuned != cfg:
-            logger.info("显存自适应批量: 空闲 %.1fGB → batch=%d accum=%d",
+            log.info("显存自适应批量: 空闲 %.1fGB → batch=%d accum=%d",
                         free_gb, tuned["batch_size"],
                         tuned["gradient_accumulation_steps"])
         return tuned
@@ -948,7 +948,7 @@ class LoRATrainingService:
         n = int(cfg.get("dataloader_num_workers", -1))
         if n >= 0:
             if sys.platform == "win32" and n > 0:
-                logger.warning("Windows 平台 num_workers>0 需可 pickle 的 "
+                log.warning("Windows 平台 num_workers>0 需可 pickle 的 "
                                "collator，已按 config 显式值 %d 执行", n)
             return n
         return 0 if sys.platform == "win32" else 2
@@ -1002,7 +1002,7 @@ class LoRATrainingService:
         current = self.get_current()
         if current:
             adapter_dir = str(LORA_DIR / current)
-            logger.info("增量训练：加载上一版 adapter %s 续训", current)
+            log.info("增量训练：加载上一版 adapter %s 续训", current)
             model = peft.PeftModel.from_pretrained(
                 base_model, adapter_dir, is_trainable=True)
         else:
@@ -1026,7 +1026,7 @@ class LoRATrainingService:
         ds_config: dict | None = None
         if ds_zero > 0:
             if ds_zero >= 3:
-                logger.warning("QLoRA 4bit 量化与 ZeRO-3 参数分片冲突，"
+                log.warning("QLoRA 4bit 量化与 ZeRO-3 参数分片冲突，"
                                "已降级 ZeRO-2")
                 ds_zero = 2
             if _try_import("deepspeed") is not None:
@@ -1037,9 +1037,9 @@ class LoRATrainingService:
                     "gradient_accumulation_steps":
                         int(cfg["gradient_accumulation_steps"]),
                 }
-                logger.info("DeepSpeed ZeRO-%d 已启用", ds_zero)
+                log.info("DeepSpeed ZeRO-%d 已启用", ds_zero)
             else:
-                logger.warning("deepspeed 包不可用（Windows 离线环境常见），"
+                log.warning("deepspeed 包不可用（Windows 离线环境常见），"
                                "ZeRO 跳过，继续常规训练")
         args_kwargs: dict[str, Any] = dict(
             output_dir=str(ckpt_dir),
@@ -1090,7 +1090,7 @@ class LoRATrainingService:
             try:
                 torch.cuda.empty_cache()
             except Exception:  # noqa: BLE001
-                logger.debug("_train_impl: 降级忽略", exc_info=True)
+                log.debug("_train_impl: 降级忽略", exc_info=True)
             raise TrainingCancelled(f"任务已被用户取消: {task_id}")
 
         # 保存新版本（adapter_model.bin + adapter_config.json）
@@ -1130,9 +1130,9 @@ class LoRATrainingService:
         try:
             torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001
-            logger.debug("_train_impl: 降级忽略", exc_info=True)
+            log.debug("_train_impl: 降级忽略", exc_info=True)
 
-        logger.info("训练完成: %s (loss=%.4f, data=%d)",
+        log.info("训练完成: %s (loss=%.4f, data=%d)",
                     version, meta["train_loss"], data["total"])
         return {"version": version, "version_dir": str(version_dir),
                 "data_count": data["total"], "base_model": base_dir,
@@ -1167,12 +1167,12 @@ class LoRATrainingService:
                 try:
                     model = cls.from_pretrained(base_dir, **kwargs)
                     if attn:
-                        logger.info("基座注意力实现: %s (%s)", attn, cls_name)
+                        log.info("基座注意力实现: %s (%s)", attn, cls_name)
                     return model
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{cls_name}[{attn or 'default'}]: {exc}")
             if attn:
-                logger.warning("注意力实现 %s 加载失败，尝试降级", attn)
+                log.warning("注意力实现 %s 加载失败，尝试降级", attn)
         raise TrainingFailed("基座模型加载失败 → " + " | ".join(errors))
 
     @staticmethod
@@ -1229,7 +1229,7 @@ class LoRATrainingService:
                                  "step": state.global_step,
                                  "max_steps": max(1, state.max_steps)})
                 except Exception:  # noqa: BLE001
-                    logger.debug("on_log: 降级忽略", exc_info=True)
+                    log.debug("on_log: 降级忽略", exc_info=True)
         return _Cb()
 
     @staticmethod
@@ -1244,7 +1244,7 @@ class LoRATrainingService:
                 try:
                     torch.cuda.empty_cache()
                 except Exception:  # noqa: BLE001
-                    logger.debug("on_epoch_end: 降级忽略", exc_info=True)
+                    log.debug("on_epoch_end: 降级忽略", exc_info=True)
         return _Cb()
 
     @staticmethod
@@ -1273,7 +1273,7 @@ class LoRATrainingService:
                             **kw: Any) -> None:
                 if svc._is_cancelled(task_id):
                     control.should_training_stop = True
-                    logger.info("训练循环收到取消信号，将于本步后停止: %s", task_id)
+                    log.info("训练循环收到取消信号，将于本步后停止: %s", task_id)
         return _Cb()
 
     # ═══════════════════════════════════════════════════════════
@@ -1343,14 +1343,14 @@ class LoRATrainingService:
             try:
                 torch.cuda.empty_cache()
             except Exception:  # noqa: BLE001
-                logger.debug("evaluate: 降级忽略", exc_info=True)
-            logger.info("版本 %s 评估: quality=%.3f ppl=%.2f → %s",
+                log.debug("evaluate: 降级忽略", exc_info=True)
+            log.info("版本 %s 评估: quality=%.3f ppl=%.2f → %s",
                         version, quality, ppl,
                         "registered" if passed else "pending_review")
             return {"version": version, "passed": passed,
                     "quality_score": quality, "perplexity": ppl}
         except Exception as exc:  # noqa: BLE001 - 评估失败不崩溃
-            logger.error("版本 %s 评估异常: %s", version, exc)
+            log.error("版本 %s 评估异常: %s", version, exc)
             meta.update({"status": "pending_review", "eval_error": str(exc)})
             self._write_meta(version_dir, meta)
             return {"version": version, "passed": False, "error": str(exc)}
@@ -1430,7 +1430,7 @@ class LoRATrainingService:
         # 相邻对比较：recent 与 recent[1:] 长度差 1 属预期，显式 strict=False
         declines = sum(1 for a, b in zip(recent, recent[1:], strict=False) if a > b)
         if declines >= QUALITY_DECLINE_STREAK:
-            logger.warning("§4.3 自适应：最近 %d 次训练质量分 %s 连续 %d 次下降",
+            log.warning("§4.3 自适应：最近 %d 次训练质量分 %s 连续 %d 次下降",
                            len(recent), recent, declines)
             return True
         return False
@@ -1468,7 +1468,7 @@ class LoRATrainingService:
                 if current and (LORA_DIR / current).is_dir():
                     return current
         except (OSError, json.JSONDecodeError):
-            logger.debug("get_current: 降级忽略", exc_info=True)
+            log.debug("get_current: 降级忽略", exc_info=True)
         registered = [v["version"] for v in self.list_versions()
                       if v.get("status") == "registered"]
         return registered[-1] if registered else ""
@@ -1483,11 +1483,11 @@ class LoRATrainingService:
         """
         known = {v["version"] for v in self.list_versions()}
         if version not in known or not (LORA_DIR / version).is_dir():
-            logger.warning("回滚目标版本不在注册白名单: %s", version)
+            log.warning("回滚目标版本不在注册白名单: %s", version)
             return False
         self._set_current(version)
         _broadcast("lora_rollback", {"version": version})
-        logger.info("LoRA 回滚到 %s", version)
+        log.info("LoRA 回滚到 %s", version)
         return True
 
     def merge(self, v1: str, v2: str) -> str | None:
@@ -1531,10 +1531,10 @@ class LoRATrainingService:
             }
             self._write_meta(version_dir, meta)
             self._prune_versions()
-            logger.info("LoRA 合并完成: %s + %s → %s", v1, v2, version)
+            log.info("LoRA 合并完成: %s + %s → %s", v1, v2, version)
             return version
         except Exception as exc:  # noqa: BLE001 - 合并失败不崩溃
-            logger.error("LoRA 合并失败: %s + %s: %s", v1, v2, exc)
+            log.error("LoRA 合并失败: %s + %s: %s", v1, v2, exc)
             return None
 
     # ── 版本管理内部工具 ─────────────────────────────────────────
@@ -1546,7 +1546,7 @@ class LoRATrainingService:
             if p.is_file():
                 return json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            logger.debug("_read_meta: 降级忽略", exc_info=True)
+            log.debug("_read_meta: 降级忽略", exc_info=True)
         return None
 
     @staticmethod
@@ -1603,9 +1603,9 @@ class LoRATrainingService:
         for v in victims[:len(versions) - MAX_VERSIONS]:
             try:
                 shutil.rmtree(v["path"], ignore_errors=True)
-                logger.info("清理旧 LoRA 版本: %s", v["version"])
+                log.info("清理旧 LoRA 版本: %s", v["version"])
             except OSError as exc:
-                logger.warning("清理版本失败 %s: %s", v["version"], exc)
+                log.warning("清理版本失败 %s: %s", v["version"], exc)
 
     # ═══════════════════════════════════════════════════════════
     #  状态查询

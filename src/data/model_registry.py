@@ -26,7 +26,7 @@ from typing import Any
 
 from ..config import MODELS_DIR
 
-logger = logging.getLogger("omnispace.data.model_registry")
+log = logging.getLogger("omnispace.data.model_registry")
 
 MANIFEST_PATH = MODELS_DIR / "models_manifest.json"
 
@@ -80,7 +80,7 @@ def load_manifest() -> dict[str, Any]:
                 data.get("models"), dict):
             raise ValueError("manifest 顶层结构非法（缺 models dict）")
     except Exception as exc:  # noqa: BLE001 - 损坏清单按缺失降级
-        logger.warning("模型注册表解析失败，按缺失降级: %s", exc)
+        log.warning("模型注册表解析失败，按缺失降级: %s", exc)
         data = {}
     with _cache_lock:
         _cache.update({"mtime": mtime, "data": data})
@@ -126,18 +126,18 @@ def remove_manifest_entry(model_id: str) -> bool:
         models.pop(model_id)
         data["models"] = models
     except Exception as exc:  # noqa: BLE001 - 损坏清单不覆写
-        logger.warning("登记表移除失败（清单损坏，保留原文件）: %s", exc)
+        log.warning("登记表移除失败（清单损坏，保留原文件）: %s", exc)
         return False
     try:
         MANIFEST_PATH.write_text(
             json.dumps(data, ensure_ascii=False, indent=1) + "\n",
             encoding="utf-8")
     except OSError as exc:
-        logger.warning("登记表写盘失败: %s", exc)
+        log.warning("登记表写盘失败: %s", exc)
         return False
     with _cache_lock:
         _cache.update({"mtime": -1.0, "data": None})  # 下次读取强制重载
-    logger.info("登记表条目已移除: %s", model_id)
+    log.info("登记表条目已移除: %s", model_id)
     return True
 
 
@@ -162,7 +162,7 @@ def _dir_has_weight_file(p: Path) -> bool:
             except OSError:
                 continue
     except OSError:
-        logger.debug("_dir_has_weight_file: 降级忽略", exc_info=True)
+        log.debug("_dir_has_weight_file: 降级忽略", exc_info=True)
     return False
 
 

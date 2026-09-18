@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("omnispace.services.plugin_runtime.sandbox")
+log = logging.getLogger("omnispace.services.plugin_runtime.sandbox")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 SANDBOX_HOST = Path(__file__).resolve().parent / "sandbox_host.py"
@@ -122,5 +122,5 @@ def invoke_sandboxed(name: str, source_py: Path,
     if not resp.get("ok"):
         raise SandboxError(
             f"沙箱插件执行失败: {str(resp.get('error'))[:800]}")
-    logger.info("沙箱插件完成: %s 耗时 %.2fs", name, time.monotonic() - t0)
+    log.info("沙箱插件完成: %s 耗时 %.2fs", name, time.monotonic() - t0)
     return resp.get("result")

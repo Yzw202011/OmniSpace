@@ -33,7 +33,7 @@ from ..cloud_provider_service import (
     looks_like_dashscope_task_404,
 )
 
-logger = logging.getLogger("omnispace.inference.cloud_video")
+log = logging.getLogger("omnispace.inference.cloud_video")
 
 POLL_INTERVAL_S = 5.0        # 视频任务轮询周期（服务商常见 5~10s 粒度）
 TASK_TIMEOUT_S = 1800.0      # 轮询总上限 30 分钟（方案 §5.3）
@@ -137,7 +137,7 @@ def generate_video(
     t0 = time.time()
     try:
         task_id = _ds_submit(ep, prompt, first_frame, duration_seconds, aspect)
-        logger.info("云端视频任务已提交: %s model=%s task=%s 时长=%.0fs 画幅=%s",
+        log.info("云端视频任务已提交: %s model=%s task=%s 时长=%.0fs 画幅=%s",
                     ep.provider_name, ep.model or "默认", task_id,
                     duration_seconds, aspect)
         if on_progress:
@@ -192,7 +192,7 @@ def generate_video(
         if resp.status_code != 200 or not resp.content:
             raise RuntimeError(
                 f"云端视频结果下载失败 HTTP {resp.status_code}")
-        logger.info("云端视频完成: %s task=%s %.1fMB 耗时=%.0fs",
+        log.info("云端视频完成: %s task=%s %.1fMB 耗时=%.0fs",
                     ep.provider_name, task_id, len(resp.content) / 1e6,
                     time.time() - t0)
         return resp.content

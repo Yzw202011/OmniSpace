@@ -39,7 +39,7 @@ from .base_engine import BaseEngine
 if TYPE_CHECKING:  # 仅注解用（_generate_h3 首帧参考图签名），运行时各函数内局部导入
     from PIL import Image
 
-logger = logging.getLogger("omnispace.inference.video")
+log = logging.getLogger("omnispace.inference.video")
 
 
 def _try_import(name: str) -> Any:
@@ -124,11 +124,11 @@ def _load_text_encoder_int8(model_dir: Path, dtype: Any) -> Any:
         qcfg = BitsAndBytesConfig(load_in_8bit=True)
         te = _TECls.from_pretrained(
             str(te_dir), quantization_config=qcfg, torch_dtype=dtype)
-        logger.info("文本编码器 int8 量化加载成功: %s (%s)",
+        log.info("文本编码器 int8 量化加载成功: %s (%s)",
                     te_dir, _TECls.__name__)
         return te
     except Exception as exc:  # noqa: BLE001 - 量化失败回退 fp16，不阻断
-        logger.warning("文本编码器 int8 量化失败（回退 fp16）: %s", exc)
+        log.warning("文本编码器 int8 量化失败（回退 fp16）: %s", exc)
         return None
 
 
@@ -200,7 +200,7 @@ def _dir_load_bytes_fp16(model_dir: Path) -> int:
             if dtypes and all(d in ("F32", "F64") for d in dtypes):
                 return size // 2
         except Exception:  # noqa: BLE001 - 头部损坏按原字节保守计
-            logger.debug("_file_bytes: 降级忽略", exc_info=True)
+            log.debug("_file_bytes: 降级忽略", exc_info=True)
         return size
 
     total = 0
@@ -214,7 +214,7 @@ def _dir_load_bytes_fp16(model_dir: Path) -> int:
                 continue
             total += _file_bytes(f)
     except OSError:
-        logger.debug("_dir_load_bytes_fp16: 降级忽略", exc_info=True)
+        log.debug("_dir_load_bytes_fp16: 降级忽略", exc_info=True)
     return total
 
 
@@ -290,7 +290,7 @@ def _ensure_video_vl(engine: Any) -> bool:
     try:
         return bool(engine.ensure_loaded(_VIDEO_VL_MODEL))
     except Exception as exc:  # noqa: BLE001 - 加载失败由调用方降级
-        logger.warning("视频 VL 模型加载失败: %s", exc)
+        log.warning("视频 VL 模型加载失败: %s", exc)
         return False
 
 
@@ -363,9 +363,9 @@ def discover_video_models() -> dict[str, dict]:
                         if grand.is_dir():
                             _probe(grand)
                 except OSError:
-                    logger.debug("discover_video_models: 降级忽略", exc_info=True)
+                    log.debug("discover_video_models: 降级忽略", exc_info=True)
     except OSError:
-        logger.debug("discover_video_models: 降级忽略", exc_info=True)
+        log.debug("discover_video_models: 降级忽略", exc_info=True)
     return found
 
 
@@ -392,7 +392,7 @@ def _release_gpu_cache() -> None:
             if _torch.cuda.is_available():
                 _torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001
-            logger.debug("_release_gpu_cache: 降级忽略", exc_info=True)
+            log.debug("_release_gpu_cache: 降级忽略", exc_info=True)
 
 
 def _evict_idle_models_for_video() -> float:
@@ -418,7 +418,7 @@ def _evict_idle_models_for_video() -> float:
             if active:
                 keep_cats |= _FEATURE_KEEP_CATEGORIES.get(active, set())
         except Exception:  # noqa: BLE001 - 锁探测失败按基础保留集
-            logger.debug("_evict_idle_models_for_video: 降级忽略", exc_info=True)
+            log.debug("_evict_idle_models_for_video: 降级忽略", exc_info=True)
         mgr = get_model_manager()
         for entry in mgr.get_loaded_models():
             if entry.get("category") in keep_cats:
@@ -427,15 +427,15 @@ def _evict_idle_models_for_video() -> float:
                 if mgr.unload_model(entry["model_id"]):
                     _freed = float(entry.get("vram_gb", 0.0))
                     freed_gb += _freed
-                    logger.info("装载前清场: 卸载空闲模型 %s "
+                    log.info("装载前清场: 卸载空闲模型 %s "
                                 "(category=%s, 释放 %.1fGB)",
                                 entry["model_id"],
                                 entry.get("category"), _freed)
             except Exception as exc:  # noqa: BLE001 - 单个失败不阻断
-                logger.debug("清场卸载失败 (%s): %s",
+                log.debug("清场卸载失败 (%s): %s",
                              entry.get("model_id"), exc)
     except Exception as exc:  # noqa: BLE001 - manager 不可用跳过清场
-        logger.debug("装载前清场跳过: %s", exc)
+        log.debug("装载前清场跳过: %s", exc)
     if freed_gb > 0:
         _release_gpu_cache()
     return freed_gb
@@ -634,12 +634,12 @@ def _quantize_transformer_int8(transformer: Any) -> bool:
 
         _walk(transformer)
         if _replaced == 0:
-            logger.warning("DiT int8 量化：未找到可替换的 Linear 层")
+            log.warning("DiT int8 量化：未找到可替换的 Linear 层")
             return False
-        logger.info("DiT int8 量化替换完成: %d 个 Linear 层", _replaced)
+        log.info("DiT int8 量化替换完成: %d 个 Linear 层", _replaced)
         return True
     except Exception as exc:  # noqa: BLE001 - 替换失败回退 fp16 裸装
-        logger.warning("DiT int8 量化替换失败（回退 fp16）: %s", exc)
+        log.warning("DiT int8 量化替换失败（回退 fp16）: %s", exc)
         return False
 
 
@@ -889,7 +889,7 @@ def render_kenburns_frames(
             try:
                 progress_cb((i + 1) / total)
             except Exception:  # noqa: BLE001
-                logger.debug("render_kenburns_frames: 降级忽略", exc_info=True)
+                log.debug("render_kenburns_frames: 降级忽略", exc_info=True)
     return total
 
 
@@ -993,7 +993,7 @@ class VideoEngine(BaseEngine):
         self._split_dit_only = False
 
         if _diffusers is None or _torch is None:
-            logger.warning("视频引擎依赖不可用 (diffusers/torch)，将使用模拟模式")
+            log.warning("视频引擎依赖不可用 (diffusers/torch)，将使用模拟模式")
             self._fallback_mode = True
 
     def load_model(
@@ -1043,7 +1043,7 @@ class VideoEngine(BaseEngine):
                 if hint_cls is not None:
                     pipeline_classes.append((hint, hint_cls))
         except Exception:  # noqa: BLE001 - 提示读取失败走候选链
-            logger.debug("load_model: 降级忽略", exc_info=True)
+            log.debug("load_model: 降级忽略", exc_info=True)
         for cls_name in (*_VIDEO_PIPELINE_CLASSES.keys(), "DiffusionPipeline"):
             cls = getattr(_diffusers, cls_name, None)
             if cls is not None and all(n != cls_name for n, _ in pipeline_classes):
@@ -1060,7 +1060,7 @@ class VideoEngine(BaseEngine):
                     from .accelerator import get_accelerator
                     self._pipeline = get_accelerator().enable_for_pipeline(self._pipeline)
                 except Exception:
-                    logger.debug("load_model: 降级忽略", exc_info=True)
+                    log.debug("load_model: 降级忽略", exc_info=True)
 
                 self._model = model
                 self._model_name = model_path
@@ -1070,10 +1070,10 @@ class VideoEngine(BaseEngine):
                 # 链可能遗留的显存记账/台账登记（本路径的新管线由
                 # ModelManager.ensure_loaded 以 model_id 另行记账）
                 self._release_pipeline_bookkeeping()
-                logger.info("视频模型加载成功 (%s): %s", cls_name, model_path)
+                log.info("视频模型加载成功 (%s): %s", cls_name, model_path)
                 return True
             except Exception as e:
-                logger.debug("%s 加载失败: %s", cls_name, e)
+                log.debug("%s 加载失败: %s", cls_name, e)
 
         # AnimateLCM 图生视频分支（F-07）：真实视频管线全部加载失败后、
         # 宣布降级（Ken Burns）之前探测装载；成功则由 generate() 优先使用。
@@ -1081,7 +1081,7 @@ class VideoEngine(BaseEngine):
         # 本方法对"所请求真实模型未加载"的语义。
         self.load_animatelcm(device=self._device)
 
-        logger.warning("视频模型加载失败，切换到模拟模式")
+        log.warning("视频模型加载失败，切换到模拟模式")
         self._fallback_mode = True
         return False
 
@@ -1122,7 +1122,7 @@ class VideoEngine(BaseEngine):
         status = get_animatelcm_status()
         if not status["ready"]:
             self._animatelcm_error = status["reason"]
-            logger.info("AnimateLCM 不可用: %s", status["reason"])
+            log.info("AnimateLCM 不可用: %s", status["reason"])
             return False
 
         if device == "auto":
@@ -1140,7 +1140,7 @@ class VideoEngine(BaseEngine):
                 self._animatelcm_error = (
                     f"显存不足：AnimateLCM 预估 {required_gb:.1f}GB，"
                     f"当前空闲 {free_gb:.1f}GB")
-                logger.info("AnimateLCM 显存门控拦截: %s",
+                log.info("AnimateLCM 显存门控拦截: %s",
                             self._animatelcm_error)
                 return False
 
@@ -1151,7 +1151,7 @@ class VideoEngine(BaseEngine):
                 adapter = _diffusers.MotionAdapter.from_single_file(
                     str(ANIMATELCM_CKPT_PATH), torch_dtype=dtype)
             except Exception as exc:  # noqa: BLE001 - 离线无 HF 配置时走手动转换
-                logger.debug("MotionAdapter.from_single_file 不可用（%s），"
+                log.debug("MotionAdapter.from_single_file 不可用（%s），"
                              "回退 diffusers 手动转换", exc)
                 from diffusers.loaders.single_file_utils import (
                     convert_animatediff_checkpoint_to_diffusers,
@@ -1193,8 +1193,8 @@ class VideoEngine(BaseEngine):
                     get_vram_manager().track_alloc(
                         ANIMATELCM_MODEL_LABEL, required_gb * 1024.0)
                 except Exception:  # noqa: BLE001 - 记账失败不阻断加载
-                    logger.debug("load_animatelcm: 降级忽略", exc_info=True)
-            logger.info("AnimateLCM 管线加载成功（SD1.5 底座: %s）",
+                    log.debug("load_animatelcm: 降级忽略", exc_info=True)
+            log.info("AnimateLCM 管线加载成功（SD1.5 底座: %s）",
                         status["sd15_path"])
             return True
         except Exception as exc:  # noqa: BLE001 - 加载失败回落 Ken Burns
@@ -1202,7 +1202,7 @@ class VideoEngine(BaseEngine):
             self._animatelcm_error = f"AnimateLCM 加载失败: {exc}"
             # 部分加载的管线残留显存：引用置 None 后回收（幂等）
             _release_gpu_cache()
-            logger.warning("%s", self._animatelcm_error)
+            log.warning("%s", self._animatelcm_error)
             return False
 
     def load_diffusers_model(
@@ -1246,14 +1246,14 @@ class VideoEngine(BaseEngine):
             from ...engines.vram_manager import get_vram_manager
             get_vram_manager().track_free(ANIMATELCM_MODEL_LABEL)
         except Exception:  # noqa: BLE001
-            logger.debug("unload_model: 降级忽略", exc_info=True)
+            log.debug("unload_model: 降级忽略", exc_info=True)
         # 真实管线引用已置 None：对称清理其显存记账与 ModelManager 登记
         self._release_pipeline_bookkeeping()
         # 允许卸载后重新探测 AnimateLCM 分支（与 ModelManager 复位
         # _video_autoload_attempted 的重试语义对齐）
         self._animatelcm_attempted = False
         _release_gpu_cache()
-        logger.info("视频引擎已卸载（真实管线 + AnimateLCM 分支）")
+        log.info("视频引擎已卸载（真实管线 + AnimateLCM 分支）")
 
     def _release_pipeline_bookkeeping(self) -> None:
         """对称清理真实管线的显存记账与 ModelManager 加载台账登记（幂等）。
@@ -1267,7 +1267,7 @@ class VideoEngine(BaseEngine):
                 from ...engines.vram_manager import get_vram_manager
                 get_vram_manager().track_free(self._pipeline_track_label)
             except Exception:  # noqa: BLE001
-                logger.debug("_release_pipeline_bookkeeping: 降级忽略", exc_info=True)
+                log.debug("_release_pipeline_bookkeeping: 降级忽略", exc_info=True)
             self._pipeline_track_label = ""
         if self._pipeline_registered_id:
             try:
@@ -1275,7 +1275,7 @@ class VideoEngine(BaseEngine):
                 get_model_manager().unregister_load(
                     self._pipeline_registered_id)
             except Exception:  # noqa: BLE001
-                logger.debug("_release_pipeline_bookkeeping: 降级忽略", exc_info=True)
+                log.debug("_release_pipeline_bookkeeping: 降级忽略", exc_info=True)
             self._pipeline_registered_id = ""
 
     def _ensure_video_loaded(self, prefer_i2v: bool = False) -> None:
@@ -1305,7 +1305,7 @@ class VideoEngine(BaseEngine):
         _diffusers_routed = bool(
             _routed - {VideoModel.MINIMAX_H3.value, VideoModel.MINIMAX_H3.name})
         if not _diffusers_routed:
-            logger.info(
+            log.info(
                 "diffusers 视频管线跳过自动装载（路由表仅 minimax-h3，"
                 "B3 路由诚实守卫；导入 diffusers 权重不再触装载）")
             return
@@ -1316,7 +1316,7 @@ class VideoEngine(BaseEngine):
                       if i["diffusers_available"]
                       and (i["i2v"] or not prefer_i2v)}
         if not discovered:
-            logger.info("未发现可用 diffusers 视频模型（models/ 导入 Wan/"
+            log.info("未发现可用 diffusers 视频模型（models/ 导入 Wan/"
                         "CogVideoX/LTX/HunyuanVideo 即可自动启用）")
             return
 
@@ -1409,7 +1409,7 @@ class VideoEngine(BaseEngine):
                     extra_kwargs["text_encoder"] = None
                     use_offload = False
                     split_te = True
-                    logger.info(
+                    log.info(
                         "split 布局生效: %s DiT+VAE %.1fGB 常驻 GPU，"
                         "T5 生成时临时上卡编码（免 CPU offload 每步搬运）",
                         name, _non_te_gb)
@@ -1421,7 +1421,7 @@ class VideoEngine(BaseEngine):
                     use_offload = False
                     split_te = True
                     dit_only = True
-                    logger.info(
+                    log.info(
                         "split dit-only 布局生效: %s DiT %.1fGB 常驻 GPU"
                         "（+VAE %.1fGB 差 %.1fGB 装不下），VAE encode/"
                         "decode 窗口临时上卡",
@@ -1443,7 +1443,7 @@ class VideoEngine(BaseEngine):
                     split_te = True
                     dit_only = True
                     dit_int8 = True
-                    logger.info(
+                    log.info(
                         "split dit-int8 布局生效: %s DiT int8 约 %.1fGB "
                         "常驻 GPU（fp16 %.1fGB 装不下），首步含一次性量化",
                         name, _dit_gb * 0.58, _dit_gb)
@@ -1462,7 +1462,7 @@ class VideoEngine(BaseEngine):
                             extra_kwargs["text_encoder"] = te
                             use_offload = False
                             external_encode = True
-                            logger.info(
+                            log.info(
                                 "int8 编码器生效: %s 预估 %.1fGB -> %.1fGB，"
                                 "整卡运行（含 %.1fGB 激活余量，外部编码）",
                                 name, info["vram_gb"],
@@ -1477,7 +1477,7 @@ class VideoEngine(BaseEngine):
                             _release_gpu_cache()
                             free_gb = _cuda_free_gb() or free_gb
             try:
-                logger.info("视频模型自动装载: %s (%s, 预估 %.1fGB, 空闲 %.1fGB%s)",
+                log.info("视频模型自动装载: %s (%s, 预估 %.1fGB, 空闲 %.1fGB%s)",
                             name, info["class_name"], info["vram_gb"], free_gb,
                             ", CPU offload" if use_offload else "")
                 pipe = cls.from_pretrained(info["path"], torch_dtype=dtype,
@@ -1513,16 +1513,16 @@ class VideoEngine(BaseEngine):
                     try:
                         if hasattr(pipe.vae, "enable_tiling"):
                             pipe.vae.enable_tiling()
-                            logger.info("VAE 空间 tiling 已启用 "
+                            log.info("VAE 空间 tiling 已启用 "
                                         "(tile=256, stride=192)")
                     except Exception as exc:  # noqa: BLE001 - tiling 失败不阻断
-                        logger.warning("VAE tiling 启用失败（继续非 tiled）: %s",
+                        log.warning("VAE tiling 启用失败（继续非 tiled）: %s",
                                        exc)
                 try:
                     from .accelerator import get_accelerator
                     pipe = get_accelerator().enable_for_pipeline(pipe)
                 except Exception:  # noqa: BLE001
-                    logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
+                    log.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 # split 布局自愈（2026-08-22 审查防御）：accelerator 在
                 # xformers/SDP 均不可用时会回退 enable_model_cpu_offload，
                 # 把已上卡的 DiT+VAE 搬回 CPU 摧毁常驻编排——检测组件
@@ -1540,11 +1540,11 @@ class VideoEngine(BaseEngine):
                             if (_comp is not None
                                     and _comp.device.type != "cuda"):
                                 _comp.to("cuda")
-                                logger.warning(
+                                log.warning(
                                     "split 布局自愈: %s 被移回 CPU，"
                                     "已搬回 cuda", _cn)
                         except Exception:  # noqa: BLE001 - device 探测失败跳过
-                            logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
+                            log.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 self._pipeline = pipe
                 self._model_name = info["path"]
                 self._loaded = True
@@ -1557,7 +1557,7 @@ class VideoEngine(BaseEngine):
                 try:
                     self._model = VideoModel(name)
                 except ValueError:
-                    logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
+                    log.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 # 显存记账 + ModelManager 加载台账登记（审计修复：自动
                 # 装载链此前绕过 ensure_loaded，loaded_models 与 GPU 实际
                 # 占用脱节）。上卡才占显存；CPU 装载登记 vram_gb=0。
@@ -1587,28 +1587,28 @@ class VideoEngine(BaseEngine):
                             label, reg_vram_gb * 1024.0)
                         self._pipeline_track_label = label
                     except Exception:  # noqa: BLE001 - 记账失败不阻断加载
-                        logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
+                        log.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
                 try:
                     from ..model_manager import get_model_manager
                     if get_model_manager().register_external_load(
                             "video", name, info["path"], reg_vram_gb):
                         self._pipeline_registered_id = name
                 except Exception:  # noqa: BLE001 - 登记失败不阻断加载
-                    logger.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
-                logger.info("视频模型自动装载成功: %s (%s)", name,
+                    log.debug("_ensure_video_loaded: 降级忽略", exc_info=True)
+                log.info("视频模型自动装载成功: %s (%s)", name,
                             info["class_name"])
                 return
             except Exception as exc:  # noqa: BLE001 - 试下一个候选
-                logger.warning("视频模型 %s 装载失败（试下一个）: %s", name, exc)
+                log.warning("视频模型 %s 装载失败（试下一个）: %s", name, exc)
                 last_load_error = exc
-        logger.info("所有已发现视频模型装载失败，保持 AnimateLCM/Ken Burns 降级链")
+        log.info("所有已发现视频模型装载失败，保持 AnimateLCM/Ken Burns 降级链")
         # 并发装载冲突自愈（2026-08-22）：冷启动窗口任务来得太快时，视频
         # 装载会与对话模型加载并发触发 accelerate meta tensor 冲突双败。
         # 此类瞬时失败清除一次性标记，下个任务自动重试——否则一次撞上
         # 冷启动窗口就永久降级 Ken Burns（进程生命周期内不再尝试）
         if last_load_error is not None and "meta tensor" in str(last_load_error).lower():
             self._video_autoload_attempted = False
-            logger.warning("装载撞上并发加载冲突（meta tensor），"
+            log.warning("装载撞上并发加载冲突（meta tensor），"
                            "已重置标记，下个任务将重试")
 
     def generate_fallback(
@@ -1637,7 +1637,7 @@ class VideoEngine(BaseEngine):
             if h3_available():
                 return "pipeline"
         except Exception:  # noqa: BLE001 - 探测失败走 diffusers 判定
-            logger.debug("prepare_generation: 降级忽略", exc_info=True)
+            log.debug("prepare_generation: 降级忽略", exc_info=True)
         if light:
             # 轻探测（2026-08-22 乒乓装载修复）：models/ 存在可装载模型
             # 即报 pipeline，实际装载交由 generate() 内部完成——时序为
@@ -1648,7 +1648,7 @@ class VideoEngine(BaseEngine):
                        for i in discover_video_models().values()):
                     return "pipeline"
             except Exception:  # noqa: BLE001 - 探测失败走降级判定
-                logger.debug("prepare_generation: 降级忽略", exc_info=True)
+                log.debug("prepare_generation: 降级忽略", exc_info=True)
         else:
             self._ensure_video_loaded()
             if self.is_ready:
@@ -1657,7 +1657,7 @@ class VideoEngine(BaseEngine):
             try:
                 self.load_animatelcm()
             except Exception:  # noqa: BLE001
-                logger.debug("prepare_generation: 降级忽略", exc_info=True)
+                log.debug("prepare_generation: 降级忽略", exc_info=True)
         if self._animatelcm_pipe is not None:
             return "animatelcm"
         return "kenburns"
@@ -1760,7 +1760,7 @@ class VideoEngine(BaseEngine):
                         and str(info.get("class_name", "")).startswith("Wan"):
                     return True
         except Exception:  # noqa: BLE001 - 探测失败按需翻译处理
-            logger.debug("_i2v_native_zh: 降级忽略", exc_info=True)
+            log.debug("_i2v_native_zh: 降级忽略", exc_info=True)
         return False
 
     # Qwen3-VL 视频提示词增强系统指令（2026-08-22 语义贴合修复）：
@@ -1840,7 +1840,7 @@ class VideoEngine(BaseEngine):
                 max_new_tokens=8,
             )
             answer = (text or "").strip().upper()
-            logger.info("多视角判定原始回复: %r", answer[:60])
+            log.info("多视角判定原始回复: %r", answer[:60])
             # 解析优先级：独立词 A-D（可带 -LEFT/-RIGHT 半幅后缀）>
             # 短回复中首个 A-D 字符 > SINGLE > 无法解析（原图直通）。
             # 模型偶发整句回复（如 "BEST VIEW IS A"），此前 len>4 即
@@ -1858,7 +1858,7 @@ class VideoEngine(BaseEngine):
             if not letter and "SINGLE" not in answer and len(answer) <= 12:
                 letter = next((ch for ch in answer if ch in "ABCD"), "")
             if not letter:
-                logger.info("参考图判定为单视角或无法解析，直通 I2V")
+                log.info("参考图判定为单视角或无法解析，直通 I2V")
                 return img
             w, h = img.size
             # 2x2 布局象限裁剪（横条 1x4 布局同样按象限取 1/4，
@@ -1879,15 +1879,15 @@ class VideoEngine(BaseEngine):
                     cx1 = mid
                 else:
                     cx0 = mid
-                logger.info("象限 %s 含多人物，取 %s 半幅", letter, half)
+                log.info("象限 %s 含多人物，取 %s 半幅", letter, half)
             cropped = img.crop((cx0, cy0, cx1, cy1))
-            logger.info("参考图判定为多视角拼图，裁出象限 %s%s 作为 I2V "
+            log.info("参考图判定为多视角拼图，裁出象限 %s%s 作为 I2V "
                         "首帧 (%dx%d -> %dx%d)", letter,
                         f"-{half}" if half else "", w, h,
                         cropped.width, cropped.height)
             return cropped
         except Exception as exc:  # noqa: BLE001 - 判定失败原图直通
-            logger.warning("多视角检测跳过（原图直通）: %s", exc)
+            log.warning("多视角检测跳过（原图直通）: %s", exc)
             return img
 
     def _enhance_video_prompt(self, request: VideoGenerateRequest,
@@ -1915,7 +1915,7 @@ class VideoEngine(BaseEngine):
                 raw = base64.b64decode(request.screenshot_4in1)
                 img = Image.open(io.BytesIO(raw)).convert("RGB")
             except Exception as exc:  # noqa: BLE001 - 图损坏按 T2V 增强
-                logger.warning("参考图解码失败，按纯文本增强: %s", exc)
+                log.warning("参考图解码失败，按纯文本增强: %s", exc)
                 img = None
         if img is not None:
             # 压到 560 短边：VL 看清主体即可，省 prefill token
@@ -1962,20 +1962,20 @@ class VideoEngine(BaseEngine):
                     continue
                 lost = _action_lost(base_prompt, out)
                 if lost:
-                    logger.warning(
+                    log.warning(
                         "VL 增强丢失用户动作词 %r，本轮作废（输出: %s）",
                         lost, out[:80])
                     out = ""
                     continue
                 break
         except Exception as exc:  # noqa: BLE001 - 增强失败回退翻译链
-            logger.warning("VL 提示词增强失败: %s", exc)
+            log.warning("VL 提示词增强失败: %s", exc)
             return ""
         if not out:
-            logger.warning("VL 增强两轮均未产出合规英文 prompt"
+            log.warning("VL 增强两轮均未产出合规英文 prompt"
                            "（输出空或含中文），回退视频翻译链")
             return ""
-        logger.info("VL 增强视频 prompt: %r -> %r", base_prompt[:60],
+        log.info("VL 增强视频 prompt: %r -> %r", base_prompt[:60],
                     out[:100])
         return out
 
@@ -2030,7 +2030,7 @@ class VideoEngine(BaseEngine):
         if will_h3:
             # H3 中文直入：Qwen3-VL-32B 编码器原生理解中文，
             # 增强翻译全免（reference_img 仍作 I2V 首帧）
-            logger.info("H3 请求：prompt 中文直入（跳过 VL 增强/翻译）")
+            log.info("H3 请求：prompt 中文直入（跳过 VL 增强/翻译）")
         else:
             try:
                 from .prompt_translator import contains_cjk
@@ -2048,13 +2048,13 @@ class VideoEngine(BaseEngine):
                         effective_prompt, max_tokens=160,
                         system_prompt=_VIDEO_TRANSLATE_SYSTEM)
                     if translated and not contains_cjk(translated):
-                        logger.info("视频 prompt 已译英: %r -> %r",
+                        log.info("视频 prompt 已译英: %r -> %r",
                                     effective_prompt[:60], translated[:80])
                         effective_prompt = translated
                     else:
-                        logger.warning("视频 prompt 翻译未产出英文，按原文生成")
+                        log.warning("视频 prompt 翻译未产出英文，按原文生成")
             except Exception as exc:  # noqa: BLE001 - 预处理故障不阻断生成
-                logger.warning("视频 prompt 预处理跳过: %s", exc)
+                log.warning("视频 prompt 预处理跳过: %s", exc)
 
         # 确定模型
         if request.model_override:
@@ -2097,7 +2097,7 @@ class VideoEngine(BaseEngine):
                     and not self._ltx_swap_capable():
                 self.unload_model()
                 self._video_autoload_attempted = False
-                logger.info("管线形态不匹配（T2V 已载但请求带图），卸载换载 I2V 模型")
+                log.info("管线形态不匹配（T2V 已载但请求带图），卸载换载 I2V 模型")
             elif not want_i2v and "ImageToVideo" in cur_cls \
                     and cur_cls != "WanVACEPipeline":
                 # 混合架构（2026-08-23）：TI2V-5B 以 WanImageToVideoPipeline
@@ -2108,7 +2108,7 @@ class VideoEngine(BaseEngine):
                 if not self._ltx_i2v_swapped:
                     self.unload_model()
                     self._video_autoload_attempted = False
-                    logger.info("管线形态不匹配（I2V-only 已载但请求纯文本，"
+                    log.info("管线形态不匹配（I2V-only 已载但请求纯文本，"
                                 "%s 需必填首帧），卸载换载双模态模型", cur_cls)
             elif not want_i2v and cur_i2v and self._ltx_i2v_swapped:
                 # LTX 重组态还原由下方 swapped 逻辑处理，此处不干预
@@ -2150,7 +2150,7 @@ class VideoEngine(BaseEngine):
             # 全链路）；仅 I2V 管线传入，T2V 管线纯文本驱动
             screenshot_img = reference_img
             if request.screenshot_4in1 and screenshot_img is None:
-                logger.info("参考图解码失败（按纯文本生成）")
+                log.info("参考图解码失败（按纯文本生成）")
 
             cls_name = type(self._pipeline).__name__
             i2v_capable = ("ImageToVideo" in cls_name
@@ -2175,10 +2175,10 @@ class VideoEngine(BaseEngine):
                         cls_name = type(self._pipeline).__name__
                         i2v_capable = True
                         self._ltx_i2v_swapped = True
-                        logger.info("LTX 管线已重组为 I2V（同权重双管线，"
+                        log.info("LTX 管线已重组为 I2V（同权重双管线，"
                                     "参考图将驱动首帧）")
                     except Exception as exc:  # noqa: BLE001 - 重组失败保持 T2V
-                        logger.warning("LTX I2V 管线重组失败，保持 T2V: %s", exc)
+                        log.warning("LTX I2V 管线重组失败，保持 T2V: %s", exc)
             elif (cls_name == "LTXImageToVideoPipeline"
                   and self._ltx_i2v_swapped
                   and not request.screenshot_4in1):
@@ -2196,9 +2196,9 @@ class VideoEngine(BaseEngine):
                         cls_name = type(self._pipeline).__name__
                         i2v_capable = False
                         self._ltx_i2v_swapped = False
-                        logger.info("LTX 管线已还原为 T2V（本次纯文本生成）")
+                        log.info("LTX 管线已还原为 T2V（本次纯文本生成）")
                     except Exception as exc:  # noqa: BLE001 - 还原失败保持 I2V
-                        logger.warning("LTX T2V 管线还原失败: %s", exc)
+                        log.warning("LTX T2V 管线还原失败: %s", exc)
 
             # 分辨率预设解析："768x512" 直取；720p/1080p 按常规宽屏
             res = str(params["max_resolution"])
@@ -2236,17 +2236,17 @@ class VideoEngine(BaseEngine):
                                   or gen_w * gen_h > 1024 * 576)
                     if _need_tile and not _vae.use_tiling:
                         _vae.enable_tiling()
-                        logger.info("VAE tiling 开启 (%dx%d%s)",
+                        log.info("VAE tiling 开启 (%dx%d%s)",
                                     gen_w, gen_h,
                                     "，dit-only 窗口腾位" if self._split_dit_only else "")
                     elif not _need_tile and _vae.use_tiling:
                         # AutoencoderKLWan 无 disable_tiling 方法，
                         # 直接置 flag（enable_tiling 仅设属性）
                         _vae.use_tiling = False
-                        logger.info("VAE tiling 按分辨率关闭 (%dx%d，"
+                        log.info("VAE tiling 按分辨率关闭 (%dx%d，"
                                     "全幅 encode 快 15 倍)", gen_w, gen_h)
             except Exception as exc:  # noqa: BLE001 - 开关失败沿用装载态
-                logger.warning("VAE tiling 分辨率开关失败: %s", exc)
+                log.warning("VAE tiling 分辨率开关失败: %s", exc)
 
             # 家族差异化推理参数：Wan 官方推荐 guidance 5.0 + 负向提示词
             num_steps = 30
@@ -2294,15 +2294,15 @@ class VideoEngine(BaseEngine):
                             [first] + [blank] * (num_frames - 1))
                         generation_kwargs["mask"] = (
                             [black] + [white] * (num_frames - 1))
-                        logger.info("VACE I2V 条件已构造: 首帧锚定 %dx%d，"
+                        log.info("VACE I2V 条件已构造: 首帧锚定 %dx%d，"
                                     "%d 帧", gen_w, gen_h, num_frames)
                     except Exception as exc:  # noqa: BLE001
-                        logger.warning("VACE 条件构造失败（回退 T2V）: %s",
+                        log.warning("VACE 条件构造失败（回退 T2V）: %s",
                                        exc)
                 else:
                     generation_kwargs["image"] = screenshot_img
             elif screenshot_img is not None and not i2v_capable:
-                logger.info("当前管线 %s 为 T2V，忽略参考图（导入 I2V 变体 "
+                log.info("当前管线 %s 为 T2V，忽略参考图（导入 I2V 变体 "
                             "如 Wan2.1-I2V/CogVideoX-I2V 即可图生视频）", cls_name)
 
             if request.audio_path and params["supports_audio_sync"]:
@@ -2318,7 +2318,7 @@ class VideoEngine(BaseEngine):
                         k: v for k, v in generation_kwargs.items()
                         if k in sig.parameters}
             except Exception:  # noqa: BLE001 - 内省失败按原参数尝试
-                logger.debug("generate: 降级忽略", exc_info=True)
+                log.debug("generate: 降级忽略", exc_info=True)
 
             # 外部 T5 编码（2026-08-22 团队审查重构）：
             # _split_te_needed：管线无 T5（DiT+VAE 常驻）。编码窗口编排
@@ -2389,7 +2389,7 @@ class VideoEngine(BaseEngine):
                         generation_kwargs[
                             "negative_prompt_embeds"] = _pe[1].to("cuda")
                     del _pe
-                    logger.info("T5 外部编码完成%s",
+                    log.info("T5 外部编码完成%s",
                                 "（split 窗口：DiT 回卡，T5 已释放）"
                                 if self._split_te_needed else "")
                 finally:
@@ -2403,7 +2403,7 @@ class VideoEngine(BaseEngine):
                         try:
                             del self._pipeline.text_encoder
                         except AttributeError:
-                            logger.debug("generate: 降级忽略", exc_info=True)
+                            log.debug("generate: 降级忽略", exc_info=True)
                         del _te_tmp
                         _release_gpu_cache()
                     if self._split_te_needed:
@@ -2480,7 +2480,7 @@ class VideoEngine(BaseEngine):
                         frames_list[0].save(video_path.replace(".mp4", ".png"))
                         video_path = video_path.replace(".mp4", ".png")
                     except Exception:
-                        logger.debug("generate: 降级忽略", exc_info=True)
+                        log.debug("generate: 降级忽略", exc_info=True)
             # 落盘校验：编码链全失败时不返回幽灵路径（诚实报错）
             if not Path(video_path).is_file():
                 raise RuntimeError(
@@ -2489,7 +2489,7 @@ class VideoEngine(BaseEngine):
             elapsed_ms = int((time.time() - start_time) * 1000)
             relay(1.0, "done")
 
-            logger.info(
+            log.info(
                 "视频生成完成: %s, %s, %.1fs, %dms",
                 gen_id,
                 model.value,
@@ -2511,7 +2511,7 @@ class VideoEngine(BaseEngine):
         except Exception as e:
             if relay.is_cancel(e):
                 raise
-            logger.error("视频生成失败: %s", e)
+            log.error("视频生成失败: %s", e)
             return self._mock_generate(request, model, gen_id, start_time,
                                        progress_cb=progress_cb)
 
@@ -2582,7 +2582,7 @@ class VideoEngine(BaseEngine):
         except Exception as exc:  # noqa: BLE001
             if relay.is_cancel(exc):
                 raise
-            logger.error("AnimateLCM 推理失败，回落 Ken Burns 降级管线: %s", exc)
+            log.error("AnimateLCM 推理失败，回落 Ken Burns 降级管线: %s", exc)
             self._animatelcm_pipe = None
             self._animatelcm_error = f"AnimateLCM 推理失败: {exc}"
             # 推理期 OOM 等失败：管线已丢弃，对称释放显存记账并回收缓存
@@ -2590,7 +2590,7 @@ class VideoEngine(BaseEngine):
                 from ...engines.vram_manager import get_vram_manager
                 get_vram_manager().track_free(ANIMATELCM_MODEL_LABEL)
             except Exception:  # noqa: BLE001
-                logger.debug("_generate_animatelcm: 降级忽略", exc_info=True)
+                log.debug("_generate_animatelcm: 降级忽略", exc_info=True)
             _release_gpu_cache()
             return self._mock_generate(request, model, gen_id, start_time,
                                        progress_cb=progress_cb)
@@ -2624,7 +2624,7 @@ class VideoEngine(BaseEngine):
         except Exception as exc:  # noqa: BLE001 - 后处理失败回落 Ken Burns
             if relay.is_cancel(exc):
                 raise
-            logger.error("AnimateLCM 后处理失败，回落 Ken Burns 降级管线: %s", exc)
+            log.error("AnimateLCM 后处理失败，回落 Ken Burns 降级管线: %s", exc)
             return self._mock_generate(request, model, gen_id, start_time,
                                        progress_cb=progress_cb)
         finally:
@@ -2632,7 +2632,7 @@ class VideoEngine(BaseEngine):
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         relay(1.0, "done")
-        logger.info(
+        log.info(
             "[AnimateLCM] 视频生成完成: %s, ai_frames=%d/%d, model_used=%s, %dms",
             gen_id, len(frames), total_frames, model_used, elapsed_ms,
         )
@@ -2667,11 +2667,11 @@ class VideoEngine(BaseEngine):
         try:
             info = generate_fallback_video(request, video_path, progress_cb)
         except RuntimeError as exc:
-            logger.error("降级管线视频导出失败: %s", exc)
+            log.error("降级管线视频导出失败: %s", exc)
             raise ApiError("VIDEO_ENCODE_FAILED", f"视频导出失败：{exc}") from exc
 
         elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.info(
+        log.info(
             "[降级管线] 视频生成完成: %s, encoder=%s, %dms",
             gen_id, info.get("encoder"), elapsed_ms,
         )

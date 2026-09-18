@@ -24,7 +24,7 @@ import time
 
 from ..config import LOGS_DIR
 
-logger = logging.getLogger("omnispace.heartbeat")
+log = logging.getLogger("omnispace.heartbeat")
 
 HEARTBEAT_FILE = LOGS_DIR / ".heartbeat"
 HISTORY_FILE = LOGS_DIR / "heartbeat_history.jsonl"
@@ -45,7 +45,7 @@ def _append_history(event: dict) -> None:
         if HISTORY_FILE.stat().st_size > _HISTORY_MAX_BYTES:
             _rotate_history()
     except OSError as exc:  # noqa: BLE001
-        logger.debug("心跳史追加失败（忽略）: %s", exc)
+        log.debug("心跳史追加失败（忽略）: %s", exc)
 
 
 def _rotate_history() -> None:
@@ -55,9 +55,9 @@ def _rotate_history() -> None:
         kept = lines[-_HISTORY_KEEP_LINES:]
         HISTORY_FILE.write_text(
             "\n".join(kept) + "\n", encoding="utf-8")
-        logger.info("心跳史轮转: 保留末 %d 行", len(kept))
+        log.info("心跳史轮转: 保留末 %d 行", len(kept))
     except OSError as exc:  # noqa: BLE001
-        logger.debug("心跳史轮转失败（忽略）: %s", exc)
+        log.debug("心跳史轮转失败（忽略）: %s", exc)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -88,7 +88,7 @@ def check_previous_crash() -> dict | None:
         _append_history({"event": "crash_detected", **result})
         return result
     except Exception as exc:  # noqa: BLE001 - 取证解析失败按无崩溃处理
-        logger.warning("心跳残留解析失败（按无崩溃处理）: %s", exc)
+        log.warning("心跳残留解析失败（按无崩溃处理）: %s", exc)
         return None
 
 
@@ -112,11 +112,11 @@ def start() -> None:
             try:
                 _write()
             except OSError as exc:  # noqa: BLE001
-                logger.warning("心跳写入失败（忽略）: %s", exc)
+                log.warning("心跳写入失败（忽略）: %s", exc)
 
     _thread = threading.Thread(target=_loop, daemon=True, name="heartbeat")
     _thread.start()
-    logger.info("心跳取证已启动: %s（每 %.0fs，历史 %s）",
+    log.info("心跳取证已启动: %s（每 %.0fs，历史 %s）",
                 HEARTBEAT_FILE, INTERVAL_S, HISTORY_FILE)
 
 
@@ -127,5 +127,5 @@ def stop() -> None:
     try:
         HEARTBEAT_FILE.unlink(missing_ok=True)
     except OSError:
-        logger.debug("stop: 降级忽略", exc_info=True)
+        log.debug("stop: 降级忽略", exc_info=True)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

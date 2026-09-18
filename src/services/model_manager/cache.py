@@ -19,7 +19,7 @@ from typing import Any
 
 from ...config import CACHE_COMPRESSION, CACHE_EVICTION
 
-logger = logging.getLogger("omnispace.model_manager.cache")
+log = logging.getLogger("omnispace.model_manager.cache")
 
 
 def _try_import(name: str) -> Any:
@@ -77,7 +77,7 @@ class ModelCache:
         self._eviction_policy = CACHE_EVICTION
 
         if not self._compression_enabled and CACHE_COMPRESSION == "lz4":
-            logger.warning("lz4 不可用，缓存压缩已禁用")
+            log.warning("lz4 不可用，缓存压缩已禁用")
 
         # 自动计算最大缓存大小
         if self._max_size_gb == 0:
@@ -86,7 +86,7 @@ class ModelCache:
                 vm = psutil.virtual_memory()
                 auto_gb = max(1.0, vm.available / (1024 ** 3) - 4.0)
                 self._max_size_gb = auto_gb
-                logger.info("自动设置缓存上限: %.1f GB", auto_gb)
+                log.info("自动设置缓存上限: %.1f GB", auto_gb)
             except Exception:
                 self._max_size_gb = 8.0  # 默认 8GB
 
@@ -117,7 +117,7 @@ class ModelCache:
         self._cache.move_to_end(key)  # LRU: 最新访问放末尾
         self._current_size_bytes += size_bytes
 
-        logger.debug(
+        log.debug(
             "缓存存入: %s (%.2f MB, 总计 %.2f MB / %.1f GB)",
             key,
             size_bytes / (1024 * 1024),
@@ -142,7 +142,7 @@ class ModelCache:
 
         # 如果已卸载，需要重新加载
         if entry.state == CacheState.FULL_UNLOAD:
-            logger.debug("缓存已卸载，需重新加载: %s", key)
+            log.debug("缓存已卸载，需重新加载: %s", key)
             return None
 
         # 如果已压缩，需要解压
@@ -163,7 +163,7 @@ class ModelCache:
         if key in self._cache:
             entry = self._cache.pop(key)
             self._current_size_bytes -= entry.size_bytes
-            logger.debug("缓存移除: %s", key)
+            log.debug("缓存移除: %s", key)
             return True
         return False
 
@@ -181,7 +181,7 @@ class ModelCache:
             被压缩的条目数
         """
         if not self._compression_enabled:
-            logger.debug("压缩未启用，跳过")
+            log.debug("压缩未启用，跳过")
             return 0
 
         now = time.time()
@@ -196,7 +196,7 @@ class ModelCache:
                 count += 1
 
         if count > 0:
-            logger.info("压缩 %d 个空闲缓存条目 (LZ4)", count)
+            log.info("压缩 %d 个空闲缓存条目 (LZ4)", count)
         return count
 
     def full_unload(self, except_keys: list | None = None) -> int:
@@ -220,7 +220,7 @@ class ModelCache:
                 count += 1
 
         if count > 0:
-            logger.warning("完全卸载 %d 个缓存条目", count)
+            log.warning("完全卸载 %d 个缓存条目", count)
             # P2 防显存碎片：卸载后立即归还 CUDA 缓存块，不依赖外部 GC。
             # 权重为 CUDA 张量时置 None 仅释放引用，caching allocator 缓存块
             # 需 empty_cache 才归还驱动。
@@ -234,7 +234,7 @@ class ModelCache:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception:  # noqa: BLE001 - 缓存回收失败不影响功能
-            logger.debug("_release_cuda_cache: 降级忽略", exc_info=True)
+            log.debug("_release_cuda_cache: 降级忽略", exc_info=True)
 
     def keep_in_ram(self, key: str) -> None:
         """将指定条目标记为常驻内存（不被压缩/卸载）。"""
@@ -256,7 +256,7 @@ class ModelCache:
             # LRU: 从头部弹出（最久未访问）
             evicted_key, evicted_entry = self._cache.popitem(last=False)
             self._current_size_bytes -= evicted_entry.size_bytes
-            logger.debug("LRU 淘汰: %s (%.2f MB)", evicted_key, evicted_entry.size_bytes / (1024 * 1024))
+            log.debug("LRU 淘汰: %s (%.2f MB)", evicted_key, evicted_entry.size_bytes / (1024 * 1024))
 
     def _compress(self, data: Any) -> bytes:
         """使用 LZ4 压缩数据。"""
@@ -267,7 +267,7 @@ class ModelCache:
             raw = pickle.dumps(data)
             return _lz4_block.compress(raw)
         except Exception as e:
-            logger.warning("压缩失败: %s", e)
+            log.warning("压缩失败: %s", e)
             return data
 
     def _decompress(self, data: Any) -> Any:
@@ -283,7 +283,7 @@ class ModelCache:
             raw = _lz4_block.decompress(data)
             return pickle.loads(raw)
         except Exception as e:
-            logger.warning("解压失败: %s", e)
+            log.warning("解压失败: %s", e)
             return data
 
     # ── 状态查询 ────────────────────────────────────────────────
@@ -308,4 +308,4 @@ class ModelCache:
         """清空所有缓存。"""
         self._cache.clear()
         self._current_size_bytes = 0
-        logger.info("缓存已清空")
+        log.info("缓存已清空")

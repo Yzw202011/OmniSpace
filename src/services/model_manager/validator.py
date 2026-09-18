@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ...data.models import ModelInfo
 
-logger = logging.getLogger("omnispace.model_manager.validator")
+log = logging.getLogger("omnispace.model_manager.validator")
 
 # SHA256 分块读取大小（8MB，平衡内存与速度）
 _CHUNK_SIZE = 8 * 1024 * 1024
@@ -51,7 +51,7 @@ class ModelValidator:
                 processed += len(chunk)
                 if processed % (_CHUNK_SIZE * 16) == 0:  # 每 128MB 记录一次
                     pct = processed / file_size * 100 if file_size > 0 else 100
-                    logger.debug("SHA256 计算进度: %.1f%%", pct)
+                    log.debug("SHA256 计算进度: %.1f%%", pct)
 
         return sha256.hexdigest()
 
@@ -67,27 +67,27 @@ class ModelValidator:
             True 如果校验通过，False 如果不匹配或文件不存在
         """
         if not model.file_path:
-            logger.warning("模型 %s 未设置文件路径", model.id)
+            log.warning("模型 %s 未设置文件路径", model.id)
             return False
 
         file_path = Path(model.file_path)
         if not file_path.exists():
-            logger.error("模型文件不存在: %s", model.file_path)
+            log.error("模型文件不存在: %s", model.file_path)
             return False
 
         # 如果没有存储的哈希值，计算并返回 True
         if not model.sha256:
             model.sha256 = self.compute_sha256(model.file_path)
-            logger.info("模型 %s 首次计算 SHA256: %s", model.id, model.sha256[:16] + "...")
+            log.info("模型 %s 首次计算 SHA256: %s", model.id, model.sha256[:16] + "...")
             return True
 
         # 计算当前哈希并比对
         current_hash = self.compute_sha256(model.file_path)
         if current_hash == model.sha256:
-            logger.debug("模型 %s SHA256 校验通过", model.id)
+            log.debug("模型 %s SHA256 校验通过", model.id)
             return True
         else:
-            logger.error(
+            log.error(
                 "模型 %s SHA256 校验失败: 期望 %s, 实际 %s",
                 model.id,
                 model.sha256[:16] + "...",

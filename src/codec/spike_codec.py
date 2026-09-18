@@ -15,11 +15,14 @@
 
 import hashlib
 import json
+import logging
 import re
 from collections import Counter, defaultdict
 from typing import Any
 
 import numpy as np
+
+log = logging.getLogger("omnispace.codec.spike_codec")
 
 
 class SpikeEncoder:
@@ -388,20 +391,22 @@ class MultiModalCodec:
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("脉冲编解码层测试")
-    print("=" * 60)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log.info("=" * 60)
+    log.info("脉冲编解码层测试")
+    log.info("=" * 60)
 
     codec = MultiModalCodec(dim=16)
 
     # 1. 数值编码测试
-    print("\n[1] 数值编码:")
+    log.info("\n[1] 数值编码:")
     for val in [1.5, -2.0, 5.0, 0.0]:
         signal = codec.encode(val, "numeric")
-        print(f"  数值 {val:6.2f} -> 非零维度: {np.count_nonzero(signal)}, 范数: {np.linalg.norm(signal):.3f}")
+        log.info(f"  数值 {val:6.2f} -> 非零维度: {np.count_nonzero(signal)}, 范数: {np.linalg.norm(signal):.3f}")
 
     # 2. 文本编码测试
-    print("\n[2] 文本编码:")
+    log.info("\n[2] 文本编码:")
     texts = [
         "Apple stock surges 5% on strong earnings report",
         "Market crashes amid recession fears",
@@ -409,35 +414,35 @@ if __name__ == "__main__":
     ]
     for text in texts:
         signal = codec.encode(text, "text")
-        print(f"  文本(前30字): {text[:30]}... -> 非零维度: {np.count_nonzero(signal)}")
+        log.info(f"  文本(前30字): {text[:30]}... -> 非零维度: {np.count_nonzero(signal)}")
 
     # 3. 时间序列编码
-    print("\n[3] 时间序列编码:")
+    log.info("\n[3] 时间序列编码:")
     prices = [150.0, 152.5, 148.0, 155.0, 160.0]
     signal = codec.encode(prices, "timeseries")
-    print(f"  价格序列 -> 非零维度: {np.count_nonzero(signal)}")
+    log.info(f"  价格序列 -> 非零维度: {np.count_nonzero(signal)}")
 
     # 4. 股票数据编码
-    print("\n[4] 股票数据编码:")
+    log.info("\n[4] 股票数据编码:")
     stock_signal = codec.encode_stock_data(
         price=175.50,
         change_pct=3.5,
         volume=45_000_000,
         news_text="Apple reports record quarterly revenue"
     )
-    print(f"  AAPL综合信号 -> 非零维度: {np.count_nonzero(stock_signal)}, 范数: {np.linalg.norm(stock_signal):.3f}")
+    log.info(f"  AAPL综合信号 -> 非零维度: {np.count_nonzero(stock_signal)}, 范数: {np.linalg.norm(stock_signal):.3f}")
 
     # 5. 解码测试
-    print("\n[5] 动作解码:")
+    log.info("\n[5] 动作解码:")
     # 模拟强激活模式
     strong_pattern = np.zeros(16)
     strong_pattern[0] = 0.95  # file_write
     strong_pattern[3] = 0.85  # api_call
     actions = codec.decode(strong_pattern, threshold=0.3)
     for action in actions:
-        print(f"  动作: {action['type']}, 强度: {action['strength']:.2f}")
-        print(f"    参数: {json.dumps({k:v for k,v in action.items() if k not in ['type','strength','pattern_hash','active_dims','timestamp']}, ensure_ascii=False, default=str)}")
+        log.info(f"  动作: {action['type']}, 强度: {action['strength']:.2f}")
+        log.info(f"    参数: {json.dumps({k:v for k,v in action.items() if k not in ['type','strength','pattern_hash','active_dims','timestamp']}, ensure_ascii=False, default=str)}")
 
-    print("\n" + "=" * 60)
-    print("编解码层测试通过!")
-    print("=" * 60)
+    log.info("\n" + "=" * 60)
+    log.info("编解码层测试通过!")
+    log.info("=" * 60)

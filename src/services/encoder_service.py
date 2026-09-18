@@ -42,7 +42,7 @@ from typing import Any
 
 from ..config import DATA_DIR, ROOT_DIR
 
-logger = logging.getLogger("omnispace.encoder")
+log = logging.getLogger("omnispace.encoder")
 
 # ── 类型别名 ────────────────────────────────────────────────────
 # 进度回调：fn(progress: float 0..1, message: str)
@@ -121,7 +121,7 @@ class EncoderService:
             self._hw_class, self._gpu_name = self.detect_hardware()
             self._probe_encoders()
         else:
-            logger.warning("未找到 FFmpeg，编码服务不可用（友好降级）")
+            log.warning("未找到 FFmpeg，编码服务不可用（友好降级）")
 
     # ── 单例 ────────────────────────────────────────────────────
 
@@ -181,7 +181,7 @@ class EncoderService:
         # 1) runtime/ffmpeg/bin
         candidate = ROOT_DIR / "runtime" / "ffmpeg" / "bin" / exe
         if candidate.is_file():
-            logger.info("FFmpeg 发现于 runtime: %s", candidate)
+            log.info("FFmpeg 发现于 runtime: %s", candidate)
             return str(candidate)
 
         # 2) tools/downloads/ffmpeg*/**（限定深度避免扫描整棵树）
@@ -195,20 +195,20 @@ class EncoderService:
                     for rel in (Path("bin") / exe, Path(exe)):
                         cand = sub / rel
                         if cand.is_file():
-                            logger.info("FFmpeg 发现于 downloads: %s", cand)
+                            log.info("FFmpeg 发现于 downloads: %s", cand)
                             return str(cand)
                     # 再往下探一层（ffmpeg*/**/bin/ffmpeg.exe）
                     for cand in sub.glob(f"*/*/bin/{exe}"):
                         if cand.is_file():
-                            logger.info("FFmpeg 发现于 downloads(深层): %s", cand)
+                            log.info("FFmpeg 发现于 downloads(深层): %s", cand)
                             return str(cand)
             except OSError as exc:
-                logger.debug("扫描 tools/downloads 失败: %s", exc)
+                log.debug("扫描 tools/downloads 失败: %s", exc)
 
         # 3) PATH
         found = shutil.which("ffmpeg")
         if found:
-            logger.info("FFmpeg 发现于 PATH: %s", found)
+            log.info("FFmpeg 发现于 PATH: %s", found)
             return found
         return None
 
@@ -260,12 +260,12 @@ class EncoderService:
                     if os.name == "nt" else 0,
                 )
                 self._encoders = self.parse_encoders_output(proc.stdout or "")
-                logger.info(
+                log.info(
                     "编码器探测: %s",
                     {k: v for k, v in self._encoders.items() if v} or "（无硬件编码器）",
                 )
             except Exception as exc:  # noqa: BLE001 - 探测失败降级为全不可用
-                logger.warning("编码器探测失败，按仅软件编码器处理: %s", exc)
+                log.warning("编码器探测失败，按仅软件编码器处理: %s", exc)
                 self._encoders = {name: False for name in TRACKED_ENCODERS}
             self._probed = True
 
@@ -311,7 +311,7 @@ class EncoderService:
                 name = raw.decode() if isinstance(raw, bytes) else str(raw)
                 return EncoderService.classify_gpu(name), name
             except Exception as exc:
-                logger.debug("pynvml 检测 GPU 失败: %s", exc)
+                log.debug("pynvml 检测 GPU 失败: %s", exc)
         # 2) torch
         torch = _try_import("torch")
         if torch is not None:
@@ -320,7 +320,7 @@ class EncoderService:
                     name = torch.cuda.get_device_name(0)
                     return EncoderService.classify_gpu(name), name
             except Exception as exc:
-                logger.debug("torch 检测 GPU 失败: %s", exc)
+                log.debug("torch 检测 GPU 失败: %s", exc)
         return "cpu", ""
 
     # ═══════════════════════════════════════════════════════════
@@ -465,11 +465,11 @@ class EncoderService:
                     "elapsed_s": round(time.time() - t0, 2),
                 }
             errors.append(f"{encoder}: {err or '输出校验失败'}")
-            logger.warning("编码器 %s 失败，尝试降级链下一个: %s", encoder, err)
+            log.warning("编码器 %s 失败，尝试降级链下一个: %s", encoder, err)
             try:
                 out_path.unlink(missing_ok=True)
             except OSError:
-                logger.debug("encode_frames_to_video: 降级忽略", exc_info=True)
+                log.debug("encode_frames_to_video: 降级忽略", exc_info=True)
 
         raise EncodeError("全部候选编码器失败 → " + " | ".join(errors))
 
@@ -536,17 +536,17 @@ class EncoderService:
                         "clips": len(clips),
                     }
                 errors.append(f"{encoder}: {err or '输出校验失败'}")
-                logger.warning("拼接编码器 %s 失败，降级: %s", encoder, err)
+                log.warning("拼接编码器 %s 失败，降级: %s", encoder, err)
                 try:
                     out_path.unlink(missing_ok=True)
                 except OSError:
-                    logger.debug("concat_clips: 降级忽略", exc_info=True)
+                    log.debug("concat_clips: 降级忽略", exc_info=True)
             raise EncodeError("拼接导出失败 → " + " | ".join(errors))
         finally:
             try:
                 list_file.unlink(missing_ok=True)
             except OSError:
-                logger.debug("concat_clips: 降级忽略", exc_info=True)
+                log.debug("concat_clips: 降级忽略", exc_info=True)
 
     # ═══════════════════════════════════════════════════════════
     #  内部：子进程执行 / 进度解析 / 输出校验
@@ -610,7 +610,7 @@ class EncoderService:
                 if proc.stderr:
                     proc.stderr.close()
             except Exception:
-                logger.debug("_run_ffmpeg: 降级忽略", exc_info=True)
+                log.debug("_run_ffmpeg: 降级忽略", exc_info=True)
 
         if rc != 0:
             snippet = tail[-1] if tail else f"返回码 {rc}"
@@ -642,20 +642,20 @@ class EncoderService:
         """
         try:
             if not path.is_file():
-                logger.warning("输出校验失败：文件不存在 %s", path)
+                log.warning("输出校验失败：文件不存在 %s", path)
                 return False
             size = path.stat().st_size
             if size < MIN_OUTPUT_BYTES:
-                logger.warning("输出校验失败：文件过小 %s（%dB < %dB）",
+                log.warning("输出校验失败：文件过小 %s（%dB < %dB）",
                                path, size, MIN_OUTPUT_BYTES)
                 return False
         except OSError as exc:
-            logger.warning("输出校验失败：stat 异常 %s: %s", path, exc)
+            log.warning("输出校验失败：stat 异常 %s: %s", path, exc)
             return False
         if self._ffprobe:
             duration = self._probe_duration(path)
             if duration <= 0:
-                logger.warning("输出校验失败：ffprobe 时长=%.2f %s",
+                log.warning("输出校验失败：ffprobe 时长=%.2f %s",
                                duration, path)
                 return False
         return True
@@ -690,7 +690,7 @@ class EncoderService:
                 last = f"{type(exc).__name__}: {exc}"
             if attempt < 2:
                 time.sleep(0.5)
-        logger.warning("ffprobe 时长探测 3 次均失败（按 0 处理）: %s | %s",
+        log.warning("ffprobe 时长探测 3 次均失败（按 0 处理）: %s | %s",
                        path, last)
         return 0.0
 
@@ -702,7 +702,7 @@ class EncoderService:
         try:
             cb(max(0.0, min(1.0, fraction)), msg)
         except Exception:  # noqa: BLE001
-            logger.debug("_safe_progress: 降级忽略", exc_info=True)
+            log.debug("_safe_progress: 降级忽略", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -36,7 +36,7 @@ from ..cloud_provider_service import (
     looks_like_dashscope_task_404,
 )
 
-logger = logging.getLogger("omnispace.inference.cloud_image")
+log = logging.getLogger("omnispace.inference.cloud_image")
 
 POLL_INTERVAL_S = 3.0     # task_image 轮询周期
 TASK_TIMEOUT_S = 600.0    # task_image 轮询总上限（云出图常见 30~120s）
@@ -267,7 +267,7 @@ def _generate_task_image(
             f"连接「{ep.provider_name}」的供应商模板 {vendor} 尚未支持"
             "（当前支持 dashscope）")
     task_id = _ds_submit(ep, prompt, width, height, ref_images)
-    logger.info("云端图片任务已提交: %s model=%s task=%s refs=%d",
+    log.info("云端图片任务已提交: %s model=%s task=%s refs=%d",
                 ep.provider_name, ep.model or "默认", task_id,
                 len(ref_images))
     if on_progress:
@@ -400,7 +400,7 @@ def generate_image(
         raise
     record_cloud_call("image", ep.provider_name, ep.model, True,
                       int((time.time() - t0) * 1000), slot=slot)
-    logger.info("云端图片完成: %s %dx%d refs=%d 耗时=%.1fs slot=%s",
+    log.info("云端图片完成: %s %dx%d refs=%d 耗时=%.1fs slot=%s",
                 ep.provider_name, width, height, len(refs),
                 time.time() - t0, slot or "-")
     return img

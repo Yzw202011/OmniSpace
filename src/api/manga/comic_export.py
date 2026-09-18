@@ -28,7 +28,7 @@ from ...data.database import get_db_safe, parse_json
 from ...middleware.error_handler import ApiError, ok
 from .common import _now
 
-logger = logging.getLogger("omnispace.api.manga.comic_export")
+log = logging.getLogger("omnispace.api.manga.comic_export")
 
 router = APIRouter()
 
@@ -310,7 +310,7 @@ def comic_export_page(body: dict = Body(default_factory=dict)) -> dict[str, Any]
         out_path.write_bytes(pdf_bytes)
         pages = len(pages_list)
     rel = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
-    logger.info("漫画整页导出: project=%s format=%s layout=%s pages=%d"
+    log.info("漫画整页导出: project=%s format=%s layout=%s pages=%d"
                 " skipped=%d bubble_font=%s",
                 req.project_id, req.format, req.layout, pages, len(skipped),
                 bool(font_path))

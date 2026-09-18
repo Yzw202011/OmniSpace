@@ -12,7 +12,7 @@ import importlib
 import logging
 from typing import Any
 
-logger = logging.getLogger("omnispace.engines.gpu_backend")
+log = logging.getLogger("omnispace.engines.gpu_backend")
 
 
 def _try_import(name: str) -> Any:
@@ -55,7 +55,7 @@ def select_backend(gpu_info: dict) -> str:
 
     # 无 GPU
     if not has_gpu:
-        logger.info("GPU 后端选择: CPU（未检测到 GPU）")
+        log.info("GPU 后端选择: CPU（未检测到 GPU）")
         return BACKEND_CPU
 
     # NVIDIA + CUDA
@@ -64,12 +64,12 @@ def select_backend(gpu_info: dict) -> str:
             try:
                 if _torch.cuda.is_available():
                     device_name = _torch.cuda.get_device_name(0)
-                    logger.info("GPU 后端选择: CUDA (%s)", device_name)
+                    log.info("GPU 后端选择: CUDA (%s)", device_name)
                     return BACKEND_CUDA
             except Exception as e:
-                logger.warning("CUDA 检测失败: %s", e)
+                log.warning("CUDA 检测失败: %s", e)
 
-        logger.warning("NVIDIA GPU 检测到但 CUDA 不可用，降级到 CPU")
+        log.warning("NVIDIA GPU 检测到但 CUDA 不可用，降级到 CPU")
         return BACKEND_CPU
 
     # AMD/Intel + DirectML
@@ -79,20 +79,20 @@ def select_backend(gpu_info: dict) -> str:
                 if _torch_directml.is_available():
                     device_count = _torch_directml.device_count()
                     device_name = _torch_directml.device_name(0)
-                    logger.info(
+                    log.info(
                         "GPU 后端选择: DirectML (%s, %d 设备)",
                         device_name,
                         device_count,
                     )
                     return BACKEND_DIRECTML
             except Exception as e:
-                logger.warning("DirectML 检测失败: %s", e)
+                log.warning("DirectML 检测失败: %s", e)
 
-        logger.warning("%s GPU 检测到但 DirectML 不可用，降级到 CPU", vendor)
+        log.warning("%s GPU 检测到但 DirectML 不可用，降级到 CPU", vendor)
         return BACKEND_CPU
 
     # 未知 vendor
-    logger.info("GPU 后端选择: CPU（未知 GPU vendor: %s）", vendor)
+    log.info("GPU 后端选择: CPU（未知 GPU vendor: %s）", vendor)
     return BACKEND_CPU
 
 
@@ -128,7 +128,7 @@ def is_gpu_available() -> bool:
         try:
             return _torch_directml.is_available()
         except Exception:
-            logger.debug("is_gpu_available: 降级忽略", exc_info=True)
+            log.debug("is_gpu_available: 降级忽略", exc_info=True)
     return False
 
 
@@ -150,14 +150,14 @@ def get_backend_info() -> dict:
             info["cuda_compute_capability"] = f"{props.major}.{props.minor}"
             info["cuda_vram_total_mb"] = int(props.total_memory // (1024 * 1024))
         except Exception:
-            logger.debug("get_backend_info: 降级忽略", exc_info=True)
+            log.debug("get_backend_info: 降级忽略", exc_info=True)
     elif info["directml_available"]:
         try:
             if _torch_directml.is_available():
                 info["recommended_backend"] = BACKEND_DIRECTML
                 info["directml_device_name"] = _torch_directml.device_name(0)
         except Exception:
-            logger.debug("get_backend_info: 降级忽略", exc_info=True)
+            log.debug("get_backend_info: 降级忽略", exc_info=True)
 
     return info
 
@@ -265,7 +265,7 @@ def resolve_precision(requested: str = "bf16", backend: str = "",
     else:
         resolved = _pick_fallback_precision(requested, supported)
         warned = True
-        logger.warning(
+        log.warning(
             "精度兼容矩阵：请求 %s 在档位 %s 不可用，回落 %s（%s）",
             requested, cls, resolved, spec.get("note", ""))
 
@@ -378,7 +378,7 @@ def enumerate_gpus() -> list[dict]:
             pynvml.nvmlShutdown()
         return devices
     except Exception:  # noqa: BLE001 - pynvml 缺失/失败降级 torch
-        logger.debug("enumerate_gpus: 降级忽略", exc_info=True)
+        log.debug("enumerate_gpus: 降级忽略", exc_info=True)
 
     if _torch is not None:
         try:
@@ -393,7 +393,7 @@ def enumerate_gpus() -> list[dict]:
                         "available": True,
                     })
         except Exception:  # noqa: BLE001
-            logger.debug("enumerate_gpus: 降级忽略", exc_info=True)
+            log.debug("enumerate_gpus: 降级忽略", exc_info=True)
     return devices
 
 
@@ -423,7 +423,7 @@ def resolve_device_plan(gpu_info: dict | None = None) -> dict:
         if cand:
             auxiliary, secondary_active = cand[0], True
         else:
-            logger.warning(
+            log.warning(
                 "双卡策略已开启但辅助卡索引 %d 无效或不唯一，回退单卡",
                 GPU_AUXILIARY_DEVICE)
     return {

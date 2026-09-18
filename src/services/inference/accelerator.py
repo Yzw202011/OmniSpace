@@ -12,7 +12,7 @@ import importlib
 import logging
 from typing import Any
 
-logger = logging.getLogger("omnispace.inference.accelerator")
+log = logging.getLogger("omnispace.inference.accelerator")
 
 
 def _try_import(name: str) -> Any:
@@ -38,7 +38,7 @@ class Accelerator:
         self._sdp_available = self._check_sdp()
         self._torch_compile_available = self._check_torch_compile()
 
-        logger.info(
+        log.info(
             "加速器状态: FlashAttention=%s, xFormers=%s, SDP=%s, TorchCompile=%s",
             self._flash_attention_available,
             self._xformers_available,
@@ -95,10 +95,10 @@ class Accelerator:
         if self._xformers_available:
             try:
                 pipeline.enable_xformers_memory_efficient_attention()
-                logger.info("已启用 xFormers 内存优化注意力")
+                log.info("已启用 xFormers 内存优化注意力")
                 return pipeline
             except Exception as e:
-                logger.debug("xFormers 启用失败: %s", e)
+                log.debug("xFormers 启用失败: %s", e)
 
         # 尝试启用 SDPA（diffusers 0.23+ 支持）
         if self._sdp_available:
@@ -106,18 +106,18 @@ class Accelerator:
                 if hasattr(pipeline, "enable_xformers_memory_efficient_attention"):
                     # 使用 SDPA 作为 xFormers 替代
                     pass
-                logger.info("已启用 SDPA 注意力")
+                log.info("已启用 SDPA 注意力")
                 return pipeline
             except Exception as e:
-                logger.debug("SDPA 启用失败: %s", e)
+                log.debug("SDPA 启用失败: %s", e)
 
         # 尝试启用 CPU offload（内存优化）
         if _accelerate is not None:
             try:
                 pipeline.enable_model_cpu_offload()
-                logger.info("已启用模型 CPU offload")
+                log.info("已启用模型 CPU offload")
             except Exception as e:
-                logger.debug("CPU offload 启用失败: %s", e)
+                log.debug("CPU offload 启用失败: %s", e)
 
         return pipeline
 
@@ -128,9 +128,9 @@ class Accelerator:
             True 如果启用成功
         """
         if self._flash_attention_available:
-            logger.info("Flash Attention 已启用")
+            log.info("Flash Attention 已启用")
             return True
-        logger.debug("Flash Attention 不可用，跳过")
+        log.debug("Flash Attention 不可用，跳过")
         return False
 
     def compile_model(self, model: Any, mode: str = "default") -> Any:
@@ -147,10 +147,10 @@ class Accelerator:
             return model
         try:
             compiled = _torch.compile(model, mode=mode)
-            logger.info("模型已编译 (mode=%s)", mode)
+            log.info("模型已编译 (mode=%s)", mode)
             return compiled
         except Exception as e:
-            logger.warning("torch.compile 失败: %s", e)
+            log.warning("torch.compile 失败: %s", e)
             return model
 
     # ── 状态查询 ────────────────────────────────────────────────
@@ -202,14 +202,14 @@ def select_pytorch_backend(gpu_info: dict) -> str:
     has_gpu = vram_mb > 0
 
     if not has_gpu:
-        logger.info("未检测到 GPU，使用 CPU 后端")
+        log.info("未检测到 GPU，使用 CPU 后端")
         return "cpu"
 
     if vendor == "nvidia":
         if _torch is not None and _torch.cuda.is_available():
-            logger.info("选择 CUDA 后端 (NVIDIA GPU)")
+            log.info("选择 CUDA 后端 (NVIDIA GPU)")
             return "cuda"
-        logger.warning("NVIDIA GPU 检测到但 CUDA 不可用，降级到 CPU")
+        log.warning("NVIDIA GPU 检测到但 CUDA 不可用，降级到 CPU")
         return "cpu"
 
     # AMD/Intel: 尝试 DirectML
@@ -217,12 +217,12 @@ def select_pytorch_backend(gpu_info: dict) -> str:
     if torch_directml is not None:
         try:
             if torch_directml.is_available():
-                logger.info("选择 DirectML 后端 (%s GPU)", vendor)
+                log.info("选择 DirectML 后端 (%s GPU)", vendor)
                 return "directml"
         except Exception:
-            logger.debug("select_pytorch_backend: 降级忽略", exc_info=True)
+            log.debug("select_pytorch_backend: 降级忽略", exc_info=True)
 
-    logger.info("GPU 不受支持，使用 CPU 后端")
+    log.info("GPU 不受支持，使用 CPU 后端")
     return "cpu"
 
 
@@ -249,7 +249,7 @@ def safe_load_model(
         加载的模型对象，失败返回 None
     """
     if _torch is None:
-        logger.warning("torch 不可用，无法加载模型")
+        log.warning("torch 不可用，无法加载模型")
         return None
 
     # 自动选择设备
@@ -263,7 +263,7 @@ def safe_load_model(
     if dtype is None:
         dtype = _torch.float16 if device == "cuda" else _torch.float32
 
-    logger.info("加载模型: %s (device=%s, dtype=%s)", path, device, dtype)
+    log.info("加载模型: %s (device=%s, dtype=%s)", path, device, dtype)
 
     # 尝试 diffusers 加载
     if _diffusers is not None:
@@ -285,12 +285,12 @@ def safe_load_model(
                                 path, torch_dtype=dtype
                             )
                             model = model.to(device)
-                            logger.info("diffusers 加载成功: %s", pipeline_class_name)
+                            log.info("diffusers 加载成功: %s", pipeline_class_name)
                             return model
                     except Exception:
                         continue
         except Exception as e:
-            logger.debug("diffusers 加载失败: %s", e)
+            log.debug("diffusers 加载失败: %s", e)
 
     # 尝试 transformers 加载
     if _transformers is not None:
@@ -301,18 +301,18 @@ def safe_load_model(
                 model = _transformers.AutoModelForCausalLM.from_pretrained(
                     path, torch_dtype=dtype, device_map=device if device == "cuda" else None
                 )
-                logger.info("transformers 加载成功")
+                log.info("transformers 加载成功")
                 return model
         except Exception as e:
-            logger.debug("transformers 加载失败: %s", e)
+            log.debug("transformers 加载失败: %s", e)
 
     # 尝试 torch.load 加载（B0 2026-09-13：weights_only=True 拒绝含
     # 任意 pickle 对象的文件——恶意模型包 RCE 链收口；拒绝时诚实报错）
     try:
         model = _torch.load(path, map_location=device, weights_only=True)
-        logger.info("torch.load 加载成功")
+        log.info("torch.load 加载成功")
         return model
     except Exception as e:
-        logger.warning("所有加载方式均失败: %s", e)
+        log.warning("所有加载方式均失败: %s", e)
         return None
 # 本项目仅供学习使用，商业授权请+Q 3559331368

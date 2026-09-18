@@ -28,7 +28,7 @@ from typing import Any
 
 from ..config import HOST
 
-logger = logging.getLogger("omnispace.middleware.lan_auth")
+log = logging.getLogger("omnispace.middleware.lan_auth")
 
 _LOOPBACK = ("127.0.0.1", "localhost", "::1")
 _HEADER = b"x-omni-token"
@@ -53,7 +53,7 @@ def get_lan_token() -> str:
             if row and str(row.get("value") or "").strip():
                 return str(row["value"]).strip()
         except Exception:  # noqa: BLE001 - 表未建等：降级内存令牌
-            logger.debug("lan.token 读取失败，走内存令牌", exc_info=True)
+            log.debug("lan.token 读取失败，走内存令牌", exc_info=True)
     token = secrets.token_urlsafe(24)
     if db is not None:
         try:
@@ -63,10 +63,10 @@ def get_lan_token() -> str:
                 " value=excluded.value, updated_at=excluded.updated_at",
                 (_KV_KEY, token, time.time()))
         except Exception:  # noqa: BLE001 - 持久化失败仅本进程内有效
-            logger.warning("lan.token 持久化失败（重启后令牌将更换）",
+            log.warning("lan.token 持久化失败（重启后令牌将更换）",
                            exc_info=True)
     else:
-        logger.warning("DB 不可用：LAN 令牌仅本进程内有效（重启即换）")
+        log.warning("DB 不可用：LAN 令牌仅本进程内有效（重启即换）")
     return token
 
 
@@ -132,7 +132,7 @@ class LanAuthMiddleware:
         if _token_of(scope) == self._token:
             await self.app(scope, receive, send)
             return
-        logger.warning("LAN 令牌拒绝: %s %s（客户端 %s）",
+        log.warning("LAN 令牌拒绝: %s %s（客户端 %s）",
                        scope.get("type"), path, _client_host(scope))
         if scope["type"] == "http":
             body = _reject_body("http", path)

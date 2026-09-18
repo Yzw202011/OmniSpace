@@ -28,7 +28,7 @@ from PIL import Image
 
 from ...config import MODELS_DIR
 
-logger = logging.getLogger("omnispace.inference.face_sim")
+log = logging.getLogger("omnispace.inference.face_sim")
 
 _YUNET_PATH = MODELS_DIR / "face" / "face_detection_yunet_2023mar.onnx"
 _DINO_PATH = MODELS_DIR / "face" / "dinov2-small"
@@ -61,7 +61,7 @@ def _ensure_loaded() -> None:
             _model.eval()
             for p in _model.parameters():
                 p.requires_grad_(False)
-            logger.info("人脸相似度门禁就绪（YuNet + DINOv2-small, CPU）")
+            log.info("人脸相似度门禁就绪（YuNet + DINOv2-small, CPU）")
 
 
 def _detect_face_crop(img: Image.Image) -> Image.Image | None:
@@ -116,7 +116,7 @@ def face_similarity(shot_path: str | Path,
     try:
         img = Image.open(shot_path).convert("RGB")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("相似度评分读图失败 %s: %s", shot_path, exc)
+        log.warning("相似度评分读图失败 %s: %s", shot_path, exc)
         return None
     crop = _detect_face_crop(img)
     if crop is None:
@@ -164,13 +164,13 @@ def _ensure_arc_loaded() -> Any:
         return _arc_session
     with _arc_lock:
         if _arc_session is None:
-            import onnxruntime as ort
+            import onnxruntime as ort  # type: ignore[import-untyped]
             opts = ort.SessionOptions()
             opts.intra_op_num_threads = 2
             _arc_session = ort.InferenceSession(
                 str(_ARC_RECOG), sess_options=opts,
                 providers=["CPUExecutionProvider"])
-            logger.info("ArcFace 识别通道就绪（glintr100, CPU onnxruntime）")
+            log.info("ArcFace 识别通道就绪（glintr100, CPU onnxruntime）")
     return _arc_session
 
 
@@ -255,7 +255,7 @@ def arcface_match(shot_path: str | Path,
     try:
         img = Image.open(shot_path).convert("RGB")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("ArcFace 匹配读图失败 %s: %s", shot_path, exc)
+        log.warning("ArcFace 匹配读图失败 %s: %s", shot_path, exc)
         return [None] * len(ref_vecs), 0
     faces = embed_faces_arc(img)
     if not faces:
@@ -290,6 +290,6 @@ def scene_similarity(shot_path: str | Path,
     try:
         img = Image.open(shot_path).convert("RGB")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("场景相似度评分读图失败 %s: %s", shot_path, exc)
+        log.warning("场景相似度评分读图失败 %s: %s", shot_path, exc)
         return None
     return float(np.dot(_embed(img), ref_vec))

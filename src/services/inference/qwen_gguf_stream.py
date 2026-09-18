@@ -31,7 +31,7 @@ from typing import Any
 
 import torch
 
-logger = __import__("logging").getLogger("omnispace.inference.qwen_stream")
+log = __import__("logging").getLogger("omnispace.inference.qwen_stream")
 
 # Triton kernel 延迟加载（import triton 前必须注入 CC，见 _ensure_kernels）
 _KERNELS: dict[str, Any] | None = None
@@ -54,8 +54,8 @@ def _ensure_kernels() -> dict[str, Any] | None:
     try:
         if _TCC.is_file():
             os.environ.setdefault("CC", str(_TCC))  # triton-windows TCC 编译器
-        import triton
-        import triton.language as tl
+        import triton  # type: ignore[import-untyped]
+        import triton.language as tl  # type: ignore[import-untyped]
         from diffusers.quantizers.gguf import utils as ggu
 
         ggml_sizes = ggu.GGML_QUANT_SIZES
@@ -141,7 +141,7 @@ def _ensure_kernels() -> dict[str, Any] | None:
         }
     except Exception as exc:  # pragma: no cover - 环境异常路径
         _KERNELS = {}
-        logger.warning("Triton kernels 不可用（回退参考反量化）: %s", exc)
+        log.warning("Triton kernels 不可用（回退参考反量化）: %s", exc)
     return _KERNELS if _KERNELS else None
 
 
@@ -163,11 +163,11 @@ def _dequant_into(qw: torch.Tensor, qt: int, k: dict[str, Any],
     out = buf[: n_blocks * bs].view(n_blocks, bs)
     # OUT_DTYPE 由 buf.dtype 决定（bf16）；fp16/fp32 按需扩展
     if buf.dtype == torch.bfloat16:
-        from triton.language import bfloat16 as OUT
+        from triton.language import bfloat16 as OUT  # type: ignore[import-untyped]
     elif buf.dtype == torch.float16:
-        from triton.language import float16 as OUT
+        from triton.language import float16 as OUT  # type: ignore[import-untyped]
     else:
-        from triton.language import float32 as OUT
+        from triton.language import float32 as OUT  # type: ignore[import-untyped]
     if qt == Q.Q4_K:
         k["q4k"][(n_blocks,)](flat, flat.view(torch.float16), out, OUT)
     elif qt == Q.Q5_K:
@@ -228,7 +228,7 @@ def _warmup(k: dict[str, Any], buf: torch.Tensor) -> None:
                 0, 256, (n, ts), dtype=torch.uint8, device=dev)
             _dequant_into(blocks, qt, k, buf)
         except Exception as exc:
-            logger.warning("kernel warmup %s 失败: %s", qt, exc)
+            log.warning("kernel warmup %s 失败: %s", qt, exc)
             break
     torch.cuda.synchronize()
 
@@ -277,7 +277,7 @@ def install_streaming(transformer: Any) -> dict[str, Any]:
         "buf_mb": round(max_elems * 2 / 2**20, 1),
         "triton": k is not None,
     }
-    logger.info("qwen-image 流式布局安装: %s", info)
+    log.info("qwen-image 流式布局安装: %s", info)
     return info
 
 

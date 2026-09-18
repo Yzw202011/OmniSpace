@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("omnispace.services.training_common")
+log = logging.getLogger("omnispace.services.training_common")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -54,7 +54,7 @@ class TrainingLockGuard:
                         mgr.acquire("training", task_id=task_id), loop)
                     return bool(fut.result(timeout=10))
             except Exception as exc:  # noqa: BLE001
-                logger.warning("事件循环获取 training 锁失败，同步降级: %s",
+                log.warning("事件循环获取 training 锁失败，同步降级: %s",
                                exc, exc_info=True)
         if not mgr.acquire_sync("training", task_id=task_id):
             return False
@@ -74,7 +74,7 @@ class TrainingLockGuard:
                         mgr.release("training"), loop)
                     return
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("事件循环释放 training 锁失败: %s", exc,
+                    log.warning("事件循环释放 training 锁失败: %s", exc,
                                    exc_info=True)
         mgr.release_sync("training")
 

@@ -28,7 +28,7 @@ from ...vram_policy import (
 )
 from .base import DialogBackend, estimate_tokens
 
-logger = logging.getLogger("omnispace.inference.backends.vllm")
+log = logging.getLogger("omnispace.inference.backends.vllm")
 
 
 class VLLMBackend(DialogBackend):
@@ -65,17 +65,17 @@ class VLLMBackend(DialogBackend):
         if model_dir is None:
             # remote 后端场景外的防御：vLLM 本地装载必须有真实模型目录
             self._last_error = f"模型 {model_id} 缺少本地目录，无法启动 vLLM"
-            logger.warning(self._last_error)
+            log.warning(self._last_error)
             return False
         if not svc.runtime_ready():
             self._last_error = (
                 f"模型 {model_id} 为 AWQ 量化格式，需要 vLLM 推理后端；"
                 f"运行时未安装: runtime/py313（见 logs/vllm-server.log）")
-            logger.warning("vLLM 加载门控: py313 运行时不可用")
+            log.warning("vLLM 加载门控: py313 运行时不可用")
             return False
 
         try:
-            logger.info("启动 vLLM 对话服务: %s <- %s", model_id, model_dir)
+            log.info("启动 vLLM 对话服务: %s <- %s", model_id, model_dir)
             # KV cache 预算自适应（2026-08-25 W4A16 14B 实测）：权重
             # ≥8GB 时 util 0.85 装载后 KV 仅剩 ~1.0GB，8K 上下文需
             # 1.5GB 启动失败（vLLM 报 estimated maximum model length
@@ -96,7 +96,7 @@ class VLLMBackend(DialogBackend):
                     if _cfg_len >= 1024:
                         max_len = _cfg_len
                 except Exception:  # noqa: BLE001 - 配置异常保持默认档
-                    logger.debug("load: 降级忽略", exc_info=True)
+                    log.debug("load: 降级忽略", exc_info=True)
             util = VLLM_UTIL_LARGE_WEIGHTS if big else VLLM_UTIL_DEFAULT
             # MTP/DFlash 开启时大权重 util 提至 0.92（V6 2026-09-09 冒烟
             # 实测：9B+MTP+前缀缓存 util 0.86 时 KV=-0.81 起不来、0.92
@@ -112,10 +112,10 @@ class VLLMBackend(DialogBackend):
                 _mtp_on = (not _dflash_on
                            and mtp_spec_enabled(Path(model_dir)))
             except Exception:  # noqa: BLE001 - 探测失败按 MTP 关
-                logger.debug("load: 降级忽略", exc_info=True)
+                log.debug("load: 降级忽略", exc_info=True)
             if (_mtp_on or _dflash_on) and big:
                 util = max(util, VLLM_UTIL_MTP)
-                logger.info("%s 开启：大权重 util 提至 %.2f（轻载窗口档）",
+                log.info("%s 开启：大权重 util 提至 %.2f（轻载窗口档）",
                             "DFlash" if _dflash_on else "MTP", util)
             # 显存自适应让档（2026-09-02 漫剧描述词自动加载实测）：静态
             # util 按「模块释放后的空卡」标定，桌面/浏览器常态占 2GB+
@@ -152,11 +152,11 @@ class VLLMBackend(DialogBackend):
                             elif mtp_spec_enabled(Path(model_dir)):
                                 floor_budget += VLLM_MTP_EXTRA_GB
                         except Exception:  # noqa: BLE001 - 探测失败按原线
-                            logger.debug("load: 降级忽略", exc_info=True)
+                            log.debug("load: 降级忽略", exc_info=True)
                         if free_gb < util * total_gb:
                             fit_util = (free_gb - 0.2) / total_gb
                             if fit_util >= floor_budget / total_gb:
-                                logger.info(
+                                log.info(
                                     "vLLM util 自适应让档: %.2f → %.2f"
                                     "（实测空闲 %.1fGB / 整卡 %.1fGB）",
                                     util, fit_util, free_gb, total_gb)
@@ -167,18 +167,18 @@ class VLLMBackend(DialogBackend):
                                     f"可行下限 ~{floor_budget:.1f}GB（权重 "
                                     f"{weight_gb:.1f}GB + 运行开销与 4K KV "
                                     "预算）；请关闭占用显存的应用后重试")
-                                logger.warning("vLLM 装载让档不可行: %s",
+                                log.warning("vLLM 装载让档不可行: %s",
                                                self._last_error)
                                 return False
                 except Exception:  # noqa: BLE001 - 探测失败保持静态档
-                    logger.debug("load: 降级忽略", exc_info=True)
-            logger.info("vLLM 启动参数: weights=%.1fGB → max_len=%d util=%.2f",
+                    log.debug("load: 降级忽略", exc_info=True)
+            log.info("vLLM 启动参数: weights=%.1fGB → max_len=%d util=%.2f",
                         weight_gb, max_len, util)
             if not svc.start(model_dir=str(model_dir),
                              gpu_memory_utilization=util,
                              max_model_len=max_len):
                 self._last_error = svc._last_error or "vLLM 服务启动失败"
-                logger.warning("vLLM 启动失败: %s", self._last_error)
+                log.warning("vLLM 启动失败: %s", self._last_error)
                 return False
             self.model_id = model_id
             self.model_dir = model_dir
@@ -187,16 +187,16 @@ class VLLMBackend(DialogBackend):
             # 多模态能力按模型实测架构判定（类级 True 是为 Qwen3-VL：
             # DeepSeek-R1 等 CausalLM 纯文本模型发图会 vLLM 400）
             self.supports_images = self._model_supports_images(model_dir)
-            logger.info("vLLM 对话服务就绪: %s（独立子进程推理，视觉=%s）",
+            log.info("vLLM 对话服务就绪: %s（独立子进程推理，视觉=%s）",
                         model_id, self.supports_images)
             return True
         except Exception as exc:  # noqa: BLE001
             self._last_error = f"vLLM 服务启动异常: {exc}"
-            logger.exception("vLLM 服务启动异常")
+            log.exception("vLLM 服务启动异常")
             try:
                 svc.stop()
             except Exception:  # noqa: BLE001
-                logger.debug("load: 降级忽略", exc_info=True)
+                log.debug("load: 降级忽略", exc_info=True)
             return False
 
     def unload(self) -> bool:
@@ -205,7 +205,7 @@ class VLLMBackend(DialogBackend):
             try:
                 self._service().stop()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("vLLM 子进程停止异常: %s", exc)
+                log.warning("vLLM 子进程停止异常: %s", exc)
         self._ready = False
         self.model_id = ""
         self.model_dir = None

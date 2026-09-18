@@ -334,52 +334,52 @@ class MultimodalPerceptionAgent:
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("多模态脉冲编码器测试")
-    print("=" * 60)
+    log.info("=" * 60)
+    log.info("多模态脉冲编码器测试")
+    log.info("=" * 60)
 
     encoder = MultimodalSpikeEncoder(dim=16)
     sim = ImageSimulator()
 
     # 1. 通道分配
-    print("\n📡 通道分配方案:")
+    log.info("\n📡 通道分配方案:")
     for name, dims in encoder.get_channel_assignment().items():
-        print(f"  {name:25s} → 单元 {dims}")
+        log.info(f"  {name:25s} → 单元 {dims}")
 
     # 2. 图像编码测试
-    print("\n🖼️  图像编码测试:")
+    log.info("\n🖼️  图像编码测试:")
     img = sim.generate_gradient_image((16, 16), "horizontal")
     signal_img = encoder.encode_image(img)
-    print("  输入: 16x16 水平渐变图像")
-    print(f"  输出: 16维脉冲, 非零维 {np.count_nonzero(signal_img)}")
-    print(f"  视觉通道(0-3): {signal_img[0:4]}")
+    log.info("  输入: 16x16 水平渐变图像")
+    log.info(f"  输出: 16维脉冲, 非零维 {np.count_nonzero(signal_img)}")
+    log.info(f"  视觉通道(0-3): {signal_img[0:4]}")
 
     # 3. 视频编码测试
-    print("\n🎬 视频编码测试:")
+    log.info("\n🎬 视频编码测试:")
     frames = sim.generate_video_sequence(num_frames=5, size=(8, 8))
     signals = encoder.encode_video_frame(frames[0])
     for i, frame in enumerate(frames[1:], 1):
         sig = encoder.encode_video_frame(frame, frames[i-1])
-        print(f"  帧 {i}: 视觉通道={sig[0:4].round(2)}, 运动时序通道={sig[12:16].round(2)}")
+        log.info(f"  帧 {i}: 视觉通道={sig[0:4].round(2)}, 运动时序通道={sig[12:16].round(2)}")
 
     # 4. 多模态融合测试
-    print("\n🔄 多模态融合测试:")
+    log.info("\n🔄 多模态融合测试:")
     signal_fusion = encoder.encode_multimodal(
         image=sim.generate_random_image((8, 8)),
         text="Stock market surges 5% today",
         numeric=175.50,
         timeseries=[150, 152, 155, 160, 175]
     )
-    print(f"  融合信号: 非零维 {np.count_nonzero(signal_fusion)}, 范数 {np.linalg.norm(signal_fusion):.3f}")
-    print(f"  视觉(0-3):    {signal_fusion[0:4].round(2)}")
-    print(f"  文本(4-7):    {signal_fusion[4:8].round(2)}")
-    print(f"  数值(8-11):   {signal_fusion[8:12].round(2)}")
-    print(f"  时序(12-15):  {signal_fusion[12:16].round(2)}")
+    log.info(f"  融合信号: 非零维 {np.count_nonzero(signal_fusion)}, 范数 {np.linalg.norm(signal_fusion):.3f}")
+    log.info(f"  视觉(0-3):    {signal_fusion[0:4].round(2)}")
+    log.info(f"  文本(4-7):    {signal_fusion[4:8].round(2)}")
+    log.info(f"  数值(8-11):   {signal_fusion[8:12].round(2)}")
+    log.info(f"  时序(12-15):  {signal_fusion[12:16].round(2)}")
 
     # 5. 多模态感知智能体测试
-    print("\n🤖 多模态感知智能体测试:")
+    log.info("\n🤖 多模态感知智能体测试:")
     agent = MultimodalPerceptionAgent("multimodal_0", dim=16)
-    print(agent.get_channel_info())
+    log.info(agent.get_channel_info())
 
     # 处理混合输入
     mixed_signal = agent.process_multimodal(
@@ -388,8 +388,8 @@ if __name__ == "__main__":
         numeric=-2.5,
         timeseries=[100, 102, 99, 105, 110]
     )
-    print(f"  混合输入脉冲: {mixed_signal.round(3)}")
+    log.info(f"  混合输入脉冲: {mixed_signal.round(3)}")
 
-    print("\n" + "=" * 60)
-    print("多模态编码器测试通过!")
-    print("=" * 60)
+    log.info("\n" + "=" * 60)
+    log.info("多模态编码器测试通过!")
+    log.info("=" * 60)

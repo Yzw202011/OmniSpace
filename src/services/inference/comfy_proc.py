@@ -35,7 +35,7 @@ from pathlib import Path
 
 from ..vram_policy import COMFY_IDLE_SHUTDOWN_S
 
-logger = logging.getLogger("omnispace.inference.comfy_proc")
+log = logging.getLogger("omnispace.inference.comfy_proc")
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 COMFY_DIR = ROOT_DIR / "tools" / "ComfyUI_windows_portable"
@@ -147,7 +147,7 @@ def _bind_kill_on_close(proc: subprocess.Popen) -> bool:
             return False
         return True
     except Exception:  # noqa: BLE001 - job 绑定失败不影响功能（退回 atexit 兜底）
-        logger.debug("ComfyUI Job Object 绑定失败，退回 atexit 兜底",
+        log.debug("ComfyUI Job Object 绑定失败，退回 atexit 兜底",
                      exc_info=True)
         return False
 
@@ -183,30 +183,30 @@ def _mount_models_before_spawn() -> None:
             comfy_models=COMFY_DIR / "ComfyUI" / "models")
         yaml_path = COMFY_DATA_DIR / "extra_model_paths.yaml"
         if report.total:
-            logger.info("模型挂接：%s", report.summary_line())
+            log.info("模型挂接：%s", report.summary_line())
             for line in report.details[:8]:
-                logger.info("模型挂接明细：%s", line)
+                log.info("模型挂接明细：%s", line)
             if report.cross_volume:
                 # 2b 跨卷降级（引擎只读红线不破：yaml 落 data，经
                 # --extra-model-paths-config 指入，cli_args.py:71 原生支持）
                 fr = mod.cross_volume_fallback(
                     comfy_models=COMFY_DIR / "ComfyUI" / "models",
                     yaml_path=yaml_path)
-                logger.warning(
+                log.warning(
                     "模型与引擎不在同一磁盘，已启用跨盘降级：%s "
                     "（最佳体验仍是把 models 移到软件所在盘，同盘移动秒完成）",
                     fr.summary_line())
                 for rel in fr.unresolvable[:5]:
-                    logger.warning("跨盘无解件（请移到同盘）：%s", rel)
+                    log.warning("跨盘无解件（请移到同盘）：%s", rel)
             elif yaml_path.is_file():
                 # 已回到同卷（用户移盘后）：清降级 yaml 回硬链正轨
                 try:
                     yaml_path.unlink()
-                    logger.info("检测到模型与引擎同盘，已撤销跨盘降级 yaml")
+                    log.info("检测到模型与引擎同盘，已撤销跨盘降级 yaml")
                 except OSError:
-                    logger.debug("_mount_models_before_spawn: 降级忽略", exc_info=True)
+                    log.debug("_mount_models_before_spawn: 降级忽略", exc_info=True)
     except Exception:  # noqa: BLE001 - 挂接失败不阻断 ComfyUI 启动
-        logger.warning("模型挂接跳过（不影响启动）", exc_info=True)
+        log.warning("模型挂接跳过（不影响启动）", exc_info=True)
 
 
 class ComfyProcManager:
@@ -258,7 +258,7 @@ class ComfyProcManager:
                 cmdline = " ".join(p.info["cmdline"] or []).lower()
                 if (exe in targets and marker in cmdline
                         and p.info["pid"] != os.getpid()):
-                    logger.warning("清扫 ComfyUI 孤儿进程 pid=%d", p.info["pid"])
+                    log.warning("清扫 ComfyUI 孤儿进程 pid=%d", p.info["pid"])
                     subprocess.run(
                         ["taskkill", "/T", "/F", "/PID", str(p.info["pid"])],
                         capture_output=True, check=False, timeout=10,
@@ -285,7 +285,7 @@ class ComfyProcManager:
                 if self._reap_orphans():
                     time.sleep(1.0)  # 端口释放窗口
             except Exception as exc:  # noqa: BLE001 - 收账失败不阻断
-                logger.warning("ComfyUI 孤儿清扫异常（继续 spawn）: %s", exc)
+                log.warning("ComfyUI 孤儿清扫异常（继续 spawn）: %s", exc)
             logs_dir = ROOT_DIR / "logs"
             logs_dir.mkdir(exist_ok=True)
             # 审计 P2-3（2026-09-12）：重开前先关旧日志句柄——进程崩溃
@@ -301,7 +301,7 @@ class ComfyProcManager:
                         and _log_path.stat().st_size > 10 * 1024 * 1024):
                     _log_path.replace(_log_path.with_name(_log_path.name + ".1"))
             except OSError:
-                logger.debug("spawn: 降级忽略", exc_info=True)
+                log.debug("spawn: 降级忽略", exc_info=True)
             self._log_fp = open(_log_path, "ab")
             for d in (COMFY_OUTPUT_DIR, COMFY_INPUT_DIR,
                       COMFY_TEMP_DIR, COMFY_USER_DIR):
@@ -344,10 +344,10 @@ class ComfyProcManager:
                 from src.engines.gpu_domains import resolve_feature_device
                 env["CUDA_VISIBLE_DEVICES"] = str(
                     resolve_feature_device("paint"))
-                logger.info("ComfyUI 绑卡: CUDA_VISIBLE_DEVICES=%s",
+                log.info("ComfyUI 绑卡: CUDA_VISIBLE_DEVICES=%s",
                             env["CUDA_VISIBLE_DEVICES"])
             except Exception:  # noqa: BLE001 - 分配失败回落 ComfyUI 默认
-                logger.debug("spawn: 降级忽略", exc_info=True)
+                log.debug("spawn: 降级忽略", exc_info=True)
             proc = subprocess.Popen(
                 cmd, cwd=str(COMFY_DIR), stdout=self._log_fp,
                 stderr=subprocess.STDOUT,
@@ -357,7 +357,7 @@ class ComfyProcManager:
             self._last_activity = time.monotonic()
             # 共生死绑定（强杀/崩溃后端也不残留）
             bound = _bind_kill_on_close(proc)
-            logger.info("ComfyUI 子进程已启动 (pid=%s, port=%s, job=%s)",
+            log.info("ComfyUI 子进程已启动 (pid=%s, port=%s, job=%s)",
                         proc.pid, COMFY_PORT, "bound" if bound else "atexit-only")
             self._ensure_idle_thread()
             return proc
@@ -388,8 +388,8 @@ class ComfyProcManager:
                 try:
                     proc.wait(timeout=10.0)
                 except subprocess.TimeoutExpired:  # noqa: PERF203 - 兜底
-                    logger.debug("shutdown: 降级忽略", exc_info=True)
-            logger.info("ComfyUI 子进程已终止 (pid=%s)", proc.pid)
+                    log.debug("shutdown: 降级忽略", exc_info=True)
+            log.info("ComfyUI 子进程已终止 (pid=%s)", proc.pid)
         finally:
             if log_fp is not None:
                 log_fp.close()
@@ -410,7 +410,7 @@ class ComfyProcManager:
             try:
                 os.rmdir(base / name)  # 仅空目录可删，非空抛 OSError 跳过
             except OSError:
-                logger.debug("_sweep_engine_placeholders: 降级忽略", exc_info=True)
+                log.debug("_sweep_engine_placeholders: 降级忽略", exc_info=True)
 
     # ── 空闲自动关闭 ──────────────────────────────────────────────
 
@@ -456,7 +456,7 @@ class ComfyProcManager:
             if get_feature_lock().active_feature in ("paint", "video_gen"):
                 return True
         except Exception:  # noqa: BLE001 - 锁查询失败交由登记簿判定
-            logger.debug("_generation_active: 降级忽略", exc_info=True)
+            log.debug("_generation_active: 降级忽略", exc_info=True)
         try:
             from .gpu_budget import get_busy_registry
 
@@ -493,7 +493,7 @@ class ComfyProcManager:
                 with self._lock:
                     self._last_activity = time.monotonic()
                 continue
-            logger.info("ComfyUI 空闲 %.0fs（>=%ds 上限）自动关闭",
+            log.info("ComfyUI 空闲 %.0fs（>=%ds 上限）自动关闭",
                         idle_for, int(limit))
             self.shutdown()
             return

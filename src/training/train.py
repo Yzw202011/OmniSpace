@@ -20,8 +20,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+import logging
+
 from src.data.real_dataset import RustCodingTrainingDataset
 from src.training.trainer import DFTrainer
+
+log = logging.getLogger("omnispace.training.train")
 
 
 def run_first_training(
@@ -50,9 +54,9 @@ def run_first_training(
     # ═══════════════════════════════════════════════════════════════
     # 1. 加载真实数据集
     # ═══════════════════════════════════════════════════════════════
-    print("\n" + "="*70)
-    print("  [1/5] 加载真实训练数据集 (Rust 编码基准, 无合成样本)")
-    print("="*70)
+    log.info("\n" + "="*70)
+    log.info("  [1/5] 加载真实训练数据集 (Rust 编码基准, 无合成样本)")
+    log.info("="*70)
 
     dataset = RustCodingTrainingDataset(dim=dim)
     train_samples, val_samples = dataset.generate_dataset(
@@ -64,18 +68,18 @@ def run_first_training(
     random_baseline = dataset.RANDOM_BASELINE
     majority_baseline = dataset.majority_baseline(train_samples)
 
-    print(f"  训练集: {len(train_samples)} 真实样本")
-    print(f"  验证集: {len(val_samples)} 真实样本")
-    print(f"  训练集分布: {train_dist}")
-    print(f"  验证集分布: {val_dist}")
-    print(f"  评估基线: 随机 {random_baseline:.0%} / 多数类 {majority_baseline:.0%}")
+    log.info(f"  训练集: {len(train_samples)} 真实样本")
+    log.info(f"  验证集: {len(val_samples)} 真实样本")
+    log.info(f"  训练集分布: {train_dist}")
+    log.info(f"  验证集分布: {val_dist}")
+    log.info(f"  评估基线: 随机 {random_baseline:.0%} / 多数类 {majority_baseline:.0%}")
 
     # ═══════════════════════════════════════════════════════════════
     # 2. 初始化训练器
     # ═══════════════════════════════════════════════════════════════
-    print("\n" + "="*70)
-    print("  [2/5] 初始化训练器")
-    print("="*70)
+    log.info("\n" + "="*70)
+    log.info("  [2/5] 初始化训练器")
+    log.info("="*70)
 
     trainer = DFTrainer(
         depth=depth,
@@ -87,18 +91,18 @@ def run_first_training(
     # 网络规模信息
     from src.core.distributedformer import calculate_scale
     scale = calculate_scale(depth)
-    print(f"  分形深度: {depth}")
-    print(f"  基础单元数: {scale['base_units']:,}")
-    print(f"  总参数: {scale['total_params']:,}")
-    print(f"  学习率: {learning_rate}")
-    print(f"  监督调制: {super_modulation}")
+    log.info(f"  分形深度: {depth}")
+    log.info(f"  基础单元数: {scale['base_units']:,}")
+    log.info(f"  总参数: {scale['total_params']:,}")
+    log.info(f"  学习率: {learning_rate}")
+    log.info(f"  监督调制: {super_modulation}")
 
     # ═══════════════════════════════════════════════════════════════
     # 3. 执行训练
     # ═══════════════════════════════════════════════════════════════
-    print("\n" + "="*70)
-    print("  [3/5] 开始训练")
-    print("="*70)
+    log.info("\n" + "="*70)
+    log.info("  [3/5] 开始训练")
+    log.info("="*70)
 
     save_dir = "training/checkpoints"
     os.makedirs(save_dir, exist_ok=True)
@@ -115,29 +119,29 @@ def run_first_training(
     # ═══════════════════════════════════════════════════════════════
     # 4. 保存结果
     # ═══════════════════════════════════════════════════════════════
-    print("\n" + "="*70)
-    print("  [4/5] 保存训练结果")
-    print("="*70)
+    log.info("\n" + "="*70)
+    log.info("  [4/5] 保存训练结果")
+    log.info("="*70)
 
     # 保存训练总结
     summary_path = "reports/training_summary.json"
     with open(summary_path, 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
-    print(f"  训练总结: {summary_path}")
+    log.info(f"  训练总结: {summary_path}")
 
     # 保存训练报告
     report = trainer.generate_training_report()
     report_path = "reports/training_report.md"
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report)
-    print(f"  训练报告: {report_path}")
+    log.info(f"  训练报告: {report_path}")
 
     # ═══════════════════════════════════════════════════════════════
     # 5. 生成可视化
     # ═══════════════════════════════════════════════════════════════
-    print("\n" + "="*70)
-    print("  [5/5] 生成可视化图表")
-    print("="*70)
+    log.info("\n" + "="*70)
+    log.info("  [5/5] 生成可视化图表")
+    log.info("="*70)
 
     try:
         import matplotlib.pyplot as plt
@@ -205,7 +209,7 @@ def run_first_training(
         viz_path = "visualization/training_curves.png"
         plt.savefig(viz_path, dpi=150, bbox_inches='tight')
         plt.close()
-        print(f"  训练曲线: {viz_path}")
+        log.info(f"  训练曲线: {viz_path}")
 
         # 额外: 类别准确率柱状图 (真实 rustc 错误族)
         if trainer.val_history and 'class_accuracy' in trainer.val_history[-1]:
@@ -229,10 +233,10 @@ def run_first_training(
             class_viz_path = "visualization/class_accuracy.png"
             plt.savefig(class_viz_path, dpi=150, bbox_inches='tight')
             plt.close()
-            print(f"  类别准确率: {class_viz_path}")
+            log.info(f"  类别准确率: {class_viz_path}")
 
     except Exception as e:
-        print(f"  可视化生成失败: {e}")
+        log.info(f"  可视化生成失败: {e}")
 
     summary["random_baseline"] = random_baseline
     summary["majority_baseline"] = majority_baseline
@@ -240,17 +244,17 @@ def run_first_training(
     # ═══════════════════════════════════════════════════════════════
     # 最终输出
     # ═══════════════════════════════════════════════════════════════
-    print("\n" + "="*70)
-    print("  [DONE] 真实数据全面训练完成!")
-    print("="*70)
-    print(f"  最佳验证准确率: {summary['best_val_accuracy']:.2%}")
-    print(f"  评估基线 (随机): {random_baseline:.0%}")
-    print(f"  评估基线 (多数类): {majority_baseline:.0%}")
-    print(f"  最佳验证损失: {summary['best_val_loss']:.4f}")
-    print(f"  训练耗时: {summary['elapsed_seconds']:.1f}秒")
-    print(f"  权重文件: {save_dir}/best_model.npz")
-    print(f"  报告文件: {report_path}")
-    print("="*70)
+    log.info("\n" + "="*70)
+    log.info("  [DONE] 真实数据全面训练完成!")
+    log.info("="*70)
+    log.info(f"  最佳验证准确率: {summary['best_val_accuracy']:.2%}")
+    log.info(f"  评估基线 (随机): {random_baseline:.0%}")
+    log.info(f"  评估基线 (多数类): {majority_baseline:.0%}")
+    log.info(f"  最佳验证损失: {summary['best_val_loss']:.4f}")
+    log.info(f"  训练耗时: {summary['elapsed_seconds']:.1f}秒")
+    log.info(f"  权重文件: {save_dir}/best_model.npz")
+    log.info(f"  报告文件: {report_path}")
+    log.info("="*70)
 
     return summary
 

@@ -32,6 +32,7 @@
     )
 """
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -46,6 +47,8 @@ from src.data.rust_coding import (
     stratified_split,
     structure_metrics,
 )
+
+log = logging.getLogger("omnispace.data.real_dataset")
 
 
 @dataclass
@@ -202,34 +205,36 @@ class RustCodingTrainingDataset:
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("真实训练数据集测试 (100% 真实 Rust 语料)")
-    print("=" * 60)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log.info("=" * 60)
+    log.info("真实训练数据集测试 (100% 真实 Rust 语料)")
+    log.info("=" * 60)
 
     dataset = RustCodingTrainingDataset(dim=16)
     train, val = dataset.generate_dataset(train_ratio=0.75)
 
-    print("\n[真实数据规模]")
-    print(f"  训练集: {len(train)} 样本")
-    print(f"  验证集: {len(val)} 样本")
-    print(f"  训练集分布: {dataset.get_class_distribution(train)}")
-    print(f"  验证集分布: {dataset.get_class_distribution(val)}")
-    print(f"  随机基线: {dataset.RANDOM_BASELINE:.0%}")
-    print(f"  多数类基线: {dataset.majority_baseline(train):.0%}")
+    log.info("\n[真实数据规模]")
+    log.info(f"  训练集: {len(train)} 样本")
+    log.info(f"  验证集: {len(val)} 样本")
+    log.info(f"  训练集分布: {dataset.get_class_distribution(train)}")
+    log.info(f"  验证集分布: {dataset.get_class_distribution(val)}")
+    log.info(f"  随机基线: {dataset.RANDOM_BASELINE:.0%}")
+    log.info(f"  多数类基线: {dataset.majority_baseline(train):.0%}")
 
-    print("\n[各类真实样本示例]")
+    log.info("\n[各类真实样本示例]")
     for cat in range(5):
         sample = next(s for s in train if s.category == cat)
-        print(f"\n  类别 {cat} ({sample.category_name}):")
-        print(f"    ID: {sample.sample_id}")
-        print(f"    rustc: {sample.metadata['rustc']}")
-        print(f"    报错: {sample.metadata['msg'][:60]}")
-        print(f"    代码: {sample.metadata['code'][:60]!r}")
-        print(f"    输入信号非零维: {np.count_nonzero(sample.input_signal)}")
-        print(f"    语法特征 (numeric 通路): "
+        log.info(f"\n  类别 {cat} ({sample.category_name}):")
+        log.info(f"    ID: {sample.sample_id}")
+        log.info(f"    rustc: {sample.metadata['rustc']}")
+        log.info(f"    报错: {sample.metadata['msg'][:60]}")
+        log.info(f"    代码: {sample.metadata['code'][:60]!r}")
+        log.info(f"    输入信号非零维: {np.count_nonzero(sample.input_signal)}")
+        log.info(f"    语法特征 (numeric 通路): "
               f"[{', '.join(f'{v:.2f}' for v in sample.static_signal[:5])}...]")
-        print(f"    目标模式: [{', '.join(f'{v:.2f}' for v in sample.target_pattern[:5])}...]")
+        log.info(f"    目标模式: [{', '.join(f'{v:.2f}' for v in sample.target_pattern[:5])}...]")
 
-    print("\n" + "=" * 60)
-    print("真实数据集测试通过!")
-    print("=" * 60)
+    log.info("\n" + "=" * 60)
+    log.info("真实数据集测试通过!")
+    log.info("=" * 60)

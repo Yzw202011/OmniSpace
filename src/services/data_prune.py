@@ -16,7 +16,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-logger = logging.getLogger("omnispace.services.data_prune")
+log = logging.getLogger("omnispace.services.data_prune")
 
 RETENTION_DAYS = 30
 _TABLES: list[tuple[str, str]] = [
@@ -46,11 +46,11 @@ def prune_once(root: Path) -> dict[str, int]:
                     db.commit()
                 except sqlite3.OperationalError as exc:
                     # 表不存在等——跳过不炸
-                    logger.debug("修剪 %s 跳过: %s", table, exc)
+                    log.debug("修剪 %s 跳过: %s", table, exc)
                     stats[table] = -1
             db.close()
         except Exception:  # noqa: BLE001 - DB 不可用时跳过本轮
-            logger.warning("数据修剪 DB 阶段失败（本轮跳过）", exc_info=True)
+            log.warning("数据修剪 DB 阶段失败（本轮跳过）", exc_info=True)
             stats["db"] = -1
 
     # logs/ 增长目录（文件级：超 7 天删）
@@ -72,7 +72,7 @@ def prune_once(root: Path) -> dict[str, int]:
 
     total = sum(v for v in stats.values() if v > 0)
     if total:
-        logger.info("数据修剪完成: %s（合计 %d 条/件）", stats, total)
+        log.info("数据修剪完成: %s（合计 %d 条/件）", stats, total)
     return stats
 
 
@@ -87,5 +87,5 @@ def start_background_prune(root: Path) -> None:
 
     t = threading.Thread(target=_loop, daemon=True, name="data-prune")
     t.start()
-    logger.info("数据修剪后台线程已启动（%d 天保留，24h 间隔）",
+    log.info("数据修剪后台线程已启动（%d 天保留，24h 间隔）",
                 RETENTION_DAYS)

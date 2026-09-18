@@ -26,7 +26,7 @@ import json
 import logging
 from pathlib import Path
 
-logger = logging.getLogger("omnispace.models.external")
+log = logging.getLogger("omnispace.models.external")
 
 # manifest type → ModelCategory（data/models.py 枚举值）
 _TYPE_TO_CATEGORY = {
@@ -112,7 +112,7 @@ def sync_external_models(db: Database, rows: list[dict]) -> dict:
             else:
                 result["unchanged"] += 1
         except Exception:  # noqa: BLE001 - 单条失败不拖垮其余登记
-            logger.warning("外部模型登记失败：%s", row.get("id"), exc_info=True)
+            log.warning("外部模型登记失败：%s", row.get("id"), exc_info=True)
     return result
 
 
@@ -129,5 +129,5 @@ def bootstrap_external_models() -> dict | None:
     if db is None or not rows:
         return {"skipped": True, "rows": len(rows)}
     result = sync_external_models(db, rows)
-    logger.info("外部模型包登记（%s）：%s", root, result)
+    log.info("外部模型包登记（%s）：%s", root, result)
     return result

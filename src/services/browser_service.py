@@ -165,7 +165,7 @@ _max_tabs_cache: int | None = None
 def _probe_gpu_brief() -> tuple[str, int]:
     """轻量探测 GPU 型号名与显存总量 MB（pynvml 优先，torch 兜底）。"""
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
         pynvml.nvmlInit()
         try:
             name = pynvml.nvmlDeviceGetName(0)

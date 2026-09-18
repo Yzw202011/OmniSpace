@@ -23,7 +23,7 @@ from typing import Any
 
 from ..config import GPU_PRIMARY_DEVICE, THRESHOLDS
 
-logger = logging.getLogger("omnispace.engines.vram")
+log = logging.getLogger("omnispace.engines.vram")
 
 
 def _try_import(name: str) -> Any:
@@ -75,17 +75,17 @@ class VramManager:
                             _i).total_memory / (1024 * 1024)
                     except Exception as exc:
                         self._degraded_probes[f"vram_total_mb[{_i}]"] = str(exc)
-                        logger.warning("CUDA 卡 %d 总显存探测失败: %s", _i, exc)
+                        log.warning("CUDA 卡 %d 总显存探测失败: %s", _i, exc)
             except Exception as exc:
                 # 外层失败沿用历史降级键 vram_total_mb（P1-05 契约键名，
                 # 遥测诚实性哨兵锚定）：设备数都探不到=总显存不可知
                 self._degraded_probes["vram_total_mb"] = str(exc)
-                logger.warning(
+                log.warning(
                     "CUDA 设备数探测失败（总显存记 0，显存门禁将退化为不可用）: %s",
                     exc)
             self._vram_total_mb = self._vram_totals.get(GPU_PRIMARY_DEVICE, 0.0)
 
-        logger.info(
+        log.info(
             "VRAM 管理器初始化: CUDA=%s, 总显存=%.0fMB, 卡数=%d, 降级探测=%s",
             self._cuda_available,
             self._vram_total_mb,
@@ -116,7 +116,7 @@ class VramManager:
                     0.0,
                     self._device_allocated_mb.get(old.device, 0.0)
                     - old.size_mb)
-                logger.warning(
+                log.warning(
                     "VRAM 分配重复登记（按替换扣旧值）: %s 旧=%.1fMB 新=%.1fMB",
                     key, old.size_mb, size_mb)
             self._allocations[key] = VramAllocation(
@@ -125,7 +125,7 @@ class VramManager:
             self._total_allocated_mb += size_mb
             self._device_allocated_mb[dev] = (
                 self._device_allocated_mb.get(dev, 0.0) + size_mb)
-            logger.debug(
+            log.debug(
                 "VRAM 分配: %s (%.1fMB, 卡=%d, 总计 %.1fMB)",
                 key,
                 size_mb,
@@ -151,7 +151,7 @@ class VramManager:
                 0.0,
                 self._device_allocated_mb.get(alloc.device, 0.0)
                 - alloc.size_mb)
-            logger.debug(
+            log.debug(
                 "VRAM 释放: %s (%.1fMB, 卡=%d, 剩余 %.1fMB)",
                 key,
                 alloc.size_mb,
@@ -237,14 +237,14 @@ class VramManager:
         if self._cuda_available and freed_mb > 0:
             try:
                 _torch.cuda.empty_cache()
-                logger.info("已清空 CUDA 缓存")
+                log.info("已清空 CUDA 缓存")
             except Exception as exc:
                 self._degraded_probes["empty_cache"] = str(exc)
-                logger.warning(
+                log.warning(
                     "CUDA 缓存清空失败（记账已重置，物理显存可能未真正回收）: %s", exc)
 
         if freed_mb > 0:
-            logger.warning("重置显存记账: %.1fMB (保留: %s, 卡=%s)",
+            log.warning("重置显存记账: %.1fMB (保留: %s, 卡=%s)",
                            freed_mb, list(keep), "全部" if device is None else device)
         return int(freed_mb)
 
@@ -255,7 +255,7 @@ class VramManager:
         强制卸载模型请使用 services/scheduler/dispatcher.py 的
         force_unload（真实接线 ModelManager.unload_model）。
         """
-        logger.warning(
+        log.warning(
             "DeprecationWarning: VramManager.force_unload 已更名为 "
             "reset_bookkeeping（仅重置记账，不卸载模型）；"
             "强制卸载模型见 services/scheduler/dispatcher.py force_unload")
@@ -283,7 +283,7 @@ class VramManager:
                 actual_free_mb = total_mb - actual_used_mb
             except Exception as exc:
                 self._degraded_probes["memory_allocated"] = str(exc)
-                logger.warning(
+                log.warning(
                     "CUDA 实际用量探测失败，使用量为纯记账值（可能低估）: %s", exc)
 
         usage_ratio = actual_used_mb / total_mb if total_mb > 0 else 0.0
@@ -299,7 +299,7 @@ class VramManager:
                     try:
                         u = max(u, _torch.cuda.memory_allocated(idx) / (1024 * 1024))
                     except Exception:  # noqa: BLE001 - 单卡探测失败按记账值
-                        logger.debug("get_usage: 降级忽略", exc_info=True)
+                        log.debug("get_usage: 降级忽略", exc_info=True)
                 devices.append({
                     "index": idx,
                     "total_mb": t,
@@ -336,7 +336,7 @@ class VramManager:
                 return free
             except Exception as exc:
                 self._degraded_probes["mem_get_info"] = str(exc)
-                logger.warning(
+                log.warning(
                     "CUDA 空闲显存探测失败，退化为记账差值（可能不准）: %s", exc)
         total_mb = self._vram_totals.get(dev, self._vram_total_mb if dev == GPU_PRIMARY_DEVICE else 0.0)
         return max(0.0, total_mb - self._device_allocated_mb.get(dev, 0.0))

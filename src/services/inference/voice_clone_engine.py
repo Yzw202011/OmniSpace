@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("omnispace.inference.voice_clone")
+log = logging.getLogger("omnispace.inference.voice_clone")
 
 _engine: Any = None
 _engine_lock = threading.Lock()
@@ -28,11 +28,11 @@ def f5_tts_available() -> bool | None:
     global _available
     if _available is None:
         try:
-            import f5_tts  # noqa: F401
+            import f5_tts  # type: ignore[import-untyped]  # noqa: F401
             _available = True
         except ImportError:
             _available = False
-            logger.info("F5-TTS 未安装（pip install f5-tts 可启用音色克隆）")
+            log.info("F5-TTS 未安装（pip install f5-tts 可启用音色克隆）")
     return _available
 
 
@@ -42,7 +42,7 @@ def _get_engine() -> Any:
     if _engine is None:
         with _engine_lock:
             if _engine is None:
-                from f5_tts.infer.utils_infer import (
+                from f5_tts.infer.utils_infer import (  # type: ignore[import-untyped]
                     infer_process,
                     load_model,
                     preprocess_ref_audio_text,
@@ -52,7 +52,7 @@ def _get_engine() -> Any:
                     "load_model": load_model,
                     "preprocess_ref_audio_text": preprocess_ref_audio_text,
                 }
-                logger.info("F5-TTS 推理器已加载")
+                log.info("F5-TTS 推理器已加载")
     return _engine
 
 
@@ -83,7 +83,7 @@ def clone_voice_to_speech(
             "F5-TTS 未安装（pip install f5-tts 后重启后端可启用音色克隆）")
 
     eng = _get_engine()
-    import soundfile as sf
+    import soundfile as sf  # type: ignore[import-untyped]
     import torch
 
     # 预处理参考音频（截取有效段+去静音+对齐文本）
@@ -106,7 +106,7 @@ def clone_voice_to_speech(
     sf.write(output_path, audio, sr)
 
     duration = len(audio) / sr
-    logger.info("音色克隆完成: %.1fs 音频 → %s", duration, output_path)
+    log.info("音色克隆完成: %.1fs 音频 → %s", duration, output_path)
     return {
         "output_path": output_path,
         "duration_s": round(duration, 2),

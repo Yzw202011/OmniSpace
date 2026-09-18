@@ -22,7 +22,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, ClassVar
 
-logger = logging.getLogger("omnispace.inference.backends")
+log = logging.getLogger("omnispace.inference.backends")
 
 
 def _try_import(name: str) -> Any:
@@ -50,7 +50,7 @@ def _precision_pref() -> str:
                 return str((_json.loads(row["value"]) or {}).get(
                     "precision", "bf16")).lower()
     except Exception:  # noqa: BLE001
-        logger.debug("_precision_pref: 降级忽略", exc_info=True)
+        log.debug("_precision_pref: 降级忽略", exc_info=True)
     return "bf16"
 
 
@@ -96,11 +96,11 @@ def preferred_load_dtype(torch: ModuleType) -> tuple:
         return torch.float32, {}
     if resolved in ("int8", "int4") and quant:
         if _try_import("bitsandbytes") is not None:
-            logger.info("按兼容矩阵/%s 偏好启用 %s 量化加载",
+            log.info("按兼容矩阵/%s 偏好启用 %s 量化加载",
                         spec["compute_class"], resolved)
             return torch.bfloat16, ({"load_in_8bit": True}
                                     if resolved == "int8" else {"load_in_4bit": True})
-        logger.warning("bitsandbytes 未安装，%s 量化不可用，回退 bf16", resolved)
+        log.warning("bitsandbytes 未安装，%s 量化不可用，回退 bf16", resolved)
     return torch.bfloat16, {}
 
 

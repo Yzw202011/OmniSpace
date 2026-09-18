@@ -22,7 +22,7 @@ import logging
 import threading
 import time
 
-logger = logging.getLogger("omnispace.engines.gpu_domains")
+log = logging.getLogger("omnispace.engines.gpu_domains")
 
 # 远程推理伪域（批3 远程引擎预留）：不对应本地 CUDA 设备
 REMOTE_DOMAIN = "remote"
@@ -109,14 +109,14 @@ def resolve_assignments(device_indexes: list[int] | None = None) -> dict[str, in
     for feat in _VALID_FEATURES:
         dev = int(cfg.get(feat, primary))
         if dev not in idxs:
-            logger.warning(
+            log.warning(
                 "gpu.feature_devices.%s=%s 指向不存在的卡（可用=%s），"
                 "回落主卡 %d", feat, dev, idxs, primary)
             dev = primary
         out[feat] = dev
     # paint/video_gen 必须同卡（共用同一 ComfyUI 实例，端口单例）
     if out["paint"] != out["video_gen"]:
-        logger.warning(
+        log.warning(
             "paint(%d) 与 video_gen(%d) 配置异卡，但二者共用同一 "
             "ComfyUI 实例，自动收敛到 paint 的卡", out["paint"],
             out["video_gen"])
@@ -147,5 +147,5 @@ def resolve_feature_domain(feature: str) -> str:
             if is_remote_dialog_enabled():
                 return REMOTE_DOMAIN
         except Exception:  # noqa: BLE001 - 探测失败按本地域
-            logger.debug("resolve_feature_domain: 降级忽略", exc_info=True)
+            log.debug("resolve_feature_domain: 降级忽略", exc_info=True)
     return str(resolve_feature_device(feature))

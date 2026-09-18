@@ -22,7 +22,7 @@ import re
 import sys
 import threading
 
-logger = logging.getLogger("omnispace.inference.prompt_translator")
+log = logging.getLogger("omnispace.inference.prompt_translator")
 
 
 def shrink_working_set() -> None:
@@ -41,9 +41,9 @@ def shrink_working_set() -> None:
         import ctypes
         ctypes.windll.psapi.EmptyWorkingSet(
             ctypes.windll.kernel32.GetCurrentProcess())
-        logger.debug("working set 已收缩（翻译引擎死页挤出物理 RAM）")
+        log.debug("working set 已收缩（翻译引擎死页挤出物理 RAM）")
     except Exception as exc:  # noqa: BLE001 - 收缩失败无碍主流程
-        logger.debug("working set 收缩跳过: %s", exc)
+        log.debug("working set 收缩跳过: %s", exc)
 
 # CJK 统一表意文字 + 常用中文标点
 _CJK_RE = re.compile(r"[一-鿿　-〿＀-￯]")
@@ -94,7 +94,7 @@ def _dialog_translate(prompt: str, max_tokens: int,
     from .dialog_engine import get_dialog_engine
     engine = get_dialog_engine()
     if not engine.is_ready and not engine.ensure_loaded(None):
-        logger.warning("对话引擎不可用，提示词翻译跳过: %s",
+        log.warning("对话引擎不可用，提示词翻译跳过: %s",
                        engine.get_status().get("last_error"))
         return ""
     text = engine.chat(
@@ -127,15 +127,15 @@ def translate_prompt_zh2en(prompt: str, max_tokens: int = 120,
             translated = _dialog_translate(prompt, max_tokens,
                                            system_prompt=system_prompt)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("提示词翻译异常（回退原文）: %s", exc)
+            log.warning("提示词翻译异常（回退原文）: %s", exc)
             return prompt
         # 翻译后仍含大量中文视为失败，回退原文
         if not translated or (
                 contains_cjk(translated)
                 and len(_CJK_RE.findall(translated)) > 8):
-            logger.warning("提示词翻译结果异常（空或仍含中文），回退原文")
+            log.warning("提示词翻译结果异常（空或仍含中文），回退原文")
             return prompt
-        logger.info("提示词中译英: %d 字 -> %d 字符",
+        log.info("提示词中译英: %d 字 -> %d 字符",
                     len(prompt), len(translated))
         return translated
 

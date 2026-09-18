@@ -45,7 +45,7 @@ from ..middleware.feature_lock import get_feature_lock
 from .priority import LEVEL_BY_NAME, Priority
 from .training_common import TrainingLockGuard
 
-logger = logging.getLogger("omnispace.style_lora")
+log = logging.getLogger("omnispace.style_lora")
 
 
 def _try_import(name: str) -> Any:
@@ -190,7 +190,7 @@ class StyleLoraService:
             db.sql(_STYLE_TASK_DDL)
             self._table_ready = True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("style_tasks 建表失败，降级内存镜像: %s", exc)
+            log.warning("style_tasks 建表失败，降级内存镜像: %s", exc)
 
     def _insert_task(self, record: dict) -> None:
         db = get_db_safe()
@@ -199,7 +199,7 @@ class StyleLoraService:
                 db.insert("style_tasks", record)
                 return
             except Exception as exc:  # noqa: BLE001
-                logger.warning("风格任务落库失败，降级内存镜像: %s", exc)
+                log.warning("风格任务落库失败，降级内存镜像: %s", exc)
         self._mem_tasks[record["id"]] = record
 
     def _update_task(self, task_id: str, **fields: Any) -> None:
@@ -211,7 +211,7 @@ class StyleLoraService:
                              if k in _STYLE_TASK_COLUMNS}
                 db.update("style_tasks", db_fields, "id=?", (task_id,))
             except Exception as exc:  # noqa: BLE001
-                logger.debug("风格任务更新落库失败: %s", exc)
+                log.debug("风格任务更新落库失败: %s", exc)
         if task_id in self._mem_tasks:
             self._mem_tasks[task_id].update(fields)
 
@@ -227,7 +227,7 @@ class StyleLoraService:
                 if row is not None:
                     return row
             except Exception as exc:  # noqa: BLE001
-                logger.debug("风格任务查询失败: %s", exc)
+                log.debug("风格任务查询失败: %s", exc)
         return self._mem_tasks.get(task_id)
 
     def list_tasks(self) -> list[dict]:
@@ -240,7 +240,7 @@ class StyleLoraService:
                     " progress, version, error, created_at, updated_at"
                     " FROM style_tasks ORDER BY created_at DESC")
             except Exception as exc:  # noqa: BLE001
-                logger.debug("风格任务列表查询失败: %s", exc)
+                log.debug("风格任务列表查询失败: %s", exc)
         return sorted(self._mem_tasks.values(),
                       key=lambda t: t.get("created_at", 0), reverse=True)
 
@@ -321,7 +321,7 @@ class StyleLoraService:
                 f.write(json.dumps({"image": str(p), "caption": ""},
                                    ensure_ascii=False) + "\n")
 
-        logger.info("风格数据集已构建: %s (%s, %d 帧)", dataset_id, kind, len(frames))
+        log.info("风格数据集已构建: %s (%s, %d 帧)", dataset_id, kind, len(frames))
         return {
             "dataset_id": dataset_id,
             "kind": kind,
@@ -438,7 +438,7 @@ class StyleLoraService:
                 val = cast(DEFAULT_STYLE_CONFIG.get(key, lo))
             clamped = max(lo, min(val, hi))
             if clamped != val:
-                logger.warning("风格训练超参越界已钳制: %s %r -> %r (边界 [%s, %s])",
+                log.warning("风格训练超参越界已钳制: %s %r -> %r (边界 [%s, %s])",
                                key, raw, clamped, lo, hi)
             out[key] = clamped
         return out
@@ -483,7 +483,7 @@ class StyleLoraService:
         level = PRIORITY_LEVELS.get(priority, PRIORITY_LEVELS["low"])
         self._queue.put((level, seq, {"task_id": task_id, "config": cfg}))
         self._ensure_worker()
-        logger.info("风格训练任务入队: %s (priority=%s, global=%s)",
+        log.info("风格训练任务入队: %s (priority=%s, global=%s)",
                     task_id, priority, GLOBAL_PRIORITY.name)
         return task_id
 
@@ -504,7 +504,7 @@ class StyleLoraService:
             try:
                 self._run_task(item[2])
             except Exception as exc:  # noqa: BLE001 - 工作线程不崩溃
-                logger.error("风格训练工作线程异常: %s", exc)
+                log.error("风格训练工作线程异常: %s", exc)
             finally:
                 self._queue.task_done()
 
@@ -541,17 +541,17 @@ class StyleLoraService:
             if passed:
                 self._set_current(version)
             self._update_task(task_id, status="done", progress=1.0)
-            logger.info("风格训练完成: %s → %s (score=%s, %s)",
+            log.info("风格训练完成: %s → %s (score=%s, %s)",
                         task_id, version, report.get("quality_score"),
                         "registered" if passed else "pending_review")
         except StyleTrainingCancelled:
-            logger.info("风格训练任务已取消: %s", task_id)
+            log.info("风格训练任务已取消: %s", task_id)
             self._update_task(task_id, status="cancelled")
         except StyleTrainingFailed as exc:
-            logger.error("风格训练失败: %s: %s", task_id, exc)
+            log.error("风格训练失败: %s: %s", task_id, exc)
             self._update_task(task_id, status="error", error=str(exc)[:500])
         except Exception as exc:  # noqa: BLE001 - 未预期异常同失败处理
-            logger.exception("风格训练未预期异常: %s", task_id)
+            log.exception("风格训练未预期异常: %s", task_id)
             self._update_task(task_id, status="error",
                               error=f"未预期异常: {exc}"[:500])
         finally:
@@ -1011,13 +1011,13 @@ class StyleLoraService:
     def rollback(self, version: str) -> bool:
         """回滚到指定版本（置 current 指针）。版本不存在返回 False。"""
         if not self._safe_version(version):
-            logger.warning("风格 LoRA 回滚版本号非法（拒绝）: %r", version[:60])
+            log.warning("风格 LoRA 回滚版本号非法（拒绝）: %r", version[:60])
             return False
         if not (STYLE_LORA_DIR / version).is_dir():
-            logger.warning("风格 LoRA 回滚目标版本不存在: %s", version)
+            log.warning("风格 LoRA 回滚目标版本不存在: %s", version)
             return False
         self._set_current(version)
-        logger.info("风格 LoRA 回滚到 %s", version)
+        log.info("风格 LoRA 回滚到 %s", version)
         return True
 
     # ── 风格项目管理（批 2 STYLE-024/025/027/028/030/032）────────────
@@ -1025,7 +1025,7 @@ class StyleLoraService:
     def rename_version(self, version: str, name: str) -> bool:
         """重命名风格项目（STYLE-028：写 meta.json name 字段）。"""
         if not self._safe_version(version):
-            logger.warning("风格版本重命名版本号非法（拒绝）: %r", version[:60])
+            log.warning("风格版本重命名版本号非法（拒绝）: %r", version[:60])
             return False
         version_dir = STYLE_LORA_DIR / version
         if not version_dir.is_dir():
@@ -1033,7 +1033,7 @@ class StyleLoraService:
         meta = self._read_meta(version_dir) or {"version": version}
         meta["name"] = name
         self._write_meta(version_dir, meta)
-        logger.info("风格版本重命名: %s → %s", version, name)
+        log.info("风格版本重命名: %s → %s", version, name)
         return True
 
     def delete_version(self, version: str) -> tuple[bool, str]:
@@ -1046,12 +1046,12 @@ class StyleLoraService:
             # P1-5 收尾（2026-09-05）：delete 是 rollback/rename 之外最后
             # 一个漏网入口——非法版本对外统一按 not_found（不向请求方区分
             # 格式非法与不存在），拒绝原因只进日志。
-            logger.warning("风格版本删除版本号非法（拒绝）: %r", version[:60])
+            log.warning("风格版本删除版本号非法（拒绝）: %r", version[:60])
             return False, "not_found"
         version_dir = STYLE_LORA_DIR / version
         if not version_dir.resolve().is_relative_to(STYLE_LORA_DIR.resolve()):
             # 纵深防御第二闸：格式白名单之后的越界兜底（防未来新入口绕过）
-            logger.warning("风格版本删除路径越界（拒绝）: %r", version[:60])
+            log.warning("风格版本删除路径越界（拒绝）: %r", version[:60])
             return False, "not_found"
         if not version_dir.is_dir():
             return False, "not_found"
@@ -1063,7 +1063,7 @@ class StyleLoraService:
         if self.get_current() == version:
             CURRENT_FILE.unlink(missing_ok=True)
         shutil.rmtree(version_dir, ignore_errors=True)
-        logger.info("风格版本已删除: %s", version)
+        log.info("风格版本已删除: %s", version)
         return True, "deleted"
 
     def merge_versions(self, versions: list[str], weights: list[float],
@@ -1125,7 +1125,7 @@ class StyleLoraService:
             "base_model": BASE_MODEL_ID,
         }
         self._write_meta(version_dir, meta)
-        logger.info("风格 LoRA 合并完成: %s ← %s (weights=%s)",
+        log.info("风格 LoRA 合并完成: %s ← %s (weights=%s)",
                     version, versions, norm)
         return {"version": version, "merged_from": versions,
                 "merge_weights": norm, "dropped_keys": sorted(skipped_keys),
@@ -1295,9 +1295,9 @@ class StyleLoraService:
         for v in victims[:len(versions) - MAX_VERSIONS]:
             try:
                 shutil.rmtree(v["path"], ignore_errors=True)
-                logger.info("清理旧风格 LoRA 版本: %s", v["version"])
+                log.info("清理旧风格 LoRA 版本: %s", v["version"])
             except OSError as exc:
-                logger.warning("清理风格版本失败 %s: %s", v["version"], exc)
+                log.warning("清理风格版本失败 %s: %s", v["version"], exc)
 
     # ═══════════════════════════════════════════════════════════
     #  状态查询

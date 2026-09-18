@@ -26,7 +26,7 @@ from typing import Any
 
 from ...config import CACHE_COMPRESSION
 
-logger = logging.getLogger("omnispace.scheduler.dispatcher")
+log = logging.getLogger("omnispace.scheduler.dispatcher")
 
 
 def _release_cached_memory() -> None:
@@ -39,7 +39,7 @@ def _release_cached_memory() -> None:
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
     except Exception as exc:  # noqa: BLE001 - torch 缺失/CUDA 异常均忽略
-        logger.debug("CUDA 缓存清理跳过: %s", exc)
+        log.debug("CUDA 缓存清理跳过: %s", exc)
 
 
 # 功能名 -> 模型类别（ModelManager.ensure_loaded 的 category 入参）
@@ -87,7 +87,7 @@ class TaskDispatcher:
             from ..model_manager import get_model_manager
             return get_model_manager()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("ModelManager 不可用，调度动作降级为记账: %s", exc)
+            log.debug("ModelManager 不可用，调度动作降级为记账: %s", exc)
             return None
 
     @staticmethod
@@ -97,7 +97,7 @@ class TaskDispatcher:
             from ...middleware.feature_lock import get_feature_lock
             return get_feature_lock().active_feature is not None
         except Exception as exc:  # noqa: BLE001
-            logger.debug("功能锁状态探测失败（视为空闲）: %s", exc)
+            log.debug("功能锁状态探测失败（视为空闲）: %s", exc)
             return False
 
     # ── 层迁移 ──────────────────────────────────────────────────
@@ -124,7 +124,7 @@ class TaskDispatcher:
         # allocated 事故链一环）。整体跳过：记账 + offload 标记 +
         # 缓存释放同进同退，保持与 ModelManager 状态同步。
         if self._feature_lock_active():
-            logger.info("功能锁占用中，跳过层迁移: %s", layers)
+            log.info("功能锁占用中，跳过层迁移: %s", layers)
             return
         for layer in layers:
             if layer in self._gpu_layers:
@@ -137,9 +137,9 @@ class TaskDispatcher:
             try:
                 mgr.set_cpu_offload(True, layers=list(self._cpu_layers))
             except Exception as exc:  # noqa: BLE001
-                logger.debug("CPU offload 标记写入失败: %s", exc)
+                log.debug("CPU offload 标记写入失败: %s", exc)
         _release_cached_memory()
-        logger.info(
+        log.info(
             "迁移 %d 层到 CPU (GPU 层: %d, CPU 层: %d, offload 标记已置位)",
             len(layers),
             len(self._gpu_layers),
@@ -167,8 +167,8 @@ class TaskDispatcher:
                 try:
                     mgr.set_cpu_offload(False)
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("CPU offload 标记清除失败: %s", exc)
-        logger.info(
+                    log.debug("CPU offload 标记清除失败: %s", exc)
+        log.info(
             "迁移 %d 任务到 GPU (GPU 层: %d, CPU 层: %d)",
             len(tasks),
             len(self._gpu_layers),
@@ -190,7 +190,7 @@ class TaskDispatcher:
         # 模式切换时执行，持锁期间跳过 = 该次降级意图丢弃（当前精度
         # 标记无消费方无实害；未来接线消费方时需锁释放后补执行）。
         if self._feature_lock_active():
-            logger.info("功能锁占用中，跳过精度降级: %s", precision)
+            log.info("功能锁占用中，跳过精度降级: %s", precision)
             return
         precision_order = ["fp32", "fp16", "bf16", "fp8", "int8", "int4"]
         old = self._current_precision
@@ -201,13 +201,13 @@ class TaskDispatcher:
             if new_idx > old_idx:
                 self._current_precision = precision
                 changed = True
-                logger.info("精度降级: %s -> %s", old, precision)
+                log.info("精度降级: %s -> %s", old, precision)
             else:
-                logger.debug("精度不变: %s (请求 %s 不低于当前)", old, precision)
+                log.debug("精度不变: %s (请求 %s 不低于当前)", old, precision)
         except ValueError:
             self._current_precision = precision
             changed = True
-            logger.info("精度设置: %s", precision)
+            log.info("精度设置: %s", precision)
         # 真实接线：精度策略写入 ModelManager，供引擎加载时参考
         if changed:
             mgr = self._get_model_manager()
@@ -215,7 +215,7 @@ class TaskDispatcher:
                 try:
                     mgr.set_precision_policy(self._current_precision)
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("精度策略写入失败: %s", exc)
+                    log.debug("精度策略写入失败: %s", exc)
 
     @property
     def current_precision(self) -> str:
@@ -236,7 +236,7 @@ class TaskDispatcher:
         """
         mgr = self._get_model_manager()
         if mgr is not None and self._feature_lock_active():
-            logger.info("功能锁占用中，跳过预加载: %s", features)
+            log.info("功能锁占用中，跳过预加载: %s", features)
             return
         for feature in features:
             if feature in self._preloaded:
@@ -253,17 +253,17 @@ class TaskDispatcher:
                     if model_id:
                         loaded_ok = bool(mgr.ensure_loaded(category, model_id))
                         if not loaded_ok:
-                            logger.info("预加载未就绪: %s (%s)",
+                            log.info("预加载未就绪: %s (%s)",
                                         model_id, mgr.last_error or "未知原因")
                     else:
-                        logger.debug("功能 %s 无可用模型候选，仅记账", feature)
+                        log.debug("功能 %s 无可用模型候选，仅记账", feature)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("预加载异常 (%s): %s", feature, exc)
+                    log.warning("预加载异常 (%s): %s", feature, exc)
             self._preloaded.append(feature)
             if loaded_ok:
-                logger.info("预加载模型: %s -> %s", feature, model_id)
+                log.info("预加载模型: %s -> %s", feature, model_id)
             else:
-                logger.info("预加载模型: %s（记账）", feature)
+                log.info("预加载模型: %s（记账）", feature)
 
     # ── 缓存压缩 ────────────────────────────────────────────────
 
@@ -282,17 +282,17 @@ class TaskDispatcher:
                 try:
                     n = mgr.cache.compress_inactive()
                     if n:
-                        logger.info("模型 L2 缓存压缩: %d 项", n)
+                        log.info("模型 L2 缓存压缩: %d 项", n)
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("模型缓存压缩失败: %s", exc)
+                    log.debug("模型缓存压缩失败: %s", exc)
             try:
                 from ...engines.memory_manager import get_memory_manager
                 n2 = get_memory_manager().compress_inactive()
                 if n2:
-                    logger.info("内存不活跃块压缩: %d 项", n2)
+                    log.info("内存不活跃块压缩: %d 项", n2)
             except Exception as exc:  # noqa: BLE001
-                logger.debug("内存管理器压缩不可用: %s", exc)
-            logger.info("缓存已压缩 (算法: %s)", CACHE_COMPRESSION)
+                log.debug("内存管理器压缩不可用: %s", exc)
+            log.info("缓存已压缩 (算法: %s)", CACHE_COMPRESSION)
 
     def decompress_cache(self) -> None:
         """解压缓存（资源恢复时）。
@@ -302,7 +302,7 @@ class TaskDispatcher:
         """
         if self._cache_compressed:
             self._cache_compressed = False
-            logger.info("缓存已解压（条目访问时惰性解压）")
+            log.info("缓存已解压（条目访问时惰性解压）")
 
     # ── 强制卸载 ────────────────────────────────────────────────
 
@@ -326,7 +326,7 @@ class TaskDispatcher:
             if holder:
                 keep.add(holder)
         except Exception:  # noqa: BLE001 - 锁查询失败不阻断卸载
-            logger.debug("force_unload: 降级忽略", exc_info=True)
+            log.debug("force_unload: 降级忽略", exc_info=True)
         keep_cats = {_FEATURE_TO_CATEGORY.get(f, f) for f in keep}
         mgr = self._get_model_manager()
         if mgr is not None:
@@ -338,13 +338,13 @@ class TaskDispatcher:
                         continue
                     try:
                         if mgr.unload_model(entry["model_id"]):
-                            logger.warning("强制卸载模型: %s (category=%s)",
+                            log.warning("强制卸载模型: %s (category=%s)",
                                            entry["model_id"], cat)
                     except Exception as exc:  # noqa: BLE001
-                        logger.warning("强制卸载失败 (%s): %s",
+                        log.warning("强制卸载失败 (%s): %s",
                                        entry.get("model_id"), exc)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("强制卸载执行异常: %s", exc)
+                log.warning("强制卸载执行异常: %s", exc)
         # 记账同步：移除未保留的预加载记录
         unloaded = []
         for feature in list(self._preloaded):
@@ -352,7 +352,7 @@ class TaskDispatcher:
                 unloaded.append(feature)
                 self._preloaded.remove(feature)
         if unloaded:
-            logger.warning("强制卸载模型: %s (保留: %s)", unloaded, list(keep))
+            log.warning("强制卸载模型: %s (保留: %s)", unloaded, list(keep))
 
     # ── 状态查询 ────────────────────────────────────────────────
 

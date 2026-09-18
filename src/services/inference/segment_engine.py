@@ -30,7 +30,7 @@ from typing import Any
 
 from ...config import MODELS_DIR
 
-logger = logging.getLogger("omnispace.inference.segment")
+log = logging.getLogger("omnispace.inference.segment")
 
 
 def _try_import(name: str) -> Any:
@@ -109,7 +109,7 @@ class SegmentEngine:
             if torch is None:
                 self._unavailable_reason = "torch 依赖不可用"
                 self._state = "unavailable"
-                logger.warning("分割引擎不可用: %s", self._unavailable_reason)
+                log.warning("分割引擎不可用: %s", self._unavailable_reason)
                 return False
             SamModel = getattr(transformers, "SamModel", None) if transformers else None
             SamProcessor = getattr(transformers, "SamProcessor", None) \
@@ -119,7 +119,7 @@ class SegmentEngine:
                     "transformers 缺少 SamModel/SamProcessor，请检查 transformers 版本"
                 )
                 self._state = "unavailable"
-                logger.warning("分割引擎不可用: %s", self._unavailable_reason)
+                log.warning("分割引擎不可用: %s", self._unavailable_reason)
                 return False
 
             path = MODELS_DIR / SAM_MODEL_REL_DIR
@@ -128,7 +128,7 @@ class SegmentEngine:
                     "SAM 分割模型未找到（models/sam-vit-h），请先下载模型"
                 )
                 self._state = "unavailable"
-                logger.warning(self._unavailable_reason)
+                log.warning(self._unavailable_reason)
                 return False
 
             cuda_ok = bool(torch.cuda.is_available())
@@ -136,7 +136,7 @@ class SegmentEngine:
             self._dtype = torch.float16 if cuda_ok else torch.float32
 
             try:
-                logger.info("开始加载分割模型 %s <- %s (device=%s, dtype=%s)",
+                log.info("开始加载分割模型 %s <- %s (device=%s, dtype=%s)",
                             SAM_BACKEND_ID, path, self._device, self._dtype)
                 processor = SamProcessor.from_pretrained(str(path))
                 model = SamModel.from_pretrained(
@@ -148,19 +148,19 @@ class SegmentEngine:
                 self._model = model
                 self._state = "ready"
                 self._unavailable_reason = ""
-                logger.info("分割模型加载成功: %s", SAM_BACKEND_ID)
+                log.info("分割模型加载成功: %s", SAM_BACKEND_ID)
                 return True
             except Exception as exc:  # noqa: BLE001
                 self._unavailable_reason = f"SAM 分割模型加载失败: {exc}"
                 self._state = "error"
                 self._model = None
                 self._processor = None
-                logger.exception("分割模型加载失败")
+                log.exception("分割模型加载失败")
                 try:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    logger.debug("load_model: 降级忽略", exc_info=True)
+                    log.debug("load_model: 降级忽略", exc_info=True)
                 return False
 
     def unload_model(self) -> bool:
@@ -177,9 +177,9 @@ class SegmentEngine:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
-                    logger.debug("unload_model: 降级忽略", exc_info=True)
+                    log.debug("unload_model: 降级忽略", exc_info=True)
             if had:
-                logger.info("分割模型已卸载，显存已释放")
+                log.info("分割模型已卸载，显存已释放")
             return had
 
     # ── 推理 ──────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ class SegmentEngine:
                 w, h = image.size
                 if not points and not box:
                     points = [[w // 2, h // 2]]
-                    logger.debug("未提供提示，使用图像中心点 (%d, %d)", w // 2, h // 2)
+                    log.debug("未提供提示，使用图像中心点 (%d, %d)", w // 2, h // 2)
 
                 prompt_kwargs: dict[str, Any] = {}
                 if points:
@@ -269,7 +269,7 @@ class SegmentEngine:
             mask_png_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
             elapsed = time.perf_counter() - start
-            logger.info("分割完成: %dx%d score=%.4f %.2fs（prompt: points=%d, box=%s）",
+            log.info("分割完成: %dx%d score=%.4f %.2fs（prompt: points=%d, box=%s）",
                         w, h, score, elapsed,
                         len(points) if points else 0, "yes" if box else "no")
             return {
@@ -282,14 +282,14 @@ class SegmentEngine:
         except RuntimeError:
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.exception("分割推理失败")
+            log.exception("分割推理失败")
             raise RuntimeError(f"分割推理失败: {exc}") from exc
         finally:
             if self._device == "cuda":
                 try:
                     torch.cuda.empty_cache()
                 except Exception:
-                    logger.debug("segment: 降级忽略", exc_info=True)
+                    log.debug("segment: 降级忽略", exc_info=True)
 
     # ── 状态 ──────────────────────────────────────────────────────
 

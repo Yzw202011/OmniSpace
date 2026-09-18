@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 
 from ..config import LOGS_DIR
 
-logger = logging.getLogger("omnispace.flow_trace")
+log = logging.getLogger("omnispace.flow_trace")
 
 # ── 配置 ────────────────────────────────────────────────────────────
 DB_PATH = LOGS_DIR / "flow_trace.db"
@@ -123,7 +123,7 @@ def resource_snapshot() -> dict[str, Any]:
         snap["ram_percent"] = round(vm.percent, 1)
         snap["ram_used_gb"] = round(vm.used / 1024**3, 1)
     except Exception:  # noqa: BLE001
-        logger.debug("resource_snapshot: 降级忽略", exc_info=True)
+        log.debug("resource_snapshot: 降级忽略", exc_info=True)
     try:
         m = _monitor()
         if m is not None:
@@ -135,7 +135,7 @@ def resource_snapshot() -> dict[str, Any]:
                 "temp_celsius": gpu.get("temp_celsius", 0.0),
             }
     except Exception:  # noqa: BLE001
-        logger.debug("resource_snapshot: 降级忽略", exc_info=True)
+        log.debug("resource_snapshot: 降级忽略", exc_info=True)
     return snap
 
 
@@ -212,7 +212,7 @@ def _exec(sql: str, params: tuple = ()) -> None:
             db.execute(sql, params)
             db.commit()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("flow_trace 写入失败: %s", exc)
+        log.warning("flow_trace 写入失败: %s", exc)
 
 
 def _query(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
@@ -222,7 +222,7 @@ def _query(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
             rows = db.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
     except Exception as exc:  # noqa: BLE001
-        logger.warning("flow_trace 查询失败: %s", exc)
+        log.warning("flow_trace 查询失败: %s", exc)
         return []
 
 
@@ -272,7 +272,7 @@ class _NodeCtx:
                     (now, self.flow.flow_id))
                 db.commit()
         except Exception:  # noqa: BLE001
-            logger.debug("progress: 降级忽略", exc_info=True)
+            log.debug("progress: 降级忽略", exc_info=True)
 
     def output(self, summary: str) -> None:
         """补充输出摘要（with 块内调用；退出时统一落库）。"""
@@ -704,7 +704,7 @@ def recover_orphans() -> int:
             " error='后端进程重启，节点状态未知' WHERE flow_id=?"
             " AND status='running'", (fid,))
     if orphans:
-        logger.info("flow_trace 崩溃恢复：%d 个孤儿流程标记 orphan", len(orphans))
+        log.info("flow_trace 崩溃恢复：%d 个孤儿流程标记 orphan", len(orphans))
     return len(orphans)
 
 
@@ -722,11 +722,11 @@ def cleanup_expired() -> dict[str, Any]:
             db.commit()
             n = cur.rowcount or 0
         if n:
-            logger.info("flow_trace 过期清理：删除 %d 条流程（超 %d 天）",
+            log.info("flow_trace 过期清理：删除 %d 条流程（超 %d 天）",
                         n, RETENTION_DAYS)
         return {"deleted": n}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("flow_trace 清理失败: %s", exc)
+        log.warning("flow_trace 清理失败: %s", exc)
         return {"deleted": 0}
 
 
@@ -743,6 +743,6 @@ def start_cleanup_task() -> None:
     from .periodic import start_periodic_daemon
     start_periodic_daemon("flow-trace-cleanup", _CLEANUP_INTERVAL_S,
                           cleanup_expired, run_immediately=True)
-    logger.info("流程追踪服务已启动（保留 %d 天，卡住阈值 %.0fs）",
+    log.info("流程追踪服务已启动（保留 %d 天，卡住阈值 %.0fs）",
                 RETENTION_DAYS, STALL_THRESHOLD_S)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

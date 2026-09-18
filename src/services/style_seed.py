@@ -15,7 +15,7 @@ import time
 from ..asset_vault import read_asset
 from ..config import DB_PATH
 
-logger = logging.getLogger("omnispace.style_seed")
+log = logging.getLogger("omnispace.style_seed")
 
 SEED_FILE = "art_styles_seed.json.enc"
 
@@ -42,5 +42,5 @@ def ensure_seed() -> dict:
         return len(rows)
 
     imported = db.execute_in_transaction(_do_import)
-    logger.info("风格库种子导入：%d 条（库=%s）", imported, DB_PATH.name)
+    log.info("风格库种子导入：%d 条（库=%s）", imported, DB_PATH.name)
     return {"imported": imported}

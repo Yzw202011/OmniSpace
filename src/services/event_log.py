@@ -46,7 +46,7 @@ from typing import Any
 
 from ..config import LOGS_DIR
 
-logger = logging.getLogger("omnispace.event_log")
+log = logging.getLogger("omnispace.event_log")
 
 # 事件日志根目录（按天切分文件）
 EVENTS_DIR = LOGS_DIR / "events"
@@ -139,7 +139,7 @@ def log_event(
                 f.write(line + "\n")
     except OSError as exc:
         # 事件日志写失败只影响可视化，不影响业务主链路
-        logger.warning("事件日志写入失败: %s", exc)
+        log.warning("事件日志写入失败: %s", exc)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -416,7 +416,7 @@ def event_stats(days: int = 7) -> dict[str, Any]:
                 if key in buckets:
                     buckets[key] += 1
         except ValueError:
-            logger.debug("event_stats: 降级忽略", exc_info=True)
+            log.debug("event_stats: 降级忽略", exc_info=True)
 
     hourly = [{"hour": k, "count": v} for k, v in buckets.items()]
     # 模块分布按量排序（Top 12）
@@ -495,7 +495,7 @@ def cleanup_expired(now: datetime | None = None) -> dict[str, Any]:
                 deleted.append(f.name)
 
     if deleted:
-        logger.info("日志过期清理：%d 个文件（超 %d 天），释放 %.1fMB",
+        log.info("日志过期清理：%d 个文件（超 %d 天），释放 %.1fMB",
                     len(deleted), RETENTION_DAYS, freed / 1024 / 1024)
         log_event(
             "system", "logs_cleaned",

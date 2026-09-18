@@ -31,7 +31,7 @@ from typing import Any
 from ..config import ROOT_DIR
 from .training_common import TrainingLockGuard, VersionStore
 
-logger = logging.getLogger("omnispace.services.character_lora")
+log = logging.getLogger("omnispace.services.character_lora")
 
 # 底座：FLUX.2 Klein 4b（diffusers 完整布局：transformer/vae/...）
 BASE_MODEL_ID = "flux2-klein-4b"
@@ -115,7 +115,7 @@ class CharacterLoraService:
                 updated_at REAL)""")
             return True
         except Exception:  # noqa: BLE001 - 建表失败走内存镜像
-            logger.warning("char_lora_tasks 建表失败，降级内存镜像",
+            log.warning("char_lora_tasks 建表失败，降级内存镜像",
                            exc_info=True)
             return False
 
@@ -133,7 +133,7 @@ class CharacterLoraService:
                      task["status"], task["progress"], task["error"],
                      task["version"], task["created_at"], task["updated_at"]))
             except Exception:  # noqa: BLE001 - 写失败保内存镜像
-                logger.debug("char task 写库失败", exc_info=True)
+                log.debug("char task 写库失败", exc_info=True)
 
     def list_tasks(self) -> list[dict[str, Any]]:
         db = _get_db()
@@ -145,7 +145,7 @@ class CharacterLoraService:
                     " ORDER BY created_at DESC")
                 return [dict(r) for r in rows]
             except Exception:  # noqa: BLE001
-                logger.debug("char tasks 读库失败，走内存镜像",
+                log.debug("char tasks 读库失败，走内存镜像",
                              exc_info=True)
         return sorted(self._mem_tasks.values(),
                       key=lambda t: t.get("created_at", 0), reverse=True)
@@ -297,7 +297,7 @@ class CharacterLoraService:
                 task.update({"status": STATUS_CANCELLED, "error": None})
                 self._upsert_task(task)
             except Exception as exc:  # noqa: BLE001 - 训练异常如实入账
-                logger.warning("人物 LoRA 训练失败: %s", exc, exc_info=True)
+                log.warning("人物 LoRA 训练失败: %s", exc, exc_info=True)
                 task.update({"status": STATUS_ERROR,
                              "error": str(exc)[:500]})
                 self._upsert_task(task)
@@ -306,7 +306,7 @@ class CharacterLoraService:
                     try:
                         self._lock_guard.release()
                     except Exception:  # noqa: BLE001 - 释放失败仅记日志
-                        logger.debug("训练锁释放异常", exc_info=True)
+                        log.debug("训练锁释放异常", exc_info=True)
 
     def _progress(self, task: dict[str, Any], pct: float,
                   **kw: Any) -> None:

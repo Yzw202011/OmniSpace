@@ -18,7 +18,7 @@ from ...data.models import (
 )
 from .classifier import ModelClassifier
 
-logger = logging.getLogger("omnispace.model_manager.selector")
+log = logging.getLogger("omnispace.model_manager.selector")
 
 
 class ModelSelector:
@@ -82,7 +82,7 @@ class ModelSelector:
             return self._select_from_table(DIALOG_ROUTING_TABLE, available_vram_gb)
 
         else:
-            logger.warning("未知功能 '%s'，使用对话模型兜底", feature)
+            log.warning("未知功能 '%s'，使用对话模型兜底", feature)
             return self._select_from_table(DIALOG_ROUTING_TABLE, available_vram_gb)
 
     def select_video_model(self, available_vram_gb: float) -> VideoModel:
@@ -170,7 +170,7 @@ class ModelSelector:
             model_val = entry["model"]
             mid = model_val.value if hasattr(model_val, "value") else str(model_val)
             if mid in downloaded:
-                logger.debug(
+                log.debug(
                     "选择模型（已下载）: %s (需要 >= %dGB, 实际 %.1fGB)",
                     mid, entry["min_vram_gb"], available_vram_gb,
                 )
@@ -181,7 +181,7 @@ class ModelSelector:
             if available_vram_gb >= entry["min_vram_gb"]:
                 model_val = entry["model"]
                 mid = model_val.value if hasattr(model_val, "value") else str(model_val)
-                logger.debug(
+                log.debug(
                     "选择模型（未下载，回退）: %s (需要 >= %dGB, 实际 %.1fGB)",
                     mid, entry["min_vram_gb"], available_vram_gb,
                 )

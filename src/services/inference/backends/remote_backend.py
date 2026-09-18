@@ -40,7 +40,7 @@ from ...cloud_provider_service import (
 )
 from .base import DialogBackend, estimate_tokens
 
-logger = logging.getLogger("omnispace.inference.backends.remote")
+log = logging.getLogger("omnispace.inference.backends.remote")
 
 _SETTINGS_KEY = "system.settings"
 _CFG_TTL_S = 5.0
@@ -70,7 +70,7 @@ def _read_settings_kv() -> dict:
         if row and row.get("value"):
             return json.loads(row["value"]) or {}
     except Exception as exc:  # noqa: BLE001 - 配置读取失败按未启用
-        logger.debug("远程对话配置读取失败: %s", exc)
+        log.debug("远程对话配置读取失败: %s", exc)
     return {}
 
 
@@ -206,7 +206,7 @@ class RemoteDialogBackend(DialogBackend):
                 self._loaded_key = f"{ep.base_url}|{self.model_id}"
                 self._ready = True
                 self._last_error = ""
-                logger.info("云端端点就绪: %s（服务商=%s 模型=%s）",
+                log.info("云端端点就绪: %s（服务商=%s 模型=%s）",
                             ep.base_url, ep.provider_name or "自定义",
                             self.model_id)
                 return True
@@ -215,7 +215,7 @@ class RemoteDialogBackend(DialogBackend):
                     f"云端 API 持续不可达（已等待 {self._health_wait_s:.0f}s）："
                     f"{last_err}。请确认服务商在线/网络可达，"
                     f"或到「设置 → 云端 API 服务」点「测试连接」排查")
-                logger.warning(self._last_error)
+                log.warning(self._last_error)
                 return False
             time.sleep(self._health_poll_s)
 

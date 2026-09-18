@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-logger = logging.getLogger("omnispace.services.plugin_runtime.bridge")
+log = logging.getLogger("omnispace.services.plugin_runtime.bridge")
 
 
 class PluginEventBridge:
@@ -28,14 +28,14 @@ class PluginEventBridge:
         # 1080p float64 帧序列 1.2GB——铁律：事件不带大数组）
         if isinstance(payload, dict):
             data.update(payload)
-        logger.info("插件事件 %s.%s: %s", plugin_name, topic,
+        log.info("插件事件 %s.%s: %s", plugin_name, topic,
                     {k: v for k, v in data.items()
                      if isinstance(v, (str, int, float, bool))})
         try:
             from ..ws_hub import get_ws_hub
             get_ws_hub().broadcast({"type": "plugin_event", "data": data})
         except Exception:  # noqa: BLE001 - 广播失败不连累插件
-            logger.debug("插件事件广播降级（WS 中枢不可用）", exc_info=True)
+            log.debug("插件事件广播降级（WS 中枢不可用）", exc_info=True)
 
 
 # 模块级单例（桥无状态，单例便于测试替换）

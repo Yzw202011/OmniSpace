@@ -28,7 +28,7 @@ from ...config import DATA_DIR, MODELS_DIR, VOICE_PRESET_EMOTIONS
 from ...middleware.error_handler import ApiError
 from .base_engine import BaseEngine
 
-logger = logging.getLogger("omnispace.inference.voice")
+log = logging.getLogger("omnispace.inference.voice")
 
 
 def _try_import(name: str) -> Any:
@@ -60,7 +60,7 @@ def _probe_sapi5() -> bool:
         _sapi5_ok = False
         return _sapi5_ok
     try:
-        import comtypes.client  # noqa: PLC0415 - 惰性导入可选依赖
+        import comtypes.client  # type: ignore[import-untyped]  # noqa: PLC0415 - 惰性导入可选依赖
         comtypes.client.CreateObject("SAPI.SpVoice")
         _sapi5_ok = True
     except Exception:  # noqa: BLE001 - 任何 COM/依赖异常均视为不可用
@@ -137,7 +137,7 @@ def discover_voice_models() -> dict[str, dict]:
                     elif mt == "bark":
                         kind = "tts_bark"
                 except Exception:  # noqa: BLE001
-                    logger.debug("_probe: 降级忽略", exc_info=True)
+                    log.debug("_probe: 降级忽略", exc_info=True)
         if not kind:
             return
         ready, reason = True, ""
@@ -177,9 +177,9 @@ def discover_voice_models() -> dict[str, dict]:
                         if grand.is_dir():
                             _probe(grand)
                 except OSError:
-                    logger.debug("discover_voice_models: 降级忽略", exc_info=True)
+                    log.debug("discover_voice_models: 降级忽略", exc_info=True)
     except OSError:
-        logger.debug("discover_voice_models: 降级忽略", exc_info=True)
+        log.debug("discover_voice_models: 降级忽略", exc_info=True)
     return found
 
 
@@ -311,7 +311,7 @@ class VoiceEngine(BaseEngine):
         self._asr_lock = threading.Lock()
 
         if _torch is None:
-            logger.warning("语音引擎依赖不可用 (torch)，将使用模拟模式")
+            log.warning("语音引擎依赖不可用 (torch)，将使用模拟模式")
             self._fallback_mode = True
 
     def load_model(self, model_path: str, engine_type: str = "cosyvoice", device: str = "auto") -> bool:
@@ -348,7 +348,7 @@ class VoiceEngine(BaseEngine):
         elif engine_type == "sovits":
             return self._load_sovits(model_path)
         else:
-            logger.warning("未知语音引擎类型: %s", engine_type)
+            log.warning("未知语音引擎类型: %s", engine_type)
             self._fallback_mode = True
             return False
 
@@ -361,7 +361,7 @@ class VoiceEngine(BaseEngine):
                 # 尝试其他导入路径
                 cosyvoice_cls = _try_import("CosyVoice")
             if cosyvoice_cls is None:
-                logger.warning("CosyVoice 库不可用")
+                log.warning("CosyVoice 库不可用")
                 self._fallback_mode = True
                 return False
 
@@ -371,10 +371,10 @@ class VoiceEngine(BaseEngine):
             self._engine_type = "cosyvoice"
             self._loaded = True
             self._fallback_mode = False
-            logger.info("CosyVoice3 加载成功: %s", model_path)
+            log.info("CosyVoice3 加载成功: %s", model_path)
             return True
         except Exception as e:
-            logger.warning("CosyVoice3 加载失败: %s", e)
+            log.warning("CosyVoice3 加载失败: %s", e)
             self._fallback_mode = True
             return False
 
@@ -383,7 +383,7 @@ class VoiceEngine(BaseEngine):
         try:
             chattts_module = _try_import("ChatTTS")
             if chattts_module is None:
-                logger.warning("ChatTTS 库不可用")
+                log.warning("ChatTTS 库不可用")
                 self._fallback_mode = True
                 return False
 
@@ -393,10 +393,10 @@ class VoiceEngine(BaseEngine):
             self._engine_type = "chattts"
             self._loaded = True
             self._fallback_mode = False
-            logger.info("ChatTTS 加载成功: %s", model_path)
+            log.info("ChatTTS 加载成功: %s", model_path)
             return True
         except Exception as e:
-            logger.warning("ChatTTS 加载失败: %s", e)
+            log.warning("ChatTTS 加载失败: %s", e)
             self._fallback_mode = True
             return False
 
@@ -408,7 +408,7 @@ class VoiceEngine(BaseEngine):
         """
         transformers = _try_import("transformers")
         if transformers is None or _torch is None:
-            logger.warning("Bark 加载失败: transformers/torch 不可用")
+            log.warning("Bark 加载失败: transformers/torch 不可用")
             self._fallback_mode = True
             return False
         try:
@@ -424,10 +424,10 @@ class VoiceEngine(BaseEngine):
             self._engine_type = "bark"
             self._loaded = True
             self._fallback_mode = False
-            logger.info("Bark 加载成功: %s", model_path)
+            log.info("Bark 加载成功: %s", model_path)
             return True
         except Exception as e:
-            logger.warning("Bark 加载失败: %s", e)
+            log.warning("Bark 加载失败: %s", e)
             self._fallback_mode = True
             return False
 
@@ -450,11 +450,11 @@ class VoiceEngine(BaseEngine):
             for name, info in discovered.items():
                 if info["kind"] != kind or not info["ready"]:
                     continue
-                logger.info("TTS 自动装载尝试: %s (%s)", name, engine_type)
+                log.info("TTS 自动装载尝试: %s (%s)", name, engine_type)
                 if self.load_model(info["path"], engine_type=engine_type,
                                    device=self._device):
                     return
-        logger.info("未发现可用 AI TTS 模型，保持 SAPI5/静音回退链")
+        log.info("未发现可用 AI TTS 模型，保持 SAPI5/静音回退链")
 
     def _synthesize_bark(
         self, voice_id: str, text: str, emotion: str, output_path: str
@@ -467,7 +467,7 @@ class VoiceEngine(BaseEngine):
         try:
             inputs = processor(text, voice_preset=preset)
         except Exception:  # noqa: BLE001 - 音色名无效时退回默认音色
-            logger.info("Bark 音色 %s 不可用，退回默认中文音色", preset)
+            log.info("Bark 音色 %s 不可用，退回默认中文音色", preset)
             inputs = processor(text, voice_preset="v2/zh_speaker_0")
         inputs = {k: (v.to(self._device) if hasattr(v, "to") else v)
                   for k, v in inputs.items()}
@@ -482,7 +482,7 @@ class VoiceEngine(BaseEngine):
             wav_file.setsampwidth(2)
             wav_file.setframerate(sr)
             wav_file.writeframes(pcm16.tobytes())
-        logger.info("Bark 合成完成: %s (emotion=%s, sr=%d)",
+        log.info("Bark 合成完成: %s (emotion=%s, sr=%d)",
                     output_path, emotion, sr)
         return output_path
 
@@ -510,7 +510,7 @@ class VoiceEngine(BaseEngine):
             if not candidates:
                 self._asr_error = ("未发现 Whisper 模型目录（models/whisper*），"
                                    "请先导入模型（如 openai/whisper-large-v3）")
-                logger.info("ASR 门控: %s", self._asr_error)
+                log.info("ASR 门控: %s", self._asr_error)
                 return False
             if model_id:
                 if model_id not in candidates:
@@ -532,12 +532,12 @@ class VoiceEngine(BaseEngine):
                 )
                 self._asr_model_id = name
                 self._asr_error = ""
-                logger.info("ASR 模型加载成功: %s (%s)", name, info["path"])
+                log.info("ASR 模型加载成功: %s (%s)", name, info["path"])
                 return True
             except Exception as exc:  # noqa: BLE001
                 self._asr_pipe = None
                 self._asr_error = f"ASR 模型加载失败: {exc}"
-                logger.warning("%s", self._asr_error)
+                log.warning("%s", self._asr_error)
                 return False
 
     def transcribe(self, audio_path: str,
@@ -575,7 +575,7 @@ class VoiceEngine(BaseEngine):
                 return_timestamps=False,
             )
             text = str(result.get("text") or "").strip()
-            logger.info("ASR 转写完成: %s (%.1fs -> %d 字)",
+            log.info("ASR 转写完成: %s (%.1fs -> %d 字)",
                         audio_path, duration_s, len(text))
             return {"text": text, "language": language or "auto",
                     "duration_s": duration_s, "model": self._asr_model_id,
@@ -585,7 +585,7 @@ class VoiceEngine(BaseEngine):
                 try:
                     os.unlink(wav_path)
                 except OSError:
-                    logger.debug("transcribe: 降级忽略", exc_info=True)
+                    log.debug("transcribe: 降级忽略", exc_info=True)
 
     def _ensure_wav16k(self, audio_path: str) -> tuple[str, bool]:
         """确保得到 16kHz 单声道 WAV；非 WAV 经 ffmpeg 转码。
@@ -600,7 +600,7 @@ class VoiceEngine(BaseEngine):
             from ..encoder_service import get_encoder_service
             ffmpeg = get_encoder_service()._ffmpeg or ""
         except Exception:  # noqa: BLE001
-            logger.debug("_ensure_wav16k: 降级忽略", exc_info=True)
+            log.debug("_ensure_wav16k: 降级忽略", exc_info=True)
         if not ffmpeg:
             raise ApiError(code=71004,
                            message="非 WAV 音频需要 FFmpeg 转码，当前环境 FFmpeg 不可用",
@@ -639,9 +639,9 @@ class VoiceEngine(BaseEngine):
         if probe["weights_ready"] and not probe["code_missing"]:
             # 权重与代码齐备的未来扩展点：当前版本尚未实现 sovits 合成路径，
             # 仍诚实回退，不伪造 AI 音色。
-            logger.warning("GPT-SoVITS 依赖齐备，但合成路径尚未实现，回退降级")
+            log.warning("GPT-SoVITS 依赖齐备，但合成路径尚未实现，回退降级")
         else:
-            logger.warning("GPT-SoVITS 门控跳过: %s", probe["reason"])
+            log.warning("GPT-SoVITS 门控跳过: %s", probe["reason"])
         self._fallback_mode = True
         return False
 
@@ -719,7 +719,7 @@ class VoiceEngine(BaseEngine):
                 return self._mock_synthesize(voice_id, text, emotion)
 
         except Exception as e:
-            logger.error("语音合成失败: %s", e)
+            log.error("语音合成失败: %s", e)
             return self._mock_synthesize(voice_id, text, emotion)
 
     def _synthesize_cosyvoice(
@@ -734,7 +734,7 @@ class VoiceEngine(BaseEngine):
                 stream=False,
             )
             # 保存音频
-            import torchaudio
+            import torchaudio  # type: ignore[import-untyped]
             for i, chunk in enumerate(chunks):
                 wav = chunk.get("tts_speech") if isinstance(chunk, dict) else chunk
                 if i == 0:
@@ -745,16 +745,16 @@ class VoiceEngine(BaseEngine):
                     combined = _torch.cat([prev_wav, wav], dim=1)
                     torchaudio.save(output_path, combined, sr)
 
-            logger.info("CosyVoice 合成完成: %s (emotion=%s)", output_path, emotion)
+            log.info("CosyVoice 合成完成: %s (emotion=%s)", output_path, emotion)
             return output_path
         except Exception as e:
-            logger.warning("CosyVoice 合成异常: %s", e)
+            log.warning("CosyVoice 合成异常: %s", e)
             raise
 
     def _synthesize_chattts(self, voice_id: str, text: str, output_path: str) -> str:
         """使用 ChatTTS 合成语音。"""
         try:
-            import torchaudio
+            import torchaudio  # type: ignore[import-untyped]
             wavs = self._model.infer(text, use_decoder=True)
             for wav in wavs:
                 torchaudio.save(
@@ -764,10 +764,10 @@ class VoiceEngine(BaseEngine):
                 )
                 break  # 只取第一个
 
-            logger.info("ChatTTS 合成完成: %s", output_path)
+            log.info("ChatTTS 合成完成: %s", output_path)
             return output_path
         except Exception as e:
-            logger.warning("ChatTTS 合成异常: %s", e)
+            log.warning("ChatTTS 合成异常: %s", e)
             raise
 
     def _mock_synthesize(self, voice_id: str, text: str, emotion: str) -> str:
@@ -785,15 +785,15 @@ class VoiceEngine(BaseEngine):
             try:
                 result = self._synthesize_sapi5(text, emotion, audio_path)
                 self._last_fallback_backend = "sapi5"
-                logger.info("[回退-SAPI5] 系统语音合成: %s (voice=%s, emotion=%s)",
+                log.info("[回退-SAPI5] 系统语音合成: %s (voice=%s, emotion=%s)",
                             result, voice_id, emotion)
                 return result
             except Exception as exc:  # noqa: BLE001 - 失败继续下沉到静音兜底
-                logger.warning("SAPI5 合成失败，下沉到静音占位: %s", exc)
+                log.warning("SAPI5 合成失败，下沉到静音占位: %s", exc)
                 try:
                     os.unlink(audio_path)
                 except OSError:
-                    logger.debug("_mock_synthesize: 降级忽略", exc_info=True)
+                    log.debug("_mock_synthesize: 降级忽略", exc_info=True)
 
         # 二级回退：静音占位 WAV（基于文本长度估算时长）
         audio_path = str(audio_dir / f"{uuid.uuid4()}_mock.wav")
@@ -810,7 +810,7 @@ class VoiceEngine(BaseEngine):
             wav_file.writeframes(silence)
 
         self._last_fallback_backend = "silent"
-        logger.info("[回退-静音] 占位合成: %s (voice=%s, emotion=%s, %.1fs)",
+        log.info("[回退-静音] 占位合成: %s (voice=%s, emotion=%s, %.1fs)",
                     audio_path, voice_id, emotion, duration_seconds)
         return audio_path
 
@@ -823,7 +823,7 @@ class VoiceEngine(BaseEngine):
         （services/offload.py 唯一同步推理入口）统一卸载，结构上无
         直调误用面（P1-06）。
         """
-        import comtypes.client  # noqa: PLC0415 - 惰性导入可选依赖
+        import comtypes.client  # type: ignore[import-untyped]  # noqa: PLC0415 - 惰性导入可选依赖
 
         speaker = comtypes.client.CreateObject("SAPI.SpVoice")
         stream = comtypes.client.CreateObject("SAPI.SpFileStream")
@@ -840,11 +840,11 @@ class VoiceEngine(BaseEngine):
             try:
                 stream.Close()
             except Exception:  # noqa: BLE001
-                logger.debug("_synthesize_sapi5: 降级忽略", exc_info=True)
+                log.debug("_synthesize_sapi5: 降级忽略", exc_info=True)
             try:
                 speaker.AudioOutputStream = None
             except Exception:  # noqa: BLE001
-                logger.debug("_synthesize_sapi5: 降级忽略", exc_info=True)
+                log.debug("_synthesize_sapi5: 降级忽略", exc_info=True)
         if not os.path.isfile(output_path) or os.path.getsize(output_path) <= 44:
             raise RuntimeError("SAPI5 输出文件无效")
         return output_path
@@ -919,7 +919,7 @@ class VoiceEngine(BaseEngine):
             self._asr_pipe = None
             self._asr_model_id = ""
         if had_any:
-            logger.info("语音引擎模型引用已释放")
+            log.info("语音引擎模型引用已释放")
         return had_any
 
 

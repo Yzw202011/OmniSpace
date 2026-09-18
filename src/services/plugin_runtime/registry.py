@@ -39,7 +39,7 @@ from .loader import (
 from .sandbox import sandbox_enabled
 from .security_gate import gate_plugin_call
 
-logger = logging.getLogger("omnispace.services.plugin_runtime.registry")
+log = logging.getLogger("omnispace.services.plugin_runtime.registry")
 
 # 插件输出根目录（帧 PNG 落盘；P2 由 ffmpeg 合成后归 video_tasks）
 OUTPUT_ROOT = ROOT_DIR / "data" / "plugins" / "output"
@@ -262,7 +262,7 @@ class PluginRuntime:
             else:
                 FACTORY_OVERRIDE_PATH.unlink(missing_ok=True)
         except OSError:
-            logger.warning("出厂停用覆盖回写失败", exc_info=True)
+            log.warning("出厂停用覆盖回写失败", exc_info=True)
 
     def _load_user_registry(self) -> None:
         """启动时读用户登记表（容错：坏文件备份改名后空表起步）。"""
@@ -275,8 +275,8 @@ class PluginRuntime:
             try:
                 USER_REGISTRY_PATH.replace(corrupt)
             except OSError:
-                logger.debug("_load_user_registry: 降级忽略", exc_info=True)
-            logger.warning("用户插件登记表损坏，已备份为 %s，从空表起步",
+                log.debug("_load_user_registry: 降级忽略", exc_info=True)
+            log.warning("用户插件登记表损坏，已备份为 %s，从空表起步",
                            corrupt)
             return
         for item in raw if isinstance(raw, list) else []:
@@ -289,7 +289,7 @@ class PluginRuntime:
             trust = str(item.get("trust") or "")
             if (not re.match(PLUGIN_NAME_RE, name)
                     or trust not in _USER_TIERS or not source.is_file()):
-                logger.warning("用户插件登记跳过（不合格）: %r", name)
+                log.warning("用户插件登记跳过（不合格）: %r", name)
                 continue
             self._registry[name] = _PluginEntry(
                 name=name, source_py=source, pkg_path=pkg, trust=trust,
@@ -368,7 +368,7 @@ class PluginRuntime:
                 try:
                     entry.instance.on_unload()
                 except Exception:  # noqa: BLE001 - 卸载钩子炸不拦停用
-                    logger.warning("插件 on_unload 异常: %s", name,
+                    log.warning("插件 on_unload 异常: %s", name,
                                    exc_info=True)
                 entry.instance = None
                 entry.state = STATE_UNLOADED
@@ -393,7 +393,7 @@ class PluginRuntime:
                 try:
                     entry.instance.on_unload()
                 except Exception:  # noqa: BLE001
-                    logger.warning("插件 on_unload 异常: %s", name,
+                    log.warning("插件 on_unload 异常: %s", name,
                                    exc_info=True)
             self._registry.pop(name, None)
             # 只删 data/plugins/imported/ 区内文件（防误删仓库/系统文件）
@@ -406,7 +406,7 @@ class PluginRuntime:
                     if p.is_relative_to(zone):
                         p.unlink(missing_ok=True)
             except OSError:
-                logger.warning("用户插件文件清理失败: %s", name,
+                log.warning("用户插件文件清理失败: %s", name,
                                exc_info=True)
             self._save_user_registry()
 
@@ -486,7 +486,7 @@ class PluginRuntime:
         with entry.lock:
             if entry.state == STATE_LOADED and entry.instance is not None:
                 return entry.instance
-            logger.info("插件加载开始: %s (%s)", name, entry.trust)
+            log.info("插件加载开始: %s (%s)", name, entry.trust)
             try:
                 module = load_plugin_module(entry.source_py)
                 classes = find_plugin_classes(module)
@@ -533,7 +533,7 @@ class PluginRuntime:
                 entry.instance = instance
                 entry.state = STATE_LOADED
                 entry.last_error = ""
-                logger.info("插件加载完成: %s", name)
+                log.info("插件加载完成: %s", name)
                 return instance
             except PluginLoadError as exc:
                 entry.last_error = str(exc)
@@ -551,7 +551,7 @@ class PluginRuntime:
                 try:
                     entry.instance.on_unload()
                 except Exception:  # noqa: BLE001 - 卸载钩子炸不拦卸载
-                    logger.warning("插件 on_unload 异常: %s", name,
+                    log.warning("插件 on_unload 异常: %s", name,
                                    exc_info=True)
             entry.instance = None
             entry.state = STATE_UNLOADED

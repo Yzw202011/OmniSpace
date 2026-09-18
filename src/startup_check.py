@@ -120,7 +120,7 @@ def _check_os_compat() -> CheckResult:
 def _check_gpu_detection() -> CheckResult:
     """03. GPU 检测。"""
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
         pynvml.nvmlInit()
         count = pynvml.nvmlDeviceGetCount()
         pynvml.nvmlShutdown()
@@ -148,7 +148,7 @@ def _check_gpu_detection() -> CheckResult:
 def _check_gpu_vendor() -> CheckResult:
     """04. GPU 厂商识别。"""
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
         pynvml.nvmlInit()
         name = pynvml.nvmlDeviceGetName(0)
         if isinstance(name, bytes):
@@ -221,7 +221,7 @@ def _check_cudnn_version() -> CheckResult:
 def _check_gpu_vram() -> CheckResult:
     """08. GPU 显存总量。"""
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         total = pynvml.nvmlDeviceGetMemoryInfo(handle).total
@@ -253,7 +253,7 @@ def _check_gpu_vram() -> CheckResult:
 def _check_gpu_driver() -> CheckResult:
     """09. GPU 驱动版本。"""
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
         pynvml.nvmlInit()
         ver = pynvml.nvmlSystemGetDriverVersion()
         if isinstance(ver, bytes):

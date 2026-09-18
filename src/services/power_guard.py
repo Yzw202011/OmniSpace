@@ -22,7 +22,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-logger = logging.getLogger("omnispace.services.power_guard")
+log = logging.getLogger("omnispace.services.power_guard")
 
 _ES_CONTINUOUS = 0x80000000
 _ES_SYSTEM_REQUIRED = 0x00000001
@@ -47,7 +47,7 @@ def keep_awake(reason: str = "task") -> Iterator[None]:
         return
     ok = _set_state(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED)
     if ok == 0:
-        logger.debug("keep_awake 置位失败（任务继续，睡眠防御退回基线）: %s",
+        log.debug("keep_awake 置位失败（任务继续，睡眠防御退回基线）: %s",
                      reason)
     try:
         yield

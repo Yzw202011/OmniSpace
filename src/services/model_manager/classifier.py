@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ...data.models import ModelCategory
 
-logger = logging.getLogger("omnispace.model_manager.classifier")
+log = logging.getLogger("omnispace.model_manager.classifier")
 
 
 # ── 文件特征映射 ────────────────────────────────────────────────
@@ -161,7 +161,7 @@ class ModelClassifier:
         name_lower = p.name.lower()
         for keyword, category in _NAME_KEYWORDS.items():
             if keyword in name_lower:
-                logger.debug("关键词匹配: '%s' -> %s", keyword, category.value)
+                log.debug("关键词匹配: '%s' -> %s", keyword, category.value)
                 return category
 
         # 3. 目录特征文件检测
@@ -182,14 +182,14 @@ class ModelClassifier:
             return category
 
         # 6. 兜底
-        logger.warning("无法识别模型类型，默认归类为 AUXILIARY: %s", path)
+        log.warning("无法识别模型类型，默认归类为 AUXILIARY: %s", path)
         return ModelCategory.AUXILIARY
 
     def _classify_by_dir(self, dir_path: Path) -> ModelCategory | None:
         """通过目录中的特征文件识别类型。"""
         for filename, category in _DIR_SIGNATURES.items():
             if (dir_path / filename).exists():
-                logger.debug("目录特征文件 '%s' -> %s", filename, category.value)
+                log.debug("目录特征文件 '%s' -> %s", filename, category.value)
                 return category
         return None
 
@@ -296,7 +296,7 @@ class ModelClassifier:
                             # seq2seq 架构（Whisper 除外，上面已拦截）按对话可用
                             return ModelCategory.DIALOG
             except Exception:
-                logger.debug("_classify_by_metadata: 降级忽略", exc_info=True)
+                log.debug("_classify_by_metadata: 降级忽略", exc_info=True)
 
         # 读取 safetensors header（单个文件）
         if path.is_file() and path.suffix == ".safetensors":
@@ -314,6 +314,6 @@ class ModelClassifier:
                     if "unet" in key_lower or "vae" in key_lower:
                         return ModelCategory.VISION
             except Exception:
-                logger.debug("_classify_by_metadata: 降级忽略", exc_info=True)
+                log.debug("_classify_by_metadata: 降级忽略", exc_info=True)
 
         return None

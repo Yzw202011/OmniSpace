@@ -61,7 +61,7 @@ def _read_torch(device: int) -> tuple[bool, int, int]:
 def _read_nvml(device: int) -> tuple[bool, int, int]:
     """NVML 通道（驱动驻留口径——WDDM 全部驻留含子进程）。"""
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
 
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(device)

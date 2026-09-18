@@ -27,7 +27,7 @@ from fastapi import APIRouter, Body
 from ..middleware.error_handler import ApiError, ok
 from ..services import cloud_provider_service as svc
 
-logger = logging.getLogger("omnispace.api.cloud")
+log = logging.getLogger("omnispace.api.cloud")
 
 router = APIRouter(prefix="/cloud")
 
@@ -53,7 +53,7 @@ def ensure_migrated() -> int:
     try:
         return int(svc.ensure_legacy_remote_migrated())
     except Exception as exc:  # noqa: BLE001 - 迁移失败仅记日志
-        logger.warning("旧远程配置懒迁移失败: %s", exc)
+        log.warning("旧远程配置懒迁移失败: %s", exc)
         return 0
 
 

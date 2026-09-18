@@ -507,14 +507,14 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         try:
             if keep_loaded:
                 log_note = "队列后继为 H3,跳过卸载(接力免重载)"
-                print(f"[h3_chain] {log_note}", flush=True)
+                log.info(f"[h3_chain] {log_note}")
             else:
                 q = engine._api("GET", "/queue", timeout=5.0) or {}
                 busy = bool((q.get("queue_running") or [])
                             or (q.get("queue_pending") or []))
                 if busy:
                     log_note = "队列非空,跳过卸载(由后续任务接管显存)"
-                    print(f"[h3_chain] {log_note}", flush=True)
+                    log.info(f"[h3_chain] {log_note}")
                 else:
                     engine.unload()
         except Exception:  # noqa: BLE001 - 卸载探测失败按原样尝试卸载

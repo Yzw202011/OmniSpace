@@ -12,7 +12,7 @@ from typing import Any
 
 from .base import DialogBackend, _try_import, estimate_tokens
 
-logger = logging.getLogger("omnispace.inference.backends.gguf")
+log = logging.getLogger("omnispace.inference.backends.gguf")
 
 
 class GGUFBackend(DialogBackend):
@@ -36,14 +36,14 @@ class GGUFBackend(DialogBackend):
                 f"模型 {model_id} 为 GGUF 格式，需要 llama.cpp 推理后端；"
                 "请执行: pip install llama-cpp-python 后重启服务"
             )
-            logger.warning("GGUF 加载门控: llama-cpp-python 不可用")
+            log.warning("GGUF 加载门控: llama-cpp-python 不可用")
             return False
 
         torch = _try_import("torch")
         cuda_ok = bool(torch is not None and torch.cuda.is_available())
 
         try:
-            logger.info("开始加载 GGUF 对话模型 %s <- %s", model_id, model_dir)
+            log.info("开始加载 GGUF 对话模型 %s <- %s", model_id, model_dir)
             self._llm = llama_cpp.Llama(
                 model_path=str(model_dir),
                 n_ctx=8192,
@@ -54,13 +54,13 @@ class GGUFBackend(DialogBackend):
             self.model_dir = model_dir
             self._ready = True
             self._last_error = ""
-            logger.info("GGUF 对话模型加载成功: %s（GPU offload: %s）",
+            log.info("GGUF 对话模型加载成功: %s（GPU offload: %s）",
                         model_id, "全量尝试" if cuda_ok else "纯 CPU")
             return True
         except Exception as exc:  # noqa: BLE001
             self._last_error = f"GGUF 模型加载失败: {exc}"
             self._llm = None
-            logger.exception("GGUF 模型加载失败")
+            log.exception("GGUF 模型加载失败")
             return False
 
     def unload(self) -> bool:

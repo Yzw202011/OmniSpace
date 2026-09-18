@@ -14,12 +14,15 @@
 - 对照随机基线 (20%) 与多数类基线
 """
 
+import logging
 import time
 
 import numpy as np
 
 from src.core.distributedformer import CubeGPT, DistributedFormer
 from src.data.real_dataset import RustCodingTrainingDataset
+
+log = logging.getLogger("omnispace.training.readout")
 
 
 class PatternExtractor:
@@ -127,7 +130,7 @@ def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> dict
     majority = float(np.bincount(y_train).max() / len(y_train))
 
     if verbose:
-        print(f"  seed={seed} train_acc={train_acc:.2%} val_acc={val_acc:.2%} "
+        log.info(f"  seed={seed} train_acc={train_acc:.2%} val_acc={val_acc:.2%} "
               f"(随机基线 {random_baseline:.0%}, 多数类 {majority:.2%}, "
               f"特征提取 {extract_sec:.1f}s)")
 
@@ -144,7 +147,9 @@ def run_validation(seed: int = 0, depth: int = 1, verbose: bool = False) -> dict
     }
 
 if __name__ == "__main__":
-    print("训练方法学验证 (reservoir 读出层)")
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log.info("训练方法学验证 (reservoir 读出层)")
     for seed in (0, 1, 2):
         run_validation(seed=seed, verbose=True)
 

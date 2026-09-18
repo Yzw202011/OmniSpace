@@ -31,7 +31,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-logger = logging.getLogger("omnispace.services.cloud_provider")
+log = logging.getLogger("omnispace.services.cloud_provider")
 
 KV_PROVIDERS = "cloud.providers"
 KV_BINDINGS = "cloud.bindings"
@@ -152,7 +152,7 @@ def _read_kv(key: str, default: object = None) -> object:
         if row and row.get("value"):
             return json.loads(row["value"])
     except Exception as exc:  # noqa: BLE001 - 配置读取失败按默认值
-        logger.debug("cloud KV 读取失败 %s: %s", key, exc)
+        log.debug("cloud KV 读取失败 %s: %s", key, exc)
     return default
 
 
@@ -170,7 +170,7 @@ def _write_kv(key: str, value: object) -> bool:
             (key, json.dumps(value, ensure_ascii=False), time.time()))
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("cloud KV 写入失败 %s: %s", key, exc)
+        log.warning("cloud KV 写入失败 %s: %s", key, exc)
         return False
 
 
@@ -199,9 +199,9 @@ def _load_providers() -> list[dict]:
     if migrated:
         try:
             _save_providers(items)  # _save_providers 统一加密——一次性迁移
-            logger.info("云端 API Key 明文已迁移为密文落库（%d 条）", len(items))
+            log.info("云端 API Key 明文已迁移为密文落库（%d 条）", len(items))
         except Exception:  # noqa: BLE001 - 迁移失败不影响读取（下次重试）
-            logger.warning("云端 api_key 明文迁移回写失败（下次读取重试）")
+            log.warning("云端 api_key 明文迁移回写失败（下次读取重试）")
     return items
 
 
@@ -295,7 +295,7 @@ def create_provider(name: str, protocol: str, base_url: str,
             raise CloudProviderError(
                 "CLOUD_STORAGE_FAILED", "保存失败（本地数据库不可用）")
     _invalidate_route_cache()
-    logger.info("云端服务商已添加: %s (%s) %s", item["name"], item["protocol"],
+    log.info("云端服务商已添加: %s (%s) %s", item["name"], item["protocol"],
                 item["base_url"])
     return item
 
@@ -364,7 +364,7 @@ def delete_provider(provider_id: str) -> dict:
             if changed:
                 _write_kv(KV_BINDINGS, bindings)
     _invalidate_route_cache()
-    logger.info("云端服务商已删除: %s", provider_id)
+    log.info("云端服务商已删除: %s", provider_id)
     return {"deleted": provider_id, "bindings_cleared": changed}
 
 
@@ -436,7 +436,7 @@ def set_binding(slot: str, provider_id: str, model: str = "") -> dict:
             raise CloudProviderError(
                 "CLOUD_STORAGE_FAILED", "保存失败（本地数据库不可用）")
     _invalidate_route_cache()
-    logger.info("工位绑定: %s → %s · %s", slot, prov["name"], model)
+    log.info("工位绑定: %s → %s · %s", slot, prov["name"], model)
     return bindings[slot]
 
 
@@ -505,7 +505,7 @@ def get_dialog_text_endpoint(force: bool = False) -> CloudEndpoint | None:
             # 绑定指向的连接被停用/协议不匹配：视为未绑定（走本地），
             # 并提示原因供状态端点展示
             endpoint = None
-            logger.info(
+            log.info(
                 "dialog.text 绑定的连接 %s 已停用或协议不匹配，回落本地引擎",
                 bind.get("provider_id"))
 
@@ -722,7 +722,7 @@ def record_cloud_call(kind: str, provider_name: str, model: str,
                           + (f" error={detail[:200]}" if detail else "")),
                   duration_ms=latency_ms)
     except Exception as exc:  # noqa: BLE001 - 日志失败绝不影响业务
-        logger.debug("云端调用事件日志写入失败: %s", exc)
+        log.debug("云端调用事件日志写入失败: %s", exc)
 
 
 # ── 请求级云端虚拟模型（cloud::prov_xxx::model-name）─────────────
@@ -799,10 +799,10 @@ def ensure_legacy_remote_migrated() -> int:
                 }
                 if _save_providers([item]):
                     migrated = 1
-                    logger.info("批3 远程推理服务器配置已迁移为云端连接 %s",
+                    log.info("批3 远程推理服务器配置已迁移为云端连接 %s",
                                 item["id"])
         except Exception as exc:  # noqa: BLE001 - 迁移失败不阻断启动
-            logger.warning("旧远程配置迁移失败（下次重试）: %s", exc)
+            log.warning("旧远程配置迁移失败（下次重试）: %s", exc)
             return 0
         _write_kv(KV_LEGACY_MIGRATED, True)
         return migrated

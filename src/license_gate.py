@@ -29,7 +29,7 @@ import time
 
 from .config import DATA_DIR
 
-logger = logging.getLogger("omnispace.license")
+log = logging.getLogger("omnispace.license")
 
 # make_dist --pubkey 注入（占位空 = 开发模式不启用门禁）
 PUBKEY_HEX = ""
@@ -176,7 +176,7 @@ def is_activated() -> tuple[bool, str]:
             reason = str(exc)
         except Exception as exc:  # noqa: BLE001 - 授权文件损坏等
             reason = f"授权状态异常：{exc}"
-            logger.warning("授权校验异常：%s", exc)
+            log.warning("授权校验异常：%s", exc)
         _cache.update(ok=ok, reason=reason, checked_at=time.time())
         return ok, reason
 
@@ -192,7 +192,7 @@ def activate(code: str) -> dict:
     _LICENSE_FILE.write_text(code, encoding="utf-8")
     with _lock:
         _cache.update(ok=True, reason="", info=info, checked_at=time.time())
-    logger.info("产品已激活：serial=%s type=%s", info["serial"], info["type"])
+    log.info("产品已激活：serial=%s type=%s", info["serial"], info["type"])
     return info
 
 

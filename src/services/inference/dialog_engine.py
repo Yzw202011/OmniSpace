@@ -33,7 +33,7 @@ from ...config import DIALOG_IDLE_UNLOAD_SECONDS, DIALOG_MAX_PREFILL_TOKENS, MOD
 from .backends import DialogBackend, TransformersBackend, create_backend
 from .base_engine import BaseEngine
 
-logger = logging.getLogger("omnispace.inference.dialog")
+log = logging.getLogger("omnispace.inference.dialog")
 
 
 def _remote_dialog_enabled() -> bool:
@@ -123,7 +123,7 @@ def _dir_weight_bytes(model_dir: Path) -> int:
                     ".safetensors", ".bin", ".gguf", ".ckpt", ".pt", ".pth"):
                 total += f.stat().st_size
     except OSError:
-        logger.debug("_dir_weight_bytes: 降级忽略", exc_info=True)
+        log.debug("_dir_weight_bytes: 降级忽略", exc_info=True)
     return total
 
 
@@ -182,7 +182,7 @@ def _detect_backend(model_dir: Path) -> str:
             if "vision_config" in raw or "vision_tower" in raw:
                 return "vl"
         except Exception:  # noqa: BLE001
-            logger.debug("_detect_backend: 降级忽略", exc_info=True)
+            log.debug("_detect_backend: 降级忽略", exc_info=True)
         return "text"
     if any("forconditionalgeneration" in a or "imagetexttotext" in a
            for a in archs):
@@ -237,7 +237,7 @@ def _estimate_vram_gb(path: Path, backend: str) -> float:
                 in ("float32", "fp32"):
             dtype_factor = 0.55
     except Exception:  # noqa: BLE001
-        logger.debug("_estimate_vram_gb: 降级忽略", exc_info=True)
+        log.debug("_estimate_vram_gb: 降级忽略", exc_info=True)
     return round(weight_bytes / (1024 ** 3) * dtype_factor * 1.10, 2)
 
 
@@ -293,7 +293,7 @@ def discover_dialog_models() -> dict[str, dict]:
                         if grand.is_dir():
                             _probe_dir(grand)
                 except OSError:
-                    logger.debug("discover_dialog_models: 降级忽略", exc_info=True)
+                    log.debug("discover_dialog_models: 降级忽略", exc_info=True)
             elif child.is_file() and child.suffix.lower() == ".gguf" \
                     and child.stat().st_size >= _MIN_WEIGHT_BYTES:
                 found.setdefault(child.stem, {
@@ -301,7 +301,7 @@ def discover_dialog_models() -> dict[str, dict]:
                     "vram_gb": _estimate_vram_gb(child, "gguf"),
                 })
     except OSError:
-        logger.debug("discover_dialog_models: 降级忽略", exc_info=True)
+        log.debug("discover_dialog_models: 降级忽略", exc_info=True)
     return found
 
 
@@ -334,7 +334,7 @@ def imported_dialog_models() -> dict[str, dict]:
             if path.is_relative_to(base):
                 continue
         except (OSError, ValueError):
-            logger.debug("imported_dialog_models: 降级忽略", exc_info=True)
+            log.debug("imported_dialog_models: 降级忽略", exc_info=True)
         if path.is_file():
             if path.suffix.lower() != ".gguf":
                 continue
@@ -386,7 +386,7 @@ def _effective_candidates() -> list[tuple[str, str, float]]:
         over = _exceeds_physical_vram(path, "vl") if path else 0.0
         if over <= 0:
             return [_HIGH_TIER_DIALOG_CANDIDATE, *DIALOG_MODEL_CANDIDATES]
-        logger.info(
+        log.info(
             "高档位候选 %s 剔除：估算加载 %.1fGB 超过物理显存 %.1fGB（回退 4b/2b 路由）",
             _HIGH_TIER_DIALOG_CANDIDATE[0], over, _cuda_total_gb())
     return list(DIALOG_MODEL_CANDIDATES)
@@ -543,7 +543,7 @@ def _resolve_candidate_dir(rel: str) -> Path | None:
                     if model_dir_ready(rev):
                         return rev
         except OSError:
-            logger.debug("_resolve_candidate_dir: 降级忽略", exc_info=True)
+            log.debug("_resolve_candidate_dir: 降级忽略", exc_info=True)
     return None
 
 
@@ -556,7 +556,7 @@ def _cuda_free_gb() -> float:
     导致 /dialog/status 的 vram_free_gb 严重失真，故统一走 NVML。
     """
     try:
-        import pynvml
+        import pynvml  # type: ignore[import-untyped]
 
         pynvml.nvmlInit()
         try:
@@ -567,9 +567,9 @@ def _cuda_free_gb() -> float:
             try:
                 pynvml.nvmlShutdown()
             except Exception:
-                logger.debug("_cuda_free_gb: 降级忽略", exc_info=True)
+                log.debug("_cuda_free_gb: 降级忽略", exc_info=True)
     except Exception:
-        logger.debug("_cuda_free_gb: 降级忽略", exc_info=True)
+        log.debug("_cuda_free_gb: 降级忽略", exc_info=True)
     torch = _try_import("torch")
     if torch is None or not torch.cuda.is_available():
         return 0.0
@@ -641,9 +641,9 @@ def _release_cuda_memory() -> None:
             try:
                 torch.cuda.ipc_collect()
             except Exception:
-                logger.debug("_release_cuda_memory: 降级忽略", exc_info=True)
+                log.debug("_release_cuda_memory: 降级忽略", exc_info=True)
     except Exception:
-        logger.debug("_release_cuda_memory: 降级忽略", exc_info=True)
+        log.debug("_release_cuda_memory: 降级忽略", exc_info=True)
 
 
 def _precision_pref() -> str:
@@ -767,7 +767,7 @@ class DialogEngine(BaseEngine):
                 self._last_error = (
                     f"云端服务商连接无效或已停用（{parsed[0]}）："
                     "请到「设置 → 云端 API 服务」检查连接状态")
-                logger.warning("云端虚拟模型解析失败: %s", model_id)
+                log.warning("云端虚拟模型解析失败: %s", model_id)
                 return None
             # 2026-09-06 实弹双连接错位修复：必须把完整 cloud:: 虚拟 id
             # 传给 backend.load——返回裸模型名会让 load() 回落 dialog.text
@@ -800,14 +800,14 @@ class DialogEngine(BaseEngine):
             over = _exceeds_physical_vram(path, kind)
             if over > 0:
                 if model_id is None:
-                    logger.info(
+                    log.info(
                         "自动选择跳过 %s：预估加载 %.1fGB 超过物理显存 %.1fGB",
                         mid, over, total)
                     continue
                 self._last_error = (
                     f"模型 {mid} 预估加载 {over:.1f}GB 超过本机物理显存 "
                     f"{total:.1f}GB，无法加载（请选择更小的模型或量化版本）")
-                logger.warning("物理闸门拒绝加载 %s: %s", mid, self._last_error)
+                log.warning("物理闸门拒绝加载 %s: %s", mid, self._last_error)
                 return None
             if model_id is None:
                 # 自动选择：预估显存装不下当前空闲时跳过（候选常量仅为
@@ -815,7 +815,7 @@ class DialogEngine(BaseEngine):
                 est = _estimated_load_gb(path, kind)
                 free = _cuda_free_gb()
                 if est > free:
-                    logger.info(
+                    log.info(
                         "自动选择跳过 %s：预估加载 %.1fGB > 空闲 %.1fGB",
                         mid, est, free)
                     continue
@@ -836,7 +836,7 @@ class DialogEngine(BaseEngine):
                             detail=f"from={_first_id} to={mid} "
                                    f"free={free:.1f}GB est={est:.1f}GB")
                 except Exception:  # noqa: BLE001 - 事件失败不影响选档
-                    logger.debug("_pick_model: 降级忽略", exc_info=True)
+                    log.debug("_pick_model: 降级忽略", exc_info=True)
             return mid, path, vram, kind
         # 动态发现（导入 models/ 即可用）
         discovered = discover_dialog_models()
@@ -860,7 +860,7 @@ class DialogEngine(BaseEngine):
                 self._last_error = (
                     f"模型 {model_id} 预估加载 {over:.1f}GB 超过本机物理显存 "
                     f"{total:.1f}GB，无法加载（请选择更小的模型或量化版本）")
-                logger.warning("物理闸门拒绝加载 %s: %s", model_id, self._last_error)
+                log.warning("物理闸门拒绝加载 %s: %s", model_id, self._last_error)
                 return None
             return model_id, Path(hit["path"]), float(hit["vram_gb"]), hit["backend"]
         # 自动选择：按显存需求升序取第一个能放下的（小模型优先，加载更快更稳）
@@ -885,7 +885,7 @@ class DialogEngine(BaseEngine):
                                    f"free={free:.1f}GB "
                                    f"est={info['vram_gb']:.1f}GB（发现兜底）")
                 except Exception:  # noqa: BLE001 - 事件失败不影响选档
-                    logger.debug("_pick_model: 降级忽略", exc_info=True)
+                    log.debug("_pick_model: 降级忽略", exc_info=True)
                 return mid, Path(info["path"]), float(info["vram_gb"]), info["backend"]
         # 全部超过空闲显存时仍返回最小者（由 check_vram 腾挪/报错）；
         # 但最小者也超物理总量时拒绝（物理装不下腾挪无意义）
@@ -919,7 +919,7 @@ class DialogEngine(BaseEngine):
             if holder:
                 return cls._LOCK_CATEGORY_SHIELD.get(holder, frozenset())
         except Exception:  # noqa: BLE001 - 锁查询失败不阻断腾挪
-            logger.debug("_locked_shielded_categories: 降级忽略", exc_info=True)
+            log.debug("_locked_shielded_categories: 降级忽略", exc_info=True)
         return frozenset()
 
     def _try_free_vram(self, required_gb: float) -> float:
@@ -934,7 +934,7 @@ class DialogEngine(BaseEngine):
 
         shielded = self._locked_shielded_categories()
         if shielded:
-            logger.info("显存腾挪: 功能锁保护类别 %s（持锁任务模型不卸载）",
+            log.info("显存腾挪: 功能锁保护类别 %s（持锁任务模型不卸载）",
                         sorted(shielded))
         # 契约 1: model_manager（容错 import）——卸载记账中的冲突类别模型
         try:
@@ -945,7 +945,7 @@ class DialogEngine(BaseEngine):
                     continue
                 if entry.get("category") in ("vision", "paint", "image",
                                              "video", "video_gen"):
-                    logger.info("经 model_manager 卸载冲突模型: %s",
+                    log.info("经 model_manager 卸载冲突模型: %s",
                                 entry.get("model_id"))
                     mgr.unload_model(entry["model_id"])
             # 审计 R2-C01：单模型驻留多类别（paint+embedding+3D 等）时
@@ -961,21 +961,21 @@ class DialogEngine(BaseEngine):
                 evicted = [(mid, cat) for mid, cat in before.items()
                            if mid not in after_ids]
                 if any(cat in shielded for _, cat in evicted):
-                    logger.warning("腾挪驱逐了功能锁保护模型，停止后续腾挪")
+                    log.warning("腾挪驱逐了功能锁保护模型，停止后续腾挪")
                     break
                 free = _cuda_free_gb()
         except Exception as exc:
-            logger.debug("model_manager 腾显存不可用: %s", exc)
+            log.debug("model_manager 腾显存不可用: %s", exc)
 
         # 契约 2: 直接调用绘画引擎单例卸载
         try:
             from .paint_engine import get_paint_engine
             paint = get_paint_engine()
             if getattr(paint, "is_loaded", False):
-                logger.info("显存不足（%.1fGB < %.1fGB），卸载绘画引擎腾挪", free, required_gb)
+                log.info("显存不足（%.1fGB < %.1fGB），卸载绘画引擎腾挪", free, required_gb)
                 paint.unload_model()
         except Exception as exc:
-            logger.debug("绘画引擎卸载不可用: %s", exc)
+            log.debug("绘画引擎卸载不可用: %s", exc)
 
         _release_cuda_memory()
         return _cuda_free_gb()
@@ -1027,7 +1027,7 @@ class DialogEngine(BaseEngine):
                     # 后端目标不再匹配——必须卸载切换，绝不落回下方
                     # 「model_id 匹配即返回」（那会让已解绑的云端继续
                     # 服役，解绑形同虚设）
-                    logger.info(
+                    log.info(
                         "云端目标不再匹配（解绑/换绑），卸载 remote 后端"
                         "回本地: 当前=%s", self._model_id)
                     _old_cloud = self._model_id
@@ -1039,7 +1039,7 @@ class DialogEngine(BaseEngine):
                         from ..model_manager import get_model_manager
                         get_model_manager().release_stale(_old_cloud)
                     except Exception:  # noqa: BLE001 - 台账同步失败不阻断
-                        logger.debug("load_model: 降级忽略", exc_info=True)
+                        log.debug("load_model: 降级忽略", exc_info=True)
                 # 实弹 21:16 事故修复：远程刚启用而引擎还挂着本地模型时，
                 # 旧的「model_id 匹配即返回」会让本地模型继续服役、远程
                 # 配置形同虚设——远程启用期间必须强制走 _pick_model 的
@@ -1051,7 +1051,7 @@ class DialogEngine(BaseEngine):
                 # 请求了不同模型：先卸载再切换（经 model_manager 显存记账
                 # 的场景由调用方保证先 unload_model 解除预留，这里处理
                 # 引擎直连路径）
-                logger.info("load_model 请求模型 %s 与当前 %s 不同，先卸载切换",
+                log.info("load_model 请求模型 %s 与当前 %s 不同，先卸载切换",
                             model_id, self._model_id)
                 try:  # 大白话事件：模型热切换开始
                     from ..event_log import log_event
@@ -1063,7 +1063,7 @@ class DialogEngine(BaseEngine):
                         level="info",
                         detail=f"from={_prev_model}, to={model_id}")
                 except Exception:  # noqa: BLE001
-                    logger.debug("load_model: 降级忽略", exc_info=True)
+                    log.debug("load_model: 降级忽略", exc_info=True)
                 self._switch_reset()
                 # 同步 model_manager 旧条目（2026-08-22 事故根修）：
                 # 不清理会残留 stale loaded 条目，resource_guard 驱逐
@@ -1074,7 +1074,7 @@ class DialogEngine(BaseEngine):
                     from ..model_manager import get_model_manager
                     get_model_manager().release_stale(_prev_model)
                 except Exception:  # noqa: BLE001 - 台账同步失败不阻断加载
-                    logger.debug("load_model: 降级忽略", exc_info=True)
+                    log.debug("load_model: 降级忽略", exc_info=True)
 
             # 2026-09-08：装载全程如实报 loading。vl/text/gguf 后端此前
             # 装载期停在 unavailable/unloaded——右栏冷启动进度条
@@ -1091,7 +1091,7 @@ class DialogEngine(BaseEngine):
                         "请先把模型目录或 GGUF 文件放入 models/"
                     )
                 self._state = "unavailable"
-                logger.warning(self._last_error)
+                log.warning(self._last_error)
                 return False
 
             mid, path, required_gb, kind = pick
@@ -1103,13 +1103,13 @@ class DialogEngine(BaseEngine):
                 if torch is None or transformers is None:
                     self._last_error = "torch/transformers 依赖不可用"
                     self._state = "unavailable"
-                    logger.warning("对话引擎不可用: %s", self._last_error)
+                    log.warning("对话引擎不可用: %s", self._last_error)
                     return False
 
                 if not torch.cuda.is_available():
                     self._last_error = "未检测到 CUDA GPU，无法加载对话模型"
                     self._state = "error"
-                    logger.warning(self._last_error)
+                    log.warning(self._last_error)
                     return False
 
                 ok_vram, free_gb = self.check_vram(required_gb)
@@ -1118,7 +1118,7 @@ class DialogEngine(BaseEngine):
                         f"显存不足：空闲 {free_gb:.1f}GB，需求约 {required_gb:.0f}GB"
                     )
                     self._state = "error"
-                    logger.warning(self._last_error)
+                    log.warning(self._last_error)
                     try:  # 大白话事件：显存不足
                         from ..event_log import log_event
                         log_event(
@@ -1130,7 +1130,7 @@ class DialogEngine(BaseEngine):
                             detail=f"free={free_gb:.1f}GB, "
                                    f"required={required_gb:.0f}GB")
                     except Exception:  # noqa: BLE001
-                        logger.debug("load_model: 降级忽略", exc_info=True)
+                        log.debug("load_model: 降级忽略", exc_info=True)
                     return False
 
             backend = create_backend(kind)
@@ -1140,7 +1140,7 @@ class DialogEngine(BaseEngine):
                     self._state = "error"
                     self._backend = None
                     self._backend_name = ""
-                    logger.warning("后端加载失败(%s): %s", kind,
+                    log.warning("后端加载失败(%s): %s", kind,
                                    self._last_error)
                     try:  # 大白话事件：后端加载失败
                         from ..event_log import log_event
@@ -1151,7 +1151,7 @@ class DialogEngine(BaseEngine):
                             level="error",
                             detail=f"backend={kind}")
                     except Exception:  # noqa: BLE001
-                        logger.debug("load_model: 降级忽略", exc_info=True)
+                        log.debug("load_model: 降级忽略", exc_info=True)
                     gc.collect()
                     return False
 
@@ -1162,7 +1162,7 @@ class DialogEngine(BaseEngine):
                 self._state = "ready"
                 self._last_error = ""
                 _load_ms = (time.perf_counter() - _t0) * 1000
-                logger.info("对话模型加载成功: %s（后端: %s，知识 LoRA: %s）",
+                log.info("对话模型加载成功: %s（后端: %s，知识 LoRA: %s）",
                             mid, kind, backend.lora_version or "无")
                 try:  # 大白话事件：模型加载成功
                     from ..event_log import log_event
@@ -1177,14 +1177,14 @@ class DialogEngine(BaseEngine):
                                 f"{_cuda_free_gb():.1f}GB, "
                                 f"lora={backend.lora_version or 'none'}"))
                 except Exception:  # noqa: BLE001
-                    logger.debug("load_model: 降级忽略", exc_info=True)
+                    log.debug("load_model: 降级忽略", exc_info=True)
                 return True
             except Exception as exc:  # noqa: BLE001 - 加载失败收敛为状态
                 self._last_error = f"对话模型加载失败: {exc}"
                 self._state = "error"
                 self._backend = None
                 self._backend_name = ""
-                logger.exception("对话模型加载失败")
+                log.exception("对话模型加载失败")
                 gc.collect()
                 _release_cuda_memory()
                 try:  # 大白话事件：加载异常
@@ -1195,7 +1195,7 @@ class DialogEngine(BaseEngine):
                         f"{exc}。可以重试一次，或换个小一点的模型",
                         level="error", detail=f"exc={exc}")
                 except Exception:  # noqa: BLE001
-                    logger.debug("load_model: 降级忽略", exc_info=True)
+                    log.debug("load_model: 降级忽略", exc_info=True)
                 return False
 
     def _switch_reset(self) -> None:
@@ -1210,7 +1210,7 @@ class DialogEngine(BaseEngine):
             try:
                 backend.unload()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("切换卸载旧后端异常: %s", exc)
+                log.warning("切换卸载旧后端异常: %s", exc)
         _release_cuda_memory()
 
     def unload_model(self) -> bool:
@@ -1238,10 +1238,10 @@ class DialogEngine(BaseEngine):
             try:
                 backend.unload()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("后端卸载异常: %s", exc)
+                log.warning("后端卸载异常: %s", exc)
         _release_cuda_memory()
         if had:
-            logger.info("对话模型已卸载，显存已释放（空闲 %.1fGB）",
+            log.info("对话模型已卸载，显存已释放（空闲 %.1fGB）",
                         _cuda_free_gb())
             try:  # 大白话事件：模型卸载
                 from ..event_log import log_event
@@ -1252,7 +1252,7 @@ class DialogEngine(BaseEngine):
                     level="info",
                     detail=f"backend={_unloaded_backend or 'unknown'}")
             except Exception:  # noqa: BLE001
-                logger.debug("_unload_locked: 降级忽略", exc_info=True)
+                log.debug("_unload_locked: 降级忽略", exc_info=True)
         return had
 
     # ── 知识 LoRA 挂载（R2-B04 自主进化闭环）────────────────────
@@ -1293,7 +1293,7 @@ class DialogEngine(BaseEngine):
                 and getattr(self._backend, "name", "") == "remote":
             matches = getattr(self._backend, "matches_target", None)
             _m = matches(model_id) if callable(matches) else False
-            logger.info(
+            log.info(
                 "ensure_loaded[remote分支]: 请求=%s matches=%s", model_id, _m)
             if _m:
                 return True
@@ -1321,12 +1321,12 @@ class DialogEngine(BaseEngine):
             try:
                 from ...engines.vllm_service import get_vllm_service
                 if not get_vllm_service().is_healthy():
-                    logger.warning(
+                    log.warning(
                         "ensure_loaded: 引擎态 ready 但 vLLM 子进程失联，"
                         "降级 unloaded 走重载")
                     self._state = "unloaded"
             except Exception:  # noqa: BLE001 - 服务不可用时按原状态走
-                logger.debug("ensure_loaded: 降级忽略", exc_info=True)
+                log.debug("ensure_loaded: 降级忽略", exc_info=True)
         if self._state == "ready":
             # 云端解绑/换绑兜底（实弹 11:14 定位）：引擎挂着 remote 后端
             # 一直 ready，dialog.py 的发送路径见 ready 即跳过 ensure_loaded
@@ -1337,7 +1337,7 @@ class DialogEngine(BaseEngine):
                     and getattr(self._backend, "name", "") == "remote":
                 matches = getattr(self._backend, "matches_target", None)
                 if not (callable(matches) and matches(model_id)):
-                    logger.info(
+                    log.info(
                         "ensure_loaded: 云端已解绑/换绑（目标不匹配），"
                         "卸载 remote 后端回本地: 当前=%s", self._model_id)
                     _old_cloud = self._model_id
@@ -1346,13 +1346,13 @@ class DialogEngine(BaseEngine):
                         from ..model_manager import get_model_manager
                         get_model_manager().release_stale(_old_cloud)
                     except Exception:  # noqa: BLE001
-                        logger.debug("ensure_loaded: 降级忽略", exc_info=True)
+                        log.debug("ensure_loaded: 降级忽略", exc_info=True)
                     return self.load_model(model_id)
             if not model_id or model_id in (self._model_id,
                                             Path(self._model_id).stem):
                 return True
             # 请求了不同的已发现模型：先卸载当前模型再切换
-            logger.info("请求模型 %s 与当前 %s 不同，执行热切换",
+            log.info("请求模型 %s 与当前 %s 不同，执行热切换",
                         model_id, self._model_id)
             _old_model = self._model_id
             self.unload_model()
@@ -1361,7 +1361,7 @@ class DialogEngine(BaseEngine):
                 from ..model_manager import get_model_manager
                 get_model_manager().release_stale(_old_model)
             except Exception:  # noqa: BLE001
-                logger.debug("ensure_loaded: 降级忽略", exc_info=True)
+                log.debug("ensure_loaded: 降级忽略", exc_info=True)
 
         # model_manager 协调契约（容错 import）
         # mgr_result 三态（2026-08-28 V77 事故根修）：True=mgr 已加载
@@ -1379,9 +1379,9 @@ class DialogEngine(BaseEngine):
                     mgr_result = bool(
                         ensure("dialog", model_id or self._default_model_id()))
                 except Exception as exc:
-                    logger.debug("model_manager.ensure_loaded 调用失败: %s", exc)
+                    log.debug("model_manager.ensure_loaded 调用失败: %s", exc)
         except Exception:
-            logger.debug("ensure_loaded: 降级忽略", exc_info=True)
+            log.debug("ensure_loaded: 降级忽略", exc_info=True)
 
         if mgr_result is True:
             return True  # mgr 协调加载成功（台账已记账，无需补登记）
@@ -1402,7 +1402,7 @@ class DialogEngine(BaseEngine):
                     _svc = get_vllm_service()
                     if _svc._adopt_if_healthy(_dir):
                         if self.load_model(_want):
-                            logger.info(
+                            log.info(
                                 "mgr 拒绝后经 vLLM 孤儿收养恢复加载: %s",
                                 _want)
                             return True
@@ -1413,14 +1413,14 @@ class DialogEngine(BaseEngine):
                     _time.sleep(3.0)  # 显存释放窗口
                     try:
                         if bool(ensure("dialog", _want)):
-                            logger.info(
+                            log.info(
                                 "清理不匹配 vLLM 孤儿后 mgr 加载成功: %s",
                                 _want)
                             return True
                     except Exception as exc:  # noqa: BLE001
-                        logger.debug("孤儿清理后重试 mgr 失败: %s", exc)
+                        log.debug("孤儿清理后重试 mgr 失败: %s", exc)
             except Exception as exc:  # noqa: BLE001 - 收养失败回落原拒绝
-                logger.debug("孤儿收养兜底失败: %s", exc)
+                log.debug("孤儿收养兜底失败: %s", exc)
             # 显存装不下 → 自动降级（2026-09-02 用户拍板）：冷引擎且
             # 大模型装不下时不再只报错——改用引擎默认小模型继续生成，
             # 并广播大白话事件告知（不偷偷降质）。仅当失败原因属显存
@@ -1440,7 +1440,7 @@ class DialogEngine(BaseEngine):
             # 空拉本地模型）。降级决策前按当前状态复核，云端已承载即
             # 放弃本地降级（返回 False=未就绪；发送路径按云端路由自愈）。
             if _fallback_id and _remote_dialog_enabled():
-                logger.info(
+                log.info(
                     "对话已切云端承载，放弃本地降级（原目标 %s，"
                     "本地等待期间绑定发生变化）", _want_id)
                 return False
@@ -1449,12 +1449,12 @@ class DialogEngine(BaseEngine):
             # 严禁为降级把刚就绪的引擎再卸载（实测自伤：8B ready 1 秒
             # 后被降级链杀掉，用户收到张冠李戴的 9B 错误）。
             if self._state == "ready" and self._backend is not None:
-                logger.info(
+                log.info(
                     "引擎已被自动重试/收养弄就绪（%s），跳过降级卸载",
                     self._model_id)
                 return True
             if "显存" in _reason and _fallback_id:
-                logger.warning(
+                log.warning(
                     "对话模型 %s 显存装不下，自动降级 %s 继续并通知用户"
                     "（原因: %s）", _want_id, _fallback_id,
                     _reason.strip()[:80])
@@ -1471,7 +1471,7 @@ class DialogEngine(BaseEngine):
                         detail={"from": _want_id, "to": _fallback_id,
                                 "reason": _reason.strip()[:200]})
                 except Exception:  # noqa: BLE001
-                    logger.debug("ensure_loaded: 降级忽略", exc_info=True)
+                    log.debug("ensure_loaded: 降级忽略", exc_info=True)
                 if self.load_model(_fallback_id):
                     self._degraded_from = _want_id
                     # 台账补登记（同下方 ok 路径，防 08-23 显存锚定）
@@ -1488,9 +1488,9 @@ class DialogEngine(BaseEngine):
                                     "dialog", _mid, str(_pth),
                                     max(0.5, _req))
                     except Exception as exc:  # noqa: BLE001
-                        logger.debug("降级加载台账补登记跳过: %s", exc)
+                        log.debug("降级加载台账补登记跳过: %s", exc)
                     return True
-            logger.info(
+            log.info(
                 "model_manager 未加载 dialog 模型（%s），尊重裁决不直载",
                 getattr(mgr, "last_error", "") or "已取消/拒绝")
             return False
@@ -1515,10 +1515,10 @@ class DialogEngine(BaseEngine):
                         path = mgr.resolve_model_path(mid) or mid
                         mgr.register_external_load(
                             "dialog", mid, str(path), max(0.5, required))
-                        logger.info("补登记引擎直连加载模型: %s "
+                        log.info("补登记引擎直连加载模型: %s "
                                     "(%.1fGB)", mid, max(0.5, required))
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("台账补登记跳过: %s", exc)
+                    log.debug("台账补登记跳过: %s", exc)
         return ok
 
     def _default_model_id(self) -> str:
@@ -1561,7 +1561,7 @@ class DialogEngine(BaseEngine):
                     return float(mgr.estimate_vram_gb(mid, "dialog")) \
                         <= free + 0.5
                 except Exception:  # noqa: BLE001 - 估值失败退表值
-                    logger.debug("_fits: 降级忽略", exc_info=True)
+                    log.debug("_fits: 降级忽略", exc_info=True)
             return vram <= free + 0.5
 
         if default and default != want_id:
@@ -1614,7 +1614,7 @@ class DialogEngine(BaseEngine):
                 hi = mid - 1
         if not best:  # 极小预算兜底：纯尾部截断
             best = text[-max(16, budget * 2):]
-        logger.info("用户输入超长截断: %d 字 -> %d 字（预算 %d token）",
+        log.info("用户输入超长截断: %d 字 -> %d 字（预算 %d token）",
                     len(text), len(best), budget)
         return best
 
@@ -1701,7 +1701,7 @@ class DialogEngine(BaseEngine):
             used += cost
 
         if len(kept) < len(history):
-            logger.info("上下文截断: 历史 %d 轮 -> %d 轮（预算 %d token）",
+            log.info("上下文截断: 历史 %d 轮 -> %d 轮（预算 %d token）",
                         len(history) // 2, len(kept) // 2, max_tokens)
 
         user_content: Any
@@ -1709,7 +1709,7 @@ class DialogEngine(BaseEngine):
         if images and (backend is None or not backend.supports_images):
             # 纯文本 / GGUF 后端不支持图片输入：诚实丢弃并记日志，
             # 不伪造多模态理解（vl/vllm 后端支持图片透传）
-            logger.info("当前后端(%s)不支持图片输入，已忽略 %d 张图片",
+            log.info("当前后端(%s)不支持图片输入，已忽略 %d 张图片",
                         self._backend_name or "未加载", len(images))
             images = None
         if images:
@@ -1762,7 +1762,7 @@ class DialogEngine(BaseEngine):
                 from ...engines.llama_service import get_llama_service
 
                 if not get_llama_service().is_healthy():
-                    logger.warning("llama-server 失联，按 UX 铁律自动重载"
+                    log.warning("llama-server 失联，按 UX 铁律自动重载"
                                    "（自愈，模型=%s）", self._model_id)
                     _mid = self._model_id
                     with self._lock:
@@ -1799,7 +1799,7 @@ class DialogEngine(BaseEngine):
         finally:
             self.last_total_ms = (time.perf_counter() - start) * 1000
             self.last_output_tokens = produced
-            logger.info("对话流式完成[%s]: %d 片段, 首token %.0fms, 总 %.0fms",
+            log.info("对话流式完成[%s]: %d 片段, 首token %.0fms, 总 %.0fms",
                         self._backend_name, produced,
                         self.last_first_token_ms, self.last_total_ms)
 
@@ -1912,7 +1912,7 @@ class DialogEngine(BaseEngine):
                 yield _emit(kind, chunk)
         finally:
             if got_content:
-                logger.info(
+                log.info(
                     "深度思考流式完成[%s]: 正文首字 %.0fms（思考通道已分离）",
                     self._backend_name, self.last_first_content_ms)
 
@@ -1992,13 +1992,13 @@ class DialogEngine(BaseEngine):
         self._model_dir = model_dir
         self._state = "ready"
         self._last_error = ""
-        logger.info("vLLM 唤醒产物收养重挂（V9-γ）: %s（服务已在跑，"
+        log.info("vLLM 唤醒产物收养重挂（V9-γ）: %s（服务已在跑，"
                     "零装载成本）", served)
         try:  # 台账补记（防分配器再以盲区拒绝）
             from ..model_manager import get_model_manager
             get_model_manager().note_external_load(served, "dialog")
         except Exception as exc:  # noqa: BLE001 - 补记失败只留痕
-            logger.debug("收养台账补记失败（下次 ensure 会再补）: %s", exc)
+            log.debug("收养台账补记失败（下次 ensure 会再补）: %s", exc)
         return True
 
     def try_adopt(self, model_id: str, wait_s: float = 150.0) -> bool:
@@ -2072,7 +2072,7 @@ class DialogEngine(BaseEngine):
             return "sleeping"
         if backend is not None and self._state == "ready":
             # 引擎态 ready 但子进程已消失（被模块切换终止等）——如实降级
-            logger.info("对话引擎态 ready 但 vLLM 子进程已消失，状态降级 unloaded")
+            log.info("对话引擎态 ready 但 vLLM 子进程已消失，状态降级 unloaded")
             return "unloaded"
         return self._state
 
@@ -2084,7 +2084,7 @@ class DialogEngine(BaseEngine):
             try:
                 self._maybe_idle_unload()
             except Exception as exc:  # noqa: BLE001 - 看门狗绝不能带崩引擎
-                logger.debug("空闲看门狗巡检异常: %s", exc)
+                log.debug("空闲看门狗巡检异常: %s", exc)
 
     def _active_feature_snapshot(self) -> str | None:
         """读功能锁当前持有人（引擎层不长期依赖中间件，惰性导入）。"""
@@ -2109,7 +2109,7 @@ class DialogEngine(BaseEngine):
             if get_busy_registry().is_busy(kind="cloud"):
                 return
         except Exception:  # noqa: BLE001 - 登记簿不可用按原判定
-            logger.debug("_maybe_idle_unload: 降级忽略", exc_info=True)
+            log.debug("_maybe_idle_unload: 降级忽略", exc_info=True)
         holder = self._active_feature_snapshot()
         with self._lock:
             idle_seconds = time.monotonic() - self._last_activity_ts
@@ -2119,7 +2119,7 @@ class DialogEngine(BaseEngine):
                     active_feature=holder):
                 return
             name = self._model_id
-            logger.info("对话引擎空闲看门狗: 空闲 %.0f 分钟达阈值，走正规链卸载「%s」",
+            log.info("对话引擎空闲看门狗: 空闲 %.0f 分钟达阈值，走正规链卸载「%s」",
                         idle_seconds / 60.0, name)
             had = self._unload_locked()
         if had:
@@ -2129,7 +2129,7 @@ class DialogEngine(BaseEngine):
                 from ..model_manager import get_model_manager
                 get_model_manager().release_stale(name)
             except Exception:  # noqa: BLE001 - 台账同步失败不影响卸载
-                logger.debug("_maybe_idle_unload: 降级忽略", exc_info=True)
+                log.debug("_maybe_idle_unload: 降级忽略", exc_info=True)
             try:  # 大白话事件：解释「模型怎么没了」，下次对话自动加载
                 from ..event_log import log_event
                 log_event(
@@ -2139,7 +2139,7 @@ class DialogEngine(BaseEngine):
                     f"已自动卸载释放显存（当前空闲 {_cuda_free_gb():.1f}GB）；"
                     "下次对话将自动重新加载（约 1-2 分钟）")
             except Exception:  # noqa: BLE001
-                logger.debug("_maybe_idle_unload: 降级忽略", exc_info=True)
+                log.debug("_maybe_idle_unload: 降级忽略", exc_info=True)
 
     def get_status(self) -> dict:
         """引擎状态快照。"""

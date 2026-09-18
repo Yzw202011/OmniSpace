@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .base import DialogBackend, estimate_tokens
 
-logger = logging.getLogger("omnispace.inference.backends.llama")
+log = logging.getLogger("omnispace.inference.backends.llama")
 
 
 class LlamaServerBackend(DialogBackend):
@@ -37,14 +37,14 @@ class LlamaServerBackend(DialogBackend):
             if not files:
                 self._last_error = (
                     f"模型 {model_id} 目录下无 .gguf 权重: {gguf}")
-                logger.warning("llama 后端加载门控: %s", self._last_error)
+                log.warning("llama 后端加载门控: %s", self._last_error)
                 return False
             gguf = files[0]
-        logger.info("llama-server 加载: %s <- %s", model_id, gguf.name)
+        log.info("llama-server 加载: %s <- %s", model_id, gguf.name)
         svc = get_llama_service()
         if not svc.start(gguf):
             self._last_error = svc._last_error or "llama-server 启动失败"
-            logger.warning("llama 后端加载失败: %s", self._last_error)
+            log.warning("llama 后端加载失败: %s", self._last_error)
             return False
         self.model_id = model_id
         self.model_dir = Path(model_dir)
@@ -59,7 +59,7 @@ class LlamaServerBackend(DialogBackend):
         try:
             return get_llama_service().stop()
         except Exception as exc:  # noqa: BLE001 - 停止失败不阻断卸载链
-            logger.warning("llama-server 停止异常: %s", exc)
+            log.warning("llama-server 停止异常: %s", exc)
             return False
 
     def chat_stream(

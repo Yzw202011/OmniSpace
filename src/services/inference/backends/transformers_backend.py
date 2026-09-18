@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from .base import DialogBackend, _try_import, preferred_load_dtype
 
-logger = logging.getLogger("omnispace.inference.backends.transformers")
+log = logging.getLogger("omnispace.inference.backends.transformers")
 
 
 def _heal_torch_dynamo() -> bool:
@@ -51,7 +51,7 @@ def _heal_torch_dynamo() -> bool:
         import torch._dynamo  # noqa: F401  重导入（重新注册被清理的类型）
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("torch dynamo 注册表自愈失败: %s", exc)
+        log.warning("torch dynamo 注册表自愈失败: %s", exc)
         return False
 
 
@@ -80,16 +80,16 @@ class TransformersBackend(DialogBackend):
         transformers = _try_import("transformers")
         if torch is None or transformers is None:
             self._last_error = "torch/transformers 依赖不可用"
-            logger.warning("transformers 后端不可用: %s", self._last_error)
+            log.warning("transformers 后端不可用: %s", self._last_error)
             return False
         if model_dir is None:
             # remote 后端场景外的防御：本地装载必须有真实模型目录
             self._last_error = f"模型 {model_id} 缺少本地目录，无法本地加载"
-            logger.warning(self._last_error)
+            log.warning(self._last_error)
             return False
 
         try:
-            logger.info("开始加载对话模型 %s <- %s（transformers/%s）",
+            log.info("开始加载对话模型 %s <- %s（transformers/%s）",
                         model_id, model_dir, self.kind)
             if self.kind == "text":
                 model, processor = self._load_text(torch, transformers,
@@ -109,7 +109,7 @@ class TransformersBackend(DialogBackend):
             self.model_dir = model_dir
             self._ready = True
             self._last_error = ""
-            logger.info("对话模型加载成功: %s（transformers/%s，知识 LoRA: %s）",
+            log.info("对话模型加载成功: %s（transformers/%s，知识 LoRA: %s）",
                         model_id, self.kind, lora_version or "无")
             return True
         except Exception as exc:  # noqa: BLE001
@@ -118,12 +118,12 @@ class TransformersBackend(DialogBackend):
                     and not getattr(self, "_healed", False)):
                 self._healed = True
                 if _heal_torch_dynamo():
-                    logger.warning("检测到 torch dynamo 注册表损坏，已自愈，重试加载")
+                    log.warning("检测到 torch dynamo 注册表损坏，已自愈，重试加载")
                     return self.load(model_id, model_dir, required_gb)
             self._last_error = f"对话模型加载失败: {exc}"
             self._model = None
             self._processor = None
-            logger.exception("对话模型加载失败")
+            log.exception("对话模型加载失败")
             return False
 
     def _load_vl(self, torch: ModuleType, transformers: ModuleType,
@@ -152,7 +152,7 @@ class TransformersBackend(DialogBackend):
             )
         except Exception as exc:
             # Qwen3-VL 类不可用时回退 Vision2Seq
-            logger.warning("主加载路径失败(%s)，尝试回退加载", exc)
+            log.warning("主加载路径失败(%s)，尝试回退加载", exc)
             fallback_cls = transformers.AutoModelForVision2Seq
             model = fallback_cls.from_pretrained(
                 str(path),
@@ -214,7 +214,7 @@ class TransformersBackend(DialogBackend):
                 return model, ""
             adapter_dir = LORA_DIR / version
             if not (adapter_dir / "adapter_config.json").is_file():
-                logger.warning("知识 LoRA %s 缺 adapter_config.json，"
+                log.warning("知识 LoRA %s 缺 adapter_config.json，"
                                "回退基座推理", version)
                 return model, ""
             # 基座匹配校验：adapter 训练基座须与当前加载模型目录一致
@@ -222,22 +222,22 @@ class TransformersBackend(DialogBackend):
             base_name = Path(str(meta.get("base_model") or "")).name
             if (base_name and model_dir is not None
                     and base_name != model_dir.name):
-                logger.warning("知识 LoRA %s 训练基座(%s)与当前模型(%s)不匹配，"
+                log.warning("知识 LoRA %s 训练基座(%s)与当前模型(%s)不匹配，"
                                "跳过挂载（回退基座推理）",
                                version, base_name, model_dir.name)
                 return model, ""
             peft = _try_import("peft")
             if peft is None:
-                logger.warning("peft 不可用，知识 LoRA %s 跳过挂载"
+                log.warning("peft 不可用，知识 LoRA %s 跳过挂载"
                                "（回退基座推理）", version)
                 return model, ""
             wrapped = peft.PeftModel.from_pretrained(model, str(adapter_dir))
             wrapped.eval()
-            logger.info("知识 LoRA 已挂载: %s → %s", version,
+            log.info("知识 LoRA 已挂载: %s → %s", version,
                         self.model_id or model_dir)
             return wrapped, version
         except Exception as exc:  # noqa: BLE001 - 挂载失败回退基座
-            logger.warning("知识 LoRA 挂载失败，回退基座推理: %s", exc)
+            log.warning("知识 LoRA 挂载失败，回退基座推理: %s", exc)
             return model, ""
 
     @property
@@ -266,11 +266,11 @@ class TransformersBackend(DialogBackend):
             try:
                 base = base.unload()      # 退回基座（卸载旧 adapter）
             except Exception as exc:  # noqa: BLE001
-                logger.warning("知识 LoRA 旧版本卸载失败，保持现状: %s", exc)
+                log.warning("知识 LoRA 旧版本卸载失败，保持现状: %s", exc)
                 return {"changed": False, "version": self._lora_version}
         self._model, self._lora_version = self._attach_knowledge_lora(
             base, self.model_dir)
-        logger.info("知识 LoRA 热更新完成: → %s",
+        log.info("知识 LoRA 热更新完成: → %s",
                     self._lora_version or "基座")
         return {"changed": True, "version": self._lora_version}
 
@@ -284,7 +284,7 @@ class TransformersBackend(DialogBackend):
                 tok = getattr(tokenizer, "tokenizer", tokenizer)
                 return len(tok(text, add_special_tokens=False).input_ids)
             except Exception:
-                logger.debug("count_tokens: 降级忽略", exc_info=True)
+                log.debug("count_tokens: 降级忽略", exc_info=True)
         # 粗估：中英文混合约 1 token / 1.5 字符
         return max(1, int(len(text) / 1.5))
 
@@ -343,11 +343,11 @@ class TransformersBackend(DialogBackend):
                 try:
                     self._model.generate(**gen_kwargs)
                 except Exception:  # noqa: BLE001
-                    logger.exception("对话生成线程异常")
+                    log.exception("对话生成线程异常")
                     try:
                         streamer.end()
                     except Exception:  # noqa: BLE001
-                        logger.debug("_generate_worker: 降级忽略", exc_info=True)
+                        log.debug("_generate_worker: 降级忽略", exc_info=True)
 
             thread = threading.Thread(target=_generate_worker, daemon=True)
             thread.start()

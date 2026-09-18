@@ -16,7 +16,7 @@ from ...data.models import SynergyMode
 if TYPE_CHECKING:
     from .dispatcher import TaskDispatcher
 
-logger = logging.getLogger("omnispace.scheduler.decision")
+log = logging.getLogger("omnispace.scheduler.decision")
 
 
 class DecisionEngine:
@@ -78,14 +78,14 @@ class DecisionEngine:
             self._last_switch_time = now
             self._last_switch_wait_ms = 0
             self._last_switch_trigger = "emergency"
-            logger.warning("紧急切换到 ALL_TENSE 模式（跳过滞回）")
+            log.warning("紧急切换到 ALL_TENSE 模式（跳过滞回）")
             return self._current_mode
 
         # 记录或更新候选
         if self._candidate_mode != recommended:
             self._candidate_mode = recommended
             self._candidate_since = now
-            logger.debug(
+            log.debug(
                 "候选模式: %s（等待 %d 秒滞回确认）",
                 recommended.value,
                 HYSTERESIS_SECONDS,
@@ -101,7 +101,7 @@ class DecisionEngine:
             self._last_switch_time = now
             self._last_switch_wait_ms = int(elapsed * 1000)
             self._last_switch_trigger = "hysteresis"
-            logger.info(
+            log.info(
                 "模式切换: %s -> %s（滞回 %d 秒确认）",
                 old_mode.value,
                 recommended.value,
@@ -147,7 +147,7 @@ class DecisionEngine:
 
     def _strategy_gpu_primary(self, dispatcher: TaskDispatcher) -> None:
         """GPU 主力：全速运行，确保模型在显存中。"""
-        logger.info("策略[GPU_PRIMARY]: GPU 全速运行")
+        log.info("策略[GPU_PRIMARY]: GPU 全速运行")
         dispatcher.preload(["dialog", "paint"])
 
     def _strategy_cpu_assist(self, dispatcher: TaskDispatcher) -> None:
@@ -162,9 +162,9 @@ class DecisionEngine:
             （90% resource_guard 与 ALL_TENSE 兜底不变）。
           - 非生成期：维持原行为（offload 标记 + 缓存释放）。
         """
-        logger.info("策略[CPU_ASSIST]: 迁移部分层到 CPU")
+        log.info("策略[CPU_ASSIST]: 迁移部分层到 CPU")
         if dispatcher._feature_lock_active():
-            logger.warning(
+            log.warning(
                 "显存预警（≥80%%）生成期：在途任务不动，仅记录供需帧"
                 "（90%% 守卫与 ALL_TENSE 兜底不变）")
             try:
@@ -181,26 +181,26 @@ class DecisionEngine:
                     detail=(f"snapshot={snap!r}（生成期零成本动作："
                             "不 offload 不卸载，仅记录）"))
             except Exception as exc:  # noqa: BLE001 - 记录失败不影响调度
-                logger.debug("生成期供需帧记录跳过: %s", exc)
+                log.debug("生成期供需帧记录跳过: %s", exc)
             return
         # 迁移推理管线的后处理层到 CPU（原行为）
         dispatcher.migrate_to_cpu(layers=["vae_decode", "postprocess"])
 
     def _strategy_gpu_assist_cpu(self, dispatcher: TaskDispatcher) -> None:
         """GPU 受限：CPU 为主力，GPU 仅处理关键层。"""
-        logger.info("策略[GPU_ASSIST_CPU]: CPU 为主力")
+        log.info("策略[GPU_ASSIST_CPU]: CPU 为主力")
         dispatcher.migrate_to_cpu(layers=["attention", "ffn", "vae"])
         dispatcher.migrate_to_gpu(tasks=["embedding"])  # 仅 embedding 留在 GPU
 
     def _strategy_memory_pressure(self, dispatcher: TaskDispatcher) -> None:
         """内存压力：压缩不活跃的模型缓存。"""
-        logger.info("策略[MEMORY_PRESSURE]: 压缩模型缓存")
+        log.info("策略[MEMORY_PRESSURE]: 压缩模型缓存")
         dispatcher.degrade(precision="int4")
         dispatcher.compress_cache()
 
     def _strategy_all_tense(self, dispatcher: TaskDispatcher) -> None:
         """全面紧张：强制降级 + 卸载非关键模型。"""
-        logger.warning("策略[ALL_TENSE]: 强制降级")
+        log.warning("策略[ALL_TENSE]: 强制降级")
         dispatcher.degrade(precision="int4")
         dispatcher.force_unload(except_features=["dialog"])  # 仅保留对话
 
@@ -219,25 +219,25 @@ class DecisionEngine:
             from ..inference.gpu_budget import get_busy_registry
 
             if get_busy_registry().is_busy():
-                logger.info(
+                log.info(
                     "策略[ALL_IDLE]: 有任务登记在跑（含云端），跳过预加载")
                 return
         except Exception as exc:  # noqa: BLE001 - 登记簿不可用按原策略
-            logger.debug("忙碌登记簿检查跳过: %s", exc)
+            log.debug("忙碌登记簿检查跳过: %s", exc)
         try:
             from ..model_manager import get_model_manager
             pred = get_model_manager().predictor.predict_next()
         except Exception as exc:  # noqa: BLE001 - 预测不可用不阻断调度
-            logger.debug("策略[ALL_IDLE]: 预测器不可用，跳过预加载: %s", exc)
+            log.debug("策略[ALL_IDLE]: 预测器不可用，跳过预加载: %s", exc)
             return
         nxt = str(pred.get("next_feature") or "")
         # 仅重度 GPU 功能值得预加载；browser/behavior 学习为后台轻量任务
         if pred.get("preload") and nxt in ("dialog", "paint", "video_gen", "manga"):
-            logger.info(
+            log.info(
                 "策略[ALL_IDLE]: 预测预加载 %s (p=%.2f, engine=%s)",
                 nxt, float(pred.get("probability", 0.0)), pred.get("engine"),
             )
             dispatcher.preload([nxt])
         else:
-            logger.info("策略[ALL_IDLE]: 无可靠预测，保持显存空闲（不预加载）")
+            log.info("策略[ALL_IDLE]: 无可靠预测，保持显存空闲（不预加载）")
 # 本项目仅供学习使用，商业授权请+Q 3559331368

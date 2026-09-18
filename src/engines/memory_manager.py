@@ -18,7 +18,7 @@ import psutil
 
 from ..config import CACHE_COMPRESSION, THRESHOLDS
 
-logger = logging.getLogger("omnispace.engines.memory")
+log = logging.getLogger("omnispace.engines.memory")
 
 
 def _try_import(name: str) -> Any:
@@ -51,13 +51,13 @@ class MemoryManager:
 
         self._compression_enabled = CACHE_COMPRESSION == "lz4" and _lz4_block is not None
         if not self._compression_enabled and CACHE_COMPRESSION == "lz4":
-            logger.warning("lz4 不可用，内存压缩已禁用")
+            log.warning("lz4 不可用，内存压缩已禁用")
 
         # 获取系统内存
         vm = psutil.virtual_memory()
         self._total_ram_gb = vm.total / (1024 ** 3)
 
-        logger.info(
+        log.info(
             "内存管理器初始化: 总 RAM=%.1fGB, 压缩=%s",
             self._total_ram_gb,
             self._compression_enabled,
@@ -79,7 +79,7 @@ class MemoryManager:
             self._blocks[key] = MemoryBlock(key=key, size_mb=size_mb, data=data)
             self._blocks.move_to_end(key)
             self._total_tracked_mb += size_mb
-            logger.debug("内存注册: %s (%.1fMB)", key, size_mb)
+            log.debug("内存注册: %s (%.1fMB)", key, size_mb)
 
     def access(self, key: str) -> Any:
         """访问内存块（更新访问时间）。"""
@@ -126,7 +126,7 @@ class MemoryManager:
 
         result = [key for key, _ in inactive]
         if result:
-            logger.debug("检测到 %d 个不活跃内存块", len(result))
+            log.debug("检测到 %d 个不活跃内存块", len(result))
         return result
 
     # ── 压缩 ────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ class MemoryManager:
             被压缩的块数
         """
         if not self._compression_enabled or algorithm == "none":
-            logger.debug("压缩未启用 (algorithm=%s)", algorithm)
+            log.debug("压缩未启用 (algorithm=%s)", algorithm)
             return 0
 
         inactive_keys = self.get_inactive(idle_threshold_seconds)
@@ -164,10 +164,10 @@ class MemoryManager:
                     block.compressed = True
                     count += 1
                 except Exception as e:
-                    logger.warning("压缩失败 %s: %s", key, e)
+                    log.warning("压缩失败 %s: %s", key, e)
 
         if count > 0:
-            logger.info("压缩 %d 个不活跃内存块 (算法=%s)", count, algorithm)
+            log.info("压缩 %d 个不活跃内存块 (算法=%s)", count, algorithm)
         return count
 
     # ── 释放 ────────────────────────────────────────────────────
@@ -198,13 +198,13 @@ class MemoryManager:
                     count += 1
 
         if count > 0:
-            logger.info("释放 %d 个内存块", count)
+            log.info("释放 %d 个内存块", count)
 
         # 触发 Python 垃圾回收
         if count > 5:
             import gc
             collected = gc.collect()
-            logger.debug("GC 回收: %d 对象", collected)
+            log.debug("GC 回收: %d 对象", collected)
 
         return count
 

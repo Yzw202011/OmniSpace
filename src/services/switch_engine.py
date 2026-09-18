@@ -60,7 +60,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("omnispace.switch")
+log = logging.getLogger("omnispace.switch")
 
 # 终态集合（任务归档判定）
 _TERMINAL = {"done", "failed", "cancelled"}
@@ -397,7 +397,7 @@ class ModelSwitchEngine:
                     raise SwitchBusyError(active_id, category)
 
         if yield_task is not None:
-            logger.info("预热任务让位: %s (%s→%s) <- 新任务 %s",
+            log.info("预热任务让位: %s (%s→%s) <- 新任务 %s",
                         yield_task.task_id, yield_task.source_model,
                         yield_task.model_id, model_id)
             if not yield_task.done_event.wait(30.0):
@@ -431,7 +431,7 @@ class ModelSwitchEngine:
                     task.source_model = ""
 
         tag = "后台预热" if priority == "prefetch" else "切换"
-        logger.info("模型%s任务已提交: %s → %s (%s, task=%s)",
+        log.info("模型%s任务已提交: %s → %s (%s, task=%s)",
                     tag, task.source_model or "(空)", model_id, category,
                     task.task_id)
         threading.Thread(
@@ -517,12 +517,12 @@ class ModelSwitchEngine:
             try:
                 from ..engines.vllm_service import get_vllm_service
                 get_vllm_service().stop()
-                logger.info("切换任务 force 取消: %s（vLLM 子进程已终止）",
+                log.info("切换任务 force 取消: %s（vLLM 子进程已终止）",
                             task_id)
                 return True, "已强制终止 vLLM 引擎，任务即将转为已取消"
             except Exception as exc:  # noqa: BLE001 - stop 失败仍保留标记善后
-                logger.warning("vLLM 强杀失败（转标记善后）: %s", exc)
-        logger.info("切换任务取消请求: %s (%s, force=%s)",
+                log.warning("vLLM 强杀失败（转标记善后）: %s", exc)
+        log.info("切换任务取消请求: %s (%s, force=%s)",
                     task_id, task.status, force)
         if force:
             return True, ("已请求强制取消（引擎加载调用不可中断，"
@@ -590,7 +590,7 @@ class ModelSwitchEngine:
                 try:
                     self._unload_model(task.category, task.model_id)
                 except Exception:  # noqa: BLE001 - 善后失败如实入消息
-                    logger.warning("force 善后卸载失败: %s", task.model_id,
+                    log.warning("force 善后卸载失败: %s", task.model_id,
                                    exc_info=True)
                 task.status, task.stage = "cancelled", "已取消"
                 task.progress, task.message = 100, (
@@ -631,7 +631,7 @@ class ModelSwitchEngine:
                 return
             task.status, task.error = "failed", str(exc)
             task.stage = "失败"
-            logger.warning("切换任务失败 (%s→%s): %s",
+            log.warning("切换任务失败 (%s→%s): %s",
                            task.source_model, task.model_id, exc)
             # 仅真正卸载过 source 才回滚（2026-08-25 实测踩坑：plan
             # 阶段 fits=False 等未动状态的失败，source 仍在装——回滚
@@ -650,7 +650,7 @@ class ModelSwitchEngine:
             if feature and not task.lock_handover:
                 self._release_feature_lock(feature)
             self._emit_final(task)
-            logger.info("切换任务终态: %s %s→%s status=%s duration=%.1fs",
+            log.info("切换任务终态: %s %s→%s status=%s duration=%.1fs",
                         task.task_id, task.source_model or "(空)",
                         task.model_id, task.status,
                         task.finished_at - task.started_at)
@@ -746,7 +746,7 @@ class ModelSwitchEngine:
                 from .inference.h3_engine import get_h3_engine
                 get_h3_engine().unload()
             except Exception as exc:  # noqa: BLE001 - /free 失败不阻断
-                logger.debug("H3 权重卸载跳过: %s", exc)
+                log.debug("H3 权重卸载跳过: %s", exc)
             # 引擎切换驱逐 = 腾地方给新引擎：/free 之外直接杀 ComfyUI
             # 进程（CUDA context + torch 常驻一并释放；冷启动 ~40s，
             # 2026-08-31 抢占治理）。外部手动起的实例不受影响。
@@ -754,7 +754,7 @@ class ModelSwitchEngine:
                 from .inference.comfy_proc import get_comfy_proc
                 get_comfy_proc().shutdown()
             except Exception as exc:  # noqa: BLE001
-                logger.debug("ComfyUI 进程终止跳过: %s", exc)
+                log.debug("ComfyUI 进程终止跳过: %s", exc)
             get_model_manager().unload_model(model_id)
             return
         get_model_manager().unload_model(model_id)
@@ -877,10 +877,10 @@ class ModelSwitchEngine:
                     self._load_history[mid] = deque(
                         (float(v) for v in vals
                          if isinstance(v, (int, float))), maxlen=5)
-            logger.info("加载耗时历史已恢复: %d 个模型",
+            log.info("加载耗时历史已恢复: %d 个模型",
                         len(self._load_history))
         except Exception:  # noqa: BLE001 - 历史缺失/损坏不阻断
-            logger.debug("加载耗时历史恢复跳过", exc_info=True)
+            log.debug("加载耗时历史恢复跳过", exc_info=True)
 
     def _persist_load_history(self) -> None:
         """历史落库（UPSERT；失败不影响任务，下次成功时重写）。"""
@@ -898,7 +898,7 @@ class ModelSwitchEngine:
                 (self._LOAD_HISTORY_KEY,
                  json.dumps(payload, ensure_ascii=False), time.time()))
         except Exception:  # noqa: BLE001
-            logger.debug("加载耗时历史落库跳过", exc_info=True)
+            log.debug("加载耗时历史落库跳过", exc_info=True)
 
     def _rollback(self, task: SwitchTask) -> None:
         """失败回滚：尽力重载 source_model（vLLM 回滚即再等一次全量加载）。
@@ -918,7 +918,7 @@ class ModelSwitchEngine:
         try:
             self._unload_model(task.category, task.model_id)
         except Exception as exc:  # noqa: BLE001
-            logger.debug("回滚前目标残留清理跳过: %s", exc)
+            log.debug("回滚前目标残留清理跳过: %s", exc)
         try:
             ok = self._load_model(task.category, task.source_model)
             task.rollback_state = "done" if ok else "failed"
@@ -929,7 +929,7 @@ class ModelSwitchEngine:
         except Exception as exc:  # noqa: BLE001
             task.rollback_state = "failed"
             task.message = f"回滚异常: {exc}（显存已释放，可手动加载）"
-        logger.info("切换回滚: task=%s state=%s", task.task_id, task.rollback_state)
+        log.info("切换回滚: task=%s state=%s", task.task_id, task.rollback_state)
 
     # ── Plan ───────────────────────────────────────────────────
 
@@ -1102,7 +1102,7 @@ class ModelSwitchEngine:
     def _set_stage(task: SwitchTask, status: str, stage: str,
                    progress: int) -> None:
         task.status, task.stage, task.progress = status, stage, progress
-        logger.info("切换进度: %s %s %d%%", task.task_id, stage, progress)
+        log.info("切换进度: %s %s %d%%", task.task_id, stage, progress)
 
     def _emit(self, task: SwitchTask) -> None:
         """广播进度事件（task_progress 前端全局接收，module=model_switch）。"""
@@ -1113,7 +1113,7 @@ class ModelSwitchEngine:
             bc({"type": "task_progress",
                 "data": {"module": "model_switch", **task.to_dict()}})
         except Exception:  # noqa: BLE001 - 广播失败不阻断任务
-            logger.debug("切换进度广播失败", exc_info=True)
+            log.debug("切换进度广播失败", exc_info=True)
 
     def _emit_final(self, task: SwitchTask) -> None:
         """终态事件：done→task_complete；failed→task_error；
@@ -1137,13 +1137,13 @@ class ModelSwitchEngine:
             else:
                 bc({"type": "task_complete", "data": base})
         except Exception:  # noqa: BLE001
-            logger.debug("切换终态广播失败", exc_info=True)
+            log.debug("切换终态广播失败", exc_info=True)
 
     def _release_feature_lock(self, feature: str) -> None:
         """跨线程释放功能锁（API 层 acquire → 任务线程移交释放）。"""
         loop = self._loop
         if loop is None or loop.is_closed():
-            logger.warning("事件循环不可用，功能锁 %s 未释放（重启自愈）", feature)
+            log.warning("事件循环不可用，功能锁 %s 未释放（重启自愈）", feature)
             return
         try:
             from ..middleware.feature_lock import get_feature_lock
@@ -1151,7 +1151,7 @@ class ModelSwitchEngine:
                 get_feature_lock().release(feature), loop)
             fut.result(timeout=5)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("功能锁释放失败 (%s): %s", feature, exc)
+            log.warning("功能锁释放失败 (%s): %s", feature, exc)
 
 
 def get_switch_engine() -> ModelSwitchEngine:

@@ -20,7 +20,7 @@ from ...middleware.error_handler import ApiError
 from .classifier import ModelClassifier
 from .validator import ModelValidator
 
-logger = logging.getLogger("omnispace.model_manager.importer")
+log = logging.getLogger("omnispace.model_manager.importer")
 
 
 @dataclass
@@ -83,11 +83,11 @@ class ModelImporter:
         try:
             category = self.classifier.classify(path)
             result.category = category
-            logger.info("模型分类: %s -> %s", file_path.name, category.value)
+            log.info("模型分类: %s -> %s", file_path.name, category.value)
         except Exception as e:
             result.error = f"分类失败: {e}"
             result.category = ModelCategory.AUXILIARY
-            logger.warning("模型分类失败，默认 AUXILIARY: %s", e)
+            log.warning("模型分类失败，默认 AUXILIARY: %s", e)
 
         # 3. 提取名称
         result.name = file_path.stem if file_path.is_file() else file_path.name
@@ -108,7 +108,7 @@ class ModelImporter:
             else:
                 try:
                     result.sha256 = self.validator.compute_sha256(str(file_path))
-                    logger.info("SHA256: %s...", result.sha256[:16])
+                    log.info("SHA256: %s...", result.sha256[:16])
                 except Exception as e:
                     result.warnings.append(f"SHA256 计算失败: {e}")
         else:
@@ -120,7 +120,7 @@ class ModelImporter:
         # 7. 最终校验
         if not result.error:
             result.success = True
-            logger.info(
+            log.info(
                 "模型导入成功: %s (类型=%s, 大小=%.2fGB)",
                 result.name,
                 result.category.value,

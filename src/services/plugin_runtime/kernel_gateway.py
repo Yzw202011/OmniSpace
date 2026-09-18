@@ -22,7 +22,7 @@ from typing import Any
 from ...config import DATA_DIR
 from .bridge import get_event_bridge
 
-logger = logging.getLogger("omnispace.services.plugin_runtime.kernel_gateway")
+log = logging.getLogger("omnispace.services.plugin_runtime.kernel_gateway")
 
 # 内核存档目录（data/ 为运行时区，git 不跟踪）
 KERNEL_PKG_DIR = DATA_DIR / "plugins" / "pkgs"
@@ -70,7 +70,7 @@ def _merge_instances(kernel: Any) -> None:
         if entry is not None and getattr(entry, "instance", None) is not None:
             if name not in kernel.plugins:
                 kernel.plugins[name] = entry.instance
-                logger.info("内核复用 OSP 实例: %s（合流）", name)
+                log.info("内核复用 OSP 实例: %s（合流）", name)
             return entry.instance
         return original_hot_load(name)
 
@@ -118,9 +118,9 @@ def get_plugin_kernel() -> Any:
                 _bridge_kernel_events(kernel)
                 try:
                     discovered = kernel.discover_plugins(PLUGIN_DIR)
-                    logger.info("内核插件发现: %s", sorted(discovered))
+                    log.info("内核插件发现: %s", sorted(discovered))
                 except Exception:  # noqa: BLE001 - 发现失败不拦端点
-                    logger.warning("内核插件目录扫描失败", exc_info=True)
+                    log.warning("内核插件目录扫描失败", exc_info=True)
                 _merge_instances(kernel)  # 合流：单实例双面服务
                 _gate_kernel_think(kernel)  # 安全盾：think 路由前置门禁
                 _kernel = kernel
@@ -144,7 +144,7 @@ def register_user_pkg(pkg_path: Any) -> bool:
         kernel.register_pkg(str(pkg_path))
         return True
     except Exception:  # noqa: BLE001 - 内核登记失败不拦导入
-        logger.warning("用户包内核登记失败: %s", pkg_path, exc_info=True)
+        log.warning("用户包内核登记失败: %s", pkg_path, exc_info=True)
         return False
 
 

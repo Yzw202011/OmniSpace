@@ -27,9 +27,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # 仅类型检查期导入，防运行时循环依赖
     from ..cutemamen.kernel import CubeGPTKernel
 
+import logging
+
 import numpy as np
 
 from ..codec.spike_codec import SpikeEncoder
+
+log = logging.getLogger("omnispace.core.distributedformer")
 
 # ═══════════════════════════════════════════════════════════════
 # 1. 基础数据结构
@@ -1752,23 +1756,25 @@ def calculate_scale(depth: int) -> dict:
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("DistributedFormer v5.2 核心模块测试")
-    print("=" * 60)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log.info("=" * 60)
+    log.info("DistributedFormer v5.2 核心模块测试")
+    log.info("=" * 60)
 
     # 测试规模计算
     for d in range(4):
         info = calculate_scale(d)
-        print(f"  {info['description']}")
+        log.info(f"  {info['description']}")
 
-    print("\n" + "-" * 60)
+    log.info("\n" + "-" * 60)
 
     # 测试KV堆
     kv = KVStack(capacity=100, dim=16)
     for i in range(20):
         kv.push(f"test_{i}", np.random.randn(16), np.random.randn(16))
     results = kv.query(np.random.randn(16), top_k=3)
-    print(f"KV堆测试: 20条目中查询top-3, 命中{len(results)}条")
+    log.info(f"KV堆测试: 20条目中查询top-3, 命中{len(results)}条")
 
     # 测试脉冲单元
     unit = SpikingUnit("test_unit")
@@ -1777,45 +1783,45 @@ if __name__ == "__main__":
         spike = unit.step(np.random.randn(16), np.zeros(16), 1.0)
         if spike:
             spike_count += 1
-    print(f"脉冲单元测试: 100步中发射{spike_count}次脉冲")
+    log.info(f"脉冲单元测试: 100步中发射{spike_count}次脉冲")
 
     # 测试完整网络
-    print("\n" + "-" * 60)
-    print("完整网络测试 (深度2, 1层)...")
+    log.info("\n" + "-" * 60)
+    log.info("完整网络测试 (深度2, 1层)...")
     df = DistributedFormer(depth=2, dim=16, num_think_layers=1)
 
     # 模拟10步
     for step in range(10):
         output_spikes = df.step({"numeric": np.random.randn(16) * 0.5})
-        print(f"  Step {step+1}: 输出层发射{len(output_spikes)}个脉冲, "
+        log.info(f"  Step {step+1}: 输出层发射{len(output_spikes)}个脉冲, "
               f"调制={df.global_modulation:.2f}, 相位={df.cycle_phase}")
 
     stats = df.get_network_stats()
-    print(f"\n网络统计: {stats['total_units']}单元, {stats['total_spikes']}脉冲, "
+    log.info(f"\n网络统计: {stats['total_units']}单元, {stats['total_spikes']}脉冲, "
           f"疲劳={stats['avg_fatigue']:.3f}")
-    print("KV堆: 利用率={:.1%}".format(stats['kv_stats']['utilization']))
+    log.info("KV堆: 利用率={:.1%}".format(stats['kv_stats']['utilization']))
 
     # 测试思考层模式
     think_pattern = df.get_think_layer_pattern()
-    print(f"\n思考层激活模式: 范数={np.linalg.norm(think_pattern):.3f}")
+    log.info(f"\n思考层激活模式: 范数={np.linalg.norm(think_pattern):.3f}")
 
     # 测试 STDP 学习
-    print("\n" + "-" * 60)
-    print("STDP 学习测试...")
+    log.info("\n" + "-" * 60)
+    log.info("STDP 学习测试...")
     stdp_stats = df.get_stdp_stats()
-    print(f"  LTP: {stdp_stats['total_ltp']}, LTD: {stdp_stats['total_ltd']}")
-    print(f"  总权重变化: {stdp_stats['total_weight_change']:.4f}")
-    print(f"  平均权重变化: {stdp_stats['avg_weight_change']:.6f}")
+    log.info(f"  LTP: {stdp_stats['total_ltp']}, LTD: {stdp_stats['total_ltd']}")
+    log.info(f"  总权重变化: {stdp_stats['total_weight_change']:.4f}")
+    log.info(f"  平均权重变化: {stdp_stats['avg_weight_change']:.6f}")
 
     # 禁用学习再运行5步对比
-    print("\n  禁用 STDP 学习后运行5步...")
+    log.info("\n  禁用 STDP 学习后运行5步...")
     df.enable_learning(False)
     for _ in range(5):
         df.step({"numeric": np.random.randn(16) * 0.5})
     stdp_stats2 = df.get_stdp_stats()
-    print(f"  禁用后 LTP: {stdp_stats2['total_ltp']} (应不变)")
-    print(f"  学习开关: {stdp_stats2['learning_enabled']}")
+    log.info(f"  禁用后 LTP: {stdp_stats2['total_ltp']} (应不变)")
+    log.info(f"  学习开关: {stdp_stats2['learning_enabled']}")
 
-    print("\n" + "=" * 60)
-    print("核心模块测试通过!")
-    print("=" * 60)
+    log.info("\n" + "=" * 60)
+    log.info("核心模块测试通过!")
+    log.info("=" * 60)

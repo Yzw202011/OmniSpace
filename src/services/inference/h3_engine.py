@@ -47,7 +47,7 @@ from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
 from .comfy_proc import COMFY_OUTPUT_DIR as _COMFY_OUTPUT
 from .comfy_proc import get_comfy_proc
 
-logger = logging.getLogger("omnispace.inference.h3")
+log = logging.getLogger("omnispace.inference.h3")
 
 # ── ComfyUI 便携版落位（tools/ComfyUI_windows_portable） ──────────
 _COMFY_DIR = ROOT_DIR / "tools" / "ComfyUI_windows_portable"
@@ -161,7 +161,7 @@ class H3Engine:
             if isinstance(body, dict):
                 return body
         except Exception:  # noqa: BLE001 - 错误体不是 JSON 时走兜底
-            logger.debug("_parse_error_body: 降级忽略", exc_info=True)
+            log.debug("_parse_error_body: 降级忽略", exc_info=True)
         return {"error": {"message": f"HTTP {exc.code} {exc.reason}"}}
 
     def _api(self, method: str, path: str,
@@ -395,7 +395,7 @@ class H3Engine:
                 raise ApiError(code=60003,
                                message=f"H3 工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
-            logger.info("H3 任务已提交 (prompt_id=%s, %dx%d, %d帧, %d步)",
+            log.info("H3 任务已提交 (prompt_id=%s, %dx%d, %d帧, %d步)",
                         prompt_id, width, height, length, steps)
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,7 +410,7 @@ class H3Engine:
                                message=f"H3 产物缺失: {video_rel}")
             shutil.move(str(src), out_path)
             _report(1.0, "完成")
-            logger.info("H3 视频已回搬: %s (%.1f MB)",
+            log.info("H3 视频已回搬: %s (%.1f MB)",
                         out_path.name, out_path.stat().st_size / 1048576)
             return out_path
         finally:
@@ -421,7 +421,7 @@ class H3Engine:
                 try:
                     (_COMFY_INPUT / frame_name).unlink(missing_ok=True)
                 except OSError:
-                    logger.debug("_generate_locked: 降级忽略", exc_info=True)
+                    log.debug("_generate_locked: 降级忽略", exc_info=True)
 
     def _poll_history(self, prompt_id: str, *, width: int, height: int,
                       steps: int,
@@ -825,7 +825,7 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
                 raise ApiError(code=60003,
                                message=f"导演台工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
-            logger.info("导演台段已提交 (prompt_id=%s, %s, %.1fs)",
+            log.info("导演台段已提交 (prompt_id=%s, %s, %.1fs)",
                         prompt_id, shot_id, dur)
             video_rel = _poll_director_history(
                 engine, prompt_id, seconds=dur, steps=steps,
@@ -839,7 +839,7 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
             shutil.move(str(src), dst)
             seg_paths.append(dst)
             _report(float(gi + 1), 1.0, f"{shot_id} 完成")
-            logger.info("导演台段已回收: %s (%.1f MB)",
+            log.info("导演台段已回收: %s (%.1f MB)",
                         dst.name, dst.stat().st_size / 1048576)
         return seg_paths
     finally:
@@ -848,10 +848,10 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
             try:
                 fp.unlink(missing_ok=True)
             except OSError:
-                logger.debug("_generate_director_locked: 降级忽略", exc_info=True)
+                log.debug("_generate_director_locked: 降级忽略", exc_info=True)
         try:
             import shutil as _sh
             _sh.rmtree(input_dir, ignore_errors=True)
         except OSError:
-            logger.debug("_generate_director_locked: 降级忽略", exc_info=True)
+            log.debug("_generate_director_locked: 降级忽略", exc_info=True)
         engine.unload()

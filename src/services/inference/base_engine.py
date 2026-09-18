@@ -24,7 +24,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, ClassVar
 
-logger = logging.getLogger("omnispace.inference.base_engine")
+log = logging.getLogger("omnispace.inference.base_engine")
 
 
 class EngineState(str, Enum):
@@ -148,7 +148,7 @@ def resolve_engine(category: str) -> Any:
     try:
         mod = importlib.import_module(module_name)
     except Exception as exc:  # noqa: BLE001 - 引擎损坏/缺失容错
-        logger.warning("引擎模块导入失败 (%s): %s", cat, exc)
+        log.warning("引擎模块导入失败 (%s): %s", cat, exc)
         return None
     try:
         getter = getattr(mod, getter_name, None)
@@ -157,7 +157,7 @@ def resolve_engine(category: str) -> Any:
         cls = getattr(mod, class_name, None) if class_name else None
         return cls() if isinstance(cls, type) else None
     except Exception as exc:  # noqa: BLE001
-        logger.warning("引擎实例化失败 (%s): %s", cat, exc)
+        log.warning("引擎实例化失败 (%s): %s", cat, exc)
         return None
 
 

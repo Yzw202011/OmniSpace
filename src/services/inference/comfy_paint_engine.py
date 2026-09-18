@@ -33,7 +33,7 @@ from .comfy_proc import COMFY_INPUT_DIR as _COMFY_INPUT
 from .comfy_proc import COMFY_OUTPUT_DIR as _COMFY_OUTPUT
 from .comfy_proc import get_comfy_proc
 
-logger = logging.getLogger("omnispace.inference.comfy_paint")
+log = logging.getLogger("omnispace.inference.comfy_paint")
 
 # ── ComfyUI 便携版落位（与 H3 同一实例）────────────────────────
 _COMFY_DIR = ROOT_DIR / "tools" / "ComfyUI_windows_portable"
@@ -245,7 +245,7 @@ class ComfyPaintEngine:
             if isinstance(body, dict):
                 return body
         except Exception:  # noqa: BLE001 - 错误体不是 JSON 时走兜底
-            logger.debug("_parse_error_body: 降级忽略", exc_info=True)
+            log.debug("_parse_error_body: 降级忽略", exc_info=True)
         return {"error": {"message": f"HTTP {exc.code} {exc.reason}"}}
 
     # ── 进程生命周期 ──────────────────────────────────────────────
@@ -700,7 +700,7 @@ class ComfyPaintEngine:
             except ApiError:
                 raise
             except Exception:  # noqa: BLE001 - 探测失败放行（ComfyUI 侧自会报）
-                logger.debug("_run_locked: 降级忽略", exc_info=True)
+                log.debug("_run_locked: 降级忽略", exc_info=True)
 
         # ReferenceLatent 模式提前解析：off 时不落参考图（省 IO，
         # 工作流不建 ref 链）
@@ -715,7 +715,7 @@ class ComfyPaintEngine:
             if isinstance(ref_image, list)
             else ([] if ref_image is None else [ref_image]))
         if len(ref_imgs) > _MAX_WF_REFS:
-            logger.warning("参考图超上限 %d > %d，按序截断",
+            log.warning("参考图超上限 %d > %d，按序截断",
                            len(ref_imgs), _MAX_WF_REFS)
             ref_imgs = ref_imgs[:_MAX_WF_REFS]
         ref_names: list[str] = []
@@ -779,7 +779,7 @@ class ComfyPaintEngine:
             prompt_id = str(resp["prompt_id"])
             _log_steps, _ = (_effective_steps_cfg(params)
                              if not z_mode else (8, 1.0))
-            logger.info("绘画任务已提交 (prompt_id=%s, model=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
+            log.info("绘画任务已提交 (prompt_id=%s, model=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
                         prompt_id,
                         _Z_IMAGE_MODEL_ID if z_mode else "klein-9b-fp8",
                         int(params.get("width") or 1280),
@@ -792,7 +792,7 @@ class ComfyPaintEngine:
                         float(params.get("pulid_strength") or 0.0))
 
             images = self._poll_history(prompt_id, params)
-            logger.info("ComfyUI 绘画完成: %d 图, %.1fs",
+            log.info("ComfyUI 绘画完成: %d 图, %.1fs",
                         len(images), time.perf_counter() - t0)
             return {"images": images, "prompt_id": prompt_id,
                     "elapsed_s": time.perf_counter() - t0,
@@ -803,7 +803,7 @@ class ComfyPaintEngine:
                     try:
                         (_COMFY_INPUT / name).unlink(missing_ok=True)
                     except OSError:
-                        logger.debug("_run_locked: 降级忽略", exc_info=True)
+                        log.debug("_run_locked: 降级忽略", exc_info=True)
 
     def inpaint(self, params: dict, image: Image.Image,
                 mask: Image.Image) -> dict:
@@ -929,11 +929,11 @@ class ComfyPaintEngine:
                 raise ApiError(code=60003,
                                message=f"修复工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
-            logger.info("潜空间修复已提交 (prompt_id=%s, %dx%d, %d步)",
+            log.info("潜空间修复已提交 (prompt_id=%s, %dx%d, %d步)",
                         prompt_id, w, h, steps)
             eta_params = {**p, "width": w, "height": h}
             images = self._poll_history(prompt_id, eta_params)
-            logger.info("潜空间修复完成: %.1fs",
+            log.info("潜空间修复完成: %.1fs",
                         time.perf_counter() - t0)
             if not images:
                 raise ApiError(code=60003, message="修复采样无产物")
@@ -954,7 +954,7 @@ class ComfyPaintEngine:
                 try:
                     (_COMFY_INPUT / name).unlink(missing_ok=True)
                 except OSError:
-                    logger.debug("inpaint: 降级忽略", exc_info=True)
+                    log.debug("inpaint: 降级忽略", exc_info=True)
 
     def _poll_history(self, prompt_id: str,
                       params: dict) -> list[Image.Image]:
@@ -994,7 +994,7 @@ class ComfyPaintEngine:
                     try:
                         src.unlink(missing_ok=True)
                     except OSError:
-                        logger.debug("_poll_history: 降级忽略", exc_info=True)
+                        log.debug("_poll_history: 降级忽略", exc_info=True)
             if images:
                 # 清理任务子目录（paint/<task_id> 前缀隔离）
                 return images

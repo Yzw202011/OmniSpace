@@ -25,8 +25,12 @@ from typing import Any
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import logging
+
 from src.core.distributedformer import DistributedFormer
 from src.data.real_dataset import RustCodingTrainingDataset, TrainingSample
+
+log = logging.getLogger("omnispace.training.trainer")
 
 
 @dataclass
@@ -579,17 +583,17 @@ class DFTrainer:
         # 计算总单元数
         total_units = len(self.df._all_units)
 
-        print(f"\n{'='*70}")
-        print("  DistributedFormer v5.3 全面训练 (持久输出头 + 向量化 w_in)")
-        print(f"{'='*70}")
-        print(f"  网络配置: 深度={self.depth}, 思考层={self.df.num_think_layers}")
-        print(f"  总单元数: {total_units:,} (目标~4,400)")
-        print(f"  训练样本: {len(train_samples)}")
-        print(f"  验证样本: {len(val_samples)}")
-        print(f"  Epochs: {epochs}")
-        print(f"  学习率: {self.lr} (输出层) / {self.think_lr} (思考层)")
-        print(f"  监督调制: {self.super_mod}")
-        print(f"{'='*70}\n")
+        log.info(f"\n{'='*70}")
+        log.info("  DistributedFormer v5.3 全面训练 (持久输出头 + 向量化 w_in)")
+        log.info(f"{'='*70}")
+        log.info(f"  网络配置: 深度={self.depth}, 思考层={self.df.num_think_layers}")
+        log.info(f"  总单元数: {total_units:,} (目标~4,400)")
+        log.info(f"  训练样本: {len(train_samples)}")
+        log.info(f"  验证样本: {len(val_samples)}")
+        log.info(f"  Epochs: {epochs}")
+        log.info(f"  学习率: {self.lr} (输出层) / {self.think_lr} (思考层)")
+        log.info(f"  监督调制: {self.super_mod}")
+        log.info(f"{'='*70}\n")
 
         start_time = time.time()
 
@@ -600,7 +604,7 @@ class DFTrainer:
             train_metrics = self.train_epoch(train_samples)
             val_metrics = self.evaluate(val_samples)
 
-            print(f"  Epoch {epoch+1:2d}/{epochs} | "
+            log.info(f"  Epoch {epoch+1:2d}/{epochs} | "
                   f"Train Loss: {train_metrics['loss']:.4f} | "
                   f"Train Acc: {train_metrics['accuracy']:.2%} | "
                   f"Val Loss: {val_metrics['loss']:.4f} | "
@@ -616,7 +620,7 @@ class DFTrainer:
                 self.patience_counter += 1
 
             if self.patience_counter >= self.patience:
-                print(f"\n  早停触发 (patience={self.patience})")
+                log.info(f"\n  早停触发 (patience={self.patience})")
                 break
 
         elapsed = time.time() - start_time
@@ -638,17 +642,17 @@ class DFTrainer:
             "total_units": total_units
         }
 
-        print(f"\n{'='*70}")
-        print("  训练完成")
-        print(f"{'='*70}")
-        print(f"  耗时: {elapsed:.1f}秒")
-        print(f"  最佳验证损失: {self.best_val_loss:.4f}")
-        print(f"  最佳验证准确率: {self.best_val_acc:.2%}")
-        print(f"  最终验证准确率: {final_val['accuracy']:.2%}")
-        print("  各类别准确率:")
+        log.info(f"\n{'='*70}")
+        log.info("  训练完成")
+        log.info(f"{'='*70}")
+        log.info(f"  耗时: {elapsed:.1f}秒")
+        log.info(f"  最佳验证损失: {self.best_val_loss:.4f}")
+        log.info(f"  最佳验证准确率: {self.best_val_acc:.2%}")
+        log.info(f"  最终验证准确率: {final_val['accuracy']:.2%}")
+        log.info("  各类别准确率:")
         for cat, acc in final_val["class_accuracy"].items():
             name = self.category_names[cat] if cat < len(self.category_names) else str(cat)
-            print(f"    {name:12s}: {acc:.2%}")
+            log.info(f"    {name:12s}: {acc:.2%}")
 
         return summary
 
@@ -826,9 +830,11 @@ class DFTrainer:
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("训练器自测试")
-    print("=" * 60)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log.info("=" * 60)
+    log.info("训练器自测试")
+    log.info("=" * 60)
 
     dataset = RustCodingTrainingDataset(dim=16)
     train, val = dataset.generate_dataset(train_ratio=0.75)
@@ -836,21 +842,21 @@ if __name__ == "__main__":
     # v5.2: depth=2, num_think_layers=1 => ~4400单元
     trainer = DFTrainer(depth=2, dim=16, learning_rate=0.008)
 
-    print(f"\n网络总单元数: {len(trainer.df._all_units):,}")
+    log.info(f"\n网络总单元数: {len(trainer.df._all_units):,}")
 
-    print("\n[快速训练2个epoch测试]")
+    log.info("\n[快速训练2个epoch测试]")
     for epoch in range(2):
         metrics = trainer.train_epoch(train)
         val_metrics = trainer.evaluate(val)
-        print(f"  Epoch {epoch+1}: Train Acc={metrics['accuracy']:.2%}, "
+        log.info(f"  Epoch {epoch+1}: Train Acc={metrics['accuracy']:.2%}, "
               f"Val Acc={val_metrics['accuracy']:.2%}")
 
-    print("\n[测试权重保存/加载]")
+    log.info("\n[测试权重保存/加载]")
     os.makedirs("training/checkpoints", exist_ok=True)
     trainer.save_weights("training/checkpoints/test_model.npz")
     trainer.load_weights("training/checkpoints/test_model.npz")
-    print("  权重保存/加载成功")
+    log.info("  权重保存/加载成功")
 
-    print("\n" + "=" * 60)
-    print("训练器测试通过!")
-    print("=" * 60)
+    log.info("\n" + "=" * 60)
+    log.info("训练器测试通过!")
+    log.info("=" * 60)

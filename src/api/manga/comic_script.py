@@ -34,7 +34,7 @@ from .common import (
     manga_dialog_model_id,
 )
 
-logger = logging.getLogger("omnispace.api.manga.comic_script")
+log = logging.getLogger("omnispace.api.manga.comic_script")
 
 router = APIRouter()
 
@@ -201,7 +201,7 @@ async def comic_script_generate(
                 detail={"raw_head": (raw or "")[:200]})
         rows = await run_blocking(_persist_rows, req.project_id,
                                   descriptions, req.replace)
-        logger.info("AI 写分格完成: project=%s 请求=%d 实得=%d replace=%s",
+        log.info("AI 写分格完成: project=%s 请求=%d 实得=%d replace=%s",
                     req.project_id, req.panels, len(descriptions), req.replace)
         return ok({"rows": rows, "requested": req.panels,
                    "generated": len(descriptions)})

@@ -22,7 +22,7 @@ from typing import Any
 
 from .security import BehavioralFingerprint, SecurityMonitor
 
-logger = logging.getLogger("omnispace.services.plugin_runtime.security_gate")
+log = logging.getLogger("omnispace.services.plugin_runtime.security_gate")
 
 # 审计留痕的参数裁剪上限（spec 可能含长代码串；熵值与留痕同源同口径）
 _PARAMS_CLIP = 2000
@@ -95,12 +95,12 @@ def _gate(action: dict[str, Any],
     try:
         ok, audited, _review = monitor.gate(action, task=task)
     except Exception:  # noqa: BLE001 - 门禁故障 fail-open + 留错误日志
-        logger.error("安全门禁内部异常，放行并留痕", exc_info=True)
+        log.error("安全门禁内部异常，放行并留痕", exc_info=True)
         return True, "GATE_ERROR", ""
     outcome = audited.verdict.verdict.value
     if not ok:
         detail = "; ".join(audited.verdict.reasons) or outcome
-        logger.warning("安全门禁拦截: %s → %s（%s）",
+        log.warning("安全门禁拦截: %s → %s（%s）",
                        action.get("tool") or action.get("topic"),
                        outcome, detail)
     return ok, outcome, "; ".join(audited.verdict.reasons)

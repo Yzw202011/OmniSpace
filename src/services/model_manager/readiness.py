@@ -21,7 +21,7 @@ import json
 import logging
 from pathlib import Path
 
-logger = logging.getLogger("omnispace.models.readiness")
+log = logging.getLogger("omnispace.models.readiness")
 
 # 内置件类型（随 ≤50G 软件包发行，见 make_dist 四辅助目录）
 BUILTIN_TYPES = frozenset({"embedding", "asr", "segmentation", "auxiliary"})

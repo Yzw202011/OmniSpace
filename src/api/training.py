@@ -2,14 +2,15 @@
 """训练中心聚合 API（P1 训练中心，2026-09-17 用户拍板 2A）。
 
 GET /training/tasks —— 统一训练队列：聚合**知识训练**（/learn，对话模型
-QLoRA）与**风格训练**（/style，视频风格 LoRA）两套任务源。两套服务本体
+QLoRA）、**风格训练**（/style，视频风格 LoRA）与**人物训练**
+（/character_lora，P3 增补）三套任务源。三套服务本体
 不动，本层只做薄聚合（拍板 2A 的稳妥路线）：
 
 - 逐源 fail-soft：单侧故障不拖垮整队，sources 字段如实披露各侧健康度
   （诚实降级：坏一侧的 items 缺席但标 ok:false，不伪造空列表冒充无任务）；
-- 归一化：两套任务的公共字段（id/kind/name/status/progress/时间戳）
+- 归一化：三套任务的公共字段（id/kind/name/status/progress/时间戳）
   统一形状，created_at 缺失者沉底；
-- 排序：按 created_at 倒序（与两源各自列表口径一致）。
+- 排序：按 created_at 倒序（与各源自身列表口径一致）。
 """
 from __future__ import annotations
 

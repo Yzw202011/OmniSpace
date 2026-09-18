@@ -119,3 +119,6 @@ updates/
 *.upg
 tools/scratch/
 tools/debug_archive/
+
+# 工具缓存（问题总账 #9）
+.ruff_cache/

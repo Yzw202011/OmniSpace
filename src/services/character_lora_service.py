@@ -158,7 +158,12 @@ class CharacterLoraService:
 
     # ── 素材采集（comic_assets 角色资产） ────────────────────
     def collect_images(self, asset: dict[str, Any]) -> list[Path]:
-        """角色资产 → 训练图列表（主图 + meta.views 四视图，仅存盘文件）。"""
+        """角色资产 → 训练图列表（主图 + meta.views 四视图，仅存盘文件）。
+
+        meta.views 兼容两种形态（批5 修正）：list[str]（路径列表）或
+        dict[str, str]（{front/side/back/closeup: 路径}——comic_gen.py
+        实际写入的形态）。
+        """
         from ..config import DATA_DIR
         imgs: list[Path] = []
         main = str(asset.get("file_path") or "")
@@ -169,7 +174,16 @@ class CharacterLoraService:
             if p.is_file():
                 imgs.append(p)
         meta = asset.get("meta") or {}
-        for v in (meta.get("views") or []):
+        views_raw: Any = meta.get("views") or []
+        views: Any = []
+        if isinstance(views_raw, dict):
+            views = list(views_raw.values())
+        elif isinstance(views_raw, list):
+            views = views_raw
+        else:
+            views = []
+            views = []
+        for v in views:
             if isinstance(v, str):
                 p = Path(v)
                 if not p.is_absolute():

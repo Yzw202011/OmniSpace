@@ -134,7 +134,7 @@ src/stores/：
 | `!important` | 提升选择器特异性 |
 | useEffect无cleanup | MUST return cleanup函数 |
 | 直接操作数据库 | 调后端API |
-| WebSocket传AI token | SSE（POST /api/v1/chat/stream，F-011 裁定） |
+| ~~WebSocket传AI token~~（F-011 已于 2026-09-18 拍板 B 翻转：WS /dialog/stream 即对话流式终态主路径；SSE 端点在库未接线仅作能力备份） | 现行=WS 终态 |
 
 ---
 

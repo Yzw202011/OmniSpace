@@ -47,4 +47,4 @@ RustCoding.CuteMamen 携带主模型迁移的 Rust 开发知识 (502 段真实
 各子包的 __init__.py 均有本包的架构说明, 逐层阅读即可。
 """
 
-__version__ = "2.1.0"
+__version__ = "2.5.0"  # 批1 对齐（真源=src/config.yaml app.version；原 2.1.0 落后 4 版）

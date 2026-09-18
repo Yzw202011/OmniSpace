@@ -12,8 +12,6 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter
-
 from ...config import (
     DATA_DIR,
 )
@@ -34,7 +32,6 @@ if TYPE_CHECKING:
     from ...services.inference.video_engine import VideoEngine
     from ...services.inference.voice_engine import VoiceEngine
 
-router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.common")
 
 

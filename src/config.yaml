@@ -21,6 +21,9 @@ server:
 # 后端，sandbox_host.py）；出厂/纯数据档维持进程内。false=应急
 # 回退闸（含源码档回进程内信任，重启生效）。
 plugins:
+  # 安全盾行为门禁（批1-6 2026-09-18 补键：代码读此键默认 true，
+  # 原先 config 无键=用户不可见的隐形开关）
+  security_gate: true
   sandbox: true
 
 scheduler:
@@ -72,10 +75,8 @@ scheduler:
     mem_warning_ratio: 0.25   # 可用内存占比预警线（=已用 75%）
     mem_critical_ratio: 0.15  # 可用内存占比临界线（=已用 85%，文档B §4.1 动作线）
     disk_io_busy_critical: 0.80  # 磁盘忙碌时间占比临界（文档B §4.1：>80% 延迟写入）
-    battery_pause_training: 20  # percent
 
 model_cache:
-  l2_max_gb: 0  # 0 = 自动（可用RAM - 4GB）
   compression: "lz4"
   eviction_policy: "lru"
 
@@ -98,24 +99,17 @@ database:
 # 实现 = 进程内缓存（data/cache.py）+ 进程内 PriorityQueue，无外部依赖。
 
 video:
-  default_codec: "h264"
-  supported_codecs: ["h264", "h265", "vp9", "av1"]
   ltx2_max_audio_sync_seconds: 10
   max_duration_seconds: 20
 
 dialog:
-  max_context_tokens: 8192  # 上下文窗口（需求文档 UI 规格：上下文[8192]；超出走截断策略）
   max_input_chars: 32768  # 单条消息字符上限（DoS 防护，超出返回 40002）
   # 单次 prefill 的输入 token 上限（16GB 显存安全线）：
   # generate() 首步对全部位置计算 logits（151K 词表），7K token 约需 6.5GB 瞬时显存，
   # 叠加 bf16 权重 ~8GB 后打满 16GB 引发分配器颠簸（prefill 卡死）。3072 内峰值 ~12GB。
   max_prefill_tokens: 3072
-  stream_chunk_size: 4  # tokens per WebSocket message
 
 paint:
-  default_steps: 20
-  default_guidance: 7.5
-  max_batch_size: 4
   # 出图档位（批1a 2026-09-12；**2026-09-16 拍板扩三档**）：
   # fast = klein 蒸馏系原生 4 步 + cfg1.0（叠 SageAttention 双重加速，
   # A/B 实测 1280x720 46.5s→4.1s ≈11 倍，4 步有可感细节损失）；
@@ -187,11 +181,8 @@ manga:
 disk:
   start_min_gb: 20
   models_min_gb: 50
-  installer_min_gb: 500
 
 installer:
-  full_size_gb: 390
-  base_size_gb: 5
   # 磁盘门槛已统一收敛到 disk.installer_min_gb（P2 统一口径），不再在 installer 下重复定义
 
 # 多卡与设备策略（P3 §5.3）：默认单卡；双卡辅助卸载仅显式开启并做可用性校验，
@@ -226,13 +217,6 @@ event_log:
 
 ui:
   # 《OmniSpace AI v2.3.1中文版》§6.3.1 Sakura 暗色主题（权威色板）
-  theme: "sakura"
-  primary_color: "#FF6B9D"
-  font: "Source Han Sans"
-  font_size_body: 14
-  font_size_small: 12
-  ai_generated_bg: "#E3F2FD"
-  zoom_levels: [1.0, 1.5, 2.0, 3.0, 4.0]
 
 # vLLM 推理底座（V3 显存分档 2026-09-08）：
 vllm:

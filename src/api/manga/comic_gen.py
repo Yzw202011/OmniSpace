@@ -11,8 +11,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter
-
 from ...config import (
     DATA_DIR,
 )
@@ -48,7 +46,6 @@ if TYPE_CHECKING:
 
     from ...services.inference.paint_engine import PaintEngine
 
-router = APIRouter()
 log = logging.getLogger("omnispace.api.manga.comic_gen")
 
 

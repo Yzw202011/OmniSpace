@@ -1070,6 +1070,8 @@ async def dialog_skill(body: dict = Body(default_factory=dict)
                "output": output})
 
 
+# 未接线（2026-09-18 拍板 B 保留）：前端零消费（主路径=WS dialog/stream）；
+# 保留作为 SSE 能力备份，接线与否待产品侧再议。
 @router.post("/chat/stream")
 async def chat_stream(request: Request,
                       body: dict = Body(default_factory=dict)) -> Any:
@@ -1784,8 +1786,9 @@ def chat_stop(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
 #  WebSocket 对话流（规格 §4.2 / §5.3，前端 ws.ts + useDialogStore 契约）
 # ═══════════════════════════════════════════════════════════════════
 #
-# DEPRECATED（F-011）：新前端请改用 POST /v1/chat/stream（SSE）。
-# 本 WS 端点仅为兼容现有前端 ws.ts 保留，协议与行为不变，后续版本将移除。
+# 终态通道（2026-09-18 拍板 B）：WS 即对话流式的正式路线（前端 useDialogStore
+# 唯一主力通道）。历史 F-011 曾按 SSE 方向标注本端点废弃——四轮审计实锤
+# 方向反了（SSE /chat/stream 前端零消费，见该端点注记）；废标撤销。
 #
 # 协议（与前端严格对齐）：
 #   接收: {"type": "message", "data": {"content": str, "images"?: [...], "mode"?: str}}
@@ -1863,25 +1866,8 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
     return False
 
 
-# WS 模型参数旧标签 → 完整 model_id 映射（前端规格档位兼容；
-# 2026-08-20 模型选择接线：完整 model_id 直传不经此表）
-_WS_MODEL_LABEL_MAP = {
-    "8b": "qwen3-vl-8b", "4b": "qwen3-vl-4b",
-    "2b": "qwen2-vl-2b", "qwen3-vl-2b": "qwen3-vl-2b",
-}
-
-
-def _resolve_ws_model(raw: Any) -> str | None:
-    """把前端 model 参数（旧档位标签或完整 model_id）归一为完整 id。
-
-    None / 未知名 → None（引擎自动路由，行为与旧版一致）。
-    """
-    if not raw or not isinstance(raw, str):
-        return None
-    key = raw.strip().lower()
-    if key in _WS_MODEL_LABEL_MAP:
-        return _WS_MODEL_LABEL_MAP[key]
-    return raw.strip() or None
+# （旧档位标签映射已删——批1 2026-09-18：前端 2026-08-20 起直传完整
+# modelId，映射两月零命中；WS 侧 model 参数直读，None=引擎自动路由）
 
 
 async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None:
@@ -1977,7 +1963,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         # 模型选择接线（2026-08-20）：前端 model 参数（旧档位标签或完整
         # model_id）归一后交给 ensure_loaded——已加载且请求不同模型时
         # 引擎自动热切换；物理显存装不下由引擎闸门拒绝并回错误
-        model_req = _resolve_ws_model(data.get("model"))
+        model_req = (str(data["model"]).strip() if data.get("model") else None)
         # 模块级选型配置生效（模型管理 → 功能模块模型配置）：
         # ① 显式点名模型不在白名单 → 如实拒绝（精细化管控落地）
         # ② 未指定模型（None = 系统默认）且配置了模块默认 → 采用默认

@@ -98,7 +98,6 @@ THRESHOLDS = _cfg["scheduler"]["thresholds"]
 # 消除昔日 launcher 20GB / startup_check 50GB / installer 500GB 三套硬编码。
 DISK_START_MIN_GB = float(_cfg["disk"]["start_min_gb"])
 DISK_MODELS_MIN_GB = float(_cfg["disk"]["models_min_gb"])
-DISK_INSTALLER_MIN_GB = float(_cfg["disk"]["installer_min_gb"])
 
 # ── 多卡与设备策略（P3 §5.3）──────────────────────────────────────
 # 默认单卡；secondary_offload 显式开启且辅助索引有效时才启用双卡卸载。
@@ -132,22 +131,15 @@ DB_SYNCHRONOUS = _cfg["database"].get("synchronous", "NORMAL")
 DB_CACHE_SIZE_KB = int(_cfg["database"].get("cache_size_kb", 16384))
 
 # ── 视频 ─────────────────────────────────────────────────────────
-VIDEO_DEFAULT_CODEC = _cfg["video"]["default_codec"]
-VIDEO_SUPPORTED_CODECS = _cfg["video"]["supported_codecs"]
 LTX2_MAX_AUDIO_SYNC = _cfg["video"]["ltx2_max_audio_sync_seconds"]
 VIDEO_MAX_DURATION = _cfg["video"]["max_duration_seconds"]
 
 # ── 对话 ─────────────────────────────────────────────────────────
-DIALOG_MAX_CONTEXT = _cfg["dialog"]["max_context_tokens"]
 DIALOG_MAX_INPUT_CHARS = _cfg["dialog"].get("max_input_chars", 32768)
 # 单次 prefill 输入 token 上限（16GB 显存安全线，见 config.yaml 注释）
 DIALOG_MAX_PREFILL_TOKENS = int(_cfg["dialog"].get("max_prefill_tokens", 3072))
-DIALOG_STREAM_CHUNK = _cfg["dialog"]["stream_chunk_size"]
 
 # ── 绘画 ─────────────────────────────────────────────────────────
-PAINT_DEFAULT_STEPS = _cfg["paint"]["default_steps"]
-PAINT_DEFAULT_GUIDANCE = _cfg["paint"]["default_guidance"]
-PAINT_MAX_BATCH = _cfg["paint"]["max_batch_size"]
 
 # ── 漫剧 ─────────────────────────────────────────────────────────
 STORYBOARD_MAX_ROWS = _cfg["manga"]["max_storyboard_rows"]
@@ -163,10 +155,6 @@ LOG_MAX_FILES = _cfg["logging"]["max_files"]
 LOG_SENSITIVE_FIELDS = _cfg["logging"]["sensitive_fields"]
 
 # ── UI ───────────────────────────────────────────────────────────
-UI_THEME = _cfg["ui"]["theme"]
-UI_PRIMARY_COLOR = _cfg["ui"]["primary_color"]
-UI_FONT = _cfg["ui"]["font"]
-UI_AI_GENERATED_BG = _cfg["ui"]["ai_generated_bg"]
 
 APP_VERSION = str(_cfg.get("app", {}).get("version", "2.5.0"))
 

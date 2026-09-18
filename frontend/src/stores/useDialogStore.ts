@@ -187,7 +187,6 @@ export interface DialogState {
 
   /* ------------------------------ 生成参数设置（规格 §6.2.1） ------------------------------ */
   /** 设置模型档位（持久化） */
-  setModel: (model: DialogModelSize) => void;
   /** 按完整 model_id 选定对话模型（真实生效，随 WS 发送） */
   setModelId: (modelId: string) => void;
   /** 拉取可选模型清单并校正当前选择（不可承载自动回退） */
@@ -742,13 +741,6 @@ export const useDialogStore = create<DialogState>((set, get) => ({
   },
 
   /* ------------------------------ 生成参数设置（规格 §6.2.1，持久化） ------------------------------ */
-  setModel: (model) => {
-    // 兼容入口：按档位标签映射回完整 model_id（首选该档位的本地模型）
-    const modelId = _LEGACY_SIZE_TO_MODEL[model] || get().modelId;
-    set({ model, modelId });
-    const { temperature, contextTokens, thinking } = get();
-    persistDialogParams({ model, modelId, temperature, contextTokens, thinking });
-  },
 
   /** 按完整 model_id 选定模型（2026-08-20 模型选择接线） */
   setModelId: (modelId) => {

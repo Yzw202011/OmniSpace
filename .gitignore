@@ -113,3 +113,9 @@ packaging_console/
 !frontend/public/style-thumbs/*
 启动OmniSpace-开发版.exe
 cutemamen_pkgs/
+
+# 批1 2026-09-18 增补（四轮审计）：升级残包防入库 + 开发残渣区
+updates/
+*.upg
+tools/scratch/
+tools/debug_archive/

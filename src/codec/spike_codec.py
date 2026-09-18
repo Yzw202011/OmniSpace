@@ -152,12 +152,6 @@ class SpikeEncoder:
             signal = signal / norm * min(1.0, norm)
         return signal
 
-    def encode_image_placeholder(self, image_data: Any) -> np.ndarray:
-        """已废弃的随机占位编码, 保留仅为兼容, 等价于 encode_image"""
-        if isinstance(image_data, np.ndarray) and image_data.ndim == 2:
-            return self.encode_image(image_data)
-        return np.zeros(self.dim)
-
     def encode_multi(self, data_dict: dict[str, Any]) -> np.ndarray:
         """
         多模态编码: 合并多种类型的输入

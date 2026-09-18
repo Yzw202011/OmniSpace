@@ -678,7 +678,10 @@ class LoRATrainingService:
             return
 
         try:
-            result = self.train(cfg, progress_cb=self._make_progress_cb(task_id),
+            from ..services.power_guard import keep_awake
+            with keep_awake(f"learn-train:{task_id}"):
+                result = self.train(cfg,
+                                    progress_cb=self._make_progress_cb(task_id),
                                 task_id=task_id)
             version = result["version"]
             self._update_task(task_id, status="evaluating", progress=0.95)

@@ -276,10 +276,12 @@ class CharacterLoraService:
                         "训练功能锁获取失败（互斥占用）")
                 lock_held = True
                 _t = task
-                result = self._train_core(
-                    item["asset"], [Path(p) for p in item["images"]],
-                    lambda pct, _t=_t, **kw: self._progress(_t, pct, **kw),
-                    task["id"])
+                from .power_guard import keep_awake
+                with keep_awake(f"char-train:{task['id']}"):
+                    result = self._train_core(
+                        item["asset"], [Path(p) for p in item["images"]],
+                        lambda pct, _t=_t, **kw: self._progress(_t, pct, **kw),
+                        task["id"])
                 task.update({"status": STATUS_DONE, "progress": 1.0,
                              "version": result.get("version"),
                              "error": None})

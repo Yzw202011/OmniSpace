@@ -5,11 +5,13 @@ TASK-P2-01 自 manga.py 按路由域拆出（原文件 4521 行 → 包）。
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
 import re
 import sqlite3
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1515,9 +1517,20 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
         lock = await acquire_or_raise("paint", task_id=row_id or None)
         try:
             try:
-                result = await run_blocking(comfy_paint_generate, {
-                    "prompt": description, "negative": "",
-                    "width": 512, "height": 512, "seed": seed})
+                # 批2-5（2026-09-18）：统一图像队列收编——B5 后唯一旁路
+                # （直跑可与队列任务并发抢 ComfyUI）。镜像 comic_asset 的
+                # submit_and_wait 模式；paint 锁仍由本端点持有（与 draw
+                # 同款"先持锁再入队"，队列只管顺序不重复加锁）
+                from ..services.task_queue import get_image_queue
+                result = await get_image_queue().submit_and_wait({
+                    "task_id": f"preview:{(row_id or 'x')[:12]}:"
+                               f"{time.time_ns():x}",
+                    "kind": "comic_preview",
+                    "runner": lambda task, check_cancel: comfy_paint_generate({
+                        "prompt": description, "negative": "",
+                        "width": 512, "height": 512, "seed": seed}),
+                    "loop": asyncio.get_running_loop(),
+                    "cloud": False})
             except ApiError as exc:
                 # 与 legacy 同款诚实降级：占位图 + 指路模型管理
                 return ok({

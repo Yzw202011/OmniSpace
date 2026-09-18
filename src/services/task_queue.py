@@ -26,6 +26,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from .power_guard import keep_awake
+
 log = logging.getLogger("omnispace.services.task_queue")
 
 _CLOUD_POOL_MAX = 8
@@ -292,8 +294,10 @@ class TaskQueueCore:
             log.info("%s任务开跑: %s kind=%s",
                      self.spec.name, task_id, task.get("kind"))
             try:
-                task["_result"] = task["runner"](
-                    task, self._host._make_check_cancel(task_id))
+                # 批2-2 电源守卫：任务执行段抑制系统睡眠（线程内成对）
+                with keep_awake(f"{self.spec.name}:{task_id}"):
+                    task["_result"] = task["runner"](
+                        task, self._host._make_check_cancel(task_id))
             except Exception as exc:  # noqa: BLE001 - 统一记账
                 err = exc
         except Exception as exc:  # noqa: BLE001 - 准入失败/取消

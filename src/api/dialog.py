@@ -769,7 +769,7 @@ async def dialog_send(request: Request,
     # 单条消息字符上限（DoS 防护）：与 token 上下文窗口分开判定，
     # 防止超长字符输入进入分词/推理管线导致阻塞。
     if len(message) > DIALOG_MAX_INPUT_CHARS:
-        raise ApiError(40002,
+        raise ApiError("INPUT_TOO_LONG",
                        f"输入内容过长（{len(message)} 字符），"
                        f"单条消息上限 {DIALOG_MAX_INPUT_CHARS} 字符，请缩短后重试")
 
@@ -870,13 +870,11 @@ async def dialog_send(request: Request,
                     st = engine.get_status()
                     while not engine.is_ready:
                         if st["state"] in ("error", "unavailable"):
-                            raise ApiError(
-                                30004,
+                            raise ApiError("MODEL_LOAD_FAILED",
                                 st["last_error"] or "对话模型加载失败，请重试",
                                 detail={"engine": st})
                         if time.monotonic() >= deadline:
-                            raise ApiError(
-                                30003,
+                            raise ApiError("MODEL_LOADING",
                                 "对话模型装载超时（已等待 5 分钟），请稍后重试；"
                                 "持续失败请到「模型管理」页查看",
                                 detail={"engine": st})
@@ -944,7 +942,7 @@ async def dialog_send(request: Request,
                     engine.chat, messages, images or None,
                     temperature, max_new_tokens)
             except RuntimeError as exc:
-                raise ApiError(30004, str(exc) or "对话推理失败") from exc
+                raise ApiError("MODEL_LOAD_FAILED", str(exc) or "对话推理失败") from exc
             n.output(f"首字 {engine.last_first_token_ms:.0f}ms "
                      f"总 {engine.last_total_ms:.0f}ms")
         # 深度思考：整段产出切分 reasoning/content（与流式同语义）
@@ -1031,7 +1029,7 @@ async def dialog_skill(body: dict = Body(default_factory=dict)
     if not text:
         raise ApiError("SYSTEM_PARAM_INVALID", "text 不能为空")
     if len(text) > DIALOG_MAX_INPUT_CHARS:
-        raise ApiError(40002,
+        raise ApiError("INPUT_TOO_LONG",
                        f"技能输入过长（{len(text)} 字符），"
                        f"上限 {DIALOG_MAX_INPUT_CHARS} 字符")
     try:
@@ -1568,7 +1566,7 @@ def chat_get_session(session_id: str) -> dict[str, Any]:
     """会话详情 + 全部消息（时间升序）。"""
     row = _get_session_row(session_id)
     if row is None:
-        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     data = _enrich_session(row)
     data["messages"] = _session_messages(session_id)
     return ok(data)
@@ -1580,7 +1578,7 @@ def chat_list_messages(session_id: str,
                        page_size: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
     """会话消息列表（分页，时间升序）。"""
     if _get_session_row(session_id) is None:
-        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     msgs = _session_messages(session_id)
     total = len(msgs)
     start = (page - 1) * page_size
@@ -1593,7 +1591,7 @@ def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)
     """更新会话（重命名 title / 置顶 pinned / 模式 mode）。"""
     row = _get_session_row(session_id)
     if row is None:
-        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     patch: dict = {}
     if "title" in body:
         patch["title"] = str(body["title"] or "新对话")[:50]
@@ -1630,7 +1628,7 @@ def _delete_session_everywhere(session_id: str) -> dict[str, Any]:
             sess = db.query_one(
                 "SELECT id FROM dialog_sessions WHERE id=?", (session_id,))
             if sess is None:
-                raise ApiError(40005, "会话不存在",
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在",
                                detail={"session_id": session_id})
             db.delete("dialog_messages", "session_id=?", (session_id,))
             db.delete("dialog_sessions", "id=?", (session_id,))
@@ -1641,7 +1639,7 @@ def _delete_session_everywhere(session_id: str) -> dict[str, Any]:
             log.warning("数据库删除失败，降级内存存储: %s", exc, exc_info=True)
 
     if session_id not in _mock_sessions:
-        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     _mock_sessions.pop(session_id, None)
     _mock_messages.pop(session_id, None)
     return ok({"deleted": session_id})
@@ -1657,7 +1655,7 @@ def chat_delete_session(session_id: str) -> dict[str, Any]:
 def chat_clear_messages(session_id: str) -> dict[str, Any]:
     """清空会话消息但保留会话（规格 §4.1）。"""
     if _get_session_row(session_id) is None:
-        raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     db = get_db_safe()
     if db is not None:
         try:
@@ -1727,7 +1725,7 @@ def _update_message_flag(sid: str, mid: str, field: str,
                 " FROM dialog_messages WHERE id=? AND session_id=?",
                 (mid, sid))
             if row is None:
-                raise ApiError(40005, "消息不存在",
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "消息不存在",
                                detail={"message_id": mid})
             new_val = value if value is not None else (0 if row.get("favorite") else 1)
             db.update("dialog_messages", {field: new_val}, "id=?", (mid,))
@@ -1741,7 +1739,7 @@ def _update_message_flag(sid: str, mid: str, field: str,
         if m["id"] == mid:
             m[field] = value if value is not None else (0 if m.get("favorite") else 1)
             return ok(_row_to_message(m))
-    raise ApiError(40005, "消息不存在", detail={"message_id": mid})
+    raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "消息不存在", detail={"message_id": mid})
 
 
 @router.get("/chat/favorites")

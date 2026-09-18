@@ -61,7 +61,7 @@ def test_fail_soft_one_source_down(api_client, monkeypatch):
     monkeypatch.setattr(tr, "learn_tasks", lambda: _envelope([
         {"id": "k9", "status": "pending", "created_at": 1.0}]))
     def _boom():
-        raise ApiError(80014, "风格源故障")
+        raise ApiError("STYLE_TRAIN_FAILED", "风格源故障")
     monkeypatch.setattr(tr, "style_tasks", _boom)
 
     r = api_client.get("/api/v1/training/tasks")

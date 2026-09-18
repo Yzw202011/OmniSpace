@@ -79,7 +79,7 @@ def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
     （prepare_training_data，≥100 条才允许触发，规格 §3.3）。
     """
     if not req.base_model:
-        raise ApiError(40008, "base_model 不能为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "base_model 不能为空")
 
     svc = get_lora_training_service()
     config = {
@@ -94,8 +94,7 @@ def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
         # 审计 P1-5：dataset_path 白名单校验（仅训练数据目录内），
         # 拒绝任意文件路径穿越读取（服务层 _load_external_dataset 双保险）
         if not svc._is_allowed_dataset_path(Path(req.dataset_path.strip())):
-            raise ApiError(
-                40013, "数据集路径不在允许的训练数据目录内",
+            raise ApiError("SYSTEM_UNAUTHORIZED", "数据集路径不在允许的训练数据目录内",
                 detail={"dataset_path": req.dataset_path,
                         "allowed_root": str(TRAIN_DATA_DIR)})
         config["dataset_path"] = req.dataset_path.strip()
@@ -110,16 +109,14 @@ def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
         if data is None:
             data = svc.prepare_training_data()
         if data["total"] < MIN_TRAINING_SAMPLES:
-            raise ApiError(
-                40009,
+            raise ApiError("OPERATION_LIMIT_EXCEEDED",
                 f"训练数据不足：当前 {data['total']} 条，"
                 f"至少需要 {MIN_TRAINING_SAMPLES} 条",
                 detail={"total": data["total"],
                         "required": MIN_TRAINING_SAMPLES},
                 suggestion="先使用知识学习/行为学习积累数据，"
                            "或通过 /learn/dataset/upload 上传训练集")
-        raise ApiError(
-            40007, "训练条件不满足：GPU 正被其他功能占用或已有训练任务进行中",
+        raise ApiError("FEATURE_MUTEX_LOCKED", "训练条件不满足：GPU 正被其他功能占用或已有训练任务进行中",
             detail=svc.get_status())
 
     # 读取服务写入的真实任务记录返回
@@ -154,9 +151,9 @@ def learn_tasks() -> dict[str, Any]:
             return ok({"items": items, "total": len(items)})
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库查询失败: %s", exc, exc_info=True)
-            raise ApiError(40006, "训练任务列表查询失败",
+            raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务列表查询失败",
                            detail={"error": str(exc)}) from exc
-    raise ApiError(40006, "数据库不可用，无法查询训练任务")
+    raise ApiError("SYSTEM_INTERNAL_ERROR", "数据库不可用，无法查询训练任务")
 
 
 @router.get("/learn/tasks/{task_id}")
@@ -174,9 +171,9 @@ def learn_task_detail(task_id: str) -> dict[str, Any]:
                 return ok(_row_to_train_task(row))
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库查询失败: %s", exc, exc_info=True)
-            raise ApiError(40006, "训练任务查询失败",
+            raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务查询失败",
                            detail={"error": str(exc)}) from exc
-    raise ApiError(40005, "训练任务不存在", detail={"task_id": task_id})
+    raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在", detail={"task_id": task_id})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -212,7 +209,7 @@ def learn_task_cancel(task_id: str) -> dict[str, Any]:
             "SELECT id, status FROM train_tasks WHERE id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务查询失败: %s", exc, exc_info=True)
-        raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)}) from exc
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
                        detail={"task_id": task_id})
@@ -229,7 +226,7 @@ def learn_task_cancel(task_id: str) -> dict[str, Any]:
                   "id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务取消落库失败: %s", exc, exc_info=True)
-        raise ApiError(40006, "训练任务取消失败", detail={"error": str(exc)}) from exc
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务取消失败", detail={"error": str(exc)}) from exc
     # 强制取消：置位运行时中断标志（训练/评估中的任务于下一检查点中断）
     try:
         from ..services.lora_training_service import get_lora_training_service
@@ -264,7 +261,7 @@ def learn_task_delete(task_id: str) -> dict[str, Any]:
             "SELECT id, status FROM train_tasks WHERE id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务查询失败: %s", exc, exc_info=True)
-        raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)}) from exc
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
                        detail={"task_id": task_id})
@@ -278,7 +275,7 @@ def learn_task_delete(task_id: str) -> dict[str, Any]:
         db.delete("train_tasks", "id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务删除失败: %s", exc, exc_info=True)
-        raise ApiError(40006, "训练任务删除失败", detail={"error": str(exc)}) from exc
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务删除失败", detail={"error": str(exc)}) from exc
     return ok({"deleted": task_id}, message="训练任务记录已删除")
 
 
@@ -292,7 +289,7 @@ def learn_tasks_reorder(body: dict = Body(default_factory=dict)) -> dict[str, An
     task_ids = (body or {}).get("task_ids")
     if (not isinstance(task_ids, list) or not task_ids
             or not all(isinstance(t, str) and t for t in task_ids)):
-        raise ApiError(40008, "task_ids 必须是非空字符串数组")
+        raise ApiError("SYSTEM_PARAM_INVALID", "task_ids 必须是非空字符串数组")
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_UNAVAILABLE", "数据库不可用，无法调整任务顺序")
@@ -308,7 +305,7 @@ def learn_tasks_reorder(body: dict = Body(default_factory=dict)) -> dict[str, An
                 missing.append(tid)
     except Exception as exc:  # noqa: BLE001
         log.warning("训练任务排序失败: %s", exc, exc_info=True)
-        raise ApiError(40006, "训练任务排序失败", detail={"error": str(exc)}) from exc
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务排序失败", detail={"error": str(exc)}) from exc
     return ok({"updated": updated, "missing": missing},
               message=f"已更新 {updated} 个任务的优先级")
 
@@ -325,15 +322,14 @@ async def learn_dataset_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     审计 P1-4：单文件上限 50MB，超限拒绝（40009 操作超出上限）。
     """
     if not file or not file.filename:
-        raise ApiError(40008, "未提供上传文件")
+        raise ApiError("SYSTEM_PARAM_INVALID", "未提供上传文件")
     # 审计 R3-BE2：限量读取（上限+1 字节），先验大小再判空，
     # 避免超限文件被整体读入内存
     content = await file.read(_MAX_UPLOAD_BYTES + 1)
     if not content:
-        raise ApiError(40008, "上传文件内容为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "上传文件内容为空")
     if len(content) > _MAX_UPLOAD_BYTES:
-        raise ApiError(
-            40009, "上传文件超过 50MB 上限",
+        raise ApiError("OPERATION_LIMIT_EXCEEDED", "上传文件超过 50MB 上限",
             detail={"size_bytes": len(content), "limit_bytes": _MAX_UPLOAD_BYTES},
             suggestion="请拆分数据集或压缩后重新上传")
 
@@ -341,7 +337,7 @@ async def learn_dataset_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         upload_guard.validate(file.filename, content, upload_guard.DATASET_TABLE)
     except upload_guard.UploadRejected as exc:
-        raise ApiError(40004, str(exc),
+        raise ApiError("SYSTEM_PARAM_INVALID", str(exc),
                        detail={"filename": file.filename},
                        suggestion="请上传 UTF-8 编码的 JSONL/JSON/TXT 文件") from exc
     suffix = Path(file.filename).suffix.lower()
@@ -353,7 +349,7 @@ async def learn_dataset_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         dest.write_bytes(content)
     except OSError as exc:
-        raise ApiError(40006, "数据集落盘失败", detail={"error": str(exc)}) from exc
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "数据集落盘失败", detail={"error": str(exc)}) from exc
 
     return ok({"id": dataset_id, "filename": file.filename,
                "dataset_path": str(dest),
@@ -384,10 +380,10 @@ def learn_lora_rollback(body: dict = Body(default_factory=dict)) -> dict[str, An
     """LoRA 版本回滚：{"version": "v3"} → 置为当前生效版本。"""
     version = str((body or {}).get("version", "")).strip()
     if not version:
-        raise ApiError(40008, "缺少必填参数: version")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: version")
     svc = get_lora_training_service()
     if not svc.rollback(version):
-        raise ApiError(40005, f"LoRA 版本不存在: {version}",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"LoRA 版本不存在: {version}",
                        detail={"version": version,
                                "versions": [v.get("version")
                                             for v in svc.list_versions()]})
@@ -417,7 +413,7 @@ def learn_lora_versions_compare(a: str = Query(..., min_length=1),
     versions = {v["version"]: v for v in svc.list_versions()}
     missing = [v for v in (a, b) if v not in versions]
     if missing:
-        raise ApiError(40005, f"LoRA 版本不存在: {', '.join(missing)}",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"LoRA 版本不存在: {', '.join(missing)}",
                        detail={"missing": missing,
                                "versions": sorted(versions)})
     va, vb = versions[a], versions[b]

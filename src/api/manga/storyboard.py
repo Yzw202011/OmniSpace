@@ -104,7 +104,7 @@ def storyboard_list(project_id: str = Query("", description="项目ID")) -> dict
     """
     pid = (project_id or "").strip()
     if not pid:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     db = get_db_safe()
     if db is not None:
         try:
@@ -133,7 +133,7 @@ def storyboard_get(project_id: str) -> dict[str, Any]:
         try:
             if db.query_one("SELECT id FROM projects WHERE id=?",
                             (project_id,)) is None:
-                raise ApiError(40005, "项目不存在",
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在",
                                detail={"project_id": project_id})
             sb = _find_storyboard(db, project_id)
             if sb is None:
@@ -157,14 +157,14 @@ def storyboard_row_update(project_id: str, row_id: str,
         try:
             sb = _find_storyboard(db, project_id)
             if sb is None:
-                raise ApiError(40005, "分镜表不存在", detail={"project_id": project_id})
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜表不存在", detail={"project_id": project_id})
             row = db.query_one(
                 f"SELECT {_SB_ROW_COLS} FROM storyboard_rows"
                 " WHERE id=? AND storyboard_id=?",
                 (row_id, sb["id"]),
             )
             if row is None:
-                raise ApiError(40005, "分镜行不存在", detail={"row_id": row_id})
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
             update_fields = req.model_dump(exclude_none=True)
             # 批 1.3 导演字段校验（非法值拒绝，不静默写库）
             _validate_row_director_fields(update_fields)
@@ -188,10 +188,10 @@ def storyboard_row_update(project_id: str, row_id: str,
 
     rows = _storyboards.get(project_id)
     if rows is None:
-        raise ApiError(40005, "分镜表不存在", detail={"project_id": project_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜表不存在", detail={"project_id": project_id})
     target = next((r for r in rows if r["id"] == row_id), None)
     if target is None:
-        raise ApiError(40005, "分镜行不存在", detail={"row_id": row_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
     patch = req.model_dump(exclude_none=True)
     if "asset_ids" in patch and "asset_id" not in patch:
         ids = patch["asset_ids"] or []
@@ -250,9 +250,9 @@ async def storyboard_save(project_id: str,
     """
     rows = body.get("rows")
     if not isinstance(rows, list):
-        raise ApiError(40008, "缺少 rows 数组")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 rows 数组")
     if len(rows) > STORYBOARD_MAX_ROWS:
-        raise ApiError(70001, "分镜表已达50行上限",
+        raise ApiError("STORYBOARD_ROW_LIMIT", "分镜表已达50行上限",
                        detail={"max": STORYBOARD_MAX_ROWS})
 
     db = get_db_safe()
@@ -975,7 +975,7 @@ async def storyboard_auto_split(project_id: str,
     script = str(body.get("script") or "").strip()
     dry_run = bool(body.get("dry_run"))
     if not script:
-        raise ApiError(40008, "缺少剧本文本（script）")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少剧本文本（script）")
 
     # 持 dialog 功能锁贯穿全程推理：2026-08-24 实测无锁推理时
     # scheduler 深层回收（空闲 300s 阈值只看 feature_lock）把推理
@@ -986,7 +986,7 @@ async def storyboard_auto_split(project_id: str,
     finally:
         await lock.release("dialog")
     if not shots:
-        raise ApiError(70002, "剧本无有效内容")
+        raise ApiError("SCRIPT_FORMAT_UNSUPPORTED", "剧本无有效内容")
 
     # 用户 2026-08-24 裁定：AI 切分只产出镜号/景别/秒/台词原文，
     # 描述列留空（预览与落库一致），生图提示词由用户后续手动填写
@@ -1004,7 +1004,7 @@ async def storyboard_auto_split(project_id: str,
             log.warning("auto-split 读取现有行失败: %s", exc, exc_info=True)
     room = STORYBOARD_MAX_ROWS - existing_count
     if room <= 0:
-        raise ApiError(70001, "分镜表已达上限",
+        raise ApiError("STORYBOARD_ROW_LIMIT", "分镜表已达上限",
                        detail={"current": existing_count, "max": STORYBOARD_MAX_ROWS})
     truncated = len(shots) > room
     if truncated:
@@ -1052,7 +1052,7 @@ async def storyboard_auto_split_commit(project_id: str,
     split_id = str(body.get("split_id") or "").strip()
     cached = _split_cache.get(split_id)
     if not cached or cached.get("project_id") != project_id:
-        raise ApiError(70005, "分镜预览已失效（可能已被新切分淘汰），请重新切分")
+        raise ApiError("STORYBOARD_SPLIT_EXPIRED", "分镜预览已失效（可能已被新切分淘汰），请重新切分")
     shots = cached["shots"]
     engine = cached.get("engine", "fallback")
 
@@ -1066,7 +1066,7 @@ async def storyboard_auto_split_commit(project_id: str,
             log.warning("commit 读取现有行失败: %s", exc, exc_info=True)
     room = STORYBOARD_MAX_ROWS - existing_count
     if room <= 0:
-        raise ApiError(70001, "分镜表已达上限",
+        raise ApiError("STORYBOARD_ROW_LIMIT", "分镜表已达上限",
                        detail={"current": existing_count, "max": STORYBOARD_MAX_ROWS})
     truncated = len(shots) > room
     if truncated:
@@ -1086,9 +1086,9 @@ async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str
     project_id = str(body.get("project_id") or "").strip()
     script = str(body.get("script") or body.get("content") or "").strip()
     if not project_id:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     if not script:
-        raise ApiError(70002, "剧本文件格式不支持（内容为空）")
+        raise ApiError("SCRIPT_FORMAT_UNSUPPORTED", "剧本文件格式不支持（内容为空）")
 
     segments = [s.strip() for s in script.splitlines() if s.strip()]
 
@@ -1107,7 +1107,7 @@ async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str
         existing_rows = _storyboards.setdefault(project_id, [])
 
     if len(existing_rows) + len(segments) > STORYBOARD_MAX_ROWS:
-        raise ApiError(70001, "分镜表已达50行上限")
+        raise ApiError("STORYBOARD_ROW_LIMIT", "分镜表已达50行上限")
 
     start_no = (existing_rows[-1]["shot_number"] + 1) if existing_rows else 1
     parsed: list[dict] = []
@@ -1150,7 +1150,7 @@ def storyboard_export(project_id: str,
     """
     fmt = (format or "json").strip().lower()
     if fmt not in ("csv", "json", "png-seq", "pdf"):
-        raise ApiError(40010, "format 必须是 csv/json/png-seq/pdf",
+        raise ApiError("UNSUPPORTED_FORMAT", "format 必须是 csv/json/png-seq/pdf",
                        detail={"format": format})
 
     rows: list[dict] = []
@@ -1292,7 +1292,7 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
     """
     row_ids = body.get("row_ids")
     if not isinstance(row_ids, list) or not row_ids:
-        raise ApiError(40008, "缺少 row_ids 数组")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 row_ids 数组")
     row_ids = [str(r) for r in row_ids]
     project_id = str(body.get("project_id") or "").strip()
 
@@ -1304,7 +1304,7 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
                 "SELECT id, storyboard_id FROM storyboard_rows"
                 f" WHERE id IN ({placeholders})", tuple(row_ids))
             if not found:
-                raise ApiError(40005, "分镜行不存在",
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
                                detail={"row_ids": row_ids[:5]})
             order = {rid: i for i, rid in enumerate(row_ids)}
             now = _now()
@@ -1338,7 +1338,7 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
                 r["sort_index"] = order[r["id"]]
                 matched.append(r)
     if not matched:
-        raise ApiError(40005, "分镜行不存在", detail={"row_ids": row_ids[:5]})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_ids": row_ids[:5]})
     for pool in pools:
         pool.sort(key=lambda r: (r.get("sort_index", 0),
                                  r.get("shot_number", 0)))
@@ -1396,14 +1396,14 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     if row_id:
         row = _load_storyboard_row(row_id, project_id)
         if row is None:
-            raise ApiError(40005, "分镜行不存在", detail={"row_id": row_id})
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
         if not dialogue:
             dialogue = (row.get("original_dialogue") or "").strip()
     else:
         # 无 row_id 的自定义台词模式：伪行走同一管线（默认 10s / 3 镜）
         row = {"original_dialogue": dialogue, "description": ""}
     if not dialogue and not (row.get("description") or "").strip():
-        raise ApiError(40008, "缺少 row_id 或 dialogue")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 row_id 或 dialogue")
 
     # 资产绑定硬门槛（2026-08-25 用户裁定）：未绑定资产的行不允许生成
     # 分镜描述词——描述词 B 段以资产设定为外貌一致性锚点，无绑定时 4B
@@ -1412,8 +1412,7 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     assets = (_fetch_bound_assets(db, row.get("asset_ids") or [])
               if db is not None else [])
     if not assets:
-        raise ApiError(
-            40008,
+        raise ApiError("SYSTEM_PARAM_INVALID",
             "该分镜行未绑定资产，请先在分镜表资产列绑定角色/场景/道具"
             "再生成描述词",
             detail={"row_id": row_id or None,
@@ -1499,12 +1498,12 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
     if row_id:
         row = _load_storyboard_row(row_id, project_id)
         if row is None:
-            raise ApiError(40005, "分镜行不存在", detail={"row_id": row_id})
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
         if not description:
             description = (row.get("description")
                            or row.get("original_dialogue") or "").strip()
     if not description:
-        raise ApiError(40008, "缺少 row_id 或 description")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 row_id 或 description")
 
     try:
         seed = int(body.get("seed", -1))

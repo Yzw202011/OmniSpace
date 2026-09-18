@@ -943,8 +943,7 @@ def _submit_precheck() -> None:
         guard = get_thermal_guard()
         if guard.is_paused():
             status = guard.get_status()
-            raise ApiError(
-                20004,
+            raise ApiError("HARDWARE_THERMAL_THROTTLE",
                 f"GPU 温度过高（{status['last_temp_celsius']:.0f}°C），"
                 f"已强制暂停生成任务，请等待散热后重试")
     except ApiError:
@@ -1029,7 +1028,7 @@ async def draw_generate(body: dict = Body(default_factory=dict)) -> dict[str, An
     """
     params = _parse_common(body)
     if not params["prompt"]:
-        raise ApiError(50001, "生成失败，请检查提示词是否为空")
+        raise ApiError("PAINT_GENERATION_FAILED", "生成失败，请检查提示词是否为空")
 
     try:
         batch = int(body.get("batch_size") or 1)
@@ -1056,14 +1055,14 @@ async def draw_img2img(body: dict = Body(default_factory=dict)) -> dict[str, Any
     """图生图（异步任务）。额外参数: init_image(base64), strength(0.05~1.0)。"""
     params = _parse_common(body)
     if not params["prompt"]:
-        raise ApiError(50001, "生成失败，请检查提示词是否为空")
+        raise ApiError("PAINT_GENERATION_FAILED", "生成失败，请检查提示词是否为空")
 
     raw = body.get("init_image") or body.get("image") or ""
     if not raw:
-        raise ApiError(40008, "缺少 init_image 图像数据")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 init_image 图像数据")
     init_image = _decode_b64_image(str(raw))
     if init_image is None:
-        raise ApiError(40008, "init_image 图像数据无法解析")
+        raise ApiError("SYSTEM_PARAM_INVALID", "init_image 图像数据无法解析")
 
     try:
         strength = float(body.get("strength",
@@ -1100,30 +1099,29 @@ async def art_inpaint(body: dict = Body(default_factory=dict)) -> dict[str, Any]
     """
     raw_img = body.get("image") or body.get("init_image") or ""
     if not raw_img:
-        raise ApiError(40008, "缺少 image 原图数据")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 image 原图数据")
     image = _decode_b64_image(str(raw_img))
     if image is None:
-        raise ApiError(40008, "image 原图数据无法解析")
+        raise ApiError("SYSTEM_PARAM_INVALID", "image 原图数据无法解析")
 
     raw_mask = body.get("mask") or ""
     if not raw_mask:
-        raise ApiError(40008, "缺少 mask 遮罩数据（白色=待重绘区域）")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 mask 遮罩数据（白色=待重绘区域）")
     mask = _decode_b64_image(str(raw_mask))
     if mask is None:
-        raise ApiError(40008, "mask 遮罩数据无法解析")
+        raise ApiError("SYSTEM_PARAM_INVALID", "mask 遮罩数据无法解析")
     if mask.size != image.size:
         mask = mask.resize(image.size)
 
     # 遮罩空/过大校验（亮度 ≥128 视为重绘区）
     binmask = mask.convert("L").point(lambda v: 255 if v >= 128 else 0)
     if binmask.getbbox() is None:
-        raise ApiError(40008, "遮罩为空，请涂抹需要重绘的区域")
+        raise ApiError("SYSTEM_PARAM_INVALID", "遮罩为空，请涂抹需要重绘的区域")
     hist = binmask.histogram()
     white = sum(hist[128:])
     ratio = white / float(image.size[0] * image.size[1])
     if ratio > _MASK_MAX_RATIO:
-        raise ApiError(
-            40008,
+        raise ApiError("SYSTEM_PARAM_INVALID",
             f"遮罩覆盖面积过大（{ratio * 100:.0f}% > "
             f"{int(_MASK_MAX_RATIO * 100)}%），等效全图重绘，请改用图生图")
 
@@ -1152,10 +1150,10 @@ async def draw_upscale(body: dict = Body(default_factory=dict)) -> dict[str, Any
     """
     raw = body.get("image") or ""
     if not raw:
-        raise ApiError(40008, "缺少 image 图像数据")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 image 图像数据")
     image = _decode_b64_image(str(raw))
     if image is None:
-        raise ApiError(40008, "image 图像数据无法解析")
+        raise ApiError("SYSTEM_PARAM_INVALID", "image 图像数据无法解析")
     try:
         scale = int(body.get("scale", 2))
     except (TypeError, ValueError):
@@ -1212,7 +1210,7 @@ def draw_result(task_id: str) -> dict[str, Any]:
                     })
             except Exception as exc:  # noqa: BLE001
                 log.warning("paint_history 查询失败: %s", exc, exc_info=True)
-        raise ApiError(40005, "任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
 
     resp = {
         "task_id": task_id,
@@ -1257,9 +1255,9 @@ def paint_task_cancel(task_id: str) -> dict[str, Any]:
     """
     task = _task_get(task_id)
     if task is None:
-        raise ApiError(40005, "任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
     if task["status"] in ("done", "error", "cancelled"):
-        raise ApiError(40008, f"任务已结束（{task['status']}），无法取消")
+        raise ApiError("SYSTEM_PARAM_INVALID", f"任务已结束（{task['status']}），无法取消")
 
     outcome = get_image_queue().cancel(task_id)
     _task_images.pop(task_id, None)
@@ -1285,11 +1283,11 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)) -
     """
     task = _task_get(task_id)
     if task is None:
-        raise ApiError(40005, "任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
     try:
         priority = int(body.get("priority", 5))
     except (TypeError, ValueError):
-        raise ApiError(40008, "priority 必须是 0~9 的整数") from None
+        raise ApiError("SYSTEM_PARAM_INVALID", "priority 必须是 0~9 的整数") from None
     priority = max(0, min(priority, 9))
 
     effective = get_image_queue().set_priority(task_id, priority)
@@ -1470,7 +1468,7 @@ def paint_history_favorite(task_id: str,
 
     row = _history_row(task_id)
     if row is None:
-        raise ApiError(40005, "历史记录不存在",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "历史记录不存在",
                        detail={"task_id": task_id})
     explicit = body.get("favorite")
     if explicit is None:
@@ -1489,14 +1487,14 @@ def paint_history_batch_delete(body: dict = Body(default_factory=dict)) -> dict[
     """批量删除历史（PAINT-051）：{"ids": ["task_id", ...]}（上限 200）。"""
     ids = body.get("ids")
     if not isinstance(ids, list) or not ids:
-        raise ApiError(40008, "缺少必填参数: ids（task_id 数组）")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: ids（task_id 数组）")
     ids = [str(i) for i in ids[:200]]
 
     _ensure_history_table()
 
     db = get_db_safe()
     if db is None:
-        raise ApiError(50001, "数据库不可用")
+        raise ApiError("PAINT_GENERATION_FAILED", "数据库不可用")
     deleted = 0
     files_deleted = 0
     missing: list[str] = []
@@ -1566,7 +1564,7 @@ def draw_image(filename: str, thumb: int = 0) -> FileResponse:
     safe = Path(filename).name  # 防路径穿越：仅取文件名部分
     path = GENERATED_DIR / "images" / safe
     if not path.is_file():
-        raise ApiError(40005, "图片不存在或已被清理",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "图片不存在或已被清理",
                        detail={"filename": safe})
     if thumb:
         thumb_path = _paint_thumbnail(path)
@@ -1662,9 +1660,9 @@ async def controlnet_preview(body: dict = Body(default_factory=dict)) -> dict[st
     ctype = str(body.get("type") or "").strip()
     image = body.get("image")
     if not ctype:
-        raise ApiError(40008, "缺少 ControlNet type 参数")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 ControlNet type 参数")
     if not image:
-        raise ApiError(50003, "ControlNet条件图格式错误")
+        raise ApiError("CONTROLNET_CONDITION_INVALID", "ControlNet条件图格式错误")
 
     from ..config import MODELS_DIR
     controlnet_dir = MODELS_DIR / "controlnet"

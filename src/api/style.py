@@ -59,15 +59,14 @@ async def style_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     返回 dataset_id，供 /style/train 引用。
     """
     if not file or not file.filename:
-        raise ApiError(40008, "未提供上传文件")
+        raise ApiError("SYSTEM_PARAM_INVALID", "未提供上传文件")
     # 审计 R3-BE2：限量读取（上限+1 字节），先验大小再判空，
     # 避免超限文件被整体读入内存
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if not content:
-        raise ApiError(40008, "上传文件内容为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "上传文件内容为空")
     if len(content) > MAX_UPLOAD_BYTES:
-        raise ApiError(
-            40009, "上传文件超过 200MB 上限",
+        raise ApiError("OPERATION_LIMIT_EXCEEDED", "上传文件超过 200MB 上限",
             detail={"size_bytes": len(content), "limit_bytes": MAX_UPLOAD_BYTES},
             suggestion="请压缩视频或截取片段后重新上传")
 
@@ -75,7 +74,7 @@ async def style_upload(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         upload_guard.validate(file.filename, content, upload_guard.MEDIA_TABLE)
     except upload_guard.UploadRejected as exc:
-        raise ApiError(80015, str(exc),
+        raise ApiError("STYLE_ASSET_FORMAT", str(exc),
                        detail={"filename": file.filename}) from exc
 
     svc = get_style_lora_service()
@@ -83,12 +82,12 @@ async def style_upload(file: UploadFile = File(...)) -> dict[str, Any]:
         result = svc.save_upload(file.filename, content)
     except ValueError as exc:
         # 格式不支持 / 内容为空（服务层已带可操作建议）
-        raise ApiError(80015, str(exc)) from exc
+        raise ApiError("STYLE_ASSET_FORMAT", str(exc)) from exc
     except RuntimeError as exc:
         # FFmpeg 不可用 / 抽帧失败 / 素材无法解析
-        raise ApiError(80016, str(exc)) from exc
+        raise ApiError("STYLE_FRAME_EXTRACT_FAILED", str(exc)) from exc
     except OSError as exc:
-        raise ApiError(40006, "素材落盘失败",
+        raise ApiError("SYSTEM_INTERNAL_ERROR", "素材落盘失败",
                        detail={"error": str(exc)}) from exc
 
     return ok(result, message="素材已上传并构建数据集")
@@ -108,7 +107,7 @@ def style_dataset_detail(dataset_id: str) -> dict[str, Any]:
     svc = get_style_lora_service()
     stats = svc.dataset_stats(dataset_id)
     if stats["total"] <= 0:
-        raise ApiError(80011, f"风格数据集不存在或无有效样本: {dataset_id}",
+        raise ApiError("STYLE_DATASET_INVALID", f"风格数据集不存在或无有效样本: {dataset_id}",
                        detail={"dataset_id": dataset_id,
                                "min_samples": MIN_STYLE_SAMPLES})
     return ok(stats)
@@ -134,7 +133,7 @@ def style_train(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     body = body or {}
     dataset_id = str(body.get("dataset_id") or "").strip()
     if not dataset_id:
-        raise ApiError(40008, "缺少必填参数: dataset_id",
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: dataset_id",
                        suggestion="先通过 POST /style/upload 上传素材构建数据集")
 
     svc = get_style_lora_service()
@@ -142,22 +141,20 @@ def style_train(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     if not ok_flag:
         if reason == "base_not_ready":
             _ready, base_reason = svc.base_ready()
-            raise ApiError(80010, "风格训练基座未就绪（LTX-2 权重未下载）",
+            raise ApiError("STYLE_BASE_NOT_READY", "风格训练基座未就绪（LTX-2 权重未下载）",
                            detail={"reason": base_reason,
                                    "base_model_dir": "models/ltx-2"},
                            suggestion="下载 LTX-2 权重放入 models/ltx-2 后重试")
         if reason == "dataset_insufficient":
             stats = svc.dataset_stats(dataset_id)
-            raise ApiError(
-                80011,
+            raise ApiError("STYLE_DATASET_INVALID",
                 f"风格训练数据集无效或样本不足：当前 {stats['total']} 帧，"
                 f"至少需要 {MIN_STYLE_SAMPLES} 帧",
                 detail={"dataset_id": dataset_id, "total": stats["total"],
                         "required": MIN_STYLE_SAMPLES},
                 suggestion="重新上传时长更久的视频或更多风格图片")
         # training_active / feature_busy
-        raise ApiError(
-            40007, "训练条件不满足：GPU 正被其他功能占用或已有训练任务进行中",
+        raise ApiError("FEATURE_MUTEX_LOCKED", "训练条件不满足：GPU 正被其他功能占用或已有训练任务进行中",
             detail={"reason": reason, "status": svc.get_status()})
 
     config = {
@@ -173,7 +170,7 @@ def style_train(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     task_id = svc.trigger_train(config, priority=priority)
     if task_id is None:
         # can_train 与 trigger 之间存在竞态（极端情况），如实上报
-        raise ApiError(40007, "训练任务入队失败：并发状态已变化",
+        raise ApiError("FEATURE_MUTEX_LOCKED", "训练任务入队失败：并发状态已变化",
                        detail=svc.get_status())
 
     task = svc.get_task(task_id) or {"id": task_id, "status": "queued",
@@ -195,7 +192,7 @@ def style_task_detail(task_id: str) -> dict[str, Any]:
     svc = get_style_lora_service()
     task = svc.get_task(task_id)
     if task is None:
-        raise ApiError(80014, "风格训练任务不存在",
+        raise ApiError("STYLE_TASK_NOT_FOUND", "风格训练任务不存在",
                        detail={"task_id": task_id})
     return ok(task)
 
@@ -211,7 +208,7 @@ def _task_control(task_id: str, action: str) -> dict[str, Any]:
                "cancel": svc.cancel_task}[action]
     ok_flag, state = handler(task_id)
     if not ok_flag and state == "not_found":
-        raise ApiError(80014, "风格训练任务不存在",
+        raise ApiError("STYLE_TASK_NOT_FOUND", "风格训练任务不存在",
                        detail={"task_id": task_id})
     if not ok_flag:  # state_invalid
         task = svc.get_task(task_id) or {}
@@ -247,7 +244,7 @@ def style_task_resume_training(task_id: str) -> dict[str, Any]:
     svc = get_style_lora_service()
     new_task_id = svc.resume_training(task_id)
     if new_task_id is None:
-        raise ApiError(80014, "风格训练任务不存在或数据集已失效，无法续训",
+        raise ApiError("STYLE_TASK_NOT_FOUND", "风格训练任务不存在或数据集已失效，无法续训",
                        detail={"task_id": task_id})
     return ok({"task_id": task_id, "new_task_id": new_task_id},
               message="续训任务已入队")
@@ -271,10 +268,10 @@ def style_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """风格 LoRA 版本回滚：{"version": "v3"} → 置为当前生效版本。"""
     version = str((body or {}).get("version", "")).strip()
     if not version:
-        raise ApiError(40008, "缺少必填参数: version")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: version")
     svc = get_style_lora_service()
     if not svc.rollback(version):
-        raise ApiError(80012, f"风格 LoRA 版本不存在: {version}",
+        raise ApiError("STYLE_VERSION_NOT_FOUND", f"风格 LoRA 版本不存在: {version}",
                        detail={"version": version,
                                "versions": [v.get("version")
                                             for v in svc.list_versions()]})
@@ -294,10 +291,10 @@ def style_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     svc = get_style_lora_service()
     version = str(body.get("version") or "").strip() or svc.get_current()
     if not version:
-        raise ApiError(80012, "尚无已注册的风格 LoRA 版本",
+        raise ApiError("STYLE_VERSION_NOT_FOUND", "尚无已注册的风格 LoRA 版本",
                        suggestion="先通过 /style/train 训练一个风格版本")
     if not any(v["version"] == version for v in svc.list_versions()):
-        raise ApiError(80012, f"风格 LoRA 版本不存在: {version}",
+        raise ApiError("STYLE_VERSION_NOT_FOUND", f"风格 LoRA 版本不存在: {version}",
                        detail={"version": version})
     try:
         max_frames = int(body.get("max_frames", 8))
@@ -308,9 +305,9 @@ def style_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     try:
         strength = float(body.get("strength", 1.0))
     except (TypeError, ValueError):
-        raise ApiError(40008, "strength 必须是 0~1 的数值") from None
+        raise ApiError("SYSTEM_PARAM_INVALID", "strength 必须是 0~1 的数值") from None
     if not (0.0 <= strength <= 1.0):
-        raise ApiError(40008, "strength 必须在 0~1 之间",
+        raise ApiError("SYSTEM_PARAM_INVALID", "strength 必须在 0~1 之间",
                        detail={"min": 0.0, "max": 1.0, "given": strength})
 
     # 审计 09-10 P2-10：image_path 会直喂 Image.open，限制在产品数据
@@ -320,19 +317,19 @@ def style_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         try:
             preview_src = Path(image_path).resolve()
         except OSError:
-            raise ApiError(40010, "image_path 不合法") from None
+            raise ApiError("UNSUPPORTED_FORMAT", "image_path 不合法") from None
         if not preview_src.is_relative_to(DATA_DIR.resolve()):
-            raise ApiError(40010, "image_path 必须在产品数据目录内",
+            raise ApiError("UNSUPPORTED_FORMAT", "image_path 必须在产品数据目录内",
                            detail={"data_dir": str(DATA_DIR)})
         if not preview_src.is_file():
-            raise ApiError(40005, "预览图文件不存在",
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "预览图文件不存在",
                            detail={"image_path": image_path})
 
     try:
         result = svc.preview(version, image_path=image_path,
                              max_frames=max_frames, strength=strength)
     except StylePreviewUnavailable as exc:
-        raise ApiError(80013, "风格预览不可用（推理引擎或版本未就绪）",
+        raise ApiError("STYLE_PREVIEW_UNAVAILABLE", "风格预览不可用（推理引擎或版本未就绪）",
                        detail={"reason": str(exc), "version": version}) from exc
     return ok(result)
 
@@ -373,10 +370,10 @@ def style_rename(version: str, body: dict = Body(default_factory=dict)) -> dict[
     """重命名风格项目（STYLE-028）：写 meta.json name。"""
     name = str((body or {}).get("name") or "").strip()
     if not name:
-        raise ApiError(40008, "缺少必填参数: name")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: name")
     svc = get_style_lora_service()
     if not svc.rename_version(version, name[:100]):
-        raise ApiError(80012, f"风格 LoRA 版本不存在: {version}",
+        raise ApiError("STYLE_VERSION_NOT_FOUND", f"风格 LoRA 版本不存在: {version}",
                        detail={"version": version})
     return ok({"version": version, "name": name})
 
@@ -387,7 +384,7 @@ def style_delete(version: str) -> dict[str, Any]:
     svc = get_style_lora_service()
     deleted, reason = svc.delete_version(version)
     if not deleted and reason == "not_found":
-        raise ApiError(80012, f"风格 LoRA 版本不存在: {version}",
+        raise ApiError("STYLE_VERSION_NOT_FOUND", f"风格 LoRA 版本不存在: {version}",
                        detail={"version": version})
     if not deleted:  # training_locked
         raise ApiError(
@@ -404,7 +401,7 @@ def style_metrics(version: str) -> dict[str, Any]:
     svc = get_style_lora_service()
     metrics = svc.version_metrics(version)
     if metrics is None:
-        raise ApiError(80012, f"风格 LoRA 版本不存在: {version}",
+        raise ApiError("STYLE_VERSION_NOT_FOUND", f"风格 LoRA 版本不存在: {version}",
                        detail={"version": version})
     return ok(metrics)
 
@@ -421,18 +418,18 @@ def style_merge(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     versions = body.get("versions")
     weights = body.get("weights")
     if not isinstance(versions, list) or len(versions) < 2:
-        raise ApiError(40008, "versions 至少需要 2 个版本号")
+        raise ApiError("SYSTEM_PARAM_INVALID", "versions 至少需要 2 个版本号")
     versions = [str(v).strip() for v in versions]
     if not isinstance(weights, list) or len(weights) != len(versions):
-        raise ApiError(40008, "weights 数量须与 versions 一致")
+        raise ApiError("SYSTEM_PARAM_INVALID", "weights 数量须与 versions 一致")
     try:
         weights = [float(w) for w in weights]
     except (TypeError, ValueError):
-        raise ApiError(40008, "weights 必须是数值数组") from None
+        raise ApiError("SYSTEM_PARAM_INVALID", "weights 必须是数值数组") from None
     svc = get_style_lora_service()
     for ver in versions:
         if not any(v["version"] == ver for v in svc.list_versions()):
-            raise ApiError(80012, f"风格 LoRA 版本不存在: {ver}",
+            raise ApiError("STYLE_VERSION_NOT_FOUND", f"风格 LoRA 版本不存在: {ver}",
                            detail={"version": ver})
     try:
         result = svc.merge_versions(versions, weights,
@@ -448,11 +445,11 @@ def style_export(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     svc = get_style_lora_service()
     version = str((body or {}).get("version") or "").strip() or svc.get_current()
     if not version:
-        raise ApiError(80012, "尚无已注册的风格 LoRA 版本")
+        raise ApiError("STYLE_VERSION_NOT_FOUND", "尚无已注册的风格 LoRA 版本")
     try:
         result = svc.export_version(version)
     except StyleTrainingFailed as exc:
-        raise ApiError(80012, str(exc), detail={"version": version}) from exc
+        raise ApiError("STYLE_VERSION_NOT_FOUND", str(exc), detail={"version": version}) from exc
     return ok(result)
 
 
@@ -462,11 +459,11 @@ def style_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     svc = get_style_lora_service()
     version = str((body or {}).get("version") or "").strip()
     if not version:
-        raise ApiError(40008, "缺少必填参数: version")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: version")
     new_task_id = svc.clone_version(version,
                                     str((body or {}).get("name") or ""))
     if new_task_id is None:
-        raise ApiError(80012,
+        raise ApiError("STYLE_VERSION_NOT_FOUND",
                        f"风格版本不存在或其数据集已失效，无法克隆: {version}",
                        detail={"version": version})
     return ok({"version": version, "new_task_id": new_task_id},
@@ -485,7 +482,7 @@ def style_templates() -> dict[str, Any]:
 def style_template_save(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """保存风格模板（STYLE-032）：name/style_prompt/超参集合。"""
     if not (body or {}).get("name"):
-        raise ApiError(40008, "缺少必填参数: name")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: name")
     svc = get_style_lora_service()
     tpl = svc.save_template(body)
     return ok(tpl, message=f"模板已保存: {tpl['name']}")

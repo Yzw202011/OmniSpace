@@ -1085,11 +1085,11 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     进度经 GET /manga/video/{task_id}/status 轮询真实回传。
     """
     if req.duration_seconds > VIDEO_MAX_DURATION:
-        raise ApiError(60001, "视频生成失败，时长超出上限",
+        raise ApiError("VIDEO_GENERATION_FAILED", "视频生成失败，时长超出上限",
                        detail={"max": VIDEO_MAX_DURATION,
                                "given": req.duration_seconds})
     if req.audio_path and req.duration_seconds > LTX2_MAX_AUDIO_SYNC:
-        raise ApiError(60002, "音画同步模式最长支持10秒",
+        raise ApiError("VIDEO_DURATION_EXCEEDED", "音画同步模式最长支持10秒",
                        detail={"max": LTX2_MAX_AUDIO_SYNC,
                                "given": req.duration_seconds})
 
@@ -1108,8 +1108,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 - 查重失败放行不阻断
                 log.warning("视频任务连点查重失败（放行）: %s", exc, exc_info=True)
         if _dup:
-            raise ApiError(
-                60001, "该分镜已有视频任务在生成中，请等待完成或先取消",
+            raise ApiError("VIDEO_GENERATION_FAILED", "该分镜已有视频任务在生成中，请等待完成或先取消",
                 detail={"storyboard_row_id": req.storyboard_row_id})
     flow = None  # 入口校验拒绝时 flow 未建立，except 需判空
     # 前置校验（2026-08-31 用户裁定改版）：分镜图非必需（H3 链式以
@@ -1136,12 +1135,10 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 log.warning("H3 入口前置校验查询失败: %s", exc, exc_info=True)
         if _row is None:
-            raise ApiError(
-                40005, "分镜行不存在",
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
                 detail={"storyboard_row_id": req.storyboard_row_id})
         if not ( _row.get("description") or "").strip():
-            raise ApiError(
-                40005, "该分镜行描述词为空，无法生成视频，"
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行描述词为空，无法生成视频，"
                 "请先填写或用 AI 生成分镜描述词",
                 detail={"storyboard_row_id": req.storyboard_row_id,
                         "suggestion": "在分镜表格编辑描述词，或执行「分镜生词」"})
@@ -1163,8 +1160,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 log.warning("绑定资产计数失败（放行交引擎校验）: %s", exc, exc_info=True)
         if _n_img == 0:
-            raise ApiError(
-                40005, "该分镜行未绑定带图资产（人物/场景/道具），"
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行未绑定带图资产（人物/场景/道具），"
                 "无法生成视频，请先在资产面板绑定",
                 detail={"storyboard_row_id": req.storyboard_row_id,
                         "suggestion": "右侧资产面板把角色/场景/道具拖入绑定"})
@@ -1238,8 +1234,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     if _cloud_ep is not None:
         _first_frame = _load_first_frame_for_row(req.storyboard_row_id)
         if _first_frame is None:
-            raise ApiError(
-                60001,
+            raise ApiError("VIDEO_GENERATION_FAILED",
                 "该分镜行还没有当前关键帧，无法云端图生视频",
                 suggestion="请先在故事板生成该行关键帧（云端视频以关键帧"
                            "为首帧），或点生成时选择本地引擎")
@@ -1341,7 +1336,7 @@ def video_status(task_id: str) -> dict[str, Any]:
                 f"SELECT {_VIDEO_TASK_COLS} FROM video_tasks WHERE id=?",
                 (task_id,))
             if row is None:
-                raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
             resp = {"task_id": task_id,
                     "status": row.get("status", "pending"),
                     "progress": float(row.get("progress", 0.0) or 0.0)}
@@ -1361,7 +1356,7 @@ def video_status(task_id: str) -> dict[str, Any]:
 
     task = _video_tasks.get(task_id)
     if task is None:
-        raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     resp = {"task_id": task_id, "status": task["status"],
             "progress": task["progress"]}
     _attach_queue_position(resp, task_id)
@@ -1394,7 +1389,7 @@ def video_result(task_id: str) -> dict[str, Any]:
     """视频生成结果（规格 §4.4）——返回真实文件路径与下载地址。"""
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     status = row.get("status", "pending")
     if status != "done":
         return ok({"task_id": task_id, "status": status, "result": None})
@@ -1435,7 +1430,7 @@ def video_download(task_id: str) -> FileResponse:
     """下载生成的视频文件（真实文件流式返回）。"""
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     file_path = row.get("file_path") or ""
     if not file_path:
         candidate = VIDEO_OUT_DIR / f"{task_id}.mp4"
@@ -1443,7 +1438,7 @@ def video_download(task_id: str) -> FileResponse:
             file_path = str(candidate)
     path = Path(file_path) if file_path else None
     if path is None or not path.is_file():
-        raise ApiError(60003, "视频文件不存在或尚未生成完成",
+        raise ApiError("VIDEO_RESOLUTION_DEGRADED", "视频文件不存在或尚未生成完成",
                        detail={"task_id": task_id,
                                "status": row.get("status", "pending")})
     return FileResponse(str(path), media_type="video/mp4",
@@ -1466,9 +1461,9 @@ def video_paint_history_delete(task_id: str) -> dict[str, Any]:
         " WHERE id=?",
         (task_id,))
     if row is None:
-        raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     if str(row.get("status") or "") in ("pending", "generating"):
-        raise ApiError(40008, "任务正在生成中，无法删除（请等待完成或取消后再删）",
+        raise ApiError("SYSTEM_PARAM_INVALID", "任务正在生成中，无法删除（请等待完成或取消后再删）",
                        detail={"task_id": task_id,
                                "status": row.get("status")})
     db.delete("video_tasks", "id=?", (task_id,))
@@ -1507,7 +1502,7 @@ def video_task_list(project_id: str = Query("", description="项目ID"),
     """
     pid = (project_id or "").strip()
     if not pid:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询视频任务")
@@ -1566,14 +1561,14 @@ def manga_media(relpath: str) -> FileResponse:
     """
     rel = Path(relpath)
     if rel.is_absolute() or ".." in rel.parts:
-        raise ApiError(40008, "非法文件路径", detail={"path": relpath[:200]})
+        raise ApiError("SYSTEM_PARAM_INVALID", "非法文件路径", detail={"path": relpath[:200]})
     base = (DATA_DIR / rel).resolve()
     allowed = [(DATA_DIR / d).resolve() for d in _MEDIA_ALLOWED_DIRS]
     if not any(base.is_relative_to(a) for a in allowed):
-        raise ApiError(40008, "文件路径不在允许目录内",
+        raise ApiError("SYSTEM_PARAM_INVALID", "文件路径不在允许目录内",
                        detail={"allowed": list(_MEDIA_ALLOWED_DIRS)})
     if not base.is_file():
-        raise ApiError(40005, "文件不存在或已被清理",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "文件不存在或已被清理",
                        detail={"path": relpath[:200]})
     media_type = _MEDIA_TYPES.get(base.suffix.lower(),
                                   "application/octet-stream")
@@ -1594,7 +1589,7 @@ def video_cancel(task_id: str) -> dict[str, Any]:
     """
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError(40005, "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     status = row.get("status", "pending")
     if status in ("done", "error", "cancelled"):
         return ok({"task_id": task_id, "status": status,
@@ -1691,7 +1686,7 @@ async def story_narrative_generate(req: StoryNarrativeRequest) -> dict[str, Any]
     """
     _, _, rows = _load_project_rows(req.project_id)
     if not rows:
-        raise ApiError(40008, "项目无分镜行")
+        raise ApiError("SYSTEM_PARAM_INVALID", "项目无分镜行")
 
     # 过滤目标行
     target_ids = set(req.row_ids) if req.row_ids else {r["id"] for r in rows}
@@ -1711,7 +1706,7 @@ async def story_narrative_generate(req: StoryNarrativeRequest) -> dict[str, Any]
             story_parts.append(f"[分镜{r.get('shot_number', '?')}] {dlg}")
     story_context = "\n".join(story_parts)
     if not story_context:
-        raise ApiError(40008, "选中行均无台词内容，无法聚合故事线")
+        raise ApiError("SYSTEM_PARAM_INVALID", "选中行均无台词内容，无法聚合故事线")
 
     engine = get_dialog_engine()
     lock = await acquire_or_raise("dialog", task_id=req.project_id)
@@ -1809,7 +1804,7 @@ async def video_narrative_generate(req: VideoNarrativeRequest) -> dict[str, Any]
     """
     db, _, rows = _load_project_rows(req.project_id)
     if not rows:
-        raise ApiError(40008, "项目无分镜行")
+        raise ApiError("SYSTEM_PARAM_INVALID", "项目无分镜行")
 
     target_ids = set(req.row_ids) if req.row_ids else {r["id"] for r in rows}
     # scope=missing：未生成过 A/B/C 的行（无 B 段标记）；all：全部
@@ -1912,11 +1907,11 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
     row_ids = list(req.row_ids) or (
         [req.storyboard_row_id] if req.storyboard_row_id else [])
     if not row_ids:
-        raise ApiError(60001, "缺少分镜行(row_ids)")
+        raise ApiError("VIDEO_GENERATION_FAILED", "缺少分镜行(row_ids)")
     if not (3.0 <= req.seconds_per_shot <= 15.0):
-        raise ApiError(60001, "每镜时长须在 3~15 秒")
+        raise ApiError("VIDEO_GENERATION_FAILED", "每镜时长须在 3~15 秒")
     if req.quality == "720p" and req.seconds_per_shot > 8:
-        raise ApiError(60001, "720p 档单镜上限 8 秒(16G 显存实测);更长请用 480p 档")
+        raise ApiError("VIDEO_GENERATION_FAILED", "720p 档单镜上限 8 秒(16G 显存实测);更长请用 480p 档")
 
     # 连点去重（同 video_generate，2026-08-31）
     if req.storyboard_row_id:
@@ -1931,8 +1926,7 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
             except Exception as exc:  # noqa: BLE001
                 log.warning("H3 链式连点查重失败（放行）: %s", exc, exc_info=True)
         if _dup:
-            raise ApiError(
-                60001, "该分镜已有视频任务在生成中，请等待完成或先取消",
+            raise ApiError("VIDEO_GENERATION_FAILED", "该分镜已有视频任务在生成中，请等待完成或先取消",
                 detail={"storyboard_row_id": req.storyboard_row_id})
     task_id = uuid.uuid4().hex
     db = get_db_safe()

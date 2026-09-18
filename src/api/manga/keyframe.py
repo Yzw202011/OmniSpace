@@ -1159,12 +1159,12 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     row = db.query_one(
         f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?", (row_id,))
     if row is None:
-        raise ApiError(40005, "分镜行不存在", detail={"row_id": row_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
     if not prompt:
         prompt = (row.get("description") or row.get("original_dialogue")
                   or "").strip()
     if not prompt:
-        raise ApiError(40008, "分镜行无画面描述且未提供 prompt",
+        raise ApiError("SYSTEM_PARAM_INVALID", "分镜行无画面描述且未提供 prompt",
                        detail={"row_id": row_id})
     # 方案A（2026-09-03 用户裁定）：如实记录画面来源——行无描述词即
     # 原文直出兜底，前端据此打「原文直出」角标（不臆测、旧数据留空）
@@ -2747,7 +2747,7 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
     守卫不将在用管线当空闲模型卸载；批次结束由队列排空统一收尾协商）。
     """
     if not req.row_ids:
-        raise ApiError(40008, "缺少 row_ids 数组")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 row_ids 数组")
 
     # 云端路由（批2）：整批共用一次绑定解析
     try:
@@ -2795,14 +2795,14 @@ def keyframe_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]
     """关键帧回退（COMIC-124）：把指定版本置为当前版本。"""
     keyframe_id = str(body.get("keyframe_id") or "").strip()
     if not keyframe_id:
-        raise ApiError(40008, "缺少 keyframe_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 keyframe_id")
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法回退关键帧")
     kf = db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
                       (keyframe_id,))
     if kf is None:
-        raise ApiError(40005, "关键帧不存在", detail={"keyframe_id": keyframe_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "关键帧不存在", detail={"keyframe_id": keyframe_id})
     db.update("keyframes", {"is_current": 0}, "row_id=?", (kf["row_id"],))
     db.update("keyframes", {"is_current": 1}, "id=?", (keyframe_id,))
     return ok({"row_id": kf["row_id"], "keyframe_id": keyframe_id,
@@ -2818,7 +2818,7 @@ def keyframe_delete(keyframe_id: str) -> dict[str, Any]:
     kf = db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
                       (keyframe_id,))
     if kf is None:
-        raise ApiError(40005, "关键帧不存在", detail={"keyframe_id": keyframe_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "关键帧不存在", detail={"keyframe_id": keyframe_id})
     fp = DATA_DIR / (kf.get("file_path") or "")
     if kf.get("file_path") and fp.is_file():
         try:
@@ -2883,7 +2883,7 @@ async def story_keyframe_generate(req: StoryKeyframeRequest) -> dict[str, Any]:
     """
     _, _, rows = _load_project_rows(req.project_id)
     if not rows:
-        raise ApiError(40008, "项目无分镜行")
+        raise ApiError("SYSTEM_PARAM_INVALID", "项目无分镜行")
 
     target_ids = set(req.row_ids) if req.row_ids else {r["id"] for r in rows}
     if req.scope == "missing":

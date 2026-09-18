@@ -134,7 +134,7 @@ def _collect_refs(row: dict, row_id: str) -> list[dict]:
 
     db = get_db_safe()
     if db is None:
-        raise ApiError(60003, "数据库不可用(参考图收集)")
+        raise ApiError("VIDEO_RESOLUTION_DEGRADED", "数据库不可用(参考图收集)")
     refs: list[dict] = []
     used: set[str] = set()
     # 分镜行 → 所属项目(同项目资产优先,防跨项目风格错位)
@@ -432,7 +432,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
             log.debug("_cancel_interrupt: 降级忽略", exc_info=True)
 
     if quality not in _QUALITY:
-        raise ApiError(60001, f"未知画质档位 {quality}")
+        raise ApiError("VIDEO_GENERATION_FAILED", f"未知画质档位 {quality}")
     width, height = _QUALITY[quality]
     if aspect == "9:16":
         width, height = height, width  # 模型配置·默认画幅接线（竖屏）
@@ -466,7 +466,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         except Exception:  # noqa: BLE001 - sqlite busy 瞬时错误重试
             time.sleep(1.0)
     if not rows:
-        raise ApiError(40005, f"分镜行不存在或描述词为空: {row_ids}")
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"分镜行不存在或描述词为空: {row_ids}")
     seen: set[tuple] = set()
     refs: list[dict] = []
     for r in rows:
@@ -476,7 +476,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                 seen.add(key)
                 refs.append(ref)
     if not refs:
-        raise ApiError(60001, "所选分镜行均未绑定带图资产(人物/场景/道具)")
+        raise ApiError("VIDEO_GENERATION_FAILED", "所选分镜行均未绑定带图资产(人物/场景/道具)")
 
     # 2. 参考图落盘 + 计划(每镜一 shot,长度=17k+5)
     report(0.02, "准备参考图")
@@ -525,13 +525,13 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                     body = exc.read().decode("utf-8", "ignore")[:500]
                 except Exception:  # noqa: BLE001
                     log.debug("run_h3_chain_task: 降级忽略", exc_info=True)
-                raise ApiError(60003,
+                raise ApiError("VIDEO_RESOLUTION_DEGRADED",
                                f"链式工作流被拒绝(HTTP {exc.code}): {body}") from exc
             if resp is None:
-                raise ApiError(60003, "ComfyUI 不可达（链式提交失败）")
+                raise ApiError("VIDEO_RESOLUTION_DEGRADED", "ComfyUI 不可达（链式提交失败）")
             if resp.get("error") or resp.get("node_errors"):
                 import json as _j
-                raise ApiError(60003, "链式工作流校验失败: " + _j.dumps(
+                raise ApiError("VIDEO_RESOLUTION_DEGRADED", "链式工作流校验失败: " + _j.dumps(
                     resp.get("node_errors") or resp.get("error"),
                     ensure_ascii=False)[:400])
             prompt_id = str(resp["prompt_id"])
@@ -570,7 +570,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 5. 收片：final MP4 → 项目视频目录
     src = (_COMFY_OUTPUT / video_rel)
     if not src.is_file():
-        raise ApiError(60003, f"链式成片缺失: {video_rel}")
+        raise ApiError("VIDEO_RESOLUTION_DEGRADED", f"链式成片缺失: {video_rel}")
     dest_dir = DATA_DIR / "videos" / str(row_ids[0])[:16]
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{task_id}.mp4"
@@ -623,7 +623,7 @@ def _poll_chain_history(engine: Any, prompt_id: str, seconds: float,
         status = entry.get("status") or {}
         if status.get("status_str") == "error":
             import json as _j
-            raise ApiError(60003, "链式执行失败: " + _j.dumps(
+            raise ApiError("VIDEO_RESOLUTION_DEGRADED", "链式执行失败: " + _j.dumps(
                 status.get("messages") or [], ensure_ascii=False)[:400])
         for node_out in (entry.get("outputs") or {}).values():
             for item in (node_out.get("images") or node_out.get("videos") or []):
@@ -633,11 +633,11 @@ def _poll_chain_history(engine: Any, prompt_id: str, seconds: float,
                     report(0.98, "拼装完成")
                     return f"{sub}/{fn}" if sub else fn
         if status.get("completed"):
-            raise ApiError(60003, "链式执行完成但无成片产物")
+            raise ApiError("VIDEO_RESOLUTION_DEGRADED", "链式执行完成但无成片产物")
         q = engine._api("GET", "/queue", timeout=5.0)
         if q is not None:
             busy = {str(it[1]) for it in (q.get("queue_running") or [])}
             pend = {str(it[1]) for it in (q.get("queue_pending") or [])}
             if prompt_id not in busy | pend:
-                raise ApiError(60004, "链式任务已被中断（不在队列且无产物）")
-    raise ApiError(60004, "链式生成超时", )
+                raise ApiError("VIDEO_ENCODE_FAILED", "链式任务已被中断（不在队列且无产物）")
+    raise ApiError("VIDEO_ENCODE_FAILED", "链式生成超时", )

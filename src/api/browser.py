@@ -136,7 +136,7 @@ def browser_navigate(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     global _shot_cache
     url = str((body or {}).get("url", "") or "").strip()
     if not url:
-        raise ApiError(40008, "缺少必填参数: url")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: url")
     svc = _ensure_ready()
     info = _call_browser(svc.navigate, url)
     _shot_cache = None  # 页面已变化，截图缓存立即失效

@@ -1811,7 +1811,7 @@ def get_local_savings() -> dict[str, Any]:
     """
     db = get_db_safe()
     if db is None:
-        raise ApiError(50001, "数据库不可用")
+        raise ApiError("PAINT_GENERATION_FAILED", "数据库不可用")
 
     def _count(sql: str) -> int:
         try:

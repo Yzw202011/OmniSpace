@@ -173,7 +173,7 @@ def compose_png(panels: list[dict], font_path: str | None) -> Any:
     from PIL import Image
 
     if not panels:
-        raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
+        raise ApiError("SYSTEM_PARAM_INVALID", "没有可导出的分格画面（先完成生图）")
     resized = []
     for p in panels:
         panel = p["img"].resize(
@@ -195,7 +195,7 @@ def compose_grid2_pages(panels: list[dict],
     from PIL import Image
 
     if not panels:
-        raise ApiError(40008, "没有可导出的分格画面（先完成生图）")
+        raise ApiError("SYSTEM_PARAM_INVALID", "没有可导出的分格画面（先完成生图）")
     fitted = []
     for p in panels:
         panel = p["img"].resize((_PANEL_W, int(_PANEL_W * 9 / 16)))
@@ -227,7 +227,7 @@ def jpegs_to_pdf(pages: list[tuple[bytes, int, int]]) -> bytes:
     1=Catalog 2=Pages，第 i 页三元组 = 3+3i(Page) 4+3i(Content) 5+3i(Image)。
     """
     if not pages:
-        raise ApiError(40008, "没有可导出的分格画面")
+        raise ApiError("SYSTEM_PARAM_INVALID", "没有可导出的分格画面")
     n = len(pages)
     kids = " ".join(f"{3 + 3 * i} 0 R" for i in range(n))
     objs: dict[int, bytes] = {
@@ -279,7 +279,7 @@ def comic_export_page(body: dict = Body(default_factory=dict)) -> dict[str, Any]
                            for e in exc.errors())) from exc
     panels, skipped = _load_panels(req.project_id)
     if not panels:
-        raise ApiError(40008,
+        raise ApiError("SYSTEM_PARAM_INVALID",
                        "该项目没有已生成分格画面，先完成分格生图再导出",
                        detail={"skipped_shots": skipped})
     font_path = _find_cjk_font() if req.with_bubbles else None

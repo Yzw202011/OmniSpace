@@ -37,7 +37,7 @@ def _load_asset(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     a = dict(row)
     try:
         import json as _json

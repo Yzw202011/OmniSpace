@@ -217,10 +217,10 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
     """
     kind = (req.kind or "character").strip()
     if kind not in _ASSET_KIND_CONF:
-        raise ApiError(40008, "kind 必须是 character/scene/prop",
+        raise ApiError("SYSTEM_PARAM_INVALID", "kind 必须是 character/scene/prop",
                        detail={"allowed": list(_ASSET_KIND_CONF)})
     if not req.items:
-        raise ApiError(40008, "缺少 items 数组")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 items 数组")
     db = get_db_safe()
     if db is not None:
         _ensure_project(db, req.project_id)
@@ -394,12 +394,12 @@ def comic_asset_bind(req: AssetBindRequest) -> dict[str, Any]:
     asset = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (req.asset_id,))
     if asset is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": req.asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
     row = db.query_one(
         "SELECT id, asset_id, asset_ids FROM storyboard_rows WHERE id=?",
         (req.row_id,))
     if row is None:
-        raise ApiError(40005, "分镜行不存在", detail={"row_id": req.row_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": req.row_id})
     asset_ids = _row_asset_ids(row)
     if req.asset_id not in asset_ids:
         asset_ids.append(req.asset_id)
@@ -425,10 +425,10 @@ def comic_asset_adopt(req: AssetAdoptRequest) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (req.asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": req.asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
     asset = _asset_row_to_dict(row)
     if asset.get("project_id") == req.project_id:
-        raise ApiError(40008, "该资产已在当前项目中",
+        raise ApiError("SYSTEM_PARAM_INVALID", "该资产已在当前项目中",
                        detail={"asset_id": req.asset_id})
     _ensure_project(db, req.project_id)
     # 幂等：目标项目已有同一来源的引入副本时直接返回既有资产，
@@ -580,7 +580,7 @@ def comic_asset_to_global(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     if asset.get("scope") == "global":
         return ok({"asset": asset, "already_global": True})
@@ -609,12 +609,12 @@ def comic_asset_unbind(req: AssetBindRequest) -> dict[str, Any]:
     asset = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (req.asset_id,))
     if asset is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": req.asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
     row = db.query_one(
         "SELECT id, asset_id, asset_ids FROM storyboard_rows WHERE id=?",
         (req.row_id,))
     if row is None:
-        raise ApiError(40005, "分镜行不存在", detail={"row_id": req.row_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": req.row_id})
     asset_ids = [a for a in _row_asset_ids(row) if a != req.asset_id]
     asset_id = row.get("asset_id", "") or ""
     if asset_id == req.asset_id:
@@ -640,7 +640,7 @@ def comic_asset_update(asset_id: str, req: AssetUpdateRequest) -> dict[str, Any]
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     fields = req.model_dump(exclude_none=True)
     if fields:
         if "prompt" in fields:
@@ -675,7 +675,7 @@ async def comic_asset_regenerate(asset_id: str,
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     # 角色资产首次四视图化：置 turnaround 标记，后续按四视图路径重生成
     if str(body.get("mode") or "") == "four_views" \
@@ -686,7 +686,7 @@ async def comic_asset_regenerate(asset_id: str,
         meta["turnaround"] = True
         asset["meta"] = meta
     if not (asset.get("prompt") or "").strip():
-        raise ApiError(40008, "请先填写描述词",
+        raise ApiError("SYSTEM_PARAM_INVALID", "请先填写描述词",
                        detail={"asset_id": asset_id})
     flow = _start_asset_flow(
         "comic_regenerate",
@@ -746,15 +746,15 @@ async def comic_asset_regenerate_view(asset_id: str,
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     if not (asset.get("meta") or {}).get("turnaround"):
-        raise ApiError(40008, "该资产不是四视图资产，无法单视图重生",
+        raise ApiError("SYSTEM_PARAM_INVALID", "该资产不是四视图资产，无法单视图重生",
                        detail={"asset_id": asset_id})
     prompt_zh = ((req.prompt or "").strip()
                  or (asset.get("prompt") or "").strip())
     if not prompt_zh:
-        raise ApiError(40008, "请先填写描述词",
+        raise ApiError("SYSTEM_PARAM_INVALID", "请先填写描述词",
                        detail={"asset_id": asset_id})
     flow = _start_asset_flow(
         "comic_regenerate_view",
@@ -813,16 +813,16 @@ async def comic_asset_reference_upload(asset_id: str,
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     filename = (file.filename or "").lower()
     ext = Path(filename).suffix
     if ext not in _ASSET_UPLOAD_EXTS:
-        raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
+        raise ApiError("UNSUPPORTED_FORMAT", "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
     raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
-        raise ApiError(40008, "图片文件为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
         raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片文件超过 10MB 上限",
                        detail={"max_bytes": _ASSET_UPLOAD_MAX_BYTES,
@@ -842,7 +842,7 @@ async def comic_asset_reference_upload(asset_id: str,
 
         await run_blocking(_normalize_png)
     except Exception as exc:  # noqa: BLE001 - 解码失败即非法图片
-        raise ApiError(40010, "参考图解码失败，请上传有效图片文件",
+        raise ApiError("UNSUPPORTED_FORMAT", "参考图解码失败，请上传有效图片文件",
                        detail={"error": str(exc)[:200]}) from exc
     rel = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     meta = asset.get("meta") or {}
@@ -871,7 +871,7 @@ def comic_asset_delete(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
 
     # 1) 清分镜行绑定引用（asset_id 兼容列 + asset_ids JSON 数组）
@@ -914,7 +914,7 @@ def comic_asset_reference_delete(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     out_dir = _asset_dir_for(asset)
     ref_path = out_dir / "reference.png"
@@ -941,7 +941,7 @@ def comic_asset_history(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     meta = asset.get("meta") or {}
     history = meta.get("history")
@@ -977,7 +977,7 @@ def comic_image_task_list(project_id: str = Query("", description="项目ID"),
     """
     pid = (project_id or "").strip()
     if not pid:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询图片记录")
@@ -1062,8 +1062,7 @@ def _assert_image_magic(raw: bytes, filename: str | None) -> None:
                 raise ValueError(f"实际内容格式 {fmt} 不在允许集内")
             probe.verify()
     except Exception as exc:  # noqa: BLE001 - 解码/格式失败即拒绝
-        raise ApiError(
-            40010, "文件内容不是有效图片（魔数校验失败），已拒绝上传",
+        raise ApiError("UNSUPPORTED_FORMAT", "文件内容不是有效图片（魔数校验失败），已拒绝上传",
             detail={"filename": filename or "",
                     "reason": str(exc)[:120]}) from exc
 _ASSET_UPLOAD_MAX_BYTES = 10 * 1024 * 1024  # 10MB
@@ -1087,16 +1086,16 @@ async def comic_asset_image_replace(asset_id: str,
     arow = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if arow is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(arow)
     filename = (file.filename or "").lower()
     ext = Path(filename).suffix
     if ext not in _ASSET_UPLOAD_EXTS:
-        raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
+        raise ApiError("UNSUPPORTED_FORMAT", "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
     raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
-        raise ApiError(40008, "图片文件为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
         raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片文件超过 10MB 上限",
                        detail={"max_bytes": _ASSET_UPLOAD_MAX_BYTES,
@@ -1161,7 +1160,7 @@ async def comic_asset_upload(project_id: str = Form(...),
     """
     pid = (project_id or "").strip()
     if not pid:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     # 路径安全（审计 09-10 P1-A）：pid 直拼落盘目录且会经 _ensure_project
     # 建项目行，与下方 name 同规矩拒路径元字符（另两处 pid 仅作 DB
     # 查询键，不碰文件系统，无需消毒）
@@ -1169,19 +1168,19 @@ async def comic_asset_upload(project_id: str = Form(...),
     try:
         pid = _check_safe_name(pid)
     except ValueError as exc:
-        raise ApiError(40010, f"project_id 不合法：{exc}") from None
+        raise ApiError("UNSUPPORTED_FORMAT", f"project_id 不合法：{exc}") from None
     kind = (kind or "character").strip()
     if kind not in _ASSET_KIND_CONF:
-        raise ApiError(40008, "kind 必须是 character/scene/prop",
+        raise ApiError("SYSTEM_PARAM_INVALID", "kind 必须是 character/scene/prop",
                        detail={"allowed": list(_ASSET_KIND_CONF)})
     filename = (file.filename or "").lower()
     ext = Path(filename).suffix
     if ext not in _ASSET_UPLOAD_EXTS:
-        raise ApiError(40010, "仅支持 png/jpg/jpeg/webp 图片文件",
+        raise ApiError("UNSUPPORTED_FORMAT", "仅支持 png/jpg/jpeg/webp 图片文件",
                        detail={"filename": file.filename})
     raw = await file.read(_ASSET_UPLOAD_MAX_BYTES + 1)
     if not raw:
-        raise ApiError(40008, "图片文件为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "图片文件为空")
     if len(raw) > _ASSET_UPLOAD_MAX_BYTES:
         raise ApiError("OPERATION_LIMIT_EXCEEDED", "图片文件超过 10MB 上限",
                        detail={"max_bytes": _ASSET_UPLOAD_MAX_BYTES,
@@ -1197,7 +1196,7 @@ async def comic_asset_upload(project_id: str = Form(...),
     try:
         asset_name = _check_safe_name(asset_name)
     except ValueError as exc:
-        raise ApiError(40010, f"资产名称不合法：{exc}") from None
+        raise ApiError("UNSUPPORTED_FORMAT", f"资产名称不合法：{exc}") from None
     asset_id = uuid.uuid4().hex
     conf = _ASSET_KIND_CONF[kind]
     out_dir = _COMIC_ASSET_DIR / pid / conf["subdir"] / asset_name
@@ -1889,7 +1888,7 @@ async def comic_asset_infer_entities(req: AssetInferRequest) -> dict[str, Any]:
     """
     project_id = (req.project_id or "").strip()
     if not project_id:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     if get_db_safe() is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法推断实体")
     lock = await acquire_or_raise("dialog", task_id=f"infer:{project_id}")
@@ -1915,7 +1914,7 @@ def comic_asset_infer_progress(project_id: str = Query(
     """
     pid = (project_id or "").strip()
     if not pid:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     st = _INFER_PROGRESS.get(pid)
     if st is None:
         return ok({"running": False, "idle": True})
@@ -2369,7 +2368,7 @@ async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError(40005, "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     kind_label = {"character": "角色", "scene": "场景",
                   "prop": "道具"}.get(asset.get("kind", ""), "资产")
@@ -2476,7 +2475,7 @@ def comic_asset_export_pack(body: dict = Body(default_factory=dict)) -> dict[str
     import zipfile
     project_id = str(body.get("project_id") or "").strip()
     if not project_id:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法导出资产包")
@@ -2484,7 +2483,7 @@ def comic_asset_export_pack(body: dict = Body(default_factory=dict)) -> dict[str
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE project_id=?",
         (project_id,))
     if not rows:
-        raise ApiError(40005, "项目无资产可导出",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目无资产可导出",
                        detail={"project_id": project_id})
     out_dir = DATA_DIR / "generated" / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -105,7 +105,7 @@ def voices_bind(req: VoiceBindRequest) -> dict[str, Any]:
                 f"SELECT {_VOICE_COLS} FROM voice_profiles WHERE id=?",
                 (req.voice_id,))
             if row is None:
-                raise ApiError(71001, "音色文件缺失", detail={"voice_id": req.voice_id})
+                raise ApiError("VOICE_FILE_MISSING", "音色文件缺失", detail={"voice_id": req.voice_id})
             # 解除该角色之前绑定的其他音色
             db.update("voice_profiles", {"character_id": ""},
                       "character_id=?", (req.character_id,))
@@ -121,7 +121,7 @@ def voices_bind(req: VoiceBindRequest) -> dict[str, Any]:
     # 内存降级
     voice = next((v for v in _voices if v["id"] == req.voice_id), None)
     if voice is None:
-        raise ApiError(71001, "音色文件缺失", detail={"voice_id": req.voice_id})
+        raise ApiError("VOICE_FILE_MISSING", "音色文件缺失", detail={"voice_id": req.voice_id})
     for v in _voices:
         if v["character_id"] == req.character_id:
             v["character_id"] = ""
@@ -140,7 +140,7 @@ def voices_emotion(voice_id: str, req: VoiceEmotionUpdate) -> dict[str, Any]:
                 f"SELECT {_VOICE_COLS} FROM voice_profiles WHERE id=?",
                 (voice_id,))
             if row is None:
-                raise ApiError(71001, "音色文件缺失", detail={"voice_id": voice_id})
+                raise ApiError("VOICE_FILE_MISSING", "音色文件缺失", detail={"voice_id": voice_id})
             db.update("voice_profiles", {"emotion": req.emotion_label},
                       "id=?", (voice_id,))
             return ok({"voice_id": voice_id, "emotion": req.emotion_label})
@@ -152,7 +152,7 @@ def voices_emotion(voice_id: str, req: VoiceEmotionUpdate) -> dict[str, Any]:
     # 内存降级
     voice = next((v for v in _voices if v["id"] == voice_id), None)
     if voice is None:
-        raise ApiError(71001, "音色文件缺失", detail={"voice_id": voice_id})
+        raise ApiError("VOICE_FILE_MISSING", "音色文件缺失", detail={"voice_id": voice_id})
     voice["emotion"] = req.emotion_label
     return ok({"voice_id": voice_id, "emotion": req.emotion_label})
 
@@ -175,7 +175,7 @@ async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
                 f"SELECT {_VOICE_COLS} FROM voice_profiles WHERE id=?",
                 (req.voice_id,)))
             if row is None:
-                raise ApiError(71001, "音色文件缺失", detail={"voice_id": req.voice_id})
+                raise ApiError("VOICE_FILE_MISSING", "音色文件缺失", detail={"voice_id": req.voice_id})
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -183,7 +183,7 @@ async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
     else:
         voice = next((v for v in _voices if v["id"] == req.voice_id), None)
         if voice is None:
-            raise ApiError(71001, "音色文件缺失", detail={"voice_id": req.voice_id})
+            raise ApiError("VOICE_FILE_MISSING", "音色文件缺失", detail={"voice_id": req.voice_id})
 
     audio_b64 = _PLACEHOLDER_AUDIO
     degraded = True
@@ -257,7 +257,7 @@ async def voices_upload(name: str = Query("自定义音色"),
     """
     filename = (file.filename or "").lower()
     if not filename.endswith(_VOICE_UPLOAD_EXTS):
-        raise ApiError(40010, "仅支持 wav/mp3/flac/m4a 音频文件",
+        raise ApiError("UNSUPPORTED_FORMAT", "仅支持 wav/mp3/flac/m4a 音频文件",
                        detail={"filename": file.filename})
     # 有界读（2026-09-15 审计收尾）：先读后验改 read(limit+1)，与
     # comic_asset/comic.py 同款——全量 read 会让超大文件先整包进内存

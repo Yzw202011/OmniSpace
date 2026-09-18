@@ -1784,7 +1784,7 @@ def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
                        status.get("last_error") or "绘画模型未就绪")
     rel_path = (asset.get("file_path") or "").strip()
     if not rel_path:
-        raise ApiError(40008, "资产缺少主图文件，无法定位视图目录",
+        raise ApiError("SYSTEM_PARAM_INVALID", "资产缺少主图文件，无法定位视图目录",
                        detail={"asset_id": asset.get("asset_id")})
     out_dir = (DATA_DIR / rel_path).parent
     views_dir = out_dir / "portrait_views"
@@ -1856,12 +1856,12 @@ def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
                        status.get("last_error") or "绘画模型未就绪")
     rel_path = (asset.get("file_path") or "").strip()
     if not rel_path:
-        raise ApiError(40008, "资产缺少主图文件，无法定位视图目录",
+        raise ApiError("SYSTEM_PARAM_INVALID", "资产缺少主图文件，无法定位视图目录",
                        detail={"asset_id": asset.get("asset_id")})
     out_dir = (DATA_DIR / rel_path).parent
     master_path = out_dir / "master.png"
     if not master_path.is_file():
-        raise ApiError(40008, "one-pass 底图缺失，请先整图重生成",
+        raise ApiError("SYSTEM_PARAM_INVALID", "one-pass 底图缺失，请先整图重生成",
                        detail={"asset_id": asset.get("asset_id")})
     with Image.open(master_path) as im:
         master = im.convert("RGB")
@@ -1947,10 +1947,10 @@ def _regenerate_view_zviews(asset: dict, view: str, prompt_zh: str,
     from PIL import Image
 
     if view not in _TURNAROUND_VIEWS:
-        raise ApiError(40008, f"未知视图: {view}")
+        raise ApiError("SYSTEM_PARAM_INVALID", f"未知视图: {view}")
     rel_path = (asset.get("file_path") or "").strip()
     if not rel_path:
-        raise ApiError(40008, "资产缺少主图文件，无法定位视图目录",
+        raise ApiError("SYSTEM_PARAM_INVALID", "资产缺少主图文件，无法定位视图目录",
                        detail={"asset_id": asset.get("asset_id")})
     out_dir = (DATA_DIR / rel_path).parent
     views_dir = out_dir / "portrait_views"

@@ -631,10 +631,10 @@ def models_module_config_put(req: ModuleModelConfigRequest) -> dict[str, Any]:
     模型即时生效（每次请求实时读配置）。
     """
     if not isinstance(req.configs, dict) or not req.configs:
-        raise ApiError(40004, "configs 不能为空（slot → 配置映射）")
+        raise ApiError("SYSTEM_PARAM_INVALID", "configs 不能为空（slot → 配置映射）")
     unknown_slots = [s for s in req.configs if s not in _MODULE_MODEL_SLOTS]
     if unknown_slots:
-        raise ApiError(40004, "未知功能模块槽位",
+        raise ApiError("SYSTEM_PARAM_INVALID", "未知功能模块槽位",
                        detail={"unknown_slots": unknown_slots,
                                "valid": list(_MODULE_MODEL_SLOTS)})
 
@@ -642,14 +642,14 @@ def models_module_config_put(req: ModuleModelConfigRequest) -> dict[str, Any]:
     warnings: list[str] = []
     for slot, raw in req.configs.items():
         if not isinstance(raw, dict):
-            raise ApiError(40004, f"槽 {slot} 配置必须是对象",
+            raise ApiError("SYSTEM_PARAM_INVALID", f"槽 {slot} 配置必须是对象",
                            detail={"slot": slot})
         allowed_raw = raw.get("allowed")
         if allowed_raw is None:
             allowed_raw = []
         if not isinstance(allowed_raw, list) \
                 or not all(isinstance(a, str) for a in allowed_raw):
-            raise ApiError(40004, f"槽 {slot} 的 allowed 必须是字符串数组",
+            raise ApiError("SYSTEM_PARAM_INVALID", f"槽 {slot} 的 allowed 必须是字符串数组",
                            detail={"slot": slot})
         # 去重保序
         allowed = list(dict.fromkeys(a for a in allowed_raw if a))
@@ -657,12 +657,10 @@ def models_module_config_put(req: ModuleModelConfigRequest) -> dict[str, Any]:
         cand_ids = _slot_candidate_ids(slot)
         if default:
             if default not in allowed:
-                raise ApiError(
-                    40004, f"槽 {slot} 的默认模型必须在可选范围内",
+                raise ApiError("SYSTEM_PARAM_INVALID", f"槽 {slot} 的默认模型必须在可选范围内",
                     detail={"slot": slot, "default": default})
             if default not in cand_ids:
-                raise ApiError(
-                    40004,
+                raise ApiError("SYSTEM_PARAM_INVALID",
                     f"槽 {slot} 的默认模型 {default} 不存在（未注册/"
                     "未下载），无法设为默认",
                     detail={"slot": slot, "default": default})
@@ -958,7 +956,7 @@ def models_detail(model_id: str) -> dict[str, Any]:
     """模型详情（规格 §4.5 + MODEL-036 依赖关系字段）。"""
     model = _find_model(model_id)
     if model is None:
-        raise ApiError(30001, "模型文件未找到，请导入模型",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                        detail={"model_id": model_id})
     model = dict(model)
     model["dependencies"] = _model_dependencies(model)
@@ -989,7 +987,7 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
         raw = ROOT_DIR / raw
     raw = raw.resolve()
     if not raw.exists():
-        raise ApiError(30001, "模型文件未找到，请导入模型",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                        detail={"path": req.path})
     resolved = str(raw)
 
@@ -1126,7 +1124,7 @@ async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
     mgr = get_model_manager()
     model = _find_model(req.model_id)
     if model is None:
-        raise ApiError(20011, f"模型未下载: {req.model_id}",
+        raise ApiError("MODEL_NOT_DOWNLOADED", f"模型未下载: {req.model_id}",
                        detail={"model_id": req.model_id})
 
     category = req.category or model.get("category", "")
@@ -1136,7 +1134,7 @@ async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
     if feature:
         blocked, reason = mgr.is_feature_blocked(feature)
         if blocked:
-            raise ApiError(20014, f"功能互斥，当前无法加载：{reason}",
+            raise ApiError("FEATURE_MUTEX_LOCKED", f"功能互斥，当前无法加载：{reason}",
                            detail={"feature": feature,
                                    "blocked_features": mgr.get_blocked_features()})
 
@@ -1148,7 +1146,7 @@ async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
             feature, task_id=f"models_load:{req.model_id}")
         if not acquired:
             reason = lock_mgr.get_block_reason(feature) or "功能互斥"
-            raise ApiError(20014, f"功能互斥，当前无法加载：{reason}",
+            raise ApiError("FEATURE_MUTEX_LOCKED", f"功能互斥，当前无法加载：{reason}",
                            detail={"feature": feature,
                                    "active_feature": lock_mgr.active_feature})
 
@@ -1175,13 +1173,13 @@ async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
         except SwitchBusyError as e:
             if acquired and not was_switch_held:
                 await lock_mgr.release(feature)
-            raise ApiError(20010, str(e),
+            raise ApiError("MODEL_LOAD_FAILED", str(e),
                            detail={"active_task_id": e.active_task_id,
                                    "model_id": req.model_id}) from e
         except ValueError as e:
             if acquired and not was_switch_held:
                 await lock_mgr.release(feature)
-            raise ApiError(20011, str(e), detail={"model_id": req.model_id}) from e
+            raise ApiError("MODEL_NOT_DOWNLOADED", str(e), detail={"model_id": req.model_id}) from e
         status = result.get("status", "")
         if status == "done":
             mgr.note_user_load(req.model_id)  # #8：用户显式装载打免回收钉
@@ -1221,7 +1219,7 @@ def models_unload(req: ModelUnloadRequest) -> dict[str, Any]:
     """从 GPU 卸载模型（TASK-011 接线 ModelManager.unload_model）。"""
     mgr = get_model_manager()
     if not mgr.unload_model(req.model_id):
-        raise ApiError(20012, f"模型未处于已加载状态: {req.model_id}",
+        raise ApiError("MODEL_NOT_LOADED", f"模型未处于已加载状态: {req.model_id}",
                        detail={"model_id": req.model_id})
     return ok({"model_id": req.model_id, "loaded": False,
                "loaded_models": mgr.get_loaded_models()},
@@ -1261,20 +1259,19 @@ async def _acquire_switch_lock(feature: str, model_id: str) -> None:
     lock_mgr = get_feature_lock()
     blocked, reason = mgr.is_feature_blocked(feature)
     if blocked:
-        raise ApiError(20014, f"功能互斥，当前无法切换：{reason}",
+        raise ApiError("FEATURE_MUTEX_LOCKED", f"功能互斥，当前无法切换：{reason}",
                        detail={"feature": feature,
                                "blocked_features": mgr.get_blocked_features()})
     st = lock_mgr.status()
     if st.get("active_feature") == feature and st.get("task_id"):
         holder_tid = str(st.get("task_id") or "")
         if not holder_tid.startswith("switch:"):
-            raise ApiError(
-                20014, f"{feature} 功能任务进行中，无法切换模型（请等待完成）",
+            raise ApiError("FEATURE_MUTEX_LOCKED", f"{feature} 功能任务进行中，无法切换模型（请等待完成）",
                 detail={"feature": feature, "holder_task_id": st.get("task_id"),
                         "held_seconds": st.get("held_seconds", 0)})
     if not await lock_mgr.acquire(feature, task_id=f"switch:{model_id}"):
         reason = lock_mgr.get_block_reason(feature) or "功能互斥"
-        raise ApiError(20014, f"功能互斥，当前无法切换：{reason}",
+        raise ApiError("FEATURE_MUTEX_LOCKED", f"功能互斥，当前无法切换：{reason}",
                        detail={"feature": feature,
                                "active_feature": lock_mgr.active_feature})
 
@@ -1454,7 +1451,7 @@ async def vllm_stop() -> dict[str, Any]:
     svc = get_vllm_service()
     stopped = await run_blocking(svc.stop)
     if not stopped:
-        raise ApiError(20020, "vLLM 子进程终止失败（详见 logs/vllm-server.log）")
+        raise ApiError("VLLM_TERMINATE_FAILED", "vLLM 子进程终止失败（详见 logs/vllm-server.log）")
     return ok({"running": False}, message="vLLM 服务已停止，显存已回收")
 
 
@@ -1504,7 +1501,7 @@ async def models_verify(model_id: str) -> dict[str, Any]:
     """
     model = _find_model(model_id)
     if model is None:
-        raise ApiError(30001, "模型文件未找到，请导入模型",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                        detail={"model_id": model_id})
 
     # 审计 R1-05：大文件哈希为秒级阻塞计算，经 run_blocking 卸载避免卡住事件循环
@@ -1546,7 +1543,7 @@ def models_delete(model_id: str) -> dict[str, Any]:
             _models.pop(model_id, None)
             deleted = True
         else:
-            raise ApiError(30001, "模型文件未找到，请导入模型",
+            raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                            detail={"model_id": model_id})
     # 清理手动选择引用
     for feat, mid in list(_selections.items()):
@@ -1568,11 +1565,11 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
     """
     model = _find_model(model_id)
     if model is None:
-        raise ApiError(30001, "模型文件未找到，请导入模型",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                        detail={"model_id": model_id})
     raw_path = str(model.get("file_path") or "").strip()
     if not raw_path:
-        raise ApiError(30002, "该模型无磁盘路径（仅注册条目），请用普通删除",
+        raise ApiError("MODEL_FILE_CORRUPTED", "该模型无磁盘路径（仅注册条目），请用普通删除",
                        detail={"model_id": model_id})
     from ..config import MODELS_DIR
     resolved = Path(raw_path).resolve()
@@ -1580,7 +1577,7 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
     in_models_dir = resolved == models_root or models_root in resolved.parents
     external_ok = Path(raw_path).is_absolute() and not raw_path.startswith("\\\\")
     if not (in_models_dir or external_ok) or len(resolved.parts) <= 2:
-        raise ApiError(30003, "路径安全闸拒绝删除（不在模型目录且非登记外部路径）",
+        raise ApiError("MODEL_LOADING", "路径安全闸拒绝删除（不在模型目录且非登记外部路径）",
                        detail={"path": raw_path})
 
     def _dir_size(p: Path) -> int:
@@ -1632,10 +1629,10 @@ async def models_select(req: ModelSelectRequest) -> dict[str, Any]:
     """
     valid_features = ("dialog", "paint", "video", "voice")
     if req.feature not in valid_features:
-        raise ApiError(40004, "feature 必须是 dialog/paint/video/voice",
+        raise ApiError("SYSTEM_PARAM_INVALID", "feature 必须是 dialog/paint/video/voice",
                        detail={"feature": req.feature})
     if _find_model(req.model_id) is None:
-        raise ApiError(30001, "模型文件未找到，请导入模型",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                        detail={"model_id": req.model_id})
     _selections[req.feature] = req.model_id
 
@@ -1755,8 +1752,7 @@ def models_config_put(req: ModelConfigRequest) -> dict[str, Any]:
     """
     p = (req.precision or "").strip().lower()
     if p not in _VALID_PRECISIONS:
-        raise ApiError(
-            40004,
+        raise ApiError("SYSTEM_PARAM_INVALID",
             f"precision 必须是 {'/'.join(_VALID_PRECISIONS)}",
             detail={"precision": req.precision,
                     "valid": list(_VALID_PRECISIONS)})
@@ -1823,22 +1819,22 @@ async def models_export(req: ModelExportRequest) -> dict[str, Any]:
     """
     model = _find_model(req.model_id)
     if model is None:
-        raise ApiError(30001, "模型文件未找到，请导入模型",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型文件未找到，请导入模型",
                        detail={"model_id": req.model_id})
     raw = model.get("file_path") or ""
     if not raw or not Path(raw).exists():
-        raise ApiError(30001, "模型无本地文件，无法导出",
+        raise ApiError("MODEL_FILE_NOT_FOUND", "模型无本地文件，无法导出",
                        detail={"model_id": req.model_id})
     resolved = Path(raw).resolve()
     try:
         if ROOT_DIR.resolve() not in resolved.parents \
                 and resolved != ROOT_DIR.resolve():
-            raise ApiError(40004, "仅允许导出项目目录内的模型",
+            raise ApiError("SYSTEM_PARAM_INVALID", "仅允许导出项目目录内的模型",
                            detail={"path": raw})
     except ApiError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise ApiError(40004, f"路径校验失败: {exc}") from exc
+        raise ApiError("SYSTEM_PARAM_INVALID", f"路径校验失败: {exc}") from exc
 
     out_dir = DATA_DIR / "generated" / "exports" / "models"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1848,7 +1844,7 @@ async def models_export(req: ModelExportRequest) -> dict[str, Any]:
         result = await run_blocking(
             _export_model_tarball, model, out_path)
     except Exception as exc:  # noqa: BLE001
-        raise ApiError(20010, f"模型导出失败: {exc}") from exc
+        raise ApiError("MODEL_LOAD_FAILED", f"模型导出失败: {exc}") from exc
     return ok({"model_id": req.model_id,
                "export_path": str(out_path), **result},
               message="模型已导出（含 SHA256 校验文件）")
@@ -1860,14 +1856,14 @@ def _run_dialog_benchmark(req: ModelBenchmarkRequest) -> dict:
 
     engine = get_dialog_engine()
     if not engine.is_ready:
-        raise ApiError(20012,
+        raise ApiError("MODEL_NOT_LOADED",
                        "对话模型未加载，请先 POST /models/load 再基准测试",
                        detail={"loaded_models": [
                            m["model_id"] for m in
                            get_model_manager().get_loaded_models()]})
     loaded_id = engine.model_name
     if req.model_id and req.model_id != loaded_id:
-        raise ApiError(40004,
+        raise ApiError("SYSTEM_PARAM_INVALID",
                        f"指定模型未加载（当前已加载: {loaded_id}）",
                        detail={"requested": req.model_id,
                                "loaded": loaded_id})

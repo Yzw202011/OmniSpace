@@ -2543,8 +2543,7 @@ class VideoEngine(BaseEngine):
 
         enc = get_encoder_service()
         if not enc.available:
-            raise ApiError(
-                60004,
+            raise ApiError("VIDEO_ENCODE_FAILED",
                 "视频导出失败：FFmpeg 不可用（runtime/ffmpeg、tools/downloads、"
                 "PATH 均未找到）")
 
@@ -2621,7 +2620,7 @@ class VideoEngine(BaseEngine):
             )
             relay(0.95, "encode")
         except RuntimeError as exc:  # 编码失败与降级路径同语义
-            raise ApiError(60004, f"视频导出失败：{exc}") from exc
+            raise ApiError("VIDEO_ENCODE_FAILED", f"视频导出失败：{exc}") from exc
         except Exception as exc:  # noqa: BLE001 - 后处理失败回落 Ken Burns
             if relay.is_cancel(exc):
                 raise
@@ -2669,7 +2668,7 @@ class VideoEngine(BaseEngine):
             info = generate_fallback_video(request, video_path, progress_cb)
         except RuntimeError as exc:
             logger.error("降级管线视频导出失败: %s", exc)
-            raise ApiError(60004, f"视频导出失败：{exc}") from exc
+            raise ApiError("VIDEO_ENCODE_FAILED", f"视频导出失败：{exc}") from exc
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.info(

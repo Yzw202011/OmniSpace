@@ -74,19 +74,22 @@ def test_unregistered_code_uses_fallback() -> None:
     assert body["error"]["suggestion"] == SUGGESTION_FALLBACK
 
 
-def test_legacy_numeric_code_carries_suggestion() -> None:
-    # 40004 → SYSTEM_PARAM_INVALID（兼容层映射后仍恒带出路）
+def test_legacy_numeric_code_retired_conservative_fallback() -> None:
+    """批3（2026-09-18）数字码清偿：int 输入=不应再出现的信号，保守兜底。
+
+    旧契约（40004→SYSTEM_PARAM_INVALID 翻译）随 _LEGACY_CODE_MAP 退役；
+    新契约：int 一律落 SYSTEM_INTERNAL_ERROR（行为与旧"未映射码"等价）。"""
     body = _body(error(40004))
-    assert body["error"]["code"] == "SYSTEM_PARAM_INVALID"
-    assert body["error"]["suggestion"] == SUGGESTION_DEFAULTS["SYSTEM_PARAM_INVALID"]
+    assert body["error"]["code"] == "SYSTEM_INTERNAL_ERROR"
+    assert body["error"]["suggestion"] == SUGGESTION_DEFAULTS[
+        "SYSTEM_INTERNAL_ERROR"]
 
 
-def test_legacy_dead_mapping_70005_no_longer_unknown() -> None:
-    # 70005 → STORYBOARD_SPLIT_EXPIRED：原目录漏登记产出「未知错误」，补登后闭合
+def test_legacy_dead_mapping_70005_conservative_fallback() -> None:
+    """70005 同上：int 兜底不产「未知错误」歧义（SYSTEM_INTERNAL_ERROR 恒带出路）。"""
     body = _body(error(70005))
-    assert body["error"]["code"] == "STORYBOARD_SPLIT_EXPIRED"
+    assert body["error"]["code"] == "SYSTEM_INTERNAL_ERROR"
     assert body["error"]["message"] != "未知错误"
-    assert body["error"]["suggestion"] == SUGGESTION_DEFAULTS["STORYBOARD_SPLIT_EXPIRED"]
 
 
 # ── ApiError → 全局异常处理器链路 ────────────────────────────────

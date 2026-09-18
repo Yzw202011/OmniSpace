@@ -265,19 +265,18 @@ def art_style_create(req: ArtStyleCreate) -> dict[str, Any]:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法保存风格")
     name = req.name.strip()
     if not name:
-        raise ApiError(40008, "风格名称不能为空")
+        raise ApiError("SYSTEM_PARAM_INVALID", "风格名称不能为空")
     dup = db.query_one("SELECT id FROM art_styles WHERE name=?", (name,))
     if dup is not None:
         raise ApiError("COMIC_ART_STYLE_NAME_DUPLICATED", detail={"name": name})
     pack_raw = (req.pack_def or "").strip()
     if not pack_raw:
-        raise ApiError(
-            40008, "必须导入风格包（.json 文件）——自定义风格需携带"
+        raise ApiError("SYSTEM_PARAM_INVALID", "必须导入风格包（.json 文件）——自定义风格需携带"
             "底座偏好/后处理档位/风格词块定义，模板见弹窗下载示例")
     from ...services.inference.gen_router import parse_custom_pack
     _pack, pack_err = parse_custom_pack(pack_raw)
     if _pack is None:
-        raise ApiError(40008, f"风格包校验失败：{pack_err}")
+        raise ApiError("SYSTEM_PARAM_INVALID", f"风格包校验失败：{pack_err}")
     sid = uuid.uuid4().hex[:7]
     prompt = req.prompt.strip()
     _ensure_pack_columns(db)
@@ -347,7 +346,7 @@ def comic_project_update(project_id: str, req: ProjectUpdate) -> dict[str, Any]:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法更新项目")
     row = db.query_one("SELECT id FROM projects WHERE id=?", (project_id,))
     if row is None:
-        raise ApiError(40005, "项目不存在", detail={"project_id": project_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     dup = db.query_one("SELECT id FROM projects WHERE name=? AND id<>?",
                        (req.name, project_id))
     if dup is not None:
@@ -416,7 +415,7 @@ def comic_project_delete(project_id: str) -> dict[str, Any]:
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除项目")
     if not _delete_project_cascade(db, project_id):
-        raise ApiError(40005, "项目不存在", detail={"project_id": project_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     return ok({"project_id": project_id, "deleted": True})
 
 
@@ -435,7 +434,7 @@ def comic_project_batch_delete(req: ProjectBatchDelete) -> dict[str, Any]:
         else:
             missing_ids.append(pid)
     if not deleted_ids:
-        raise ApiError(40005, "项目不存在", detail={"project_ids": missing_ids})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_ids": missing_ids})
     return ok({"deleted": len(deleted_ids), "deleted_ids": deleted_ids,
                "missing_ids": missing_ids})
 
@@ -457,15 +456,15 @@ def _read_skill_images(relpaths: list[str]) -> list[Any]:
     for rel in relpaths[:_COMIC_SKILL_MAX_IMAGES]:
         p = Path(rel)
         if p.is_absolute() or ".." in p.parts:
-            raise ApiError(40008, "非法图片路径", detail={"path": rel[:200]})
+            raise ApiError("SYSTEM_PARAM_INVALID", "非法图片路径", detail={"path": rel[:200]})
         base = (DATA_DIR / p).resolve()
         allowed = [(DATA_DIR / d).resolve()
                    for d in _COMIC_SKILL_INPUT_DIRS]
         if not any(base.is_relative_to(a) for a in allowed):
-            raise ApiError(40008, "图片路径不在允许目录内",
+            raise ApiError("SYSTEM_PARAM_INVALID", "图片路径不在允许目录内",
                            detail={"allowed": list(_COMIC_SKILL_INPUT_DIRS)})
         if not base.is_file():
-            raise ApiError(40005, "图片不存在", detail={"path": rel[:200]})
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "图片不存在", detail={"path": rel[:200]})
         try:
             img = Image.open(base).convert("RGB")
         except OSError as exc:
@@ -570,7 +569,7 @@ async def comic_script_import_dsl(project_id: str = Query(...),
     """
     filename = (file.filename or "").lower()
     if not filename.endswith((".txt", ".dsl")):
-        raise ApiError(40010, "仅支持 .txt/.dsl 剧本文件",
+        raise ApiError("UNSUPPORTED_FORMAT", "仅支持 .txt/.dsl 剧本文件",
                        detail={"filename": file.filename})
     # 有界读（2026-09-15 审计 P2-4 收尾）：旧实现先全量 read 后验大小，
     # 超大文件会先整包进内存才被拒——与 comic_asset.py 三端点同款修法
@@ -657,7 +656,7 @@ def comic_export_bundle(body: dict = Body(default_factory=dict)) -> dict[str, An
     import zipfile
     project_id = str(body.get("project_id") or "").strip()
     if not project_id:
-        raise ApiError(40008, "缺少 project_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 project_id")
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法打包导出")

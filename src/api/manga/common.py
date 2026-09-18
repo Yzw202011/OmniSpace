@@ -189,22 +189,22 @@ def _validate_row_director_fields(fields: dict) -> None:
     for key, allowed in enum_rules:
         val = fields.get(key)
         if val is not None and val != "" and val not in allowed:
-            raise ApiError(40008, f"{key} 非法值: {val}",
+            raise ApiError("SYSTEM_PARAM_INVALID", f"{key} 非法值: {val}",
                            detail={"field": key, "allowed": list(allowed)})
     if "duration" in fields and fields["duration"] is not None:
         dur = float(fields["duration"])
         if dur != 0 and not (1.0 <= dur <= 60.0):
-            raise ApiError(40008, "duration 须在 1~60 秒",
+            raise ApiError("SYSTEM_PARAM_INVALID", "duration 须在 1~60 秒",
                            detail={"field": "duration", "min": 1, "max": 60})
     if "speed" in fields and fields["speed"] is not None:
         spd = float(fields["speed"])
         if not (0.5 <= spd <= 2.0):
-            raise ApiError(40008, "speed 须在 0.5~2.0",
+            raise ApiError("SYSTEM_PARAM_INVALID", "speed 须在 0.5~2.0",
                            detail={"field": "speed", "min": 0.5, "max": 2.0})
     if "volume" in fields and fields["volume"] is not None:
         vol = float(fields["volume"])
         if not (-12.0 <= vol <= 0.0):
-            raise ApiError(40008, "volume 须在 -12~0 dB",
+            raise ApiError("SYSTEM_PARAM_INVALID", "volume 须在 -12~0 dB",
                            detail={"field": "volume", "min": -12, "max": 0})
 
 
@@ -1579,7 +1579,7 @@ def _load_project_rows(project_id: str) -> tuple[Database, dict, list[dict]]:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用")
     sb = _find_storyboard(db, project_id)
     if sb is None:
-        raise ApiError(40005, "项目不存在", detail={"project_id": project_id})
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     rows = _load_rows(db, sb["id"])
     return db, sb, rows
 # 本项目仅供学习使用，商业授权请+Q 3559331368

@@ -153,7 +153,7 @@ class FeatureLockManager:
         domain 显式传入时跳过资源域解析（批3 远程引擎用 REMOTE_DOMAIN）。
         """
         if feature not in _VALID_FEATURES:
-            raise ApiError(40010, f"无效的 feature：{feature}",
+            raise ApiError("UNSUPPORTED_FORMAT", f"无效的 feature：{feature}",
                            detail={"feature": feature,
                                    "valid": list(_VALID_FEATURES)})
         dom = domain if domain is not None else _domain_of(feature)
@@ -292,7 +292,7 @@ def get_feature_lock() -> FeatureLockManager:
 
 async def acquire_or_raise(feature: str,
                            task_id: str | None = None) -> FeatureLockManager:
-    """获取功能锁；被阻断时抛 ApiError(40007)。
+    """获取功能锁；被阻断时抛 ApiError("FEATURE_MUTEX_LOCKED")。
 
     供 API 端点使用：
         lock = await acquire_or_raise("dialog")
@@ -311,8 +311,7 @@ async def acquire_or_raise(feature: str,
         guard = get_thermal_guard()
         if guard.is_paused():
             status = guard.get_status()
-            raise ApiError(
-                20004,
+            raise ApiError("HARDWARE_THERMAL_THROTTLE",
                 f"GPU 温度过高（{status['last_temp_celsius']:.0f}°C），"
                 f"已强制暂停生成任务，请等待散热后重试",
                 detail={"feature": feature,
@@ -327,7 +326,7 @@ async def acquire_or_raise(feature: str,
     success = await mgr.acquire(feature, task_id=task_id)
     if not success:
         reason = mgr.get_block_reason(feature) or "当前已有其他AI功能运行中"
-        raise ApiError(40007, reason,
+        raise ApiError("FEATURE_MUTEX_LOCKED", reason,
                        detail={"active_feature": mgr.active_feature,
                                "feature": feature})
     return mgr

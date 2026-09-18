@@ -91,14 +91,14 @@ def _valid_seed_urls(raw: Any) -> list[str]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        raise ApiError(40008, "seed_urls 必须是数组")
+        raise ApiError("SYSTEM_PARAM_INVALID", "seed_urls 必须是数组")
     urls: list[str] = []
     for u in raw[:20]:
         s = str(u or "").strip()
         if not s:
             continue
         if not s.startswith(("http://", "https://")):
-            raise ApiError(40008, f"seed_urls 仅支持 http/https 链接: {s[:60]}")
+            raise ApiError("SYSTEM_PARAM_INVALID", f"seed_urls 仅支持 http/https 链接: {s[:60]}")
         urls.append(s)
     return urls
 
@@ -130,16 +130,16 @@ def topic_create(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """
     name = str((body or {}).get("name", "") or "").strip()
     if not name:
-        raise ApiError(40008, "缺少必填参数: name")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: name")
     keywords = (body or {}).get("keywords") or []
     if not isinstance(keywords, list):
-        raise ApiError(40010, "keywords 必须是数组")
+        raise ApiError("UNSUPPORTED_FORMAT", "keywords 必须是数组")
     keywords = [str(k).strip() for k in keywords if str(k).strip()][
         :DEFAULT_TOPIC_KEYWORDS * 3]
     source = str((body or {}).get("source", "manual") or "manual")
     depth = str((body or {}).get("depth", "standard") or "standard").lower()
     if depth not in DEPTH_MAX_PAGES:
-        raise ApiError(40008,
+        raise ApiError("SYSTEM_PARAM_INVALID",
                        f"depth 仅支持 {sorted(DEPTH_MAX_PAGES)}")
     seed_urls = _valid_seed_urls((body or {}).get("seed_urls"))
     max_pages = DEPTH_MAX_PAGES[depth]
@@ -251,7 +251,7 @@ def topic_delete(body: dict = Body(default_factory=dict),
     topic_id = str((body or {}).get("id", "") or (body or {}).get("topic_id", "")
                    or id or "").strip()
     if not topic_id:
-        raise ApiError(40008, "缺少必填参数: id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: id")
     db = _db()
     deleted = 0
     if db is not None:
@@ -278,7 +278,7 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """
     topic_id = str((body or {}).get("topic_id", "") or "").strip()
     if not topic_id:
-        raise ApiError(40008, "缺少必填参数: topic_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: topic_id")
     db = _db()
     src: dict | None = None
     if db is not None:
@@ -353,20 +353,20 @@ def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict
     if "name" in (body or {}):
         name = str(body["name"] or "").strip()
         if not name:
-            raise ApiError(40004, "name 不能为空")
+            raise ApiError("SYSTEM_PARAM_INVALID", "name 不能为空")
         patch["name"] = name
     if "keywords" in (body or {}):
         kws = body["keywords"]
         if not isinstance(kws, list):
-            raise ApiError(40010, "keywords 必须是数组")
+            raise ApiError("UNSUPPORTED_FORMAT", "keywords 必须是数组")
         patch["keywords"] = [str(k).strip() for k in kws if str(k).strip()]
     if "status" in (body or {}):
         status = str(body["status"] or "").strip()
         if status not in ("active", "archived", "paused"):
-            raise ApiError(40010, "status 仅支持 active/archived/paused")
+            raise ApiError("UNSUPPORTED_FORMAT", "status 仅支持 active/archived/paused")
         patch["status"] = status
     if not patch:
-        raise ApiError(40004, "没有可更新的字段")
+        raise ApiError("SYSTEM_PARAM_INVALID", "没有可更新的字段")
 
     db = _db()
     if db is not None:
@@ -412,7 +412,7 @@ def _resolve_session_id(session_id: str = "", body: dict | None = None) -> str:
         if active is not None:
             sid = active.session_id
     if not sid:
-        raise ApiError(40008, "缺少 session_id，且当前没有活跃学习会话")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 session_id，且当前没有活跃学习会话")
     return sid
 
 
@@ -457,7 +457,7 @@ def session_start(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     body = body or {}
     topic_id = str(body.get("topic_id", "") or "").strip()
     if not topic_id:
-        raise ApiError(40008, "缺少必填参数: topic_id")
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: topic_id")
 
     # 主题存在性与目标文本（附 depth/seed_urls/max_pages）
     goal = ""
@@ -676,7 +676,7 @@ def session_logs(session_id: str = Query(default=""),
                        "total": len(items), "source": "db"})
         except Exception as exc:  # noqa: BLE001
             log.warning("日志查询失败: %s", exc, exc_info=True)
-    raise ApiError(61002, "学习会话不存在", detail={"session_id": sid})
+    raise ApiError("LEARN_SESSION_NOT_FOUND", "学习会话不存在", detail={"session_id": sid})
 
 
 @router.get("/learn/session/report")
@@ -714,7 +714,7 @@ def session_report(session_id: str = Query(default="")) -> dict[str, Any]:
                 })
         except Exception as exc:  # noqa: BLE001
             log.warning("报告查询失败: %s", exc, exc_info=True)
-    raise ApiError(61002, "学习会话不存在", detail={"session_id": sid})
+    raise ApiError("LEARN_SESSION_NOT_FOUND", "学习会话不存在", detail={"session_id": sid})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -732,31 +732,31 @@ def learn_settings_get() -> dict[str, Any]:
 def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """更新学习设置并持久化到 learning_settings 表（变更即时生效）。"""
     if not isinstance(body, dict) or not body:
-        raise ApiError(40004, "请求体必须是非空 JSON 对象")
+        raise ApiError("SYSTEM_PARAM_INVALID", "请求体必须是非空 JSON 对象")
     # 基本校验
     if "max_time_minutes" in body:
         v = int(body["max_time_minutes"])
         if not 1 <= v <= 60:
-            raise ApiError(40010, "max_time_minutes 范围为 1~60")
+            raise ApiError("UNSUPPORTED_FORMAT", "max_time_minutes 范围为 1~60")
         body["max_time_minutes"] = v
     if "max_pages" in body:
         v = int(body["max_pages"])
         if not 1 <= v <= 200:
-            raise ApiError(40010, "max_pages 范围为 1~200")
+            raise ApiError("UNSUPPORTED_FORMAT", "max_pages 范围为 1~200")
         body["max_pages"] = v
     if "search_engine" in body:
         from ..services.browser_agent_service import SEARCH_ENGINES
         if body["search_engine"] not in SEARCH_ENGINES:
-            raise ApiError(40010,
+            raise ApiError("UNSUPPORTED_FORMAT",
                            f"search_engine 仅支持 {list(SEARCH_ENGINES)}")
     for list_key in ("domain_whitelist", "domain_blacklist",
                      "schedule_windows"):
         if list_key in body and not isinstance(body[list_key], list):
-            raise ApiError(40010, f"{list_key} 必须是数组")
+            raise ApiError("UNSUPPORTED_FORMAT", f"{list_key} 必须是数组")
     if "daily_traffic_limit_mb" in body:
         v = float(body["daily_traffic_limit_mb"])
         if v <= 0:
-            raise ApiError(40010, "daily_traffic_limit_mb 必须大于 0")
+            raise ApiError("UNSUPPORTED_FORMAT", "daily_traffic_limit_mb 必须大于 0")
         body["daily_traffic_limit_mb"] = v
     # LEARN-037：资源阈值设置（cpu/mem/bandwidth 上限校验）
     for key, lo, hi in (("cpu_percent_limit", 1.0, 100.0),
@@ -765,7 +765,7 @@ def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
         if key in body:
             v = float(body[key])
             if not lo <= v <= hi:
-                raise ApiError(40008, f"{key} 范围为 {lo}~{hi}")
+                raise ApiError("SYSTEM_PARAM_INVALID", f"{key} 范围为 {lo}~{hi}")
             body[key] = v
     # §4.3 自适应：用户重新开启自动微调频率（非 off）时清除质量下降暂停旗标
     if "auto_finetune_frequency" in body \

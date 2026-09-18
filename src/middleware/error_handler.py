@@ -169,7 +169,9 @@ SEMANTIC_CODES: dict[str, str] = {
 #  历史数字码 → 语义码映射（兼容层，新代码禁止新增数字码）
 # ═══════════════════════════════════════════════════════════════════
 
-_LEGACY_CODE_MAP: dict[int, str] = {
+# 批3（2026-09-18）数字码清偿：277 处 raise 已全量改语义串，本表退出运行时路径（_to_semantic 不再读它），
+# 保留为历史对照只读档案——旧日志/外部脚本按数字码反查用；ERROR_CODES 随之冻结。
+_LEGACY_CODE_MAP退休档案 = {
     0: "OK",
     10001: "SYSTEM_PARAM_INVALID",
     10002: "SYSTEM_RATE_LIMITED",
@@ -259,8 +261,8 @@ _LEGACY_CODE_MAP: dict[int, str] = {
     80016: "STYLE_FRAME_EXTRACT_FAILED",
 }
 
-#: 数字码默认文案（与历史 ERROR_CODES 一致，经映射后供语义码查默认文案之外的备用）
-ERROR_CODES: dict[int, str] = {code: SEMANTIC_CODES[sem] for code, sem in _LEGACY_CODE_MAP.items() if sem in SEMANTIC_CODES}
+
+# 批3：ERROR_CODES 随 _LEGACY_CODE_MAP 一并冻结退役（历史对照）
 
 # ═══════════════════════════════════════════════════════════════════
 #  默认出路表（批1 错误出路默认化，2026-09-11 自愈与横切内建方案）
@@ -391,10 +393,13 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
 
 
 def _to_semantic(code: int | str) -> str:
-    """数字码/语义码统一归一为语义码。未知输入兜底 SYSTEM_INTERNAL_ERROR。"""
+    """语义码归一（批3 数字码清偿后唯一形态=str）。
+
+    int 输入=清偿后不应再出现的信号——保守兜底 SYSTEM_INTERNAL_ERROR
+    （行为与旧翻译等价：未映射数字码本来就落到它）。"""
     if isinstance(code, str):
-        return code if code in SEMANTIC_CODES else code  # 允许新语义码直接使用
-    return _LEGACY_CODE_MAP.get(code, "SYSTEM_INTERNAL_ERROR")
+        return code
+    return "SYSTEM_INTERNAL_ERROR"
 
 
 def _default_message(code: int | str) -> str:

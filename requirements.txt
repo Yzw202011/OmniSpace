@@ -1,7 +1,8 @@
-# OmniSpace AI 后端依赖（Python 3.10.11 / Windows x64，嵌入式 runtime/py310）
+# OmniSpace AI 后端依赖（开发主链 Python 3.12.10 / runtime/py312，B1 批 2026-09-13 起；
+# py310 仍并存=回退锚点与打包基线，出包对齐口径见 tools/make_dist.py）
 #
-# 依赖声明权威关系（2026-08-19 依赖归一化裁定，TASK-P0-02）：
-#   - requirements-lock.txt = 唯一权威：154 包精确钉版，实际运行环境导出
+# 依赖声明权威关系（2026-08-19 依赖归一化裁定 TASK-P0-02；2026-09-18 勘误头部口径）：
+#   - requirements-lock.txt = 唯一权威：精确钉版，实际运行环境导出（包数以该文件实数为准，勿引用历史数字）
 #   - 本文件 = 开发意图参考：宽松下限约束，不保证与实际环境一致
 #   - 重建环境：pip install -r requirements-lock.txt（勿用本文件）
 #   - src/requirements.txt 已删除（v2.1 陈旧版，声明了未使用的 sqlalchemy）

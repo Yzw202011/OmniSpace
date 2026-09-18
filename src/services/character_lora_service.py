@@ -101,7 +101,7 @@ class CharacterLoraService:
         if db is None:
             return False
         try:
-            db.execute("""CREATE TABLE IF NOT EXISTS char_lora_tasks (
+            db.sql("""CREATE TABLE IF NOT EXISTS char_lora_tasks (
                 id TEXT PRIMARY KEY,
                 asset_id TEXT NOT NULL,
                 name TEXT,
@@ -123,7 +123,7 @@ class CharacterLoraService:
         db = _get_db()
         if db is not None and self._table_ready:
             try:
-                db.execute(
+                db.sql(
                     "INSERT OR REPLACE INTO char_lora_tasks"
                     " (id, asset_id, name, status, progress, error, version,"
                     "  created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -140,11 +140,7 @@ class CharacterLoraService:
                 rows = db.query(
                     "SELECT id, asset_id, name, status, progress, error,"
                     " version, created_at, updated_at FROM char_lora_tasks"
-                    " ORDER BY created_at DESC") if hasattr(db, "query") \
-                    else db.execute(
-                    "SELECT id, asset_id, name, status, progress, error,"
-                    " version, created_at, updated_at FROM char_lora_tasks"
-                    " ORDER BY created_at DESC").fetchall()
+                    " ORDER BY created_at DESC")
                 return [dict(r) for r in rows]
             except Exception:  # noqa: BLE001
                 logger.debug("char tasks 读库失败，走内存镜像",

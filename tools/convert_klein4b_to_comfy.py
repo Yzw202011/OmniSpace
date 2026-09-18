@@ -24,13 +24,18 @@ DST = ROOT / "tools/ComfyUI_windows_portable/ComfyUI/models/diffusion_models/flu
 def map_key(k: str) -> str:
     """diffusers Flux2 klein-4b → comfy Flux2 完整键名映射。
 
-    依赖正则按序执行（先长后短防子串误吞）。
+    三轮校准（2026-09-18）：对照 klein-9b（ComfyUI 已工作）顶层键，
+    补齐三个关键映射——time_in/txt_in/final_layer。
     """
     nk = k
 
-    # ── 外层组件 ──
+    # ── 外层组件（三轮新增：对照 klein-9b 实际键名）──
     nk = nk.replace("x_embedder", "img_in")
-    nk = nk.replace("context_embedder", "vector_in")
+    # klein-9b 用 txt_in（非 vector_in！）——text embedding 投影
+    nk = nk.replace("context_embedder", "txt_in")
+    # 时间嵌入：diffusers time_guidance_embed.timestep_embedder.linear_N → comfy time_in
+    nk = nk.replace("time_guidance_embed.timestep_embedder.linear_1.", "time_in.in_layer.")
+    nk = nk.replace("time_guidance_embed.timestep_embedder.linear_2.", "time_in.out_layer.")
     nk = nk.replace("single_stream_modulation.linear.", "single_stream_modulation.lin.")
     nk = nk.replace("double_stream_modulation_img.linear.", "double_stream_modulation_img.lin.")
     nk = nk.replace("double_stream_modulation_txt.linear.", "double_stream_modulation_txt.lin.")
@@ -66,8 +71,13 @@ def map_key(k: str) -> str:
     nk = nk.replace(".attn.norm_k.", ".norm.key_norm.")
     nk = nk.replace(".norm.linear.", ".modulation.lin.")
 
+    # 输出层（三轮：norm_out.linear → final_layer.adaLN_modulation.1 / proj_out → final_layer.linear）
+    nk = nk.replace("norm_out.linear.", "final_layer.adaLN_modulation.1.")
+    nk = nk.replace("proj_out.", "final_layer.FINAL_PROJ.")
+
     # 通用：残留 .linear. → .lin.（最短最后执行）
     nk = nk.replace(".linear.", ".lin.")
+    nk = nk.replace("FINAL_PROJ", "linear")
     return nk
 
 

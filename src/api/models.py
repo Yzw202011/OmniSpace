@@ -238,7 +238,7 @@ def _seed_registry() -> None:
             _seed_db(db)
             return
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库播种失败，降级内存存储: %s", exc)
+            log.warning("数据库播种失败，降级内存存储: %s", exc, exc_info=True)
     _seed_memory()
 
 
@@ -253,7 +253,7 @@ def _registry_models() -> list[dict]:
                 " min_vram_gb, associated_features, status, file_path, sha256"
                 " FROM models")]
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
+            log.warning("数据库查询失败，降级内存存储: %s", exc, exc_info=True)
     return list(_models.values())
 
 
@@ -426,7 +426,7 @@ def _kv_set(key: str, value: Any) -> None:
             " value=excluded.value, updated_at=excluded.updated_at",
             (key, json.dumps(value, ensure_ascii=False), time.time()))
     except Exception as exc:  # noqa: BLE001
-        log.warning("system_settings 写入失败 %s: %s", key, exc)
+        log.warning("system_settings 写入失败 %s: %s", key, exc, exc_info=True)
 
 
 def _models_config() -> dict:
@@ -949,7 +949,7 @@ def models_benchmark_history(model_id: str = Query(default=""),
         items = [dict(r) for r in rows]
         return ok({"items": items, "total": len(items), "persisted": True})
     except Exception as exc:  # noqa: BLE001
-        log.warning("基准历史查询失败: %s", exc)
+        log.warning("基准历史查询失败: %s", exc, exc_info=True)
         return ok({"items": [], "total": 0, "persisted": False})
 
 
@@ -1035,7 +1035,7 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
                 if row:
                     return _row_to_model(row)
             except Exception as exc:  # noqa: BLE001
-                log.warning("导入查重失败: %s", exc)
+                log.warning("导入查重失败: %s", exc, exc_info=True)
         for m in _models.values():
             if m.get("file_path") == resolved:
                 return dict(m)
@@ -1104,7 +1104,7 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
             info["imported"] = True
             return ok(info, message="模型已导入")
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库写入失败，降级内存存储: %s", exc)
+            log.warning("数据库写入失败，降级内存存储: %s", exc, exc_info=True)
 
     _models[model_id] = info
     info["imported"] = True
@@ -1521,7 +1521,7 @@ async def models_verify(model_id: str) -> dict[str, Any]:
         try:
             await run_blocking(lambda: db.update("models", {"sha256": digest}, "id=?", (model_id,)))
         except Exception as exc:  # noqa: BLE001
-            log.warning("指纹持久化失败: %s", exc)
+            log.warning("指纹持久化失败: %s", exc, exc_info=True)
     if model_id in _models:
         _models[model_id]["sha256"] = digest
     return ok({"model_id": model_id, "sha256": digest, "verified": True})
@@ -1540,7 +1540,7 @@ def models_delete(model_id: str) -> dict[str, Any]:
             n = db.delete("models", "id=?", (model_id,))
             deleted = n > 0
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库删除失败，降级内存存储: %s", exc)
+            log.warning("数据库删除失败，降级内存存储: %s", exc, exc_info=True)
     if not deleted:
         if model_id in _models:
             _models.pop(model_id, None)
@@ -1611,7 +1611,7 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
         try:
             db.delete("models", "id=?", (model_id,))
         except Exception as exc:  # noqa: BLE001
-            log.warning("purge 后注册表删除失败: %s", exc)
+            log.warning("purge 后注册表删除失败: %s", exc, exc_info=True)
     _models.pop(model_id, None)
     for feat, mid in list(_selections.items()):
         if mid == model_id:
@@ -1934,7 +1934,7 @@ async def models_benchmark(req: ModelBenchmarkRequest) -> dict[str, Any]:
                 "created_at": time.time()}))
             persisted = True
         except Exception as exc:  # noqa: BLE001
-            log.warning("基准结果落库失败: %s", exc)
+            log.warning("基准结果落库失败: %s", exc, exc_info=True)
     return ok({**result, "persisted": persisted},
               message="基准测试完成")
 

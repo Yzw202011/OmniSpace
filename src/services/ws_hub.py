@@ -161,7 +161,7 @@ class WsHub:
         except WebSocketDisconnect:
             pass
         except Exception as exc:  # noqa: BLE001 - 连接级异常不扩散
-            log.warning("WS 连接异常: %s", exc)
+            log.warning("WS 连接异常: %s", exc, exc_info=True)
         finally:
             with self._lock:
                 self._conns.discard(ws)

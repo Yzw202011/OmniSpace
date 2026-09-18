@@ -165,7 +165,7 @@ def _decode_images(images: list | None) -> list:
                 log.info("图片过大已等比压缩: -> %dx%d", *img.size)
             out.append(img)
         except Exception as exc:
-            log.warning("图片解码失败（跳过）: %s", exc)
+            log.warning("图片解码失败（跳过）: %s", exc, exc_info=True)
     return out
 
 
@@ -329,7 +329,7 @@ async def _web_search_augment(message: str,
             else block
         return merged, [r.to_dict() for r in results]
     except Exception as exc:  # noqa: BLE001 - 搜索失败不阻断对话主链
-        log.warning("联网搜索编排失败（跳过）: %s", exc)
+        log.warning("联网搜索编排失败（跳过）: %s", exc, exc_info=True)
         return knowledge_text, []
 
 
@@ -454,7 +454,7 @@ async def _maybe_passive_completion(
             engine, message, history, knowledge_text,
             supplement, images, temperature, max_new_tokens, max_ctx)
     except Exception as exc:  # noqa: BLE001
-        log.warning("被动补全重推理失败（回退原回复）: %s", exc)
+        log.warning("被动补全重推理失败（回退原回复）: %s", exc, exc_info=True)
         return reply, {"triggered": True, "keywords": keywords,
                        "supplemented": False}
     if not new_reply.strip():
@@ -485,7 +485,7 @@ def _ensure_session(sid: str, title_seed: str, model: str) -> None:
                 })
             return
         except Exception as exc:  # noqa: BLE001
-            log.warning("会话落库失败，降级内存: %s", exc)
+            log.warning("会话落库失败，降级内存: %s", exc, exc_info=True)
     if sid not in _mock_sessions:
         _mock_sessions[sid] = {
             "id": sid, "title": title_seed[:20] or "新对话",
@@ -522,7 +522,7 @@ def _save_message(sid: str, role: str, content: str,
                       "id=?", (sid,))
             return _row_to_message(msg)
         except Exception as exc:  # noqa: BLE001
-            log.warning("消息落库失败，降级内存: %s", exc)
+            log.warning("消息落库失败，降级内存: %s", exc, exc_info=True)
     _mock_messages.setdefault(sid, []).append(msg)
     if sid in _mock_sessions:
         _mock_sessions[sid]["updated_at"] = msg["timestamp"]
@@ -543,7 +543,7 @@ def _load_history(sid: str, max_rounds: int = 20) -> list[dict]:
             )
             rows.reverse()
         except Exception as exc:  # noqa: BLE001
-            log.warning("历史查询失败，降级内存: %s", exc)
+            log.warning("历史查询失败，降级内存: %s", exc, exc_info=True)
             rows = []
     if not rows and sid in _mock_messages:
         rows = [{"role": m["role"], "content": m["content"]}
@@ -637,12 +637,12 @@ def dialog_list_models() -> dict[str, Any]:
             if allowed is not None:
                 items = [m for m in items if m["model_id"] in allowed]
         except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
-            log.warning("模块白名单过滤跳过: %s", exc)
+            log.warning("模块白名单过滤跳过: %s", exc, exc_info=True)
             default_model = ""
         return ok({"models": items, "total_vram_gb": round(total_vram, 1),
                    "default_model": default_model or ""})
     except Exception as exc:  # noqa: BLE001 - 清单失败不阻断对话主流程
-        log.warning("对话模型清单构建失败: %s", exc)
+        log.warning("对话模型清单构建失败: %s", exc, exc_info=True)
         return ok({"models": [], "total_vram_gb": 0})
 
 
@@ -1169,7 +1169,7 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                     try:
                         gone = await request.is_disconnected()
                     except Exception as exc:  # noqa: BLE001 - 探测异常退出
-                        log.warning("[P1-18] 断连探测异常 %s: %s", sid, exc)
+                        log.warning("[P1-18] 断连探测异常 %s: %s", sid, exc, exc_info=True)
                         return
                     if gone:
                         log.warning("[P1-18] 断连确认，停止推理: %s", sid)
@@ -1246,7 +1246,7 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                                     if reasoning_full else ""))
                 except Exception as exc:  # noqa: BLE001 - 落库失败不阻断收尾
                     n.output(f"落库失败（已放锁）：{exc}")
-                    log.error("对话回复落库失败 sid=%s: %s", sid, exc)
+                    log.error("对话回复落库失败 sid=%s: %s", sid, exc, exc_info=True)
             # 流程收尾：错误事件优先；有产出（含用户停止后部分产出）算成功
             if error_holder:
                 flow.end("error", error_code="STREAM_FAILED",
@@ -1311,7 +1311,7 @@ def chat_history(session_id: str = Query("", description="会话ID（可选）")
             return ok({"messages": [_row_to_message(r) for r in rows],
                        "total": total, "page": page, "page_size": page_size})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存: %s", exc)
+            log.warning("数据库查询失败，降级内存: %s", exc, exc_info=True)
 
     all_msgs = ([m for m in _mock_messages.get(session_id, [])]
                 if session_id else
@@ -1339,7 +1339,7 @@ def chat_clear(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
                 db.delete("dialog_messages", "1=1")
             return ok({"cleared": sid or "all"})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库删除失败，降级内存: %s", exc)
+            log.warning("数据库删除失败，降级内存: %s", exc, exc_info=True)
     if sid:
         _mock_messages.pop(sid, None)
     else:
@@ -1381,7 +1381,7 @@ def chat_batch_delete_sessions(body: SessionBatchDelete) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001 - 单条失败不阻断整批
-            log.warning("会话批量删除单条失败 %s: %s", sid, exc)
+            log.warning("会话批量删除单条失败 %s: %s", sid, exc, exc_info=True)
             missing.append(sid)
     return ok({"deleted": len(deleted), "deleted_ids": deleted,
                "missing_ids": missing})
@@ -1422,7 +1422,7 @@ async def dialog_prewarm(request: Request) -> dict[str, Any]:
             from .models import module_default_model
             want_model = module_default_model("dialog") or None
         except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断
-            log.warning("对话模块默认模型读取失败（跳过）: %s", exc)
+            log.warning("对话模块默认模型读取失败（跳过）: %s", exc, exc_info=True)
 
     engine = get_dialog_engine()
     status = engine.get_status()
@@ -1446,7 +1446,7 @@ async def dialog_prewarm(request: Request) -> dict[str, Any]:
         try:
             engine.ensure_loaded(want_model)
         except Exception as exc:  # noqa: BLE001 - 预热失败不抛出
-            log.warning("对话模型后台预热失败: %s", exc)
+            log.warning("对话模型后台预热失败: %s", exc, exc_info=True)
         finally:
             _warmup_inflight.discard("dialog")
 
@@ -1475,7 +1475,7 @@ def _get_session_row(sid: str) -> dict | None:
                 "SELECT id, title, model, pinned, mode, created_at, updated_at"
                 " FROM dialog_sessions WHERE id=?", (sid,))
         except Exception as exc:  # noqa: BLE001
-            log.warning("会话查询失败，降级内存: %s", exc)
+            log.warning("会话查询失败，降级内存: %s", exc, exc_info=True)
     return _mock_sessions.get(sid)
 
 
@@ -1491,7 +1491,7 @@ def _session_messages(sid: str) -> list[dict]:
                 "ORDER BY timestamp ASC", (sid,))
             return [_row_to_message(r) for r in rows]
         except Exception as exc:  # noqa: BLE001
-            log.warning("消息查询失败，降级内存: %s", exc)
+            log.warning("消息查询失败，降级内存: %s", exc, exc_info=True)
     return [_row_to_message(m) for m in _mock_messages.get(sid, [])]
 
 
@@ -1517,7 +1517,7 @@ def chat_list_sessions(keyword: str = Query(""),
                 "SELECT id, title, model, pinned, mode, created_at, updated_at"
                 " FROM dialog_sessions")
         except Exception as exc:  # noqa: BLE001
-            log.warning("会话列表查询失败，降级内存: %s", exc)
+            log.warning("会话列表查询失败，降级内存: %s", exc, exc_info=True)
             rows = []
     if not rows and db is None:
         rows = list(_mock_sessions.values())
@@ -1557,7 +1557,7 @@ def chat_create_session(body: dict = Body(default_factory=dict)) -> dict[str, An
             db.insert("dialog_sessions", session)
             return ok(_enrich_session(session), message="会话已创建")
         except Exception as exc:  # noqa: BLE001
-            log.warning("会话落库失败，降级内存: %s", exc)
+            log.warning("会话落库失败，降级内存: %s", exc, exc_info=True)
     _mock_sessions[sid] = session
     _mock_messages[sid] = []
     return ok(_enrich_session(session), message="会话已创建")
@@ -1611,7 +1611,7 @@ def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)
             row.update(patch)
             return ok(_enrich_session(row))
         except Exception as exc:  # noqa: BLE001
-            log.warning("会话更新失败，降级内存: %s", exc)
+            log.warning("会话更新失败，降级内存: %s", exc, exc_info=True)
     if session_id in _mock_sessions:
         _mock_sessions[session_id].update(patch)
         row = _mock_sessions[session_id]
@@ -1638,7 +1638,7 @@ def _delete_session_everywhere(session_id: str) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库删除失败，降级内存存储: %s", exc)
+            log.warning("数据库删除失败，降级内存存储: %s", exc, exc_info=True)
 
     if session_id not in _mock_sessions:
         raise ApiError(40005, "会话不存在", detail={"session_id": session_id})
@@ -1663,7 +1663,7 @@ def chat_clear_messages(session_id: str) -> dict[str, Any]:
         try:
             db.delete("dialog_messages", "session_id=?", (session_id,))
         except Exception as exc:  # noqa: BLE001
-            log.warning("消息清空失败，降级内存: %s", exc)
+            log.warning("消息清空失败，降级内存: %s", exc, exc_info=True)
     _mock_messages[session_id] = []
     return ok({"cleared": session_id}, message="历史已清空")
 
@@ -1705,7 +1705,7 @@ def chat_rate_message(session_id: str, message_id: str,
                     log.info("知识反馈闭环: 消息 %s 评分 %d → 调整 %d 条引用知识质量分",
                              message_id[:8], rating, len(kids))
         except Exception as exc:  # noqa: BLE001 - 反馈降权失败不影响评分
-            log.warning("知识反馈降权失败（评分已保存）: %s", exc)
+            log.warning("知识反馈降权失败（评分已保存）: %s", exc, exc_info=True)
     return result
 
 
@@ -1736,7 +1736,7 @@ def _update_message_flag(sid: str, mid: str, field: str,
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("消息更新失败，降级内存: %s", exc)
+            log.warning("消息更新失败，降级内存: %s", exc, exc_info=True)
     for m in _mock_messages.get(sid, []):
         if m["id"] == mid:
             m[field] = value if value is not None else (0 if m.get("favorite") else 1)
@@ -1759,7 +1759,7 @@ def chat_list_favorites(page: int = Query(1, ge=1),
                 "ORDER BY timestamp DESC")
             items = [_row_to_message(r) for r in rows]
         except Exception as exc:  # noqa: BLE001
-            log.warning("收藏查询失败，降级内存: %s", exc)
+            log.warning("收藏查询失败，降级内存: %s", exc, exc_info=True)
             items = []
     if not items and db is None:
         items = [_row_to_message(m)
@@ -1817,7 +1817,7 @@ async def handle_dialog_stream(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         log.info("对话流 WebSocket 断开: session=%s", session_id)
     except Exception as exc:  # noqa: BLE001
-        log.warning("对话流 WebSocket 异常: %s", exc)
+        log.warning("对话流 WebSocket 异常: %s", exc, exc_info=True)
 
 
 async def _ws_send_error(websocket: WebSocket, code: int, message: str) -> None:
@@ -1985,7 +1985,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             if model_req is None and _default:
                 model_req = _default
         except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断对话
-            log.warning("对话模块选型配置读取失败（跳过）: %s", exc)
+            log.warning("对话模块选型配置读取失败（跳过）: %s", exc, exc_info=True)
         # 深度思考模式（2026-08-22 思考过程展示）：前端 thinking 参数
         # 开启时 system prompt 追加四步框架引导，模型自输出 <think> 块。
         # 2026-09-10 同 :822 根修——vLLM 原生思考后端不注入可见思考框架

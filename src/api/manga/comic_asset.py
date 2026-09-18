@@ -127,7 +127,7 @@ def _asset_kind_endpoint(kind: str) -> Callable[[AssetGenerateRequest], Awaitabl
             from ...services.cloud_provider_service import get_image_endpoint
             _cloud_ep = get_image_endpoint("asset.image")
         except Exception as exc:  # noqa: BLE001
-            log.warning("资产云端路由解析失败（按本地引擎）: %s", exc)
+            log.warning("资产云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
             _cloud_ep = None
 
         def _runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
@@ -239,7 +239,7 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
         from ...services.cloud_provider_service import get_image_endpoint
         _cloud_ep = get_image_endpoint("asset.image")
     except Exception as exc:  # noqa: BLE001
-        log.warning("资产云端路由解析失败（按本地引擎）: %s", exc)
+        log.warning("资产云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
 
     def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
@@ -520,7 +520,7 @@ def _asset_move_to_global(asset: dict, project_id: str) -> tuple[str, dict]:
             else:
                 shutil.move(str(old_dir), str(new_dir))
         except OSError as exc:
-            log.warning("资产迁移全局失败 %s: %s", old_dir, exc)
+            log.warning("资产迁移全局失败 %s: %s", old_dir, exc, exc_info=True)
     new_rel = old_rel.replace(old_dir_rel, new_dir_rel, 1)
     # meta 内所有旧路径前缀统一重写（views/canvas/history 等，与 adopt 同法）
     meta = parse_json(
@@ -566,7 +566,7 @@ def assets_to_global(db: Database, project_id: str) -> int:
                 if not any(p.is_file() for p in proj_dir.rglob("*")):
                     shutil.rmtree(proj_dir)
             except OSError as exc:
-                log.warning("项目资产目录清理失败 %s: %s", proj_dir, exc)
+                log.warning("项目资产目录清理失败 %s: %s", proj_dir, exc, exc_info=True)
     return len(rows)
 
 
@@ -900,7 +900,7 @@ def comic_asset_delete(asset_id: str) -> dict[str, Any]:
         else:
             log.warning("拒绝删除越界/浅层资产目录: %s", out_dir)
     except (OSError, ValueError) as exc:  # noqa: BLE001 - 清理失败不阻断
-        log.warning("资产目录删除失败 %s: %s", out_dir, exc)
+        log.warning("资产目录删除失败 %s: %s", out_dir, exc, exc_info=True)
     return ok({"asset_id": asset_id, "deleted": True,
                "name": asset.get("name", ""), "kind": asset.get("kind", "")})
 
@@ -922,7 +922,7 @@ def comic_asset_reference_delete(asset_id: str) -> dict[str, Any]:
         try:
             ref_path.unlink()
         except OSError as exc:
-            log.warning("参考图删除失败 %s: %s", ref_path, exc)
+            log.warning("参考图删除失败 %s: %s", ref_path, exc, exc_info=True)
     meta = asset.get("meta") or {}
     meta.pop("reference_image", None)
     meta.pop("reference_path", None)
@@ -1118,7 +1118,7 @@ async def comic_asset_image_replace(asset_id: str,
             try:
                 old.unlink()
             except OSError as exc:
-                log.warning("旧替换图删除失败 %s: %s", old, exc)
+                log.warning("旧替换图删除失败 %s: %s", old, exc, exc_info=True)
     out_path.write_bytes(raw)
     rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     meta = dict(asset.get("meta") or {})
@@ -1269,7 +1269,7 @@ def _infer_era_llm(engine: DialogEngine, db: Database, project_id: str) -> str:
             return era
         return _INFER_ERA_LINE
     except Exception as exc:  # noqa: BLE001 - 失败回退固定文案
-        log.warning("时代背景提取失败（回退固定文案）: %s", exc)
+        log.warning("时代背景提取失败（回退固定文案）: %s", exc, exc_info=True)
         return _INFER_ERA_LINE
 
 
@@ -1360,7 +1360,7 @@ def _vet_props_llm(engine: DialogEngine, names: list[str]) -> set[str]:
                 kept.add(m.group(1).strip())
         kept &= set(cand)
     except Exception as exc:  # noqa: BLE001 - 裁定失败回退启发式结果
-        log.warning("道具裁定 LLM 失败（回退启发式）: %s", exc)
+        log.warning("道具裁定 LLM 失败（回退启发式）: %s", exc, exc_info=True)
         return set(cand)
     log.info("道具资产价值裁定: 候选 %d（启发式丢 %d）→ 保留 %d / 否决 %d",
              len(names), dropped, len(kept), len(cand) - len(kept))
@@ -1412,7 +1412,7 @@ def _extract_entity_names_llm(engine: DialogEngine, rows: list[dict],
                   "content": _ENTITY_NAMES_PROMPT.format(chunk=chunk)}],
                 temperature=0.2, max_new_tokens=512)
         except Exception as exc:  # noqa: BLE001 - 单块失败继续下一块
-            log.warning("实体名提取块失败（跳过）: %s", exc)
+            log.warning("实体名提取块失败（跳过）: %s", exc, exc_info=True)
             if on_chunk:
                 on_chunk(i + 1, total)
             continue
@@ -1531,7 +1531,7 @@ def _infer_character_settings_llm(db: Database, project_id: str,
                  len(names), len(out))
         return out
     except Exception as exc:  # noqa: BLE001 - LLM 失败回退模板
-        log.warning("角色推理 LLM 异常（回退模板）: %s", exc)
+        log.warning("角色推理 LLM 异常（回退模板）: %s", exc, exc_info=True)
         return {}
 
 
@@ -1625,7 +1625,7 @@ def _infer_scene_prop_settings_llm(db: Database, project_id: str,
         }, prop_out)
         return scene_out, prop_out
     except Exception as exc:  # noqa: BLE001 - LLM 失败回退模板
-        log.warning("场景/道具提取 LLM 异常（回退模板）: %s", exc)
+        log.warning("场景/道具提取 LLM 异常（回退模板）: %s", exc, exc_info=True)
         return {}, {}
 
 
@@ -2071,7 +2071,7 @@ def _project_style_line(db: Database, project_id: str) -> str:
             return "、".join(parts)[:120] or fallback
         return _ART_STYLE_ZH.get(key, fallback)
     except Exception as exc:  # noqa: BLE001 - 查询失败回退不阻塞提取
-        log.warning("项目风格查询失败（回退网漫风）: %s", exc)
+        log.warning("项目风格查询失败（回退网漫风）: %s", exc, exc_info=True)
         return fallback
 
 
@@ -2115,7 +2115,7 @@ def _project_style_pack(db: Database, project_id: str) -> tuple[str, dict | None
                 pack_def = None
         return pack_id, pack_def
     except Exception as exc:  # noqa: BLE001
-        log.warning("项目风格包查询失败（回落嗅探）: %s", exc)
+        log.warning("项目风格包查询失败（回落嗅探）: %s", exc, exc_info=True)
         return "", None
 
 
@@ -2256,7 +2256,7 @@ def _vlm_describe_char_image_sync(img_path: Path, name: str) -> str | None:
         desc = _strip_setting_prefix("".join(chunks).strip(), "角色设定")
         return desc or None
     except Exception as exc:  # noqa: BLE001
-        log.warning("VLM 看图写设定失败 %s: %s", img_path, exc)
+        log.warning("VLM 看图写设定失败 %s: %s", img_path, exc, exc_info=True)
         return None
 
 
@@ -2296,7 +2296,7 @@ def _mark_prompt_stale(db: Database, asset_id: str, meta: dict, stale: bool,
     try:
         db.update("comic_assets", {"meta": out}, "id=?", (asset_id,))
     except Exception as exc:  # noqa: BLE001
-        log.warning("prompt_stale 落库失败: %s", exc)
+        log.warning("prompt_stale 落库失败: %s", exc, exc_info=True)
     return out
 
 
@@ -2350,7 +2350,7 @@ def _spawn_prompt_rewrite(asset_id: str) -> None:
             _rewrite_char_prompt_from_image(
                 asset_id, wait_s=_VLM_AUTO_WAIT_S, ignite=False))
     except RuntimeError:  # 无运行中事件循环（端点内不应发生）
-        log.warning("描述词自动重写任务创建失败: asset=%s", asset_id)
+        log.warning("描述词自动重写任务创建失败: asset=%s", asset_id, exc_info=True)
 
 
 @router.post("/comic/asset/{asset_id}/describe")

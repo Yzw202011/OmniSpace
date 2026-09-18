@@ -92,7 +92,7 @@ def _ensure_history_table() -> bool:
         db.executescript(_PAINT_HISTORY_DDL)
         return True
     except Exception as exc:  # noqa: BLE001
-        log.warning("paint_history 建表失败: %s", exc)
+        log.warning("paint_history 建表失败: %s", exc, exc_info=True)
         return False
 
 
@@ -116,7 +116,7 @@ def _save_result_local(image: Image.Image, task_id: str, prompt: str,
         rel_path = store.save_file("image", buf.getvalue(),
                                    filename=f"{task_id}.png")
     except Exception as exc:  # noqa: BLE001
-        log.warning("生成图落盘失败: %s", exc)
+        log.warning("生成图落盘失败: %s", exc, exc_info=True)
     try:
         db = get_db_safe()
         if db is not None:
@@ -132,7 +132,7 @@ def _save_result_local(image: Image.Image, task_id: str, prompt: str,
                 "created_at": time.time(),
             })
     except Exception as exc:  # noqa: BLE001
-        log.warning("paint_history 写入失败: %s", exc)
+        log.warning("paint_history 写入失败: %s", exc, exc_info=True)
     return rel_path
 
 
@@ -542,7 +542,7 @@ def _run_generate_task(task_id: str, params: dict,
                                    friendly="按画风注入风格与质量词") as n:
                         n.output(_style_note)
             except Exception as exc:  # noqa: BLE001 - 注入失败不阻断
-                log.warning("风格包注入失败（跳过）: %s", exc)
+                log.warning("风格包注入失败（跳过）: %s", exc, exc_info=True)
             params["prompt"] = prompt
 
             if params.get("optimize"):
@@ -620,7 +620,7 @@ def _run_generate_task(task_id: str, params: dict,
         except RuntimeError:
             raise
         except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断生成
-            log.warning("绘画模块选型配置读取失败（跳过）: %s", exc)
+            log.warning("绘画模块选型配置读取失败（跳过）: %s", exc, exc_info=True)
 
         # ── 自动切换底座（生图路由引擎）：风格画像→底座×风格包组合 ──
         # auto 模式（未显式点名且无模块默认）时由路由引擎决策；
@@ -635,7 +635,7 @@ def _run_generate_task(task_id: str, params: dict,
                 if route.model_id:
                     model_hint = route.model_id
             except Exception as exc:  # noqa: BLE001 - 路由失败不阻断生成
-                log.warning("生图路由决策失败（跳过）: %s", exc)
+                log.warning("生图路由决策失败（跳过）: %s", exc, exc_info=True)
         translated_fallback = False  # 走了翻译兜底（模型加载后需收缩 RAM）
 
         # ── 语言感知路由（2026-08-23 图文不符修复）─────────────────
@@ -842,7 +842,7 @@ def _run_generate_task(task_id: str, params: dict,
                                friendly="按画风注入风格与质量词") as n:
                     n.output(_style_note)
         except Exception as exc:  # noqa: BLE001 - 注入失败不阻断生成
-            log.warning("风格包注入失败（跳过）: %s", exc)
+            log.warning("风格包注入失败（跳过）: %s", exc, exc_info=True)
 
         # 节点3：提示词优化（仅启用时）
         if params.get("optimize"):
@@ -908,7 +908,7 @@ def _run_generate_task(task_id: str, params: dict,
                     log.info("RAM 紧张（<22GB），兜底任务后已卸载绘画"
                              "引擎 host 副本，为下次 qwen 路由让路")
             except Exception as exc:  # noqa: BLE001 - 让路失败不影响结果
-                log.warning("兜底任务后引擎让路失败（忽略）: %s", exc)
+                log.warning("兜底任务后引擎让路失败（忽略）: %s", exc, exc_info=True)
         flow.end("success", output_summary=rel_path)
     except _TaskCancelled:
         _cancel_flags.discard(task_id)
@@ -984,7 +984,7 @@ def _resolve_paint_cloud_endpoint():
         from ..services.cloud_provider_service import get_image_endpoint
         return get_image_endpoint("paint.image")
     except Exception as exc:  # noqa: BLE001 - 解析失败按本地（不阻断生图）
-        log.warning("绘画云端路由解析失败（按本地引擎）: %s", exc)
+        log.warning("绘画云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         return None
 
 
@@ -1211,7 +1211,7 @@ def draw_result(task_id: str) -> dict[str, Any]:
                         "created_at": row.get("created_at", 0),
                     })
             except Exception as exc:  # noqa: BLE001
-                log.warning("paint_history 查询失败: %s", exc)
+                log.warning("paint_history 查询失败: %s", exc, exc_info=True)
         raise ApiError(40005, "任务不存在", detail={"task_id": task_id})
 
     resp = {
@@ -1345,7 +1345,7 @@ def _ensure_history_columns() -> None:
                 "ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;")
             log.info("paint_history 迁移：新增 favorite 列")
     except Exception as exc:  # noqa: BLE001
-        log.warning("paint_history 列迁移失败: %s", exc)
+        log.warning("paint_history 列迁移失败: %s", exc, exc_info=True)
 
 
 @router.get("/draw/history")
@@ -1418,7 +1418,7 @@ def draw_history(page: int = Query(1, ge=1),
         return ok({"items": items, "total": total,
                    "page": page, "page_size": page_size})
     except Exception as exc:  # noqa: BLE001
-        log.warning("paint_history 查询失败: %s", exc)
+        log.warning("paint_history 查询失败: %s", exc, exc_info=True)
         return ok({"items": [], "total": 0, "page": page,
                    "page_size": page_size})
 
@@ -1624,7 +1624,7 @@ def draw_models() -> dict[str, Any]:
                 "local_model": mid,
             })
     except Exception as exc:  # noqa: BLE001 - 清单失败不阻断主流程
-        log.warning("导入绘画模型清单并入跳过: %s", exc)
+        log.warning("导入绘画模型清单并入跳过: %s", exc, exc_info=True)
     # 模块级选型配置（模型管理 → 功能模块模型配置）：
     # 白名单过滤 + 默认模型下发。allowed 为空 = 不限制（兼容存量）。
     default_model = ""
@@ -1634,7 +1634,7 @@ def draw_models() -> dict[str, Any]:
         if allowed is not None:
             items = [m for m in items if m["id"] in allowed]
     except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
-        log.warning("绘画模块白名单过滤跳过: %s", exc)
+        log.warning("绘画模块白名单过滤跳过: %s", exc, exc_info=True)
     return ok({
         "items": items,
         "total": len(items),

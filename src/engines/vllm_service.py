@@ -136,7 +136,7 @@ def resolve_kv_cache_dtype(device_idx: int) -> str | None:
             return None
         return "fp8"
     except Exception as exc:  # noqa: BLE001 - 探测失败保持关（保守）
-        log.warning("FP8 KV cache 能力探测失败（按关）: %s", exc)
+        log.warning("FP8 KV cache 能力探测失败（按关）: %s", exc, exc_info=True)
         return None
 
 
@@ -397,7 +397,7 @@ class VLLMService:
             import requests
             resp = requests.post(f"{SLEEP_URL}?level=1", timeout=30.0)
         except Exception as e:  # noqa: BLE001
-            log.warning("vLLM sleep 请求失败（不阻断生成）: %s", e)
+            log.warning("vLLM sleep 请求失败（不阻断生成）: %s", e, exc_info=True)
             return False
         if resp.status_code == 404:
             # Windows fallback：无 sleep mode 路由 → 停子进程
@@ -439,7 +439,7 @@ class VLLMService:
             ok = self.start(model_dir=self._model_dir or None)
             log.info("vLLM 生成后重启%s", "成功" if ok else "失败")
         except Exception as e:  # noqa: BLE001
-            log.warning("vLLM 生成后重启异常（看门狗自愈兜底）: %s", e)
+            log.warning("vLLM 生成后重启异常（看门狗自愈兜底）: %s", e, exc_info=True)
 
     def wake_from_paint(self, settle_timeout_s: float = 120.0) -> bool:
         """生成期显存协商收尾：唤醒 vLLM（权重 RAM→GPU）。
@@ -468,7 +468,7 @@ class VLLMService:
                 log.warning("vLLM wake_up 响应 %s", resp.status_code)
                 return False
         except Exception as e:  # noqa: BLE001
-            log.warning("vLLM wake_up 请求失败: %s", e)
+            log.warning("vLLM wake_up 请求失败: %s", e, exc_info=True)
             return False
         deadline = time.time() + settle_timeout_s
         while time.time() < deadline:
@@ -1089,12 +1089,12 @@ class VLLMService:
             try:
                 proc.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
-                log.warning("vLLM terminate 超时，强杀 pid=%d", proc.pid)
+                log.warning("vLLM terminate 超时，强杀 pid=%d", proc.pid, exc_info=True)
                 proc.kill()
                 try:
                     proc.wait(timeout=3.0)
                 except subprocess.TimeoutExpired:
-                    log.error("vLLM 子进程无法终止 pid=%d", proc.pid)
+                    log.error("vLLM 子进程无法终止 pid=%d", proc.pid, exc_info=True)
                     return False
         self._proc = None
         self._started_at = 0.0
@@ -1235,7 +1235,7 @@ class VLLMService:
             img.save(buf, format="PNG")
             img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
         except Exception as exc:  # noqa: BLE001 - PIL 缺失只影响图预热
-            log.warning("vLLM 预热跳过（构造图片失败）: %s", exc)
+            log.warning("vLLM 预热跳过（构造图片失败）: %s", exc, exc_info=True)
             return
 
         import requests

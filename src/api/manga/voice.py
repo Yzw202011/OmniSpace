@@ -62,7 +62,7 @@ def _seed_voices(db: Database) -> None:
             })
         log.info("预置音色已写入 voice_profiles 表 (%d 条)", len(_voices))
     except Exception as exc:  # noqa: BLE001
-        log.warning("预置音色写入失败: %s", exc)
+        log.warning("预置音色写入失败: %s", exc, exc_info=True)
 
 
 def _row_to_voice(r: dict) -> dict:
@@ -89,7 +89,7 @@ def voices_list() -> dict[str, Any]:
             items = [dict(_row_to_voice(r), emotions=list(VOICE_PRESET_EMOTIONS)) for r in rows]
             return ok({"items": items, "total": len(items)})
         except Exception as exc:  # noqa: BLE001
-            log.warning("音色列表查询失败，降级内存存储: %s", exc)
+            log.warning("音色列表查询失败，降级内存存储: %s", exc, exc_info=True)
     items = [dict(v, emotions=list(VOICE_PRESET_EMOTIONS)) for v in _voices]
     return ok({"items": items, "total": len(items)})
 
@@ -116,7 +116,7 @@ def voices_bind(req: VoiceBindRequest) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("音色绑定写入失败，降级内存存储: %s", exc)
+            log.warning("音色绑定写入失败，降级内存存储: %s", exc, exc_info=True)
 
     # 内存降级
     voice = next((v for v in _voices if v["id"] == req.voice_id), None)
@@ -147,7 +147,7 @@ def voices_emotion(voice_id: str, req: VoiceEmotionUpdate) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("音色情感更新失败，降级内存存储: %s", exc)
+            log.warning("音色情感更新失败，降级内存存储: %s", exc, exc_info=True)
 
     # 内存降级
     voice = next((v for v in _voices if v["id"] == voice_id), None)
@@ -179,7 +179,7 @@ async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("音色查询失败，降级内存存储: %s", exc)
+            log.warning("音色查询失败，降级内存存储: %s", exc, exc_info=True)
     else:
         voice = next((v for v in _voices if v["id"] == req.voice_id), None)
         if voice is None:
@@ -200,7 +200,7 @@ async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
         degraded = not engine.is_ready
         fallback_backend = engine.fallback_backend
     except Exception as exc:  # noqa: BLE001
-        log.warning("试听合成失败，使用占位音频: %s", exc)
+        log.warning("试听合成失败，使用占位音频: %s", exc, exc_info=True)
 
     data = {
         "voice_id": req.voice_id,
@@ -285,7 +285,7 @@ async def voices_upload(name: str = Query("自定义音色"),
         except Exception as exc:  # noqa: BLE001
             # 诚实失败（2026-09-17）：落库失败=音色不会出现在列表/无法绑定，
             # 返回 200 会让前端 toast 成功（审计四轮跨端遗留）——改为语义错误
-            log.warning("音色上传落库失败: %s", exc)
+            log.warning("音色上传落库失败: %s", exc, exc_info=True)
             raise ApiError("VOICE_DB_WRITE",
                            "音色文件已保存但登记失败，音色暂不可用",
                            detail={"voice_id": voice_id},
@@ -354,7 +354,7 @@ async def voices_clone(name: str = Query("克隆音色"),
         try:
             await run_blocking(_persist_clone_voice)
         except Exception as exc:  # noqa: BLE001
-            log.warning("克隆音色落库失败: %s", exc)
+            log.warning("克隆音色落库失败: %s", exc, exc_info=True)
 
     return ok({"voice_id": voice_id, "name": name,
                "cloned": True,

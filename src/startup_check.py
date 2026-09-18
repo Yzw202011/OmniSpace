@@ -502,7 +502,7 @@ def _check_models_manifest() -> CheckResult:
         from .data.model_registry import validate_against_disk
         report = validate_against_disk()
     except Exception as exc:  # noqa: BLE001 - 校验器异常不阻断启动
-        log.warning("模型清单一致性校验异常: %s", exc)
+        log.warning("模型清单一致性校验异常: %s", exc, exc_info=True)
         return CheckResult(25, "模型清单", True,
                            f"已加载 {count} 条模型记录（一致性校验异常: {exc}）",
                            "warning",
@@ -589,7 +589,7 @@ def _run_check(idx: int, check_fn: Callable[[], CheckResult]) -> dict:
         )
         return res_dict
     except Exception as exc:
-        log.error("自检项 %s 执行异常: %s", check_fn.__name__, exc)
+        log.error("自检项 %s 执行异常: %s", check_fn.__name__, exc, exc_info=True)
         return {
             "idx": idx + 1,
             "name": check_fn.__doc__.strip().split(".")[0] if check_fn.__doc__ else check_fn.__name__,
@@ -630,7 +630,7 @@ def run_startup_check() -> list[dict]:
             try:
                 results_by_idx[idx] = fut.result()
             except Exception as exc:  # noqa: BLE001 - 并行包装兜底
-                log.error("自检并行项执行异常: %s", exc)
+                log.error("自检并行项执行异常: %s", exc, exc_info=True)
                 results_by_idx[idx] = {
                     "idx": idx + 1, "name": "未知自检", "passed": False,
                     "detail": f"并行执行异常: {exc}", "level": "error", "data": {},

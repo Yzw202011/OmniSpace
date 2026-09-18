@@ -119,9 +119,9 @@ def _parse_document(filename: str, data: bytes) -> str:
                 return text
             log.warning("pymupdf 未提取到文本，降级纯文本解码")
         except ImportError:
-            log.warning("pymupdf 不可用，PDF 降级纯文本解码")
+            log.warning("pymupdf 不可用，PDF 降级纯文本解码", exc_info=True)
         except Exception as exc:  # noqa: BLE001
-            log.warning("PDF 解析失败，降级纯文本解码: %s", exc)
+            log.warning("PDF 解析失败，降级纯文本解码: %s", exc, exc_info=True)
         return _decode_text(data)
     # .docx
     try:
@@ -146,9 +146,9 @@ def _parse_document(filename: str, data: bytes) -> str:
             return text
         log.warning("python-docx 未提取到文本，降级纯文本解码")
     except ImportError:
-        log.warning("python-docx 不可用，DOCX 降级纯文本解码")
+        log.warning("python-docx 不可用，DOCX 降级纯文本解码", exc_info=True)
     except Exception as exc:  # noqa: BLE001
-        log.warning("DOCX 解析失败，降级纯文本解码: %s", exc)
+        log.warning("DOCX 解析失败，降级纯文本解码: %s", exc, exc_info=True)
     return _decode_text(data)
 
 
@@ -691,7 +691,7 @@ async def learn_knowledge_import(
             else:
                 imported += 1
         except Exception as exc:  # noqa: BLE001
-            log.warning("知识导入条目失败: %s", exc)
+            log.warning("知识导入条目失败: %s", exc, exc_info=True)
             failed += 1
     return ok({"imported": imported, "overwritten": overwritten,
                "skipped_duplicates": skipped, "failed": failed,

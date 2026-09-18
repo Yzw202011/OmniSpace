@@ -340,7 +340,7 @@ def run_web_search(question: str, settings: dict | None = None) -> list[SearchRe
         try:
             results = _try(name)
         except Exception as exc:  # noqa: BLE001 - 单通道失败回退下一通道
-            log.warning("联网搜索通道 %s 失败（回退）: %s", name, exc)
+            log.warning("联网搜索通道 %s 失败（回退）: %s", name, exc, exc_info=True)
             results = []
         if results:
             break

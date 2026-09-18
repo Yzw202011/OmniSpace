@@ -90,7 +90,7 @@ def storyboard_create(req: StoryboardCreate) -> dict[str, Any]:
             rows = _load_rows(db, sb["id"])
             return ok({"project_id": pid, "rows": rows, "total": len(rows)})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库操作失败，降级内存存储: %s", exc)
+            log.warning("数据库操作失败，降级内存存储: %s", exc, exc_info=True)
     rows = _storyboards.setdefault(pid, [])
     return ok({"project_id": pid, "rows": list(rows), "total": len(rows)})
 
@@ -114,7 +114,7 @@ def storyboard_list(project_id: str = Query("", description="项目ID")) -> dict
             rows = _load_rows(db, sb["id"])
             return ok({"project_id": pid, "rows": rows, "total": len(rows)})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
+            log.warning("数据库查询失败，降级内存存储: %s", exc, exc_info=True)
     rows = list(_storyboards.get(pid, []))
     rows.sort(key=lambda r: (r.get("sort_index", 0), r.get("shot_number", 0)))
     return ok({"project_id": pid, "rows": rows, "total": len(rows)})
@@ -143,7 +143,7 @@ def storyboard_get(project_id: str) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
+            log.warning("数据库查询失败，降级内存存储: %s", exc, exc_info=True)
     rows = _storyboards.get(project_id, [])
     return ok({"project_id": project_id, "rows": list(rows), "total": len(rows)})
 
@@ -184,7 +184,7 @@ def storyboard_row_update(project_id: str, row_id: str,
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库更新失败，降级内存存储: %s", exc)
+            log.warning("数据库更新失败，降级内存存储: %s", exc, exc_info=True)
 
     rows = _storyboards.get(project_id)
     if rows is None:
@@ -237,7 +237,7 @@ def _cascade_removed_rows(db: Database, project_id: str, old_ids: set[str],
         log.info("删行级联清理: project=%s rows=%d videos=%d",
                  project_id, len(removed), len(vt_rows))
     except Exception as exc:  # noqa: BLE001 - 清理失败不回滚主保存
-        log.warning("删行级联清理失败（孤儿产物由项目删除兜底）: %s", exc)
+        log.warning("删行级联清理失败（孤儿产物由项目删除兜底）: %s", exc, exc_info=True)
 
 
 @router.put("/manga/storyboard/{project_id}")
@@ -306,7 +306,7 @@ async def storyboard_save(project_id: str,
             saved = _load_rows(db, sid)
             return ok({"project_id": project_id, "rows": saved, "total": len(saved)})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库全量保存失败，降级内存存储: %s", exc)
+            log.warning("数据库全量保存失败，降级内存存储: %s", exc, exc_info=True)
 
     mem = _storyboards.setdefault(project_id, [])
     mem.clear()
@@ -865,7 +865,7 @@ async def _ai_split_script(script: str, project_id: str = "") -> tuple[list[dict
                     reply = await run_blocking(
                         lambda b=block, t=temp: _ai_split_block_sync(b, t))
                 except Exception as exc:  # noqa: BLE001 - 单块失败不中断整体
-                    log.warning("AI 分镜块推理异常（attempt=%d）: %s", attempt, exc)
+                    log.warning("AI 分镜块推理异常（attempt=%d）: %s", attempt, exc, exc_info=True)
                 parsed = _parse_shot_lines(reply) if reply else []
                 parsed = _dedup_repeat_shots(parsed) if parsed else []
                 located = _anchor_extract_shots(block, parsed) if parsed else None
@@ -923,7 +923,7 @@ async def _persist_split_rows(project_id: str, shots: list[dict],
             sb_id = sb["id"]
             existing_rows = _load_rows(db, sb_id)
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库读取失败，降级内存存储: %s", exc)
+            log.warning("数据库读取失败，降级内存存储: %s", exc, exc_info=True)
             db = None
     if db is None:
         existing_rows = _storyboards.setdefault(project_id, [])
@@ -959,7 +959,7 @@ async def _persist_split_rows(project_id: str, shots: list[dict],
             # 事件循环（database.py 无 executemany/事务封装，不改其公共 API）
             await run_blocking(_persist_rows)
         except Exception as exc:  # noqa: BLE001
-            log.warning("分镜行批量写入失败: %s", exc)
+            log.warning("分镜行批量写入失败: %s", exc, exc_info=True)
     return new_rows
 
 
@@ -1001,7 +1001,7 @@ async def storyboard_auto_split(project_id: str,
             sb = _ensure_storyboard(db, project_id)
             existing_count = len(_load_rows(db, sb["id"]))
         except Exception as exc:  # noqa: BLE001
-            log.warning("auto-split 读取现有行失败: %s", exc)
+            log.warning("auto-split 读取现有行失败: %s", exc, exc_info=True)
     room = STORYBOARD_MAX_ROWS - existing_count
     if room <= 0:
         raise ApiError(70001, "分镜表已达上限",
@@ -1063,7 +1063,7 @@ async def storyboard_auto_split_commit(project_id: str,
             sb = _ensure_storyboard(db, project_id)
             existing_count = len(_load_rows(db, sb["id"]))
         except Exception as exc:  # noqa: BLE001
-            log.warning("commit 读取现有行失败: %s", exc)
+            log.warning("commit 读取现有行失败: %s", exc, exc_info=True)
     room = STORYBOARD_MAX_ROWS - existing_count
     if room <= 0:
         raise ApiError(70001, "分镜表已达上限",
@@ -1101,7 +1101,7 @@ async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str
             sb_id = sb["id"]
             existing_rows = _load_rows(db, sb_id)
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库读取失败，降级内存存储: %s", exc)
+            log.warning("数据库读取失败，降级内存存储: %s", exc, exc_info=True)
             db = None
     if db is None:
         existing_rows = _storyboards.setdefault(project_id, [])
@@ -1120,14 +1120,14 @@ async def storyboard_import(body: dict = Body(default_factory=dict)) -> dict[str
                 await run_blocking(lambda i=i, row=row: db.insert("storyboard_rows",
                           _public_row_to_db(row, sb_id, sort_index=base + i)))
             except Exception as exc:  # noqa: BLE001
-                log.warning("分镜行写入失败: %s", exc)
+                log.warning("分镜行写入失败: %s", exc, exc_info=True)
         else:
             existing_rows.append(row)
     if db is not None and sb_id:
         try:
             await run_blocking(lambda: db.update("storyboards", {"updated_at": _now()}, "id=?", (sb_id,)))
         except Exception as exc:  # noqa: BLE001
-            log.warning("分镜表更新时间写入失败: %s", exc)
+            log.warning("分镜表更新时间写入失败: %s", exc, exc_info=True)
     return ok({"project_id": project_id, "rows": parsed,
                "total": len(existing_rows) + len(parsed)})
 
@@ -1161,7 +1161,7 @@ def storyboard_export(project_id: str,
             if sb is not None:
                 rows = _load_rows(db, sb["id"])
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
+            log.warning("数据库查询失败，降级内存存储: %s", exc, exc_info=True)
     if not rows:
         rows = list(_storyboards.get(project_id, []))
 
@@ -1325,7 +1325,7 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库重排失败，降级内存存储: %s", exc)
+            log.warning("数据库重排失败，降级内存存储: %s", exc, exc_info=True)
 
     # 内存降级：全表按 id 匹配重排
     order = {rid: i for i, rid in enumerate(row_ids)}
@@ -1365,7 +1365,7 @@ def _load_storyboard_row(row_id: str, project_id: str = "") -> dict | None:
             if r is not None:
                 return _row_to_storyboard_row(r)
         except Exception as exc:  # noqa: BLE001
-            log.warning("分镜行查询失败，降级内存存储: %s", exc)
+            log.warning("分镜行查询失败，降级内存存储: %s", exc, exc_info=True)
     pools = ([_storyboards[project_id]] if project_id in _storyboards
              else list(_storyboards.values()))
     for pool in pools:
@@ -1627,7 +1627,7 @@ async def storyboard_emotion_detect(req: EmotionDetectRequest) -> dict[str, Any]
             if label in VOICE_PRESET_EMOTIONS:
                 return ok({"text": text, "emotion": label, "engine": "llm"})
         except Exception as exc:  # noqa: BLE001
-            log.warning("LLM 情绪识别失败，回退规则词典: %s", exc)
+            log.warning("LLM 情绪识别失败，回退规则词典: %s", exc, exc_info=True)
     # 规则词典本地分类（诚实降级）
     scores = {emo: sum(1 for kw in kws if kw in text)
               for emo, kws in _EMOTION_KEYWORDS.items()}

@@ -83,13 +83,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.info("激活门禁已启用：%s", _license_gate.status().get("activated")
                      and "已激活" or "未激活")
         except Exception as _exc:  # noqa: BLE001 - 门禁初始化失败不阻断启动
-            log.warning("激活门禁初始化异常（不阻断启动）：%s", _exc)
+            log.warning("激活门禁初始化异常（不阻断启动）：%s", _exc, exc_info=True)
     # 风格库加密种子（P6 锁4）：首启动空表自动导入（金库未启用则跳过）
     try:
         from .services.style_seed import ensure_seed as _ensure_seed
         log.info("风格库种子：%s", _ensure_seed())
     except Exception as _exc:  # noqa: BLE001 - 种子导入失败不阻断启动
-        log.warning("风格库种子导入异常（不阻断启动）：%s", _exc)
+        log.warning("风格库种子导入异常（不阻断启动）：%s", _exc, exc_info=True)
     # 外部模型包登记（体验流 2b 跨盘降级）：boot 拖入识别写的标记 →
     # 按外部 manifest 幂等回填 file_path（激活门禁拦着 API，只能启动期做）
     try:
@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if _r:
             log.info("外部模型包登记：%s", _r)
     except Exception as _exc:  # noqa: BLE001 - 登记失败不阻断启动
-        log.warning("外部模型包登记异常（不阻断启动）：%s", _exc)
+        log.warning("外部模型包登记异常（不阻断启动）：%s", _exc, exc_info=True)
 
     # B6 步3（2026-09-14）：模型账实对账闸上线——validate_against_disk
     # 此前只在无人跑的 startup_check 里（线上 0 次执行，R7 审计），现挂
@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("模型账实对账：ghost=%d orphan=%d required_missing=%d",
                  _ghost, _orphan, _missing)
     except Exception as _exc:  # noqa: BLE001 - 对账失败不阻断启动
-        log.warning("模型账实对账异常（不阻断启动）：%s", _exc)
+        log.warning("模型账实对账异常（不阻断启动）：%s", _exc, exc_info=True)
     # 审计 R3-BE3：非回环绑定醒目告警（API 无认证体系，规格 §14 约束2 要求 127.0.0.1）
     if config.HOST not in ("127.0.0.1", "localhost"):
         log.warning("!" * 60)
@@ -155,7 +155,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await run_blocking(lambda: db.query_one("SELECT 1 AS one"))
         log.info("T+0s 数据库初始化完成: %s", config.DB_PATH)
     except Exception as exc:
-        log.error("数据库初始化失败: %s", exc)
+        log.error("数据库初始化失败: %s", exc, exc_info=True)
         raise
 
     # T+0.5（B10 数据保全 2026-09-14）：恢复待办处理——/system/restore
@@ -196,7 +196,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         "备份恢复已完成（本次启动时已替换主库），"
                         "替换前的旧库已备份", level="warning")
     except Exception as _exc:  # noqa: BLE001 - 恢复失败保留标记下轮重试
-        log.error("备份恢复执行失败（标记保留）：%s", _exc)
+        log.error("备份恢复执行失败（标记保留）：%s", _exc, exc_info=True)
 
     # T+3s: 文件存储与缓存
     try:
@@ -206,7 +206,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_cache()
         log.info("T+3s 文件存储与缓存初始化完成")
     except Exception as exc:
-        log.warning("文件存储/缓存初始化异常: %s", exc)
+        log.warning("文件存储/缓存初始化异常: %s", exc, exc_info=True)
 
     # T+4s: 预加载嵌入模型（显存布局关键优化，勿后移）
     # bge-large-zh 是长驻 CUDA 的小模型（~1.3GB）。若等到首次 RAG 才加载，
@@ -221,7 +221,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_vector_db().warmup()  # 触发嵌入模型加载+前向推理（CUDA 长驻低位显存段）
         log.info("T+4s 嵌入模型预加载完成（CUDA 长驻）")
     except Exception as exc:
-        log.warning("嵌入模型预加载失败（降级运行）: %s", exc)
+        log.warning("嵌入模型预加载失败（降级运行）: %s", exc, exc_info=True)
 
     # T+5s: 调度引擎（硬件监控 / 模型调度，可选）
     if _SCHEDULER_AVAILABLE:
@@ -230,7 +230,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await scheduler.start()
             log.info("T+5s 调度引擎已启动")
         except Exception as exc:
-            log.warning("调度引擎启动失败（降级运行）: %s", exc)
+            log.warning("调度引擎启动失败（降级运行）: %s", exc, exc_info=True)
     else:
         log.warning("调度引擎模块不可用，跳过启动（降级运行）")
 
@@ -242,7 +242,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_browser_pool().warmup(headless=True, background=True)
         log.info("T+5.5s 浏览器进程池预热已调度（后台）")
     except Exception as exc:
-        log.warning("浏览器进程池预热调度失败（降级懒初始化）: %s", exc)
+        log.warning("浏览器进程池预热调度失败（降级懒初始化）: %s", exc, exc_info=True)
 
     # T+5.8s: 资源占用采样与巡检仪表（P3-⑤）：后台守护线程 30s 采集
     # RAM/显存/磁盘 快照（近 2 小时趋势 + 每日 JSONL），巡检越界告警。
@@ -253,7 +253,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_resource_sampler().start()
         log.info("T+5.8s 资源占用采样器已启动（巡检仪表化）")
     except Exception as exc:
-        log.warning("资源占用采样器启动失败（降级：访问时自启）: %s", exc)
+        log.warning("资源占用采样器启动失败（降级：访问时自启）: %s", exc, exc_info=True)
 
     # T+6s: WebSocket 消息中枢（规格 §2.2 /ws 协议）
     # 绑定事件循环、启动遥测推送，并向绘画/LoRA训练/浏览器Agent 注入广播器
@@ -281,7 +281,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_switch_engine().bind(hub.broadcast, asyncio.get_running_loop())
         log.info("T+6s WebSocket 消息中枢已启动（/ws），广播器已注入 paint/learn/agent/switch")
     except Exception as exc:
-        log.warning("WebSocket 消息中枢启动失败（降级运行）: %s", exc)
+        log.warning("WebSocket 消息中枢启动失败（降级运行）: %s", exc, exc_info=True)
 
     # B1（2026-09-13）：就绪日志报实测耗时——旧固定文案「T+10s」与真实
     # 值不符（boot.log 实测 T+16s、冷机口径 25s~2min），固定文案误导排障
@@ -312,14 +312,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                          .get("to_version", "")},
             })
     except Exception:  # noqa: BLE001 - 升级扫描失败不阻断启动
-        log.warning("升级包启动扫描失败（忽略）")
+        log.warning("升级包启动扫描失败（忽略）", exc_info=True)
     # ── 执行流程追踪（2026-08-23 流程记录机制优化）─────────
     try:
         from .services import flow_trace
         flow_trace.recover_orphans()   # 上一进程遗留 running → orphan
         flow_trace.start_cleanup_task()
     except Exception:  # noqa: BLE001 - 追踪失败不阻断启动
-        log.warning("流程追踪初始化异常（降级运行）")
+        log.warning("流程追踪初始化异常（降级运行）", exc_info=True)
     # ── 自动备份调度（SET-019 补线，2026-09-15 审计修复）─────
     # 病灶：_ensure_backup_scheduler 此前只在 GET/PUT /system/backup/config
     # 端点内被调用，主启动链未注册——后端重启守护线程即丢，无人打开
@@ -329,13 +329,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from .api.system import _ensure_backup_scheduler
         _ensure_backup_scheduler()
     except Exception:  # noqa: BLE001 - 备份调度失败不阻断启动
-        log.warning("自动备份调度启动失败（忽略）")
+        log.warning("自动备份调度启动失败（忽略）", exc_info=True)
     # ── 知识库体检周报（知识学习升级批4）：启动即查 + 每 7 天巡检 ──
     try:
         from .services.knowledge_checkup import start_checkup_task
         start_checkup_task()
     except Exception:  # noqa: BLE001 - 体检失败不阻断启动
-        log.warning("知识库体检任务启动异常（降级运行）")
+        log.warning("知识库体检任务启动异常（降级运行）", exc_info=True)
     # ── 崩溃取证心跳（2026-09-01 日志机制方案 C）：上次异常退出检测 ──
     try:
         from .services import heartbeat
@@ -351,7 +351,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 detail=f"last_seen_epoch={prev['last_seen']}")
         heartbeat.start()
     except Exception:  # noqa: BLE001 - 取证失败不阻断启动
-        log.warning("崩溃取证心跳初始化异常（忽略）")
+        log.warning("崩溃取证心跳初始化异常（忽略）", exc_info=True)
     # ── 视频任务遗留恢复（审计 P1 修复，2026-08-29）：后台 worker
     # 随进程消失，遗留 generating 行永远无人收尾，/status 会无限
     # 回传旧进度——启动即改写为 error（与 flow_trace 孤儿恢复同时机）
@@ -361,7 +361,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if n:
             log.warning("视频任务遗留恢复: %d 条 generating → error", n)
     except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
-        log.warning("视频任务遗留恢复失败（忽略）")
+        log.warning("视频任务遗留恢复失败（忽略）", exc_info=True)
     # 小说章节遗留恢复（批2 MVP 2026-09-05）：生成 worker 随进程消失，
     # 遗留 generating 章节无人收尾 → 启动即改写 error（用户可重新生成）
     try:
@@ -373,7 +373,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if n:
             log.warning("小说章节遗留恢复: %d 条 generating → error", n)
     except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
-        log.warning("小说章节遗留恢复失败（忽略）")
+        log.warning("小说章节遗留恢复失败（忽略）", exc_info=True)
     yield
 
     # 关闭
@@ -456,9 +456,9 @@ def _register_routers(app: FastAPI) -> None:
                 registered += 1
                 log.info("已注册 v2.1 路由: api.%s", name)
         except ImportError as exc:
-            log.warning("导入 api.%s 失败: %s", name, exc)
+            log.warning("导入 api.%s 失败: %s", name, exc, exc_info=True)
         except Exception as exc:
-            log.warning("注册 api.%s 失败: %s", name, exc)
+            log.warning("注册 api.%s 失败: %s", name, exc, exc_info=True)
     log.info("路由注册完成: %d 个模块", registered)
 
 

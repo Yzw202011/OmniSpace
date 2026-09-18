@@ -204,7 +204,7 @@ class LlamaService:
             except Exception as exc:  # noqa: BLE001 - spawn 失败诚实拒绝
                 self._last_error = f"llama-server 启动失败: {exc}"
                 self._state = "error"
-                log.warning("%s", self._last_error)
+                log.warning("%s", self._last_error, exc_info=True)
                 return False
             deadline = time.monotonic() + _START_TIMEOUT_S
             while time.monotonic() < deadline:
@@ -244,7 +244,7 @@ class LlamaService:
             log.info("llama-server 已停止")
             return True
         except Exception as exc:  # noqa: BLE001
-            log.warning("llama-server 停止异常: %s", exc)
+            log.warning("llama-server 停止异常: %s", exc, exc_info=True)
             return False
 
     # ── 推理 ────────────────────────────────────────────────────

@@ -85,7 +85,7 @@ class GraphStore:
             self._db.executescript(_GRAPH_DDL)
             log.info("kg_entities/kg_edges 图谱表就绪")
         except Exception as exc:  # noqa: BLE001
-            log.warning("图谱建表失败，降级内存存储: %s", exc)
+            log.warning("图谱建表失败，降级内存存储: %s", exc, exc_info=True)
             self._db = None
 
     # ── 写入 ─────────────────────────────────────────────────
@@ -172,7 +172,7 @@ class GraphStore:
                         "(SELECT src FROM kg_edges UNION SELECT dst FROM kg_edges)",
                         ())
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("图谱级联删除失败: %s", exc)
+                    log.warning("图谱级联删除失败: %s", exc, exc_info=True)
             else:
                 keys = [k for k, e in self._mem_edges.items()
                         if e.get("kid") == kid]
@@ -230,7 +230,7 @@ class GraphStore:
                         (limit,))
                 return [dict(r) for r in rows]
             except Exception as exc:  # noqa: BLE001
-                log.warning("图谱边查询失败: %s", exc)
+                log.warning("图谱边查询失败: %s", exc, exc_info=True)
                 return []
         edges = list(self._mem_edges.values())
         if kid:

@@ -436,7 +436,7 @@ class Database:
                     src.rename(dst)
                     log.warning("已隔离损坏文件: %s → %s", src.name, dst.name)
                 except OSError as exc:
-                    log.error("损坏文件隔离失败: %s → %s", src, exc)
+                    log.error("损坏文件隔离失败: %s → %s", src, exc, exc_info=True)
                     raise
         log.warning("数据库将以全新空库重建（原数据保留于 .corrupt-%s 文件）", ts)
 
@@ -475,7 +475,7 @@ class Database:
                 "AND name NOT LIKE 'sqlite_%'").fetchone()[0]
             log.info("数据库初始化完成: %s（%d 张表）", self._path, n_tables)
         except sqlite3.Error as exc:
-            log.error("数据库建表失败: %s", exc)
+            log.error("数据库建表失败: %s", exc, exc_info=True)
             raise
 
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
@@ -747,7 +747,7 @@ class Database:
                 try:
                     conn.execute("ROLLBACK")
                 except sqlite3.Error as rb_exc:  # 极端情形事务已隐式回滚
-                    log.warning("事务回滚异常（原异常仍将上抛）: %s", rb_exc)
+                    log.warning("事务回滚异常（原异常仍将上抛）: %s", rb_exc, exc_info=True)
                 raise
             conn.execute("COMMIT")
             return result
@@ -846,7 +846,7 @@ def get_db_safe() -> Database | None:
     try:
         return get_db()
     except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
-        log.warning("数据库不可用，API 将降级到内存存储: %s", exc)
+        log.warning("数据库不可用，API 将降级到内存存储: %s", exc, exc_info=True)
         return None
 
 

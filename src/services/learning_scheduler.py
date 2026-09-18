@@ -181,7 +181,7 @@ def _write_waiting_queue(items: list[dict]) -> None:
             (_WAITING_QUEUE_KEY, _json.dumps(items, ensure_ascii=False),
              time.time()))
     except Exception as exc:  # noqa: BLE001
-        log.warning("等待队列落库失败: %s", exc)
+        log.warning("等待队列落库失败: %s", exc, exc_info=True)
 
 
 def enqueue_waiting_session(topic_id: str, budget: dict) -> int:
@@ -288,7 +288,7 @@ class LearningScheduler:
             callback(payload or {})
             return True
         except Exception as exc:  # noqa: BLE001
-            log.warning("触发器 %s 回调异常: %s", name, exc)
+            log.warning("触发器 %s 回调异常: %s", name, exc, exc_info=True)
             return False
 
     # ── 用户活动与空闲 ─────────────────────────────────────────────────
@@ -500,7 +500,7 @@ class LearningScheduler:
         try:
             self._maybe_auto_finetune()
         except Exception as exc:  # noqa: BLE001 - 自动微调不影响主链
-            log.warning("自动微调检查异常: %s", exc)
+            log.warning("自动微调检查异常: %s", exc, exc_info=True)
         try:
             self._drain_session_waiting_queue()
         except Exception as exc:  # noqa: BLE001 - 队列消费不影响主链
@@ -704,7 +704,7 @@ class LearningScheduler:
             log.info("触发器 %s 自动启动学习会话: %s（主题: %s）",
                      trigger, session.session_id[:8], row["name"])
         except Exception as exc:  # noqa: BLE001 - 默认动作失败不影响调度
-            log.warning("触发器 %s 默认动作异常: %s", trigger, exc)
+            log.warning("触发器 %s 默认动作异常: %s", trigger, exc, exc_info=True)
 
     def _pick_topic_skip_cold(self, rows: list[dict]) -> dict:
         """§4.3 自适应：候选主题（已按 updated_at DESC 排序）中，关键词
@@ -779,7 +779,7 @@ class LearningScheduler:
             log.info("对话缺口已沉淀为学习主题: %s（待空闲/定时触发学习）",
                      name)
         except Exception as exc:  # noqa: BLE001 - 沉淀失败不影响对话主链
-            log.warning("对话缺口主题沉淀异常: %s", exc)
+            log.warning("对话缺口主题沉淀异常: %s", exc, exc_info=True)
 
     def _maybe_auto_finetune(self) -> None:
         """自动微调执行器（R2-B03）：消费 auto_finetune_frequency 设置。

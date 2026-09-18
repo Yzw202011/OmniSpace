@@ -208,7 +208,7 @@ class VideoTaskQueue:
         try:
             self._run_one(task)
         except Exception as exc:  # noqa: BLE001 - 云道 worker 永不退出
-            log.error("云端视频任务异常逃逸: %s: %s", task_id, exc)
+            log.error("云端视频任务异常逃逸: %s: %s", task_id, exc, exc_info=True)
         finally:
             self._cloud_busy_release(busy_token)
 
@@ -231,7 +231,7 @@ class VideoTaskQueue:
                 update(task_id, {"status": "cancelled"})
                 return
             except Exception as exc:  # noqa: BLE001 - 准入失败收敛为任务错误
-                log.error("视频任务准入失败: %s: %s", task_id, exc)
+                log.error("视频任务准入失败: %s: %s", task_id, exc, exc_info=True)
                 update(task_id, {"status": "error",
                                  "error": f"任务准入失败: {exc}"[:500]})
                 return
@@ -242,10 +242,10 @@ class VideoTaskQueue:
             task["runner"](task, self._make_check_cancel(task_id))
         except VideoTaskCancelled:
             # runner 契约上自写终态；此处兜底防漏写（否则前端轮询永挂）
-            log.warning("runner 以取消信号逃逸（兜底写终态）: %s", task_id)
+            log.warning("runner 以取消信号逃逸（兜底写终态）: %s", task_id, exc_info=True)
             update(task_id, {"status": "cancelled"})
         except Exception as exc:  # noqa: BLE001 - runner 未捕获的异常兜底
-            log.error("视频任务执行异常: %s: %s", task_id, exc)
+            log.error("视频任务执行异常: %s: %s", task_id, exc, exc_info=True)
             update(task_id, {"status": "error",
                              "error": str(exc)[:500]})
         finally:
@@ -344,7 +344,7 @@ class VideoTaskQueue:
                     get_feature_lock().release("video_gen"), loop)
                 fut.result(timeout=10.0)
         except Exception as exc:  # noqa: BLE001
-            log.error("video_gen 锁释放失败（可能功能锁残留）: %s", exc)
+            log.error("video_gen 锁释放失败（可能功能锁残留）: %s", exc, exc_info=True)
 
     def _sleep_vllm_for_generation(self) -> None:
         """vLLM 权重睡眠让渡显存（批3 起经 gpu_budget 让渡协调器
@@ -360,12 +360,12 @@ class VideoTaskQueue:
             from .inference.comfy_paint_engine import get_comfy_paint_engine
             get_comfy_paint_engine().unload()
         except Exception as exc:  # noqa: BLE001
-            log.warning("comfy 绘画栈卸载失败（不阻断生成）: %s", exc)
+            log.warning("comfy 绘画栈卸载失败（不阻断生成）: %s", exc, exc_info=True)
         try:
             from .inference.paint_engine import get_paint_engine
             get_paint_engine().unload_model()
         except Exception as exc:  # noqa: BLE001
-            log.warning("绘画管线卸载失败（不阻断生成）: %s", exc)
+            log.warning("绘画管线卸载失败（不阻断生成）: %s", exc, exc_info=True)
 
     def _local_lane_idle(self) -> bool:
         """本地道空闲：无在跑任务且无本地排队（仅剩云端任务不算忙，
@@ -388,7 +388,7 @@ class VideoTaskQueue:
             from ..engines.vllm_service import get_vllm_service
             get_vllm_service().wake_from_paint()
         except Exception as exc:  # noqa: BLE001
-            log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc)
+            log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc, exc_info=True)
 
     # ── 孤儿任务回收 ────────────────────────────────────────────
 
@@ -424,7 +424,7 @@ class VideoTaskQueue:
                              "error": "后端重启导致任务中断，请重新发起"})
                 log.info("回收孤儿视频任务: %s", tid)
         except Exception as exc:  # noqa: BLE001 - 回收失败不阻断入队
-            log.warning("孤儿视频任务回收失败（忽略）: %s", exc)
+            log.warning("孤儿视频任务回收失败（忽略）: %s", exc, exc_info=True)
 
 
 def get_video_queue() -> VideoTaskQueue:

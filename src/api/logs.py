@@ -367,7 +367,7 @@ def logs_export(
                 if detail:
                     failed_details.append(detail)
         except Exception as exc:  # noqa: BLE001 - 流程导出失败不阻断打包
-            log.warning("失败流程导出失败（跳过）: %s", exc)
+            log.warning("失败流程导出失败（跳过）: %s", exc, exc_info=True)
     if sanitize:
         failed_details = _sanitize_obj(failed_details)
 
@@ -414,7 +414,7 @@ def logs_export(
                                                 errors="replace"))
                             counts[f"raw:{fname}"] = 1
                         except OSError as exc:  # noqa: BLE001
-                            log.warning("日志文件入包失败 %s: %s", fname, exc)
+                            log.warning("日志文件入包失败 %s: %s", fname, exc, exc_info=True)
             if "hardware" in parts:
                 zf.writestr("hardware.json", json.dumps(
                     hardware, ensure_ascii=False, indent=1, default=str))

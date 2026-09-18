@@ -137,7 +137,7 @@ def _load_or_create_key() -> tuple[bytes, str]:
             log.info("字段加密密钥已生成（DPAPI 保护）: %s", _KEY_FILE)
             return key, "dpapi"
         except Exception as exc:  # noqa: BLE001
-            log.warning("DPAPI 密钥路径不可用，回退机器指纹派生: %s", exc)
+            log.warning("DPAPI 密钥路径不可用，回退机器指纹派生: %s", exc, exc_info=True)
     # 2) 回退：机器指纹派生（不落盘，随用随算）
     return _derive_key_machine(), "machine-derived"
 
@@ -158,7 +158,7 @@ def _ensure_key() -> bytes | None:
             _key_cache = None
             _protection = "unavailable"
             _available = False
-            log.warning("字段级加密不可用（cryptography 缺失？）: %s", exc)
+            log.warning("字段级加密不可用（cryptography 缺失？）: %s", exc, exc_info=True)
     return _key_cache
 
 
@@ -211,7 +211,7 @@ def encrypt_text(plain: str | None) -> str | None:
                           level="warning", detail=str(exc)[:200])
             except Exception:  # noqa: BLE001
                 log.debug("encrypt_text: 降级忽略", exc_info=True)
-        log.warning("字段加密失败（明文落库）: %s", exc)
+        log.warning("字段加密失败（明文落库）: %s", exc, exc_info=True)
         return plain
 
 
@@ -229,7 +229,7 @@ def decrypt_text(value: str | None) -> str | None:
         nonce, ct = raw[:_NONCE_LEN], raw[_NONCE_LEN:]
         return AESGCM(key).decrypt(nonce, ct, None).decode("utf-8")
     except Exception as exc:  # noqa: BLE001
-        log.warning("字段解密失败（返回空串）: %s", exc)
+        log.warning("字段解密失败（返回空串）: %s", exc, exc_info=True)
         return ""
 
 

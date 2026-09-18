@@ -46,7 +46,7 @@ try:
 except Exception:  # pragma: no cover - 降级路径
     BeautifulSoup = None  # type: ignore
     _BS4_AVAILABLE = False
-    log.warning("beautifulsoup4 不可用，filter_content 降级为正则过滤")
+    log.warning("beautifulsoup4 不可用，filter_content 降级为正则过滤", exc_info=True)
 
 # ── 常量 ─────────────────────────────────────────────────────
 MAX_KNOWLEDGE_COUNT = 100_000      # 知识库容量上限（TASK-033）
@@ -394,7 +394,7 @@ class KnowledgeProcessingService:
                         " TEXT DEFAULT ''")
                 log.info("knowledge_meta 表就绪")
             except Exception as exc:  # noqa: BLE001
-                log.warning("knowledge_meta 建表失败，降级内存元数据: %s", exc)
+                log.warning("knowledge_meta 建表失败，降级内存元数据: %s", exc, exc_info=True)
                 self._db = None
         else:
             log.warning("数据库不可用，知识元数据降级为内存存储")
@@ -419,7 +419,7 @@ class KnowledgeProcessingService:
         try:
             return self._filter_content_bs4(raw_html)
         except Exception as exc:  # noqa: BLE001 - 解析失败降级正则
-            log.warning("bs4 解析失败，降级正则过滤: %s", exc)
+            log.warning("bs4 解析失败，降级正则过滤: %s", exc, exc_info=True)
             return self._filter_content_regex(raw_html)
 
     def _filter_content_bs4(self, raw_html: str) -> CleanContent:
@@ -601,7 +601,7 @@ class KnowledgeProcessingService:
                 if "not ready" in str(exc):
                     log.debug("LLM 未就绪，回退规则提取: %s", exc)
                 else:
-                    log.warning("LLM 提取失败，回退规则提取: %s", exc)
+                    log.warning("LLM 提取失败，回退规则提取: %s", exc, exc_info=True)
         return self._extract_with_rules(segment, topic)
 
     def _extract_with_llm(self, segment: Segment,
@@ -806,7 +806,7 @@ class KnowledgeProcessingService:
                     "SELECT id, content, simhash FROM knowledge_meta "
                     "ORDER BY created_at DESC LIMIT ?", (DEDUP_SCAN_LIMIT,))
             except Exception as exc:  # noqa: BLE001
-                log.warning("读取 simhash 失败: %s", exc)
+                log.warning("读取 simhash 失败: %s", exc, exc_info=True)
                 return []
         return [{"id": r["id"], "content": r.get("content", ""),
                  "simhash": r.get("simhash", "")}
@@ -888,7 +888,7 @@ class KnowledgeProcessingService:
                      row["lang"], row["created_at"]))
                 return
             except Exception as exc:  # noqa: BLE001
-                log.warning("knowledge_meta 写入失败，降级内存: %s", exc)
+                log.warning("knowledge_meta 写入失败，降级内存: %s", exc, exc_info=True)
         old = self._mem_meta.get(kid, {})
         row["access_count"] = old.get("access_count", 0)
         self._mem_meta[kid] = row
@@ -906,7 +906,7 @@ class KnowledgeProcessingService:
                     "LIMIT ?", (CLEANUP_BATCH,))
                 victims = [r["id"] for r in rows]
             except Exception as exc:  # noqa: BLE001
-                log.warning("容量清理查询失败: %s", exc)
+                log.warning("容量清理查询失败: %s", exc, exc_info=True)
         else:
             ordered = sorted(self._mem_meta.values(),
                              key=lambda r: r.get("created_at", 0))
@@ -1054,7 +1054,7 @@ class KnowledgeProcessingService:
                         "GROUP BY type"):
                     types[r["type"] or "unknown"] = r["c"]
             except Exception as exc:  # noqa: BLE001
-                log.warning("统计查询失败: %s", exc)
+                log.warning("统计查询失败: %s", exc, exc_info=True)
         else:
             for r in self._mem_meta.values():
                 topics[r.get("topic") or "未分类"] = \
@@ -1114,7 +1114,7 @@ class KnowledgeProcessingService:
                 return {"items": rows, "total": total,
                         "page": page, "page_size": page_size}
             except Exception as exc:  # noqa: BLE001
-                log.warning("列表查询失败，降级内存: %s", exc)
+                log.warning("列表查询失败，降级内存: %s", exc, exc_info=True)
         items = list(self._mem_meta.values())
         if topic:
             items = [r for r in items if r.get("topic") == topic]
@@ -1164,7 +1164,7 @@ class KnowledgeProcessingService:
                     return True
                 return False
             except Exception as exc:  # noqa: BLE001
-                log.warning("知识更新落库失败: %s", exc)
+                log.warning("知识更新落库失败: %s", exc, exc_info=True)
         if kid in self._mem_meta:
             self._mem_meta[kid].update(fields)
             return True
@@ -1182,7 +1182,7 @@ class KnowledgeProcessingService:
                 if row:
                     return row
             except Exception as exc:  # noqa: BLE001
-                log.warning("查询知识失败: %s", exc)
+                log.warning("查询知识失败: %s", exc, exc_info=True)
         return self._mem_meta.get(kid)
 
     def adjust_quality_score(self, kid: str, delta: float,
@@ -1200,7 +1200,7 @@ class KnowledgeProcessingService:
             row = self._db.query_one(
                 "SELECT quality_score FROM knowledge_meta WHERE id=?", (kid,))
         except Exception as exc:  # noqa: BLE001
-            log.warning("知识质量分查询失败: %s", exc)
+            log.warning("知识质量分查询失败: %s", exc, exc_info=True)
             return None
         if row is None:
             return None
@@ -1213,7 +1213,7 @@ class KnowledgeProcessingService:
             self._db.update("knowledge_meta",
                             {"quality_score": new_score}, "id=?", (kid,))
         except Exception as exc:  # noqa: BLE001
-            log.warning("知识质量分更新失败: %s", exc)
+            log.warning("知识质量分更新失败: %s", exc, exc_info=True)
             return None
         return new_score
 
@@ -1223,7 +1223,7 @@ class KnowledgeProcessingService:
         try:
             self._vdb.delete([kid])
         except Exception as exc:  # noqa: BLE001
-            log.warning("向量删除失败: %s", exc)
+            log.warning("向量删除失败: %s", exc, exc_info=True)
         try:
             get_fts_store().delete(kid)
         except Exception:  # noqa: BLE001
@@ -1237,7 +1237,7 @@ class KnowledgeProcessingService:
                 affected = self._db.delete("knowledge_meta", "id=?", (kid,))
                 existed = existed or affected > 0
             except Exception as exc:  # noqa: BLE001
-                log.warning("元数据删除失败: %s", exc)
+                log.warning("元数据删除失败: %s", exc, exc_info=True)
         existed = existed or (kid in self._mem_meta)
         self._mem_meta.pop(kid, None)
         return existed

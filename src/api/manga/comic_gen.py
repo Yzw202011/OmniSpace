@@ -279,11 +279,11 @@ def _sam_whiten(image: Image, bg: np.ndarray) -> Image | None:
                         ok_zone[:, idx * cell_w:(idx + 1) * cell_w] = True
                         got_any = True
                 except Exception as exc:  # noqa: BLE001 - 单格失败不阻塞
-                    log.warning("格 %d SAM 分割失败: %s", idx, exc)
+                    log.warning("格 %d SAM 分割失败: %s", idx, exc, exc_info=True)
         finally:
             seg.unload_model()
     except Exception as exc:  # noqa: BLE001 - SAM 不可用保人物原样
-        log.warning("SAM 分割不可用，背景保持原样: %s", exc)
+        log.warning("SAM 分割不可用，背景保持原样: %s", exc, exc_info=True)
         return None
     if not got_any:
         return None
@@ -328,7 +328,7 @@ def _whiten_background(image: Image) -> Image:
         if out is not None:
             return out
     except Exception as exc:  # noqa: BLE001 - 卸载失败保持原图
-        log.warning("绘画管线卸载重试 SAM 失败: %s", exc)
+        log.warning("绘画管线卸载重试 SAM 失败: %s", exc, exc_info=True)
     log.warning("背景漂白未生效，保持原图（人物完整优先于背景纯白）")
     return Image.fromarray(arr.astype(np.uint8))
 
@@ -389,7 +389,7 @@ def _verify_view_layout(image: Image) -> tuple[bool | None, list[str]]:
                  "正确" if ok else "错位")
         return ok, labels
     except Exception as exc:  # noqa: BLE001 - 校验失败不阻塞交付
-        log.warning("VL 视角校验异常（跳过）: %s", exc)
+        log.warning("VL 视角校验异常（跳过）: %s", exc, exc_info=True)
         return None, []
 
 
@@ -480,7 +480,7 @@ def _verify_prompt_match(image: Image, desc_zh: str) -> bool | None:
         log.warning("VL 图文符合度答案不可解析（%r），跳过", reply[:40])
         return None
     except Exception as exc:  # noqa: BLE001 - VL 失败不阻塞交付
-        log.warning("VL 图文符合度校验异常（跳过）: %s", exc)
+        log.warning("VL 图文符合度校验异常（跳过）: %s", exc, exc_info=True)
         return None
 
 
@@ -553,7 +553,7 @@ def _repair_view_cell(engine: PaintEngine, image: Image, idx: int,
         log.info("格 %d（%s）局部修复完成", idx, view)
         return fixed
     except Exception as exc:  # noqa: BLE001 - 修复失败保原图不阻塞
-        log.warning("格 %d 局部修复失败（保持原格）: %s", idx, exc)
+        log.warning("格 %d 局部修复失败（保持原格）: %s", idx, exc, exc_info=True)
         return image
 
 
@@ -691,7 +691,7 @@ def _load_onepass_reference(out_dir: Path) -> Image | None:
         with Image.open(ref_path) as im:
             return im.convert("RGB")
     except Exception as exc:  # noqa: BLE001 - 参考图损坏则忽略不阻断
-        log.warning("参考图读取失败，one-pass 忽略参考图: %s", exc)
+        log.warning("参考图读取失败，one-pass 忽略参考图: %s", exc, exc_info=True)
         return None
 
 
@@ -1312,7 +1312,7 @@ def _load_reference_image(out_dir: Path, gen_w: int, gen_h: int) -> Image | None
         with Image.open(ref_path) as im:
             return im.convert("RGB").resize((gen_w, gen_h), Image.LANCZOS)
     except Exception as exc:  # noqa: BLE001 - 参考图损坏回退 txt2img
-        log.warning("参考图读取失败，回退 txt2img: %s (%s)", ref_path, exc)
+        log.warning("参考图读取失败，回退 txt2img: %s (%s)", ref_path, exc, exc_info=True)
         return None
 
 
@@ -1343,7 +1343,7 @@ def _generate_single_view(engine: PaintEngine, prompt_en: str, view: str,
             result = engine.img2img(params, ref_image, progress_cb=step_cb)
             ref_used = True
         except Exception as exc:  # noqa: BLE001 - img2img 失败回退 txt2img
-            log.warning("视图 %s img2img 失败，回退 txt2img: %s", view, exc)
+            log.warning("视图 %s img2img 失败，回退 txt2img: %s", view, exc, exc_info=True)
             ref_fallback = True
             params.pop("strength", None)
             result = engine.generate(params, progress_cb=step_cb)
@@ -1374,7 +1374,7 @@ def _load_view_images(out_dir: Path) -> dict:
             try:
                 imgs[view] = Image.open(p)
             except Exception as exc:  # noqa: BLE001 - 单图损坏不阻塞拼图
-                log.warning("视图读取失败 %s: %s", p, exc)
+                log.warning("视图读取失败 %s: %s", p, exc, exc_info=True)
     return imgs
 
 

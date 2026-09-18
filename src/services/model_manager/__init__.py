@@ -389,7 +389,7 @@ class ModelManager:
                 except Exception:
                     log.debug("get_gpu_status: 降级忽略", exc_info=True)
             except Exception as exc:  # noqa: BLE001
-                log.warning("NVML 采集失败: %s", exc)
+                log.warning("NVML 采集失败: %s", exc, exc_info=True)
         elif _torch is not None and getattr(_torch, "cuda", None) is not None:
             # 降级：torch 仅能取显存，无法取利用率
             try:
@@ -479,7 +479,7 @@ class ModelManager:
                         "downloaded": True,
                     })
         except Exception as exc:  # noqa: BLE001
-            log.warning("模型目录扫描异常: %s", exc)
+            log.warning("模型目录扫描异常: %s", exc, exc_info=True)
 
         # 祖先包含剪枝：路径位于另一模型目录内 → 是组件而非独立模型。
         # 相同路径不视为嵌套——hints 显式 id（minimax-h3）与通用扫描的
@@ -522,7 +522,7 @@ class ModelManager:
         try:
             cache_unloaded = self.cache.full_unload()
         except Exception as exc:  # noqa: BLE001 - 收缩失败不阻断守卫
-            log.warning("权重缓存卸载失败: %s", exc)
+            log.warning("权重缓存卸载失败: %s", exc, exc_info=True)
             cache_unloaded = -1
         scan_dropped = len(self._disk_scan_cache)
         self._disk_scan_cache = {}
@@ -972,7 +972,7 @@ class ModelManager:
             if callable(load_fn):
                 ok = bool(load_fn(model_id))
         except Exception as exc:  # noqa: BLE001
-            log.error("引擎加载异常 (%s): %s", model_id, exc)
+            log.error("引擎加载异常 (%s): %s", model_id, exc, exc_info=True)
             ok = False
 
         if not ok:
@@ -1115,7 +1115,7 @@ class ModelManager:
                     if hasattr(engine, "_loaded"):
                         engine._loaded = False
             except Exception as exc:  # noqa: BLE001
-                log.warning("引擎卸载异常 (%s): %s", model_id, exc)
+                log.warning("引擎卸载异常 (%s): %s", model_id, exc, exc_info=True)
             # 审计修复：视频引擎一次性自动装载标记复位——卸载（含
             # dispatcher.force_unload 链路）后允许下次
             # _ensure_video_loaded 重试真实管线。通用层防御式处理，
@@ -1361,7 +1361,7 @@ class ModelManager:
                                 except Exception as exc:  # noqa: BLE001
                                     log.debug("vLLM 台账同步跳过: %s", exc)
                 except Exception as exc:  # noqa: BLE001 - vLLM 释放失败不阻断
-                    log.warning("vLLM 子进程释放异常: %s", exc)
+                    log.warning("vLLM 子进程释放异常: %s", exc, exc_info=True)
             else:
                 try:
                     from ...engines.vllm_service import get_vllm_service
@@ -1431,7 +1431,7 @@ class ModelManager:
                             log.info("ComfyUI 子进程按需终止(→%s)供显存: %dms",
                                      target, round((time.monotonic() - t_comfy) * 1000))
                     except Exception as exc:  # noqa: BLE001 - 释放失败不阻断
-                        log.warning("ComfyUI 子进程释放异常: %s", exc)
+                        log.warning("ComfyUI 子进程释放异常: %s", exc, exc_info=True)
 
         duration_ms = round((time.monotonic() - t0) * 1000)
         if freed_models or not vllm_kept_hot:

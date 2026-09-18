@@ -123,7 +123,7 @@ class FeaturePredictor:
                 )
             self._sqlite_ok = True
         except Exception as exc:  # noqa: BLE001
-            log.warning("model_usage_events 建表失败，降级内存缓冲: %s", exc)
+            log.warning("model_usage_events 建表失败，降级内存缓冲: %s", exc, exc_info=True)
             self._sqlite_ok = False
 
     def _warm_up(self) -> None:
@@ -145,7 +145,7 @@ class FeaturePredictor:
                     self._last_feature = last[0]
             log.info("ML 预测器预热完成: %d 条历史事件", len(rows))
         except Exception as exc:  # noqa: BLE001
-            log.warning("预测器预热失败（使用空计数启动）: %s", exc)
+            log.warning("预测器预热失败（使用空计数启动）: %s", exc, exc_info=True)
 
     def _try_load_xgboost(self) -> None:
         """加载已训练的 XGBoost 模型（可选）。
@@ -164,7 +164,7 @@ class FeaturePredictor:
             self.engine = "xgboost"
             log.info("XGBoost 功能预测模型已加载: %s", model_path)
         except Exception as exc:  # noqa: BLE001
-            log.warning("XGBoost 模型加载失败，回退马尔可夫: %s", exc)
+            log.warning("XGBoost 模型加载失败，回退马尔可夫: %s", exc, exc_info=True)
 
     # ── 计数累计 ────────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ class FeaturePredictor:
                         (ts, frm, to, hour, weekday),
                     )
             except Exception as exc:  # noqa: BLE001
-                log.warning("事件落库失败（内存计数已更新）: %s", exc)
+                log.warning("事件落库失败（内存计数已更新）: %s", exc, exc_info=True)
                 self._memory_events.append((ts, frm, to, hour, weekday))
         else:
             self._memory_events.append((ts, frm, to, hour, weekday))
@@ -319,7 +319,7 @@ class FeaturePredictor:
                 if p > 0.0
             }
         except Exception as exc:  # noqa: BLE001
-            log.warning("XGBoost 推理失败，回退马尔可夫: %s", exc)
+            log.warning("XGBoost 推理失败，回退马尔可夫: %s", exc, exc_info=True)
             self._booster = None
             self.engine = "markov+time"
             return {}
@@ -362,7 +362,7 @@ class FeaturePredictor:
                             "FROM model_usage_events"):
                         historical.add(str(feat))
             except Exception as exc:  # noqa: BLE001
-                log.warning("冷门功能统计查询失败: %s", exc)
+                log.warning("冷门功能统计查询失败: %s", exc, exc_info=True)
                 return []
         else:
             for ts, _frm, to, _hour, _weekday in self._memory_events:

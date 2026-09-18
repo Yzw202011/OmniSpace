@@ -150,7 +150,7 @@ def _ensure_llm_extractor() -> None:
             ks.set_llm_extractor(extractor)
             log.info("已向 knowledge_service 注入 LLM 提取器（对话引擎）")
         except Exception as exc:  # noqa: BLE001
-            log.warning("注入 LLM 提取器失败（将使用规则提取）: %s", exc)
+            log.warning("注入 LLM 提取器失败（将使用规则提取）: %s", exc, exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -475,7 +475,7 @@ def ensure_learning_tables() -> bool:
             log.info("学习域数据表初始化完成（4 张表）")
             return True
         except Exception as exc:  # noqa: BLE001
-            log.warning("学习域数据表初始化失败: %s", exc)
+            log.warning("学习域数据表初始化失败: %s", exc, exc_info=True)
             return False
 
 
@@ -497,7 +497,7 @@ def get_learning_settings() -> dict:
                 settings[row["key"]] = parse_json(row.get("value"),
                                                   settings.get(row["key"]))
         except Exception as exc:  # noqa: BLE001
-            log.warning("读取学习设置失败（使用默认值）: %s", exc)
+            log.warning("读取学习设置失败（使用默认值）: %s", exc, exc_info=True)
     return settings
 
 
@@ -518,7 +518,7 @@ def update_learning_settings(patch: dict) -> dict:
                     "updated_at=excluded.updated_at",
                     (key, json.dumps(value, ensure_ascii=False), now))
         except Exception as exc:  # noqa: BLE001
-            log.warning("写入学习设置失败: %s", exc)
+            log.warning("写入学习设置失败: %s", exc, exc_info=True)
     merged = get_learning_settings()
     # 联动：黑名单/广告过滤变更即时生效
     try:
@@ -749,7 +749,7 @@ class BrowserAgentService:
                              len(goals), time.time() - t0)
                     return goals
             except Exception as exc:  # noqa: BLE001
-                log.warning("LLM 目标拆解失败，回退模板: %s", exc)
+                log.warning("LLM 目标拆解失败，回退模板: %s", exc, exc_info=True)
         # 关键词模板回退
         return [
             SubGoal(id="sg1", title=f"{topic} 基础概念与定义",
@@ -801,7 +801,7 @@ class BrowserAgentService:
             data["text"] = browser.get_text()
             data["links"] = browser.get_links()
         except BrowserError as exc:
-            log.warning("页面感知失败: %s", exc.message)
+            log.warning("页面感知失败: %s", exc.message, exc_info=True)
         # TASK-052：随感知同步采集 DOM 结构特征（单次 JS 往返），
         # 供 classify_page 纯函数化使用（分类不再产生额外浏览器操作，
         # 否则每次分类都触发 ≥1s 节流，快速路径无法达标 <500ms）。
@@ -841,7 +841,7 @@ class BrowserAgentService:
             try:
                 summary = str(_page_understanding_provider(prompt))[:500]
             except Exception as exc:  # noqa: BLE001
-                log.warning("页面理解提供者调用失败（回退启发式）: %s", exc)
+                log.warning("页面理解提供者调用失败（回退启发式）: %s", exc, exc_info=True)
         if not summary:
             summary = re.sub(r"\s+", " ", text).strip()[:300]
         engine_hosts = ("bing.com/search", "baidu.com/s", "sogou.com/web",
@@ -986,7 +986,7 @@ class BrowserAgentService:
                     log.warning("决策提供者异常（%s），回退规则策略",
                                 result_holder.get("error", "unknown"))
             except Exception as exc:  # noqa: BLE001
-                log.warning("决策调用失败（回退规则策略）: %s", exc)
+                log.warning("决策调用失败（回退规则策略）: %s", exc, exc_info=True)
         if not action.get("choice"):
             action = rule_based_decision(session, understanding)
         return self._post_decision(session, action, t0,
@@ -1057,7 +1057,7 @@ class BrowserAgentService:
                     log.warning("快速决策提供者异常（%s），回退规则策略",
                                 result_holder.get("error", "unknown"))
             except Exception as exc:  # noqa: BLE001
-                log.warning("快速决策调用失败（回退规则策略）: %s", exc)
+                log.warning("快速决策调用失败（回退规则策略）: %s", exc, exc_info=True)
         if not action.get("choice"):
             action = rule_based_decision(session, understanding)
         out = self._post_decision(session, action, t0,
@@ -1274,7 +1274,7 @@ class BrowserAgentService:
             items = ks.process_page(text, session.goal, source_url=url)
             items = list(items or [])
         except Exception as exc:  # noqa: BLE001
-            log.warning("知识提取失败（不中断学习）: %s", exc)
+            log.warning("知识提取失败（不中断学习）: %s", exc, exc_info=True)
             return []
         session.knowledge_extracted += len(items)
         for it in items[:3]:
@@ -1385,7 +1385,7 @@ class BrowserAgentService:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
-            log.warning("检查点读取失败: %s", exc)
+            log.warning("检查点读取失败: %s", exc, exc_info=True)
             return None
         session = LearningSession(
             session_id=str(payload.get("session_id", session_id)),

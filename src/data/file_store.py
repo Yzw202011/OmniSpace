@@ -214,7 +214,7 @@ class FileStore:
                 return True
             return False
         except (ValueError, OSError) as exc:
-            log.warning("删除文件失败 %s: %s", rel_path, exc)
+            log.warning("删除文件失败 %s: %s", rel_path, exc, exc_info=True)
             return False
 
     # ── 清理 ──────────────────────────────────────────────────

@@ -301,7 +301,7 @@ class TaskQueueCore:
             except Exception as exc:  # noqa: BLE001 - 统一记账
                 err = exc
         except Exception as exc:  # noqa: BLE001 - 准入失败/取消
-            log.error("%s任务准入失败: %s: %s", self.spec.name, task_id, exc)
+            log.error("%s任务准入失败: %s: %s", self.spec.name, task_id, exc, exc_info=True)
             err = exc
         finally:
             self._h(self.spec.budget_release_hook)(task)
@@ -309,7 +309,7 @@ class TaskQueueCore:
                 try:
                     finish(err)
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("on_finish 钩子异常: %s", exc)
+                    log.warning("on_finish 钩子异常: %s", exc, exc_info=True)
 
     def _wait_admission(self, task: dict) -> None:
         task_id = str(task.get("task_id"))
@@ -376,7 +376,7 @@ class TaskQueueCore:
         try:
             self._h(self.spec.cloud_run_hook)(task)
         except Exception as exc:  # noqa: BLE001
-            log.error("%s云任务执行异常: %s: %s", self.spec.name, task_id, exc)
+            log.error("%s云任务执行异常: %s: %s", self.spec.name, task_id, exc, exc_info=True)
         finally:
             with self._cond:
                 self._cloud_running.pop(task_id, None)

@@ -53,7 +53,7 @@ async def sleep_vllm_for_generation() -> None:
         await run_blocking(
             get_yield_coordinator().sleep_for_generation, "manga")
     except Exception as exc:  # noqa: BLE001
-        log.warning("vLLM 睡眠协商失败（不阻断生成）: %s", exc)
+        log.warning("vLLM 睡眠协商失败（不阻断生成）: %s", exc, exc_info=True)
 
 
 async def wake_vllm_after_generation() -> None:
@@ -70,7 +70,7 @@ async def wake_vllm_after_generation() -> None:
         await run_blocking(
             get_yield_coordinator().wake_now, "manga")
     except Exception as exc:  # noqa: BLE001
-        log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc)
+        log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc, exc_info=True)
 
 
 async def unload_paint_pipeline() -> None:
@@ -359,7 +359,7 @@ def _fetch_bound_assets(db: Database, asset_ids: list[str] | str | None) -> list
                 "FROM comic_assets WHERE id=?",
                 (aid,))
         except Exception as exc:  # noqa: BLE001 - 单资产查询失败跳过
-            log.warning("绑定资产查询失败（跳过）: %s %s", aid, exc)
+            log.warning("绑定资产查询失败（跳过）: %s %s", aid, exc, exc_info=True)
             row = None
         if row:
             # meta 解析为 dict（生成引擎/模型画像——后处理档位仲裁用；
@@ -1403,11 +1403,11 @@ def unload_paint_engines_sync() -> None:
         )
         get_comfy_paint_engine().unload()
     except Exception as exc:  # noqa: BLE001
-        log.warning("comfy 绘画栈卸载失败（不阻断）: %s", exc)
+        log.warning("comfy 绘画栈卸载失败（不阻断）: %s", exc, exc_info=True)
     try:
         get_paint_engine().unload_model()
     except Exception as exc:  # noqa: BLE001
-        log.warning("legacy 绘画栈卸载失败（不阻断）: %s", exc)
+        log.warning("legacy 绘画栈卸载失败（不阻断）: %s", exc, exc_info=True)
 
 
 async def unload_paint_engines() -> None:
@@ -1479,7 +1479,7 @@ def _generate_asset_sync(req: AssetGenerateRequest, kind: str,
                 from PIL import Image as _PILImage
                 image = image.resize((req.width, req.height), _PILImage.LANCZOS)
         except Exception as exc:  # noqa: BLE001 - comfy 失败落回 legacy 链
-            log.warning("comfy klein 资产出图失败，落回 legacy 链: %s", exc)
+            log.warning("comfy klein 资产出图失败，落回 legacy 链: %s", exc, exc_info=True)
 
     if image is None and cloud_endpoint is None \
             and engine.ensure_loaded("flux2-klein-4b"):

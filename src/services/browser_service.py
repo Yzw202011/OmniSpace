@@ -351,7 +351,7 @@ def load_ad_rules(path: Path | str = EASYLIST_PATH,
         log.info("EasyList 加载完成: %d 域名规则 + %d 子串规则",
                  len(domains), len(substrings))
     except Exception as exc:  # noqa: BLE001
-        log.warning("EasyList 规则解析失败（忽略，继续无过滤运行）: %s", exc)
+        log.warning("EasyList 规则解析失败（忽略，继续无过滤运行）: %s", exc, exc_info=True)
     return domains, substrings
 
 
@@ -957,7 +957,7 @@ class BrowserService:
                         result = [str(d).strip().lower() for d in val
                                   if str(d).strip()]
         except Exception as exc:  # noqa: BLE001 - 黑名单不可用时放行并日志
-            log.warning("读取域名黑名单失败（按空名单处理）: %s", exc)
+            log.warning("读取域名黑名单失败（按空名单处理）: %s", exc, exc_info=True)
         self._blacklist_cache = result
         self._blacklist_loaded_at = now
         return result

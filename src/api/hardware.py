@@ -131,7 +131,7 @@ def _build_hardware_profile() -> dict:
             return {"gpu": gpu_info, "cpu": cpu_info, "ram": ram_info,
                     "disk": disk_info, "power": power}
         except Exception as exc:  # noqa: BLE001 - 降级到未知画像
-            log.warning("psutil 采集失败，硬件画像标记未知（不回填模拟数据）：%s", exc)
+            log.warning("psutil 采集失败，硬件画像标记未知（不回填模拟数据）：%s", exc, exc_info=True)
 
     # P1-05：硬件探测失败——返回未知画像（零值+未知标注），
     # 不再回填 Mock CPU/32GB/512GB/80.5% 等编造数据
@@ -176,7 +176,7 @@ def _realtime_gpu() -> dict:
                 "temp_celsius": float(gpu.get("temp_celsius", 0.0)),
             }
     except Exception as exc:
-        log.warning("GPU 实时遥测获取失败（标记未知，不回填假读数）: %s", exc)
+        log.warning("GPU 实时遥测获取失败（标记未知，不回填假读数）: %s", exc, exc_info=True)
     # 无 GPU 或探测失败：未知标记（None = 前端显示 -- 并禁用相关展示）
     return {"available": False, "usage_percent": None, "vram_used_mb": None,
             "vram_total_mb": None, "vram_free_mb": None, "temp_celsius": None}
@@ -203,7 +203,7 @@ def _realtime_data() -> dict:
                 "timestamp": time.time(),
             }
         except Exception as exc:  # noqa: BLE001
-            log.warning("实时遥测采集失败（标记未知，不回填模拟读数）：%s", exc)
+            log.warning("实时遥测采集失败（标记未知，不回填模拟读数）：%s", exc, exc_info=True)
     return {
         "gpu": {"available": False, "usage_percent": None, "vram_used_mb": None,
                 "vram_total_mb": None, "vram_free_mb": None, "temp_celsius": None},
@@ -354,7 +354,7 @@ def hardware_synergy() -> dict[str, Any]:
             vram["resident_models"] = [snap["active_model"]]
         vram["cached_models"] = snap.get("cached_models", []) or []
     except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
-        log.warning("调度引擎状态获取失败: %s", exc)
+        log.warning("调度引擎状态获取失败: %s", exc, exc_info=True)
 
     # 4. 热保护状态快照（规格 §4.1.3：状态经 /hardware 暴露给前端，
     #    thermal_guard.get_status() 原生承载；获取失败降级为空 dict）
@@ -363,7 +363,7 @@ def hardware_synergy() -> dict[str, Any]:
         from ..services.thermal_guard import get_thermal_guard
         thermal_guard = get_thermal_guard().get_status()
     except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
-        log.warning("热保护状态获取失败: %s", exc)
+        log.warning("热保护状态获取失败: %s", exc, exc_info=True)
 
     # 5. 资源硬限制守卫快照（用户裁定 2026-08-22：RAM ≤85% / VRAM ≤90%）
     resource_guard: dict = {}
@@ -371,7 +371,7 @@ def hardware_synergy() -> dict[str, Any]:
         from ..services.resource_guard import get_resource_guard
         resource_guard = get_resource_guard().get_status()
     except Exception as exc:  # noqa: BLE001 - 降级而非崩溃
-        log.warning("资源守卫状态获取失败: %s", exc)
+        log.warning("资源守卫状态获取失败: %s", exc, exc_info=True)
 
     return ok({"scheduler": scheduler, "vram": vram,
                "feature_lock": feature_lock, "thermal_guard": thermal_guard,
@@ -398,4 +398,4 @@ async def hardware_realtime_ws(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         log.info("硬件实时推送 WebSocket 已断开")
     except Exception as exc:  # noqa: BLE001
-        log.warning("硬件实时推送异常：%s", exc)
+        log.warning("硬件实时推送异常：%s", exc, exc_info=True)

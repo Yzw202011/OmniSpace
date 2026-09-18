@@ -173,7 +173,7 @@ def _detect_row_grid(db: Database, req: VideoGenerateRequest) -> dict | None:
             if kf:
                 kf_prompt = (kf.get("prompt") or "").strip()
         except Exception as exc:  # noqa: BLE001 - 查询失败退回请求描述判据
-            log.warning("关键帧记录查询失败，网格判据退回请求描述: %s", exc)
+            log.warning("关键帧记录查询失败，网格判据退回请求描述: %s", exc, exc_info=True)
     source = kf_prompt if kf_prompt is not None else (req.description or "")
     grid = _parse_abc_shots(source)
     if not grid.get("layout") or len(grid.get("shots") or []) < 2:
@@ -241,7 +241,7 @@ def _probe_has_audio(enc: EncoderService, path: Path) -> bool:
             capture_output=True, text=True, timeout=30, creationflags=flags)
         return bool(r.stdout.strip())
     except Exception as exc:  # noqa: BLE001 - 探测失败按有音频（多数管线带轨）
-        log.warning("音频流探测失败（按含音频处理）%s: %s", path, exc)
+        log.warning("音频流探测失败（按含音频处理）%s: %s", path, exc, exc_info=True)
         return True
 
 
@@ -550,7 +550,7 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
                 "SELECT asset_ids FROM storyboard_rows WHERE id=?",
                 (req.storyboard_row_id,))
         except Exception as exc:  # noqa: BLE001 - 资产查询失败回退请求字段
-            log.warning("H3 绑定资产查询失败，回退请求字段: %s", exc)
+            log.warning("H3 绑定资产查询失败，回退请求字段: %s", exc, exc_info=True)
     assets = _fetch_bound_assets(
         db, (row or {}).get("asset_ids") or req.character_assets) \
         if db is not None else []
@@ -607,7 +607,7 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
             shrink_working_set()
             log.info("H3 生成前已卸载对话引擎让渡显存")
     except Exception as exc:  # noqa: BLE001 - 卸载失败保守继续
-        log.warning("H3 生成前对话引擎卸载失败（显存风险继续）: %s", exc)
+        log.warning("H3 生成前对话引擎卸载失败（显存风险继续）: %s", exc, exc_info=True)
 
     # 5) 逐镜生成（引擎内串行 + 生成毕即卸权重）→ 裁时拼接
     seg_dir = out_path.parent / f"{out_path.stem}_h3seg"
@@ -702,7 +702,7 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
             _vs.stop()
             log.info("本地视频管线前停止 vLLM 让渡显存 (task=%s)", task_id)
     except Exception as exc:  # noqa: BLE001 - 协商失败不阻断（保守继续）
-        log.warning("视频生成前 vLLM 停止失败（显存风险继续）: %s", exc)
+        log.warning("视频生成前 vLLM 停止失败（显存风险继续）: %s", exc, exc_info=True)
 
     out_path = VIDEO_OUT_DIR / f"{task_id}.mp4"
     start = time.time()
@@ -876,10 +876,10 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
                 os.remove(real_file)
                 log.info("已清理取消任务的真实管线孤本: %s", real_file)
             except OSError as exc:
-                log.warning("真实管线孤本清理失败 %s: %s", real_file, exc)
+                log.warning("真实管线孤本清理失败 %s: %s", real_file, exc, exc_info=True)
         flow.end("cancelled", error_detail="用户取消")
     except Exception as exc:  # noqa: BLE001 - 任务失败标记 error，不崩溃
-        log.error("视频任务失败: %s: %s", task_id, exc)
+        log.error("视频任务失败: %s: %s", task_id, exc, exc_info=True)
         _video_update_task(task_id, {"status": "error", "error": str(exc)[:500]})
         # 内存镜像保存错误详情（video_tasks 表无 error 列，供 status 端点读取）
         mirror = _video_tasks.setdefault(task_id, {"id": task_id, "progress": 0.0})
@@ -971,7 +971,7 @@ def _resolve_video_cloud_endpoint():
         from ...services.cloud_provider_service import get_video_endpoint
         return get_video_endpoint("manga.video")
     except Exception as exc:  # noqa: BLE001 - 解析失败按本地（不阻断）
-        log.warning("视频云端路由解析失败（按本地引擎）: %s", exc)
+        log.warning("视频云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         return None
 
 
@@ -998,7 +998,7 @@ def _load_first_frame_for_row(row_id: str):
     try:
         return Image.open(target).convert("RGB")
     except Exception as exc:  # noqa: BLE001 - 关键帧文件损坏
-        log.warning("关键帧首帧读取失败: %s: %s", target, exc)
+        log.warning("关键帧首帧读取失败: %s: %s", target, exc, exc_info=True)
         return None
 
 
@@ -1027,7 +1027,7 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
                          {"generation_status": status},
                          "id=?", (req.storyboard_row_id,))
             except Exception as exc:  # noqa: BLE001
-                log.warning("行状态回写失败（不阻断）: %s", exc)
+                log.warning("行状态回写失败（不阻断）: %s", exc, exc_info=True)
 
         def _prog(pct: int) -> None:
             _video_update_task(
@@ -1059,7 +1059,7 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
             _set_rows("error")
             _flow.end("cancelled", error_detail="用户取消")
         except Exception as exc:  # noqa: BLE001
-            log.error("云端视频生成失败: %s", exc)
+            log.error("云端视频生成失败: %s", exc, exc_info=True)
             _video_update_task(task_id, {
                 "status": "error", "progress": 1.0,
                 "generation_time_ms": int((time.time() - t0) * 1000),
@@ -1106,7 +1106,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                     "AND status IN ('generating','pending') LIMIT 1",
                     (req.storyboard_row_id,)))
             except Exception as exc:  # noqa: BLE001 - 查重失败放行不阻断
-                log.warning("视频任务连点查重失败（放行）: %s", exc)
+                log.warning("视频任务连点查重失败（放行）: %s", exc, exc_info=True)
         if _dup:
             raise ApiError(
                 60001, "该分镜已有视频任务在生成中，请等待完成或先取消",
@@ -1134,7 +1134,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                     "SELECT description, asset_ids FROM storyboard_rows "
                     "WHERE id=?", (req.storyboard_row_id,)))
             except Exception as exc:  # noqa: BLE001
-                log.warning("H3 入口前置校验查询失败: %s", exc)
+                log.warning("H3 入口前置校验查询失败: %s", exc, exc_info=True)
         if _row is None:
             raise ApiError(
                 40005, "分镜行不存在",
@@ -1161,7 +1161,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                     f"WHERE id IN ({_ph}) AND file_path!=''",
                     _ids)) or {}).get("n") or 0)
             except Exception as exc:  # noqa: BLE001
-                log.warning("绑定资产计数失败（放行交引擎校验）: %s", exc)
+                log.warning("绑定资产计数失败（放行交引擎校验）: %s", exc, exc_info=True)
         if _n_img == 0:
             raise ApiError(
                 40005, "该分镜行未绑定带图资产（人物/场景/道具），"
@@ -1209,7 +1209,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             })
             persisted = True
         except Exception as exc:  # noqa: BLE001
-            log.warning("视频任务落库失败，降级内存存储: %s", exc)
+            log.warning("视频任务落库失败，降级内存存储: %s", exc, exc_info=True)
     if not persisted:
         _video_tasks[task_id] = {
             "id": task_id, "storyboard_row_id": req.storyboard_row_id,
@@ -1357,7 +1357,7 @@ def video_status(task_id: str) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
+            log.warning("数据库查询失败，降级内存存储: %s", exc, exc_info=True)
 
     task = _video_tasks.get(task_id)
     if task is None:
@@ -1385,7 +1385,7 @@ def _video_task_record(task_id: str) -> dict | None:
             if row is not None:
                 return row
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败，降级内存存储: %s", exc)
+            log.warning("数据库查询失败，降级内存存储: %s", exc, exc_info=True)
     return _video_tasks.get(task_id)
 
 
@@ -1677,7 +1677,7 @@ async def list_available_models(task_type: str = Query("dialog")) -> dict[str, A
         if allowed is not None:
             items = [m for m in items if m["id"] in allowed]
     except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
-        log.warning("漫剧%s槽白名单过滤跳过: %s", task_type, exc)
+        log.warning("漫剧%s槽白名单过滤跳过: %s", task_type, exc, exc_info=True)
     return ok({"items": items, "total": len(items),
                "default_model": default_model or ""})
 
@@ -1874,7 +1874,7 @@ async def video_narrative_generate(req: VideoNarrativeRequest) -> dict[str, Any]
                 updated_rows.append(r)
                 done += 1
             except Exception as exc:  # noqa: BLE001 - 单行失败不阻断批次
-                log.warning("A/B/C 视频描述词生成失败 %s: %s", r["id"], exc)
+                log.warning("A/B/C 视频描述词生成失败 %s: %s", r["id"], exc, exc_info=True)
                 failed += 1
 
         # rows 与 story/narrative 同形态：更新后的行数组，供前端回写收敛
@@ -1929,7 +1929,7 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
                     "AND status IN ('generating','pending') LIMIT 1",
                     (req.storyboard_row_id,)))
             except Exception as exc:  # noqa: BLE001
-                log.warning("H3 链式连点查重失败（放行）: %s", exc)
+                log.warning("H3 链式连点查重失败（放行）: %s", exc, exc_info=True)
         if _dup:
             raise ApiError(
                 60001, "该分镜已有视频任务在生成中，请等待完成或先取消",
@@ -1951,7 +1951,7 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
                 "has_audio_sync": 1, "created_at": now, "updated_at": now,
             })
         except Exception as exc:  # noqa: BLE001
-            log.warning("H3 链式任务落库失败: %s", exc)
+            log.warning("H3 链式任务落库失败: %s", exc, exc_info=True)
 
     runner = _make_h3_chain_runner(
         row_ids=row_ids, seconds=req.seconds_per_shot, quality=req.quality,

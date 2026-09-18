@@ -83,7 +83,7 @@ class FtsStore:
             self._fts5 = True
             log.info("knowledge_fts 全文索引就绪（FTS5/trigram）")
         except Exception as exc:  # noqa: BLE001
-            log.warning("FTS5 不可用（%s），回退普通表+LIKE", exc)
+            log.warning("FTS5 不可用（%s），回退普通表+LIKE", exc, exc_info=True)
             try:
                 self._db.executescript(_PLAIN_DDL)
             except Exception:  # noqa: BLE001

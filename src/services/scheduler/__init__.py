@@ -110,7 +110,7 @@ class SchedulerEngine:
             try:
                 await loop.run_in_executor(None, self.tick)
             except Exception as exc:  # noqa: BLE001 - 不让循环崩溃
-                log.warning("调度周期异常: %s", exc)
+                log.warning("调度周期异常: %s", exc, exc_info=True)
             await asyncio.sleep(interval)
 
     # ── 调度核心 ──────────────────────────────────────────────────
@@ -203,7 +203,7 @@ class SchedulerEngine:
                 self.decision.execute_strategy(applied_mode, self.dispatcher)
             except Exception as exc:  # noqa: BLE001 - 策略异常不阻断调度循环
                 success = False
-                log.warning("调度策略执行异常(%s): %s", applied_mode.value, exc)
+                log.warning("调度策略执行异常(%s): %s", applied_mode.value, exc, exc_info=True)
             self.current_mode = applied_mode
             # 4. 协同调度历史学习（文档B 第四章引擎3）：
             #    每次模式切换决策落库，供成功率/等待回归与阈值自调整。

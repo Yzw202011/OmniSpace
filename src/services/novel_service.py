@@ -147,7 +147,7 @@ class NovelJobQueue:
             except NovelJobCancelled:
                 log.info("小说任务已取消: %s", job.task_id)
             except Exception as exc:  # noqa: BLE001 - 失败留痕给前端横幅
-                log.warning("小说任务异常收尾: %s %s", job.task_id, exc)
+                log.warning("小说任务异常收尾: %s %s", job.task_id, exc, exc_info=True)
                 _JOB_PROGRESS[job.task_id] = {
                     "stage": "error",
                     "detail": f"生成失败：{exc}"[:200],
@@ -257,7 +257,7 @@ def _ensure_engine_sync() -> str:
                     get_model_manager().unload_model(cur)
                     log.info("小说换装模型: 已卸 %s 腾显存给 %s", cur, mid)
                 except Exception as exc:  # noqa: BLE001 - 卸载失败继续试
-                    log.warning("卸载 %s 失败（继续尝试装载）: %s", cur, exc)
+                    log.warning("卸载 %s 失败（继续尝试装载）: %s", cur, exc, exc_info=True)
             eng.ensure_loaded(mid)
             if eng.is_ready:
                 log.info("小说生成使用对话模型: %s", mid)
@@ -319,7 +319,7 @@ def retrieve_worldview_sync(query: str,
         rows = get_injection_service().retrieve(query.strip(),
                                                 top_k=top_k) or []
     except Exception as exc:  # noqa: BLE001 - 检索失败不阻断正文生成
-        log.warning("世界观检索失败（按无资料继续）: %s", exc)
+        log.warning("世界观检索失败（按无资料继续）: %s", exc, exc_info=True)
         return ""
     blocks: list[str] = []
     total = 0
@@ -842,7 +842,7 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
                 summary = summary.strip().splitlines()[0][:300] \
                     if summary.strip() else ""
             except Exception as exc:  # noqa: BLE001 - 摘要失败不影响正文
-                log.warning("章节摘要生成失败（正文已保留）: %s", exc)
+                log.warning("章节摘要生成失败（正文已保留）: %s", exc, exc_info=True)
         word_count = len(content)
         await run_blocking(lambda content=content: db.update("novel_chapters", {
             "content": content, "summary": summary,

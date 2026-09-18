@@ -47,7 +47,7 @@ def _call_browser(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     except BrowserError as exc:
         raise ApiError(exc.code, exc.message, detail=exc.detail) from exc
     except Exception as exc:  # noqa: BLE001
-        log.warning("浏览器接口异常: %s", exc)
+        log.warning("浏览器接口异常: %s", exc, exc_info=True)
         raise ApiError(ERR_BROWSER_UNAVAILABLE,
                        f"浏览器服务异常：{exc}") from exc
 

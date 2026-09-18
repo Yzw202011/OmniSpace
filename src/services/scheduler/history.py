@@ -76,7 +76,7 @@ class ScheduleHistory:
             from ...data.database import get_db
             get_db().insert("schedule_history", row)
         except Exception as exc:  # noqa: BLE001 - 学习引擎不得影响调度主链
-            log.warning("调度历史落库失败，降级内存缓冲: %s", exc)
+            log.warning("调度历史落库失败，降级内存缓冲: %s", exc, exc_info=True)
             self._db_failed = True
             self._mem.append(row)
 
@@ -96,7 +96,7 @@ class ScheduleHistory:
                 if rows or not self._mem:
                     return rows
             except Exception as exc:  # noqa: BLE001
-                log.warning("调度历史读取失败，使用内存缓冲: %s", exc)
+                log.warning("调度历史读取失败，使用内存缓冲: %s", exc, exc_info=True)
                 self._db_failed = True
         return list(self._mem)[-limit:][::-1]
 

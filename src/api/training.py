@@ -56,7 +56,7 @@ def _collect(kind: str, fn: Callable[[], dict[str, Any]],
         sources[kind] = {"ok": True, "count": len(items), "error": None}
         return [_norm(it, kind) for it in items if isinstance(it, dict)]
     except (ApiError, Exception) as exc:  # noqa: BLE001 - 单源失败不拖垮整队
-        log.warning("训练队列聚合: %s 源失败: %s", kind, exc)
+        log.warning("训练队列聚合: %s 源失败: %s", kind, exc, exc_info=True)
         sources[kind] = {"ok": False, "count": 0, "error": str(exc)}
         return []
 

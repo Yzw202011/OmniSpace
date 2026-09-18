@@ -190,7 +190,7 @@ class ResourceGuard:
                 _log_event("ram_critical_shed", detail, level="warning")
                 log.warning("RAM 危急收缩: %s", detail)
             except Exception as exc:  # noqa: BLE001 - 收缩失败不影响守卫主链
-                log.warning("RAM 危急收缩失败: %s", exc)
+                log.warning("RAM 危急收缩失败: %s", exc, exc_info=True)
 
     # ── VRAM 动作线：逐个卸载直到回到线下 ───────────────────────
     def _shed_vram(self, ratio: float) -> None:
@@ -282,7 +282,7 @@ class ResourceGuard:
             self._record_event("commit_critical_shed", msg)
             _log_event("commit_critical_shed", msg, level="warning")
         except Exception as exc:  # noqa: BLE001 - 收缩失败不影响守卫主链
-            log.warning("提交内存危急收缩失败: %s", exc)
+            log.warning("提交内存危急收缩失败: %s", exc, exc_info=True)
 
     # ── 卸载候选筛选 ────────────────────────────────────────────
     def _evict_candidates(self) -> list[dict]:

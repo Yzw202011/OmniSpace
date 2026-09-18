@@ -554,7 +554,7 @@ class VramYieldCoordinator:
 
             get_vllm_service().wake_from_paint()
         except Exception as exc:  # noqa: BLE001 - 唤醒失败不影响生成结果
-            log.warning("vLLM 唤醒协商失败（source=%s）: %s", source, exc)
+            log.warning("vLLM 唤醒协商失败（source=%s）: %s", source, exc, exc_info=True)
 
     def schedule_wake_if_idle(
         self,
@@ -607,7 +607,7 @@ class VramYieldCoordinator:
                 else:
                     self.wake_now(source)
             except Exception as exc:  # noqa: BLE001 - 定时器永不抛出
-                log.warning("vLLM 去抖唤醒定时器异常: %s", exc)
+                log.warning("vLLM 去抖唤醒定时器异常: %s", exc, exc_info=True)
 
         threading.Thread(
             target=_fire, daemon=True,

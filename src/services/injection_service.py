@@ -83,7 +83,7 @@ class KnowledgeInjectionService:
                 score = 1.0 - float(r.get("distance", 1.0) or 0.0)
                 vec_map[kid] = (r, score)
         except Exception as exc:  # noqa: BLE001
-            log.warning("向量召回失败，仅走关键词路: %s", exc)
+            log.warning("向量召回失败，仅走关键词路: %s", exc, exc_info=True)
 
         # 路2：关键词召回（FTS5/LIKE，异常按空路处理）
         kw_ids: set[str] = set()
@@ -94,7 +94,7 @@ class KnowledgeInjectionService:
                     kw_ids.add(kid)
                     kw_ranked.append(kid)
         except Exception as exc:  # noqa: BLE001
-            log.warning("关键词召回失败，仅走向量路: %s", exc)
+            log.warning("关键词召回失败，仅走向量路: %s", exc, exc_info=True)
 
         # RRF 融合（只吃名次）
         fused: dict[str, float] = {}

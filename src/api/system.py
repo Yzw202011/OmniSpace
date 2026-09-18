@@ -81,7 +81,7 @@ def _kv_set(key: str, value: Any) -> None:
             " value=excluded.value, updated_at=excluded.updated_at",
             (key, json.dumps(value, ensure_ascii=False), time.time()))
     except Exception as exc:  # noqa: BLE001
-        log.warning("system_settings 写入失败 %s: %s", key, exc)
+        log.warning("system_settings 写入失败 %s: %s", key, exc, exc_info=True)
 
 
 def _load_persisted_settings() -> dict:
@@ -292,7 +292,7 @@ async def system_backup() -> dict[str, Any]:
     try:
         file_path = await run_blocking(_write_settings_backup)
     except Exception as exc:  # noqa: BLE001
-        log.warning("备份写盘失败，仅返回内存副本：%s", exc)
+        log.warning("备份写盘失败，仅返回内存副本：%s", exc, exc_info=True)
 
     # 数据库热备（sqlite3 backup API，WAL 下安全）
     db = get_db_safe()
@@ -300,7 +300,7 @@ async def system_backup() -> dict[str, Any]:
         try:
             db_path = await run_blocking(_backup_db)
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库热备失败：%s", exc)
+            log.warning("数据库热备失败：%s", exc, exc_info=True)
 
     return ok({"backup_id": backup_id, "path": file_path,
                "db_path": db_path,
@@ -702,7 +702,7 @@ async def system_diagnose() -> dict[str, Any]:
         try:
             status, detail = probe()
         except Exception as exc:  # noqa: BLE001 - 单项异常不阻断整体诊断
-            log.warning("诊断项 %s 探测异常: %s", name, exc)
+            log.warning("诊断项 %s 探测异常: %s", name, exc, exc_info=True)
             status, detail = "warn", f"探测异常: {exc}"
         results.append({"index": i + 1, "name": name,
                         "status": status, "detail": detail})
@@ -872,7 +872,7 @@ async def system_project_export(req: ProjectExport) -> dict[str, Any]:
     except ApiError:
         raise
     except Exception as exc:  # noqa: BLE001
-        log.error("项目导出写盘失败：%s", exc)
+        log.error("项目导出写盘失败：%s", exc, exc_info=True)
         raise ApiError("SYSTEM_BACKUP_FAILED", "项目导出失败，请检查磁盘空间",
                        detail={"project_id": req.project_id, "error": str(exc)}) from exc
 
@@ -1062,7 +1062,7 @@ def _restore_project_records(db: Database, project: dict, sb_pack: dict,
         raise
     except Exception as exc:  # noqa: BLE001
         # 恢复中途失败：级联删除已建项目，避免半截数据
-        log.error("项目导入恢复失败：%s", exc)
+        log.error("项目导入恢复失败：%s", exc, exc_info=True)
         try:
             db.delete("projects", "id=?", (project_id,))
         except Exception:  # noqa: BLE001
@@ -1140,7 +1140,7 @@ def system_info() -> dict[str, Any]:
             "ram_total_gb": profile.get("ram", {}).get("total_gb", 0.0),
         }
     except Exception as exc:  # noqa: BLE001 - 硬件摘要失败不阻塞版本信息
-        log.warning("系统信息硬件摘要采集失败（降级）: %s", exc)
+        log.warning("系统信息硬件摘要采集失败（降级）: %s", exc, exc_info=True)
     return ok(data)
 
 
@@ -1198,7 +1198,7 @@ def inference_config_put(body: dict = Body(default_factory=dict)) -> dict[str, A
             torch.set_num_threads(num_threads)
             applied_now = True
         except Exception as exc:  # noqa: BLE001
-            log.warning("torch.set_num_threads 失败: %s", exc)
+            log.warning("torch.set_num_threads 失败: %s", exc, exc_info=True)
 
     cfg = {"num_threads": num_threads,
            "clear_cache_on_unload": clear_cache}
@@ -1361,7 +1361,7 @@ def _prune_old_backups() -> None:
             for old in files[:-keep] if len(files) > keep else []:
                 old.unlink(missing_ok=True)
     except OSError as exc:
-        log.warning("备份滚动清理失败（不影响备份本身）: %s", exc)
+        log.warning("备份滚动清理失败（不影响备份本身）: %s", exc, exc_info=True)
 
 
 def _backup_scheduler_loop() -> None:
@@ -1378,7 +1378,7 @@ def _backup_scheduler_loop() -> None:
                     log.info("自动备份完成（间隔 %.1fh）",
                              float(cfg.get("interval_hours", 24)))
         except Exception as exc:  # noqa: BLE001
-            log.warning("自动备份执行失败: %s", exc)
+            log.warning("自动备份执行失败: %s", exc, exc_info=True)
         time.sleep(60)
 
 
@@ -1503,7 +1503,7 @@ async def system_full_export() -> dict[str, Any]:
     try:
         sha = await run_blocking(_write_full_export, dest)
     except Exception as exc:  # noqa: BLE001
-        log.error("全量导出失败: %s", exc)
+        log.error("全量导出失败: %s", exc, exc_info=True)
         raise ApiError("SYSTEM_BACKUP_FAILED", "全量导出失败，请检查磁盘空间",
                        detail={"error": str(exc)}) from exc
     return ok({"path": str(dest), "size_bytes": dest.stat().st_size,
@@ -1693,7 +1693,7 @@ def _do_restart() -> None:
     try:
         os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as exc:  # noqa: BLE001
-        log.error("自重启失败: %s", exc)
+        log.error("自重启失败: %s", exc, exc_info=True)
 
 
 @router.post("/system/restart")

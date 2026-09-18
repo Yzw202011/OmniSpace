@@ -87,7 +87,7 @@ def _safe_rmtree(path: Path, base: Path) -> None:
     try:
         shutil.rmtree(path, ignore_errors=True)
     except OSError as exc:
-        log.warning("目录删除失败 %s: %s", path, exc)
+        log.warning("目录删除失败 %s: %s", path, exc, exc_info=True)
 
 
 def _safe_unlink(path: Path, base: Path) -> None:
@@ -98,7 +98,7 @@ def _safe_unlink(path: Path, base: Path) -> None:
     try:
         path.unlink(missing_ok=True)
     except OSError as exc:
-        log.warning("文件删除失败 %s: %s", path, exc)
+        log.warning("文件删除失败 %s: %s", path, exc, exc_info=True)
 
 
 def _cleanup_comfy_run_dirs(task_ids: list[str]) -> None:
@@ -116,7 +116,7 @@ def _cleanup_comfy_run_dirs(task_ids: list[str]) -> None:
             _safe_rmtree(_COMFY_OUTPUT / "h3_chains" / f"h3chain_{tid}",
                          _COMFY_OUTPUT)
     except Exception as exc:  # noqa: BLE001 - 清理失败不阻塞主流程
-        log.warning("ComfyUI 工作目录清理失败: %s", exc)
+        log.warning("ComfyUI 工作目录清理失败: %s", exc, exc_info=True)
 
 
 def _cleanup_project_disk(project_id: str, row_ids: list[str],
@@ -156,7 +156,7 @@ def _cleanup_project_disk(project_id: str, row_ids: list[str],
         #   实际应为 video_task_ids，2026-09-01 修复）
         _cleanup_comfy_run_dirs(video_task_ids)
     except Exception as exc:  # noqa: BLE001 - 磁盘清理不阻塞主流程
-        log.warning("项目磁盘清理失败 %s: %s", project_id, exc)
+        log.warning("项目磁盘清理失败 %s: %s", project_id, exc, exc_info=True)
 
 
 @router.post("/comic/project/create")
@@ -247,7 +247,7 @@ def art_style_list() -> dict[str, Any]:
                       "has_pack_def": bool(r.get("pack_def", ""))}
                      for r in rows]
         except Exception as exc:  # noqa: BLE001
-            log.warning("自定义风格列表读取失败: %s", exc)
+            log.warning("自定义风格列表读取失败: %s", exc, exc_info=True)
     return ok({"items": items, "total": len(items)})
 
 
@@ -323,7 +323,7 @@ def _ensure_pack_columns(db: Database) -> None:
             log.info("art_styles 族回填完成: %d/%d 张卡绑定风格包",
                      len(updates), len(rows))
     except Exception as exc:  # noqa: BLE001 - 回填失败不阻断接口
-        log.warning("art_styles 族回填失败（不影响现有行为）: %s", exc)
+        log.warning("art_styles 族回填失败（不影响现有行为）: %s", exc, exc_info=True)
 
 
 @router.delete("/comic/art-style/{style_id}")

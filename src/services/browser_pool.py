@@ -103,7 +103,7 @@ class BrowserPool:
             ok = inst.is_running or inst.init(headless=headless,
                                               timeout=timeout)
         except Exception as exc:  # noqa: BLE001 - 预热失败不崩溃
-            log.warning("浏览器池预热异常（降级懒初始化）: %s", exc)
+            log.warning("浏览器池预热异常（降级懒初始化）: %s", exc, exc_info=True)
             ok = False
         with self._cond:
             self._instance = inst
@@ -213,7 +213,7 @@ class BrowserPool:
             log.debug("会话隔离清理完成（%.0fms），干净快照已预建",
                       (time.time() - t0) * 1000.0)
         except BrowserError as exc:
-            log.warning("会话隔离清理失败: %s", exc.message)
+            log.warning("会话隔离清理失败: %s", exc.message, exc_info=True)
 
     # ── 状态 / 关闭 ──────────────────────────────────────────────
 

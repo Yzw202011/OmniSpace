@@ -192,7 +192,7 @@ class PageGuardWatcher:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - 守卫自身异常不扩散
-                log.warning("页面守卫轮询异常（继续）: %s", exc)
+                log.warning("页面守卫轮询异常（继续）: %s", exc, exc_info=True)
 
     async def _fire(self) -> None:
         port = self._splash_port

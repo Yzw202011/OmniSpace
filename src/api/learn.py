@@ -134,7 +134,7 @@ def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
             if row is not None:
                 return ok(_row_to_train_task(row), message="训练任务已创建")
         except Exception as exc:  # noqa: BLE001
-            log.warning("训练任务查询失败: %s", exc)
+            log.warning("训练任务查询失败: %s", exc, exc_info=True)
     return ok({"id": task_id, "base_model": req.base_model,
                "status": TrainStatus.QUEUED.value, "progress": 0.0},
               message="训练任务已创建")
@@ -153,7 +153,7 @@ def learn_tasks() -> dict[str, Any]:
             items = [_row_to_train_task(r) for r in rows]
             return ok({"items": items, "total": len(items)})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败: %s", exc)
+            log.warning("数据库查询失败: %s", exc, exc_info=True)
             raise ApiError(40006, "训练任务列表查询失败",
                            detail={"error": str(exc)}) from exc
     raise ApiError(40006, "数据库不可用，无法查询训练任务")
@@ -173,7 +173,7 @@ def learn_task_detail(task_id: str) -> dict[str, Any]:
             if row is not None:
                 return ok(_row_to_train_task(row))
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库查询失败: %s", exc)
+            log.warning("数据库查询失败: %s", exc, exc_info=True)
             raise ApiError(40006, "训练任务查询失败",
                            detail={"error": str(exc)}) from exc
     raise ApiError(40005, "训练任务不存在", detail={"task_id": task_id})
@@ -211,7 +211,7 @@ def learn_task_cancel(task_id: str) -> dict[str, Any]:
         row = db.query_one(
             "SELECT id, status FROM train_tasks WHERE id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
-        log.warning("训练任务查询失败: %s", exc)
+        log.warning("训练任务查询失败: %s", exc, exc_info=True)
         raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
@@ -228,14 +228,14 @@ def learn_task_cancel(task_id: str) -> dict[str, Any]:
                    "updated_at": _now()},
                   "id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
-        log.warning("训练任务取消落库失败: %s", exc)
+        log.warning("训练任务取消落库失败: %s", exc, exc_info=True)
         raise ApiError(40006, "训练任务取消失败", detail={"error": str(exc)}) from exc
     # 强制取消：置位运行时中断标志（训练/评估中的任务于下一检查点中断）
     try:
         from ..services.lora_training_service import get_lora_training_service
         get_lora_training_service().request_cancel(task_id)
     except Exception as exc:  # noqa: BLE001 - 中断置位失败不影响落库语义
-        log.warning("训练中断标志置位失败（任务仍标记 cancelled）: %s", exc)
+        log.warning("训练中断标志置位失败（任务仍标记 cancelled）: %s", exc, exc_info=True)
     return ok({"id": task_id, "status": TrainStatus.CANCELLED.value},
               message="训练任务已取消")
 
@@ -263,7 +263,7 @@ def learn_task_delete(task_id: str) -> dict[str, Any]:
         row = db.query_one(
             "SELECT id, status FROM train_tasks WHERE id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
-        log.warning("训练任务查询失败: %s", exc)
+        log.warning("训练任务查询失败: %s", exc, exc_info=True)
         raise ApiError(40006, "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
@@ -277,7 +277,7 @@ def learn_task_delete(task_id: str) -> dict[str, Any]:
     try:
         db.delete("train_tasks", "id=?", (task_id,))
     except Exception as exc:  # noqa: BLE001
-        log.warning("训练任务删除失败: %s", exc)
+        log.warning("训练任务删除失败: %s", exc, exc_info=True)
         raise ApiError(40006, "训练任务删除失败", detail={"error": str(exc)}) from exc
     return ok({"deleted": task_id}, message="训练任务记录已删除")
 
@@ -307,7 +307,7 @@ def learn_tasks_reorder(body: dict = Body(default_factory=dict)) -> dict[str, An
             else:
                 missing.append(tid)
     except Exception as exc:  # noqa: BLE001
-        log.warning("训练任务排序失败: %s", exc)
+        log.warning("训练任务排序失败: %s", exc, exc_info=True)
         raise ApiError(40006, "训练任务排序失败", detail={"error": str(exc)}) from exc
     return ok({"updated": updated, "missing": missing},
               message=f"已更新 {updated} 个任务的优先级")

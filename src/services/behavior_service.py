@@ -109,7 +109,7 @@ class BehaviorLearningService:
                 self._db.executescript(_BEHAVIOR_DDL)
                 log.info("behavior_logs 表就绪")
             except Exception as exc:  # noqa: BLE001
-                log.warning("behavior_logs 建表失败，降级内存存储: %s", exc)
+                log.warning("behavior_logs 建表失败，降级内存存储: %s", exc, exc_info=True)
                 self._db = None
         else:
             log.warning("数据库不可用，行为日志降级为内存存储")
@@ -149,7 +149,7 @@ class BehaviorLearningService:
             try:
                 self._flush_once()
             except Exception as exc:  # noqa: BLE001 - 落库异常不退出线程
-                log.warning("行为日志批量落库失败: %s", exc)
+                log.warning("行为日志批量落库失败: %s", exc, exc_info=True)
             self._stop.wait(_FLUSH_INTERVAL_S)
 
     def _flush_once(self) -> int:
@@ -180,7 +180,7 @@ class BehaviorLearningService:
                          row["timestamp"], row["feature"]))
                     written += 1
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("行为日志写入失败: %s", exc)
+                    log.warning("行为日志写入失败: %s", exc, exc_info=True)
                     self._mem_logs.append(row)
         else:
             self._mem_logs.extend(batch)
@@ -222,7 +222,7 @@ class BehaviorLearningService:
                         ' FROM behavior_logs'
                         ' ORDER BY timestamp DESC LIMIT ?', (limit,))
             except Exception as exc:  # noqa: BLE001
-                log.warning("行为日志读取失败: %s", exc)
+                log.warning("行为日志读取失败: %s", exc, exc_info=True)
         mem = self._mem_logs
         if event_type:
             mem = [r for r in mem if r.get("event_type") == event_type]
@@ -497,7 +497,7 @@ class BehaviorLearningService:
                 deleted += self._db.count("behavior_logs")
                 self._db.sql("DELETE FROM behavior_logs")
             except Exception as exc:  # noqa: BLE001
-                log.warning("清空行为日志失败: %s", exc)
+                log.warning("清空行为日志失败: %s", exc, exc_info=True)
         self._pref_cache = None
         self._pref_analyzed_at = 0.0
         self._push_summary("用户手动清除了行为学习数据")

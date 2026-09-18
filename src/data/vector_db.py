@@ -178,7 +178,7 @@ class VectorDB:
             )
             log.info("ChromaDB 向量集合就绪: %s", self._collection_name)
         except Exception as exc:
-            log.warning("ChromaDB 初始化失败，降级为内存存储: %s", exc)
+            log.warning("ChromaDB 初始化失败，降级为内存存储: %s", exc, exc_info=True)
             self._use_chroma = False
             self._client = None
             self._collection = None
@@ -211,7 +211,7 @@ class VectorDB:
                 log.info("嵌入模型已加载: %s (device=%s, dim=%d)",
                          EMBED_MODEL_NAME, device, EMBED_DIM)
             except Exception as exc:
-                log.warning("嵌入模型加载失败，使用哈希向量回退: %s", exc)
+                log.warning("嵌入模型加载失败，使用哈希向量回退: %s", exc, exc_info=True)
                 return None
         return self._embed_model
 
@@ -244,7 +244,7 @@ class VectorDB:
                 m.to("cpu")
             return True
         except Exception as exc:  # noqa: BLE001
-            log.warning("bge 停靠 CPU 失败（池压缩跳过）: %s", exc)
+            log.warning("bge 停靠 CPU 失败（池压缩跳过）: %s", exc, exc_info=True)
             return False
 
     def restore_embed_model(self) -> None:
@@ -257,7 +257,7 @@ class VectorDB:
             if torch.cuda.is_available():
                 m.to("cuda")
         except Exception as exc:  # noqa: BLE001
-            log.warning("bge 回卡失败（暂用 CPU 检索）: %s", exc)
+            log.warning("bge 回卡失败（暂用 CPU 检索）: %s", exc, exc_info=True)
 
     def embed(self, text: str) -> list[float]:
         """将文本转换为向量。
@@ -270,7 +270,7 @@ class VectorDB:
                 vec = model.encode(text, normalize_embeddings=True)
                 return vec.tolist()
             except Exception as exc:
-                log.warning("嵌入失败，使用哈希降级: %s", exc)
+                log.warning("嵌入失败，使用哈希降级: %s", exc, exc_info=True)
         # 降级：基于哈希的稀疏向量（固定维度 256）
         return self._hash_embed(text)
 
@@ -334,7 +334,7 @@ class VectorDB:
                 )
                 return ids
             except Exception as exc:
-                log.warning("ChromaDB 写入失败，降级到内存: %s", exc)
+                log.warning("ChromaDB 写入失败，降级到内存: %s", exc, exc_info=True)
                 self._use_chroma = False
 
         # 降级路径
@@ -377,7 +377,7 @@ class VectorDB:
                     })
                 return items
             except Exception as exc:
-                log.warning("ChromaDB 查询失败，降级到内存: %s", exc)
+                log.warning("ChromaDB 查询失败，降级到内存: %s", exc, exc_info=True)
                 self._use_chroma = False
 
         # 降级路径
@@ -390,7 +390,7 @@ class VectorDB:
                 self._collection.delete(ids=ids)
                 return
             except Exception as exc:
-                log.warning("ChromaDB 删除失败: %s", exc)
+                log.warning("ChromaDB 删除失败: %s", exc, exc_info=True)
         self._fallback.delete(ids)
 
     def count(self) -> int:

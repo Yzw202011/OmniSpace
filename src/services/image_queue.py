@@ -178,7 +178,7 @@ class ImageTaskQueue:
         try:
             self._run_one_cloud(task)
         except Exception as exc:  # noqa: BLE001 - 云道 worker 永不退出
-            log.error("云端图像任务异常逃逸: %s: %s", task_id, exc)
+            log.error("云端图像任务异常逃逸: %s: %s", task_id, exc, exc_info=True)
         finally:
             self._cloud_busy_release(busy_token)
 
@@ -194,14 +194,14 @@ class ImageTaskQueue:
             log.info("云端图像任务已取消: %s", task_id)
             err = exc
         except Exception as exc:  # noqa: BLE001 - runner 异常兜底记录
-            log.error("云端图像任务执行异常: %s: %s", task_id, exc)
+            log.error("云端图像任务执行异常: %s: %s", task_id, exc, exc_info=True)
             err = exc
         finally:
             if finish is not None:
                 try:
                     finish(err)
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("on_finish 钩子异常: %s", exc)
+                    log.warning("on_finish 钩子异常: %s", exc, exc_info=True)
 
     def _make_check_cancel(self, task_id: str) -> Callable[[], None]:
         def check_cancel() -> None:
@@ -260,7 +260,7 @@ class ImageTaskQueue:
                     get_feature_lock().release("paint"), loop)
                 fut.result(timeout=10.0)
         except Exception as exc:  # noqa: BLE001
-            log.error("paint 锁释放失败（可能功能锁残留）: %s", exc)
+            log.error("paint 锁释放失败（可能功能锁残留）: %s", exc, exc_info=True)
 
     def _sleep_vllm_for_generation(self) -> None:
         """vLLM 睡眠让渡（批3 起经 gpu_budget 让渡协调器单源；
@@ -273,7 +273,7 @@ class ImageTaskQueue:
             from ..engines.vllm_service import get_vllm_service
             get_vllm_service().wake_from_paint()
         except Exception as exc:  # noqa: BLE001 - 唤醒协商失败不影响生图结果
-            log.warning("vLLM 唤醒协商失败（不影响生图结果）: %s", exc)
+            log.warning("vLLM 唤醒协商失败（不影响生图结果）: %s", exc, exc_info=True)
 
     def _local_lane_idle(self) -> bool:
         """本地道空闲：无在跑任务且无本地排队（仅剩云端任务不算忙，
@@ -300,7 +300,7 @@ class ImageTaskQueue:
             from .inference.paint_engine import get_paint_engine
             get_paint_engine().unload_model()
         except Exception as exc:  # noqa: BLE001
-            log.warning("绘画管线卸载失败（不阻断收尾）: %s", exc)
+            log.warning("绘画管线卸载失败（不阻断收尾）: %s", exc, exc_info=True)
 
 
 def get_image_queue() -> ImageTaskQueue:

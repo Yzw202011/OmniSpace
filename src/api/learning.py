@@ -177,7 +177,7 @@ def topic_create(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("主题落库失败，降级内存存储: %s", exc)
+            log.warning("主题落库失败，降级内存存储: %s", exc, exc_info=True)
 
     if len(_mem_topics) >= MAX_TOPICS:
         raise ApiError(ERR_TOPIC_LIMIT,
@@ -213,7 +213,7 @@ def topic_list(keyword: str = Query(default=""),
                 " FROM learning_topics ORDER BY created_at DESC")
             items = [_topic_row_to_dict(r) for r in rows]
         except Exception as exc:  # noqa: BLE001
-            log.warning("主题查询失败，降级内存存储: %s", exc)
+            log.warning("主题查询失败，降级内存存储: %s", exc, exc_info=True)
             items = sorted(_mem_topics.values(),
                            key=lambda t: t.get("created_at", 0), reverse=True)
     else:
@@ -259,7 +259,7 @@ def topic_delete(body: dict = Body(default_factory=dict),
             ensure_learning_tables()
             deleted = db.delete("learning_topics", "id=?", (topic_id,))
         except Exception as exc:  # noqa: BLE001
-            log.warning("主题删除失败: %s", exc)
+            log.warning("主题删除失败: %s", exc, exc_info=True)
     if _mem_topics.pop(topic_id, None) is not None:
         deleted += 1
     if deleted == 0:
@@ -292,7 +292,7 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
             if row is not None:
                 src = _topic_row_to_dict(row)
         except Exception as exc:  # noqa: BLE001
-            log.warning("主题查询失败: %s", exc)
+            log.warning("主题查询失败: %s", exc, exc_info=True)
     if src is None and topic_id in _mem_topics:
         src = dict(_mem_topics[topic_id])
     if src is None:
@@ -338,7 +338,7 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("克隆落库失败，降级内存存储: %s", exc)
+            log.warning("克隆落库失败，降级内存存储: %s", exc, exc_info=True)
     if len(_mem_topics) >= MAX_TOPICS:
         raise ApiError(ERR_TOPIC_LIMIT,
                        f"学习主题数量已达上限（{MAX_TOPICS}个）")
@@ -387,7 +387,7 @@ def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict
         except ApiError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.warning("主题更新失败，降级内存存储: %s", exc)
+            log.warning("主题更新失败，降级内存存储: %s", exc, exc_info=True)
 
     topic = _mem_topics.get(topic_id)
     if topic is None:
@@ -476,7 +476,7 @@ def session_start(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
                 topic_seeds = parse_json(row.get("seed_urls"), [])
                 topic_max_pages = int(row.get("max_pages", 0) or 0)
         except Exception as exc:  # noqa: BLE001
-            log.warning("主题查询失败: %s", exc)
+            log.warning("主题查询失败: %s", exc, exc_info=True)
     if not goal and topic_id in _mem_topics:
         goal = _mem_topics[topic_id]["name"]
         topic_seeds = list(_mem_topics[topic_id].get("seed_urls", []))
@@ -603,7 +603,7 @@ def session_status(session_id: str = Query(default="")) -> dict[str, Any]:
                         "source": "db",
                     })
             except Exception as exc:  # noqa: BLE001
-                log.warning("会话状态查询失败: %s", exc)
+                log.warning("会话状态查询失败: %s", exc, exc_info=True)
         return ok({"status": "idle", "message": "当前没有学习会话"})
     _persist_session_row(session)
     return ok(session.to_status_dict())
@@ -649,7 +649,7 @@ async def learn_session_progress_ws(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         log.info("学习进度推送 WebSocket 已断开")
     except Exception as exc:  # noqa: BLE001
-        log.warning("学习进度推送异常：%s", exc)
+        log.warning("学习进度推送异常：%s", exc, exc_info=True)
 
 
 @router.get("/learn/session/logs")
@@ -675,7 +675,7 @@ def session_logs(session_id: str = Query(default=""),
             return ok({"session_id": sid, "items": items,
                        "total": len(items), "source": "db"})
         except Exception as exc:  # noqa: BLE001
-            log.warning("日志查询失败: %s", exc)
+            log.warning("日志查询失败: %s", exc, exc_info=True)
     raise ApiError(61002, "学习会话不存在", detail={"session_id": sid})
 
 
@@ -713,7 +713,7 @@ def session_report(session_id: str = Query(default="")) -> dict[str, Any]:
                     "logs": logs, "source": "db",
                 })
         except Exception as exc:  # noqa: BLE001
-            log.warning("报告查询失败: %s", exc)
+            log.warning("报告查询失败: %s", exc, exc_info=True)
     raise ApiError(61002, "学习会话不存在", detail={"session_id": sid})
 
 

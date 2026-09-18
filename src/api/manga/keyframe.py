@@ -725,7 +725,7 @@ def _enhance_frame(img: Image.Image, profile: str = "realistic") -> Image.Image:
                     noise = rng.normal(0.0, 1.8, out.shape[:2])[..., None]
                     out = out + noise * smask
         except Exception as exc:  # noqa: BLE001
-            log.warning("皮肤微纹理注入跳过: %s", exc)
+            log.warning("皮肤微纹理注入跳过: %s", exc, exc_info=True)
 
         # v22：0.93→0.88——v21 评审「蓝天过艳/绿偏荧光」（A 段
         # 「高饱和度」已源头替换为「自然通透」，此处后处理协同降）；
@@ -736,7 +736,7 @@ def _enhance_frame(img: Image.Image, profile: str = "realistic") -> Image.Image:
     except Exception as exc:  # noqa: BLE001
         # 留痕：曾因缺 Image 导入被静默吞掉 → 原图直通 Unsharp
         # 反向放大噪声劣化画质
-        log.warning("帧画质增强失败（原图直出）: %s", exc)
+        log.warning("帧画质增强失败（原图直出）: %s", exc, exc_info=True)
     return img
 
 
@@ -777,7 +777,7 @@ def _load_row_reference(db: Database, row: dict) -> Image.Image | None:
             try:
                 im = Image.open(p).convert("RGB")
             except Exception as exc:  # noqa: BLE001 - 损坏图跳过下一资产
-                log.warning("资产参考图加载失败 %s: %s", p, exc)
+                log.warning("资产参考图加载失败 %s: %s", p, exc, exc_info=True)
                 continue
             # V33 人脸事故（2026-08-27）：character 四视图横排
             #（2560×1440 1×4）缩到 640 高后每格面部 token 占比
@@ -830,7 +830,7 @@ def _face_ref_for_asset(a: dict) -> Image.Image | None:
         try:
             im = Image.open(face_p).convert("RGB")
         except Exception as exc:  # noqa: BLE001
-            log.warning("面部参考图加载失败 %s: %s", face_p, exc)
+            log.warning("面部参考图加载失败 %s: %s", face_p, exc, exc_info=True)
             im = None
         if im is not None:
             w, h = im.size
@@ -842,7 +842,7 @@ def _face_ref_for_asset(a: dict) -> Image.Image | None:
         try:
             im = Image.open(portrait_p).convert("RGB")
         except Exception as exc:  # noqa: BLE001
-            log.warning("portrait 加载失败 %s: %s", portrait_p, exc)
+            log.warning("portrait 加载失败 %s: %s", portrait_p, exc, exc_info=True)
             im = None
         if im is not None:
             w, h = im.size
@@ -929,7 +929,7 @@ def _load_asset_references(db: Database, row: dict) -> list:
             try:
                 im = Image.open(p).convert("RGB")
             except Exception as exc:  # noqa: BLE001 - 损坏图跳过下一资产
-                log.warning("资产参考图加载失败 %s: %s", p, exc)
+                log.warning("资产参考图加载失败 %s: %s", p, exc, exc_info=True)
                 continue
             # V33 人脸事故（2026-08-27）：四视图横排（2560×1440 1×4）
             # 缩幅后每格面部 token 占比极小——命中判据只取第 1 格
@@ -956,7 +956,7 @@ def _load_asset_references(db: Database, row: dict) -> list:
                         log.info("D-1 全身参考附加: %s (%s)",
                                  fb.name, a.get("name", "?"))
                     except Exception as exc:  # noqa: BLE001
-                        log.warning("全身参考加载失败 %s: %s", fb, exc)
+                        log.warning("全身参考加载失败 %s: %s", fb, exc, exc_info=True)
                 # D-LoRA（2026-09-10）：角色 LoRA 自动附加——同目录
                 # lora.safetensors 存在时登记为 "lora" 条目（不进
                 # ReferenceLatent），由 _gen_one 挂载为工作流 LoRA
@@ -2013,7 +2013,7 @@ def _score_shot_sync(shot_path: Path, ref_b64: list[str],
         text = "".join(chunks).strip()
         return _parse_consistency_score(text), text[:200]
     except Exception as exc:  # noqa: BLE001
-        log.warning("一致性评分失败 %s: %s", shot_path, exc)
+        log.warning("一致性评分失败 %s: %s", shot_path, exc, exc_info=True)
         return None, str(exc)[:200]
 
 
@@ -2064,7 +2064,7 @@ def _score_style_sync(shot_path: Path, style_ref_b64: str) -> tuple[int | None, 
         text = "".join(chunks).strip()
         return _parse_consistency_score(text), text[:200]
     except Exception as exc:  # noqa: BLE001
-        log.warning("画风评分失败 %s: %s", shot_path, exc)
+        log.warning("画风评分失败 %s: %s", shot_path, exc, exc_info=True)
         return None, str(exc)[:200]
 
 
@@ -2148,7 +2148,7 @@ def _annotate_consistency(db: Database, kf_id: str, payload: dict) -> None:
         db.update("keyframes", {"consistency": json.dumps(
             payload, ensure_ascii=False)}, "id=?", (kf_id,))
     except Exception as exc:  # noqa: BLE001
-        log.warning("一致性标注落库失败 %s: %s", kf_id, exc)
+        log.warning("一致性标注落库失败 %s: %s", kf_id, exc, exc_info=True)
 
 
 async def _consistency_guard(row_id: str, project_id: str, kf_id: str,
@@ -2257,7 +2257,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
                 if v is not None:
                     ref_vecs.append(v)
         except Exception as exc:  # noqa: BLE001
-            log.warning("人脸嵌入基准构建失败（嵌入门禁降级关闭）: %s", exc)
+            log.warning("人脸嵌入基准构建失败（嵌入门禁降级关闭）: %s", exc, exc_info=True)
             ref_vecs = []
 
     # 场景嵌入基准（2026-08-27 V46 场景无门禁事故）：绑定 scene
@@ -2278,7 +2278,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
                     _PILImage.open(sp).convert("RGB"))
                 break
         except Exception as exc:  # noqa: BLE001
-            log.warning("场景嵌入基准构建失败（场景门禁降级关闭）: %s", exc)
+            log.warning("场景嵌入基准构建失败（场景门禁降级关闭）: %s", exc, exc_info=True)
             scene_vec = None
 
     # 画风判定锚（2026-08-29 画风通道）：角色绑定行取首张角色资产图
@@ -2301,7 +2301,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
             style_ref_b64 = pil_images_to_b64([rim])[0]
             break
     except Exception as exc:  # noqa: BLE001
-        log.warning("画风锚加载失败（画风通道降级关闭）: %s", exc)
+        log.warning("画风锚加载失败（画风通道降级关闭）: %s", exc, exc_info=True)
         style_ref_b64 = None
 
     # 逐角色 ArcFace 基准（2026-08-28 P0-2）：R1 标定（428 帧实测）
@@ -2323,7 +2323,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
                 arc_ref_vecs.append(
                     await run_blocking(face_sim.embed_face_arc, rim))
             except Exception as exc:  # noqa: BLE001
-                log.warning("ArcFace 基准构建失败（证据通道关闭）: %s", exc)
+                log.warning("ArcFace 基准构建失败（证据通道关闭）: %s", exc, exc_info=True)
                 arc_ref_vecs.append(None)
 
     scores: list[int | None] = []
@@ -2478,7 +2478,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
             engine_backend, failed_shots, version,
             text_priority=text_priority)
     except Exception as exc:  # noqa: BLE001
-        log.warning("一致性重抽生成失败（保留原版本）: %s", exc)
+        log.warning("一致性重抽生成失败（保留原版本）: %s", exc, exc_info=True)
         log_event("manga", "keyframe_consistency_retry",
                   "自动重抽失败了，已保留原关键帧", level="warning",
                   detail=str(exc)[:200], trace_id=row_id)
@@ -2535,7 +2535,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
                     face_sim.arcface_match, fp, arc_ref_vecs)
                     if has_arc else ([], 0))
             except Exception as exc:  # noqa: BLE001
-                log.warning("复评单镜失败（记 None 继续）%s: %s", fp, exc)
+                log.warning("复评单镜失败（记 None 继续）%s: %s", fp, exc, exc_info=True)
                 s, sim2, ssim2 = None, None, None
                 st2, n_arc, n_faces2 = None, [], 0
             new_scores.append(s)
@@ -2694,7 +2694,7 @@ async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
         from ...services.cloud_provider_service import get_image_endpoint
         _cloud_ep = get_image_endpoint("keyframe.image")
     except Exception as exc:  # noqa: BLE001
-        log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc)
+        log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
 
     def _kf_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
@@ -2754,7 +2754,7 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
         from ...services.cloud_provider_service import get_image_endpoint
         _cloud_ep = get_image_endpoint("keyframe.image")
     except Exception as exc:  # noqa: BLE001
-        log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc)
+        log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
 
     def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
@@ -2824,7 +2824,7 @@ def keyframe_delete(keyframe_id: str) -> dict[str, Any]:
         try:
             fp.unlink()
         except OSError as exc:
-            log.warning("关键帧文件删除失败: %s", exc)
+            log.warning("关键帧文件删除失败: %s", exc, exc_info=True)
     db.delete("keyframes", "id=?", (keyframe_id,))
     if kf.get("is_current"):
         prev = db.query_one(

@@ -919,7 +919,7 @@ def _run_generate_task(task_id: str, params: dict,
     except Exception as exc:  # noqa: BLE001 - 任务失败收敛为状态
         log.exception("绘画任务失败: %s", task_id)
         msg = str(exc)
-        code = 50001
+        code = "PAINT_GENERATION_FAILED"
         flow_code = "GENERATE_FAILED"
         if msg.startswith("MODEL_LOAD_FAILED"):
             code = "MODEL_LOAD_FAILED"   # 保持既有错误码语义

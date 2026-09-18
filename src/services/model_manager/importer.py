@@ -72,7 +72,7 @@ class ModelImporter:
         # 1. 校验路径
         if not file_path.exists():
             raise ApiError(
-                code=30001,
+                code="MODEL_FILE_NOT_FOUND",
                 message=f"模型文件未找到: {path}",
                 suggestion="请检查路径是否正确",
             )

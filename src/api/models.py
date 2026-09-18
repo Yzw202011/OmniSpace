@@ -1180,7 +1180,7 @@ async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
                        "switch_task": result},
                       message="模型已加载")
         reason = result.get("error") or result.get("message") or "加载失败"
-        code = 20013 if "显存不足" in reason else (
+        code = "MODEL_NO_EVICTABLE" if "显存不足" in reason else (
             20011 if "未下载" in reason else 20010)
         raise ApiError(code, f"模型加载失败：{reason}",
                        detail={"model_id": req.model_id, "category": category,
@@ -1196,7 +1196,7 @@ async def models_load(req: ModelLoadRequest) -> dict[str, Any]:
 
     if not loaded:
         reason = mgr.last_error or "加载失败"
-        code = 20013 if "显存不足" in reason else (
+        code = "MODEL_NO_EVICTABLE" if "显存不足" in reason else (
             20011 if "未下载" in reason else 20010)
         raise ApiError(code, f"模型加载失败：{reason}",
                        detail={"model_id": req.model_id, "category": category})

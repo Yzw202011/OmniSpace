@@ -47,7 +47,7 @@ class VideoRouter:
                 if model.value == user_override or model.name == user_override:
                     return model
             raise ApiError(
-                code=30005,
+                code="MODEL_TYPE_MISMATCH",
                 message=f"未知的视频模型: {user_override}",
                 suggestion="请从 VIDEO_ROUTING_TABLE 中选择有效模型",
             )
@@ -130,7 +130,7 @@ class VideoRouter:
         # 全局上限
         if request.duration_seconds > VIDEO_MAX_DURATION:
             raise ApiError(
-                code=60001,
+                code="VIDEO_GENERATION_FAILED",
                 message=f"视频时长超出上限: {request.duration_seconds}s > {VIDEO_MAX_DURATION}s",
                 suggestion=f"请将时长限制在 {VIDEO_MAX_DURATION} 秒以内",
             )
@@ -138,7 +138,7 @@ class VideoRouter:
         # 模型上限
         if request.duration_seconds > max_duration:
             raise ApiError(
-                code=60001,
+                code="VIDEO_GENERATION_FAILED",
                 message=f"当前模型 {model.value} 最大支持 {max_duration} 秒",
                 suggestion="请缩短时长或选择更高规格的模型",
             )
@@ -147,13 +147,13 @@ class VideoRouter:
         if request.audio_path and params["supports_audio_sync"]:
             if request.duration_seconds > params["max_audio_sync_seconds"]:
                 raise ApiError(
-                    code=60002,
+                    code="VIDEO_DURATION_EXCEEDED",
                     message=f"音画同步模式最长支持 {params['max_audio_sync_seconds']} 秒",
                     suggestion="请缩短视频时长或移除音频",
                 )
         elif request.audio_path and not params["supports_audio_sync"]:
             raise ApiError(
-                code=60001,
+                code="VIDEO_GENERATION_FAILED",
                 message=f"当前模型 {model.value} 不支持音画同步",
                 suggestion="请选择支持音画同步的模型（LTX-2 或 Wan2.1-14B-FP8）",
             )

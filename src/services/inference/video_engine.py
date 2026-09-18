@@ -1713,7 +1713,7 @@ class VideoEngine(BaseEngine):
         from .h3_engine import align_h3_frames, get_h3_engine, h3_available
         if not h3_available():
             raise ApiError(
-                code=60003,
+                code="VIDEO_RESOLUTION_DEGRADED",
                 message="MiniMax H3 管线未就绪（ComfyUI 或权重缺失）",
                 suggestion="请确认 tools/ComfyUI_windows_portable 与 "
                            "models/video_gen/h3 权重完整",

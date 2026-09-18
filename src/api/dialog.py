@@ -1823,7 +1823,7 @@ async def handle_dialog_stream(websocket: WebSocket, session_id: str) -> None:
         log.warning("对话流 WebSocket 异常: %s", exc, exc_info=True)
 
 
-async def _ws_send_error(websocket: WebSocket, code: int, message: str) -> None:
+async def _ws_send_error(websocket: WebSocket, code: int | str, message: str) -> None:
     await websocket.send_json({
         "type": "error",
         "data": {"code": code, "message": message},
@@ -2045,7 +2045,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                     return
             else:
                 status = engine.get_status()
-                code = 30004 if status["state"] == "error" else 30003
+                code = "MODEL_LOAD_FAILED" if status["state"] == "error" else "MODEL_LOADING"
                 await _ws_send_error(
                     websocket, code,
                     status["last_error"] or "对话模型未就绪，请稍后再试")

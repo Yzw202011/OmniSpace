@@ -207,7 +207,7 @@ def _read_wav_float32(wav_path: str) -> tuple[Any, int]:
         data = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32)
                 - 128.0) / 128.0
     else:
-        raise ApiError(code=71004,
+        raise ApiError(code="VOICE_AUDIO_PROCESS_FAILED",
                        message=f"不支持的 WAV 位深: {width * 8}bit",
                        suggestion="请使用 16bit PCM WAV 或其他常见音频格式")
     if ch > 1:
@@ -554,10 +554,10 @@ class VoiceEngine(BaseEngine):
              "model": str, "backend": "whisper-transformers"}
         """
         if not os.path.isfile(audio_path):
-            raise ApiError(code=71002, message=f"音频文件不存在: {audio_path}",
+            raise ApiError(code="VOICE_PRESET_READONLY", message=f"音频文件不存在: {audio_path}",
                            suggestion="请上传有效的音频文件")
         if self._asr_pipe is None and not self.load_asr(model_id):
-            raise ApiError(code=71003,
+            raise ApiError(code="VOICE_ASR_NOT_READY",
                            message=self._asr_error or "ASR 模型未就绪",
                            suggestion="把 whisper 模型目录放入 models/ 后重试")
         wav_path, tmp = self._ensure_wav16k(audio_path)
@@ -602,7 +602,7 @@ class VoiceEngine(BaseEngine):
         except Exception:  # noqa: BLE001
             log.debug("_ensure_wav16k: 降级忽略", exc_info=True)
         if not ffmpeg:
-            raise ApiError(code=71004,
+            raise ApiError(code="VOICE_AUDIO_PROCESS_FAILED",
                            message="非 WAV 音频需要 FFmpeg 转码，当前环境 FFmpeg 不可用",
                            suggestion="请上传 WAV 格式音频")
         tmp_path = str(DATA_DIR / "audio" / f"asr_{uuid.uuid4().hex}.wav")
@@ -614,7 +614,7 @@ class VoiceEngine(BaseEngine):
             capture_output=True, timeout=120,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         if proc.returncode != 0 or not os.path.isfile(tmp_path):
-            raise ApiError(code=71004, message="音频转码失败（FFmpeg）",
+            raise ApiError(code="VOICE_AUDIO_PROCESS_FAILED", message="音频转码失败（FFmpeg）",
                            detail={"stderr": proc.stderr.decode("utf-8", "ignore")[-300:]})
         return tmp_path, True
 
@@ -690,7 +690,7 @@ class VoiceEngine(BaseEngine):
         """
         if not text.strip():
             raise ApiError(
-                code=71001,
+                code="VOICE_FILE_MISSING",
                 message="待合成文本为空",
                 suggestion="请输入有效的文本内容",
             )

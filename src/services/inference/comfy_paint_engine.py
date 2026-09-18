@@ -280,7 +280,7 @@ class ComfyPaintEngine:
                 return
             if not comfy_paint_available():
                 raise ApiError(
-                    code=60003,
+                    code="VIDEO_RESOLUTION_DEGRADED",
                     message="ComfyUI 绘画管线未就绪（便携版或权重缺失）",
                     suggestion="请确认 tools/ComfyUI_windows_portable 与 "
                                "ComfyUI/models 绘画权重硬链接完整",
@@ -295,12 +295,12 @@ class ComfyPaintEngine:
                 return
             if self._proc is not None and self._proc.poll() is not None:
                 raise ApiError(
-                    code=60003,
+                    code="VIDEO_RESOLUTION_DEGRADED",
                     message=f"ComfyUI 子进程异常退出 (code={self._proc.returncode})",
                     suggestion="查看 logs/comfyui_paint.log 排查",
                 )
             time.sleep(2.0)
-        raise ApiError(code=60003, message="ComfyUI 启动超时",
+        raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="ComfyUI 启动超时",
                        suggestion="查看 logs/comfyui_paint.log 排查")
 
     def unload(self) -> None:
@@ -675,7 +675,7 @@ class ComfyPaintEngine:
         if z_mode and (pulid_image is not None
                        or pulid_image_b is not None):
             raise ApiError(
-                code=60003,
+                code="VIDEO_RESOLUTION_DEGRADED",
                 message="Z-Image 底座暂不支持 PuLID 身份锁"
                         "（PuLID 为 flux2 专属 patch）",
                 suggestion="身份锚定请改用参考图条件（img2img 传参考图）"
@@ -691,7 +691,7 @@ class ComfyPaintEngine:
                     _free_b, _ = torch.cuda.mem_get_info(0)
                     if _free_b < 11.5 * 1024 ** 3:
                         raise ApiError(
-                            code=60003,
+                            code="VIDEO_RESOLUTION_DEGRADED",
                             message=(f"Z-Image 需近乎空卡（unet 11.5GB 起"
                                      f"+TE/VAE 靠 offload），实测空闲仅"
                                      f" {_free_b / 1024 ** 3:.1f}GB"),
@@ -731,7 +731,7 @@ class ComfyPaintEngine:
                 params.get("pulid_strength") or 0.0) > 0:
             if not pulid_available():
                 raise ApiError(
-                    code=60003,
+                    code="VIDEO_RESOLUTION_DEGRADED",
                     message="PuLID 管线未就绪（节点/权重/antelopev2 缺失）",
                     suggestion="确认 custom_nodes/ComfyUI-PuLID-Flux2 与 "
                                "models/pulid、models/insightface 挂载完整")
@@ -744,7 +744,7 @@ class ComfyPaintEngine:
         if pulid_image_b is not None and pulid_strength_b > 0:
             if not pulid_available():
                 raise ApiError(
-                    code=60003,
+                    code="VIDEO_RESOLUTION_DEGRADED",
                     message="PuLID 管线未就绪（节点/权重/antelopev2 缺失）",
                     suggestion="确认 custom_nodes/ComfyUI-PuLID-Flux2 与 "
                                "models/pulid、models/insightface 挂载完整")
@@ -770,11 +770,11 @@ class ComfyPaintEngine:
                                    "client_id": f"omnispace-{task_id}"},
                              timeout=15.0)
             if resp is None:
-                raise ApiError(code=60003, message="ComfyUI 不可达（提交失败）")
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="ComfyUI 不可达（提交失败）")
             if resp.get("error") or resp.get("node_errors"):
                 detail = json.dumps(resp.get("node_errors") or resp["error"],
                                     ensure_ascii=False)[:500]
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"绘画工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
             _log_steps, _ = (_effective_steps_cfg(params)
@@ -824,7 +824,7 @@ class ComfyPaintEngine:
             # Z-Image 工作流族暂无 inpaint 配方（SetLatentNoiseMask
             # 依赖 flux2 潜空间口径），诚实拒绝优于静默走错底座
             raise ApiError(
-                code=60003,
+                code="VIDEO_RESOLUTION_DEGRADED",
                 message="Z-Image 底座暂不支持局部重绘（inpaint）",
                 suggestion="局部重绘请切 klein 底座（模型选型选 "
                            "flux2-klein-9b/4b）后重试")
@@ -922,11 +922,11 @@ class ComfyPaintEngine:
                                    "client_id": f"omnispace-{task_id}"},
                              timeout=15.0)
             if resp is None:
-                raise ApiError(code=60003, message="ComfyUI 不可达（提交失败）")
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="ComfyUI 不可达（提交失败）")
             if resp.get("error") or resp.get("node_errors"):
                 detail = json.dumps(resp.get("node_errors") or resp["error"],
                                     ensure_ascii=False)[:500]
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"修复工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
             log.info("潜空间修复已提交 (prompt_id=%s, %dx%d, %d步)",
@@ -936,7 +936,7 @@ class ComfyPaintEngine:
             log.info("潜空间修复完成: %.1fs",
                         time.perf_counter() - t0)
             if not images:
-                raise ApiError(code=60003, message="修复采样无产物")
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="修复采样无产物")
             # 软边回贴（与 legacy PaintEngine.inpaint 的 composite 语义
             # 对齐）：未遮罩区逐像素保留原原图，仅修复区取采样结果；
             # VAE 往返损耗（实测 ~4.8% 像素差）不进入交付。
@@ -978,7 +978,7 @@ class ComfyPaintEngine:
             if status.get("status_str") == "error":
                 messages = status.get("messages") or []
                 detail = json.dumps(messages, ensure_ascii=False)[:600]
-                raise ApiError(code=60003, message=f"ComfyUI 执行失败: {detail}")
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message=f"ComfyUI 执行失败: {detail}")
             outputs = entry.get("outputs") or {}
             images: list[Image.Image] = []
             for node_out in outputs.values():
@@ -999,9 +999,9 @@ class ComfyPaintEngine:
                 # 清理任务子目录（paint/<task_id> 前缀隔离）
                 return images
             if status.get("completed"):
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message="ComfyUI 执行完成但无图像产物")
-        raise ApiError(code=60003,
+        raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                        message=f"ComfyUI 任务超时 ({timeout_s:.0f}s)")
 
 

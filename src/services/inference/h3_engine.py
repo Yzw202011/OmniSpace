@@ -219,7 +219,7 @@ class H3Engine:
                 return
             if not h3_available():
                 raise ApiError(
-                    code=60003,
+                    code="VIDEO_RESOLUTION_DEGRADED",
                     message="MiniMax H3 管线未就绪（ComfyUI 或权重缺失）",
                     suggestion="请确认 tools/ComfyUI_windows_portable 与 "
                                "models/video_gen/h3 权重完整",
@@ -235,14 +235,14 @@ class H3Engine:
                 return
             if self._proc is not None and self._proc.poll() is not None:
                 raise ApiError(
-                    code=60003,
+                    code="VIDEO_RESOLUTION_DEGRADED",
                     message=f"ComfyUI 子进程异常退出 (code={self._proc.returncode})",
                     suggestion="查看 logs/comfyui_h3.log 排查",
                 )
             if progress_cb is not None:
                 progress_cb(0.02, "ComfyUI 启动中")
             time.sleep(2.0)
-        raise ApiError(code=60003, message="ComfyUI 启动超时",
+        raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="ComfyUI 启动超时",
                        suggestion="查看 logs/comfyui_h3.log 排查")
 
     def unload(self) -> None:
@@ -388,11 +388,11 @@ class H3Engine:
                                    "client_id": f"omnispace-{task_id}"},
                              timeout=15.0)
             if resp is None:
-                raise ApiError(code=60003, message="ComfyUI 不可达（提交失败）")
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="ComfyUI 不可达（提交失败）")
             if resp.get("error") or resp.get("node_errors"):
                 detail = json.dumps(resp.get("node_errors") or resp["error"],
                                     ensure_ascii=False)[:500]
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"H3 工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
             log.info("H3 任务已提交 (prompt_id=%s, %dx%d, %d帧, %d步)",
@@ -406,7 +406,7 @@ class H3Engine:
             # 产物回搬：ComfyUI/output/<subfolder>/<filename> → out_path
             src = _COMFY_OUTPUT / video_rel
             if not src.is_file():
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"H3 产物缺失: {video_rel}")
             shutil.move(str(src), out_path)
             _report(1.0, "完成")
@@ -452,7 +452,7 @@ class H3Engine:
             if status.get("status_str") == "error":
                 messages = status.get("messages") or []
                 detail = json.dumps(messages, ensure_ascii=False)[:600]
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"H3 执行失败: {detail}")
             outputs = entry.get("outputs") or {}
             for node_out in outputs.values():
@@ -466,9 +466,9 @@ class H3Engine:
                         return rel
             # status completed 但无 mp4 —— 视为失败
             if status.get("completed"):
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message="H3 执行完成但无视频产物")
-        raise ApiError(code=60004, message="H3 生成超时",
+        raise ApiError(code="VIDEO_ENCODE_FAILED", message="H3 生成超时",
                        suggestion="请重试或降低分辨率/时长")
 
 
@@ -638,7 +638,7 @@ def _extract_relay_tail(src: Path, dst: Path, ctx_frames: int) -> None:
 
     enc = get_encoder_service()
     if not enc.available:
-        raise ApiError(code=60003,
+        raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                        message="latentRelay 续接需要 FFmpeg（当前不可用）")
     tail_s = (ctx_frames + 2) / _H3_FPS
     flags = (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
@@ -651,7 +651,7 @@ def _extract_relay_tail(src: Path, dst: Path, ctx_frames: int) -> None:
          str(dst)],
         capture_output=True, text=True, timeout=120, creationflags=flags)
     if r.returncode != 0 or not dst.is_file():
-        raise ApiError(code=60003,
+        raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                        message="续接尾帧提取失败: "
                                f"{(r.stderr or '')[-300:]}")
 
@@ -685,7 +685,7 @@ def _poll_director_history(engine: H3Engine, prompt_id: str, *,
         if status.get("status_str") == "error":
             detail = json.dumps(status.get("messages") or [],
                                 ensure_ascii=False)[:600]
-            raise ApiError(code=60003, message=f"H3 导演台执行失败: {detail}")
+            raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message=f"H3 导演台执行失败: {detail}")
         for node_out in (entry.get("outputs") or {}).values():
             for item in (node_out.get("images")
                          or node_out.get("videos") or []):
@@ -696,7 +696,7 @@ def _poll_director_history(engine: H3Engine, prompt_id: str, *,
                         progress_cb(1.0, "解码保存")
                     return f"{sub}/{fn}" if sub else fn
         if status.get("completed"):
-            raise ApiError(code=60003, message="H3 导演台完成但无视频产物")
+            raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="H3 导演台完成但无视频产物")
         # 活性检测：既不在队列也无产物 → 被 /interrupt 等外部中断
         q = engine._api("GET", "/queue", timeout=5.0)
         if q is not None:
@@ -704,9 +704,9 @@ def _poll_director_history(engine: H3Engine, prompt_id: str, *,
             pending = {str(it[1]) for it in q.get("queue_pending") or []}
             if prompt_id not in running and prompt_id not in pending:
                 raise ApiError(
-                    code=60004,
+                    code="VIDEO_ENCODE_FAILED",
                     message="H3 导演台任务已中断（不在执行队列且无产物）")
-    raise ApiError(code=60004, message="H3 导演台生成超时",
+    raise ApiError(code="VIDEO_ENCODE_FAILED", message="H3 导演台生成超时",
                    suggestion="请重试或降低分段时长")
 
 
@@ -735,7 +735,7 @@ def generate_director(*, project: dict, plan: list[dict],
     """
     engine = get_h3_engine()
     if not plan:
-        raise ApiError(code=60003, message="导演台计划为空")
+        raise ApiError(code="VIDEO_RESOLUTION_DEGRADED", message="导演台计划为空")
     with engine._gen_lock:
         return _generate_director_locked(
             project=project, plan=plan, asset_images=asset_images,
@@ -789,7 +789,7 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
             limit = _seg_frame_limit()
             if frames > limit:
                 raise ApiError(
-                    code=60004,
+                    code="VIDEO_ENCODE_FAILED",
                     message=f"{shot_id} 生成段 {dur:.1f}s（{frames} 帧）"
                             f"超出当前显存档位上限 {limit} 帧"
                             "（>10s 已实测 OOM）",
@@ -817,12 +817,12 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
                                      "client_id": f"omnispace-{task_id}"},
                                timeout=15.0)
             if resp is None:
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message="ComfyUI 不可达（导演台提交失败）")
             if resp.get("error") or resp.get("node_errors"):
                 detail = json.dumps(resp.get("node_errors") or resp["error"],
                                     ensure_ascii=False)[:500]
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"导演台工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
             log.info("导演台段已提交 (prompt_id=%s, %s, %.1fs)",
@@ -833,7 +833,7 @@ def _generate_director_locked(*, project: dict, plan: list[dict],
                 progress_cb=lambda f, s, _gi=gi: _report(_gi, f, s))
             src = _COMFY_OUTPUT / video_rel
             if not src.is_file():
-                raise ApiError(code=60003,
+                raise ApiError(code="VIDEO_RESOLUTION_DEGRADED",
                                message=f"导演台产物缺失: {video_rel}")
             dst = out_dir / f"{shot_id}.mp4"
             shutil.move(str(src), dst)

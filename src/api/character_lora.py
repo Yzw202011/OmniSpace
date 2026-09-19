@@ -128,6 +128,38 @@ def character_lora_versions(asset_id: str) -> dict[str, Any]:
     return ok({"items": get_character_lora_service().versions(asset_id)})
 
 
+@router.delete("/character/lora/versions/{version}")
+def character_lora_version_delete(version: str) -> dict[str, Any]:
+    """批6 P10（2026-09-19）：删除指定人物 LoRA 版本。
+
+    三闸同知识 LoRA：containment / 训练中拒 / current 拒（先回滚）。
+    """
+    import re as _re
+    import shutil as _sh
+
+    from .character_lora_service import (  # type: ignore[import-untyped]
+        VERSIONS_ROOT as CHAR_LORA_DIR,
+    )
+    if not _re.fullmatch(r"[A-Za-z0-9_.\-]{1,64}", version):
+        raise ApiError("SYSTEM_PARAM_INVALID", "版本名不合法")
+    target = (CHAR_LORA_DIR / version).resolve()
+    if CHAR_LORA_DIR.resolve() not in target.parents or not target.is_dir():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "版本不存在")
+    from ..data.database import get_db_safe
+    db = get_db_safe()
+    if db and db.query("SELECT id FROM char_lora_tasks WHERE status IN"
+                       " ('running','training') LIMIT 1"):
+        raise ApiError("TRAIN_STYLE_LOCKED", "有训练任务进行中")
+    cur = (CHAR_LORA_DIR / "current.json")
+    if cur.is_file() and version in cur.read_text(encoding="utf-8"):
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "该版本正在生效——请先回滚到其他版本")
+    _sh.rmtree(target)
+    from ..services.audit_log import log_audit
+    log_audit("training", "char_lora_version_delete", target=version)
+    return ok({"version": version, "removed": True})
+
+
 @router.post("/character/lora/rollback")
 def character_lora_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     asset_id = str(body.get("asset_id") or "").strip()

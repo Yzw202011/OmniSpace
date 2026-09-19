@@ -151,6 +151,36 @@ def novel_project_prefs(project_id: str,
     return ok({"project_id": project_id, "meta": merged})
 
 
+@router.post("/novel/project/batch-delete")
+def novel_project_batch_delete(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
+    """批6 P10（2026-09-19）：批量删作品（≤50/批；逐个走单删链）。"""
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise ApiError("SYSTEM_PARAM_INVALID", "缺少 ids 数组")
+    ids = [str(i).strip() for i in ids if str(i).strip()][:50]
+    db = _db()
+    deleted: list[str] = []
+    missing: list[str] = []
+    for pid in ids:
+        row = db.query_one("SELECT id FROM novel_projects WHERE id=?", (pid,))
+        if row is None:
+            missing.append(pid)
+            continue
+        for table in ("novel_outlines", "novel_chapters", "novel_characters",
+                      "novel_foreshadows"):
+            db.delete(table, "project_id=?", (pid,))
+        db.delete("novel_projects", "id=?", (pid,))
+        deleted.append(pid)
+    try:
+        from ..services.audit_log import log_audit
+        log_audit('novel', 'project_batch_delete',
+                  target=str(len(deleted)) + " 个作品")
+    except Exception:  # noqa: BLE001
+        pass
+    return ok({"deleted": len(deleted), "deleted_ids": deleted,
+               "missing_ids": missing})
+
+
 @router.get("/novel/project/list")
 def novel_project_list() -> dict[str, Any]:
     db = _db()

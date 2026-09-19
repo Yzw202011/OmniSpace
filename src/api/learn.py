@@ -408,6 +408,43 @@ def learn_lora_versions() -> dict[str, Any]:
                "current": svc.get_current()})
 
 
+@router.delete("/learn/lora/versions/{version}")
+def learn_lora_version_delete(version: str) -> dict[str, Any]:
+    """批6 P10（2026-09-19）：删除指定 LoRA 版本目录。
+
+    三闸：版本名 containment（resolve 后必须在 models/lora 内）/
+    训练中拒绝 / current 版本拒绝（先回滚再删）。
+    """
+    import re as _re
+    import shutil as _sh
+
+    from ..services import lora_training_service as lts
+    if not _re.fullmatch(r"[A-Za-z0-9_.\-]{1,64}", version):
+        raise ApiError("SYSTEM_PARAM_INVALID", "版本名不合法（字母数字._- ≤64）")
+    target = (lts.LORA_DIR / version).resolve()
+    if lts.LORA_DIR.resolve() not in target.parents or not target.is_dir():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "版本不存在")
+    _db2 = get_db_safe()
+    if _db2 is not None and _db2.query(
+            "SELECT id FROM train_tasks WHERE status IN"
+            " ('running','training','queued','pending') LIMIT 1"):
+        raise ApiError("TRAIN_STYLE_LOCKED",
+                       "有训练任务进行中，暂不能删版本")
+    try:
+        svc = lts.LoRATrainingService()
+        current = svc.current_version() if hasattr(svc, "current_version") else ""
+    except Exception:  # noqa: BLE001
+        current = ""
+    if current and str(current) == version:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "该版本当前生效中——请先回滚到其他版本再删除",
+                       suggestion="在版本管理中选择其他版本回滚后重试")
+    _sh.rmtree(target)
+    from ..services.audit_log import log_audit
+    log_audit("training", "lora_version_delete", target=version)
+    return ok({"version": version, "removed": True})
+
+
 @router.get("/learn/lora/versions/compare")
 def learn_lora_versions_compare(a: str = Query(..., min_length=1),
                                 b: str = Query(..., min_length=1)) -> dict[str, Any]:

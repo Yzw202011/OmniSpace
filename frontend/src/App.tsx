@@ -51,6 +51,7 @@ import RightPanel from './components/layout/RightPanel';
 import BottomStatusBar from './components/layout/BottomStatusBar';
 import RecoveryGuideCard from './components/common/RecoveryGuideCard';
 import ConfirmDialog from './components/common/ConfirmDialog';
+import GlobalSearch from './components/common/GlobalSearch';
 import { useAppStore, type ToastItem, type ToastLevel } from './stores/useAppStore';
 import { useDialogStore } from './stores/useDialogStore';
 import { useHardwareStore } from './stores/useHardwareStore';
@@ -586,6 +587,9 @@ export function AppShell() {
 
       {/* 批4 P9：全局分级确认弹窗（删除三要素规范） */}
       <ConfirmDialog />
+
+      {/* 批6 P27：全局搜索命令面板（Ctrl+K） */}
+      <GlobalSearch />
 
       {/* 全局 Toast 容器 */}
       <ToastContainer />

@@ -435,9 +435,13 @@ export interface PaintResult {
 export type StoryboardGenerationStatus = 'pending' | 'generating' | 'done' | 'error' | 'skipped';
 
 /** 单条台词气泡（多角色场景，2026-09-08）：每角色一条+旁白（asset_id 空） */
+export type BubbleShape = 'dialogue' | 'narration' | 'thought' | 'shout' | 'whisper';
+
 export interface PanelBubble {
   /** 台词文本 */
   text: string;
+  /** 批6 P3（2026-09-19）：气泡形状（dialogue 对话/narration 旁白/thought 思考/shout 喊叫/whisper 低语；缺省=按 asset_id 推导） */
+  shape?: BubbleShape;
   /** 左上角横坐标（0~1 相对格宽；缺省=默认左上） */
   x?: number | null;
   /** 左上角纵坐标（0~1 相对格高） */

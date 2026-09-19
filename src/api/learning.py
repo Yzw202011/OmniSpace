@@ -776,6 +776,34 @@ def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
     return ok(merged, message="设置已保存")
 
 
+@router.put("/learn/quota")
+def learn_quota_update(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
+    """批6 P7b（2026-09-19）：设置知识库容量上限（1000~100000）。
+
+    存 learning_settings.knowledge_capacity；knowledge_service
+    读取侧实时生效（每次 stats/enforce 现读）。
+    """
+    try:
+        cap = int(body.get("knowledge_capacity") or 0)
+    except (TypeError, ValueError):
+        cap = 0
+    if not 1000 <= cap <= 100_000:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "knowledge_capacity 须在 1000~100000")
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用")
+    import time as _t
+    db.sql("INSERT INTO learning_settings(key, value, updated_at)"
+           " VALUES('knowledge_capacity', ?, ?)"
+           " ON CONFLICT(key) DO UPDATE SET value=excluded.value,"
+           " updated_at=excluded.updated_at",
+           (str(cap), _t.time()))
+    from ..services.audit_log import log_audit
+    log_audit("learning", "quota_update", target=f"capacity={cap}")
+    return ok({"knowledge_capacity": cap})
+
+
 @router.get("/learn/quota")
 def learn_quota() -> dict[str, Any]:
     """当前资源配额快照（TASK-014 配额矩阵 + 流量消耗）。

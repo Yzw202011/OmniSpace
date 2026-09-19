@@ -764,7 +764,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       return (
                         <div
                           key={b.asset_id ?? `nar-${bi}`}
-                          className={`comic-bubble${b.asset_id ? '' : ' narration'}`}
+                          className={`comic-bubble shape-${b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}`}
                           style={{
                             left: `${(b.x ?? 0.05) * 100}%`,
                             top: `${(b.y ?? 0.06) * 100}%`,
@@ -807,8 +807,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       {ensureBubbles(row).map((b, bi) => {
                         const speaker = b.asset_id ? charById.get(b.asset_id)?.name : '旁白';
                         return (
+                          <div key={b.asset_id ?? `nar-${bi}`} className="flex items-center gap-1">
                           <input
-                            key={b.asset_id ?? `nar-${bi}`}
                             className={`input comic-panel-dialogue${b.asset_id ? '' : ' narration-line'}`}
                             maxLength={200}
                             placeholder={`${speaker}的台词（空=不显示气泡）`}
@@ -816,6 +816,20 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                             onChange={(e) => patchBubble(row.id, bi, { text: e.target.value })}
                             onBlur={() => saveBubbles(row)}
                           />
+                          <select
+                            className="input"
+                            style={{ width: 72, padding: '2px 4px', fontSize: 10, flexShrink: 0 }}
+                            title="气泡形状（批6 P3：五种常用形）"
+                            value={b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}
+                            onChange={(e) => { patchBubble(row.id, bi, { shape: e.target.value as typeof b.shape }); saveBubbles(row); }}
+                          >
+                            <option value="dialogue">💬对话</option>
+                            <option value="narration">🎬旁白</option>
+                            <option value="thought">💭思考</option>
+                            <option value="shout">💥喊叫</option>
+                            <option value="whisper">🤫低语</option>
+                          </select>
+                          </div>
                         );
                       })}
                     </div>
@@ -1112,7 +1126,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       return (
                         <div
                           key={b.asset_id ?? `nar-${bi}`}
-                          className={`comic-bubble${b.asset_id ? '' : ' narration'}`}
+                          className={`comic-bubble shape-${b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}`}
                           style={{
                             left: `${(b.x ?? 0.05) * 100}%`,
                             top: `${(b.y ?? 0.06) * 100}%`,

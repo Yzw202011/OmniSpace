@@ -77,6 +77,26 @@ export default function AnalysisReport() {
     void refresh();
   }, [refresh]);
 
+  // 批6 P7（2026-09-19）：学习分析实时化——学习进行中 30s 轮询，
+  // 空闲 90s；面板不可见时暂停（IntersectionObserver 兜 IO）
+  useEffect(() => {
+    let visible = true;
+    const io = typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver(
+          (es) => { visible = es[0]?.isIntersecting ?? true; },
+          { threshold: 0.1 })
+      : null;
+    const el = document.querySelector('[aria-label="学习分析"]');
+    if (io && el) io.observe(el);
+    const timer = window.setInterval(() => {
+      if (visible && document.visibilityState === 'visible') void refresh();
+    }, 30_000);
+    return () => {
+      window.clearInterval(timer);
+      io?.disconnect();
+    };
+  }, [refresh]);
+
   const maxTrend = Math.max(1, ...trend.map((t) => t.count));
 
   return (

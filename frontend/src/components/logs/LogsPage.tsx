@@ -14,7 +14,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ModuleGuide from '@/components/common/ModuleGuide';
+import FileGallery from './FileGallery';
 import {
+  FolderOpen,
   ScrollText,
   RefreshCw,
   CheckCircle2,
@@ -198,7 +200,7 @@ export const LogsPage: React.FC = () => {
   const [keywordInput, setKeywordInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [tab, setTab] = useState<'events' | 'flows' | 'raw' | 'resource'>('events');
+  const [tab, setTab] = useState<'events' | 'flows' | 'raw' | 'resource' | 'gallery'>('events');
   // 导出诊断包弹窗（2026-09-01 方案 C）
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -358,6 +360,14 @@ export const LogsPage: React.FC = () => {
         >
           <Activity size={14} aria-hidden="true" /> 资源曲线
         </button>
+        <button
+          type="button"
+          className={`btn ${tab === 'gallery' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ padding: '6px 14px', fontSize: 'var(--font-size-sm)' }}
+          onClick={() => setTab('gallery')}
+        >
+          <FolderOpen size={14} aria-hidden="true" /> 作品文件
+        </button>
         <span className="flex-1" />
         <button
           type="button"
@@ -376,7 +386,7 @@ export const LogsPage: React.FC = () => {
           type="button"
           className="btn btn-ghost"
           style={{ padding: '6px 14px', fontSize: 'var(--font-size-sm)' }}
-          disabled={loading || rawLoading || tab === 'flows' || tab === 'resource'}
+          disabled={loading || rawLoading || tab === 'flows' || tab === 'resource' || tab === 'gallery'}
           title={tab === 'flows' ? '执行流程面板有独立刷新（10s 自动）' : tab === 'resource' ? '资源曲线自动刷新（30s）' : '刷新'}
           onClick={() =>
             tab === 'events'
@@ -644,6 +654,8 @@ export const LogsPage: React.FC = () => {
           </div>
         </div>
       )}
+        {tab === 'gallery' && <FileGallery />}
+
       {/* 导出诊断包弹窗（方案 C） */}
       {exportOpen && <ExportDiagnosticsDialog onClose={() => setExportOpen(false)} />}
     </div>

@@ -50,6 +50,30 @@ except Exception:  # pragma: no cover - 降级路径
 
 # ── 常量 ─────────────────────────────────────────────────────
 MAX_KNOWLEDGE_COUNT = 100_000      # 知识库容量上限（TASK-033）
+# 批6 P7b（2026-09-19）：容量可设——learning_settings.knowledge_capacity
+# 覆盖（1000~100000；缺省=100000 原行为）
+
+
+def get_knowledge_capacity() -> int:
+    try:
+        from ..data.database import get_db_safe, parse_json
+        db = get_db_safe()
+        if db is not None:
+            row = db.query_one(
+                "SELECT value FROM learning_settings WHERE key='knowledge_capacity'")
+            raw = row["value"] if row else ""
+            try:
+                v = int(parse_json(raw, 0) or 0)
+            except (TypeError, ValueError):
+                try:
+                    v = int(str(raw).strip() or 0)
+                except (TypeError, ValueError):
+                    v = 0
+            if 1000 <= v <= 100_000:
+                return v
+    except Exception:  # noqa: BLE001 - 读不到按缺省
+        pass
+    return MAX_KNOWLEDGE_COUNT
 CLEANUP_BATCH = 100                # 超出上限时每次清理的最旧条数
 SEGMENT_MAX_CHARS = 500            # 长段切分阈值（TASK-033：~500字/段）
 DENSITY_THRESHOLD = 0.3            # 信息密度阈值（>0.3 保留）
@@ -896,7 +920,7 @@ class KnowledgeProcessingService:
     def _enforce_capacity(self) -> None:
         """容量上限 100000 条：超出时清理最旧 CLEANUP_BATCH 条。"""
         total = self.count()
-        if total < MAX_KNOWLEDGE_COUNT:
+        if total < get_knowledge_capacity():
             return
         victims: list[str] = []
         if self._db is not None:
@@ -1067,7 +1091,7 @@ class KnowledgeProcessingService:
         except Exception:  # noqa: BLE001
             log.debug("stats: 降级忽略", exc_info=True)
         return {"total": self.count(),
-                "capacity": MAX_KNOWLEDGE_COUNT,
+                "capacity": get_knowledge_capacity(),
                 "disk_bytes": disk,
                 "topics": topics,
                 "types": types,

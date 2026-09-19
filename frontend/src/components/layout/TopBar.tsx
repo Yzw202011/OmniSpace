@@ -26,6 +26,7 @@ import {
   Flower2,
 } from 'lucide-react';
 import { NAV_ITEMS } from '@/router';
+import { get } from '@/services/api';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Theme } from '@/stores/useAppStore';
 import { useTaskStore, TASK_TYPE_LABELS } from '@/stores/useTaskStore';
@@ -121,13 +122,32 @@ export default function TopBar() {
   const activeCount = tasks.filter((t) => t.status === 'running' || t.status === 'pending').length;
   // 最近 6 条任务（新的在前）
   const recentTasks = useMemo(() => [...tasks].slice(-6).reverse(), [tasks]);
+  // 批6 P24（2026-09-19）：全局任务中心（四队列聚合，15s 轮询）
+  interface TaskCard {
+    module: string; name: string; status: string; progress: number;
+    detail: string; task_id: string; queue_position: number;
+  }
+  const [centerCards, setCenterCards] = useState<TaskCard[]>([]);
+  const [centerErrors, setCenterErrors] = useState<string[]>([]);
+  const centerActive = centerCards.filter((c) =>
+    ['pending', 'generating', 'running', 'loading', 'training'].includes(c.status)).length;
+  useEffect(() => {
+    const load = () => {
+      get<{ cards?: TaskCard[]; errors?: string[] }>('/system/tasks/center')
+        .then((d) => { setCenterCards(d.cards ?? []); setCenterErrors(d.errors ?? []); })
+        .catch(() => { /* 后端未就绪静默 */ });
+    };
+    load();
+    const timer = window.setInterval(load, 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
   // 批1 P25（2026-09-19）：通知历史（重要 toast 留痕可回看）
   const notifications = useNotificationStore((s) => s.items);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const clearNotifications = useNotificationStore((s) => s.clear);
   const unreadCount = notifications.filter((n) => n.unread).length;
   const recentNotifications = useMemo(() => notifications.slice(0, 8), [notifications]);
-  const bellBadge = activeCount + unreadCount;
+  const bellBadge = Math.max(activeCount, centerActive) + unreadCount;
   const toggleBell = () => {
     setBellOpen((v) => {
       if (!v) markAllRead(); // 打开即全读
@@ -236,6 +256,31 @@ export default function TopBar() {
                         : t.status === 'running'
                           ? `${Math.round((t.progress || 0) * 100)}%`
                           : TRAIN_STATUS_LABELS[t.status as TrainStatusKey] ?? t.status}
+                    </span>
+                  </div>
+                ))
+              )}
+              {/* 批6 P24：全局任务中心（四队列聚合） */}
+              <div className="topbar-dropdown-title" style={{ marginTop: 8 }}>
+                全局任务（{centerActive} 进行中）
+              </div>
+              {centerCards.length === 0 ? (
+                <div className="topbar-dropdown-empty">
+                  {centerErrors.length > 0
+                    ? `部分队列读取失败：${centerErrors[0].slice(0, 30)}…`
+                    : '当前没有任务在跑'}
+                </div>
+              ) : (
+                centerCards.slice(0, 8).map((c) => (
+                  <div key={c.task_id || c.name} className={`topbar-task ${c.status}`}>
+                    <TaskStatusIcon status={(c.status === 'loading' ? 'running' : c.status === 'ready' ? 'done' : c.status) as 'running' | 'done' | 'error' | 'pending'} />
+                    <span className="topbar-task-name">
+                      [{c.module === 'video' ? '视频' : c.module === 'training' ? '训练'
+                        : c.module === 'dialog' ? '对话' : '绘画'}] {c.name}
+                    </span>
+                    <span className="topbar-task-progress">
+                      {c.queue_position > 1 ? `排队·前${c.queue_position - 1}`
+                        : c.progress > 0 ? `${Math.round(c.progress * 100)}%` : c.status}
                     </span>
                   </div>
                 ))

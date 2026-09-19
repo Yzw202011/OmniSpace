@@ -402,6 +402,20 @@ async def disable_plugin(name: str) -> dict[str, Any]:
     return ok({"name": name, "enabled": False})
 
 
+@router.post("/plugins/{name}/reload")
+async def plugins_reload(name: str) -> dict[str, Any]:
+    """批6 P28（2026-09-19）：重新加载插件（开发期免重启；
+    unload → ensure_loaded 即重建实例与桥）。"""
+    rt = get_plugin_runtime()
+    try:
+        await run_blocking(rt.unload, name)
+        instance = await run_blocking(rt.ensure_loaded, name)
+    except PluginRuntimeError as exc:
+        raise _translate(exc) from exc
+    return ok({"name": name, "state": "loaded",
+               "capability": instance.CAPABILITY})
+
+
 @router.delete("/plugins/{name}")
 async def delete_plugin(name: str) -> dict[str, Any]:
     """删除用户插件（出厂插件拒删；文件与登记一并清理）。"""
@@ -411,4 +425,12 @@ async def delete_plugin(name: str) -> dict[str, Any]:
     except PluginRuntimeError as exc:
         raise _translate(exc) from exc
     unregister_plugin(name)
-    return ok({"name": name, "deleted": True})
+    # 批6 P28：卸载清理报告——扫 plugin/ 目录与登记表残留，如实告知
+    leftovers: list[str] = []
+    try:
+        from ..config import ROOT_DIR as _R
+        for cand in (_R / "plugin").glob(f"{name}.*"):
+            leftovers.append(str(cand.relative_to(_R)))
+    except Exception:  # noqa: BLE001
+        pass
+    return ok({"name": name, "deleted": True, "leftovers": leftovers})

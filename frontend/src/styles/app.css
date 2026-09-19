@@ -2350,8 +2350,20 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .comic-preview-no { font-size: 13px; color: var(--color-text-secondary); }
 
 /* 气泡拉伸把手（右下角，悬停显形；2026-09-08 用户令「既要能拖也要能拉伸」） */
+/* 批6 P3（2026-09-19）：气泡形状库五形（默认 dialogue 沿用原样式） */
+.comic-bubble.shape-thought { border-radius: 40px 44px 42px 46px; border-style: dashed; background: rgba(255,255,255,.88); }
+.chatic-bubble.shape-thought::after { content: '…'; position: absolute; right: -14px; bottom: -12px; font-size: 14px; color: rgba(30,30,30,.7); }
+.comic-bubble.shape-shout { clip-path: polygon(0 12%, 6% 0, 14% 10%, 24% 1%, 34% 9%, 46% 0, 56% 10%, 66% 2%, 76% 10%, 86% 1%, 94% 10%, 100% 14%, 96% 30%, 100% 48%, 95% 66%, 100% 84%, 90% 96%, 76% 88%, 62% 99%, 48% 88%, 34% 98%, 20% 88%, 8% 97%, 0 82%, 4% 62%, 0 44%, 3% 26%); border: none; box-shadow: none; outline: 2px solid rgba(30,30,30,.85); outline-offset: -6px; background: rgba(255,255,252,.96); padding: 14px 16px; }
+.comic-bubble.shape-whisper { border-style: dashed; opacity: .82; font-style: italic; border-radius: 16px 4px 16px 4px; }
+.comic-bubble.shape-narration { border: none; background: rgba(20,20,35,.82); color: #f2f2f5; border-radius: 4px; }
 .comic-bubble-resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: ew-resize; touch-action: none; opacity: .25; transition: opacity .15s ease; background: linear-gradient(135deg, transparent 50%, rgba(30,30,30,.9) 50%); border-bottom-right-radius: 10px; }
-.comic-bubble:hover .comic-bubble-resize { opacity: .85; }
+.comic-bubble:hover /* 批6 P3（2026-09-19）：气泡形状库五形（默认 dialogue 沿用原样式） */
+.comic-bubble.shape-thought { border-radius: 40px 44px 42px 46px; border-style: dashed; background: rgba(255,255,255,.88); }
+.chatic-bubble.shape-thought::after { content: '…'; position: absolute; right: -14px; bottom: -12px; font-size: 14px; color: rgba(30,30,30,.7); }
+.comic-bubble.shape-shout { clip-path: polygon(0 12%, 6% 0, 14% 10%, 24% 1%, 34% 9%, 46% 0, 56% 10%, 66% 2%, 76% 10%, 86% 1%, 94% 10%, 100% 14%, 96% 30%, 100% 48%, 95% 66%, 100% 84%, 90% 96%, 76% 88%, 62% 99%, 48% 88%, 34% 98%, 20% 88%, 8% 97%, 0 82%, 4% 62%, 0 44%, 3% 26%); border: none; box-shadow: none; outline: 2px solid rgba(30,30,30,.85); outline-offset: -6px; background: rgba(255,255,252,.96); padding: 14px 16px; }
+.comic-bubble.shape-whisper { border-style: dashed; opacity: .82; font-style: italic; border-radius: 16px 4px 16px 4px; }
+.comic-bubble.shape-narration { border: none; background: rgba(20,20,35,.82); color: #f2f2f5; border-radius: 4px; }
+.comic-bubble-resize { opacity: .85; }
 .comic-bubble-resize:hover { opacity: 1; }
 
 /* ── 多角色台词（2026-09-08）：每角色一行台词+各自气泡 ── */

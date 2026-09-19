@@ -1989,6 +1989,134 @@ def _ensure_audit_table() -> None:
         log.debug("audit table ensure 降级", exc_info=True)
 
 
+@router.get("/system/files/gallery")
+def files_gallery(module: str = "all",
+                  limit: int = 48,
+                  offset: int = 0) -> dict[str, Any]:
+    """批6 P34（2026-09-19）：生成物文件库——四产物目录聚合分页。
+
+    只读（删除走各模块正规链）；缩略图经 /manga/media 白名单回读。
+    """
+    roots: list[tuple[str, str, Path]] = []
+    gen = DATA_DIR / "generated"
+    if module in ("all", "images"):
+        roots.append(("images", "生成图片", gen / "images"))
+    if module in ("all", "keyframes"):
+        roots.append(("keyframes", "分镜关键帧", DATA_DIR / "keyframes"))
+    if module in ("all", "videos"):
+        roots.append(("videos", "生成视频", gen / "videos"))
+    if module in ("all", "exports"):
+        roots.append(("exports", "导出成品", gen / "exports"))
+    items: list[dict[str, Any]] = []
+    for key, label, root in roots:
+        if not root.is_dir():
+            continue
+        for f in root.rglob("*"):
+            try:
+                if not f.is_file() or f.name.startswith("."):
+                    continue
+                st = f.stat()
+                rel = str(f.relative_to(DATA_DIR)).replace("\\", "/")
+                ext = f.suffix.lower()
+                items.append({
+                    "module": key, "module_label": label,
+                    "name": f.name, "path": rel,
+                    "url": f"/api/v1/manga/media/{rel}",
+                    "is_video": ext in (".mp4", ".webm", ".gif"),
+                    "size_bytes": st.st_size, "mtime": st.st_mtime,
+                })
+            except OSError:
+                continue
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    page = items[offset:offset + limit]
+    return ok({"items": page, "total": len(items),
+               "offset": offset, "limit": limit})
+
+
+@router.get("/system/tasks/center")
+def system_tasks_center() -> dict[str, Any]:
+    """批6 P24（2026-09-19）：全局任务中心——四队列只读聚合。
+
+    每路 fail-soft：单源故障如实标注 errors[]，不伪装全空。
+    """
+    from ..middleware.error_handler import ok as _ok  # noqa: F401
+    cards: list[dict[str, Any]] = []
+    errors: list[str] = []
+    db = get_db_safe()
+
+    def _card(module: str, name: str, status: str, progress: float,
+              detail: str = "", task_id: str = "", queue_pos: int = 0) -> None:
+        cards.append({"module": module, "name": name, "status": status,
+                      "progress": round(progress, 3), "detail": detail,
+                      "task_id": task_id, "queue_position": queue_pos})
+
+    # ① 视频任务（近 20 条非终态优先）
+    try:
+        if db is not None:
+            for r in db.query(
+                    "SELECT id, storyboard_row_id, status, progress,"
+                    " model_used, created_at FROM video_tasks"
+                    " ORDER BY (status IN ('pending','generating')) DESC,"
+                    " created_at DESC LIMIT 20"):
+                _card("video", f"镜 {r.get('storyboard_row_id', '')[:8]}",
+                      str(r.get("status") or "pending"),
+                      float(r.get("progress") or 0),
+                      detail=str(r.get("model_used") or ""),
+                      task_id=str(r["id"]))
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"video: {str(exc)[:80]}")
+
+    # ② 训练任务（learn+style 两源）
+    try:
+        if db is not None:
+            for r in db.query(
+                    "SELECT id, dataset_path, status, progress"
+                    " FROM train_tasks ORDER BY created_at DESC LIMIT 10"):
+                _card("training", str(r.get("dataset_path") or "知识训练")[:30],
+                      str(r.get("status") or ""), float(r.get("progress") or 0),
+                      task_id=str(r["id"]))
+            for r in db.query(
+                    "SELECT id, status, progress FROM style_tasks"
+                    " ORDER BY created_at DESC LIMIT 10"):
+                _card("training", str(r.get("name") or "风格训练"),
+                      str(r.get("status") or ""), float(r.get("progress") or 0),
+                      task_id=str(r["id"]))
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"training: {str(exc)[:80]}")
+
+    # ③ 对话/绘画引擎态（预热中=进行中卡片）
+    try:
+        from ..services.inference.dialog_engine import get_dialog_engine
+        st = get_dialog_engine().get_status()
+        if st.get("state") == "loading":
+            _card("dialog", "对话模型加载中", "loading", 0.5)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"dialog: {str(exc)[:80]}")
+    try:
+        from ..config import get_config
+        if str((get_config().get("paint") or {}).get(
+                "gen_engine", "legacy")).strip().lower() == "comfy":
+            from ..services.inference.comfy_paint_engine import get_comfy_paint_engine
+            eng = get_comfy_paint_engine()
+            if getattr(eng, "is_running", lambda: False)():
+                _card("paint", "ComfyUI 出图引擎", "running", 1.0)
+        else:
+            from ..services.inference.paint_engine import get_paint_engine
+            st = get_paint_engine().get_status()
+            if st.get("loaded"):
+                _card("paint", f"绘画就绪 {str(st.get('model', ''))[:20]}",
+                      "ready", 1.0)
+            elif st.get("loading"):
+                _card("paint", "绘画模型加载中", "loading", 0.5)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"paint: {str(exc)[:80]}")
+
+    active = sum(1 for c in cards
+                 if c["status"] in ("pending", "generating", "running",
+                                    "loading", "training"))
+    return ok({"cards": cards, "active": active, "errors": errors})
+
+
 @router.get("/system/audit/list")
 def audit_list(limit: int = Query(200, ge=1, le=1000),
                module: str = Query("", description="按模块过滤（空=全部）")) -> dict[str, Any]:

@@ -40,6 +40,7 @@ const SHORTCUTS: Array<{ keys: string; desc: string }> = [
   { keys: 'Alt+1~9', desc: '按左侧导航顺序切换模块（1=AI对话 … 9=系统日志）' },
   { keys: 'Alt+0', desc: '跳转帮助页' },
   { keys: 'Alt+N', desc: '新建对话（切到 AI 对话页并新建会话）' },
+  { keys: 'Ctrl+K', desc: '全局搜索（会话/作品/模型/设置一处搜，Enter 直达）' },
 ];
 
 /** 常见问题 6 条 */

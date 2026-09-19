@@ -2183,4 +2183,35 @@ def get_dialog_engine() -> DialogEngine:
             if _engine_instance is None:
                 _engine_instance = DialogEngine()
     return _engine_instance
+
+
+def reset_instance() -> bool:
+    """惰性复位单例（批5 专项根修 2026-09-19）：测试隔离专用口。
+
+    与 get_dialog_engine 的本质区别：**绝不构造**——没有实例时立即
+    返回 False，不会凭空拉起看门狗线程。conftest 曾因拿 get_ 复位
+    反致每个测试构造一个引擎（自造污染源，全量 4 挂），本口即为此
+    反例的根修。
+
+    有实例时：停看门狗（置 stop 事件 + 限时 join）→ 清模块引用。
+    刻意不卸载模型——调用场景是测试隔离（进程随即退出/下个测试
+    重构造）；生产停机请走正规 unload 链，勿用本口。
+
+    返回 True=清掉了一个实例；False=本来就没有（零副作用）。
+    """
+    global _engine_instance
+    with _engine_lock:
+        eng = _engine_instance
+        if eng is None:
+            return False
+        _engine_instance = None
+    try:
+        eng._watchdog_stop.set()
+        t = getattr(eng, "_watchdog_thread", None)
+        if (t is not None and t.is_alive()
+                and t is not threading.current_thread()):
+            t.join(timeout=1.0)
+    except Exception:  # noqa: BLE001 - 看门狗停止失败不阻断复位
+        log.debug("reset_instance: 看门狗停止降级忽略", exc_info=True)
+    return True
 # 本项目仅供学习使用，商业授权请+Q 3559331368

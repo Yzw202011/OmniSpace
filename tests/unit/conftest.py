@@ -67,11 +67,17 @@ def _isolate_module_globals():
             _dialog._DIALOG_LOCK_WAITERS.clear()
         except Exception:  # noqa: BLE001 - 模块未载/重构改名时跳过
             pass
-        # 批3 教训（2026-09-19 实弹后回滚）：曾尝试在此复位对话引擎单例
-        # 断根空闲卸载泄漏——但 get_dialog_engine() 会「构造」单例并为
-        # 每个测试凭空拉起看门狗线程（自己造污染源，全量 4 挂）。断根
-        # 需引擎提供不构造的惰性复位口，另立专项；现阶段由
-        # test_event_log_auto 的时间窗过滤密闭承接（见该文件）。
+        # 批5 专项根修（2026-09-19）：对话引擎单例经引擎提供的惰性
+        # 复位口复位——绝不构造（有实例才清），根治当年「get_ 复位
+        # 反致每测试造线程」的反例（历史教训见 dialog_engine.
+        # reset_instance docstring）。看门狗在 pytest 进程内本就不
+        # 启动（PYTEST_CURRENT_TEST 闸），本口兜底显式构造过的引擎，
+        # 防其状态/线程跨测试泄漏。
+        try:
+            from src.services.inference import dialog_engine as _de
+            _de.reset_instance()
+        except Exception:  # noqa: BLE001 - 引擎未载/接口重构时跳过
+            pass
     _clear()
     yield
     _clear()

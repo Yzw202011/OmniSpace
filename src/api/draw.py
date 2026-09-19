@@ -1643,7 +1643,31 @@ def draw_models() -> dict[str, Any]:
 
 @router.get("/draw/status")
 def draw_status() -> dict[str, Any]:
-    """绘画引擎状态。"""
+    """绘画引擎状态（按 gen_engine 双栈语义）。
+
+    2026-09-19 大考 P-08 修复：comfy 模式下旧实现恒报 legacy 引擎状态
+    （loaded 永远 False），PaintWarmupModal 等 loaded=true 永等不到
+    （comfy 权重由工作流流式装载、无常驻预载概念，且 ComfyUI 空闲
+    300s 自动关闭）→ 弹窗永久卡死。现 comfy 模式：进程在+权重齐全
+    = ready（loaded=true）；进程不在=unloaded（下次生成自动重拉）。
+    """
+    from ..config import get_config
+    gen_engine = str((get_config().get("paint") or {}).get(
+        "gen_engine", "legacy")).strip().lower()
+    if gen_engine == "comfy":
+        from ..services.inference.comfy_paint_engine import (
+            comfy_paint_available,
+            get_comfy_paint_engine,
+        )
+        st = get_paint_engine().get_status()
+        st["engine_mode"] = "comfy"
+        running = comfy_paint_available() and get_comfy_paint_engine().is_alive()
+        st["comfy_running"] = running
+        if running:
+            st["loaded"] = True
+            st["state"] = "ready"
+            st["model"] = st.get("model") or "comfy-klein"
+        return ok(st)
     return ok(get_paint_engine().get_status())
 
 

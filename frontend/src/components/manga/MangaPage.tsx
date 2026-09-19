@@ -11,11 +11,17 @@
  * ========================================================================== */
 
 import { useMangaStore } from '@/stores/useMangaStore';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import MangaLibrary from './MangaLibrary';
 import MangaWorkspace from './MangaWorkspace';
 
 export default function MangaPage() {
   const currentProject = useMangaStore((s) => s.currentProject);
-  return currentProject ? <MangaWorkspace /> : <MangaLibrary />;
+  return (
+    <>
+      <ModuleGuide moduleKey="manga" />
+      {currentProject ? <MangaWorkspace /> : <MangaLibrary />}
+    </>
+  );
 }
 // 本项目仅供学习使用，商业授权请+Q 3559331368

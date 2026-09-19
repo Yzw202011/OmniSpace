@@ -7,9 +7,11 @@
  * 纯静态内容，使用 Sakura 主题样式（card / badge / input 等）。
  * ========================================================================== */
 
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { MessageSquare, Palette, Clapperboard, BookOpen, Video, Package, CircleHelp, Compass, Rocket, Keyboard, Lightbulb, Flower2 } from 'lucide-react';
+import { MessageSquare, Palette, Clapperboard, BookOpen, Video, Package, CircleHelp, Compass, Rocket, Keyboard, Lightbulb, Flower2, ShieldCheck } from 'lucide-react';
+import { fetchLicenseStatus, unbindLicense, type LicenseStatus } from '@/services/licenseApi';
+import { reportActionError } from '@/utils/errors';
 
 /** 六大模块简介 */
 const MODULES: Array<{ icon: LucideIcon; name: string; desc: string }> = [
@@ -30,10 +32,14 @@ const QUICK_STEPS: string[] = [
   '在「漫剧创作」填写默认分镜表（当前版本为单一分镜表，不提供多项目管理），结合绘画产物完成漫剧流水线制作。',
 ];
 
-/** 快捷键表（仅列已实现的；未实现的暂不展示，避免误导） */
+/** 快捷键表（仅列已实现的；未实现的暂不展示，避免误导。
+ *  Alt+系为批1 P26（2026-09-19）新增，与 App.tsx 全局监听同步维护） */
 const SHORTCUTS: Array<{ keys: string; desc: string }> = [
   { keys: 'Enter', desc: '对话页发送消息（Shift+Enter 换行）' },
-  { keys: 'Esc', desc: '关闭弹窗 / 收起全局搜索' },
+  { keys: 'Esc', desc: '关闭弹窗 / 收起全局搜索 / 关闭大图预览' },
+  { keys: 'Alt+1~9', desc: '按左侧导航顺序切换模块（1=AI对话 … 9=系统日志）' },
+  { keys: 'Alt+0', desc: '跳转帮助页' },
+  { keys: 'Alt+N', desc: '新建对话（切到 AI 对话页并新建会话）' },
 ];
 
 /** 常见问题 6 条 */
@@ -63,6 +69,115 @@ const FAQS: Array<{ q: string; a: string }> = [
     a: '不会。除「联网学习」抓取的公开网页外，所有对话、知识库、模型与素材均保存在本机。',
   },
 ];
+
+/** 授权卡（激活加固批 A5）：授权类型/到期/剩余天数/序列号尾号 + 解绑入口 */
+const LicenseCard: React.FC = () => {
+  const [status, setStatus] = useState<LicenseStatus | null>(null);
+  const [error, setError] = useState('');
+  const [unbindCode, setUnbindCode] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLicenseStatus()
+      .then((s) => { if (!cancelled) setStatus(s); })
+      .catch((err) => {
+        if (cancelled) return;
+        setError('授权状态获取失败');
+        reportActionError(err, '获取授权状态');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const onUnbind = useCallback(() => {
+    if (!window.confirm('解绑后本机授权立即作废，需联系卖家换绑才能继续使用。确认解绑？')) return;
+    unbindLicense()
+      .then((code) => setUnbindCode(code))
+      .catch((err) => reportActionError(err, '解绑本机'));
+  }, []);
+
+  if (error) {
+    return (
+      <section className="card hoverable" aria-label="授权">
+        <h3 className="card-title"><ShieldCheck size={16} aria-hidden="true" /> 授权信息</h3>
+        <div className="text-secondary text-sm">{error}</div>
+      </section>
+    );
+  }
+  if (!status) {
+    return (
+      <section className="card hoverable" aria-label="授权">
+        <h3 className="card-title"><ShieldCheck size={16} aria-hidden="true" /> 授权信息</h3>
+        <div className="text-secondary text-sm">读取中…</div>
+      </section>
+    );
+  }
+  if (!status.gate_enabled) {
+    return (
+      <section className="card hoverable" aria-label="授权">
+        <h3 className="card-title"><ShieldCheck size={16} aria-hidden="true" /> 授权信息</h3>
+        <div className="text-secondary text-sm">开发模式（本构建未启用激活门禁）</div>
+      </section>
+    );
+  }
+
+  const info = status.license || null;
+  const typeText = info?.type === 'timed' ? '时限授权'
+    : info?.type === 'dev' ? '开发授权'
+      : info?.type ? '永久授权（买断）' : '—';
+  const expiryText = !info ? '—'
+    : info.permanent === false && info.expires
+      ? `${info.expires} 到期${typeof info.days_left === 'number' && info.days_left >= 0 ? `（剩 ${info.days_left} 天）` : ''}`
+      : '永久有效';
+  const serialTail = info?.serial ? `…${info.serial.slice(-4)}` : '—';
+
+  return (
+    <section className="card hoverable" aria-label="授权">
+      <h3 className="card-title"><ShieldCheck size={16} aria-hidden="true" /> 授权信息</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-1">
+        <div>
+          <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>状态</div>
+          <div className="text-sm">{status.activated ? '已激活' : `未激活${status.reason ? `（${status.reason}）` : ''}`}</div>
+        </div>
+        <div>
+          <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>类型 / 到期</div>
+          <div className="text-sm">{typeText} · {expiryText}</div>
+        </div>
+        <div>
+          <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>授权编号</div>
+          <div className="text-sm mono">{serialTail}</div>
+        </div>
+      </div>
+      <div className="text-tertiary mt-3" style={{ fontSize: 'var(--font-size-xs)' }}>
+        激活码仅限本机使用，严禁转卖/共享。换电脑请先「解绑本机」取得解绑码，联系卖家换绑。
+      </div>
+      {status.activated && !unbindCode && (
+        <button type="button" className="btn ghost mt-2" onClick={onUnbind}>解绑本机</button>
+      )}
+      {unbindCode && (
+        <div className="mt-2">
+          <code
+            className="mono"
+            style={{
+              display: 'block',
+              background: 'var(--color-primary-50)',
+              border: '1px solid var(--color-border-light)',
+              borderRadius: 'var(--radius-sm)',
+              padding: 'var(--space-2) var(--space-3)',
+              fontSize: 'var(--font-size-xs)',
+              userSelect: 'all',
+              wordBreak: 'break-all',
+            }}
+          >
+            {unbindCode}
+          </code>
+          <div className="text-secondary mt-1" style={{ fontSize: 'var(--font-size-xs)' }}>
+            ⚠ 本机授权已作废——请把上方解绑码发给卖家完成换绑。
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
 
 export const HelpPage: React.FC = () => {
   return (
@@ -199,6 +314,9 @@ export const HelpPage: React.FC = () => {
             Sakura 主题 · React 19 + Vite 6 · 全部数据本地存储
           </div>
         </section>
+
+        {/* 授权信息卡（激活加固批 A5） */}
+        <LicenseCard />
       </div>
     </div>
   );

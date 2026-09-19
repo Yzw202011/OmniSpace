@@ -21,7 +21,7 @@ import type {
   ErrorInfo,
   ReactNode,
 } from 'react';
-import { RouterProvider, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { RouterProvider, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -253,6 +253,39 @@ export function AppShell() {
   const isCustomNavOrder = navItems.some(
     (it, i) => it.route !== NAV_ITEMS[i]?.route,
   );
+
+  // 批1 P26（2026-09-19）：全局快捷键——Alt+1~9 按导航序切模块、
+  // Alt+0 帮助页、Alt+N 新建对话。选 Alt 系因 Ctrl+数字/Ctrl+N 是
+  // 浏览器保留键（切标签页/新窗口），页面拦不住；WebView2 与
+  // Chrome/Edge 下 Alt 系可拦截。帮助页快捷键表与此处同步维护。
+  const navigate = useNavigate();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      const key = e.key.toLowerCase();
+      if (key === 'n') {
+        e.preventDefault();
+        navigate('/chat');
+        void useDialogStore.getState().createSession().then(() => {
+          useAppStore.getState().showToast('已新建对话', 'success');
+        }).catch(() => { /* 新建失败由对话页自身错误链路兜底 */ });
+        return;
+      }
+      if (/^[0-9]$/.test(e.key)) {
+        const paths = NAV_ITEMS.map((it) => it.path);
+        const idx = e.key === '0' ? paths.length - 1 : Number(e.key) - 1;
+        const path = paths[idx];
+        if (path) {
+          e.preventDefault();
+          navigate(path);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navigate]);
 
   const handleNavDragStart =
     (route: string) => (e: ReactDragEvent<HTMLAnchorElement>) => {

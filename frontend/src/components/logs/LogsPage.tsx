@@ -13,6 +13,7 @@
  * ========================================================================== */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import {
   ScrollText,
   RefreshCw,
@@ -315,6 +316,7 @@ export const LogsPage: React.FC = () => {
 
   return (
     <div className="page logs-page">
+      <ModuleGuide moduleKey="logs" />
       <h1 className="page-title">
         <ScrollText size={20} aria-hidden="true" /> 系统日志
       </h1>

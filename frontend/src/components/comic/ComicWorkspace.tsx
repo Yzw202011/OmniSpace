@@ -24,6 +24,7 @@ import {
 } from '@/types';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { Modal } from '../common/Modal';
+import OmniLightbox, { downloadImage } from '../common/OmniLightbox';
 import AssetLibrary from './AssetLibrary';
 
 interface Props {
@@ -69,6 +70,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const [skillRowId, setSkillRowId] = useState<string | null>(null);
   const [skillBusy, setSkillBusy] = useState(false);
   const [skillResult, setSkillResult] = useState<{ row: string; result: ComicSkillResult } | null>(null);
+  // 批1 P2（2026-09-19）：分格图/角色卡 大图灯箱（单击放大·右击下载）
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -725,7 +728,22 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                 <div key={row.id} className="comic-panel card">
                   <div className="comic-panel-img">
                     {kf ? (
-                      <img src={mangaApi.getMediaUrl(kf.file_path, kf.version)} alt={`第${idx + 1}格`} />
+                      <img
+                        src={mangaApi.getMediaUrl(kf.file_path, kf.version)}
+                        alt={`第${idx + 1}格`}
+                        style={{ cursor: 'zoom-in' }}
+                        title="单击放大 · 右击下载"
+                        onClick={() => setLightbox({
+                          src: mangaApi.getMediaUrl(kf.file_path, kf.version),
+                          title: `第${idx + 1}格 · v${kf.version}`,
+                        })}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          downloadImage(
+                            mangaApi.getMediaUrl(kf.file_path, kf.version),
+                            `第${idx + 1}格_v${kf.version}.png`);
+                        }}
+                      />
                     ) : (
                       <div className="comic-panel-placeholder">
                         <Wand2 size={26} style={{ opacity: 0.35 }} />
@@ -906,7 +924,22 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                 (c.meta as { turnaround?: unknown } | null)?.turnaround);
               return (
                 <div key={c.asset_id} className="comic-char-card">
-                  <img src={mangaApi.getMediaUrl(c.file_path, c.created_at)} alt={c.name} />
+                  <img
+                    src={mangaApi.getMediaUrl(c.file_path, c.created_at)}
+                    alt={c.name}
+                    style={{ cursor: 'zoom-in' }}
+                    title="单击放大 · 右击下载"
+                    onClick={() => setLightbox({
+                      src: mangaApi.getMediaUrl(c.file_path, c.created_at),
+                      title: c.name,
+                    })}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      downloadImage(
+                        mangaApi.getMediaUrl(c.file_path, c.created_at),
+                        `${c.name}.png`);
+                    }}
+                  />
                   <div className="comic-char-meta">
                     <div className="comic-char-name" title={c.name}>{c.name}</div>
                     <div className="comic-char-prompt" title={c.prompt}>{c.prompt}</div>
@@ -1281,6 +1314,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             </div>
           </div>
         </Modal>
+      )}
+      {lightbox && (
+        <OmniLightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
       )}
     </div>
   );

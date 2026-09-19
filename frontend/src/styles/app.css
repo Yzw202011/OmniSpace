@@ -2041,9 +2041,9 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-records-link:hover { text-decoration: underline; }
 
-/* 图片生成记录表（七列：缩略图/类型/名称/引擎/seed/时间/操作） */
+/* 图片生成记录表（八列：缩略图/类型/名称/引擎/seed/耗时/时间/操作；批1 P6 增耗时列） */
 .manga-records-img .manga-records-tr {
-  grid-template-columns: 64px 88px minmax(96px, 1fr) minmax(110px, 1.2fr) 92px minmax(108px, 0.9fr) 60px;
+  grid-template-columns: 64px 88px minmax(96px, 1fr) minmax(110px, 1.2fr) 92px 72px minmax(108px, 0.9fr) 60px;
 }
 .manga-records-thumb {
   width: 56px; height: 40px; padding: 0; border: 1px solid var(--color-border-light);

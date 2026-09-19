@@ -796,6 +796,8 @@ export interface ImageTaskRecord {
   seed?: number | null;
   width?: number | null;
   height?: number | null;
+  /** 生成耗时毫秒（批1 P6；旧记录无=null 显示 —） */
+  elapsed_ms?: number | null;
   /* ── keyframe 专有 ── */
   row_id?: string;
   shot_number?: number;

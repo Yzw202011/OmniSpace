@@ -15,6 +15,7 @@ import { getSettings, updateSettings } from '@/services/systemApi';
 import { mirrorPref } from '@/services/uiPrefs';
 import { reportBgError } from '@/utils/errors';
 import { trackBehavior } from '@/services/learningApi';
+import { useNotificationStore } from '@/stores/useNotificationStore';
 
 /** 主题（三主题体系 × 亮暗双模式，2026-08-20 脱离文档 COM-009；
  *  2026-09-11 增补第三族 Dali 风花雪月治愈主题）：
@@ -288,6 +289,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       toasts: [...state.toasts, { id, text, level }].slice(-5),
     }));
+    // 批1 P25（2026-09-19）：重要级 toast 同步留痕通知历史（info 噪声不留）
+    if (level === 'success' || level === 'warning' || level === 'error') {
+      useNotificationStore.getState().record(level, text);
+    }
     // 3.6s 后触发退出动画，150ms 后真正移除
     setTimeout(() => {
       set((state) => ({

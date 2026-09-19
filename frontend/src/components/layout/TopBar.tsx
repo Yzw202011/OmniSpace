@@ -29,6 +29,10 @@ import { NAV_ITEMS } from '@/router';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Theme } from '@/stores/useAppStore';
 import { useTaskStore, TASK_TYPE_LABELS } from '@/stores/useTaskStore';
+import {
+  useNotificationStore,
+  NOTIFICATION_LEVEL_LABELS,
+} from '@/stores/useNotificationStore';
 import { TRAIN_STATUS_LABELS, type TrainStatusKey } from '@/constants/statusLabels';
 import type { OmniTask } from '@/types';
 
@@ -117,6 +121,19 @@ export default function TopBar() {
   const activeCount = tasks.filter((t) => t.status === 'running' || t.status === 'pending').length;
   // 最近 6 条任务（新的在前）
   const recentTasks = useMemo(() => [...tasks].slice(-6).reverse(), [tasks]);
+  // 批1 P25（2026-09-19）：通知历史（重要 toast 留痕可回看）
+  const notifications = useNotificationStore((s) => s.items);
+  const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const clearNotifications = useNotificationStore((s) => s.clear);
+  const unreadCount = notifications.filter((n) => n.unread).length;
+  const recentNotifications = useMemo(() => notifications.slice(0, 8), [notifications]);
+  const bellBadge = activeCount + unreadCount;
+  const toggleBell = () => {
+    setBellOpen((v) => {
+      if (!v) markAllRead(); // 打开即全读
+      return !v;
+    });
+  };
 
   /* ------------------------------ 用户菜单 ------------------------------ */
   const [userOpen, setUserOpen] = useState(false);
@@ -192,16 +209,16 @@ export default function TopBar() {
           <button
             type="button"
             className="topbar-icon-btn"
-            onClick={() => setBellOpen((v) => !v)}
-            title="通知中心"
-            aria-label={`通知中心，${activeCount} 个进行中任务`}
+            onClick={toggleBell}
+            title="通知中心（任务 + 历史通知）"
+            aria-label={`通知中心，${activeCount} 个进行中任务，${unreadCount} 条未读通知`}
             aria-expanded={bellOpen}
           >
             <Bell size={17} aria-hidden="true" />
-            {activeCount > 0 && <span className="topbar-badge">{activeCount}</span>}
+            {bellBadge > 0 && <span className="topbar-badge">{bellBadge}</span>}
           </button>
           {bellOpen && (
-            <div className="topbar-dropdown" role="menu" aria-label="任务通知">
+            <div className="topbar-dropdown" role="menu" aria-label="任务与历史通知">
               <div className="topbar-dropdown-title">任务通知</div>
               {recentTasks.length === 0 ? (
                 <div className="topbar-dropdown-empty">暂无任务</div>
@@ -219,6 +236,48 @@ export default function TopBar() {
                         : t.status === 'running'
                           ? `${Math.round((t.progress || 0) * 100)}%`
                           : TRAIN_STATUS_LABELS[t.status as TrainStatusKey] ?? t.status}
+                    </span>
+                  </div>
+                ))
+              )}
+              {/* 批1 P25：历史通知（失败/完成/注意级 toast 留痕回看） */}
+              <div className="topbar-dropdown-title" style={{ marginTop: 8 }}>
+                历史通知
+                {notifications.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ marginLeft: 'auto', padding: '0 6px', fontSize: 11 }}
+                    onClick={clearNotifications}
+                  >
+                    清空
+                  </button>
+                )}
+              </div>
+              {recentNotifications.length === 0 ? (
+                <div className="topbar-dropdown-empty">暂无历史通知（失败/完成/降级提醒会留痕在这里）</div>
+              ) : (
+                recentNotifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`topbar-task ${n.level === 'error' ? 'error' : n.level === 'warning' ? 'pending' : 'done'}`}
+                    title={new Date(n.ts).toLocaleString()}
+                  >
+                    {n.level === 'error' ? (
+                      <CircleX size={14} aria-hidden="true" />
+                    ) : n.level === 'warning' ? (
+                      <Loader size={14} aria-hidden="true" />
+                    ) : (
+                      <CircleCheck size={14} aria-hidden="true" />
+                    )}
+                    <span
+                      className="topbar-task-name"
+                      style={{ fontWeight: n.unread ? 600 : 400 }}
+                    >
+                      {NOTIFICATION_LEVEL_LABELS[n.level]} · {n.text}
+                    </span>
+                    <span className="topbar-task-progress">
+                      {new Date(n.ts).toLocaleTimeString()}
                     </span>
                   </div>
                 ))

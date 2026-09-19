@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "updated": "2026-09-19",
+  "desc": "文档对账闸断言清单（第5闸）：每条 = 一个最易漂移的事实断言。校验器 = tools/doc_drift_check.py（pre-commit 第5步 + run_tests L0）。severity: block=失配挡提交；warn=只报不挡（计数哨兵类）。维护铁律：相关事实变动的同一提交内同步更新本清单（改前先读该条 why）；断言写错会误挡，凭 why 里的取证口径复核。",
+  "claims": [
+    {"id": "vllm-version-current", "severity": "block", "type": "file_contains", "path": "src/engines/vllm_service.py", "pattern": "0\\.27\\.1", "why": "vLLM 子进程现行版本 0.27.1（真源=CLAUDE.md §1；头注 :5 已于 2026-09-19 勘正）"},
+    {"id": "vllm-version-stale-gone", "severity": "block", "type": "file_not_contains", "path": "src/engines/vllm_service.py", "pattern": "v0\\.26\\.0", "why": "旧版本号不得以现行口径出现（:183 历史叙述写作 0.26→0.27.1 无 v 前缀，不误伤）"},
+    {"id": "claude-vllm-anchor", "severity": "block", "type": "file_contains", "path": "CLAUDE.md", "pattern": "vLLM \\*\\*0\\.27\\.1\\*\\*", "why": "CLAUDE.md §1 技术栈表 vLLM 版本锚（双源一致性：头注与宪法同版）"},
+    {"id": "claude-no-stale-377", "severity": "block", "type": "file_not_contains", "path": "CLAUDE.md", "pattern": "377 端点", "why": "旧端点计数口径（2026-09-19 已勘正为 360，grep 复现命令见 http-endpoint-count 条）"},
+    {"id": "readme-no-videomaking", "severity": "block", "type": "file_not_contains", "path": "README.md", "pattern": "video[-_]making", "why": "video-making 链已于 a5ef5ab 整链删除（2026-09-17），README 不得再宣传（2026-09-19 已清）"},
+    {"id": "waqian-no-ghost-shield-warning", "severity": "block", "type": "file_not_contains", "path": "docs/未完成清单.md", "pattern": "安全盾半成品在飞", "why": "安全盾已 d82cd74 入库完工；幽灵警告 2026-09-19 销（防同类「事件已过、警告不回收」再犯）"},
+    {"id": "router-no-stale-count", "severity": "block", "type": "file_not_contains", "path": "frontend/src/router.tsx", "pattern": "9 个一级路由", "why": "头注旧计数已清（2026-09-19）"},
+    {"id": "router-count-current", "severity": "block", "type": "file_contains", "path": "frontend/src/router.tsx", "pattern": "10 个页面路由 \\+ /style 重定向", "why": "头注计数现行口径（CLAUDE.md §2.3 同口径=11 个一级路径）"},
+    {"id": "front-three-absent", "severity": "block", "type": "path_absent", "path": "frontend/src/three", "why": "3D 导演台 2026-08-29 用户裁定整链剔除；复活须先立 ADR（CLAUDE.md §2.4）"},
+    {"id": "api-director-absent", "severity": "block", "type": "path_absent", "path": "src/api/director.py", "why": "3D 剔除的后端侧（director 路由不存在）"},
+    {"id": "cutemamen-videomaking-absent", "severity": "block", "type": "path_absent", "path": "src/cutemamen/video_making.py", "why": "video_making 已于 2026-09-17 移除（CLAUDE.md §3.1.1）"},
+    {"id": "plugin-videomaking-pkg-absent", "severity": "block", "type": "path_absent", "path": "plugin/VideoMaking.CuteMamen", "why": "出厂插件仅剩 RustCoding.CuteMamen（plugin/ 目录白名单）"},
+    {"id": "plugin-rustcoding-present", "severity": "block", "type": "path_exists", "path": "plugin/RustCoding.CuteMamen", "why": "出厂演示插件在位（OSP 登记表出厂种子依赖）"},
+    {"id": "h3-lock-anchor", "severity": "block", "type": "file_contains", "path": "src/data/models.py", "pattern": "minimax-h3", "why": "漫剧视频主力=minimax-h3 锁定令（2026-09-06 用户令，CLAUDE.md §16.4 红线）——路由表锚点"},
+    {"id": "video-routing-table", "severity": "block", "type": "file_contains", "path": "src/data/models.py", "pattern": "VIDEO_ROUTING_TABLE", "why": "锁定令载体结构在位（改名须过用户拍板）"},
+    {"id": "precommit-doc-gate-wired", "severity": "block", "type": "file_contains", "path": ".githooks/pre-commit", "pattern": "doc_drift_check", "why": "对账闸自身必须在岗（防闸被顺手摘除=闸的自杀开关）"},
+    {"id": "index-doc-gate-registered", "severity": "block", "type": "file_contains", "path": "docs/INDEX.md", "pattern": "doc_drift_check", "why": "INDEX 登记不丢（文档纪律：新增工具/文档必须登记）"},
+    {"id": "torch-contract-exists", "severity": "block", "type": "path_exists", "path": "src/torch_contract.json", "why": "torch 契约单源（boot 预检闸依赖，CLAUDE.md §1）"},
+    {"id": "mypy-baseline-exists", "severity": "block", "type": "path_exists", "path": "tools/mypy_baseline.txt", "why": "mypy 第4闸基线文件（只增不减）"},
+    {"id": "tokens-css-exists", "severity": "block", "type": "path_exists", "path": "frontend/src/styles/tokens.css", "why": "CSS 令牌唯一权威源（CLAUDE.md §2.5）"},
+    {"id": "backend-shim-exists", "severity": "block", "type": "path_exists", "path": "backend/main.py", "why": "仓库外冻结进程兼容 shim（CLAUDE.md §3.1.1：backend/ 仅 re-export src.main:app）"},
+    {"id": "http-endpoint-count", "severity": "warn", "type": "count_matches", "paths": ["src/api/**/*.py"], "pattern": "@router\\.(get|post|put|delete|patch)\\(", "expected": 361, "why": "端点总数计数哨兵（含别名；2026-09-19 grep 实测 360→361=+post（激活批 /license/unbind）get147+post159+put30+delete25）。增删端点后：同步 CLAUDE.md §4 与 INDEX api 行，再更新本 expected"},
+    {"id": "ws-endpoint-count-api", "severity": "warn", "type": "count_matches", "paths": ["src/api/**/*.py"], "pattern": "@router\\.websocket\\(", "expected": 2, "why": "src/api 层 WS 计数（hardware+learning；另有 main.py 层 2 个：/ws 中枢与 /dialog/stream，合计 4=CLAUDE.md §4 口径）"},
+    {"id": "config-gen-engine-comfy", "severity": "warn", "type": "file_contains", "path": "src/config.yaml", "pattern": "gen_engine: comfy", "why": "B5 拍板：绘画主栈=comfy（config.yaml:132）。若再翻转须同步本断言+CLAUDE.md+方案文档"}
+  ]
+}

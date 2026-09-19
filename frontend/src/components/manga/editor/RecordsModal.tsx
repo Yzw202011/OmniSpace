@@ -370,6 +370,7 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
                 <div className="manga-records-td i-name">名称 / 镜号</div>
                 <div className="manga-records-td i-engine">引擎 / 模型</div>
                 <div className="manga-records-td i-seed">seed / 尺寸</div>
+                <div className="manga-records-td c-cost">耗时</div>
                 <div className="manga-records-td c-time">时间</div>
                 <div className="manga-records-td c-ops">操作</div>
               </div>
@@ -437,6 +438,9 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
                     ) : (
                       '—'
                     )}
+                  </div>
+                  <div className="manga-records-td c-cost text-secondary">
+                    {formatDuration(t.elapsed_ms ?? 0)}
                   </div>
                   <div className="manga-records-td c-time text-tertiary">{formatTime(t.created_at)}</div>
                   <div className="manga-records-td c-ops">

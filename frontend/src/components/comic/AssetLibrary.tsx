@@ -10,6 +10,7 @@ import React, { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 
 import { Modal } from '../common/Modal';
+import OmniLightbox, { downloadImage } from '../common/OmniLightbox';
 import * as mangaApi from '@/services/mangaApi';
 import { getErrorMessage } from '@/utils/errors';
 import type { ComicAsset } from '@/types';
@@ -41,6 +42,8 @@ const AssetLibrary: React.FC<Props> = ({
   const [libUpName, setLibUpName] = useState('');
   const [libUpFile, setLibUpFile] = useState<File | null>(null);
   const [libUpBusy, setLibUpBusy] = useState(false);
+  // 批1 P2（2026-09-19）：资产大图灯箱
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
 
   const libKindLabel = libKind === 'character' ? '角色' : libKind === 'scene' ? '场景' : '道具';
 
@@ -234,6 +237,18 @@ const AssetLibrary: React.FC<Props> = ({
                           src={mangaApi.getMediaUrl(a.file_path, a.created_at)}
                           alt={a.name}
                           loading="lazy"
+                          style={{ cursor: 'zoom-in' }}
+                          title="单击放大 · 右击下载"
+                          onClick={() => setLightbox({
+                            src: mangaApi.getMediaUrl(a.file_path, a.created_at),
+                            title: a.name,
+                          })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            downloadImage(
+                              mangaApi.getMediaUrl(a.file_path, a.created_at),
+                              `${a.name}.png`);
+                          }}
                         />
                         {a.kind === 'character' && (
                           <span className={`comic-lib-badge${hasTurnaround ? ' ok' : ''}`}>
@@ -264,6 +279,10 @@ const AssetLibrary: React.FC<Props> = ({
             </p>
           </div>
         </Modal>
+      )}
+      {/* 批1 P2：资产大图灯箱（单击放大·右击下载） */}
+      {lightbox && (
+        <OmniLightbox src={lightbox.src} title={lightbox.title} onClose={() => setLightbox(null)} />
       )}
 
       {/* 资产库 AI 生成（场景/道具单图；角色提示走四视图入口） */}

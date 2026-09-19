@@ -18,6 +18,7 @@
 
 import React from 'react';
 import { BookOpen } from 'lucide-react';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import LearningDashboard from './LearningDashboard';
 import QuotaCard from './QuotaCard';
 import TopicManager from './TopicManager';
@@ -31,6 +32,7 @@ import LearningSettingsPanel from './LearningSettings';
 export const LearningPage: React.FC = () => {
   return (
     <div className="page">
+      <ModuleGuide moduleKey="learning" />
       <h1 className="page-title"><BookOpen size={20} aria-hidden="true" /> 知识学习</h1>
       <p className="page-subtitle">AI 自主学习：主题管理 · 实时浏览 · 行为偏好 · 知识库（训练已迁入训练中心）</p>
 

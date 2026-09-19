@@ -14,6 +14,7 @@
  * ========================================================================== */
 
 import React, { useState, useEffect } from 'react';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import type { LucideIcon } from 'lucide-react';
 import {
   PackageOpen,
@@ -808,6 +809,7 @@ export const ModelManager: React.FC = () => {
 
   return (
     <div className="page model-manager">
+      <ModuleGuide moduleKey="models" />
       <div className="mm-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1 className="page-title" style={{ marginBottom: 0 }}><Boxes size={20} aria-hidden="true" /> 模型管理</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flex: 1, marginLeft: 'var(--space-6)' }}>

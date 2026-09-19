@@ -13,6 +13,7 @@
 
 import { useState, useEffect, type CSSProperties } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
+import ModuleGuide from '@/components/common/ModuleGuide';
 import { useAppStore, type FontSize, type Theme } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
 import CloudApiSettings from '@/components/CloudApiSettings';
@@ -149,6 +150,7 @@ export default function Settings() {
 
   return (
     <div className="page settings-page">
+      <ModuleGuide moduleKey="settings" />
       <h1 className="page-title"><SettingsIcon size={20} aria-hidden="true" /> 设置</h1>
       <p className="page-subtitle">通用 · 外观 · AI 服务 · 数据 · 插件 · 维护</p>
 

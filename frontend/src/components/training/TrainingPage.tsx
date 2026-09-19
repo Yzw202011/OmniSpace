@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BrainCircuit, RefreshCw } from 'lucide-react';
 
+import ModuleGuide from '@/components/common/ModuleGuide';
 import CharacterTrainPanel from '@/components/training/CharacterTrainPanel';
 import LearnView from '@/components/learn/LearnView';
 import LoRAVersionManager from '@/components/learning/LoRAVersionManager';
@@ -178,6 +179,7 @@ export const TrainingPage: React.FC = () => {
       <p className="page-subtitle">
         所有训练一个屋檐下：知识 · 风格 · 人物
       </p>
+      <ModuleGuide moduleKey="training" />
 
       <UnifiedQueueCard
         queue={queue}

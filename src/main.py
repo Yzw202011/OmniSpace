@@ -92,6 +92,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("风格库种子：%s", _ensure_seed())
     except Exception as _exc:  # noqa: BLE001 - 种子导入失败不阻断启动
         log.warning("风格库种子导入异常（不阻断启动）：%s", _exc, exc_info=True)
+    # 批5 P20（2026-09-19）：断电/崩溃恢复——清扫上一进程挂死任务状态
+    # + 每日自动备份线程（失败不阻断启动）
+    try:
+        from .services.recovery import start_recovery_service
+        _swept = start_recovery_service()
+        if _swept:
+            log.warning("批5 P20 恢复清扫：%s（已标记中断可重试）", _swept)
+    except Exception as _exc:  # noqa: BLE001
+        log.warning("批5 P20 恢复服务启动异常（不阻断启动）：%s", _exc,
+                    exc_info=True)
     # 外部模型包登记（体验流 2b 跨盘降级）：boot 拖入识别写的标记 →
     # 按外部 manifest 幂等回填 file_path（激活门禁拦着 API，只能启动期做）
     try:

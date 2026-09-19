@@ -92,6 +92,11 @@ def cloud_provider_update(provider_id: str,
 @router.delete("/providers/{provider_id}")
 def cloud_provider_delete(provider_id: str) -> dict[str, Any]:
     """删除连接并清空指向它的工位绑定（悬空绑定解析处亦有防御）。"""
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('cloud', 'provider_delete', target=provider_id)
+    except Exception:  # noqa: BLE001
+        pass
     return ok(_guard(svc.delete_provider, provider_id), message="连接已删除")
 
 

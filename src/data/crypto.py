@@ -247,3 +247,40 @@ def is_encrypted(value: str | None) -> bool:
 
 
 # 本项目仅供学习使用，商业授权请+Q 3559331368
+
+
+def encrypt_bytes_gcm(plain: bytes) -> bytes:
+    """批5 P16（2026-09-19）：二进制 AES-GCM 加密（备份文件用）。
+
+    输出格式：b"OMENC1" + nonce(12) + ciphertext；密钥不可用/异常时
+    返回原文并告警（可用性优先，调用方据头部标记判断是否加密）。
+    """
+    key = _ensure_key()
+    if key is None:
+        _report_encrypt_failure("backup key unavailable")
+        return plain
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        nonce = os.urandom(_NONCE_LEN)
+        ct = AESGCM(key).encrypt(nonce, plain, None)
+        return b"OMENC1" + nonce + ct
+    except Exception as exc:  # noqa: BLE001
+        _report_encrypt_failure(f"encrypt_bytes_gcm: {exc}")
+        return plain
+
+
+def decrypt_bytes_gcm(blob: bytes) -> bytes:
+    """对应 decrypt；非 OMENC1 头（明文/历史文件）原样返回。"""
+    if not blob.startswith(b"OMENC1"):
+        return blob
+    key = _ensure_key()
+    if key is None:
+        raise ValueError("备份已加密但本机密钥不可用（DPAPI 异常）")
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    nonce, ct = blob[6:6 + _NONCE_LEN], blob[6 + _NONCE_LEN:]
+    return AESGCM(key).decrypt(nonce, ct, None)
+
+
+def is_encrypted_bytes(blob: bytes) -> bool:
+    """批5 P16：文件头嗅探（备份是否已加密）。"""
+    return blob[:6] == b"OMENC1"

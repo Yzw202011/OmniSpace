@@ -25,6 +25,7 @@ import PluginSection from '@/components/PluginSection';
 import DataManagementSection from '@/components/DataManagementSection';
 import StorageCard from '@/components/system/StorageCard';
 import HardwareHealthCard from '@/components/system/HardwareHealthCard';
+import AuditCard from '@/components/system/AuditCard';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
@@ -603,6 +604,9 @@ export default function Settings() {
 
       {/* ============ 软件升级（升级机制批2） ============ */}
       <UpgradeSection />
+
+      {/* ============ 批5 P18：操作审计（删除/导出/设置/云端留痕） ============ */}
+      <AuditCard />
 
       {/* ============ 体检与修复（自愈批4） ============ */}
       <HealthCheckCard />

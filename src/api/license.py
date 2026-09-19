@@ -90,5 +90,10 @@ def license_unbind(req: UnbindReq) -> dict[str, Any]:
     except license_gate.GateError as exc:
         raise ApiError("UNBIND_FAILED", str(exc),
                        suggestion="确认本机已激活后重试") from exc
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('license', 'unbind', target='this-machine')
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"unbind_code": token,
                "note": "请把这串解绑码发给卖家完成换绑；本机授权已作废"})

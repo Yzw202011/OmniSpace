@@ -292,7 +292,10 @@ def logs_frontend_event(body: dict = Body(default_factory=dict)) -> dict[str, An
 
 # 导出脱敏：这些字段的值视为用户内容（提示词/描述词），打码
 _SANITIZE_KEYS = {"prompt", "description", "content",
-                  "input_summary", "output"}
+                  "input_summary", "output",
+                  # 批5 P15（2026-09-19）：密钥/令牌系字段一并脱敏
+                  "api_key", "api_key_masked", "authorization", "token",
+                  "remote_dialog_api_key"}
 
 
 def _mask_text(v: str) -> str:
@@ -438,6 +441,11 @@ def logs_export(
         raise
 
     filename = f"omnispace_diagnostics_{now.strftime('%Y%m%d_%H%M%S')}.zip"
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit("logs", "diagnostics_export", target=filename)
+    except Exception:  # noqa: BLE001
+        pass
     return FileResponse(
         tmp_path, filename=filename, media_type="application/zip",
         background=BackgroundTask(os.unlink, tmp_path))

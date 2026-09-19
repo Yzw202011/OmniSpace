@@ -1390,6 +1390,11 @@ def chat_batch_delete_sessions(body: SessionBatchDelete) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 - 单条失败不阻断整批
             log.warning("会话批量删除单条失败 %s: %s", sid, exc, exc_info=True)
             missing.append(sid)
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('dialog', 'sessions_batch_delete', target=str(len(deleted)) + " 个会话")
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"deleted": len(deleted), "deleted_ids": deleted,
                "missing_ids": missing})
 

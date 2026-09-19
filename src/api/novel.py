@@ -184,6 +184,11 @@ def novel_project_delete(project_id: str) -> dict[str, Any]:
                   "novel_foreshadows"):
         db.delete(table, "project_id=?", (project_id,))
     db.delete("novel_projects", "id=?", (project_id,))
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('novel', 'project_delete', target=project_id)
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"project_id": project_id, "deleted": True})
 
 

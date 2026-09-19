@@ -432,6 +432,11 @@ def comic_project_delete(project_id: str) -> dict[str, Any]:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除项目")
     if not _delete_project_cascade(db, project_id):
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
+    try:  # 批5 P18 审计
+        from ...services.audit_log import log_audit
+        log_audit('comic', 'project_delete', target=project_id)
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"project_id": project_id, "deleted": True})
 
 
@@ -451,6 +456,11 @@ def comic_project_batch_delete(req: ProjectBatchDelete) -> dict[str, Any]:
             missing_ids.append(pid)
     if not deleted_ids:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_ids": missing_ids})
+    try:  # 批5 P18 审计
+        from ...services.audit_log import log_audit
+        log_audit('comic', 'project_batch_delete', target=",".join(deleted_ids)[:180])
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"deleted": len(deleted_ids), "deleted_ids": deleted_ids,
                "missing_ids": missing_ids})
 

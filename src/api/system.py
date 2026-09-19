@@ -171,6 +171,11 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
         invalidate_remote_config_cache()
     except Exception:  # noqa: BLE001 - 缓存清理失败下个 TTL 自愈
         log.debug("system_settings_update: 降级忽略", exc_info=True)
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('system', 'settings_update', target=",".join(sorted(data.keys()))[:180])
+    except Exception:  # noqa: BLE001
+        pass
     return ok(_settings, message="设置已更新")
 
 
@@ -267,25 +272,38 @@ async def system_backup() -> dict[str, Any]:
     }
 
     def _write_settings_backup() -> str:
+        # 批5 P16：备份文件加密（密钥不可用=明文回退原后缀，绝不假加密）
+        from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        path = BACKUP_DIR / f"backup_{_now_ts()}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                        encoding="utf-8")
+        raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        blob = encrypt_bytes_gcm(raw)
+        suffix = ".json.enc" if is_encrypted_bytes(blob) else ".json"
+        path = BACKUP_DIR / f"backup_{_now_ts()}{suffix}"
+        path.write_bytes(blob)
         return str(path)
 
     def _backup_db() -> str:
+        # 批5 P16：热备→整文件加密 .db.enc（密钥不可用明文回退 .db）
         import sqlite3
-        dest = BACKUP_DIR / f"omnispace_{_now_ts()}.db"
+
+        from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+        plain = BACKUP_DIR / f"omnispace_{_now_ts()}.db"
         src_conn = sqlite3.connect(str(DB_PATH))
         try:
-            dst_conn = sqlite3.connect(str(dest))
+            dst_conn = sqlite3.connect(str(plain))
             try:
                 src_conn.backup(dst_conn)
             finally:
                 dst_conn.close()
         finally:
             src_conn.close()
-        return str(dest)
+        blob = encrypt_bytes_gcm(plain.read_bytes())
+        if is_encrypted_bytes(blob):
+            dest = plain.with_suffix(plain.suffix + ".enc")
+            dest.write_bytes(blob)
+            plain.unlink(missing_ok=True)
+            return str(dest)
+        return str(plain)
 
     # 写盘/热备属磁盘 IO，经 run_blocking 卸载（审计 09-10 P2-3）
     file_path = ""
@@ -318,11 +336,20 @@ def restore_list() -> dict[str, Any]:
     """列出可恢复的 DB 副本（文件名+体积+修改时间，供恢复 UI 下拉）。"""
     items = []
     if BACKUP_DIR.is_dir():
-        for f in sorted(BACKUP_DIR.glob("omnispace_*.db"),
-                        key=lambda f: f.stat().st_mtime, reverse=True):
+        from ..data.crypto import is_encrypted_bytes
+        files = sorted([*BACKUP_DIR.glob("omnispace_*.db"),
+                        *BACKUP_DIR.glob("omnispace_*.db.enc")],
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in files:
+            try:
+                encrypted = (f.suffix == ".enc"
+                             and is_encrypted_bytes(f.read_bytes()[:64]))
+            except OSError:
+                encrypted = f.suffix == ".enc"
             items.append({"filename": f.name,
                           "size_bytes": f.stat().st_size,
-                          "mtime": f.stat().st_mtime})
+                          "mtime": f.stat().st_mtime,
+                          "encrypted": encrypted})
     return ok({"backups": items,
                "pending_restore": _RESTORE_PENDING_MARK.is_file()})
 
@@ -542,6 +569,71 @@ def backups_delete(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str
 #  批4 P19（2026-09-19）：硬件健康中心——四项仪表聚合 + 阈值三色
 # ═══════════════════════════════════════════════════════════════════
 
+@router.get("/system/hardware/selfcheck")
+def hardware_selfcheck() -> dict[str, Any]:
+    """批5 P22（2026-09-19）：环境与硬件变更自检。
+
+    ①GPU 驱动版本（pynvml；空=探测失败如实报）
+    ②外部路径模型可达性（移动硬盘拔盘→登记仍在→如实标不可达）
+    ③换硬件后的激活换绑指引（人话步骤）
+    """
+    driver = ""
+    gpu_name = ""
+    try:
+        import pynvml  # type: ignore
+        pynvml.nvmlInit()
+        try:
+            h = pynvml.nvmlDeviceGetHandleByIndex(0)
+            gpu_name = pynvml.nvmlDeviceGetName(h)
+            if isinstance(gpu_name, bytes):
+                gpu_name = gpu_name.decode("utf-8", errors="replace")
+            d = pynvml.nvmlSystemGetDriverVersion()
+            driver = d.decode("utf-8", "replace") if isinstance(d, bytes) else str(d)
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception:  # noqa: BLE001
+        log.debug("selfcheck: GPU 探测降级", exc_info=True)
+
+    # 外部模型可达性（manifest 里 file_path 是绝对路径的=外挂盘登记）
+    unreachable: list[dict[str, str]] = []
+    try:
+        db = get_db_safe()
+        if db is not None:
+            for r in db.query(
+                    "SELECT id, name, file_path FROM models"
+                    r" WHERE file_path LIKE '%:%\%' OR file_path LIKE '%:/%'"):
+                fp = str(r.get("file_path") or "")
+                if fp and not Path(fp).exists():
+                    unreachable.append({"model_id": r["id"],
+                                        "name": r.get("name", ""),
+                                        "path": fp})
+    except Exception:  # noqa: BLE001
+        log.debug("selfcheck: 外部模型检查降级", exc_info=True)
+
+    # 驱动过旧启发式（major < 500 = 2022 年前架构，CUDA 12 时代之前）
+    driver_old = False
+    if driver:
+        try:
+            driver_old = int(driver.split(".")[0]) < 500
+        except (ValueError, IndexError):
+            pass
+
+    return ok({
+        "gpu": {"name": gpu_name, "driver_version": driver,
+                "driver_old": driver_old,
+                "hint": ("驱动较旧（major<500），如遇 CUDA 报错建议先升"
+                         "级显卡驱动" if driver_old else
+                         ("驱动版本读取失败" if not driver else "正常"))},
+        "external_models_unreachable": unreachable,
+        "rebind_guide": [
+            "换电脑/换硬盘/换显卡后激活失效属正常（指纹变了）",
+            "旧机：启动页「产品激活」卡 → 点「解绑本机」→ 复制解绑码",
+            "新机：把解绑码发给卖家，卖家在发码台验码后发新激活码",
+            "输入新激活码即完成换绑（旧机授权即时作废）",
+        ],
+    })
+
+
 @router.get("/system/hardware/health")
 def hardware_health() -> dict[str, Any]:
     """批4 P19：显存/内存/温度/磁盘 四项聚合 + 阈值状态（三色）。
@@ -646,7 +738,7 @@ async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> di
     filename = str(req.get("filename") or "")
     safe = Path(filename).name
     if safe != filename or not safe.startswith("omnispace_") \
-            or not safe.endswith(".db"):
+            or not (safe.endswith(".db") or safe.endswith(".db.enc")):
         raise ApiError("SYSTEM_PARAM_INVALID", "非法备份文件名",
                        suggestion="请从 GET /system/restore/list 返回的清单中选择")
     src = BACKUP_DIR / safe
@@ -659,9 +751,15 @@ async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> di
                        "备份文件过小（疑似损坏），已拒绝恢复")
 
     def _stage() -> None:
+        # 批5 P16：加密备份先解密再暂存（明文备份直拷，头嗅探分流）
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         import shutil
-        shutil.copy2(src, _RESTORE_PENDING_DB)
+        if src.suffix == ".enc":
+            from ..data.crypto import decrypt_bytes_gcm
+            _RESTORE_PENDING_DB.write_bytes(
+                decrypt_bytes_gcm(src.read_bytes()))
+        else:
+            shutil.copy2(src, _RESTORE_PENDING_DB)
         _RESTORE_PENDING_MARK.write_text(
             json.dumps({"source": safe, "staged_at": time.time(),
                         "size": size}, ensure_ascii=False),
@@ -1850,6 +1948,15 @@ async def system_full_export() -> dict[str, Any]:
 
 # ── SET-023 API Key 管理（bcrypt 哈希 + 脱敏显示）────────────────────
 _API_KEYS_DDL = """
+CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        module TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target TEXT DEFAULT '',
+        result TEXT DEFAULT 'ok',
+        detail TEXT DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS api_keys (
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL DEFAULT '',
@@ -1869,6 +1976,38 @@ def _ensure_api_keys_table() -> None:
 
 
 @router.get("/system/apikeys")
+def _ensure_audit_table() -> None:
+    try:
+        db = get_db_safe()
+        if db is not None:
+            db.sql("CREATE TABLE IF NOT EXISTS audit_log ("
+                   "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                   "ts TEXT NOT NULL, module TEXT NOT NULL,"
+                   "action TEXT NOT NULL, target TEXT DEFAULT '',"
+                   "result TEXT DEFAULT 'ok', detail TEXT DEFAULT '')")
+    except Exception:  # noqa: BLE001 - 建表失败由查询侧兜底
+        log.debug("audit table ensure 降级", exc_info=True)
+
+
+@router.get("/system/audit/list")
+def audit_list(limit: int = Query(200, ge=1, le=1000),
+               module: str = Query("", description="按模块过滤（空=全部）")) -> dict[str, Any]:
+    """批5 P18：敏感操作审计（近 N 条；删除/导出/设置/云端/激活留痕）。"""
+    from ..services import audit_log as _audit
+    _ensure_audit_table()
+    return ok({"items": _audit.list_audit(limit=limit, module=module.strip())})
+
+
+@router.post("/system/audit/clear")
+def audit_clear() -> dict[str, Any]:
+    """批5 P18：清空审计（确认动作在前端）。"""
+    from ..services import audit_log as _audit
+    n = _audit.clear_audit()
+    _audit.log_audit("system", "audit_clear", target="audit_log",
+                     detail=f"cleared {n}")
+    return ok({"cleared": n})
+
+
 def api_keys_list() -> dict[str, Any]:
     """API Key 列表（SET-023）：仅返回脱敏前缀，绝不返回完整 Key。"""
     _ensure_api_keys_table()

@@ -59,6 +59,41 @@ def _domain_of(feature: str) -> str:
         return "0"
 
 
+
+# ── 批5 P21（2026-09-19）：睡眠保护 ────────────────────────────────
+# 重量级任务（对话生成/绘画/视频/训练）持锁期间阻止系统睡眠——防
+# 「挂机生成一半电脑睡了」。Windows SetThreadExecutionState；其他
+# 平台/调用失败=静默降级（不阻断任务）。引用计数：全域从 0→N 持有
+# 时请求清醒，N→0 全释放时恢复可睡。
+_sleep_guard_refs = 0
+
+
+def _sleep_guard_hold() -> None:
+    global _sleep_guard_refs
+    _sleep_guard_refs += 1
+    if _sleep_guard_refs == 1:
+        try:
+            import ctypes
+            # ES_CONTINUOUS(0x80000000) | ES_SYSTEM_REQUIRED(0x1)
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
+            log.info("P21 睡眠保护：重量级任务持锁期间阻止系统睡眠")
+        except Exception:  # noqa: BLE001 - 非 Windows/调用失败静默降级
+            log.debug("P21 睡眠保护不可用（降级）", exc_info=True)
+
+
+def _sleep_guard_release() -> None:
+    global _sleep_guard_refs
+    _sleep_guard_refs = max(0, _sleep_guard_refs - 1)
+    if _sleep_guard_refs == 0:
+        try:
+            import ctypes
+            # ES_CONTINUOUS 单独 = 恢复系统默认睡眠策略
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+            log.info("P21 睡眠保护：任务全部结束，恢复可睡")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class FeatureLockManager:
     """功能级互斥管理器（进程内单例，异步安全）。
 
@@ -168,6 +203,7 @@ class FeatureLockManager:
                     self._holders[dom] = feature
                     self._hold_counts[dom] = 1
                     self._acquired_ats[dom] = time.time()
+                    _sleep_guard_hold()  # P21 睡眠保护
                 self._holder_task_ids[dom] = task_id
                 self._last_activity_at = time.time()
                 log.info("功能锁获取: %s (域=%s, task=%s, 重入=%d)",
@@ -204,6 +240,7 @@ class FeatureLockManager:
                     self._hold_counts.pop(found, None)
                     self._holder_task_ids.pop(found, None)
                     self._last_activity_at = time.time()
+                    _sleep_guard_release()  # P21
                 else:
                     log.info("功能锁递减: %s (域=%s, 剩余重入=%d)",
                              feature, found, self._hold_counts[found])
@@ -226,6 +263,7 @@ class FeatureLockManager:
                 self._holders[dom] = feature
                 self._hold_counts[dom] = 1
                 self._acquired_ats[dom] = time.time()
+                _sleep_guard_hold()  # P21
             self._holder_task_ids[dom] = task_id
             self._last_activity_at = time.time()
             log.info("功能锁获取(同步降级): %s (域=%s, task=%s, 重入=%d)",
@@ -251,6 +289,7 @@ class FeatureLockManager:
                 self._hold_counts.pop(found, None)
                 self._holder_task_ids.pop(found, None)
                 self._last_activity_at = time.time()
+                _sleep_guard_release()  # P21
 
     def status(self) -> dict:
         """返回当前互斥状态快照。

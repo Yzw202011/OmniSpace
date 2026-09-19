@@ -1541,6 +1541,11 @@ def models_delete(model_id: str) -> dict[str, Any]:
     for feat, mid in list(_selections.items()):
         if mid == model_id:
             _selections.pop(feat, None)
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('models', 'model_unregister', target=model_id, detail='')
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"deleted": model_id})
 
 
@@ -1605,6 +1610,11 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
     for feat, mid in list(_selections.items()):
         if mid == model_id:
             _selections.pop(feat, None)
+    try:  # 批5 P18 审计
+        from ..services.audit_log import log_audit
+        log_audit('models', 'model_delete_files', target=model_id, detail=f'freed {freed / 1024**3:.2f}GB')
+    except Exception:  # noqa: BLE001
+        pass
     return ok({"deleted": model_id, "path": raw_path,
                "freed_gb": round(freed / 1024 ** 3, 2)}, message="已彻底删除模型文件")
 

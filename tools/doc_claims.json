@@ -24,7 +24,7 @@
     {"id": "mypy-baseline-exists", "severity": "block", "type": "path_exists", "path": "tools/mypy_baseline.txt", "why": "mypy 第4闸基线文件（只增不减）"},
     {"id": "tokens-css-exists", "severity": "block", "type": "path_exists", "path": "frontend/src/styles/tokens.css", "why": "CSS 令牌唯一权威源（CLAUDE.md §2.5）"},
     {"id": "backend-shim-exists", "severity": "block", "type": "path_exists", "path": "backend/main.py", "why": "仓库外冻结进程兼容 shim（CLAUDE.md §3.1.1：backend/ 仅 re-export src.main:app）"},
-    {"id": "http-endpoint-count", "severity": "warn", "type": "count_matches", "paths": ["src/api/**/*.py"], "pattern": "@router\\.(get|post|put|delete|patch)\\(", "expected": 363, "why": "端点总数计数哨兵（含别名；2026-09-19 grep 实测 360→361=+post（激活批 /license/unbind）get147+post161+put30+delete25（批2 +GET /system/modules/health +POST /recover））。增删端点后：同步 CLAUDE.md §4 与 INDEX api 行，再更新本 expected"},
+    {"id": "http-endpoint-count", "severity": "warn", "type": "count_matches", "paths": ["src/api/**/*.py"], "pattern": "@router\\.(get|post|put|delete|patch)\\(", "expected": 364, "why": "端点总数计数哨兵（含别名；2026-09-19 grep 实测 360→361=+post（激活批 /license/unbind）get147+post162+put31+delete25（批3 +PUT /novel/prefs））。增删端点后：同步 CLAUDE.md §4 与 INDEX api 行，再更新本 expected"},
     {"id": "ws-endpoint-count-api", "severity": "warn", "type": "count_matches", "paths": ["src/api/**/*.py"], "pattern": "@router\\.websocket\\(", "expected": 2, "why": "src/api 层 WS 计数（hardware+learning；另有 main.py 层 2 个：/ws 中枢与 /dialog/stream，合计 4=CLAUDE.md §4 口径）"},
     {"id": "config-gen-engine-comfy", "severity": "warn", "type": "file_contains", "path": "src/config.yaml", "pattern": "gen_engine: comfy", "why": "B5 拍板：绘画主栈=comfy（config.yaml:132）。若再翻转须同步本断言+CLAUDE.md+方案文档"}
   ]

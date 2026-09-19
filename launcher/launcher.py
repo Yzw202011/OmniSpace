@@ -288,12 +288,12 @@ class EnvironmentChecker:
             actual = _read(rel)
             if actual is None:
                 drift.append(f'{label}: version.py 不可读')
-                if 'py310' in label:
+                if '主运行时' in label:
                     primary_bad = True
                 continue
             if actual != expected:
                 drift.append(f'{label}: 实际 {actual} ≠ 契约 {expected}')
-                if 'py310' in label:
+                if '主运行时' in label:
                     primary_bad = True
         if not drift:
             return True, f'三处 torch 对齐契约 {expected}'

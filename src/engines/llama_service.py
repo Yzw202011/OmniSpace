@@ -173,9 +173,10 @@ class LlamaService:
                     self._state = "error"
                     log.warning("llama-server 准入拒绝: %s", self._last_error)
                     return False
-            # 换模型/残留进程 → 先停
+            # 换模型/残留进程 → 先停（持锁内直调 _stop_locked；
+            # self._lock 非重入，锁内调 stop() 会自死锁——审计 P1-8）
             if self.is_running():
-                self.stop()
+                self._stop_locked()
             self._model_path = model_path
             self._served_name = Path(model_path).stem
             self._state = "booting"
@@ -224,15 +225,25 @@ class LlamaService:
             self._last_error = (
                 f"llama-server 启动超时（{_START_TIMEOUT_S:.0f}s）")
             self._state = "error"
-            self.stop()
+            self._stop_locked()
             return False
 
     def stop(self) -> bool:
         """停止子进程（taskkill /T 整树；Windows 进程树终止语义）。"""
         with self._lock:
-            proc, self._proc = self._proc, None
-            self._state = "unloaded"
-            self._served_name = ""
+            return self._stop_locked()
+
+    def _stop_locked(self) -> bool:
+        """stop 的锁内实现：持锁方（start 的换模型/超时路径）直调本方法。
+
+        self._lock 是非重入 threading.Lock，start() 持锁期间调 stop()
+        会永久自死锁（进程杀不掉、~5.7GB 显存滞留、后续 unload 全挂），
+        故拆出本方法——对齐 vllm_service 的 _kill_locked 模式（审计 P1-8）。
+        代价：外部 stop() 现在持锁做 taskkill（≤10s），与 vllm 同口径。
+        """
+        proc, self._proc = self._proc, None
+        self._state = "unloaded"
+        self._served_name = ""
         if proc is None:
             return True
         try:

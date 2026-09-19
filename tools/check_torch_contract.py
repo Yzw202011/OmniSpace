@@ -2,7 +2,7 @@
 
 真源 = src/torch_contract.json（升级 torch 只改那一处）。
 本工具比对契约与三处运行时的 torch/version.py 实际版本：
-  - 主运行时 py310 不符 → exit 1（阻断 boot 预检语义）
+  - 主运行时（py312）不符 → exit 1（阻断 boot 预检语义）
   - vLLM py313 / ComfyUI 便携包不符 → exit 1 并标注旁链（自包含栈，
     由调用方决定警告或阻断）
 用法：
@@ -46,14 +46,16 @@ def main() -> int:
         actual = read_torch_version(ROOT / rel)
         if actual is None:
             print(f"[torch-contract] ✗ {label}: version.py 不可读（{rel}）")
-            bad_side = True if "py310" not in label else False
-            bad_primary = bad_primary or ("py310" in label)
+            if "主运行时" in label:
+                bad_primary = True
+            else:
+                bad_side = True
             continue
         if actual == expected:
             print(f"[torch-contract] ✓ {label}: {actual}")
             continue
         print(f"[torch-contract] ✗ {label}: 实际 {actual} ≠ 契约 {expected}")
-        if "py310" in label:
+        if "主运行时" in label:
             bad_primary = True
         else:
             bad_side = True

@@ -9,9 +9,9 @@
 范围 = src + launcher（用户令：packaging_console / license_console 冻结）。
 
 用法（cwd 任意，内部归位仓库根）:
-    runtime/py310/python.exe tools/run_mypy.py             # 全量对比基线
-    runtime/py310/python.exe tools/run_mypy.py --staged    # 只查暂存区（pre-commit）
-    runtime/py310/python.exe tools/run_mypy.py --rebaseline  # 重生成基线（有意为之）
+    runtime/py312/python.exe tools/run_mypy.py             # 全量对比基线
+    runtime/py312/python.exe tools/run_mypy.py --staged    # 只查暂存区（pre-commit）
+    runtime/py312/python.exe tools/run_mypy.py --rebaseline  # 重生成基线（有意为之）
 """
 from __future__ import annotations
 
@@ -29,13 +29,43 @@ SCOPE = ("src", "launcher")
 ERR_RE = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): (?P<kind>error|note): (?P<msg>.*)$")
 
 
-def run_mypy(targets: list[str]) -> list[str]:
+def _assert_config_parsable() -> None:
+    """mypy.ini 预检：损坏即拒跑（fail-closed）。
+
+    实测（2026-09-19 P1-14）：mypy 对损坏 ini 的行为是「stderr 打印
+    configparser 错误 + 弃用整份配置 + 继续跑」，退出码仍 0/1——光查
+    mypy 退出码拦不住「无配置宇宙 ≈ 基线」的假绿。这里用 configparser
+    预检同样的错误类（DuplicateOptionError 等与 mypy 实测同源），配置
+    不可解析就不准进闸。
+    """
+    import configparser
+
+    cp = configparser.RawConfigParser()
+    try:
+        cp.read(str(CONFIG), encoding="utf-8")
+    except configparser.Error as exc:
+        print(f"[mypy-gate] ✗ mypy.ini 损坏（mypy 将静默弃用整份配置，闸不可信）：{exc}")
+        print("           修复 tools/mypy.ini 后重试；历史病历见 "
+              "docs/audit/round-2026-09-19-extreme-audit.md P1-14")
+        raise SystemExit(2) from exc
+
+
+def run_mypy(targets: list[str]) -> tuple[list[str], int]:
+    """跑 mypy 并返回 (输出行, 退出码)。
+
+    退出码语义（mypy 官方）：0=无错误、1=有类型错误、≥2=mypy 自身异常
+    （配置损坏/内部崩溃）。≥2 时输出不构成可信错误集——调用方必须
+    fail-closed（2026-09-19 审计 P1-14：此前不查 rc，mypy 配置崩溃时
+    错误集为空被误判「无新增」，第 4 闸假绿）。
+    """
     cmd = [sys.executable, "-m", "mypy",
            "--config-file", str(CONFIG),
            "--no-error-summary", "--no-pretty"] + targets
     proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True,
                           text=True, encoding="utf-8", errors="replace")
-    return [ln for ln in (proc.stdout + "\n" + proc.stderr).splitlines() if ln.strip()]
+    lines = [ln for ln in (proc.stdout + "\n" + proc.stderr).splitlines()
+             if ln.strip()]
+    return lines, proc.returncode
 
 
 def parse_errors(lines: list[str]) -> set[str]:
@@ -60,6 +90,7 @@ def staged_py_files() -> list[str]:
 
 
 def main() -> int:
+    _assert_config_parsable()
     if "--rebaseline" in sys.argv:
         # B9（2026-09-13）确认闸：重生成基线=重置「只增不减」约束的
         # 记账起点，误用会把真实新增错误洗白成存量。无 --yes 且 stderr
@@ -79,7 +110,13 @@ def main() -> int:
             if ans != "yes":
                 print("[mypy-gate] 已取消")
                 return 2
-        errors = parse_errors(run_mypy(list(SCOPE)))
+        lines, rc = run_mypy(list(SCOPE))
+        if rc not in (0, 1):
+            print(f"[mypy-gate] ✗ mypy 自身异常（退出码 {rc}）——拒绝重生成基线（fail-closed），先修复配置：")
+            for ln in lines[:10]:
+                print(f"  {ln}")
+            return 2
+        errors = parse_errors(lines)
         BASELINE.write_text(
             "\n".join(sorted(errors)) + ("\n" if errors else ""),
             encoding="utf-8", newline="")
@@ -95,7 +132,14 @@ def main() -> int:
     else:
         print("[mypy-gate] mypy 全量类型检查（对比基线）...")
 
-    errors = parse_errors(run_mypy(files if "--staged" in sys.argv else list(SCOPE)))
+    lines, rc = run_mypy(files if "--staged" in sys.argv else list(SCOPE))
+    if rc not in (0, 1):
+        print(f"[mypy-gate] ✗ mypy 自身异常（退出码 {rc}，配置损坏或崩溃）——"
+              "错误集不可信，按失败拦截（fail-closed）：")
+        for ln in lines[:10]:
+            print(f"  {ln}")
+        return 1
+    errors = parse_errors(lines)
 
     baseline: set[str] = set()
     if BASELINE.exists():

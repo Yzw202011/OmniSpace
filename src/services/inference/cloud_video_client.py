@@ -60,6 +60,25 @@ def _bearer(ep: CloudEndpoint) -> dict:
     return headers
 
 
+def _result_headers(api_key: str, base_url: str, url: str) -> dict:
+    """结果文件 URL 的请求头：Bearer 仅在结果主机与 API 端点同源时附加。
+
+    审计 P1-7（2026-09-19）：结果 mp4 落在服务商 OSS/CDN（另一台主机），
+    无差别附带 API Key 会把凭据写进第三方主机的访问日志；且任务结果
+    链接一般自带签名，鉴权头本就多余。
+    """
+    if not api_key:
+        return {}
+    try:
+        from urllib.parse import urlparse
+
+        if urlparse(url).netloc != urlparse(base_url).netloc:
+            return {}
+    except Exception:  # noqa: BLE001 - 解析不了按异源处理（宁可不带）
+        return {}
+    return {"Authorization": f"Bearer {api_key}"}
+
+
 def _ds_submit(ep: CloudEndpoint, prompt: str, first_frame,
                duration_seconds: float, aspect: str) -> str:
     """DashScope 形态提交图生视频任务，返回 task_id。"""
@@ -181,8 +200,8 @@ def generate_video(
                     (time.time() + TASK_TIMEOUT_S - deadline)
                     / TASK_TIMEOUT_S * 75)))
             time.sleep(POLL_INTERVAL_S)
-        # 下载 mp4（视频文件大，超时从宽）
-        headers = {"Authorization": f"Bearer {ep.api_key}"} if ep.api_key else {}
+        # 下载 mp4（视频文件大，超时从宽）；Bearer 仅同源附加（P1-7）
+        headers = _result_headers(ep.api_key, ep.base_url, video_url)
         try:
             resp = requests.get(video_url, headers=headers, timeout=(10, 300))
         except Exception as exc:  # noqa: BLE001

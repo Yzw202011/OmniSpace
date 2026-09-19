@@ -137,7 +137,7 @@ def character_lora_version_delete(version: str) -> dict[str, Any]:
     import re as _re
     import shutil as _sh
 
-    from .character_lora_service import (  # type: ignore[import-untyped]
+    from ..services.character_lora_service import (
         VERSIONS_ROOT as CHAR_LORA_DIR,
     )
     if not _re.fullmatch(r"[A-Za-z0-9_.\-]{1,64}", version):

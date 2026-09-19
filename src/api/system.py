@@ -1975,7 +1975,6 @@ def _ensure_api_keys_table() -> None:
     db.executescript(_API_KEYS_DDL)
 
 
-@router.get("/system/apikeys")
 def _ensure_audit_table() -> None:
     try:
         db = get_db_safe()
@@ -2136,6 +2135,7 @@ def audit_clear() -> dict[str, Any]:
     return ok({"cleared": n})
 
 
+@router.get("/system/apikeys")
 def api_keys_list() -> dict[str, Any]:
     """API Key 列表（SET-023）：仅返回脱敏前缀，绝不返回完整 Key。"""
     _ensure_api_keys_table()

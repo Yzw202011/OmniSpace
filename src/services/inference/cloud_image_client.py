@@ -62,11 +62,30 @@ def _to_dataurl(img) -> str:
         buf.getvalue()).decode("ascii")
 
 
-def _download_image(url: str, api_key: str = ""):
+def _result_headers(api_key: str, base_url: str, url: str) -> dict:
+    """结果文件 URL 的请求头：Bearer 仅在结果主机与 API 端点同源时附加。
+
+    审计 P1-7（2026-09-19）：结果 URL 通常落在服务商 OSS/CDN（另一台
+    主机），无差别附带 API Key 会把凭据写进第三方主机的访问日志；且
+    这类链接一般自带签名，鉴权头本就多余。
+    """
+    if not api_key:
+        return {}
+    try:
+        from urllib.parse import urlparse
+
+        if urlparse(url).netloc != urlparse(base_url).netloc:
+            return {}
+    except Exception:  # noqa: BLE001 - 解析不了按异源处理（宁可不带）
+        return {}
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+def _download_image(url: str, api_key: str = "", base_url: str = ""):
     """下载结果图 URL → PIL（超时 60s；下载失败带出路）。"""
     import requests
 
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    headers = _result_headers(api_key, base_url, url)
     try:
         resp = requests.get(url, headers=headers, timeout=(10, 60))
     except Exception as exc:  # noqa: BLE001 - 网络异常收敛
@@ -179,8 +198,9 @@ def _generate_openai_image(
             _open_image_bytes(base64.b64decode(item["b64_json"])),
             width, height)
     if item.get("url"):
-        return _normalize_size(_download_image(str(item["url"]), ep.api_key),
-                               width, height)
+        return _normalize_size(
+            _download_image(str(item["url"]), ep.api_key, ep.base_url),
+            width, height)
     raise RuntimeError(
         f"云端图片服务返回形态不支持（无 b64_json/url）：{str(item)[:150]}")
 
@@ -313,7 +333,8 @@ def _generate_task_image(
     if on_progress:
         on_progress(85)
     _check(check_cancel)
-    return _normalize_size(_download_image(url, ep.api_key), width, height)
+    return _normalize_size(
+        _download_image(url, ep.api_key, ep.base_url), width, height)
 
 
 # ── 统一入口 ─────────────────────────────────────────────────────

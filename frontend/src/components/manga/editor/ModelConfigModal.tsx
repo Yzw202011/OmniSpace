@@ -18,6 +18,7 @@ import { Loader2, Settings2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { listAvailableModels } from '@/services/mangaApi';
 import { getModuleModelConfig, saveModuleModelConfig } from '@/services/modelApi';
+import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import { DEFAULT_MODEL_CONFIG, writeModelConfig, type MangaModelConfig } from '@/constants/modelConfig';
 import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig';
@@ -224,6 +225,15 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
         <p className="manga-form-tip" style={{ margin: 0 }}>
           保存后作为「生成视频」确认弹窗的默认参数；模型留空 = 系统默认自动选择。
         </p>
+
+        {/* ⑤ 批3 P5：云端 API 工位（manga.text / manga.video）——绑定即
+            该环节走云端（零显存占用）；点击「去配置」直达设置页 AI 服务签 */}
+        <div className="manga-modelcfg-grid">
+          <CloudSlotBadge slots={[
+            { key: 'manga.text', label: '漫剧文本' },
+            { key: 'manga.video', label: '漫剧视频' },
+          ]} />
+        </div>
       </div>
     </Modal>
   );

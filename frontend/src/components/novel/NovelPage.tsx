@@ -42,6 +42,9 @@ import type {
   NovelOutlineNode,
 } from '@/services/novelApi';
 import { invokeNovelSkill } from '@/services/novelApi';
+import * as novelApi from '@/services/novelApi';
+import { useAppStore } from '@/stores/useAppStore';
+import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import type { NovelSkillResult } from '@/services/novelApi';
 import { listSkills } from '@/services/pluginApi';
 import type { PluginSkillInfo } from '@/services/pluginApi';
@@ -138,11 +141,21 @@ const ProjectLibrary: React.FC = () => {
   const createProject = useNovelStore((s) => s.createProject);
   const openProject = useNovelStore((s) => s.openProject);
   const removeProject = useNovelStore((s) => s.removeProject);
-  const [form, setForm] = useState({ name: '', genre: '', description: '' });
+  const [form, setForm] = useState({
+    name: '', genre: '', description: '',
+    plan_chapters: 20, volume_count: 0, words_per_chapter: 2000,
+    style_preset: 'standard',
+  });
 
   const submit = async () => {
     if (!form.name.trim()) return;
-    if (await createProject(form)) setForm({ name: '', genre: '', description: '' });
+    if (await createProject(form)) {
+      setForm({
+        name: '', genre: '', description: '',
+        plan_chapters: 20, volume_count: 0, words_per_chapter: 2000,
+        style_preset: 'standard',
+      });
+    }
   };
 
   return (
@@ -211,6 +224,62 @@ const ProjectLibrary: React.FC = () => {
           maxLength={2000}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
+        {/* 批3 P4：篇幅规划三参数（AI 出纲与正文按此约束；快捷档一键填） */}
+        <div className="grid grid-cols-3 gap-2">
+          <label className="text-xs text-white/50 flex flex-col gap-1">
+            计划章数
+            <input
+              className="input" type="number" min={6} max={200}
+              value={form.plan_chapters}
+              title="全书计划约多少章（AI 出纲贴近此数，允许±2章浮动）"
+              onChange={(e) => setForm({ ...form, plan_chapters: Number(e.target.value) || 20 })}
+            />
+          </label>
+          <label className="text-xs text-white/50 flex flex-col gap-1">
+            每章字数
+            <input
+              className="input" type="number" min={800} max={6000} step={100}
+              value={form.words_per_chapter}
+              title="每章正文目标字数（可短不可注水）"
+              onChange={(e) => setForm({ ...form, words_per_chapter: Number(e.target.value) || 2000 })}
+            />
+          </label>
+          <label className="text-xs text-white/50 flex flex-col gap-1">
+            卷数（0=自动）
+            <input
+              className="input" type="number" min={0} max={10}
+              value={form.volume_count}
+              onChange={(e) => setForm({ ...form, volume_count: Number(e.target.value) || 0 })}
+            />
+          </label>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {[
+            { label: '短篇 12章×1500字', v: { plan_chapters: 12, words_per_chapter: 1500 } },
+            { label: '中篇 30章×2000字', v: { plan_chapters: 30, words_per_chapter: 2000 } },
+            { label: '长篇 60章×2500字', v: { plan_chapters: 60, words_per_chapter: 2500 } },
+            { label: '大部头 100章×3000字', v: { plan_chapters: 100, words_per_chapter: 3000 } },
+          ].map((p) => (
+            <button
+              key={p.label} type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setForm({ ...form, ...p.v })}
+            >{p.label}</button>
+          ))}
+        </div>
+        {/* 批3 P13：降AI味文风档位（生成正文时生效，可创建后在工具栏改） */}
+        <label className="text-xs text-white/50 flex flex-col gap-1">
+          文风（降AI味档位）
+          <select
+            className="input"
+            value={form.style_preset}
+            onChange={(e) => setForm({ ...form, style_preset: e.target.value })}
+          >
+            <option value="standard">标准（最快）</option>
+            <option value="light">拟真·轻（句长错落·少套话）</option>
+            <option value="heavy">拟真·重（低频词·情感层次·禁模板句）</option>
+          </select>
+        </label>
         <button className="btn btn-primary" disabled={busy || !form.name.trim()} onClick={() => void submit()}>
           <Plus size={14} aria-hidden="true" /> 创建作品
         </button>
@@ -263,6 +332,25 @@ const NovelWorkspace: React.FC = () => {
         <span className="text-xs text-white/40">
           {project.genre || '未设题材'} · {project.description.slice(0, 30) || '无简介'}
         </span>
+        {/* 批3 P13：文风档位就地切换（下次生成生效） */}
+        <select
+          className="input !w-auto !py-1 text-xs"
+          value={String((project.meta as Record<string, unknown> | undefined)?.style_preset ?? 'standard')}
+          title="降AI味档位：标准最快；拟真·重=低频词/情感层次/禁模板句（重档生成稍慢）"
+          onChange={(e) => {
+            void novelApi.updateProjectPrefs(project.id, { style_preset: e.target.value })
+              .then(() => useAppStore.getState().showToast(
+                `文风已切换，下一次生成生效`, 'success'))
+              .catch(() => useAppStore.getState().showToast(
+                '文风保存失败，请重试', 'error'));
+          }}
+        >
+          <option value="standard">文风·标准</option>
+          <option value="light">文风·拟真轻</option>
+          <option value="heavy">文风·拟真重</option>
+        </select>
+        {/* 批3 P5：写作云端工位徽标（novel.text 绑定即亮；点击直达配置） */}
+        <CloudSlotBadge slots={[{ key: 'novel.text', label: '写作文本' }]} />
         <span className="flex-1" />
         <button
           className="btn btn-secondary btn-sm"

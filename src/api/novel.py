@@ -8,6 +8,7 @@ dialog 功能锁由 worker 统一编排）。
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -105,8 +106,49 @@ def novel_project_create(body: dict = Body(...)) -> dict[str, Any]:
         "genre": str(body.get("genre") or "").strip()[:40],
         "description": str(body.get("description") or "").strip()[:2000],
         "style_notes": str(body.get("style_notes") or "").strip()[:500],
+        # 批3 P4/P13（2026-09-19）：篇幅规划三参数 + 降AI味档位存 meta
+        "meta": json.dumps(_parse_plan_meta(body), ensure_ascii=False),
         "created_at": now, "updated_at": now})
     return ok({"project_id": pid, "name": name})
+
+
+def _parse_plan_meta(body: dict) -> dict:
+    """篇幅三参数 + 文风档位（越界钳回合法域；缺省=历史行为）。"""
+    def _clamp(key: str, lo: int, hi: int, default: int) -> int:
+        try:
+            v = int(body.get(key) or default)
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+    preset = str(body.get("style_preset") or "standard")
+    return {
+        "plan_chapters": _clamp("plan_chapters", 6, 200, 20),
+        "volume_count": _clamp("volume_count", 0, 10, 0),
+        "words_per_chapter": _clamp("words_per_chapter", 800, 6000, 2000),
+        "style_preset": preset if preset in ("standard", "light", "heavy")
+        else "standard",
+    }
+
+
+@router.put("/novel/project/{project_id}/prefs")
+def novel_project_prefs(project_id: str,
+                        body: dict = Body(...)) -> dict[str, Any]:
+    """批3（2026-09-19）：作品偏好就地修改（文风档位/篇幅参数）。
+
+    下一次大纲/正文生成即生效（生成链实时读 meta，无需重启）。
+    """
+    db = _db()
+    project = _require_project(db, project_id)
+    meta = parse_json(project.get("meta"), {})
+    if not isinstance(meta, dict):
+        meta = {}
+    merged = _parse_plan_meta({**meta, **{
+        k: body[k] for k in ("plan_chapters", "volume_count",
+                             "words_per_chapter", "style_preset")
+        if k in body}})
+    db.update("novel_projects", {"meta": json.dumps(merged, ensure_ascii=False),
+                                 "updated_at": _now()}, "id=?", (project_id,))
+    return ok({"project_id": project_id, "meta": merged})
 
 
 @router.get("/novel/project/list")

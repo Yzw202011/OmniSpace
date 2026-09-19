@@ -67,6 +67,11 @@ def _isolate_module_globals():
             _dialog._DIALOG_LOCK_WAITERS.clear()
         except Exception:  # noqa: BLE001 - 模块未载/重构改名时跳过
             pass
+        # 批3 教训（2026-09-19 实弹后回滚）：曾尝试在此复位对话引擎单例
+        # 断根空闲卸载泄漏——但 get_dialog_engine() 会「构造」单例并为
+        # 每个测试凭空拉起看门狗线程（自己造污染源，全量 4 挂）。断根
+        # 需引擎提供不构造的惰性复位口，另立专项；现阶段由
+        # test_event_log_auto 的时间窗过滤密闭承接（见该文件）。
     _clear()
     yield
     _clear()

@@ -12,6 +12,7 @@
  * ========================================================================== */
 
 import { useState, useEffect, type CSSProperties } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon } from 'lucide-react';
 import ModuleGuide from '@/components/common/ModuleGuide';
 import { useAppStore, type FontSize, type Theme } from '@/stores/useAppStore';
@@ -95,7 +96,12 @@ export default function Settings() {
   }, []);
   // P2 设置页 tab 化（2026-09-17 用户拍板 4A）：11 区块归 6 签终结长滚动；
   // 未选中的区块不挂载（其数据拉取随挂载发生）
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  // 批3 P5（2026-09-19）：签支持 URL 深链（?tab=ai 直达 AI 服务签——
+  // 创作页「云端」徽标跳转用）；切签回写 URL 防刷新丢位
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(
+    SETTINGS_TABS.some((t) => t.key === initialTab) ? (initialTab as SettingsTab) : 'general');
   const [savings, setSavings] = useState<systemApi.LocalSavings | null>(null);
   const [savingsLoaded, setSavingsLoaded] = useState(false);
 
@@ -162,7 +168,12 @@ export default function Settings() {
             role="tab"
             aria-selected={settingsTab === t.key}
             className={`training-tab${settingsTab === t.key ? ' active' : ''}`}
-            onClick={() => setSettingsTab(t.key)}
+            onClick={() => {
+              setSettingsTab(t.key);
+              // 批3 P5：深链回写（?tab=xx）——刷新保持 + 创作页跳转锚点
+              setSearchParams(t.key === 'general' ? {} : { tab: t.key },
+                              { replace: true });
+            }}
           >
             {t.label}
           </button>

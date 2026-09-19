@@ -338,9 +338,48 @@ def retrieve_worldview_sync(query: str,
 #  Prompt 拼装（纯函数，可测）
 # ═══════════════════════════════════════════════════════════════
 
+# 批3 P13（2026-09-19）：降AI味档位指令（注入章节正文 prompt 尾部）。
+# standard=现状零注入；light=句长/套话两件；heavy=light 基础上叠五件。
+_STYLE_PRESET_BLOCKS: dict[str, str] = {
+    "standard": "",
+    "light": (
+        "- 拟真要求·轻：写得像真人写手——句长自然错落，长短句交替；"
+        "少用四字格与排比句；少写总结式陈述，多用具体动作和细节呈现情绪；\n"
+    ),
+    "heavy": (
+        "- 拟真要求·重：写得像真人写手，避开一切AI腔——\n"
+        "  · 句长错落，允许一句成段；段落长短交替，别每段都差不多大；\n"
+        "  · 用词避开通用高频词（如\"瞬间\"\"不禁\"\"顿时\"），换成更具体"
+        "贴切的说法；\n"
+        "  · 禁用\"仿佛/宛如/犹如/恍若\"类模板比喻，要比喻就用新鲜的、"
+        "带生活质感的；\n"
+        "  · 情感要有波动层次：同一场景里人物情绪会转折，不要从头到尾"
+        "一个浓度；\n"
+        "  · 不同人物说话语气要有区分（口头禅/句式长短/用词习惯）；"
+        "不写\"总之/综上\"式收束；\n"
+    ),
+}
+
+
 def build_outline_prompt(*, description: str, genre: str,
                          style_notes: str,
-                         requirement: str = "") -> str:
+                         requirement: str = "",
+                         plan_chapters: int = 0,
+                         volume_count: int = 0,
+                         words_per_chapter: int = 0) -> str:
+    # 批3 P4（2026-09-19）：篇幅规划三参数约束出纲。LLM 守数是「约」
+    # 语义（落库后如实显示实际数）；不传时维持历史缺省完全兼容。
+    if plan_chapters > 0 or volume_count > 0 or words_per_chapter > 0:
+        vol_txt = (f"分 {volume_count} 卷" if volume_count > 0
+                   else "分卷由你合理安排")
+        plan_txt = (f"- 篇幅规划：全书约 {plan_chapters} 章、{vol_txt}"
+                    if plan_chapters > 0 else f"- 篇幅规划：{vol_txt}")
+        if words_per_chapter > 0:
+            plan_txt += (f"，每章正文约 {words_per_chapter} 字"
+                         "（细纲信息量以撑起该字数为度）")
+        plan_txt += "；章数贴近计划，允许 ±2 章浮动；\n"
+    else:
+        plan_txt = "- 共 2~3 卷，每卷 4~6 章（总章数不超过 15，宁精勿多）；\n"
     return (
         "你是资深小说主编。请根据以下灵感设定，创作一部长篇小说的分层大纲。\n\n"
         f"【作品灵感】{description or '（由你自由发挥一个高概念创意）'}\n"
@@ -348,7 +387,7 @@ def build_outline_prompt(*, description: str, genre: str,
         f"【文风/基调】{style_notes or '不限'}\n"
         f"【补充要求】{requirement or '无'}\n\n"
         "要求：\n"
-        "- 共 2~3 卷，每卷 4~6 章（总章数不超过 15，宁精勿多）；\n"
+        + plan_txt +
         "- 卷概要写清本卷主线冲突与结局；章细纲 60~100 字，写清事件与钩子；\n"
         "- 只输出 JSON，禁止输出任何其他文字或代码块标记，格式：\n"
         '{"title":"书名","logline":"一句话主线",'
@@ -364,9 +403,15 @@ def build_chapter_prompt(*, project_name: str, genre: str,
                          prev_summaries: list[tuple[int, str]],
                          prev_tail: str, characters: list[dict],
                          worldview: str,
-                         target_words: int = 1500) -> str:
+                         target_words: int = 1500,
+                         style_preset: str = "standard") -> str:
     """章节正文 prompt：前情摘要链 + 上一章结尾 + 本章细纲 + 角色卡 +
-    世界观 RAG 四件套（各段独立钳长，总量钳 PROMPT_BODY_MAX_CHARS）。"""
+    世界观 RAG 四件套（各段独立钳长，总量钳 PROMPT_BODY_MAX_CHARS）。
+
+    批3 P13（2026-09-19）style_preset 降AI味档位：standard=现状；
+    light/heavy 注入拟真指令（heavy 在 light 上叠加低频词/情感维度/
+    禁模板句/段落节奏/人物语气五件）。
+    """
     style = style_notes.strip() or "现代白话，视角统一，节奏明快，画面感强"
     sum_lines = [
         f"第{idx}章：{s[:PREV_SUMMARY_CHARS]}"
@@ -405,8 +450,9 @@ def build_chapter_prompt(*, project_name: str, genre: str,
         "- 情节贴合【本章细纲】，开头自然衔接【上一章结尾】；\n"
         "- 人物言行符合【主要角色】人设，设定遵循【世界观资料】；\n"
         "- 严禁复读：同一句话或同一段落绝对不得出现第二次，情节推进"
-        "后不回头、不换说法重写已发生的事。\n\n"
-        "正文：")
+        "后不回头、不换说法重写已发生的事。\n"
+        + _STYLE_PRESET_BLOCKS.get(style_preset, "")
+        + "\n正文：")
     body = "\n\n".join(parts)
     # 总量安全钳（max_prefill_tokens=3072 的汉字安全线）
     if len(body) > PROMPT_BODY_MAX_CHARS + 400:
@@ -695,14 +741,27 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
     await run_blocking(_ensure_engine_sync)
     _JOB_PROGRESS[job.task_id] = {"stage": "generating", "detail": "构思大纲中"}
     req = _JOB_PROGRESS[job.task_id]
+    # 批3 P4：篇幅规划三参数（建作品时存 meta；旧项目无此键=历史缺省）。
+    # meta 在 DB 行里是 JSON 字符串——旧代码 isinstance(dict) 守卫对字符串
+    # 恒 False，requirement 实为死参；此处经 parse_json_field 修正。
+    _om = parse_json_field(project.get("meta"))
+    _meta = _om if isinstance(_om, dict) else {}
+    plan_chapters = int(_meta.get("plan_chapters") or 0)
+    volume_count = int(_meta.get("volume_count") or 0)
+    words_per_chapter = int(_meta.get("words_per_chapter") or 0)
+    # 章数多时大纲 JSON 变长，生成上限随计划章数放宽（每章细纲≈120token）
+    outline_tokens = 3072 + (max(0, plan_chapters - 15) * 150 if plan_chapters else 0)
     prompt = build_outline_prompt(
         description=project.get("description") or "",
         genre=project.get("genre") or "",
         style_notes=project.get("style_notes") or "",
-        requirement=str((project.get("meta") or {}).get("requirement") or "")
-        if isinstance(project.get("meta"), dict) else "")
+        requirement=str(_meta.get("requirement") or ""),
+        plan_chapters=plan_chapters,
+        volume_count=volume_count,
+        words_per_chapter=words_per_chapter)
     raw = await run_blocking(
-        _llm_sync, prompt, temperature=0.75, max_new_tokens=3072)
+        _llm_sync, prompt, temperature=0.75,
+        max_new_tokens=min(outline_tokens, 8192))
     queue.raise_if_cancelled(job.task_id)
     req["detail"] = "解析大纲结构"
     data = await run_blocking(parse_outline_json, raw)
@@ -792,6 +851,13 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
         await run_blocking(lambda: db.update("novel_chapters", {"progress": 0.3}, "id=?",
                   (job.chapter_id,)))
 
+        # 批3 P4/P13：篇幅与文风从作品 meta 读（建作品时存；可随时改）
+        _pm = parse_json_field(project.get("meta"))
+        _meta = _pm if isinstance(_pm, dict) else {}
+        words_target = int(_meta.get("words_per_chapter") or 0) or 1500
+        style_preset = str(_meta.get("style_preset") or "standard")
+        if style_preset not in _STYLE_PRESET_BLOCKS:
+            style_preset = "standard"
         prompt = build_chapter_prompt(
             project_name=project.get("name") or "",
             genre=project.get("genre") or "",
@@ -801,17 +867,25 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
             prev_summaries=summaries,
             prev_tail=prev_tail,
             characters=characters,
-            worldview=worldview)
+            worldview=worldview,
+            target_words=words_target,
+            style_preset=style_preset)
+        # 生成上限随目标字数缩放（汉字≈0.75token/字 +512 余量，
+        # 上限钳 CHAPTER_MAX_TOKENS×2 防超长耗时；1500 字≈历史 2048 档）
+        chapter_tokens = min(int(words_target * 0.75) + 512,
+                             CHAPTER_MAX_TOKENS * 2)
         # 防复读双发（2026-09-05 实弹：8B 模型 2 千字级长文会陷入复读
         # 循环，同段反复抄写）——首发带 repetition_penalty=1.1；检出
         # 复读则升温加压重试一次；两连复读诚实报错带出路，拒绝把
         # 低质量正文写进库。
         content = ""
+        # 批3 P13：重拟真档略升温（多样性与拟真度正相关；轻/标准不动）
+        _temp_delta = 0.05 if style_preset == "heavy" else 0.0
         for attempt, (rep_penalty, temp, freq_penalty) in enumerate(
                 ANTI_REPEAT_ATTEMPTS, start=1):
             raw = await run_blocking(
-                _llm_sync, prompt, temperature=temp,
-                max_new_tokens=CHAPTER_MAX_TOKENS,
+                _llm_sync, prompt, temperature=temp + _temp_delta,
+                max_new_tokens=chapter_tokens,
                 extra_params={"repetition_penalty": rep_penalty,
                               "frequency_penalty": freq_penalty})
             queue.raise_if_cancelled(job.task_id)

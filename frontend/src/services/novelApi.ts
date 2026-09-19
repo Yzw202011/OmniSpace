@@ -128,8 +128,25 @@ export function createProject(body: {
   genre?: string;
   description?: string;
   style_notes?: string;
+  /** 批3 P4：篇幅规划三参数（后端钳 6~200 / 0~10 / 800~6000） */
+  plan_chapters?: number;
+  volume_count?: number;
+  words_per_chapter?: number;
+  /** 批3 P13：降AI味档位 standard | light | heavy */
+  style_preset?: string;
 }) {
   return post<{ project_id: string }>('/novel/project/create', body);
+}
+
+/** 批3 P4/P13：作品偏好就地修改（文风/篇幅，下次生成即生效） */
+export function updateProjectPrefs(pid: string, body: {
+  style_preset?: string;
+  plan_chapters?: number;
+  volume_count?: number;
+  words_per_chapter?: number;
+}) {
+  return put<{ project_id: string; meta: Record<string, unknown> }>(
+    `/novel/project/${encodeURIComponent(pid)}/prefs`, body);
 }
 
 export function deleteProject(pid: string) {

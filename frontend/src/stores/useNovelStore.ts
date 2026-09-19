@@ -53,6 +53,10 @@ export interface NovelState {
     genre?: string;
     description?: string;
     style_notes?: string;
+    plan_chapters?: number;
+    volume_count?: number;
+    words_per_chapter?: number;
+    style_preset?: string;
   }) => Promise<boolean>;
   removeProject: (pid: string) => Promise<void>;
   openProject: (pid: string) => Promise<void>;

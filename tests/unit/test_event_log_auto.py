@@ -25,10 +25,20 @@ from src.services import event_log
 
 @pytest.fixture()
 def events_dir(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    """事件日志写入重定向到临时目录（按测试隔离、不污染真实时间线）。"""
+    """事件日志写入重定向到临时目录（按测试隔离、不污染真实时间线）。
+
+    批3 加固（2026-09-19 实弹）：跨测试异步泄漏实锤——早先测试把对话
+    引擎单例置就绪后，其空闲卸载看门狗线程按墙钟在后续测试窗口触发
+    unload→log_event 落进"当前"临时目录，污染本文件精确计数断言
+    （全量跑 4/5 复现、单跑恒过、stash 批3 即绿的时序型偶发）。
+    对策：_entries 只认本测试开始时刻之后的事件（测试密闭性）；
+    引擎单例复位断根见 conftest autouse 夹具。
+    """
     d = tmp_path / "events"
     d.mkdir()
     monkeypatch.setattr(event_log, "EVENTS_DIR", d)
+    from datetime import datetime, timezone
+    events_dir._t0 = datetime.now(timezone.utc)  # noqa: SLF001
     return d
 
 
@@ -72,7 +82,29 @@ def client(events_dir) -> TestClient:
 
 
 def _entries() -> list[dict]:
-    return event_log.query_events(limit=100)["items"]
+    """本测试时间窗内的事件（滤掉跨测试异步泄漏的迟到写入）。"""
+    from datetime import timezone
+    t0 = getattr(events_dir, "_t0", None)
+    items = event_log.query_events(limit=100)["items"]
+    if t0 is None:
+        return items
+    out = []
+    for it in items:
+        try:
+            ts = fromisoformat_local(it.get("ts") or "")
+            if ts is not None and ts.astimezone(timezone.utc) >= t0:
+                out.append(it)
+        except (ValueError, TypeError):
+            out.append(it)  # 时间解析不了的不滤（宁可失败不静默丢）
+    return out
+
+
+def fromisoformat_local(s: str):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return None
 
 
 # ── 三条件判定 ───────────────────────────────────────────────────

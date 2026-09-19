@@ -25,6 +25,7 @@ import {
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { Modal } from '../common/Modal';
 import OmniLightbox, { downloadImage } from '../common/OmniLightbox';
+import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import AssetLibrary from './AssetLibrary';
 
 interface Props {
@@ -627,6 +628,12 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           </select>
         </div>
         <div className="comic-ws-ops">
+          {/* 批3 P5：绘画云端工位徽标（三槽任一绑定即亮；点击直达配置） */}
+          <CloudSlotBadge slots={[
+            { key: 'paint.image', label: '绘画出图' },
+            { key: 'keyframe.image', label: '关键帧' },
+            { key: 'asset.image', label: '资产图' },
+          ]} />
           <button type="button" className="btn" onClick={() => setScriptFormOpen(true)}>
             <Sparkles size={15} /> AI 写分格
           </button>

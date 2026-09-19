@@ -29,6 +29,33 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+
+def _extract_revocations(vault_db: Path) -> dict[str, int]:
+    """激活二期（2026-09-19）：从发码台台账提取吊销名单。
+
+    serial → 最新代数（换绑+1 后，旧代码随名单下发即死）；
+    作废（revoked）→ 9999（任何代数全死）。台账缺失/老库无
+    generation 列 → 空名单（出包不阻断，打警告日志）。
+    """
+    if not vault_db.is_file():
+        return {}
+    import sqlite3
+    rev: dict[str, int] = {}
+    try:
+        conn = sqlite3.connect(f"file:{vault_db}?mode=ro", uri=True)
+        try:
+            for serial, generation, status in conn.execute(
+                    "SELECT serial, generation, status FROM licenses"):
+                gen = max(1, int(generation or 1))
+                rev[str(serial)] = 9999 if status == "revoked" else gen
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        print("⚠️ 台账无 generation 列（老库），吊销名单为空——"
+              "换绑旧码拦截暂不生效")
+        return {}
+    return rev
+
 # ── 白名单（不在清单上的一律不带）──────────────────────────────
 # (源目录, 包内目录, 过滤函数或None)。过滤函数接收相对路径 parts，True=排除
 DEBRIS_RE = re.compile(r"^(_|tmp_)[^_].+")  # 开发残渣文件名；[^_] 排除 __init__.py（P3 实测曾误吞致包内无 __init__，靠命名空间包蒙混）
@@ -384,6 +411,25 @@ def main() -> int:
             raise SystemExit("公钥注入失败：license_gate_impl.py 中找不到占位符")
         gate.write_text(patched, encoding="utf-8")
         print(f"已注入发行公钥（激活门禁生效）：{args.pubkey[:16]}…")
+        # 激活二期（2026-09-19）：公钥双藏副本（A6b 交叉验证第二份）
+        from license_console.crypto_core import pubkey_xor_hex
+        x_val = pubkey_xor_hex(args.pubkey)
+        patched_x = patched.replace('PUBKEY_HEX_X = ""',
+                                    f'PUBKEY_HEX_X = "{x_val}"')
+        if patched_x == patched:
+            raise SystemExit("公钥双藏注入失败：找不到 PUBKEY_HEX_X 占位符")
+        gate.write_text(patched_x, encoding="utf-8")
+        print(f"已注入公钥双藏副本（XOR 交叉验证）：{x_val[:16]}…")
+        # 吊销名单随包：发码台台账 → revocations.json（差分升级包自动下发）
+        rev = _extract_revocations(
+            REPO / "license_console" / "vault" / "ledger.db")
+        (dest / "revocations.json").write_text(
+            json.dumps({"version": 1,
+                        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "revocations": rev}, ensure_ascii=False, indent=1),
+            encoding="utf-8")
+        print(f"吊销名单已随包：{len(rev)} 个序列号"
+              + ("" if rev else "（台账空/缺失=空名单，不阻断）"))
         # 资产加密（P6 锁4）：工作流明文出包即灭；风格种子入金库
         from src.asset_vault import encrypt_bytes
         enc_dir = dest / "src" / "assets_enc"

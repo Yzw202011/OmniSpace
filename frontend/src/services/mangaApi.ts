@@ -798,6 +798,8 @@ export interface ImageTaskRecord {
   height?: number | null;
   /** 生成耗时毫秒（批1 P6；旧记录无=null 显示 —） */
   elapsed_ms?: number | null;
+  /** 批2 P8：当前关键帧过期原因（prompt_changed/asset_changed/style_changed；空=有效） */
+  stale_reason?: string;
   /* ── keyframe 专有 ── */
   row_id?: string;
   shot_number?: number;

@@ -54,6 +54,7 @@ from .common import (
     _generate_asset_sync,
     _now,
     manga_dialog_model_id,
+    mark_keyframes_stale,
 )
 
 if TYPE_CHECKING:
@@ -981,6 +982,12 @@ def comic_image_task_list(project_id: str = Query("", description="项目ID"),
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法查询图片记录")
+    # 批1 P6/批2 P8：老库补 elapsed_ms/stale_reason 列（幂等；新库建表已含）
+    kf_cols = {c["name"] for c in db.query("PRAGMA table_info(keyframes)")}
+    if "elapsed_ms" not in kf_cols:
+        db.sql("ALTER TABLE keyframes ADD COLUMN elapsed_ms REAL DEFAULT 0")
+    if "stale_reason" not in kf_cols:
+        db.sql("ALTER TABLE keyframes ADD COLUMN stale_reason TEXT DEFAULT ''")
     records: list[dict] = []
     if category in ("all", "asset"):
         for r in db.query(
@@ -1013,16 +1020,22 @@ def comic_image_task_list(project_id: str = Query("", description="项目ID"),
                     "seed": meta.get("seed"),
                     "width": meta.get("width"),
                     "height": meta.get("height"),
+                    # 批1 P6：生成耗时毫秒（历史留痕；旧条目无= None 显示 —）
+                    "elapsed_ms": (float(h["elapsed_ms"])
+                                   if isinstance(h.get("elapsed_ms"),
+                                                 (int, float)) else None),
                 })
     if category in ("all", "keyframe"):
         for r in db.query(
                 "SELECT k.id, k.row_id, k.version, k.file_path, k.prompt,"
-                " k.status, k.error, k.is_current, k.created_at,"
+                " k.status, k.error, k.is_current, k.created_at, k.elapsed_ms,"
+                " k.stale_reason,"
                 " sr.shot_number AS shot_number"
                 " FROM keyframes k"
                 " LEFT JOIN storyboard_rows sr ON k.row_id = sr.id"
                 " WHERE k.project_id=?", (pid,)):
             rel = str(r.get("file_path") or "").replace("\\", "/")
+            kf_elapsed = float(r.get("elapsed_ms") or 0)
             records.append({
                 "record_id": r["id"],
                 "category": "keyframe",
@@ -1035,6 +1048,8 @@ def comic_image_task_list(project_id: str = Query("", description="项目ID"),
                 "prompt": (r.get("prompt") or "")[:80],
                 "status": r.get("status", "done"),
                 "created_at": float(r.get("created_at", 0) or 0),
+                "elapsed_ms": kf_elapsed if kf_elapsed > 0 else None,
+                "stale_reason": r.get("stale_reason") or "",
             })
     records.sort(key=lambda x: x["created_at"], reverse=True)
     total = len(records)
@@ -1139,6 +1154,15 @@ async def comic_asset_image_replace(asset_id: str,
         meta["prompt_stale"] = True
     await run_blocking(lambda: db.update("comic_assets",
               {"file_path": rel_path, "meta": meta}, "id=?", (asset_id,)))
+    # 批2 P8（2026-09-19）：资产图已换 → 绑定该资产的分镜行当前关键帧
+    # 打过期标记（参考图变了，旧关键帧一致性锚过期；失败不阻断替换）
+    try:
+        n = mark_keyframes_stale(db, asset_id=asset_id,
+                                 reason="asset_changed")
+        if n:
+            log.info("P8 过期标记: 资产图替换 %s → 关键帧 %d 张", asset_id, n)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("P8 过期标记失败（资产图替换）: %s", exc)
     if kind == "character":
         _spawn_prompt_rewrite(asset_id)
     nrow = await run_blocking(lambda: db.query_one(

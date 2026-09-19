@@ -11,7 +11,10 @@
  * ========================================================================== */
 
 import { useEffect, useState } from 'react';
+import { useAppStore } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
+import { useSystemHealthStore } from '@/stores/useSystemHealthStore';
+import { get } from '@/services/api';
 import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
 import { getStyleStatus } from '@/services/styleApi';
@@ -90,8 +93,22 @@ export function BottomStatusBar() {
   const realtime = useHardwareStore((s) => s.realtime);
   const wsStatus = useHardwareStore((s) => s.wsStatus);
   const synergyModeText = useHardwareStore((s) => s.synergyModeText);
+  // 批2 P33：安全模式（响应式订阅）
+  const safeMode = useAppStore((s) => s.safeMode);
 
   const online = useOnline();
+
+  // 批2 P31：功能舱壁健康（WS 实时推 + 初拉兜底；仅 degraded 才亮芯片）
+  const healthModules = useSystemHealthStore((s) => s.modules);
+  const applySnapshot = useSystemHealthStore((s) => s.applySnapshot);
+  const degradedList = Object.values(healthModules).filter((m) => m.state === 'degraded');
+  useEffect(() => {
+    let cancelled = false;
+    get<{ modules?: Record<string, { state?: string }> }>('/system/modules/health')
+      .then((d) => { if (!cancelled && d?.modules) applySnapshot(d.modules as never); })
+      .catch(() => { /* 后端未就绪时静默，WS 推送兜底 */ });
+    return () => { cancelled = true; };
+  }, [applySnapshot]);
 
   // learn 端点快照（5s 轮询）
   const [knowledgeCount, setKnowledgeCount] = useState<number | null>(null);
@@ -186,6 +203,33 @@ export function BottomStatusBar() {
       />
       <Sep />
       <SbItem label="协同" value={synergyModeText} />
+      {/* 批2 P33：安全模式徽标（splash 安全模式进入时亮；点击退出恢复自动预热） */}
+      {safeMode && (
+        <button
+          type="button"
+          className="sb-item"
+          style={{ color: 'var(--color-warning)', fontWeight: 600,
+                   background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+          title="安全模式已开启：自动预热已全部暂停，模型仅在手动操作时加载。点击退出安全模式。"
+          onClick={() => {
+            useAppStore.getState().setSafeMode(false);
+            window.location.reload();
+          }}
+        >
+          🛟 安全模式（点击退出）
+        </button>
+      )}
+      {/* 批2 P31：舱壁健康芯片（正常态零打扰不显示；degraded 亮橙红警示） */}
+      {degradedList.map((m) => (
+        <span
+          key={m.label}
+          className="sb-item"
+          style={{ color: 'var(--color-error)', fontWeight: 600 }}
+          title={`${m.label}模块连续异常（${m.consecutive_failures} 次失败）：${m.last_error}——系统已自动尝试修复，失败会弹恢复指南`}
+        >
+          ⚠ {m.label}异常
+        </span>
+      ))}
       <Sep />
       {/* AV1 编码状态：/style/status 编码服务遥测（5s 轮询）。
           nvenc=硬编（绿）/ svt=软编（绿）/ none=无 AV1 编码器将降级 H.264（黄）/

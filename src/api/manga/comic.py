@@ -43,6 +43,7 @@ from .common import (
     _public_row_to_db,
     _storyboards,
     _video_tasks,
+    mark_keyframes_stale,
 )
 from .storyboard import (
     storyboard_import,
@@ -344,7 +345,8 @@ def comic_project_update(project_id: str, req: ProjectUpdate) -> dict[str, Any]:
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法更新项目")
-    row = db.query_one("SELECT id FROM projects WHERE id=?", (project_id,))
+    row = db.query_one("SELECT id, art_style FROM projects WHERE id=?",
+                       (project_id,))
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     dup = db.query_one("SELECT id FROM projects WHERE name=? AND id<>?",
@@ -355,9 +357,23 @@ def comic_project_update(project_id: str, req: ProjectUpdate) -> dict[str, Any]:
     # art_style 可选随行更新（漫画页「换风格重生成」：关键帧生成时
     # 经 _project_style_pack 实时读项目画风，改完对后续生成即生效）
     patch: dict[str, Any] = {"name": req.name, "updated_at": _now()}
+    style_changed = False
     if req.art_style is not None:
         patch["art_style"] = req.art_style.strip()
+        style_changed = (patch["art_style"]
+                         != str(row.get("art_style") or "").strip())
     db.update("projects", patch, "id=?", (project_id,))
+    # 批2 P8（2026-09-19）：换画风 → 项目内全部当前关键帧打过期标记
+    # （失败不阻断改名；语义=旧图可能与新画风不符，建议重生成）
+    if style_changed:
+        try:
+            n = mark_keyframes_stale(db, project_id=project_id,
+                                     reason="style_changed")
+            if n:
+                log.info("P8 过期标记: 画风变更 project=%s → 关键帧 %d 张",
+                         project_id, n)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("P8 过期标记失败（画风变更）: %s", exc)
     return ok({"project_id": project_id, "name": req.name,
                "art_style": (req.art_style or "").strip() or None})
 

@@ -722,6 +722,8 @@ body::after {
   <div class="rb-count" id="rbCount"></div>
   <button class="btn-quit" id="diagBtn" title="打包最近日志/事件/硬件快照，发给卖家即可排障">导出诊断包</button>
   <button class="btn-quit" id="quitBtn">退出 OmniSpace</button>
+  <!-- 批2 P33（2026-09-19）：安全模式进入——跳过对话/绘画自动预热，救「一进页面就拉模型」的崩溃循环 -->
+  <button class="btn-quit" id="safeBtn" title="不自动加载任何模型进入（本次会话内可随时关闭）——适合排障/显存紧张时使用">🛟 安全模式进入</button>
   <button class="btn-enter" id="enterBtn">进入 OmniSpace →</button>
 </footer>
 
@@ -1224,6 +1226,12 @@ body::after {
   $('enterBtn').addEventListener('click', function () {
     if (redirectUrl) location.href = redirectUrl;
     else post('/api/open');
+  });
+  /* 批2 P33：安全模式进入——目标 URL 带 ?safe=1，前端据此停自动预热（会话级） */
+  $('safeBtn').addEventListener('click', function () {
+    var base = redirectUrl || ('http://127.0.0.1:' + (backendPort || 5800) + '/#/chat');
+    if (base.indexOf('#') < 0) base += '#/chat';
+    location.href = base + (base.indexOf('?') < 0 ? '?safe=1' : '&safe=1');
   });
   $('comfyBtn').addEventListener('click', function () {
     $('comfyBtn').disabled = true;

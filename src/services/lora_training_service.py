@@ -714,6 +714,11 @@ class LoRATrainingService:
                 except Exception:  # noqa: BLE001
                     log.debug("_run_task: 降级忽略", exc_info=True)
             self._update_task(task_id, status="done", progress=1.0)
+            try:  # 批2 P31：成功喂舱壁账本（连续失败清零/degraded 恢复）
+                from .module_health import record_success
+                record_success('training')
+            except Exception:  # noqa: BLE001
+                pass
             _broadcast("training_completed", {
                 "task_id": task_id, "version": version,
                 "quality_score": report.get("quality_score"),

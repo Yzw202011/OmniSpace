@@ -1128,7 +1128,21 @@ def _load_rows(db: Database, storyboard_id: str) -> list[dict]:
         "ORDER BY sort_index ASC, shot_number ASC",
         (storyboard_id,),
     )
-    return [_row_to_storyboard_row(r) for r in rows]
+    out = [_row_to_storyboard_row(r) for r in rows]
+    # 批2 P8：附当前关键帧过期标记（单查询，只查有标记的行）
+    ids = [str(r.get("id") or "") for r in out if r.get("id")]
+    if ids:
+        ph = ",".join("?" * len(ids))
+        stale = {str(q["row_id"]): str(q["stale_reason"] or "")
+                 for q in db.query(
+                     "SELECT row_id, stale_reason FROM keyframes"
+                     f" WHERE is_current=1 AND stale_reason!=''"
+                     f" AND row_id IN ({ph})", tuple(ids))}
+        for r in out:
+            reason = stale.get(str(r.get("id") or ""))
+            if reason:
+                r["stale_reason"] = reason
+    return out
 
 
 # 语音引擎懒加载单例（试听用；引擎未加载模型时 synthesize 走静音占位）
@@ -1559,7 +1573,46 @@ def _remove_background(image: Image) -> Image:
 
 _KF_COLS = ("id, row_id, project_id, version, file_path, prompt,"
             " status, error, is_current, created_at, shot_seeds, consistency,"
-            " source_mode")
+            " source_mode, elapsed_ms, stale_reason")
+
+
+# ── 批2 P8（2026-09-19）：上游变更 → 下游关键帧过期标记 ──────────────
+# 语义=「该产物可能基于旧上游数据生成，建议重生成」——不是硬失效；
+# 宁多勿漏。只标当前版本（历史版本保留原状）；重新生成落新行时
+# stale_reason 天然为空=过期解除，无需显式清标记动作。
+
+def mark_keyframes_stale(db: Database, *, row_ids: list[str] | None = None,
+                         project_id: str = "", asset_id: str = "",
+                         reason: str) -> int:
+    """给受影响分镜行的「当前关键帧」打过期标记，返回受影响行数。
+
+    三种定位方式（互斥，按优先级 row_ids > asset_id > project_id）：
+    - row_ids：直接按分镜行 id（描述词变更等）
+    - asset_id：按 storyboard_rows 的 asset_id/asset_ids 绑定反查引用行
+      （资产图重生成/替换——绑定该资产的行其关键帧参考已过期）
+    - project_id：项目全量（画风变更）
+    """
+    if reason not in ("prompt_changed", "asset_changed", "style_changed"):
+        raise ValueError(f"未知过期原因: {reason}")
+    if project_id:
+        return db.sql(
+            "UPDATE keyframes SET stale_reason=?"
+            " WHERE is_current=1 AND project_id=?", (reason, project_id))
+    if asset_id:
+        like = f'%{asset_id}%'
+        ids = [str(r["id"]) for r in db.query(
+            "SELECT id FROM storyboard_rows"
+            " WHERE asset_id=? OR asset_ids LIKE ?", (asset_id, like))]
+        if not ids:
+            return 0
+        row_ids = ids
+    ids = [str(r).strip() for r in (row_ids or []) if str(r).strip()]
+    if not ids:
+        return 0
+    ph = ",".join("?" * len(ids))
+    return db.sql(
+        f"UPDATE keyframes SET stale_reason=?"
+        f" WHERE is_current=1 AND row_id IN ({ph})", (reason, *ids))
 
 
 # ═══════════════════════════════════════════════════════════════════

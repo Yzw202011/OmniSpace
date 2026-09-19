@@ -108,6 +108,12 @@ def _ensure_source_mode_column(db: Database) -> None:
     cols = {r["name"] for r in db.query("PRAGMA table_info(keyframes)")}
     if "source_mode" not in cols:
         db.sql("ALTER TABLE keyframes ADD COLUMN source_mode TEXT DEFAULT ''")
+    # 批1 P6（2026-09-19）：生成耗时列（毫秒；旧数据 0=未知显示 —）
+    if "elapsed_ms" not in cols:
+        db.sql("ALTER TABLE keyframes ADD COLUMN elapsed_ms REAL DEFAULT 0")
+    # 批2 P8（2026-09-19）：上游变更过期标记（空=有效；重生成天然清除）
+    if "stale_reason" not in cols:
+        db.sql("ALTER TABLE keyframes ADD COLUMN stale_reason TEXT DEFAULT ''")
 
 
 def _kf_row_to_dict(r: dict) -> dict:
@@ -119,6 +125,7 @@ def _kf_row_to_dict(r: dict) -> dict:
             "status": r.get("status", "done"),
             "error": r.get("error", ""),
             "is_current": bool(r.get("is_current", 1)),
+            "stale_reason": r.get("stale_reason") or "",
             "shot_seeds": r.get("shot_seeds", "[]"),
             "consistency": r.get("consistency", ""),
             "source_mode": r.get("source_mode", ""),
@@ -1093,6 +1100,7 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     化（shot3 0.717→0.645），方差引入无增益；网格行破门禁只重抽
     失败镜，好镜零风险保留。单帧行忽略该参数（整图语义）。
     """
+    t0 = time.time()  # 批1 P6：关键帧生成耗时留痕（毫秒）
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法生成关键帧")
@@ -1763,7 +1771,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         "status": "done", "error": "", "is_current": 1,
         "created_at": _now(),
         "shot_seeds": json.dumps(actual_seeds), "consistency": "",
-        "source_mode": "fallback" if used_fallback else "describe"})
+        "source_mode": "fallback" if used_fallback else "describe",
+        "elapsed_ms": round((time.time() - t0) * 1000, 1)})
+    try:  # 批2 P31：成功喂舱壁账本
+        from ...services.module_health import record_success
+        record_success("paint")
+    except Exception:  # noqa: BLE001
+        pass
     db.update("storyboard_rows", {"generation_status": "done"},
               "id=?", (row_id,))
     broadcast_gen_progress("keyframe", row_id, percent=100, status="done",
@@ -2742,6 +2756,7 @@ def keyframe_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法回退关键帧")
+    _ensure_source_mode_column(db)  # 顺带确保 elapsed_ms（批1 P6 读旧库）
     kf = db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
                       (keyframe_id,))
     if kf is None:

@@ -49,11 +49,13 @@ import LicenseGate from './components/common/LicenseGate';
 import TopBar from './components/layout/TopBar';
 import RightPanel from './components/layout/RightPanel';
 import BottomStatusBar from './components/layout/BottomStatusBar';
+import RecoveryGuideCard from './components/common/RecoveryGuideCard';
 import { useAppStore, type ToastItem, type ToastLevel } from './stores/useAppStore';
 import { useDialogStore } from './stores/useDialogStore';
 import { useHardwareStore } from './stores/useHardwareStore';
 import { useMangaStore } from './stores/useMangaStore';
 import { useTaskStore } from './stores/useTaskStore';
+import { useSystemHealthStore } from './stores/useSystemHealthStore';
 import { useWarmupStore } from './stores/useWarmupStore';
 import { releaseForModule, warmupFeature } from './services/modelApi';
 import { getWsHub } from './services/ws';
@@ -353,8 +355,23 @@ export function AppShell() {
   const lastHeavyFeatureRef = useRef<string | null>(null);
   useEffect(() => {
     const route = location.pathname.split('/')[1] || '';
+    // 批2 P33：splash「安全模式进入」带 ?safe=1（hash 内查询串）——
+    // 解析一次并落会话存储，随后从 URL 抹掉防刷新重复注入
+    try {
+      const q = window.location.hash.split('?')[1];
+      if (q && new URLSearchParams(q).get('safe') === '1') {
+        useAppStore.getState().setSafeMode(true);
+        const clean = window.location.hash.split('?')[0] || '#/chat';
+        window.history.replaceState(null, '', clean);
+      }
+    } catch {
+      /* silent-intent: URL 异常按正常模式进入 */
+    }
     const feature = ROUTE_FEATURE[route] ?? null;
     if (!feature) return; // 轻量页面（模型管理/设置/帮助）：不触发
+    // 批2 P33（2026-09-19）：安全模式（splash「安全模式进入」）下停一切
+    // 自动预热/自动加载——模型只在用户显式操作时才拉起（会话级，状态栏可退出）
+    if (useAppStore.getState().safeMode) return;
     const isFirst = lastHeavyFeatureRef.current === null;
     const switched = !isFirst && feature !== lastHeavyFeatureRef.current;
     lastHeavyFeatureRef.current = feature;
@@ -563,6 +580,9 @@ export function AppShell() {
       {/* 底部状态栏（28px 通栏，§6.1.4 十字段实时） */}
       <BottomStatusBar />
 
+      {/* 批2 P33：自愈失败恢复指南卡（fixed 定位，全页面可达） */}
+      <RecoveryGuideCard />
+
       {/* 全局 Toast 容器 */}
       <ToastContainer />
 
@@ -614,6 +634,25 @@ export default function App() {
           d.message,
           d.level === 'error' ? 'error'
             : d.level === 'success' ? 'success' : 'info');
+      }),
+      // 批2 P31/P32（2026-09-19）：舱壁健康态 + 自愈进度/失败
+      conn.on<Partial<import('./stores/useSystemHealthStore').ModuleHealthState> & { module: string }>('module_health', (d) => {
+        if (d?.module) useSystemHealthStore.getState().applyHealth(d);
+      }),
+      conn.on<{ module?: string; kind?: string; step?: string; message?: string }>('self_heal', (d) => {
+        if (!d?.module || !d?.kind) return;
+        const labels: Record<string, string> = { dialog: 'AI对话', paint: '绘画出图', video: '视频生成', training: '训练' };
+        const label = labels[d.module] ?? d.module;
+        if (d.kind === 'progress') {
+          useAppStore.getState().showToast(`正在自动修复「${label}」…（${d.message ?? ''}）`, 'info');
+        } else if (d.kind === 'success') {
+          useAppStore.getState().showToast(`「${label}」已自动恢复 ✓`, 'success');
+          useSystemHealthStore.getState().closeGuide();
+        } else if (d.kind === 'failed') {
+          useSystemHealthStore.getState().openGuide({
+            module: d.module, label, message: d.message ?? '', ts: Date.now(),
+          });
+        }
       }),
       conn.on<{ message?: string }>('quality_degraded', (d) => {
         throttled('quality_degraded',

@@ -23,7 +23,7 @@ import {
   listVideoTasks,
   type ImageTaskRecord,
 } from '@/services/mangaApi';
-import { VIDEO_STATUS_LABELS, type VideoTaskStatus } from '@/constants/statusLabels';
+import { VIDEO_STATUS_LABELS, KEYFRAME_STALE_LABELS, type VideoTaskStatus } from '@/constants/statusLabels';
 import { getErrorMessage } from '@/utils/errors';
 import { Modal } from '../../common/Modal';
 import AssetLightbox from './AssetLightbox';
@@ -397,6 +397,15 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
                     <span className={`badge ${t.category === 'keyframe' ? 'primary' : 'success'}`}>
                       {imageTypeLabel(t)}
                     </span>
+                    {t.stale_reason && (
+                      <span
+                        className="badge warning"
+                        style={{ marginLeft: 4 }}
+                        title={`已过期：${KEYFRAME_STALE_LABELS[t.stale_reason] ?? t.stale_reason}——此图可能基于旧数据生成`}
+                      >
+                        已过期
+                      </span>
+                    )}
                   </div>
                   <div className="manga-records-td i-name">
                     {t.category === 'keyframe' ? (

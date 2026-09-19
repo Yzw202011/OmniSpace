@@ -109,6 +109,8 @@ export interface AppState {
   theme: Theme;
   /** 字号档位 */
   fontSize: FontSize;
+  /** 批2 P33（2026-09-19）：安全模式（会话级；true=停一切自动预热） */
+  safeMode: boolean;
 
   /* ------------------------------ 功能互斥 ------------------------------ */
   /** 当前活跃功能（null 表示空闲，规格 §6.1） */
@@ -131,6 +133,8 @@ export interface AppState {
   setTheme: (theme: Theme) => void;
   /** 设置字号 */
   setFontSize: (size: FontSize) => void;
+  /** 批2 P33：安全模式开关（会话级 sessionStorage；true=停自动预热） */
+  setSafeMode: (on: boolean) => void;
   /**
    * 切换活跃功能（规格 §6.1 功能互斥）。
    * @param feature 目标功能（null 释放）
@@ -171,6 +175,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   })(),
   activeFeature: null,
   featureBlockedMessage: null,
+  // 批2 P33（2026-09-19）：安全模式（splash「安全模式进入」/ ?safe=1）——
+  // 会话级（sessionStorage），停一切自动预热；重启自动退出回正常模式
+  safeMode: (() => {
+    try {
+      return sessionStorage.getItem('omnispace.safeMode') === '1';
+    } catch {
+      return false;
+    }
+  })(),
   settings: {},
   settingsLoaded: false,
   toasts: [],
@@ -213,6 +226,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       mirrorPref('omnispace.fontSize', size);
     } catch {
       /* silent-intent: 隐私模式写入失败：内存态仍生效（本次会话内） */
+    }
+  },
+
+  setSafeMode: (on) => {
+    set({ safeMode: on });
+    try {
+      if (on) sessionStorage.setItem('omnispace.safeMode', '1');
+      else sessionStorage.removeItem('omnispace.safeMode');
+    } catch {
+      /* silent-intent: 会话存储不可用时内存态仍生效 */
     }
   },
 

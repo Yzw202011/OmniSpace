@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -37,6 +38,7 @@ from .common import (
     _upscale_to,
     broadcast_gen_progress,
     comfy_paint_generate,
+    mark_keyframes_stale,
     unload_paint_engines_sync,
 )
 
@@ -1288,13 +1290,21 @@ def _prepare_turnaround_prompt_en(prompt_zh: str) -> str:
 
 
 def _append_asset_history(meta: dict, kind: str, view: str | None,
-                          file_path: str) -> None:
-    """往 meta.history 追加一条生成留痕（上限 12 条，超出截掉最旧）。"""
+                          file_path: str,
+                          elapsed_ms: float | None = None) -> None:
+    """往 meta.history 追加一条生成留痕（上限 12 条，超出截掉最旧）。
+
+    批1 P6（2026-09-19）：elapsed_ms 生成耗时留痕（毫秒）；历史条目无
+    此字段=未知，生成记录面板如实显示 —。
+    """
     history = meta.get("history")
     if not isinstance(history, list):
         history = []
-    history.append({"ts": _now(), "kind": kind, "view": view,
-                    "file": file_path})
+    entry: dict = {"ts": _now(), "kind": kind, "view": view,
+                   "file": file_path}
+    if elapsed_ms is not None:
+        entry["elapsed_ms"] = round(elapsed_ms, 1)
+    history.append(entry)
     meta["history"] = history[-_ASSET_HISTORY_MAX:]
 
 
@@ -1548,6 +1558,7 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
     legacy 为同规格 1×4 横排拼图）。由线程池调用（端点为 async，避免
     阻塞事件循环）。
     """
+    t0 = time.time()  # 批1 P6：图片生成耗时留痕
     engine = get_paint_engine()
     asset_id = uuid.uuid4().hex
     out_dir = _COMIC_ASSET_DIR / req.project_id / "characters" / req.name
@@ -1571,7 +1582,8 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
     meta: dict = {"pipeline": gen["pipeline"],
                   "transparent": bool(req.transparent)}
     _apply_turnaround_meta(meta, gen)
-    _append_asset_history(meta, "generate", None, rel_path)
+    _append_asset_history(meta, "generate", None, rel_path,
+                           elapsed_ms=(time.time() - t0) * 1000)
     db = get_db_safe()
     if db is not None:
         # 同项目存在同名 character 资产桩（infer-entities 推断 / 无图片
@@ -1621,6 +1633,7 @@ def _regenerate_asset_sync(asset: dict) -> dict:
     「全图一体成败」语义）为主路径，FLUX.2 不可用回退 SDXL 逐视图。
     引擎未就绪抛 PAINT_ENGINE_NOT_READY（由端点收敛为 degraded 响应）。
     """
+    t0 = time.time()  # 批1 P6：图片生成耗时留痕
     kind = asset.get("kind", "character")
     conf = _ASSET_KIND_CONF.get(kind, _ASSET_KIND_CONF["character"])
     meta = parse_json(asset.get("meta"), {})
@@ -1747,7 +1760,18 @@ def _regenerate_asset_sync(asset: dict) -> dict:
                  "regenerated_at": _now()})
     if prompt_out is not None:
         meta["prompt_en"] = prompt_out
-    _append_asset_history(meta, "regenerate", None, rel_path)
+    _append_asset_history(meta, "regenerate", None, rel_path,
+                           elapsed_ms=(time.time() - t0) * 1000)
+    # 批2 P8：资产图已重生成 → 绑定行当前关键帧打过期标记（失败不阻断）
+    try:
+        _dbx = get_db_safe()
+        _aid = str(asset.get("asset_id") or asset.get("id") or "")
+        if _dbx is not None and _aid:
+            mark_keyframes_stale(_dbx, asset_id=_aid, reason="asset_changed")
+            from ...services.module_health import record_success
+            record_success("paint")
+    except Exception as _exc:  # noqa: BLE001
+        log.warning("P8 过期标记失败（资产重生成）: %s", _exc)
     db = get_db_safe()
     if db is not None:
         db.update("comic_assets", {"file_path": rel_path, "meta": meta},
@@ -1768,6 +1792,7 @@ def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
     2x 上采样 2560×1440 覆盖 portrait_views/{view}.png；view==front
     时同步覆盖 portrait.png；重建 canvas.png 2×2 拼图并刷新 meta。
     """
+    t0 = time.time()  # 批1 P6：图片生成耗时留痕
     meta = parse_json(asset.get("meta"), {})
     if not isinstance(meta, dict):
         meta = {}
@@ -1825,7 +1850,18 @@ def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
         meta.pop("ref_fallback", None)
     meta["prompt_en"] = prompt_en
     meta["regenerated_at"] = _now()
-    _append_asset_history(meta, "view", view, r["path"])
+    _append_asset_history(meta, "view", view, r["path"],
+                           elapsed_ms=(time.time() - t0) * 1000)
+    # 批2 P8：资产图已重生成 → 绑定行当前关键帧打过期标记（失败不阻断）
+    try:
+        _dbx = get_db_safe()
+        _aid = str(asset.get("asset_id") or asset.get("id") or "")
+        if _dbx is not None and _aid:
+            mark_keyframes_stale(_dbx, asset_id=_aid, reason="asset_changed")
+            from ...services.module_health import record_success
+            record_success("paint")
+    except Exception as _exc:  # noqa: BLE001
+        log.warning("P8 过期标记失败（资产重生成）: %s", _exc)
     db = get_db_safe()
     if db is not None:
         db.update("comic_assets", {"meta": meta}, "id=?",
@@ -1843,6 +1879,7 @@ def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
     其余三格逐像素保留）→ 重新裁切该视图格 → 重建中文标注交付图。
     底图缺失（历史资产）时报错引导整图重生成，不静默换形态。
     """
+    t0 = time.time()  # 批1 P6：图片生成耗时留痕
     import random
 
     from PIL import Image, ImageDraw
@@ -1928,7 +1965,18 @@ def _regenerate_view_onepass(asset: dict, view: str, prompt_zh: str,
     meta["consistency"] = _views_consistency(list(view_imgs.values()))
     meta["seed"] = res.get("seed", seed)
     meta["regenerated_at"] = _now()
-    _append_asset_history(meta, "view", view, view_rel)
+    _append_asset_history(meta, "view", view, view_rel,
+                           elapsed_ms=(time.time() - t0) * 1000)
+    # 批2 P8：资产图已重生成 → 绑定行当前关键帧打过期标记（失败不阻断）
+    try:
+        _dbx = get_db_safe()
+        _aid = str(asset.get("asset_id") or asset.get("id") or "")
+        if _dbx is not None and _aid:
+            mark_keyframes_stale(_dbx, asset_id=_aid, reason="asset_changed")
+            from ...services.module_health import record_success
+            record_success("paint")
+    except Exception as _exc:  # noqa: BLE001
+        log.warning("P8 过期标记失败（资产重生成）: %s", _exc)
     db = get_db_safe()
     if db is not None:
         db.update("comic_assets", {"meta": meta}, "id=?",
@@ -1942,6 +1990,7 @@ def _regenerate_view_zviews(asset: dict, view: str, prompt_zh: str,
     """zviews 资产单视图重生（Z2 2026-09-15）：该视图 Z-Image 单独
     重生成（参考图条件锚身份，同种子基址），其余三格原样保留 →
     重合成 master 1×4 拼版与中文标注交付图。"""
+    t0 = time.time()  # 批1 P6：图片生成耗时留痕
     import random
 
     from PIL import Image
@@ -2010,7 +2059,18 @@ def _regenerate_view_zviews(asset: dict, view: str, prompt_zh: str,
     else:
         meta.pop("ref_used", None)
     meta["regenerated_at"] = _now()
-    _append_asset_history(meta, "view", view, view_rel)
+    _append_asset_history(meta, "view", view, view_rel,
+                           elapsed_ms=(time.time() - t0) * 1000)
+    # 批2 P8：资产图已重生成 → 绑定行当前关键帧打过期标记（失败不阻断）
+    try:
+        _dbx = get_db_safe()
+        _aid = str(asset.get("asset_id") or asset.get("id") or "")
+        if _dbx is not None and _aid:
+            mark_keyframes_stale(_dbx, asset_id=_aid, reason="asset_changed")
+            from ...services.module_health import record_success
+            record_success("paint")
+    except Exception as _exc:  # noqa: BLE001
+        log.warning("P8 过期标记失败（资产重生成）: %s", _exc)
     db = get_db_safe()
     if db is not None:
         db.update("comic_assets", {"meta": meta}, "id=?",

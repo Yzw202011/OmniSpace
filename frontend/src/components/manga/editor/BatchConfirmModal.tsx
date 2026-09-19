@@ -69,8 +69,8 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
   const [promptOpen, setPromptOpen] = useState(false);
   const [promptCfg, setPromptCfg] = useState(readPromptCfg);
 
-  // G2 新增状态
-  const [scope, setScope] = useState<'all' | 'missing'>('missing');
+  // G2 新增状态（批2 P8 增 'stale'：只重生成已过期的行）
+  const [scope, setScope] = useState<'all' | 'missing' | 'stale'>('missing');
   const [modelId, setModelId] = useState('');
   const [resolution, setResolution] = useState('2560x1440');
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -96,8 +96,16 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
     return rows;
   }, [kind, rows, keyframesMap, hasAssets]);
 
+  /** 批2 P8：已过期目标行（当前关键帧被打了过期标记；可重新生成解封） */
+  const staleTargets = useMemo(
+    () => rows.filter((r) => !r.is_locked && !!r.stale_reason
+      && r.description.trim().length > 0),
+    [rows],
+  );
+
   /** 根据 scope 过滤目标行 */
   const targets = useMemo(() => {
+    if (scope === 'stale') return staleTargets;
     if (scope === 'all') {
       // 全部生成 = 所有有输入的行（describe 额外要求已绑定资产）
       return rows.filter((r) => {
@@ -108,7 +116,7 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
       });
     }
     return missingTargets;
-  }, [scope, rows, missingTargets, isDescribe, isKeyframe, kind, hasAssets]);
+  }, [scope, rows, missingTargets, staleTargets, isDescribe, isKeyframe, kind, hasAssets]);
 
   /** 锁定行数（批量自动跳过） */
   const lockedCount = useMemo(() => targets.filter((r) => r.is_locked).length, [targets]);
@@ -244,10 +252,13 @@ export default function BatchConfirmModal({ kind, onClose }: BatchConfirmModalPr
             <select
               className="manga-select"
               value={scope}
-              onChange={(e) => setScope(e.target.value as 'all' | 'missing')}
+              onChange={(e) => setScope(e.target.value as 'all' | 'missing' | 'stale')}
               disabled={phase === 'running'}
             >
               <option value="missing">缺失生成（仅处理未完成的 {missingTargets.length} 行）</option>
+              {staleTargets.length > 0 && (
+                <option value="stale">重新生成已过期（{staleTargets.length} 行上游已变更）</option>
+              )}
               <option value="all">全部生成（重新处理所有符合条件的行）</option>
             </select>
           </div>

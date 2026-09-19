@@ -100,3 +100,10 @@ export const LEARN_SESSION_STATUS_LABELS: Record<string, string> = {
   paused: '已暂停',
   stopped: '已停止',
 };
+
+/** 批2 P8（2026-09-19）：关键帧过期原因 → 人话标签（分镜表/生成记录共用） */
+export const KEYFRAME_STALE_LABELS: Record<string, string> = {
+  prompt_changed: '描述词已改',
+  asset_changed: '资产已更新',
+  style_changed: '画风已变',
+};

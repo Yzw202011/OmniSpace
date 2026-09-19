@@ -180,7 +180,9 @@ CREATE TABLE IF NOT EXISTS keyframes (
     created_at  REAL NOT NULL DEFAULT 0,
     shot_seeds  TEXT DEFAULT '[]',              -- V37：逐镜实际种子 JSON
     consistency TEXT DEFAULT '',                -- V37：VLM 一致性评分 JSON
-    source_mode TEXT DEFAULT ''                 -- 兜底标注(2026-09-03 方案A)：describe=按描述词/fallback=原文直出；旧数据空=未知
+    source_mode TEXT DEFAULT '',                -- 兜底标注(2026-09-03 方案A)：describe=按描述词/fallback=原文直出；旧数据空=未知
+    elapsed_ms  REAL DEFAULT 0,                 -- 生成耗时毫秒（批1 P6 2026-09-19；0=未知）
+    stale_reason TEXT DEFAULT ''                -- 过期标记（批2 P8 2026-09-19）：prompt_changed/asset_changed/style_changed；空=有效；重新生成即天然清除
 );
 CREATE INDEX IF NOT EXISTS idx_keyframes_row ON keyframes(row_id);
 

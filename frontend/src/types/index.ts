@@ -461,6 +461,8 @@ export interface StoryboardRow {
   original_dialogue: string;
   /** 画面描述 */
   description: string;
+  /** 批2 P8（2026-09-19）：当前关键帧过期标记（prompt_changed/asset_changed/style_changed；空=有效）。重新生成后自动解除 */
+  stale_reason?: string;
   /** 出场角色（数组） */
   characters: string[];
   /** 场景 */

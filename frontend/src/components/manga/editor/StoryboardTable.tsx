@@ -49,7 +49,7 @@ function downloadMedia(url: string, filename: string) {
 }
 import type { ComicAsset, ComicAssetKind, KeyframeItem, ShotSaveStatus, StoryboardRow as StoryboardRowData } from '@/types';
 import type { MangaVideoTask } from '@/stores/useMangaStore';
-import { VIDEO_STATUS_LABELS } from '@/constants/statusLabels';
+import { VIDEO_STATUS_LABELS, KEYFRAME_STALE_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { batchDescribe, batchKeyframes, readPromptPrefix } from './batchOps';
 
@@ -447,6 +447,15 @@ const StoryboardRow = memo(function StoryboardRow({
                 title="兜底模式：该行未生成描述词，此图按剧本原文直接生成（未吃描述词细节与跨镜一致性锚）"
               >
                 原文直出
+              </span>
+            )}
+            {row.stale_reason && (
+              <span
+                className="manga-thumb-fallback"
+                style={{ background: 'rgba(255, 140, 66, 0.92)' }}
+                title={`已过期：${KEYFRAME_STALE_LABELS[row.stale_reason] ?? row.stale_reason}——此图可能基于旧数据生成，建议在批量生图里选「重新生成已过期」；重新生成后标记自动解除`}
+              >
+                已过期
               </span>
             )}
             <span className="manga-thumb-name">v{currentKeyframe.version}</span>

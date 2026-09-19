@@ -942,6 +942,11 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                 "duration_seconds": result["duration_seconds"],
                 "generation_time_ms": int((time.time() - t0) * 1000)})
             _set_rows("done")
+            try:  # 批2 P31：成功喂舱壁账本（连续失败清零/degraded 恢复）
+                from ...services.module_health import record_success
+                record_success('video')
+            except Exception:  # noqa: BLE001
+                pass
             _flow.end("success", output_summary=result["file_path"])
         except VideoTaskCancelled:
             log.info("H3 链式任务取消: %s", task_id)
@@ -1053,6 +1058,11 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
                 "duration_seconds": float(req.duration_seconds or 5.0),
                 "generation_time_ms": int((time.time() - t0) * 1000)})
             _set_rows("done")
+            try:  # 批2 P31：成功喂舱壁账本（连续失败清零/degraded 恢复）
+                from ...services.module_health import record_success
+                record_success('video')
+            except Exception:  # noqa: BLE001
+                pass
             _flow.end("success", output_summary=rel_path)
         except VideoTaskCancelled:
             log.info("云端视频任务取消: %s", task_id)

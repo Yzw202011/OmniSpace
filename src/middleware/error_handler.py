@@ -490,6 +490,14 @@ def error(code: int | str, message: str = "", detail: Any = None,
         "error": err_obj,
         "meta": {**_meta(), "http_status": _SEMANTIC_HTTP.get(sem, 200)},
     }
+    # 批2 P31（2026-09-19）：失败信封喂舱壁账本——同舱连续 3 次失败
+    # → degraded + 触发自动自愈（module_health 内部防抖；记账失败
+    # 绝不影响错误响应本身）
+    try:
+        from ..services.module_health import record_failure
+        record_failure(sem, msg)
+    except Exception:  # noqa: BLE001 - 账本不可用不阻断错误链
+        pass
     # B8-e（2026-09-14）：监控解盲——meta.http_status 携带语义码对应的
     # 真实 HTTP 状态（信封 HTTP 层仍恒 200，前端零改动；外部监控/网关
     # 可凭此字段区分真实成功与语义失败，消除恒 200 信封的监控盲区）。

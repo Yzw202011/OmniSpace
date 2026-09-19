@@ -498,6 +498,12 @@ def _save_message(sid: str, role: str, content: str,
                   model_used: str = "", attachments: Any = None,
                   reasoning: str = "",
                   rag_refs: list | None = None) -> dict:
+    if role == "assistant":  # 批2 P31：对话推理成功喂舱壁账本
+        try:
+            from ..services.module_health import record_success
+            record_success("dialog")
+        except Exception:  # noqa: BLE001
+            pass
     msg = {
         "id": uuid.uuid4().hex,
         "session_id": sid,

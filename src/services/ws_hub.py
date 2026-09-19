@@ -43,6 +43,8 @@ _FRONTEND_TYPES = {
     "pong", "task_progress", "task_complete", "task_error",
     "system_status", "notification", "plugin_event",
     "update_available", "quality_degraded",
+    # 批2 P31/P32（2026-09-19）：舱壁健康态 + 自愈进度/失败（恢复指南卡）
+    "module_health", "self_heal",
 }
 
 _TELEMETRY_INTERVAL_S = 2.0

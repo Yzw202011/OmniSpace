@@ -59,6 +59,7 @@ from .common import (
     _validate_row_director_fields,
     comfy_paint_generate,
     manga_dialog_model_id,
+    mark_keyframes_stale,
 )
 from .describe_refine import refine_description
 from .keyframe import (
@@ -266,9 +267,14 @@ async def storyboard_save(project_id: str,
             # 被移除行的关键帧/视频任务须级联清理，否则孤儿 DB 记录与
             # 磁盘文件永久残留。必须先于 _persist_all 收集（之后旧行
             # 已从库里消失，无从关联）
-            old_ids = {str(r["id"]) for r in await run_blocking(lambda: db.query(
-                "SELECT id FROM storyboard_rows WHERE storyboard_id=?",
-                (sid,)))}
+            # 批2 P8（2026-09-19）：顺带快照旧描述词——保存后对比，变了
+            # 的行给当前关键帧打 prompt_changed 过期标记
+            old_rows = await run_blocking(lambda: db.query(
+                "SELECT id, description FROM storyboard_rows WHERE storyboard_id=?",
+                (sid,)))
+            old_ids = {str(r["id"]) for r in old_rows}
+            old_desc = {str(r["id"]): str(r.get("description") or "")
+                        for r in old_rows}
 
             def _persist_all() -> None:
                 """DELETE + N INSERT + UPDATE 单事务落库（审计 R3-P2 写放大）。
@@ -303,6 +309,21 @@ async def storyboard_save(project_id: str,
             await run_blocking(_persist_all)
             # 主事务已提交后再级联清理被删行（失败仅告警不回滚保存）
             _cascade_removed_rows(db, project_id, old_ids, rows)
+            # 批2 P8：描述词变更 → 当前关键帧打过期标记（失败不阻断保存）
+            try:
+                changed_ids = [
+                    rid for row in rows if isinstance(row, dict)
+                    and (rid := str(row.get("id") or "").strip()) in old_desc
+                    and str(row.get("description") or "").strip()
+                    != old_desc[rid].strip()]
+                if changed_ids:
+                    n = mark_keyframes_stale(db, row_ids=changed_ids,
+                                             reason="prompt_changed")
+                    if n:
+                        log.info("P8 过期标记: 描述词变更 rows=%d → 关键帧 %d 张",
+                                 len(changed_ids), n)
+            except Exception as exc:  # noqa: BLE001 - 标记失败不影响保存
+                log.warning("P8 过期标记失败（描述词变更）: %s", exc)
             saved = _load_rows(db, sid)
             return ok({"project_id": project_id, "rows": saved, "total": len(saved)})
         except Exception as exc:  # noqa: BLE001

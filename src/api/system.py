@@ -32,6 +32,7 @@ from typing import Any, BinaryIO
 
 from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from .. import startup_check
 from ..config import APP_VERSION, DATA_DIR, DB_PATH, HOST, LOGS_DIR, MODELS_DIR, PORT, ROOT_DIR
@@ -644,6 +645,34 @@ _DIAG_PROBES = [
     ("断点续传扫描", _probe_resume_scan),
     ("云端 API 配置", _probe_cloud_api),
 ]
+
+
+@router.get("/system/modules/health")
+def system_modules_health() -> dict[str, Any]:
+    """批2 P31（2026-09-19）：功能舱壁健康快照（对话/绘画/视频/训练）。
+
+    状态栏初拉 + 恢复指南用；变化态经 WS module_health 实时推送。
+    附带自愈运行态（单飞/冷却/尝试上限）。
+    """
+    from ..services import module_health, self_heal
+    return ok({**module_health.snapshot(), "self_heal": self_heal.state_snapshot()})
+
+
+@router.post("/system/modules/health/recover")
+async def system_modules_recover(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
+    """批2 P32/P33：手动触发某舱自动恢复（恢复指南卡「再试一次」）。
+
+    人工点击=新一轮授权：清空该舱自动尝试计数后走统一自愈链
+    （单飞+冷却闸仍在，防连点风暴）。
+    """
+    module = str((body or {}).get("module") or "").strip()
+    from ..services import module_health, self_heal
+    if module not in module_health.MODULES:
+        raise ApiError("SYSTEM_PARAM_INVALID", "module 须为 dialog/paint/video/training")
+    self_heal.reset_module_attempts(module)
+    started = await run_in_threadpool(
+        lambda: self_heal.try_recover(module, trigger="manual"))
+    return ok({"module": module, "started": bool(started)})
 
 
 @router.get("/system/health-check")

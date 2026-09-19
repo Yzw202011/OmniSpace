@@ -277,3 +277,50 @@ export async function runHealthRepair(action: string): Promise<{ action: string;
 export async function getLanTokenInfo(): Promise<{ enabled: boolean; token: string }> {
   return get<{ enabled: boolean; token: string }>('/system/lan-token');
 }
+
+/* ── 批4 P11（2026-09-19）：存储清理中心 ─────────────────────────── */
+
+export interface StorageTarget {
+  key: string;
+  label: string;
+  dir: string;
+  bytes: number;
+  files: number;
+  cleanable: string;
+  note: string;
+}
+
+export interface StorageInventory {
+  targets: StorageTarget[];
+  disks: Array<{ drive: string; total_gb: number; free_gb: number; used_percent: number }>;
+  total_mb: number;
+}
+
+export function getStorageInventory(): Promise<StorageInventory> {
+  return get<StorageInventory>('/system/storage/inventory');
+}
+
+export function storageCleanup(action: string, opts?: { keep?: number; days?: number }): Promise<{
+  action: string; label: string; deleted: number; freed_mb: number;
+}> {
+  return post('/system/storage/cleanup', { action, ...opts });
+}
+
+export function deleteBackup(filename: string): Promise<{ filename: string; freed_mb: number }> {
+  return post('/system/backups/delete', { filename });
+}
+
+/* ── 批4 P19（2026-09-19）：硬件健康中心 ─────────────────────────── */
+
+export interface HardwareHealth {
+  vram: { available: boolean; total_mb?: number; used_mb?: number; used_percent?: number; level?: string };
+  ram: { available: boolean; total_gb?: number; used_gb?: number; used_percent?: number; level?: string };
+  temp: { available: boolean; celsius?: number; level?: string };
+  disks: Array<{ drive: string; free_gb: number; total_gb: number; level: string }>;
+  thresholds: { vram_warn: number; vram_crit: number; ram_crit: number; disk_warn_gb: number; disk_crit_gb: number };
+  protections: Array<{ key: string; label: string; enabled: boolean }>;
+}
+
+export function getHardwareHealth(): Promise<HardwareHealth> {
+  return get<HardwareHealth>('/system/hardware/health');
+}

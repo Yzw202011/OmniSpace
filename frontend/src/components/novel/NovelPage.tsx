@@ -44,6 +44,7 @@ import type {
 import { invokeNovelSkill } from '@/services/novelApi';
 import * as novelApi from '@/services/novelApi';
 import { useAppStore } from '@/stores/useAppStore';
+import { confirmDialog } from '@/stores/useConfirmStore';
 import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import type { NovelSkillResult } from '@/services/novelApi';
 import { listSkills } from '@/services/pluginApi';
@@ -176,9 +177,17 @@ const ProjectLibrary: React.FC = () => {
                 className="btn btn-ghost btn-sm text-rose-300"
                 title="删除作品（章节/大纲一并删除）"
                 onClick={() => {
-                  if (window.confirm(`删除《${p.name}》？全部章节与大纲会一并删除。`)) {
-                    void removeProject(p.id);
-                  }
+                  // 批4 P9：重级删除三要素（删什么/留什么/可否反悔）
+                  void confirmDialog({
+                    level: 'heavy',
+                    title: `删除作品《${p.name}》`,
+                    lines: [
+                      `将删除：全部 ${p.chapter_total} 章正文、大纲树、角色卡、伏笔记录`,
+                      '保留：已导入知识库的世界观条目（属知识库数据）',
+                      '此操作不可恢复，删除前请确认无需导出备份',
+                    ],
+                    confirmText: '永久删除',
+                  }).then((go) => { if (go) void removeProject(p.id); });
                 }}
               >
                 <Trash2 size={14} aria-hidden="true" />
@@ -477,7 +486,12 @@ const OutlinePanel: React.FC = () => {
             className="btn btn-ghost btn-sm opacity-0 group-hover:opacity-100 text-rose-300"
             title="删除（章细纲会一并移除该节点）"
             onClick={() => {
-              if (window.confirm(`删除大纲节点「${n.title}」？`)) void removeOutline(n.id);
+              void confirmDialog({
+                level: 'light',
+                title: `删除大纲节点「${n.title}」`,
+                lines: ['将删除：该节点及其子节点（若有）', '不影响已写好的章节正文'],
+                confirmText: '删除',
+              }).then((go) => { if (go) void removeOutline(n.id); });
             }}
           >
             <Trash2 size={12} aria-hidden="true" />
@@ -719,7 +733,12 @@ const ChapterPanel: React.FC = () => {
             <button
               className="btn btn-ghost btn-sm text-rose-300"
               onClick={() => {
-                if (window.confirm('删除本章？')) void removeChapter(chapter.id);
+                void confirmDialog({
+                  level: 'light',
+                  title: `删除「${chapter?.title || '本章'}」`,
+                  lines: ['将删除：本章正文与摘要（不可恢复，请先导出需要的内容）'],
+                  confirmText: '删除',
+                }).then((go) => { if (go) void removeChapter(chapter.id); });
               }}
             >
               <Trash2 size={12} aria-hidden="true" />

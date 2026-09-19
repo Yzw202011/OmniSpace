@@ -23,6 +23,8 @@ import HealthCheckCard from '@/components/HealthCheckCard';
 import UpgradeSection from '@/components/UpgradeSection';
 import PluginSection from '@/components/PluginSection';
 import DataManagementSection from '@/components/DataManagementSection';
+import StorageCard from '@/components/system/StorageCard';
+import HardwareHealthCard from '@/components/system/HardwareHealthCard';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
 import * as systemApi from '@/services/systemApi';
@@ -522,7 +524,9 @@ export default function Settings() {
 
       {settingsTab === 'data' && (
         <>
-      {/* ============ 本地算力 · 省钱账本 ============ */}
+      {/* ============ 批4 P11：存储清理中心（盘点+白名单清理） ============ */}
+      <StorageCard />
+
       {/* ============ 数据管理（备份/恢复/项目导入导出，接线四项 2026-09-17） ============ */}
       <DataManagementSection />
       <div className="settings-section card">
@@ -594,6 +598,9 @@ export default function Settings() {
 
       {settingsTab === 'maintenance' && (
         <>
+      {/* ============ 批4 P19：硬件健康中心（四仪表+保护动作） ============ */}
+      <HardwareHealthCard />
+
       {/* ============ 软件升级（升级机制批2） ============ */}
       <UpgradeSection />
 

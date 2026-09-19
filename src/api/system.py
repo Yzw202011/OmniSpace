@@ -327,6 +327,313 @@ def restore_list() -> dict[str, Any]:
                "pending_restore": _RESTORE_PENDING_MARK.is_file()})
 
 
+# ═══════════════════════════════════════════════════════════════════
+#  批4 P11（2026-09-19）：存储清理中心——盘点只读 + 白名单清理
+# ═══════════════════════════════════════════════════════════════════
+# 硬边界：绝不触碰模型权重目录（models/）与用户作品正文/资产原图
+# （comic_assets/keyframes 只盘点不清理——它们是作品数据，删除走各
+# 模块的正规删除链）；清理动作全部白名单+目录 containment 闸。
+
+_STORAGE_TARGETS: list[dict[str, Any]] = [
+    {"key": "backups", "label": "系统备份", "dir": DATA_DIR / "backups",
+     "cleanable": "backups_keep", "note": "数据库与设置快照（恢复用）"},
+    {"key": "generated_images", "label": "生成图片",
+     "dir": DATA_DIR / "generated" / "images",
+     "cleanable": "", "note": "绘画/生成产物（删除请走各页历史记录）"},
+    {"key": "thumbs", "label": "缩略图缓存",
+     "dir": DATA_DIR / "generated" / "images" / ".thumbs",
+     "cleanable": "thumbs", "note": "可安全重建的缓存"},
+    {"key": "generated_videos", "label": "生成视频",
+     "dir": DATA_DIR / "generated" / "videos",
+     "cleanable": "", "note": "视频产物（删除请走生成记录）"},
+    {"key": "exports", "label": "导出成品",
+     "dir": DATA_DIR / "generated" / "exports",
+     "cleanable": "exports", "note": "漫画成册/漫剧导出件（可重新导出）"},
+    {"key": "temp", "label": "临时文件",
+     "dir": DATA_DIR / "generated" / "temp",
+     "cleanable": "temp", "note": "生成过程中间产物"},
+    {"key": "comfy_h3", "label": "视频链中间帧",
+     "dir": DATA_DIR / "comfyui" / "output" / "h3_chains",
+     "cleanable": "comfy_h3", "note": "H3 视频链工作目录（可重建）"},
+    {"key": "keyframes", "label": "分镜关键帧",
+     "dir": DATA_DIR / "keyframes",
+     "cleanable": "", "note": "作品数据（删除请走分镜版本管理）"},
+    {"key": "comic_assets", "label": "资产图",
+     "dir": DATA_DIR / "comic_assets",
+     "cleanable": "", "note": "作品数据（删除请走资产库）"},
+    {"key": "knowledge_images", "label": "图片知识原图",
+     "dir": DATA_DIR / "knowledge_images",
+     "cleanable": "", "note": "作品数据（删除请走知识库）"},
+    {"key": "character_lora", "label": "人物LoRA产物",
+     "dir": DATA_DIR / "character_lora",
+     "cleanable": "", "note": "训练产物（删除请走训练中心）"},
+    {"key": "logs", "label": "运行日志",
+     "dir": LOGS_DIR, "cleanable": "old_logs",
+     "note": "默认保留 30 天"},
+]
+
+
+def _dir_stats(p: Path) -> dict[str, Any]:
+    """目录体积/条数（不存在=0；单文件异常不阻断盘点）。"""
+    total = 0
+    files = 0
+    if p.is_dir():
+        for f in p.rglob("*"):
+            try:
+                if f.is_file():
+                    total += f.stat().st_size
+                    files += 1
+            except OSError:
+                continue
+    return {"bytes": total, "files": files}
+
+
+def _safe_clear_dir(d: Path, older_than_days: float = 0.0,
+                    skip_names: set[str] | None = None) -> dict[str, Any]:
+    """白名单目录内清空/按龄删（containment：resolve 后必须仍在 d 内）。"""
+    root = d.resolve()
+    if not d.is_dir():
+        return {"deleted": 0, "freed_bytes": 0, "samples": []}
+    deleted = freed = 0
+    samples: list[str] = []
+    cutoff = time.time() - older_than_days * 86400
+    for f in sorted(d.rglob("*")):
+        try:
+            if not f.is_file():
+                continue
+            if skip_names and f.name in skip_names:
+                continue
+            if older_than_days > 0 and f.stat().st_mtime > cutoff:
+                continue
+            fr = f.resolve()
+            if root not in fr.parents:
+                continue  # 穿越守卫（理论不可达，rglob 不会出根）
+            size = f.stat().st_size
+            f.unlink()
+            deleted += 1
+            freed += size
+            if len(samples) < 20:
+                samples.append(f.name)
+        except OSError:
+            continue
+    # 全清模式：回收空子目录（保留根）
+    if older_than_days <= 0:
+        for sub in sorted(d.rglob("*"), reverse=True):
+            try:
+                if sub.is_dir() and sub.resolve() != root:
+                    sub.rmdir()  # 只删空目录，非空自动 OSError 跳过
+            except OSError:
+                continue
+    return {"deleted": deleted, "freed_bytes": freed, "samples": samples}
+
+
+@router.get("/system/storage/inventory")
+def storage_inventory() -> dict[str, Any]:
+    """批4 P11：存储盘点（各产物目录只读扫描 + 磁盘余量）。"""
+    targets = []
+    for t in _STORAGE_TARGETS:
+        st = _dir_stats(t["dir"])
+        targets.append({**t, "dir": str(t["dir"]), **st})
+    disks = []
+    try:
+        import psutil
+        seen: set[str] = set()
+        for dp in {str(ROOT_DIR)[:3], "C:\\", str(DATA_DIR)[:3]}:
+            drive = dp.rstrip("\\") + "\\"
+            if drive.lower() in seen:
+                continue
+            seen.add(drive.lower())
+            try:
+                u = psutil.disk_usage(drive)
+                disks.append({"drive": drive,
+                              "total_gb": round(u.total / 1024**3, 1),
+                              "free_gb": round(u.free / 1024**3, 1),
+                              "used_percent": round(u.used / u.total * 100)})
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    total_bytes = sum(t["bytes"] for t in targets)
+    return ok({"targets": targets, "disks": disks,
+               "total_mb": round(total_bytes / 1024**2, 1)})
+
+
+@router.post("/system/storage/cleanup")
+def storage_cleanup(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """批4 P11：白名单清理动作（前端逐动作独立确认后调用）。
+
+    动作（action）：
+    - thumbs / temp / exports / comfy_h3：清空对应可重建目录
+    - backups_keep：只保留最近 keep 份 DB 备份+设置快照（默认 3）
+    - old_logs：删 logs/ 下超 days 天（默认 30）的文件；活跃
+      backend.log 等跳过（活文件不可删）
+    """
+    action = str(req.get("action") or "")
+    try:
+        keep = max(1, min(30, int(req.get("keep") or 3)))
+        days = max(1, min(3650, int(req.get("days") or 30)))
+    except (TypeError, ValueError):
+        keep, days = 3, 30
+
+    result: dict[str, Any] | None = None
+    label = ""
+    if action in ("thumbs", "temp", "exports", "comfy_h3"):
+        t = next(x for x in _STORAGE_TARGETS if x["cleanable"] == action)
+        label = t["label"]
+        result = _safe_clear_dir(t["dir"])
+    elif action == "backups_keep":
+        label = "旧备份"
+        deleted = freed = 0
+        samples: list[str] = []
+        for pattern in ("omnispace_*.db", "backup_*.json"):
+            files = sorted(BACKUP_DIR.glob(pattern),
+                           key=lambda f: f.stat().st_mtime, reverse=True)
+            for f in files[keep:]:
+                try:
+                    size = f.stat().st_size
+                    f.unlink()
+                    deleted += 1
+                    freed += size
+                    if len(samples) < 20:
+                        samples.append(f.name)
+                except OSError:
+                    continue
+        result = {"deleted": deleted, "freed_bytes": freed, "samples": samples}
+    elif action == "old_logs":
+        label = f"{days} 天前的旧日志"
+        result = _safe_clear_dir(
+            LOGS_DIR, older_than_days=days,
+            skip_names={"backend.log", "backend_stderr.log", "boot.log",
+                        "heartbeat_history.jsonl"})
+    else:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "未知清理动作（白名单：thumbs/temp/exports/comfy_h3/"
+                       "backups_keep/old_logs）")
+    try:
+        from ..services.event_log import log_event
+        log_event("system", "storage_cleanup",
+                  f"清理「{label}」：删 {result['deleted']} 项，释放 "
+                  f"{result['freed_bytes'] / 1024 / 1024:.1f}MB",
+                  level="success")
+    except Exception:  # noqa: BLE001
+        log.debug("storage_cleanup: 落档降级忽略", exc_info=True)
+    return ok({"action": action, "label": label, **result,
+               "freed_mb": round(result["freed_bytes"] / 1024**2, 1)})
+
+
+@router.post("/system/backups/delete")
+def backups_delete(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """批4 P11：删除单个备份文件（白名单文件名形态+目录 containment）。"""
+    name = Path(str(req.get("filename") or "")).name
+    if not (name.startswith("omnispace_") and name.endswith(".db")) \
+            and not (name.startswith("backup_") and name.endswith(".json")):
+        raise ApiError("SYSTEM_PARAM_INVALID", "备份文件名不合法")
+    target = (BACKUP_DIR / name).resolve()
+    if BACKUP_DIR.resolve() not in target.parents:
+        raise ApiError("SYSTEM_PARAM_INVALID", "路径越界")
+    if not target.is_file():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "备份文件不存在")
+    size = target.stat().st_size
+    target.unlink()
+    return ok({"filename": name, "freed_mb": round(size / 1024**2, 1)})
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  批4 P19（2026-09-19）：硬件健康中心——四项仪表聚合 + 阈值三色
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/system/hardware/health")
+def hardware_health() -> dict[str, Any]:
+    """批4 P19：显存/内存/温度/磁盘 四项聚合 + 阈值状态（三色）。
+
+    阈值与 resource_guard/scheduler 同源（config.scheduler.thresholds）；
+    温度传感器 Windows 常缺——如实标 unavailable，绝不编数。
+    """
+    from ..config import get_config
+    th = (get_config().get("scheduler") or {}).get("thresholds") or {}
+    vram_warn = float(th.get("gpu_vram_warning", 80))
+    vram_crit = float(th.get("gpu_vram_critical", 90))
+    ram_crit = float(th.get("ram_critical_percent", 90))
+
+    def _level(pct: float, warn: float, crit: float) -> str:
+        return "danger" if pct >= crit else ("warning" if pct >= warn else "ok")
+
+    out: dict[str, Any] = {"vram": {"available": False},
+                           "ram": {"available": False},
+                           "temp": {"available": False},
+                           "disks": [], "thresholds": {
+                               "vram_warn": vram_warn, "vram_crit": vram_crit,
+                               "ram_crit": ram_crit,
+                               "disk_warn_gb": 32, "disk_crit_gb": 8}}
+    # 显存（pynvml，缺席如实 unavailable）
+    try:
+        import pynvml  # type: ignore
+        pynvml.nvmlInit()
+        try:
+            h = pynvml.nvmlDeviceGetHandleByIndex(0)
+            m = pynvml.nvmlDeviceGetMemoryInfo(h)
+            used_pct = (m.total - m.free) / m.total * 100
+            out["vram"] = {
+                "available": True,
+                "total_mb": int(m.total // 1048576),
+                "used_mb": int((m.total - m.free) // 1048576),
+                "used_percent": round(used_pct, 1),
+                "level": _level(used_pct, vram_warn, vram_crit)}
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception:  # noqa: BLE001 - pynvml 缺席走内存/磁盘仍可用
+        log.debug("hardware_health: 显存探测降级", exc_info=True)
+    # 内存/温度/磁盘
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        out["ram"] = {"available": True,
+                      "total_gb": round(vm.total / 1024**3, 1),
+                      "used_gb": round((vm.total - vm.available) / 1024**3, 1),
+                      "used_percent": vm.percent,
+                      "level": _level(vm.percent, ram_crit - 5, ram_crit)}
+        try:
+            temps: dict = getattr(psutil, "sensors_temperatures",
+                                   lambda: {})()
+            if temps:
+                entries = temps.get("coretemp") or temps.get(
+                    "acpitz") or next(iter(temps.values()))
+                t = max((e.current or 0) for e in entries) if entries else None
+                if t:
+                    out["temp"] = {"available": True, "celsius": round(t, 1),
+                                   "level": ("danger" if t >= 90 else
+                                             "warning" if t >= 80 else "ok")}
+        except Exception:  # noqa: BLE001
+            pass
+        seen: set[str] = set()
+        for dp in (str(DATA_DIR)[:3], "C:\\"):
+            drive = dp.rstrip("\\") + "\\"
+            if drive.lower() in seen:
+                continue
+            seen.add(drive.lower())
+            u = psutil.disk_usage(drive)
+            free_gb = u.free / 1024**3
+            out["disks"].append({
+                "drive": drive, "free_gb": round(free_gb, 1),
+                "total_gb": round(u.total / 1024**3, 1),
+                "level": ("danger" if free_gb < 8 else
+                          "warning" if free_gb < 32 else "ok")})
+    except ImportError:
+        log.debug("hardware_health: psutil 缺席")
+    # 保护动作清单（现有散件能力如实展示）
+    out["protections"] = [
+        {"key": "vram_critical", "label": "显存≥90% 自动卸载非活跃模型",
+         "enabled": True},
+        {"key": "ram_gate", "label": "内存危急线拒新任务+腾内存",
+         "enabled": True},
+        {"key": "thermal", "label": "GPU≥90°C 暂停接单", "enabled": True},
+        {"key": "degrade", "label": "GPU 高压自动降参保质量", "enabled": True},
+        {"key": "watchdog", "label": "后端异常退出自动补位（≤5次）",
+         "enabled": True},
+    ]
+    return ok(out)
+
+
 @router.post("/system/restore")
 async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     """安排从备份恢复（**下次重启时生效**，当前会话不受影响）。

@@ -23,6 +23,7 @@ from __future__ import annotations
 import gc
 import importlib
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -705,10 +706,15 @@ class DialogEngine(BaseEngine):
         # 走正规卸载链还显存（vLLM KV 预分配池不卸会一直占着）
         self._last_activity_ts: float = time.monotonic()
         self._watchdog_stop = threading.Event()
+        # 批4 断根（2026-09-19 实弹三现）：pytest 进程内不起看门狗——
+        # 巡检线程按墙钟触发的 unload→log_event 会落进同进程后续任何
+        # 测试的临时事件目录（曾污染 test_event_log_auto 精确计数，时序
+        # 型偶发 4/5 复现单跑恒过）。生产运行无此环境变量，零影响。
         self._watchdog_thread = threading.Thread(
             target=self._idle_watchdog_loop, name="dialog-idle-watchdog",
             daemon=True)
-        self._watchdog_thread.start()
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            self._watchdog_thread.start()
 
         # 推理统计（编排层统一计时，后端无感知）
         self.last_first_token_ms: float = 0.0

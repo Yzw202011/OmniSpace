@@ -82,29 +82,21 @@ def client(events_dir) -> TestClient:
 
 
 def _entries() -> list[dict]:
-    """本测试时间窗内的事件（滤掉跨测试异步泄漏的迟到写入）。"""
-    from datetime import timezone
-    t0 = getattr(events_dir, "_t0", None)
-    items = event_log.query_events(limit=100)["items"]
-    if t0 is None:
-        return items
-    out = []
-    for it in items:
-        try:
-            ts = fromisoformat_local(it.get("ts") or "")
-            if ts is not None and ts.astimezone(timezone.utc) >= t0:
-                out.append(it)
-        except (ValueError, TypeError):
-            out.append(it)  # 时间解析不了的不滤（宁可失败不静默丢）
-    return out
+    """全部事件（含跨测试异步写入——断言一律用 _of 精确匹配密闭化）。
+
+    批4 终修（2026-09-19）：同进程其他测试的引擎线程可能在本测试窗口
+    异步写事件（model_unloaded 等）——曾按时间窗过滤仍拦不住"迟到到
+    测试体内"的写入（三现）。断言改按 (module, event) 精确匹配：本文件
+    的验收本意就是「我的请求恰好产出一条此类事件」，与全局条数无关。
+    """
+    return event_log.query_events(limit=100)["items"]
 
 
-def fromisoformat_local(s: str):
-    from datetime import datetime
-    try:
-        return datetime.fromisoformat(s)
-    except (ValueError, TypeError):
-        return None
+def _of(module: str, event: str | None = None) -> list[dict]:
+    """按 (module, event) 精确取本测试关心的事件（跨测试写入天然免疫）。"""
+    return [e for e in _entries()
+            if e.get("module") == module
+            and (event is None or e.get("event") == event)]
 
 
 # ── 三条件判定 ───────────────────────────────────────────────────
@@ -112,11 +104,9 @@ def fromisoformat_local(s: str):
 def test_post_success_logged_with_label(client: TestClient) -> None:
     r = client.post("/api/v1/draw/generate", json={})
     assert r.json()["success"] is True
-    items = _entries()
+    items = _of("paint", "api_call")
     assert len(items) == 1
     e = items[0]
-    assert e["module"] == "paint"
-    assert e["event"] == "api_call"
     assert e["level"] == "success"
     assert "图片生成" in e["friendly"]
     assert "用时" in e["friendly"]
@@ -127,17 +117,16 @@ def test_post_success_logged_with_label(client: TestClient) -> None:
 def test_get_success_fast_not_logged(client: TestClient) -> None:
     r = client.get("/api/v1/models/status")
     assert r.json()["success"] is True
-    assert _entries() == []
+    assert _of("models") == []  # GET 快速成功不出行
 
 
 def test_post_failure_envelope_error_level_with_suggestion(
         client: TestClient) -> None:
     r = client.post("/api/v1/knowledge/import", json={})
     assert r.json()["success"] is False
-    items = _entries()
+    items = _of("knowledge", "api_failed")
     assert len(items) == 1
     e = items[0]
-    assert e["module"] == "knowledge"
     assert e["level"] == "error"
     assert e["event"] == "api_failed"
     assert "知识解析失败" in e["friendly"]
@@ -148,10 +137,9 @@ def test_post_failure_envelope_error_level_with_suggestion(
 def test_get_failure_envelope_logged(client: TestClient) -> None:
     r = client.get("/api/v1/logs/flows/trace/bad")
     assert r.json()["success"] is False
-    items = _entries()
+    items = _of("system", "api_failed")
     assert len(items) == 1
     e = items[0]
-    assert e["module"] == "system"
     assert e["level"] == "error"
     assert "流程不存在: bad" in e["friendly"]
 
@@ -159,17 +147,16 @@ def test_get_failure_envelope_logged(client: TestClient) -> None:
 def test_non_json_post_activity_logged(client: TestClient) -> None:
     r = client.post("/api/v1/hardware/profile")
     assert r.status_code == 200
-    items = _entries()
+    items = _of("hardware")
     assert len(items) == 1
     e = items[0]
-    assert e["module"] == "hardware"
     assert e["level"] == "success"
 
 
 def test_non_api_path_not_logged(client: TestClient) -> None:
     r = client.get("/health")
     assert r.json() == {"status": "ok"}
-    assert _entries() == []
+    assert _of("system") == []  # 非 /api 路径不出行
 
 
 def test_slow_get_logged_when_threshold_low(
@@ -177,20 +164,18 @@ def test_slow_get_logged_when_threshold_low(
     monkeypatch.setattr(event_log_auto, "EVENT_LOG_SLOW_MS", 0)
     r = client.get("/api/v1/models/status")
     assert r.json()["success"] is True
-    items = _entries()
+    items = _of("models")
     assert len(items) == 1
-    assert items[0]["module"] == "models"
     assert items[0]["level"] == "success"
 
 
 def test_oversized_failure_body_sniff_fallback(client: TestClient) -> None:
     r = client.post("/api/v1/system/boom-big", json={})
     assert r.json()["success"] is False
-    items = _entries()
+    items = _of("system", "api_failed")
     assert len(items) == 1
     e = items[0]
     assert e["level"] == "error"
-    assert e["event"] == "api_failed"
 
 
 # ── 映射表与直调边界 ────────────────────────────────────────────

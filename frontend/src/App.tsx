@@ -50,6 +50,7 @@ import TopBar from './components/layout/TopBar';
 import RightPanel from './components/layout/RightPanel';
 import BottomStatusBar from './components/layout/BottomStatusBar';
 import RecoveryGuideCard from './components/common/RecoveryGuideCard';
+import ConfirmDialog from './components/common/ConfirmDialog';
 import { useAppStore, type ToastItem, type ToastLevel } from './stores/useAppStore';
 import { useDialogStore } from './stores/useDialogStore';
 import { useHardwareStore } from './stores/useHardwareStore';
@@ -582,6 +583,9 @@ export function AppShell() {
 
       {/* 批2 P33：自愈失败恢复指南卡（fixed 定位，全页面可达） */}
       <RecoveryGuideCard />
+
+      {/* 批4 P9：全局分级确认弹窗（删除三要素规范） */}
+      <ConfirmDialog />
 
       {/* 全局 Toast 容器 */}
       <ToastContainer />

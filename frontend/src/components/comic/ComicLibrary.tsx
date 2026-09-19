@@ -280,14 +280,18 @@ export default function ComicLibrary({ onOpen }: Props) {
         </Modal>
       )}
 
-      {/* 删除确认 */}
+      {/* 删除确认（批4 P9：统一分级确认；文案修正=资产转全局保留而非清理） */}
       {deleteTarget && (
         <Modal title="删除漫画作品" onClose={() => !deleting && setDeleteTarget(null)} width={420}>
           <div className="flex flex-col gap-3">
             <p>
-              确定删除「<b>{deleteTarget.name}</b>」？分格、关键帧与项目内角色资产将被清理
-              （资产转入全局库保留）。此操作不可撤销。
+              确定删除「<b>{deleteTarget.name}</b>」？
             </p>
+            <ul style={{ margin: 0, paddingLeft: '1.2em', fontSize: 'var(--font-size-sm)' }}>
+              <li>将删除：分格、关键帧、项目内场景与道具</li>
+              <li>保留：角色等生成资产自动转入全局库，可跨项目继续使用</li>
+              <li>此操作不可恢复</li>
+            </ul>
             <div className="flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => setDeleteTarget(null)} disabled={deleting}>
                 取消
@@ -298,7 +302,7 @@ export default function ComicLibrary({ onOpen }: Props) {
                 onClick={() => void handleDelete()}
                 disabled={deleting}
               >
-                {deleting ? '删除中…' : '确认删除'}
+                {deleting ? '删除中…' : '永久删除'}
               </button>
             </div>
           </div>

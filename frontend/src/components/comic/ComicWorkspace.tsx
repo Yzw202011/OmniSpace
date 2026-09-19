@@ -518,8 +518,10 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     }));
   };
 
-  const saveBubbles = (row: StoryboardRow) => {
-    const bubbles = ensureBubbles(row);
+  const saveBubbles = (row: StoryboardRow, override?: PanelBubble[]) => {
+    // override：同事件内「先 patch 再存」时绕开 setState 批处理的旧闭包
+    //（批6 P-06 根因②：形状 onChange 用渲染时闭包的 row 保存，shape 永远丢）
+    const bubbles = override ?? ensureBubbles(row);
     mangaApi.updateStoryboardRow(pid, row.id, { bubbles })
       .catch((err) => showToast(getErrorMessage(err, '台词保存失败'), 'error'));
   };
@@ -821,7 +823,11 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                             style={{ width: 72, padding: '2px 4px', fontSize: 10, flexShrink: 0 }}
                             title="气泡形状（批6 P3：五种常用形）"
                             value={b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}
-                            onChange={(e) => { patchBubble(row.id, bi, { shape: e.target.value as typeof b.shape }); saveBubbles(row); }}
+                            onChange={(e) => {
+                              const shape = e.target.value as typeof b.shape;
+                              patchBubble(row.id, bi, { shape });
+                              saveBubbles(row, ensureBubbles(row).map((bb, i) => (i === bi ? { ...bb, shape } : bb)));
+                            }}
                           >
                             <option value="dialogue">💬对话</option>
                             <option value="narration">🎬旁白</option>

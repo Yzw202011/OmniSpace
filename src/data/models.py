@@ -577,6 +577,9 @@ class StoryboardCreate(BaseModel):
 class BubbleLine(BaseModel):
     """单条台词气泡（多角色场景，2026-09-08）。"""
     text: str = Field(default="", max_length=200)
+    # 批6 P3（2026-09-19）：气泡形状五形；None=按 asset_id 推导（兼容旧数据）
+    shape: str | None = Field(default=None, max_length=16,
+                              pattern="^(dialogue|narration|thought|shout|whisper)$")
     x: float | None = Field(default=None, ge=0.0, le=1.0)
     y: float | None = Field(default=None, ge=0.0, le=1.0)
     w: float | None = Field(default=None, ge=0.1, le=1.0)

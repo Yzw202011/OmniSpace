@@ -69,3 +69,26 @@ def license_activate(req: ActivateReq) -> dict[str, Any]:
     with _fail_lock:
         _fail_times.clear()  # 成功即清失败史
     return ok({"activated": True, **info})
+
+
+class UnbindReq(BaseModel):
+    confirm: bool = False
+
+
+@router.post("/license/unbind")
+def license_unbind(req: UnbindReq) -> dict[str, Any]:
+    """解绑本机（2026-09-19 激活加固批 A3）：换机正规流程的旧机侧动作。
+
+    生成一次性解绑码（发给卖家，卖家在发码台验码后才发新机激活码）；
+    同时本机授权立即作废并留墓碑（旧码在本机不可再用）。
+    """
+    if not req.confirm:
+        raise ApiError("UNBIND_NOT_CONFIRMED", "请先确认知晓解绑后果",
+                       suggestion="解绑后本机授权立即失效；换机请把解绑码发给卖家换绑")
+    try:
+        token = license_gate.unbind()
+    except license_gate.GateError as exc:
+        raise ApiError("UNBIND_FAILED", str(exc),
+                       suggestion="确认本机已激活后重试") from exc
+    return ok({"unbind_code": token,
+               "note": "请把这串解绑码发给卖家完成换绑；本机授权已作废"})

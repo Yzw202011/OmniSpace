@@ -1127,6 +1127,9 @@ class BootOrchestrator:
                 'activated': bool(data.get('activated')),
                 'fingerprints': data.get('fingerprints') or [],
                 'reason': data.get('reason') or '',
+                # 激活加固批（2026-09-19）：授权明细透传给启动页展示
+                # （type/expires/permanent/days_left/generation）
+                'info': data.get('license') or {},
             }
         self.maybe_redirect_ready()
 

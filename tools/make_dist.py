@@ -375,12 +375,13 @@ def main() -> int:
         # src 扁平化（2026-09-17 补修）：--pubkey 分支三处路径此前仍指
         # backend/（批1 六件套的漏网分支）——带激活发行一出包即
         # FileNotFoundError
-        gate = dest / "src" / "license_gate.py"
+        # 2026-09-19 锁芯移出开源仓库：注入目标=impl 真身（占位壳经 import * 接管）
+        gate = dest / "src" / "license_gate_impl.py"
         src_txt = gate.read_text(encoding="utf-8")
         patched = src_txt.replace('PUBKEY_HEX = ""',
                                   f'PUBKEY_HEX = "{args.pubkey}"')
         if patched == src_txt:
-            raise SystemExit("公钥注入失败：license_gate.py 中找不到占位符")
+            raise SystemExit("公钥注入失败：license_gate_impl.py 中找不到占位符")
         gate.write_text(patched, encoding="utf-8")
         print(f"已注入发行公钥（激活门禁生效）：{args.pubkey[:16]}…")
         # 资产加密（P6 锁4）：工作流明文出包即灭；风格种子入金库

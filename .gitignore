@@ -102,6 +102,8 @@ packaging_console/config.json
 
 # ===== 发码台/打包台（用户令 2026-09-11：整体不入仓库，含内置密码，仅本机保留） =====
 license_console/
+# 真实锁芯不入库（2026-09-19 用户令：防仓库破解；行内注释不生效须独立成行）
+src/license_gate_impl.py
 packaging_console/
 
 # ===== 打包台/发码台遗留启动器与方案文档（用户令 09-11：整体不入仓库；第二Round根修 09-11） =====

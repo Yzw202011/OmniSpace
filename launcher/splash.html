@@ -611,9 +611,12 @@ body::after {
       </div>
       <div class="svc-body">
         <div class="hint" style="max-height:120px;overflow:auto;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px" id="eulaText">
-          本软件为授权使用产品。请勿逆向工程、二次分发或用于未经授权的商业用途；
-          生成的模型权重与工作流资产受版权保护；软件按「现状」提供，因硬件环境
-          差异导致的效果问题不在担保范围内。（正式协议文本以随包文档为准）
+          本软件为授权使用产品。激活码与您的设备绑定，<b>仅限本机使用</b>；
+          <b>严禁转卖、出租、共享激活码或向第三方提供本软件副本</b>，违者将
+          导致授权作废并承担相应责任；请勿逆向工程、二次分发或用于未经授权的
+          商业用途；生成的模型权重与工作流资产受版权保护；软件按「现状」提供，
+          因硬件环境差异导致的效果问题不在担保范围内。（正式协议文本以随包
+          文档为准）
         </div>
         <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px">
           <input type="checkbox" id="eulaCheck" style="width:auto"> 我已阅读并同意《最终用户许可协议》
@@ -631,13 +634,27 @@ body::after {
         <span class="state" id="licState">待激活</span>
       </div>
       <div class="svc-body">
-        <div class="hint">把下面 3 行「机器指纹」发给卖家换取激活码，粘贴到输入框完成激活（一次性操作，之后每次启动直接进入）。</div>
-        <div class="kv"><span>机器指纹</span></div>
-        <code id="licFp" style="display:block;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.7;user-select:all;margin:6px 0">—</code>
-        <button class="mini-btn" id="licCopyBtn">复制指纹</button>
-        <label style="display:block;margin-top:12px;font-size:12px;color:var(--dim)">激活码（卖家提供，长串带连字符）</label>
-        <textarea id="licCode" rows="3" placeholder="粘贴激活码…" style="width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;color:inherit;font-size:12px;resize:vertical"></textarea>
-        <button class="mini-btn" id="licBtn">激活</button>
+        <div id="licActiveBox" style="display:none">
+          <div class="kv"><span>授权状态</span><b id="licTypeInfo">—</b></div>
+          <div class="hint" style="margin-top:6px">换电脑？点下方「解绑本机」拿到解绑码发给卖家，即可换绑到新设备（本机授权随即作废）。</div>
+          <button class="mini-btn" id="licUnbindBtn" style="margin-top:6px">解绑本机</button>
+          <div id="licUnbindOut" style="display:none;margin-top:8px">
+            <code id="licUnbindCode" style="display:block;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;user-select:all"></code>
+            <div class="hint" style="margin-top:4px;color:var(--coral)">⚠ 本机授权已作废。请把上面这串解绑码发给卖家完成换绑。</div>
+          </div>
+        </div>
+        <div id="licInputBox">
+          <div class="hint">把下面 3 行「机器指纹」发给卖家换取激活码，粘贴到输入框完成激活（一次性操作，之后每次启动直接进入）。</div>
+          <div class="kv"><span>机器指纹</span></div>
+          <code id="licFp" style="display:block;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.7;user-select:all;margin:6px 0">—</code>
+          <button class="mini-btn" id="licCopyBtn">复制指纹</button>
+          <label style="display:block;margin-top:12px;font-size:12px;color:var(--dim)">激活码（卖家提供，长串带连字符）</label>
+          <textarea id="licCode" rows="3" placeholder="粘贴激活码…" style="width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 10px;color:inherit;font-size:12px;resize:vertical"></textarea>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px">
+            <input type="checkbox" id="licAgree" style="width:auto"> 我已阅读并同意《许可协议》：激活码仅限本机使用，严禁转卖/共享
+          </label>
+          <button class="mini-btn" id="licBtn" disabled>激活</button>
+        </div>
         <div id="licMsg" style="display:none;margin-top:8px;font-size:12px;border-radius:8px;padding:8px 12px"></div>
       </div>
     </section>
@@ -1069,20 +1086,44 @@ body::after {
   }
 
   var eulaDone = false;
+  var licUnbindToken = '';   /* 激活加固批：解绑码生成后跨轮询保持可见 */
   function renderWizard(data) {
     /* EULA 面板 */
     var ec = $('eulaCard');
     eulaDone = !!data.eula;
     ec.style.display = eulaDone ? 'none' : '';
     /* 激活面板（后端就绪前无指纹数据，显示待后端） */
+    /* 激活加固批（2026-09-19）：已激活态展示授权类型/到期/剩余天数+解绑入口 */
     var lic = data.license || {};
-    var needLic = lic.required && !lic.activated;
     var lc = $('licCard');
-    lc.style.display = needLic ? '' : 'none';
-    if (needLic) {
-      var fp = (lic.fingerprints || []).join('\n') || '（等待后端就绪后显示…）';
-      if ($('licFp').textContent !== fp) $('licFp').textContent = fp;
-      setState($('licState'), '', lic.activated ? '已激活' : '待激活');
+    lc.style.display = lic.required ? '' : 'none';
+    if (lic.required) {
+      if (lic.activated) {
+        $('licActiveBox').style.display = '';
+        $('licInputBox').style.display = 'none';
+        var info = lic.info || {};
+        var t = info.type === 'timed' ? '时限授权' :
+                (info.type === 'dev' ? '开发授权' : '永久授权（买断）');
+        if (info.permanent === false && info.expires)
+          t += ' · ' + info.expires + ' 到期';
+        if (typeof info.days_left === 'number' && info.days_left >= 0)
+          t += '（剩 ' + info.days_left + ' 天）';
+        $('licTypeInfo').textContent = t;
+        setState($('licState'), '', '已激活');
+      } else {
+        $('licActiveBox').style.display = 'none';
+        $('licInputBox').style.display = '';
+        var fp = (lic.fingerprints || []).join('\n') || '（等待后端就绪后显示…）';
+        if ($('licFp').textContent !== fp) $('licFp').textContent = fp;
+        setState($('licState'), '', '待激活');
+      }
+      /* 解绑码生成后保持可见（轮询刷新不吞掉用户要复制的码） */
+      if (licUnbindToken) {
+        $('licUnbindOut').style.display = '';
+        $('licUnbindCode').textContent = licUnbindToken;
+      } else {
+        $('licUnbindOut').style.display = 'none';
+      }
     }
   }
 
@@ -1106,6 +1147,38 @@ body::after {
     }
     $('licCopyBtn').textContent = '已复制 ✓';
     setTimeout(function () { $('licCopyBtn').textContent = '复制指纹'; }, 1600);
+  });
+  $('licAgree').addEventListener('change', function () {
+    $('licBtn').disabled = !$('licAgree').checked;
+  });
+  $('licUnbindBtn').addEventListener('click', function () {
+    if (!confirm('解绑后本机授权立即作废，需卖家换绑才能继续使用。确认解绑？')) return;
+    var base = redirectUrl || ('http://127.0.0.1:' + (backendPort || 5800));
+    var msg = $('licMsg');
+    postJSON(base + '/api/v1/license/unbind', { confirm: true })
+      .then(function (r) {
+        msg.style.display = 'block';
+        if (r && r.success) {
+          licUnbindToken = (r.data && r.data.unbind_code) || '';
+          $('licUnbindOut').style.display = '';
+          $('licUnbindCode').textContent = licUnbindToken;
+          msg.style.background = 'rgba(63,185,107,.12)';
+          msg.style.color = '#3FB96B';
+          msg.textContent = '✓ 已解绑——请把上方解绑码发给卖家，换绑到新设备';
+        } else {
+          var err = (r && r.error) || {};
+          msg.style.background = 'rgba(255,92,122,.12)';
+          msg.style.color = 'var(--coral)';
+          msg.textContent = '✕ ' + (err.message || '解绑失败')
+            + (err.suggestion ? '（' + err.suggestion + '）' : '');
+        }
+      })
+      .catch(function () {
+        msg.style.display = 'block';
+        msg.style.background = 'rgba(255,92,122,.12)';
+        msg.style.color = 'var(--coral)';
+        msg.textContent = '✕ 无法连接后端，请稍候重试';
+      });
   });
   $('licBtn').addEventListener('click', function () {
     var code = $('licCode').value.trim();

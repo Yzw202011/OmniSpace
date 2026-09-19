@@ -82,6 +82,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _license_gate.is_activated()
             log.info("激活门禁已启用：%s", _license_gate.status().get("activated")
                      and "已激活" or "未激活")
+            # 激活加固批 A6a 第三路：错峰巡检线程（启动/每请求之外的独立强校验）
+            _license_gate.start_sweep()
         except Exception as _exc:  # noqa: BLE001 - 门禁初始化失败不阻断启动
             log.warning("激活门禁初始化异常（不阻断启动）：%s", _exc, exc_info=True)
     # 风格库加密种子（P6 锁4）：首启动空表自动导入（金库未启用则跳过）

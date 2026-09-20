@@ -52,9 +52,16 @@ export const BehaviorStatsPanel: React.FC = () => {
             <ClipboardList size={13} aria-hidden="true" />
             查看日志
           </button>
-          <button className="btn btn-secondary btn-sm inline-flex items-center gap-1.5" onClick={handleFinetune}>
+          {/* D3 冻结（2026-09-21 拍板）：knowledge_lora 训练 08-27 后零成功
+              （依赖缺失），诚实降级置灰——数据查看保留可用。 */}
+          <button
+            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+            onClick={handleFinetune}
+            disabled
+            title="知识微调维护中：训练链依赖修复后恢复"
+          >
             <Zap size={13} aria-hidden="true" />
-            立即微调
+            立即微调（维护中）
           </button>
           <button className="btn btn-ghost btn-sm inline-flex items-center gap-1.5" onClick={() => setConfirmReset(true)}>
             <Trash2 size={13} aria-hidden="true" />

@@ -496,16 +496,18 @@ export const StylePage: React.FC<{ embedded?: boolean }> = ({ embedded = false }
             预估训练峰值显存 ≈ <strong>{estimateVramGb(rank, alpha, epochs).toFixed(1)} GB</strong>
             （QLoRA 4bit 粗略预估，随参数联动；实际占用以训练进度实时遥测为准）
           </div>
+          {/* D3 冻结（2026-09-21 拍板）：风格训练上传 333 次全败后弃用
+              （基座缺失+视频链无消费方），诚实降级置灰。 */}
           <button
             className="btn btn-primary btn-block mt-3"
-            disabled={training || uploading || !datasetId
-              || (status != null && !status.base_ready)}
+            disabled
+            title="风格训练维护中：基座与消费链恢复后开放"
             onClick={startTraining}
           >
             {training ? (
               <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" aria-hidden="true" /> 训练中…</span>
             ) : (
-              <span className="inline-flex items-center gap-2"><Rocket size={16} aria-hidden="true" /> 开始训练</span>
+              <span className="inline-flex items-center gap-2"><Rocket size={16} aria-hidden="true" /> 开始训练（维护中）</span>
             )}
           </button>
           {!datasetId && !training && (

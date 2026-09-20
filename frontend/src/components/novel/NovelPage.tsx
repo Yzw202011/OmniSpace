@@ -1020,7 +1020,8 @@ const WorldbuildPanel: React.FC = () => {
       />
       <button
         className="btn btn-primary btn-sm"
-        disabled={busy || text.trim().length < 20}
+        disabled
+        title="世界观导入维护中：历史 122 次尝试 121 次被门槛拒绝（<20 字素材），流程重设计中"
         onClick={async () => {
           setBusy(true);
           try {
@@ -1034,7 +1035,8 @@ const WorldbuildPanel: React.FC = () => {
           }
         }}
       >
-        <Sparkles size={12} aria-hidden="true" /> 导入知识库
+        <Sparkles size={12} aria-hidden="true" />{' '}
+        {busy ? '导入中…' : '导入知识库（维护中）'}
       </button>
     </div>
   );

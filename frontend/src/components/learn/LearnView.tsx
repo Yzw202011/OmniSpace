@@ -250,8 +250,15 @@ export const LearnView: React.FC = () => {
           </div>
 
           <div className="learn-form-actions">
-            <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
-              {submitting ? '创建中…' : '开始训练'}
+            {/* D3 冻结（2026-09-21 拍板）：learn 训练链 08-27 后依赖缺失
+                零成功（30/33 失败），诚实降级置灰。 */}
+            <button
+              className="btn btn-primary"
+              onClick={handleSubmit}
+              disabled
+              title="知识训练维护中：训练依赖修复后恢复"
+            >
+              {submitting ? '创建中…' : '开始训练（维护中）'}
             </button>
             <button className="btn btn-secondary" onClick={() => setShowForm(false)}>
               取消

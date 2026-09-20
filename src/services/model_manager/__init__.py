@@ -24,19 +24,21 @@
         > 引擎内部（paint._infer_lock 等运行锁；paint 内部约定
           「先 _infer_lock 后 _lock」）
 
-已核对的跨层链（2026-09-10 取证）：
+已核对的跨层链（2026-09-10 取证；2026-09-21 D1 复核更新）：
 - ✅ mgr.unload_model 在 _loaded_lock **外**回调 engine.unload_model
   （:1052-1082）——mgr→引擎方向无持锁回调；
-- ⚠️ paint.load_model 持 paint._lock 经 check_vram→_try_free_vram 走
-  mgr 卸载 dialog（paint_engine.py:586→:638→:575→dialog.unload_model），
-  即 paint._lock → dialog._lock 链；
-- ⚠️ dialog.load_model 持 dialog._lock 走 mgr.ensure_loaded/evict 链
-  （dialog_engine.py:1010→:1373+），即 dialog._lock → paint._lock 链。
-  两条 ⚠️ 相向即成环（现网未复现死锁，窗口=两侧同时热切换/腾挪）。
+- ✅（2026-09-21 复核销账）paint.load_model 的 check_vram 腾挪链已被
+  P1-3 外提至 paint._lock **之外**（paint_engine 装载锁外段）——
+  paint._lock → dialog._lock 边不复存在；
+- ⚠️ dialog.load_model 持 dialog._lock 走 check_vram→_try_free_vram→
+  mgr/直调卸 paint（dialog_engine.py:1017 锁内段），即 dialog._lock →
+  paint._lock 单向边——**两条边不相向，ABBA 环已破**（2026-09-21
+  D1 专项核验：paint/video 反向边亦无；防回归不变量测试见
+  tests/unit/test_lock_order_invariant.py）。
 
-**破环方向**：把腾挪/协调挪到引擎锁外（paint 侧外提 check_vram 链为
-首选外科手术）。改造涉及装载热路径，须在 GPU 实弹窗口逐引擎做并实弹
-（见 docs/锁语义五连专项方案-2026-09-10.md §2.4），本宣言先固化约定。
+**现行约定（2026-09-21 起）**：跨引擎卸载只允许 dialog→paint 单向；
+任何引擎不得在持有自身 _lock 时调用其他引擎的 load/unload/check_vram
+（新增腾挪逻辑一律放装载锁外段，参照 paint_engine 外提范式）。
 """
 from __future__ import annotations
 

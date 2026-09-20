@@ -176,8 +176,22 @@ def storyboard_row_update(project_id: str, row_id: str,
                 ids = update_fields["asset_ids"] or []
                 update_fields["asset_id"] = ids[0] if ids else ""
             if update_fields:
+                old_desc = str(row.get("description") or "").strip()
                 db.update("storyboard_rows", update_fields, "id=?", (row_id,))
                 db.update("storyboards", {"updated_at": _now()}, "id=?", (sb["id"],))
+                # 批2 P8（2026-09-20 GPU 专窗 P-14 补线）：单行保存路径
+                # 描述词变更 → 当前关键帧打过期标记。此前标记只接在
+                # 整表覆盖保存（PUT /storyboard/{pid}）上，而前端检查器
+                # 描述词失焦保存走本端点——主路径漏标（失败不阻断保存）
+                if ("description" in update_fields
+                        and str(update_fields["description"]).strip() != old_desc):
+                    try:
+                        if mark_keyframes_stale(db, row_ids=[row_id],
+                                                reason="prompt_changed"):
+                            log.info("P8 过期标记（单行）: row=%s 描述词变更",
+                                     row_id)
+                    except Exception as exc:  # noqa: BLE001 - 标记失败不影响保存
+                        log.warning("P8 过期标记失败（单行描述词变更）: %s", exc)
                 row = db.query_one(
                     f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?",
                     (row_id,))

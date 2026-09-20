@@ -90,3 +90,31 @@ def test_load_rows_attaches_stale(db: Database) -> None:
 def test_rejects_unknown_reason(db: Database) -> None:
     with pytest.raises(ValueError, match="未知过期原因"):
         mark_keyframes_stale(db, row_ids=["r1"], reason="nonsense")
+
+
+def test_single_row_update_marks_stale(
+        db: Database, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P-14（2026-09-20 GPU 专窗）：单行保存路径描述词变更 → 打过期标记。
+
+    前端检查器描述词失焦保存走 PUT rows/{row_id} 单行端点——此前
+    P8 只接在整表覆盖保存上，主路径漏标。此处锁端点级行为
+    （描述词变 → 当前帧标记；描述词未变 → 不动）。
+    """
+    from fastapi.testclient import TestClient
+
+    import src.api.manga.storyboard as sb_api
+    from src.main import app
+
+    monkeypatch.setattr(sb_api, "get_db_safe", lambda: db)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        # 描述词未变（值相同）→ 不打标记
+        r = client.put("/api/v1/manga/storyboard/p1/rows/r2",
+                       json={"description": "第2镜"})
+        assert r.status_code == 200, r.text
+        assert _stale(db, "k2a") == ""
+        # 描述词变更 → 当前帧打上 prompt_changed
+        r = client.put("/api/v1/manga/storyboard/p1/rows/r2",
+                       json={"description": "第2镜（改）"})
+        assert r.status_code == 200, r.text
+        assert _stale(db, "k2a") == "prompt_changed"
+        assert _stale(db, "k1b") == ""  # 其他行不受牵连

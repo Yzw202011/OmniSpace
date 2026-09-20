@@ -115,10 +115,13 @@ def _comfy_filter(parts: tuple[str, ...]) -> bool:
     return parts[-1].endswith((".log", ".lock", ".db", ".whl", ".zip"))
 
 
-def _runtime_filter(src: Path, dst: Path) -> bool:
+def _runtime_filter(parts: tuple[str, ...]) -> bool:
     """runtime 树过滤：排 wheel（virtualenv 种子轮 + 安装残渣——黑名单
-    .whl 规则实锤两轮：numpy/scipy 残渣 2026-09-18 出包自检）。"""
-    return not src.name.endswith(".whl")
+    .whl 规则实锤两轮：numpy/scipy 残渣 2026-09-18 出包自检）。
+    2026-09-21 出包演练修复：签名对齐 copy_all 的 parts 约定——原
+    (src, dst) 双 Path 形态与调用点一参元组脱节，runtime 拷贝步必炸
+    （上次成功出包早于该重构，属存量潜伏 bug）。"""
+    return bool(parts) and parts[-1].endswith(".whl")
 
 
 COPY_DIRS: list[tuple[str, str, object]] = [

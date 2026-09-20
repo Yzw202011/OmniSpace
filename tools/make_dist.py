@@ -324,7 +324,11 @@ def self_check(dest: Path) -> list[str]:
     zone_files: set[Path] = set()
 
     def _blacklist(rel: str, alerts: list[str]) -> None:
-        low = rel.lower()
+        low = rel.lower().replace("\\", "/")
+        # 2026-09-21 出包演练勘误：第三方 site-packages 数据（如 botocore
+        # 的 AWS 服务目录 backup/）不适用用户数据黑名单语义——豁免。
+        if "site-packages/" in low:
+            return
         for rx in BLACKLIST_RES:
             if rx.search(low):
                 alerts.append(f"[黑名单] {rel}  ← {rx.pattern}")

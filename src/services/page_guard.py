@@ -21,14 +21,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import time
 import urllib.request
 from dataclasses import dataclass
 
-from ..data.database import get_db_safe
 from ..services.event_log import log_event
 
 log = logging.getLogger("omnispace.services.page_guard")
@@ -43,25 +41,21 @@ def _read_config() -> tuple[bool, float]:
     """读 kv 配置 → (enabled, countdown_s)。异常回默认（宁可不退不误杀）。"""
     enabled, countdown = True, DEFAULT_COUNTDOWN_S
     try:
-        db = get_db_safe()
-        if db is None:
-            return enabled, countdown
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (_SETTINGS_KEY,))
-        if row:
-            data = json.loads(row["value"])
-            if isinstance(data, dict):
-                enabled = bool(data.get("enabled", enabled))
-                raw_cd = data.get("countdown_s", countdown)
-                if isinstance(raw_cd, (int, float)) and raw_cd >= 10:
-                    countdown = float(raw_cd)
+        # B1 根修（2026-09-21）：system_settings 读取统一走 settings_kv 单源
+        from ..data.settings_kv import kv_get
+        data = kv_get(_SETTINGS_KEY)
+        if isinstance(data, dict):
+            enabled = bool(data.get("enabled", enabled))
+            raw_cd = data.get("countdown_s", countdown)
+            if isinstance(raw_cd, (int, float)) and raw_cd >= 10:
+                countdown = float(raw_cd)
     except Exception as exc:  # noqa: BLE001 - 配置读失败按默认
         log.debug("page_guard 配置读取失败: %s", exc)
     return enabled, countdown
 
 
 def _busy() -> bool:
-    """忙判定：功能锁持有 / 图像队列非空 / 视频队列非空。"""
+    """忙判定：功能锁持有 / 图像队列非空 / 视频队列非空 / 云道在跑。"""
     try:
         from ..middleware.feature_lock import get_feature_lock
         if get_feature_lock().active_feature is not None:
@@ -74,6 +68,11 @@ def _busy() -> bool:
         snap = get_image_queue().snapshot()
         if snap.get("current") or snap.get("queued"):
             return True
+        # 云道在跑（round-2026-09-20 N-P1-2 资损根修）：云任务不持
+        # 功能锁也不占本地 current/queued，只存在于 cloud_running——
+        # 此前全页关闭 60s 判「闲」会整机退出，付费云生成中途丢失。
+        if snap.get("cloud_running"):
+            return True
     except Exception as exc:  # noqa: BLE001
         log.debug("page_guard 图像队列探测失败: %s", exc)
         return True
@@ -82,8 +81,19 @@ def _busy() -> bool:
         snap = get_video_queue().snapshot()
         if snap.get("current") or snap.get("queued"):
             return True
+        if snap.get("cloud_running"):
+            return True
     except Exception as exc:  # noqa: BLE001
         log.debug("page_guard 视频队列探测失败: %s", exc)
+        return True
+    # 云端忙簿兜底：云任务经 gpu_budget BusyRegistry 登记「系统非空闲」
+    # （含绕过队列的云道调用方），此处一并核验（登记簿非空即忙）。
+    try:
+        from .inference.gpu_budget import get_busy_registry
+        if get_busy_registry().entries():
+            return True
+    except Exception as exc:  # noqa: BLE001 - 探测失败按忙（保守）
+        log.debug("page_guard 云端忙簿探测失败: %s", exc)
         return True
     # 浏览器代理任务（2026-09-15 审计修复）：browser_agent 不持功能锁
     # 也不进图像/视频队列——此前全页关闭 60s 会掐死进行中的网页代理

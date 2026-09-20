@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 
 from src.api.manga.describe_refine import (
     _parse_score_json,
@@ -50,19 +49,26 @@ def _run(coro):
 DESC = "A. 画风：网漫风\n氛围：雨夜街头\nB. 高密度世界观构建：主角黑发红衣\nC. [0.1s-2.5s] 画面：街头奔跑"
 
 
-def test_read_refine_config_default_off():
+def _patch_kv(monkeypatch, value):
+    """B1 迁移后的测试缝：monkeypatch settings_kv.kv_get（真实单源点）。"""
+    import src.data.settings_kv as skv
+    monkeypatch.setattr(skv, "kv_get", lambda key, default=None: value)
+
+
+def test_read_refine_config_default_off(monkeypatch):
+    _patch_kv(monkeypatch, None)
     assert read_refine_config(None) == {"enabled": False, "threshold": 75}
-    assert read_refine_config(_StubDB()) == {"enabled": False, "threshold": 75}
 
 
-def test_read_refine_config_enabled():
-    db = _StubDB(json.dumps({"enabled": True, "threshold": 80}))
-    assert read_refine_config(db) == {"enabled": True, "threshold": 80}
+def test_read_refine_config_enabled(monkeypatch):
+    _patch_kv(monkeypatch, {"enabled": True, "threshold": 80})
+    assert read_refine_config(None) == {"enabled": True, "threshold": 80}
 
 
-def test_read_refine_config_bad_json_falls_back_off():
-    db = _StubDB("{broken")
-    assert read_refine_config(db)["enabled"] is False
+def test_read_refine_config_bad_json_falls_back_off(monkeypatch):
+    # 单源 kv_get 内部解析失败返回 default ——非 dict 值走关闭语义
+    _patch_kv(monkeypatch, "{broken")
+    assert read_refine_config(None)["enabled"] is False
 
 
 def test_parse_score_json_tolerates_fence_and_noise():
@@ -80,8 +86,9 @@ def test_disabled_returns_none_without_engine_call():
     assert engine.calls == []  # 开关关 → 零调用零行为变化
 
 
-def test_high_score_passes_through_untriggered():
-    db = _StubDB(json.dumps({"enabled": True}))
+def test_high_score_passes_through_untriggered(monkeypatch):
+    _patch_kv(monkeypatch, {"enabled": True})
+    db = None
     engine = _StubEngine(['{"score": 88, "issues": []}'])
     out = asyncio.run(refine_description(
         engine, DESC, [], db, _finalize_passthrough))
@@ -91,8 +98,9 @@ def test_high_score_passes_through_untriggered():
     assert len(engine.calls) == 1  # 合格稿不再跑重写/复评
 
 
-def test_low_score_triggers_rewrite_and_rescore():
-    db = _StubDB(json.dumps({"enabled": True, "threshold": 75}))
+def test_low_score_triggers_rewrite_and_rescore(monkeypatch):
+    _patch_kv(monkeypatch, {"enabled": True, "threshold": 75})
+    db = None
     rewritten = "氛围：雨夜\nB. 高密度世界观构建：主角黑发红衣\nC. [0.1s-2.5s] 画面：街头奔跑"
     engine = _StubEngine([
         '{"score": 55, "issues": ["C 段出现白色行李箱与资产黑色硬壳行李箱冲突"]}',
@@ -112,8 +120,9 @@ def test_low_score_triggers_rewrite_and_rescore():
     assert "0.75~1.5" in engine.calls[1]["prompt"]
 
 
-def test_structurally_invalid_rewrite_falls_back_original():
-    db = _StubDB(json.dumps({"enabled": True}))
+def test_structurally_invalid_rewrite_falls_back_original(monkeypatch):
+    _patch_kv(monkeypatch, {"enabled": True})
+    db = None
     engine = _StubEngine([
         '{"score": 40, "issues": ["画风违规"]}',
         "",  # 重写返回空 → finalize 后为空 → 放行原稿
@@ -124,8 +133,9 @@ def test_structurally_invalid_rewrite_falls_back_original():
     assert out["description"] == DESC  # 不静默吞，原稿放行
 
 
-def test_scorer_exception_releases_original():
-    db = _StubDB(json.dumps({"enabled": True}))
+def test_scorer_exception_releases_original(monkeypatch):
+    _patch_kv(monkeypatch, {"enabled": True})
+    db = None
 
     class _BoomEngine:
         def chat(self, *a, **k):
@@ -136,8 +146,9 @@ def test_scorer_exception_releases_original():
     assert out is None  # 异常 → None → 外层零行为变化
 
 
-def test_rescore_failure_does_not_block():
-    db = _StubDB(json.dumps({"enabled": True}))
+def test_rescore_failure_does_not_block(monkeypatch):
+    _patch_kv(monkeypatch, {"enabled": True})
+    db = None
     rewritten = "氛围：雨夜\nB. 高密度世界观构建：主角\nC. [0.1s-2.5s] 画面：奔跑"
 
     class _HalfBoom(_StubEngine):

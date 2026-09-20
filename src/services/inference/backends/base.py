@@ -39,16 +39,13 @@ def _precision_pref() -> str:
     读取失败一律回退 bf16（历史默认行为）。
     """
     try:
-        import json as _json
 
-        from ....data.database import get_db_safe
-        db = get_db_safe()
-        if db is not None:
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key='models.config'")
-            if row:
-                return str((_json.loads(row["value"]) or {}).get(
-                    "precision", "bf16")).lower()
+        # B1 根修（2026-09-21）：system_settings 读取统一走 settings_kv 单源
+        from ....data.settings_kv import kv_get
+        raw = kv_get("models.config")
+        if raw is not None:
+            return str((raw or {}).get(
+                "precision", "bf16")).lower()
     except Exception:  # noqa: BLE001
         log.debug("_precision_pref: 降级忽略", exc_info=True)
     return "bf16"

@@ -74,16 +74,18 @@ _REWRITE_PROMPT = """你是漫剧分镜描述词修笔师。下面的描述词�
 
 
 def read_refine_config(db: Database | None) -> dict:
-    """读精修开关（默认关：无 key/读库失败/解析失败 → enabled=False）。"""
+    """读精修开关（默认关：无 key/读库失败/解析失败 → enabled=False）。
+
+    db 参数保留仅作签名兼容（B1 迁移后读取走 settings_kv 单源，
+    其内部自带 DB 不可用→default 降级，语义与原 db-None 早退等价）。
+    """
     config = {"enabled": False, "threshold": _DEFAULT_THRESHOLD}
-    if db is None:
-        return config
     try:
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (_REFINE_KEY,))
-        if not row:
+        # B1 根修（2026-09-21）：system_settings 读取统一走 settings_kv 单源
+        from ...data.settings_kv import kv_get
+        raw = kv_get(_REFINE_KEY)
+        if raw is None:
             return config
-        raw = json.loads(row["value"])
         if isinstance(raw, dict):
             config["enabled"] = bool(raw.get("enabled", False))
             t = int(raw.get("threshold", _DEFAULT_THRESHOLD))

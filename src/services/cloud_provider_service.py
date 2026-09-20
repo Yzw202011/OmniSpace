@@ -141,33 +141,21 @@ def mask_key(key: str) -> str:
 # ── KV 读写（模块级函数，单测 monkeypatch 注入点）─────────────────
 
 def _read_kv(key: str, default: object = None) -> object:
-    """读 system_settings KV（异常降级 default，不抛）。"""
+    """读 system_settings KV——B1 根修（2026-09-21）委托 settings_kv 单源。"""
     try:
-        from ..data.database import get_db_safe
-        db = get_db_safe()
-        if db is None:
-            return default
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (key,))
-        if row and row.get("value"):
-            return json.loads(row["value"])
+        from ..data.settings_kv import kv_get
+        val = kv_get(key)
+        return default if val is None else val
     except Exception as exc:  # noqa: BLE001 - 配置读取失败按默认值
         log.debug("cloud KV 读取失败 %s: %s", key, exc)
-    return default
+        return default
 
 
 def _write_kv(key: str, value: object) -> bool:
-    """写 system_settings KV（UPSERT）。失败返回 False（调用方兜底）。"""
+    """写 KV——委托单源。失败返回 False（调用方兜底）。"""
     try:
-        from ..data.database import get_db_safe
-        db = get_db_safe()
-        if db is None:
-            return False
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (key, json.dumps(value, ensure_ascii=False), time.time()))
+        from ..data.settings_kv import kv_set
+        kv_set(key, value)
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("cloud KV 写入失败 %s: %s", key, exc)

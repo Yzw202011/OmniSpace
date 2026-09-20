@@ -1817,7 +1817,15 @@ _CONSISTENCY_THRESHOLD = 75          # 面部身份结构分阈值（P0 收紧�
                                      # 低于此分触发重抽；原 70 属性分
                                      # 放行走廊过宽——V41 结构漂移 95 分
                                      # 假阳性事故）
-_CONSISTENCY_WAIT_S = 300.0          # 等 vLLM 就绪上限（Windows 冷启 ~157s）
+_CONSISTENCY_WAIT_S = 420.0          # 守卫总预算（P-13 组合根修③：
+                                     # 300→420 兜底调度竞态窗）
+_VLLM_WAIT_S = 180.0                 # vLLM 专项等待（覆盖 Windows 冷启
+                                     # ~157s；超时回落对话引擎，见
+                                     # _dialog_fallback_backend）
+_GUARD_LOCK_WAIT_S = 90.0            # 守卫等 paint 排空放锁上限：图像
+                                     # 队列完成≠放锁（排空去抖 ~10s），
+                                     # 实测守卫抢跑必让位；真有新重型
+                                     # 任务排队则成全用户（让位）
 _CONSISTENCY_MAX_TOKENS = 160
 
 # 人脸嵌入硬门禁（DINOv2 余弦，2026-08-27 P0 标定落地）：
@@ -1942,12 +1950,16 @@ def _parse_consistency_score(text: str) -> int | None:
 
 
 def _score_shot_sync(shot_path: Path, ref_b64: list[str],
-                     char_anchor: bool) -> tuple[int | None, str]:
+                     char_anchor: bool,
+                     chat) -> tuple[int | None, str]:
     """单镜一致性评分（阻塞，经 run_blocking 调用）。
 
     char_anchor：有角色资产绑定（参考图为角色设定图）→ 人脸身份
     评审 CHAR 模板；否则场景评审 GENERIC 模板（V49 修复：路由按
     资产类型，不依赖已废除的描述词文本通道）。
+
+    chat：评分后端（P-13④）：vllm_service 或 _DialogEngineScorer，
+    接口对齐 chat_stream(messages, images_b64=…)。
 
     Returns:
         (score, reason)：score None = 评分失败/解析失败（不计入阈值
@@ -1960,9 +1972,8 @@ def _score_shot_sync(shot_path: Path, ref_b64: list[str],
         tpl = (_CONSISTENCY_PROMPT_CHAR if char_anchor
                else _CONSISTENCY_PROMPT_GENERIC)
         prompt_text = tpl.format(n_ref=len(ref_b64))
-        svc = get_vllm_service()
         chunks: list[str] = []
-        for ch in svc.chat_stream(
+        for ch in chat.chat_stream(
                 [{"role": "user", "content": prompt_text}],
                 images_b64=ref_b64 + pil_images_to_b64([img]),
                 temperature=0.0, max_tokens=_CONSISTENCY_MAX_TOKENS):
@@ -2000,8 +2011,11 @@ _STYLE_PROMPT = (
     "厚涂化倾向；<75=画风体系明显不同）。")
 
 
-def _score_style_sync(shot_path: Path, style_ref_b64: str) -> tuple[int | None, str]:
+def _score_style_sync(shot_path: Path, style_ref_b64: str,
+                      chat) -> tuple[int | None, str]:
     """单镜画风评分（阻塞，经 run_blocking 调用）：角色资产图 vs 首帧。
+
+    chat：评分后端（P-13④），见 _score_shot_sync。
 
     Returns:
         (score, reason)：score None = 评分失败/解析失败（不计入
@@ -2011,9 +2025,8 @@ def _score_style_sync(shot_path: Path, style_ref_b64: str) -> tuple[int | None, 
         from PIL import Image
         img = Image.open(shot_path).convert("RGB")
         img.thumbnail((960, 960), Image.LANCZOS)  # 省 token / 加速理解
-        svc = get_vllm_service()
         chunks: list[str] = []
-        for ch in svc.chat_stream(
+        for ch in chat.chat_stream(
                 [{"role": "user", "content": _STYLE_PROMPT}],
                 images_b64=[style_ref_b64] + pil_images_to_b64([img]),
                 temperature=0.0, max_tokens=_CONSISTENCY_MAX_TOKENS):
@@ -2070,6 +2083,89 @@ def _shot_files_for_version(row_id: str, version: int) -> list:
         return shots
     single = out_dir / f"v{version}.png"
     return [single] if single.is_file() else []
+
+
+def _release_idle_comfy_for_scoring() -> None:
+    """评分让渡（P-13 组合根修①，2026-09-20 拍板）。
+
+    ComfyUI 空闲 300s 自动关与守卫等待窗同量级——等它自然释放必然
+    输掉竞态（2026-09-20 实测差 1 秒）。评分需要大显存引擎，而生成
+    刚结束此刻 ComfyUI 必空闲（两队列无排队无在跑 + 无重型功能锁），
+    主动停之让渡 ~12G。下一笔生成按需冷启动（~40s，质量优先的既定
+    取舍）。best-effort 不抛错。
+    """
+    try:
+        from ...services.video_queue import get_video_queue
+        for get_q in (get_image_queue, get_video_queue):
+            snap = get_q().snapshot()
+            if (snap.get("queued") or snap.get("current")
+                    or snap.get("cloud_running")):
+                log.info("一致性评分让渡跳过：队列仍有任务")
+                return
+        from ...middleware.feature_lock import get_feature_lock
+        if get_feature_lock().active_feature in ("paint", "video_gen"):
+            return
+        from ...services.inference.comfy_proc import get_comfy_proc
+        m = get_comfy_proc()
+        if m.pid() is None:
+            return
+        log.info("一致性评分让渡：提前关闭空闲 ComfyUI 释放显存（P-13）")
+        m.shutdown()
+    except Exception:  # noqa: BLE001 - 让渡失败不阻断评分
+        log.warning("一致性评分让渡失败（不阻断）", exc_info=True)
+
+
+class _DialogEngineScorer:
+    """对话引擎评分适配（P-13 组合根修④）：b64 → PIL 解码，接口对齐
+    vllm_service 的 chat_stream(messages, images_b64=…)。阻塞生成器，
+    与 vLLM 路径同经 run_blocking 调用。"""
+
+    def __init__(self, engine) -> None:
+        self._engine = engine
+
+    def chat_stream(self, messages, images_b64=None,
+                    temperature: float = 0.0, max_tokens: int = 256):
+        import base64
+        import io
+
+        from PIL import Image
+        imgs = [Image.open(io.BytesIO(base64.b64decode(b))).convert("RGB")
+                for b in (images_b64 or [])]
+        # Qwen-VL content 列表格式（2026-09-20 实测：纯文本 content 不
+        # 注入图像占位符 → generate 报 tokens:0/features:N 空产出）
+        prompt = ""
+        if messages:
+            last = messages[-1].get("content", "")
+            prompt = last if isinstance(last, str) else str(last)
+        content: list[dict] = [{"type": "image"} for _ in imgs]
+        content.append({"type": "text", "text": prompt})
+        msgs = [{"role": "user", "content": content}]
+        return self._engine.chat_stream(msgs, images=imgs,
+                                        temperature=temperature,
+                                        max_new_tokens=max_tokens)
+
+
+def _dialog_fallback_backend() -> tuple[object | None, str]:
+    """评分引擎回落（P-13 组合根修④，2026-09-20 拍板）。
+
+    vLLM 等待窗内未就绪时（本机 dialog 槽 9B 权重可行下限 ~16.2G
+    恒装不下——vLLM 路线在这台机器上永远等不到），回落对话引擎既有
+    降级链（transformers vl-4b，~9G 可驻）。诚实降级哲学同款：结果
+    注记 engine=dialog_fallback(后端名) 透明可查，质量差异如实落库。
+    """
+    try:
+        from ...services.inference.dialog_engine import get_dialog_engine
+        eng = get_dialog_engine()
+        if not eng.ensure_loaded():
+            return None, "dialog_engine_not_ready"
+        backend_name = str(getattr(getattr(eng, "_backend", None),
+                                   "name", "") or "dialog")
+        tag = f"dialog_fallback({backend_name})"
+        log.info("一致性评分回落对话引擎: %s", tag)
+        return _DialogEngineScorer(eng), tag
+    except Exception as exc:  # noqa: BLE001 - 回落失败诚实上报
+        log.warning("一致性评分回落对话引擎失败: %s", exc, exc_info=True)
+        return None, "dialog_fallback_failed"
 
 
 async def _wait_vllm_healthy(timeout_s: float = _CONSISTENCY_WAIT_S) -> bool:
@@ -2133,9 +2229,11 @@ async def _consistency_guard(row_id: str, project_id: str, kf_id: str,
             # 用户操作最高权限：评分期间用户开始对话（dialog 锁持有
             # 中）→ 让位不停；其余情况停止守卫点火的实例。用户随后
             # 主动对话时由 dialog_engine.ensure_loaded 按需重启。
+            # P-13 注：内层 finally 已先释放守卫自持的 dialog 锁——
+            # 此刻仍 is_feature_active("dialog") = 用户对话真身在用。
             try:
                 from ...middleware.feature_lock import get_feature_lock
-                if get_feature_lock().active_feature == "dialog":
+                if get_feature_lock().is_feature_active("dialog"):
                     log.info("一致性守卫收尾让位（用户对话中）: row=%s",
                              row_id)
                 else:
@@ -2153,18 +2251,102 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
                                    engine_backend: str = "diffusers",
                                    text_priority: bool = False
                                    ) -> None:
+    """守卫外层（P-13 组合根修②）：持 dialog 功能锁执行评分全程。
+
+    驱逐器按持锁功能保护模型类别（model_manager
+    _FEATURE_KEEP_CATEGORIES）——此前守卫裸奔，调度器把评分所需
+    对话模型刚装好即驱逐（2026-09-20 diffusers 路径实测死因，日志
+    「keep=无锁保护」）。dialog 锁按功能重入：用户对话随时可重入
+    获取，用户对话优先级不受损；paint/video/training 抢跑持锁时
+    守卫直接让位（诚实注记 skipped=busy）。
+    """
     db = get_db_safe()
     if db is None:
         return
-    broadcast_gen_progress("keyframe", row_id, percent=100,
-                           label="AI 一致性校验中")
-    if not await _wait_vllm_healthy():
-        log.info("一致性校验跳过（对话引擎未就绪）: row=%s", row_id)
-        _annotate_consistency(db, kf_id, {
-            "skipped": "vllm_not_ready", "ts": _now()})
+    from ...middleware.feature_lock import get_feature_lock
+    fl = get_feature_lock()
+    # 有界重试等锁：submit_and_wait 返回时队列排空循环尚未放 paint 锁
+    # （~10s 去抖，P-13 实测守卫抢跑必让位）——轮询直至放锁或上限；
+    # 期间新重型任务可正常抢到锁（锁自由竞争），守卫超时让位成全用户
+    lock_held = False
+    _deadline = asyncio.get_running_loop().time() + _GUARD_LOCK_WAIT_S
+    while True:
+        if await fl.acquire("dialog", task_id=f"consistency:{row_id[:12]}"):
+            lock_held = True
+            break
+        if asyncio.get_running_loop().time() >= _deadline:
+            break
+        await asyncio.sleep(2.0)
+    if not lock_held:
+        log.info("一致性校验让位（重型功能持锁）: row=%s", row_id)
+        _annotate_consistency(db, kf_id, {"skipped": "busy", "ts": _now()})
         broadcast_gen_progress("keyframe", row_id, percent=100,
                                status="done", label="生成完成")
         return
+    try:
+        await _consistency_guard_locked(
+            db, row_id, project_id, kf_id, version, width, height,
+            engine_backend, text_priority=text_priority)
+    finally:
+        await fl.release("dialog")
+
+
+async def _consistency_guard_locked(db, row_id: str, project_id: str,
+                                    kf_id: str, version: int,
+                                    width: int, height: int,
+                                    engine_backend: str = "diffusers",
+                                    text_priority: bool = False
+                                    ) -> None:
+    """守卫锁定体（dialog 锁持有中调用，见 _consistency_guard_inner）。"""
+    broadcast_gen_progress("keyframe", row_id, percent=100,
+                           label="AI 一致性校验中")
+    # P-13 组合根修①：提前让渡——ComfyUI 空闲 300s 自动关与等待窗
+    # 同量级，自然等它释放必输竞态（实测差 1 秒）；生成刚结束此刻
+    # 必空闲，主动停之腾 ~12G 给评分引擎。diffusers 管线同源卸载
+    # （幂等，实测管线驻留时 vLLM 准入只见 4.3G 空闲被拒）
+    _release_idle_comfy_for_scoring()
+    await _unload_paint_after_gen()
+    # P-13④ 快路径：对话引擎已就绪且支持图像（本机常态=vl-4b 驻留）
+    # → 免等 vLLM 直接评分（180s 等待窗只在引擎未就绪时才烧）
+    chat = None
+    engine_tag = ""
+    try:
+        from ...services.inference.dialog_engine import get_dialog_engine
+        _eng = get_dialog_engine()
+        _b = getattr(_eng, "_backend", None)
+        if (_eng.is_ready() and _b is not None
+                and getattr(_b, "supports_images", False)
+                and getattr(_b, "name", "") != "remote"):
+            chat = _DialogEngineScorer(_eng)
+            engine_tag = (f"dialog_fallback("
+                          f"{getattr(_b, 'name', '') or 'dialog'})")
+            log.info("一致性评分引擎(快路径): %s (row=%s)",
+                     engine_tag, row_id)
+    except Exception:  # noqa: BLE001 - 快路径探测失败走常规等待
+        log.debug("评分快路径探测失败（忽略）", exc_info=True)
+    if chat is None:
+        # P-13 组合根修③④：vLLM 专项等待 180s；超时回落对话引擎
+        vllm_ok = await _wait_vllm_healthy(_VLLM_WAIT_S)
+        if vllm_ok:
+            chat = get_vllm_service()
+            engine_tag = "vllm"
+        else:
+            # 回落前停掉仍在启动期的 vLLM（放弃点火，回收零星分配）
+            try:
+                await run_blocking(get_vllm_service().stop)
+            except Exception:  # noqa: BLE001 - 停止失败不阻断回落
+                log.debug("回落前 vLLM 停止失败（忽略）", exc_info=True)
+            chat, engine_tag = await run_blocking(_dialog_fallback_backend)
+    if chat is None:
+        log.info("一致性校验跳过（评分引擎不可就绪 tag=%s）: row=%s",
+                 engine_tag, row_id)
+        _annotate_consistency(db, kf_id, {
+            "skipped": "vllm_not_ready", "engine": engine_tag,
+            "ts": _now()})
+        broadcast_gen_progress("keyframe", row_id, percent=100,
+                               status="done", label="生成完成")
+        return
+    log.info("一致性评分引擎: %s (row=%s)", engine_tag, row_id)
     # 用户操作最高权限：该校验版本已不是当前版本（用户又手动重生
     # 成了）→ 让位，不做任何评分/重抽
     kf = await run_blocking(lambda: db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
@@ -2296,8 +2478,9 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
             "keyframe", row_id, percent=100,
             label=f"一致性评分 {i + 1}/{len(shot_files)}")
         s, reason = await run_blocking(_score_shot_sync, fp, refs,
-                                       char_anchor)
-        style_s = (await run_blocking(_score_style_sync, fp, style_ref_b64)
+                                       char_anchor, chat)
+        style_s = (await run_blocking(_score_style_sync, fp, style_ref_b64,
+                                      chat)
                    if style_ref_b64 else None)
         sim = (await run_blocking(face_sim.face_similarity, fp, ref_vecs)
                if ref_vecs else None)
@@ -2377,6 +2560,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
             "scene_sims": scene_sims, "style_scores": style_scores,
             "arc_sims": arc_sims,
             "face_count": face_counts, "min": overall,
+            "engine": engine_tag,
             "threshold": _CONSISTENCY_THRESHOLD,
             "face_threshold": _FACE_SIM_THRESHOLD,
             "scene_threshold": _SCENE_SIM_THRESHOLD,
@@ -2404,6 +2588,11 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
     broadcast_gen_progress("keyframe", row_id, percent=100,
                            label=f"一致性 {overall if overall is not None else '—'} "
                                  f"分偏低，自动重抽一次")
+    # P-13：重抽需 paint 锁，而守卫正持 dialog 锁（同域互斥）——
+    # 不先让出必自锁（2026-09-20 实测「paint 锁被占用」假让位）。
+    # 先释放评分锁再抢 paint；复评前有界重抢（失败=用户抢跑，不复评）
+    from ...middleware.feature_lock import get_feature_lock as _gfl
+    await _gfl().release("dialog")
     try:
         lock = await acquire_or_raise("paint",
                                       task_id=f"consistency:{row_id}")
@@ -2463,6 +2652,26 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
         return
 
     # ── 重抽版本复评（VLM + 人脸/场景嵌入门禁），择优置当前 ────────
+    # P-13④：复评沿用首轮解析的评分后端——vLLM 路线重等（重抽前
+    # _sleep_vllm_for_vram 睡过），回落路线重抢 dialog 锁（有界 30s）
+    # +引擎重载（重抽换载后引擎多已卸，ensure 幂等重载）
+    _fl2 = _gfl()
+    _deadline2 = asyncio.get_running_loop().time() + 30.0
+    _re_held = False
+    while True:
+        if await _fl2.acquire("dialog",
+                              task_id=f"consistency-rescore:{row_id[:12]}"):
+            _re_held = True
+            break
+        if asyncio.get_running_loop().time() >= _deadline2:
+            break
+        await asyncio.sleep(2.0)
+    re_ready = _re_held
+    if re_ready and engine_tag != "vllm":
+        chat, engine_tag = await run_blocking(_dialog_fallback_backend)
+        re_ready = chat is not None
+    elif re_ready and engine_tag == "vllm":
+        re_ready = await _wait_vllm_healthy(_VLLM_WAIT_S)
     new_version = int(new_data["version"])
     new_kf_id = str(new_data["keyframe_id"])
     new_scores: list[int | None] = []
@@ -2471,16 +2680,16 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
     new_style_scores: list[int | None] = []
     new_arc_sims: list[list] = []
     new_face_counts: list[int] = []
-    if await _wait_vllm_healthy():
+    if re_ready:
         new_files = _shot_files_for_version(row_id, new_version)
         for fp in new_files:
             # 逐镜容错（2026-08-29 R5 验收事故补强）：单镜指标异常
             # 记 None 继续，不丢整版标注/择优依据
             try:
                 s, _r = await run_blocking(_score_shot_sync, fp, refs,
-                                           char_anchor)
+                                           char_anchor, chat)
                 st2 = (await run_blocking(_score_style_sync, fp,
-                                          style_ref_b64)
+                                          style_ref_b64, chat)
                        if style_ref_b64 else None)
                 sim2 = (await run_blocking(face_sim.face_similarity, fp,
                                            ref_vecs)
@@ -2574,7 +2783,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
         "face_threshold": _FACE_SIM_THRESHOLD,
         "scene_threshold": _SCENE_SIM_THRESHOLD,
         "style_threshold": _STYLE_SIM_THRESHOLD, "retried": True,
-        "picked": picked, "ts": _now()})
+        "engine": engine_tag, "picked": picked, "ts": _now()})
     _annotate_consistency(db, new_kf_id, {
         "shots": new_scores, "face_sims": new_face_sims,
         "scene_sims": new_scene_sims, "style_scores": new_style_scores,
@@ -2584,7 +2793,7 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
         "face_threshold": _FACE_SIM_THRESHOLD,
         "scene_threshold": _SCENE_SIM_THRESHOLD,
         "style_threshold": _STYLE_SIM_THRESHOLD, "retried": True,
-        "picked": picked, "ts": _now()})
+        "engine": engine_tag, "picked": picked, "ts": _now()})
     if note == "retry_worse_rollback":
         friendly = (f"自动重抽后一致性反而更低（{new_overall} 分），"
                     f"已保留原来的版本")
@@ -2604,6 +2813,8 @@ async def _consistency_guard_inner(row_id: str, project_id: str,
               trace_id=row_id)
     broadcast_gen_progress("keyframe", row_id, percent=100,
                            status="done", label=friendly)
+    # P-13：释放复评期重持的 dialog 锁（未持有时空操作）
+    await _gfl().release("dialog")
 
 
 @router.post("/manga/keyframe/generate")

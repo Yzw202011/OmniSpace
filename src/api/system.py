@@ -643,9 +643,14 @@ def hardware_health() -> dict[str, Any]:
     """
     from ..config import get_config
     th = (get_config().get("scheduler") or {}).get("thresholds") or {}
-    vram_warn = float(th.get("gpu_vram_warning", 80))
-    vram_crit = float(th.get("gpu_vram_critical", 90))
-    ram_crit = float(th.get("ram_critical_percent", 90))
+    def _pct(v: float) -> float:
+        """批4 P19→大考 P-11 修复：config 阈值为比例（0~1），历史代码按
+        百分数（0~100）语义用——16.3% > 0.80 恒 danger 误报实锤。
+        归一：<1 视为比例 ×100。"""
+        return v * 100.0 if 0 < v < 1 else v
+    vram_warn = _pct(float(th.get("gpu_vram_warning", 80)))
+    vram_crit = _pct(float(th.get("gpu_vram_critical", 90)))
+    ram_crit = _pct(float(th.get("ram_critical_percent", 90)))
 
     def _level(pct: float, warn: float, crit: float) -> str:
         return "danger" if pct >= crit else ("warning" if pct >= warn else "ok")

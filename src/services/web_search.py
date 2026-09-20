@@ -12,7 +12,6 @@ Provider 插座（可插拔，默认浏览器自搜=零配置零成本）：
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 import time
@@ -45,17 +44,13 @@ def get_web_search_settings() -> dict:
     """读联网搜索配置（kv 缺失/损坏回退默认值，未知键丢弃）。"""
     out = dict(DEFAULT_SETTINGS)
     try:
-        from ..data.database import get_db_safe
-        db = get_db_safe()
-        if db is not None:
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key=?", (_SETTINGS_KEY,))
-            if row:
-                saved = json.loads(row["value"])
-                if isinstance(saved, dict):
-                    for k in DEFAULT_SETTINGS:
-                        if k in saved:
-                            out[k] = saved[k]
+        # B1 根修（2026-09-21）：system_settings 读取统一走 settings_kv 单源
+        from ..data.settings_kv import kv_get
+        saved = kv_get(_SETTINGS_KEY)
+        if isinstance(saved, dict):
+            for k in DEFAULT_SETTINGS:
+                if k in saved:
+                    out[k] = saved[k]
     except Exception as exc:  # noqa: BLE001 - 配置读取失败走默认（默认关=安全）
         log.debug("联网搜索配置读取失败（用默认）: %s", exc)
     return out
@@ -72,14 +67,8 @@ def update_web_search_settings(patch: dict) -> dict:
         cur["provider"] = "browser"
     if cur["trigger"] not in ("auto", "always", "off"):
         cur["trigger"] = "auto"
-    from ..data.database import get_db_safe
-    db = get_db_safe()
-    if db is not None:
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (_SETTINGS_KEY, json.dumps(cur, ensure_ascii=False), time.time()))
+    from ..data.settings_kv import kv_set
+    kv_set(_SETTINGS_KEY, cur)
     return cur
 
 
@@ -261,17 +250,12 @@ def _browser_search(query: str, top_k: int,
 # ── 级联编排 + 缓存 ─────────────────────────────────────────────
 def _cache_get(key: str) -> list[dict] | None:
     try:
-        from ..data.database import get_db_safe
-        db = get_db_safe()
-        if db is None:
-            return None
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (key,))
-        if row:
-            data = json.loads(row["value"])
-            if isinstance(data, dict) \
-                    and time.time() - float(data.get("ts", 0)) < _CACHE_TTL_S:
-                return data.get("results") or []
+        # B1 根修（2026-09-21）：缓存读写统一走 settings_kv 单源
+        from ..data.settings_kv import kv_get
+        data = kv_get(key)
+        if isinstance(data, dict) \
+                and time.time() - float(data.get("ts", 0)) < _CACHE_TTL_S:
+            return data.get("results") or []
     except Exception as exc:  # noqa: BLE001 - 缓存读失败当未命中
         log.debug("搜索缓存读取失败（当未命中）: %s", exc)
     return None
@@ -279,18 +263,9 @@ def _cache_get(key: str) -> list[dict] | None:
 
 def _cache_put(key: str, results: list[SearchResult]) -> None:
     try:
-        from ..data.database import get_db_safe
-        db = get_db_safe()
-        if db is None:
-            return
-        payload = json.dumps({"ts": time.time(),
-                              "results": [r.to_dict() for r in results]},
-                             ensure_ascii=False)
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (key, payload, time.time()))
+        from ..data.settings_kv import kv_set
+        kv_set(key, {"ts": time.time(),
+                     "results": [r.to_dict() for r in results]})
     except Exception as exc:  # noqa: BLE001 - 缓存写失败不影响主链
         log.debug("搜索缓存写入失败（忽略）: %s", exc)
 

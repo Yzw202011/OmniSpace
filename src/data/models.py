@@ -366,17 +366,12 @@ def read_tier_override() -> str:
         return _tier_override_cache["value"]
     value = "auto"
     try:
-        from .database import get_db_safe
-        db = get_db_safe()
-        if db is not None:
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key=?",
-                (_TIER_OVERRIDE_KEY,))
-            if row:
-                import json as _json
-                raw = _json.loads(row["value"])
-                value = str(raw if isinstance(raw, str)
-                            else raw.get("tier", "auto"))
+        # B1 根修（2026-09-21）：system_settings 读取统一走 settings_kv 单源
+        from .settings_kv import kv_get
+        raw = kv_get(_TIER_OVERRIDE_KEY)
+        if raw is not None:
+            value = str(raw if isinstance(raw, str)
+                        else raw.get("tier", "auto"))
     except Exception:  # noqa: BLE001 - 读库失败按自动探测
         value = "auto"
     valid = {e["tier"] for e in HARDWARE_TIER_TABLE}

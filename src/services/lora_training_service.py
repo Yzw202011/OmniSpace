@@ -168,18 +168,13 @@ def get_train_defaults() -> dict:
     base = {k: DEFAULT_TRAIN_CONFIG[k] for k in _TRAIN_DEFAULTS_FIELDS
             if k in DEFAULT_TRAIN_CONFIG}
     try:
-        db = get_db_safe()
-        if db is not None:
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key=?",
-                (_TRAIN_DEFAULTS_KEY,))
-            if row:
-                import json as _json
-                user = _json.loads(row["value"])
-                if isinstance(user, dict):
-                    for k in _TRAIN_DEFAULTS_FIELDS:
-                        if k in user:
-                            base[k] = user[k]
+        # B1 根修（2026-09-21）：system_settings 读写统一走 settings_kv 单源
+        from ..data.settings_kv import kv_get
+        user = kv_get(_TRAIN_DEFAULTS_KEY)
+        if isinstance(user, dict):
+            for k in _TRAIN_DEFAULTS_FIELDS:
+                if k in user:
+                    base[k] = user[k]
     except Exception:  # noqa: BLE001 - 读库失败按内置默认
         log.debug("get_train_defaults: 降级忽略", exc_info=True)
     _train_defaults_cache.update({"value": dict(base), "ts": now})
@@ -188,20 +183,13 @@ def get_train_defaults() -> dict:
 
 def set_train_defaults(updates: dict) -> dict:
     """写入用户训练默认参数（仅白名单字段），返回生效后的完整默认值。"""
-    import json as _json
+    from ..data.settings_kv import kv_set
 
     current = get_train_defaults()
     for k in _TRAIN_DEFAULTS_FIELDS:
         if k in updates:
             current[k] = updates[k]
-    db = get_db_safe()
-    if db is not None:
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (_TRAIN_DEFAULTS_KEY, _json.dumps(current, ensure_ascii=False),
-             time.time()))
+    kv_set(_TRAIN_DEFAULTS_KEY, current)
     _train_defaults_cache.update({"value": dict(current),
                                   "ts": time.time()})
     return current

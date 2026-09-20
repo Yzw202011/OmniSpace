@@ -6,11 +6,16 @@
 硬的保护（反编译工具面对的是机器码不是可还原字节码），且免费、无单文件
 大小限制。混淆完必须重跑金母版 verify，指纹一致才算保护成功。
 
-用法：
-  runtime/py310/python.exe tools/protect_build.py <包目录>   # 就地编译
+用法（2026-09-21 F10 对齐根修：必须用 py312 编译）：
+  runtime/py312/python.exe tools/protect_build.py <包目录>   # 就地编译
 
-依赖：build_tools/ 的 cython+setuptools；WinLibs gcc（winget 包
-  BrechtSanders.WinLibs.POSIX.UCRT，gcc bin 需在 PATH）。
+  ⚠ 版本铁律：编译解释器必须与包内 runtime 一致（当前 py312）——
+  2026-09-21 出包演练实锤：py310 编出 cp310 .pyd，py312 运行时 import
+  直接崩（功能哨兵 Traceback、全包不可启动）。py312 侧 cython==3.3.0
+  已随本根修安装。
+
+依赖：WinLibs gcc（winget 包 BrechtSanders.WinLibs.POSIX.UCRT，gcc bin
+  需在 PATH）；cython/setuptools 由运行解释器自带（py312 site-packages）。
 
 关键约束（实测坑）：
   - 被当「脚本」直接跑的文件（boot.py/stop.py/make_shortcut.py）不能编译，
@@ -189,9 +194,9 @@ print('BUILD_OK', len(exts))
 
     # 功能哨兵：用包内自己的 runtime 起两个进程——A 持锁，B 试锁必须被拒。
     # 不依赖任何字符串编码假设，直接验证「这台机器上第二实例必被拦」。
-    pkg_python = pkg / "runtime" / "py310" / "python.exe"
+    pkg_python = pkg / "runtime" / "py312" / "python.exe"
     if not pkg_python.exists():
-        print("❌ 功能哨兵失败：包内缺 runtime/py310/python.exe")
+        print("❌ 功能哨兵失败：包内缺 runtime/py312/python.exe")
         return 1
     _HOLD = ("import sys, time; sys.path.insert(0, '.'); "
              "from src import single_instance as si; "

@@ -860,16 +860,9 @@ class ModelSwitchEngine:
             return
         self._load_history_restored = True
         try:
-            from ..data.database import get_db_safe
-            db = get_db_safe()
-            if db is None:
-                return
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key=?",
-                (self._LOAD_HISTORY_KEY,))
-            if not row:
-                return
-            raw = json.loads(row["value"])
+            # B1 根修（2026-09-21）：system_settings 读取统一走单源
+            from ..data.settings_kv import kv_get
+            raw = kv_get(self._LOAD_HISTORY_KEY)
             if not isinstance(raw, dict):
                 return
             for mid, vals in raw.items():
@@ -885,18 +878,10 @@ class ModelSwitchEngine:
     def _persist_load_history(self) -> None:
         """历史落库（UPSERT；失败不影响任务，下次成功时重写）。"""
         try:
-            from ..data.database import get_db_safe
-            db = get_db_safe()
-            if db is None:
-                return
+            from ..data.settings_kv import kv_set
             payload = {mid: [round(x, 1) for x in vals]
                        for mid, vals in self._load_history.items() if vals}
-            db.sql(
-                "INSERT INTO system_settings (key, value, updated_at)"
-                " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-                " value=excluded.value, updated_at=excluded.updated_at",
-                (self._LOAD_HISTORY_KEY,
-                 json.dumps(payload, ensure_ascii=False), time.time()))
+            kv_set(self._LOAD_HISTORY_KEY, payload)
         except Exception:  # noqa: BLE001
             log.debug("加载耗时历史落库跳过", exc_info=True)
 

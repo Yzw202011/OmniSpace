@@ -13,14 +13,18 @@ import logging
 import time
 from typing import Any
 
-from .database import get_db_safe
+from . import database as _dbmod
 
 log = logging.getLogger("omnispace.data.settings_kv")
 
 
 def kv_get(key: str, default: Any = None) -> Any:
-    """读 system_settings 表（JSON 值）；异常/缺失返回 default。"""
-    db = get_db_safe()
+    """读 system_settings 表（JSON 值）；异常/缺失返回 default。
+
+    经模块属性惰性取 _dbmod.get_db_safe（而非 from-import 直接绑定）
+    ——monkeypatch database.get_db_safe 的既有测试缝继续生效。
+    """
+    db = _dbmod.get_db_safe()
     if db is None:
         return default
     try:
@@ -35,7 +39,7 @@ def kv_get(key: str, default: Any = None) -> Any:
 
 def kv_set(key: str, value: Any) -> None:
     """写 system_settings 表（JSON 值，UPSERT）。"""
-    db = get_db_safe()
+    db = _dbmod.get_db_safe()
     if db is None:
         return
     try:

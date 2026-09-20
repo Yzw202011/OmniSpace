@@ -59,19 +59,14 @@ class RemoteDialogConfig:
 
 
 def _read_settings_kv() -> dict:
-    """读 system_settings KV（异常降级空 dict，不抛）。"""
+    """读 system_settings KV——B1 根修（2026-09-21）委托 settings_kv 单源。"""
     try:
-        from ....data.database import get_db_safe
-        db = get_db_safe()
-        if db is None:
-            return {}
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (_SETTINGS_KEY,))
-        if row and row.get("value"):
-            return json.loads(row["value"]) or {}
+        from ....data.settings_kv import kv_get
+        val = kv_get(_SETTINGS_KEY)
+        return val if isinstance(val, dict) else {}
     except Exception as exc:  # noqa: BLE001 - 配置读取失败按未启用
         log.debug("远程对话配置读取失败: %s", exc)
-    return {}
+        return {}
 
 
 def get_remote_config(force: bool = False) -> RemoteDialogConfig:

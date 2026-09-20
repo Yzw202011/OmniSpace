@@ -173,9 +173,17 @@ def test_dialog_state_gone_subprocess_degrades(monkeypatch) -> None:
 
 
 def test_dialog_state_inproc_backend_unchanged(monkeypatch) -> None:
-    """进程内后端不走 vLLM 分支，既有 _state 直通（零行为变化）。"""
+    """进程内后端不走 vLLM 分支，既有 _state 直通（零行为变化）。
+
+    2026-09-21 组合脆弱根修：全量跑序中既有测试会把真实 vllm_service
+    单例留在 booting 态——_backend=None 时 _unified_state 仍会查询全局
+    服务（预热窗口设计），本测试必须隔离单例才测的是"进程内直通"本体。
+    """
+    from src.engines import vllm_service as vmod
     from src.services.inference.dialog_engine import DialogEngine
 
+    monkeypatch.setattr(vmod, "get_vllm_service",
+                        lambda: _FakeVllmSvc())  # 纯净：不 booting/不运行
     eng = DialogEngine()
     eng._backend = None
     eng._state = "error"

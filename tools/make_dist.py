@@ -129,6 +129,10 @@ COPY_DIRS: list[tuple[str, str, object]] = [
     # 升级小医生（升级机制批3 2026-09-11）：独立进程换文件，随包出厂
     ("updater", "updater", _plain_filter),
     ("skills", "skills", _plain_filter),
+    # 种子插件随包（Q7 根修 2026-09-21）：registry._SEED_PLUGINS 出厂
+    # 预登记 plugin/RustCoding.CuteMamen——此前缺件导致用户侧权重/记忆
+    # 不装载（仅余 source_py 回退），静默降级。
+    ("plugin", "plugin", _plain_filter),
     # ComfyUI 模型挂接工具：仓库真源在 scripts/comfy_link/（目录规范
     # §2.3），包内仍落 modelxiazai/——交付物与说明书路径不变
     ("scripts/comfy_link", "modelxiazai", _plain_filter),

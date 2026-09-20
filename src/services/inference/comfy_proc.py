@@ -24,10 +24,12 @@ from __future__ import annotations
 
 import atexit
 import ctypes
+import hashlib
 import http.client
 import json
 import logging
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -74,6 +76,85 @@ def _use_sage_attention() -> bool:
     except Exception:  # noqa: BLE001 - 配置异常按开启处理
         # （真轮缺失时 ComfyUI 侧自行回落 SDPA，不会因此失败）
         return True
+
+
+# ── PuLID EVA-CLIP 缓存自愈（P-12 防复发，2026-09-20 用户拍板 A）────
+# ComfyUI-PuLID-Flux2 节点经 open_clip 从 HF_HOME 缓存装载 EVA02 权重；
+# 该缓存不在 models/ 登记体系内，被整目录清理后 PuLID 全链断裂
+# （2026-09-20 GPU 专窗实锤），且子进程补下载走系统代理必死
+# （hf-mirror 308 甩被墙域）。方案：models/ 留备份，拉起 ComfyUI 前
+# 缓存缺失即回灌；缓存在而备份缺 → 反向播种备份（首次自舉）。
+_PULID_EVA_REPO_DIR = ("models--timm--eva02_large_patch14_clip_336"
+                       ".merged2b_s6b_b61k")
+_PULID_EVA_SHA = "4f62907359c8506be7021582f360564693b22c15"
+_PULID_EVA_FILE = "open_clip_model.safetensors"
+_PULID_EVA_BYTES = 856239456
+_PULID_EVA_SHA256 = ("f753bca0e8327f77e8845b0af2510d599c3e4614237007"
+                     "b48078c791f2cf391c")
+
+
+def _pulid_eva_cache_file() -> Path:
+    hf_home = Path(os.environ.get("HF_HOME")
+                   or Path.home() / ".cache" / "huggingface")
+    return (hf_home / "hub" / _PULID_EVA_REPO_DIR / "snapshots"
+            / _PULID_EVA_SHA / _PULID_EVA_FILE)
+
+
+def _pulid_eva_backup_file() -> Path:
+    return ROOT_DIR / "models" / "embed" / "pulid_eva_clip" / _PULID_EVA_FILE
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 22), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def ensure_pulid_eva_cache(*, cache_file: Path | None = None,
+                           backup_file: Path | None = None) -> bool:
+    """PuLID EVA-CLIP 缓存自愈（best-effort，绝不阻断 ComfyUI 拉起）。
+
+    返回 True=缓存就绪（原已存在/已回灌）。回灌前 sha256 校验备份，
+    防把坏件写进缓存；缓存健康而备份缺失时反向播种（一次性 ~816MB
+    拷贝，此后缓存再丢可自愈）。
+    """
+    cache = cache_file or _pulid_eva_cache_file()
+    backup = backup_file or _pulid_eva_backup_file()
+    try:
+        if cache.is_file() and cache.stat().st_size == _PULID_EVA_BYTES:
+            if not backup.is_file():
+                try:
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(cache, backup)
+                    log.info("[pulid-eva] 备份播种完成: %s", backup)
+                except OSError:
+                    log.warning("[pulid-eva] 备份播种失败（不阻断）",
+                                exc_info=True)
+            return True
+        if not backup.is_file() or backup.stat().st_size != _PULID_EVA_BYTES:
+            log.warning(
+                "[pulid-eva] 缓存与备份均缺失/损坏，PuLID 将无法装载——"
+                "请手工回补 %s（hf-mirror: %s）", backup, _PULID_EVA_REPO_DIR)
+            return False
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        (cache.parents[2] / "refs").mkdir(parents=True, exist_ok=True)
+        (cache.parents[2] / "refs" / "main").write_text(_PULID_EVA_SHA)
+        tmp = cache.with_name(cache.name + ".healing")
+        shutil.copyfile(backup, tmp)
+        if _sha256_of(tmp) != _PULID_EVA_SHA256:
+            tmp.unlink(missing_ok=True)
+            log.warning("[pulid-eva] 备份 sha256 不符，放弃回灌（防写坏缓存）")
+            return False
+        os.replace(tmp, cache)
+        log.info("[pulid-eva] 缓存缺失已自愈：从 %s 回灌 %.0fMB",
+                 backup, _PULID_EVA_BYTES / 1048576)
+        return True
+    except Exception:  # noqa: BLE001 - 自愈是尽力而为
+        log.warning("[pulid-eva] 自愈异常（不阻断 ComfyUI 启动）",
+                    exc_info=True)
+        return False
 
 
 def _idle_shutdown_seconds() -> float:
@@ -308,6 +389,9 @@ class ComfyProcManager:
                 d.mkdir(parents=True, exist_ok=True)
             # 拉起前模型挂接（即插即用主时机，见 _mount_models_before_spawn）
             _mount_models_before_spawn()
+            # PuLID EVA-CLIP 缓存自愈（P-12 防复发，拍板 A）：缓存被
+            # 清理则从 models/ 备份回灌；缺失且无备份仅告警不阻断
+            ensure_pulid_eva_cache()
             comfy_py = (_COMFY_BRAND_EXE if _COMFY_BRAND_EXE.is_file()
                         else COMFY_DIR / "python_embeded" / "python.exe")
             cmd = [str(comfy_py), "-s", "ComfyUI/main.py",

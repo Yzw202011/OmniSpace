@@ -51,7 +51,10 @@ _WEIGHT_MIN_BYTES = 100 * 1024 * 1024
 
 # 嵌套目录豁免（相对 MODELS_DIR 的 posix 路径）：适配器产物自管
 #   paint/loras —— 绘画 LoRA 适配器（schema_notes：适配器不入册）
-_ORPHAN_EXEMPT_MODEL_DIRS = {"paint/loras"}
+# paint/loras=训练产物（独立版本库管理）；embed/pulid_eva_clip=PuLID
+# EVA-CLIP 备份件（P-12 自愈用，2026-09-20 拍板 A——有意不进登记表：
+# 走 UI 模型删除会误毁备份，故只豁免孤儿判定不登记）
+_ORPHAN_EXEMPT_MODEL_DIRS = {"paint/loras", "embed/pulid_eva_clip"}
 
 # 模型目录「已下载」判定特征文件（与 model_manager._DIR_SIGNATURES 同口径）
 _DIR_SIGNATURES = (

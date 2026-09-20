@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import gc
 import importlib
+import json
 import logging
 import re as _re
 import threading
@@ -185,21 +186,50 @@ _DIR_SIGNATURES = (
 )
 
 
-def deflate_cuda_pool(min_reserved_gb: float = 4.0) -> float:
+def _clear_cache_on_unload_enabled() -> bool:
+    """SET-010 开关消费点：模型卸载时是否 torch.cuda.empty_cache()。
+
+    读 system_settings 表 system.inference_config.clear_cache_on_unload
+    （与 api/system.py _kv_get 同源同表，默认 True）；读取失败/缺键按
+    True——清缓存是安全默认，开关只许关不许坏。
+    """
+    try:
+        from ...data.database import get_db_safe
+        db = get_db_safe()
+        if db is None:
+            return True
+        row = db.query_one(
+            "SELECT value FROM system_settings WHERE key=?",
+            ("system.inference_config",))
+        if row:
+            cfg = json.loads(row["value"])
+            if isinstance(cfg, dict):
+                return bool(cfg.get("clear_cache_on_unload", True))
+    except Exception:  # noqa: BLE001 - 开关读取失败按默认清缓存
+        log.debug("clear_cache_on_unload 读取失败（按默认 True）",
+                  exc_info=True)
+    return True
+
+
+def deflate_cuda_pool(min_reserved_gb: float = 4.0,
+                      restore: bool = True) -> float:
     """压缩 CUDA 缓存池，归还大模型卸载后的显存锚定（2026-08-23 修复）。
 
-    根因：PyTorch caching allocator 的 empty_cache() 只释放无活跃块的
+    根因：PyTorch caching allocator 的 empty_cache() 只能释放无活跃块的
     segment。大模型（视频 DiT/T5、对话 4b/8b）卸载后，长驻小模型
     （bge ~1.3GB）的活跃块仍散布在大 segment 中，把整个缓存池钉死
     （实测：loaded=0 但 reserved=18.2GB，物理显存 15.3GB 锚定，
     vLLM 0.85 预算三连启动失败；进程退出才归还）。
 
     压缩编排：bge 临时停靠 CPU → empty_cache()（此时无活跃块，
-    全 segment 释放，物理显存归还驱动）→ bge 回卡。
+    全 segment 释放，物理显存归还驱动）→ restore=True 时 bge 回卡。
 
     Args:
         min_reserved_gb: reserved 低于该值视为池已干净，跳过（省
             2-4s 停靠开销）。
+        restore: False 时停靠后不回卡（空闲归零模式，2026-09-20 批1）——
+            bge 留驻 CPU 使 reserved→0（碎片率 0.00），RAG 首查由
+            vector_db 惰性回卡。
 
     Returns:
         实际释放的 reserved GB（失败返回 0）。
@@ -218,7 +248,7 @@ def deflate_cuda_pool(min_reserved_gb: float = 4.0) -> float:
         try:
             torch.cuda.empty_cache()
         finally:
-            if parked:
+            if parked and restore:
                 vdb.restore_embed_model()
         after = float(torch.cuda.memory_reserved(0)) / (1024 ** 3)
         released = max(0.0, before - after)
@@ -277,6 +307,11 @@ class ModelManager:
         #                                loaded_at, engine}
         self._loaded: dict[str, dict] = {}
         self._loaded_lock = threading.Lock()
+        # 在途装载登记（审计 round-2026-09-20 R2-C 根修）：并发同模型
+        # ensure_loaded 时，装载窗口（10~157s）内短路检查双双通过 →
+        # 预留 +2×required 且台账只落一份 → 卸载只回落一次，虚高残留
+        # 直至重启。后到者经事件等待首发方完成再复检短路。
+        self._loading: dict[str, threading.Event] = {}
         # 用户装载钉（#8 2026-09-02 修复）：model_id -> 打钉时间戳。
         # 用户显式装载（/models/load）后 30 分钟内，调度器空闲深层
         # 回收跳过该模型——用户刚装的模型不该 5 分钟空闲就被预防性
@@ -878,14 +913,41 @@ class ModelManager:
         log.info("台账补记（外部通道装载收养，V9-γ）: %s", model_id)
         return True
 
+    _LOAD_JOIN_TIMEOUT_S = 600.0  # 在途装载最长等待（>最慢装载 157s+余量）
+
+    def _join_loading(self, model_id: str) -> tuple[bool, bool]:
+        """在途装载合并（审计 round-2026-09-20 R2-C 根修）。
+
+        返回 (loaded, first)：loaded=True 已装载可直接短路；first=True
+        本调用为首发装载方（收尾须调 _finish_loading 唤醒等待者）；
+        first=False 且 loaded=False = 首发失败/超时，允许本调用按常规
+        路径重试（至多两轮等待，再撞车由引擎层自身串行兜底）。
+        """
+        for _ in range(2):
+            with self._loaded_lock:
+                if model_id in self._loaded:
+                    return True, False
+                ev = self._loading.get(model_id)
+                if ev is None:
+                    self._loading[model_id] = threading.Event()
+                    return False, True
+            ev.wait(timeout=self._LOAD_JOIN_TIMEOUT_S)
+        return False, False
+
+    def _finish_loading(self, model_id: str) -> None:
+        """首发方收尾：摘除在途登记并唤醒全部等待者。"""
+        with self._loaded_lock:
+            ev = self._loading.pop(model_id, None)
+        if ev is not None:
+            ev.set()
+
     def ensure_loaded(self, category: str, model_id: str) -> bool:
         """确保模型加载到 GPU（其他服务依赖的稳定契约）。
 
-        流程：互斥检查 → 已加载短路 → 路径解析 → 显存分配（必要时驱逐）
-              → 引擎加载 → 状态记账。
-
-        Returns:
-            True 加载成功；False 失败（原因见 self.last_error）
+        外壳（2026-09-20 审计 R2-A/I1 根修）：首发装载方全程
+        try/finally 保证 _finish_loading 必达——异常路径不再残留
+        _loading 登记使后续调用白等 2×600s（_finish_loading 幂等，
+        与主体内既有收尾点双触无害）。
         """
         self.last_error = ""
         cat = (category or "").strip().lower()
@@ -894,16 +956,27 @@ class ModelManager:
             self.last_error = "model_id 为空"
             return False
 
-        # 已加载短路
-        with self._loaded_lock:
-            if model_id in self._loaded:
-                return True
+        # 已加载短路 + 在途装载合并（R2-C：防并发双预留）
+        _loaded_now, _first = self._join_loading(model_id)
+        if _loaded_now:
+            return True
+        if _first:
+            try:
+                return self._ensure_loaded_impl(cat, model_id, True)
+            finally:
+                self._finish_loading(model_id)
+        return self._ensure_loaded_impl(cat, model_id, False)
 
+    def _ensure_loaded_impl(self, cat: str, model_id: str,
+                            _first: bool) -> bool:
+        """ensure_loaded 装载主体（原函数体，_first 由外壳注入）。"""
         # 路径解析（未下载直接失败，不崩溃）
         path = self.resolve_model_path(model_id)
         if path is None:
             self.last_error = f"模型未下载: {model_id}"
             log.warning("ensure_loaded 失败: %s", self.last_error)
+            if _first:
+                self._finish_loading(model_id)
             return False
 
         # V9-γ 收养旁路（2026-09-09）：目标模型已由外部通道健康服务中
@@ -923,6 +996,8 @@ class ModelManager:
                     self.last_error = ""
                     log.info("收养旁路命中（已健康服务，零显存装载）: %s",
                              model_id)
+                    if _first:
+                        self._finish_loading(model_id)
                     return True
             except Exception as exc:  # noqa: BLE001 - 收养失败走原路径
                 log.debug("收养旁路探测失败: %s", exc)
@@ -940,10 +1015,14 @@ class ModelManager:
                     "loaded_at": time.time(), "engine": "none",
                 }
             log.info("模型登记（无引擎类别，CPU 侧管理）: %s", model_id)
+            if _first:
+                self._finish_loading(model_id)
             return True
 
         if not self.allocate_memory(required):
             log.warning("ensure_loaded 显存分配失败: %s", self.last_error)
+            if _first:
+                self._finish_loading(model_id)
             return False
 
         # 审计 P0-2 接线 gpu_backend.select_backend：引擎加载前按 GPU 信息
@@ -992,7 +1071,16 @@ class ModelManager:
                 f"引擎加载失败: {model_id}" + (f" {_detail}" if _detail else ""))
             log.warning("ensure_loaded 引擎加载失败: %s（%s）",
                         model_id, _detail[:120] or "无详细原因")
+            if _first:
+                self._finish_loading(model_id)
             return False
+
+        # 装载成功：预留即回落（审计 round-2026-09-20 R2-A 根修——
+        # 成功后 NVML 已见物理占用，台账若仍留预留即「物理+台账」双重
+        # 扣减，后续准入系统性过紧、过早驱逐；失败路径回落保持原样）
+        with self._vram_lock:
+            self._reserved_vram_gb = max(
+                0.0, self._reserved_vram_gb - required)
 
         with self._loaded_lock:
             # 归属卡（批1 多卡地基 2026-09-05）：按类别资源域记录；
@@ -1031,6 +1119,8 @@ class ModelManager:
 
         log.info("模型加载完成: %s (%.1fs, 预估显存 %.1fGB)",
                  model_id, time.time() - t0, required)
+        if _first:
+            self._finish_loading(model_id)
         return True
 
     def release_stale(self, model_id: str) -> bool:
@@ -1045,9 +1135,16 @@ class ModelManager:
             entry = self._loaded.pop(model_id, None)
         if entry is None:
             return False
-        with self._vram_lock:
-            self._reserved_vram_gb = max(
-                0.0, self._reserved_vram_gb - float(entry.get("vram_gb", 0.0)))
+        # 预留扣减只针对 register_external_load 登记型条目（autoload：
+        # H3 惰性权重等 NVML 盲区占用的逻辑预留）——ensure_loaded 装载
+        # 型条目成功时预留已回落（round-2026-09-20 R2-A），再扣会吃掉
+        # 其他在途装载的预留。
+        if entry.get("engine") == "autoload":
+            with self._vram_lock:
+                self._reserved_vram_gb = max(
+                    0.0,
+                    self._reserved_vram_gb
+                    - float(entry.get("vram_gb", 0.0)))
         try:
             from ...engines.vram_manager import get_vram_manager
             get_vram_manager().track_free(model_id)
@@ -1125,10 +1222,16 @@ class ModelManager:
             except Exception:  # noqa: BLE001
                 log.debug("unload_model: 降级忽略", exc_info=True)
 
-        # 审计 P0-5：预留量扣减持锁（与 allocate_memory 原子对应）
-        with self._vram_lock:
-            self._reserved_vram_gb = max(
-                0.0, self._reserved_vram_gb - float(entry.get("vram_gb", 0.0)))
+        # 审计 P0-5：预留量扣减持锁；只扣 register_external_load 登记
+        # 型条目（autoload，其预留是 H3 惰性权重等 NVML 盲区占用的逻辑
+        # 预留、需驻留期持续）——ensure_loaded 装载型成功时已回落，
+        # 再扣会过度扣减（round-2026-09-20 R2-A）。
+        if entry.get("engine") == "autoload":
+            with self._vram_lock:
+                self._reserved_vram_gb = max(
+                    0.0,
+                    self._reserved_vram_gb
+                    - float(entry.get("vram_gb", 0.0)))
 
         # 审计 P0-2：同步释放 vram_manager / memory_manager 跟踪记录
         try:
@@ -1143,7 +1246,9 @@ class ModelManager:
             log.debug("memory_manager 注销跳过: %s", exc)
 
         gc.collect()
-        if _torch is not None:
+        # SET-010 开关消费（2026-09-20 批1接线）：文档承诺的
+        # clear_cache_on_unload 在此生效，False 时跳过清池
+        if _torch is not None and _clear_cache_on_unload_enabled():
             try:
                 if _torch.cuda.is_available():
                     _torch.cuda.empty_cache()

@@ -207,6 +207,15 @@ def build_package(a: BuildArgs) -> Path:
     if py310_touched:
         raise ToolError(f"runtime/py310 有差异但 v1 硬不支持替换解释器"
                         f"（updater 自身运行所在）: {py310_touched[:3]}…")
+    # J1 根修（2026-09-20）：py312 运行时差异原先被 HARD_EXCLUDES 静默
+    # 丢弃——发行环境"只换代码不换运行时"的半升级从此有报警。
+    py312_touched = sorted(
+        p for p in list(raw_changed) + list(raw_deleted)
+        if p.startswith("runtime/py312/"))
+    if py312_touched:
+        print(f"[WARN] runtime/py312 有 {len(py312_touched)} 处差异但默认被"
+              f"排除、不会进升级包（示例: {py312_touched[:3]}）——运行时级"
+              f"变更需整包重发，或显式评估后调整排除集", flush=True)
     changed = sorted(p for p in raw_changed if _keep(p, a.include))
     deleted = sorted(p for p in raw_deleted if _keep(p, a.include))
     if not changed and not deleted:

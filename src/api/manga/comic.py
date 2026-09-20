@@ -402,19 +402,30 @@ def _delete_project_cascade(db: Database, project_id: str) -> bool:
             " WHERE sr.storyboard_id=?", (sb["id"],))
         video_task_ids = [str(r["id"]) for r in vt_rows]
         video_files = [str(r.get("file_path") or "") for r in vt_rows]
-        # 先删 video_tasks（引用分镜行），再删分镜行/分镜表
-        db.delete("video_tasks",
-                  "storyboard_row_id IN"
-                  " (SELECT id FROM storyboard_rows WHERE storyboard_id=?)",
-                  (sb["id"],))
-        db.delete("storyboard_rows", "storyboard_id=?", (sb["id"],))
-        db.delete("storyboards", "id=?", (sb["id"],))
     # 用户裁定：删除项目不删除生成资产——项目资产整体转全局域
     # （scope='global' + 磁盘迁移 comic_assets/global/），跨项目保留可复用
     assets_to_global(db, project_id)
-    db.delete("keyframes", "project_id=?", (project_id,))
-    db.delete("scene_objects", "project_id=?", (project_id,))
-    db.delete("projects", "id=?", (project_id,))
+    # R2-F3 根修（2026-09-20）：资产转全局先行（含磁盘迁移，不可事务
+    # 回滚故置于事务外），其余纯 SQL 级联并入单事务——中途异常不再
+    # 留"半个项目尸体"（原先 6 连删各自独立提交）。
+    def _purge(conn) -> None:
+        conn.execute(
+            "DELETE FROM video_tasks WHERE storyboard_row_id IN"
+            " (SELECT id FROM storyboard_rows WHERE storyboard_id IN"
+            " (SELECT id FROM storyboards WHERE project_id=?))",
+            (project_id,))
+        conn.execute(
+            "DELETE FROM storyboard_rows WHERE storyboard_id IN"
+            " (SELECT id FROM storyboards WHERE project_id=?)",
+            (project_id,))
+        conn.execute("DELETE FROM storyboards WHERE project_id=?",
+                     (project_id,))
+        conn.execute("DELETE FROM keyframes WHERE project_id=?",
+                     (project_id,))
+        conn.execute("DELETE FROM scene_objects WHERE project_id=?",
+                     (project_id,))
+        conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+    db.execute_in_transaction(_purge)
     _storyboards.pop(project_id, None)
     for tid in video_task_ids:
         _video_tasks.pop(tid, None)

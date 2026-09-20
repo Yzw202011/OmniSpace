@@ -78,6 +78,19 @@ def _auto_backup_once() -> bool:
         finally:
             src.close()
         _MARKER.write_text(str(time.time()), encoding="utf-8")
+        # R7-AK2 根修（2026-09-20）：自动备份接 GCM 加密（与手动链批5
+        # P16 同款：密钥不可用回退明文；恢复链按 .enc 后缀分流已兼容，
+        # 滚动清理 glob 已覆盖 .enc——明文整库不再裸奔 data/backups）。
+        try:
+            from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+            blob = encrypt_bytes_gcm(dest.read_bytes())
+            if is_encrypted_bytes(blob):
+                enc = dest.with_suffix(dest.suffix + ".enc")
+                enc.write_bytes(blob)
+                dest.unlink(missing_ok=True)
+                dest = enc
+        except Exception:  # noqa: BLE001 - 加密失败保留明文（可用性优先）
+            log.warning("P20 自动备份加密失败，保留明文副本", exc_info=True)
         log.info("P20 自动备份完成: %s", dest.name)
         return True
     except Exception as exc:  # noqa: BLE001 - 备份失败不阻断任何事

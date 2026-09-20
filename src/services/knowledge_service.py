@@ -1250,12 +1250,16 @@ class KnowledgeProcessingService:
             log.warning("向量删除失败: %s", exc, exc_info=True)
         try:
             get_fts_store().delete(kid)
-        except Exception:  # noqa: BLE001
-            log.debug("delete_knowledge: 降级忽略", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            # R6-AB3 根修（2026-09-20）：FTS 删除失败原为 debug 静默——
+            # 幽灵索引固化 49% 的直接根因；升 warning 让漏删可见，
+            # 配套 tools/fts_repair.py 定期回收。
+            log.warning("FTS 删除失败（幽灵索引，需 fts_repair 回收）: %s",
+                        exc, exc_info=True)
         try:
             get_graph_store().delete_by_kid(kid)
-        except Exception:  # noqa: BLE001
-            log.debug("delete_knowledge: 降级忽略", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("图谱删除失败: %s", exc, exc_info=True)
         if self._db is not None:
             try:
                 affected = self._db.delete("knowledge_meta", "id=?", (kid,))

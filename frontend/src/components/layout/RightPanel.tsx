@@ -387,6 +387,16 @@ function VoiceTuning({ row }: { row: StoryboardRow }) {
 
   return (
     <>
+      {/* 2026-09-20 用户拍板：语音子系统诚实降级——四组配音控件置灰，
+          如实标注"不影响成片"（绑定/情感/语速/音量当前均不进入 H3 输出）。 */}
+      <div
+        className="form-hint"
+        style={{ color: 'var(--color-warning)', marginBottom: 6 }}
+      >
+        ⚠ 当前版本：配音参数（音色/情感/语速/音量）不影响成片输出，
+        仅作分镜标注保留——后续版本接线后恢复。
+      </div>
+      <fieldset disabled style={{ opacity: 0.5 }}>
       <div className="form-row">
         <label className="form-label" htmlFor="rp-row-speed">
           语速
@@ -433,6 +443,7 @@ function VoiceTuning({ row }: { row: StoryboardRow }) {
         />
         <div className="form-hint">-12~0 dB，松手即保存到分镜行</div>
       </div>
+      </fieldset>
     </>
   );
 }

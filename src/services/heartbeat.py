@@ -93,7 +93,14 @@ def check_previous_crash() -> dict | None:
 
 
 def _write() -> None:
-    beat = {"pid": os.getpid(), "ts": time.time()}
+    # R7 件④（2026-09-20）：心跳附带 ram_pct——为下次崩溃留现场资源
+    # 曲线（四连崩取证配套；解析方对多余字段天然兼容）。
+    beat: dict = {"pid": os.getpid(), "ts": time.time()}
+    try:
+        import psutil  # type: ignore
+        beat["ram_pct"] = round(psutil.virtual_memory().percent, 1)
+    except Exception:  # noqa: BLE001 - 采样失败不影响心跳本体
+        pass
     HEARTBEAT_FILE.write_text(json.dumps(beat), encoding="utf-8")
     _append_history({"event": "beat"})
 

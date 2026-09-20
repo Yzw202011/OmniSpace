@@ -82,7 +82,12 @@ def start_background_prune(root: Path) -> None:
 
     def _loop() -> None:
         while True:
-            prune_once(root)
+            # R7-AI1 根修（2026-09-20）：循环体包异常续命——原先裸奔，
+            # 文件竞态上抛即线程死亡且零日志（30 天保留策略静默失效）。
+            try:
+                prune_once(root)
+            except Exception:  # noqa: BLE001
+                log.warning("数据修剪执行异常（下轮重试）", exc_info=True)
             time.sleep(24 * 3600)
 
     t = threading.Thread(target=_loop, daemon=True, name="data-prune")

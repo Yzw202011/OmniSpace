@@ -2308,13 +2308,16 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
     await _unload_paint_after_gen()
     # P-13④ 快路径：对话引擎已就绪且支持图像（本机常态=vl-4b 驻留）
     # → 免等 vLLM 直接评分（180s 等待窗只在引擎未就绪时才烧）
-    chat = None
+    chat: Any = None
     engine_tag = ""
     try:
         from ...services.inference.dialog_engine import get_dialog_engine
         _eng = get_dialog_engine()
         _b = getattr(_eng, "_backend", None)
-        if (_eng.is_ready() and _b is not None
+        # mypy 闸抓获的真 bug（2026-09-20）：is_ready 为 @property
+        # （base_engine 形状注记），原 `is_ready()` 调用布尔必 TypeError
+        # 被外层吞掉——评分快路径自 P-13 落地起从未生效（静默死分支）。
+        if (_eng.is_ready and _b is not None
                 and getattr(_b, "supports_images", False)
                 and getattr(_b, "name", "") != "remote"):
             chat = _DialogEngineScorer(_eng)
@@ -2994,13 +2997,28 @@ def keyframe_delete(keyframe_id: str) -> dict[str, Any]:
             fp.unlink()
         except OSError as exc:
             log.warning("关键帧文件删除失败: %s", exc, exc_info=True)
-    db.delete("keyframes", "id=?", (keyframe_id,))
-    if kf.get("is_current"):
-        prev = db.query_one(
-            f"SELECT {_KF_COLS} FROM keyframes WHERE row_id=?"
-            " ORDER BY version DESC LIMIT 1", (kf["row_id"],))
-        if prev is not None:
-            db.update("keyframes", {"is_current": 1}, "id=?", (prev["id"],))
+    # R7-AG1 根修（2026-09-20）：shot 侧挂图与网格图同版本同目录
+    # （v{N}_shot*.png，不入库、仅命名约定反查）——删版本必须连带
+    # 清理，否则留磁盘尸体（实测 296 个孤儿/383MB）。
+    if kf.get("file_path"):
+        try:
+            _vshot = fp.parent.glob(
+                f"v{int(kf.get('version', 1))}_shot*.png")
+            for _shot in _vshot:
+                _shot.unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:  # noqa: BLE001
+            log.warning("关键帧 shot 文件清理失败: %s", exc, exc_info=True)
+    # R2-F3 根修（2026-09-20）：删版本与当前位回退并入单事务（原先两
+    # 独立提交，中途崩 → 该行永远没有 is_current 版本）。
+    def _purge(conn) -> None:
+        conn.execute("DELETE FROM keyframes WHERE id=?", (keyframe_id,))
+        if kf.get("is_current"):
+            conn.execute(
+                "UPDATE keyframes SET is_current=1 WHERE id=("
+                " SELECT id FROM keyframes WHERE row_id=? AND id<>?"
+                " ORDER BY version DESC LIMIT 1)",
+                (kf["row_id"], keyframe_id))
+    db.execute_in_transaction(_purge)
     return ok({"keyframe_id": keyframe_id, "deleted": True})
 
 
@@ -3056,8 +3074,26 @@ async def story_keyframe_generate(req: StoryKeyframeRequest) -> dict[str, Any]:
 
     target_ids = set(req.row_ids) if req.row_ids else {r["id"] for r in rows}
     if req.scope == "missing":
+        # R5-U4 根修（2026-09-20）：missing 语义=只补「尚无关键帧版本」
+        # 的行（原 if/else 两分支谓词逐字相同，"只生成缺失"从未实现）。
+        _db = get_db_safe()
+        _have: set[str] = set()
+        if _db is not None and target_ids:
+            _ph = ",".join("?" * len(target_ids))
+            try:
+                # 契约闸第 5 条：async 内 SQLite 访问一律走 run_blocking
+                _have = {
+                    str(x["row_id"]) for x in await run_blocking(
+                        lambda: _db.query(
+                            f"SELECT DISTINCT row_id FROM keyframes"
+                            f" WHERE row_id IN ({_ph})",
+                            tuple(target_ids)))
+                }
+            except Exception as exc:  # noqa: BLE001
+                log.warning("missing 语义查询失败，按全量生成: %s", exc)
         targets = [r for r in rows if r["id"] in target_ids
-                   and (r.get("description") or "").strip()]
+                   and (r.get("description") or "").strip()
+                   and str(r["id"]) not in _have]
     else:
         targets = [r for r in rows if r["id"] in target_ids
                    and (r.get("description") or "").strip()]

@@ -56,33 +56,19 @@ _SETTINGS_KEY = "system.settings"
 
 
 def _kv_get(key: str, default: Any = None) -> Any:
-    """读 system_settings 表（JSON 值）；异常/缺失返回 default。"""
-    db = get_db_safe()
-    if db is None:
-        return default
-    try:
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (key,))
-        if row:
-            return json.loads(row["value"])
-    except Exception as exc:  # noqa: BLE001
-        log.debug("system_settings 读取失败 %s: %s", key, exc)
-    return default
+    """读 system_settings 表（JSON 值）；异常/缺失返回 default。
+
+    B1 根修（2026-09-20）：实现收拢至 data/settings_kv.py 单源
+    （原与 api/models.py 逐行克隆）。
+    """
+    from ..data.settings_kv import kv_get
+    return kv_get(key, default)
 
 
 def _kv_set(key: str, value: Any) -> None:
-    """写 system_settings 表（JSON 值，UPSERT）。"""
-    db = get_db_safe()
-    if db is None:
-        return
-    try:
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (key, json.dumps(value, ensure_ascii=False), time.time()))
-    except Exception as exc:  # noqa: BLE001
-        log.warning("system_settings 写入失败 %s: %s", key, exc, exc_info=True)
+    """写 system_settings 表（JSON 值，UPSERT）——单源同上。"""
+    from ..data.settings_kv import kv_set as _kv_set_impl
+    _kv_set_impl(key, value)
 
 
 def _load_persisted_settings() -> dict:
@@ -512,7 +498,11 @@ def storage_cleanup(req: dict[str, Any] = Body(default_factory=dict)) -> dict[st
         label = "旧备份"
         deleted = freed = 0
         samples: list[str] = []
-        for pattern in ("omnispace_*.db", "backup_*.json"):
+        # R5-Z2 根修（2026-09-20）：.enc 加密备份与连字符命名的历史库
+        # 原先不在任何清理 glob 内——手动备份每点一次净增 ~137MB 永久占用。
+        for pattern in ("omnispace_*.db", "omnispace_*.db.enc",
+                        "omnispace-*.db", "omnispace-*.db.enc",
+                        "backup_*.json", "backup_*.json.enc"):
             files = sorted(BACKUP_DIR.glob(pattern),
                            key=lambda f: f.stat().st_mtime, reverse=True)
             for f in files[keep:]:
@@ -552,8 +542,13 @@ def storage_cleanup(req: dict[str, Any] = Body(default_factory=dict)) -> dict[st
 def backups_delete(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     """批4 P11：删除单个备份文件（白名单文件名形态+目录 containment）。"""
     name = Path(str(req.get("filename") or "")).name
-    if not (name.startswith("omnispace_") and name.endswith(".db")) \
-            and not (name.startswith("backup_") and name.endswith(".json")):
+    # R5-Z2 根修（2026-09-20）：允许删除 .enc 加密备份与连字符历史库
+    # （原先 UI 连手动删除 .enc 的入口都没有）。
+    _ok_name = (
+        (name.startswith("omnispace_") or name.startswith("omnispace-"))
+        and name.endswith((".db", ".db.enc"))
+    ) or (name.startswith("backup_") and name.endswith((".json", ".json.enc")))
+    if not _ok_name:
         raise ApiError("SYSTEM_PARAM_INVALID", "备份文件名不合法")
     target = (BACKUP_DIR / name).resolve()
     if BACKUP_DIR.resolve() not in target.parents:
@@ -1795,7 +1790,11 @@ def _prune_old_backups() -> None:
     """滚动清理：DB 副本与设置 JSON 各保留最近 N 份（B10 数据保全）。"""
     try:
         for pattern, keep in (("omnispace_*.db", _BACKUP_KEEP_DB),
-                              ("backup_*.json", _BACKUP_KEEP_JSON)):
+                              ("omnispace_*.db.enc", _BACKUP_KEEP_DB),
+                              ("omnispace-*.db", _BACKUP_KEEP_DB),
+                              ("omnispace-*.db.enc", _BACKUP_KEEP_DB),
+                              ("backup_*.json", _BACKUP_KEEP_JSON),
+                              ("backup_*.json.enc", _BACKUP_KEEP_JSON)):
             files = sorted(BACKUP_DIR.glob(pattern), key=lambda f: f.stat().st_mtime)
             for old in files[:-keep] if len(files) > keep else []:
                 old.unlink(missing_ok=True)
@@ -2079,12 +2078,21 @@ def system_tasks_center() -> dict[str, Any]:
                 _card("training", str(r.get("dataset_path") or "知识训练")[:30],
                       str(r.get("status") or ""), float(r.get("progress") or 0),
                       task_id=str(r["id"]))
-            for r in db.query(
-                    "SELECT id, status, progress FROM style_tasks"
-                    " ORDER BY created_at DESC LIMIT 10"):
-                _card("training", str(r.get("name") or "风格训练"),
-                      str(r.get("status") or ""), float(r.get("progress") or 0),
-                      task_id=str(r["id"]))
+            # style_tasks 为训练服务懒建散表（迁移体系外）——新库未触
+            # 风格训练时表不存在，按空列表处理而非 fail-soft 错误
+            #（round-2026-09-20：批6 恒真断言掏空掩盖的「新库任务中心
+            # 必带 training: no such table」真问题，F11 连带根修）。
+            _style_tbl = db.query_one(
+                "SELECT name FROM sqlite_master"
+                " WHERE type='table' AND name='style_tasks'")
+            if _style_tbl is not None:
+                for r in db.query(
+                        "SELECT id, status, progress FROM style_tasks"
+                        " ORDER BY created_at DESC LIMIT 10"):
+                    _card("training", str(r.get("name") or "风格训练"),
+                          str(r.get("status") or ""),
+                          float(r.get("progress") or 0),
+                          task_id=str(r["id"]))
     except Exception as exc:  # noqa: BLE001
         errors.append(f"training: {str(exc)[:80]}")
 
@@ -2419,7 +2427,7 @@ def get_local_savings() -> dict[str, Any]:
     """
     db = get_db_safe()
     if db is None:
-        raise ApiError("PAINT_GENERATION_FAILED", "数据库不可用")
+        raise ApiError("SYSTEM_DB_UNAVAILABLE", "数据库不可用")
 
     def _count(sql: str) -> int:
         try:

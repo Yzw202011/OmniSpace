@@ -20,7 +20,6 @@ import logging
 import socket
 import threading
 import time
-import urllib.request
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -309,32 +308,56 @@ class LearningScheduler:
     # ── 网络检测 ───────────────────────────────────────────────────────
 
     def check_network(self, use_cache: bool = True) -> bool:
-        """检测联网状态：socket 连 223.5.5.5:53，失败回退 HTTP HEAD。
+        """检测联网状态：双 socket 裸 IP 探测（DNS-free，独立线程硬隔离）。
 
-        3s 超时，两者都失败即离线。结果缓存 10s 避免频繁探测。
+        2026-09-20 四连崩专项件①②：原二探为 HTTP HEAD（域名需
+        getaddrinfo——Windows 上不受 timeout 参数保护，网络栈半死时
+        可无限挂起，为 09-20 四连崩首要嫌疑）；①改第二裸 IP 探测；
+        ②探测在专用 daemon 线程执行、join 硬超时兜底，且上一探针仍
+        悬挂时不再叠新线程（防线程堆积）；离线告警指数退避防刷屏。
         """
         now = time.time()
         if use_cache and now - self._network_cache[1] < self._network_cache_ttl:
             return self._network_cache[0]
-        online = False
-        try:
-            sock = socket.create_connection(("223.5.5.5", 53),
-                                            timeout=NETWORK_CHECK_TIMEOUT_S)
-            sock.close()
-            online = True
-        except OSError:
-            try:
-                req = urllib.request.Request(
-                    "https://www.baidu.com", method="HEAD")
-                with urllib.request.urlopen(
-                        req, timeout=NETWORK_CHECK_TIMEOUT_S):
-                    online = True
-            except Exception:  # noqa: BLE001
-                online = False
+        prev = getattr(self, "_probe_thread", None)
+        if prev is not None and prev.is_alive():
+            # 上一探针仍悬挂：沿用上次结论，绝不叠加新探针
+            return self._network_cache[0]
+        box: dict = {"online": False}
+
+        def _probe() -> None:
+            box["online"] = self._probe_online()
+
+        t = threading.Thread(target=_probe, daemon=True, name="net-probe")
+        self._probe_thread = t
+        t.start()
+        t.join(timeout=NETWORK_CHECK_TIMEOUT_S * 2 + 2.0)
+        online = bool(box.get("online")) and not t.is_alive()
         self._network_cache = (online, now)
+        streak = getattr(self, "_net_fail_streak", 0)
         if not online:
-            log.warning("网络检测失败：判定为离线，网络学习将暂停")
+            if streak % 10 == 0:
+                log.warning("网络检测失败：判定为离线，网络学习将暂停"
+                            "（连续失败 %d 次）", streak + 1)
+            self._net_fail_streak = streak + 1
+        else:
+            if streak:
+                log.info("网络恢复（此前连续失败 %d 次）", streak)
+            self._net_fail_streak = 0
         return online
+
+    @staticmethod
+    def _probe_online() -> bool:
+        """双 socket 裸 IP 探测（无 DNS、超时受控；隔离线程内执行）。"""
+        for host in ("223.5.5.5", "114.114.114.114"):
+            try:
+                sock = socket.create_connection(
+                    (host, 53), timeout=NETWORK_CHECK_TIMEOUT_S)
+                sock.close()
+                return True
+            except OSError:
+                continue
+        return False
 
     # ── feature_lock 联动 ──────────────────────────────────────────────
 

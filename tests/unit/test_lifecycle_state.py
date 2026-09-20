@@ -354,6 +354,7 @@ def test_ensure_loaded_wraps_engine_error_detail(monkeypatch) -> None:
         # 指向本测试文件（存在即可）
         "_models": {"qwen35-9b-w4a16": SimpleNamespace(file_path=__file__)},
         "_loaded": {}, "_loaded_lock": threading.Lock(),
+        "_loading": {},  # R2-C 在途合并登记表（2026-09-20 桩补齐）
         "_user_load_pins": {}, "_reserved_vram_gb": 0.0,
         "_vram_lock": threading.RLock(),
         "_engines": {"dialog": _Engine()},
@@ -396,6 +397,7 @@ def test_ensure_loaded_error_without_engine_detail(monkeypatch) -> None:
         # 指向本测试文件（存在即可）
         "_models": {"qwen35-9b-w4a16": SimpleNamespace(file_path=__file__)},
         "_loaded": {}, "_loaded_lock": threading.Lock(),
+        "_loading": {},  # R2-C 在途合并登记表（2026-09-20 桩补齐）
         "_user_load_pins": {}, "_reserved_vram_gb": 0.0,
         "_vram_lock": threading.RLock(),
         "_engines": {"dialog": _Engine()},

@@ -41,9 +41,14 @@ export const createRowsSlice: StateCreator<MangaState, [], [], RowsSlice> = (set
   },
 
   autoSplit: async (script) => {
+    // R6-AF2 竞态守卫（2026-09-20）：记录发起时的项目，响应落地前若已
+    // 切换项目则丢弃——原实现会把 A 项目的拆分行追加进 B 项目并随下次
+    // 全量保存持久化进 B 库（跨项目串数据）。
+    const pidAtStart = currentPid(get);
     set({ splitting: true });
     try {
-      const res = await mangaApi.autoSplitStoryboard(currentPid(get), script);
+      const res = await mangaApi.autoSplitStoryboard(pidAtStart, script);
+      if (currentPid(get) !== pidAtStart) return res.added.length;
       set((state) => ({ rows: [...state.rows, ...res.added] }));
       return res.added.length;
     } finally {
@@ -63,9 +68,12 @@ export const createRowsSlice: StateCreator<MangaState, [], [], RowsSlice> = (set
 
   /** AI 分镜确认落库（复用预览 split_id，免二次推理） */
   autoSplitCommit: async (splitId) => {
+    // R6-AF2 竞态守卫：同 autoSplit——迟到响应不跨项目追加。
+    const pidAtStart = currentPid(get);
     set({ splitting: true });
     try {
-      const res = await mangaApi.autoSplitCommit(currentPid(get), splitId);
+      const res = await mangaApi.autoSplitCommit(pidAtStart, splitId);
+      if (currentPid(get) !== pidAtStart) return res.added.length;
       set((state) => ({ rows: [...state.rows, ...res.added] }));
       return res.added.length;
     } finally {
@@ -74,7 +82,10 @@ export const createRowsSlice: StateCreator<MangaState, [], [], RowsSlice> = (set
   },
 
   importScript: async (script) => {
-    const res = await mangaApi.importScript(currentPid(get), script);
+    // R6-AF2 竞态守卫：同 autoSplit——迟到响应不跨项目追加。
+    const pidAtStart = currentPid(get);
+    const res = await mangaApi.importScript(pidAtStart, script);
+    if (currentPid(get) !== pidAtStart) return res.rows.length;
     set((state) => ({ rows: [...state.rows, ...res.rows] }));
     return res.rows.length;
   },

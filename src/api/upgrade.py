@@ -73,8 +73,15 @@ def _busy_reason() -> str:
         from ..services.video_queue import VideoTaskQueue
         img = ImageTaskQueue.instance().snapshot()
         vid = VideoTaskQueue.instance().snapshot()
-        busy = (int(img.get("pending", 0) or 0) + int(img.get("running", 0) or 0)
-                + int(vid.get("pending", 0) or 0) + int(vid.get("running", 0) or 0))
+
+        # R5-Z1 根修（2026-09-20）：快照真实键为 queued/current/cloud_running
+        # （旧代码读 pending/running 恒为 0——云道付费任务在升级杀链中裸奔）。
+        def _q_busy(snap: dict) -> int:
+            return (len(snap.get("queued", []) or [])
+                    + (1 if snap.get("current") else 0)
+                    + len(snap.get("cloud_running", []) or []))
+
+        busy = _q_busy(img) + _q_busy(vid)
         if busy:
             return f"生成队列还有 {busy} 个任务"
     except Exception:  # noqa: BLE001

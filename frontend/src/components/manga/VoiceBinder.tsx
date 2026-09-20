@@ -160,6 +160,16 @@ export const VoiceBinder: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full">
+      {/* 2026-09-20 用户拍板：语音子系统诚实降级——绑定/情感当前不进入
+          H3 成片输出（声音由视频模型原生音画联合生成），如实标注；
+          试听/上传为真实 TTS 能力，保留可用。 */}
+      <div
+        className="px-4 py-2 text-xs"
+        style={{ background: 'var(--color-input-bg)', color: 'var(--color-warning)' }}
+      >
+        ⚠ 当前版本：音色绑定与情感标签不影响成片声音（H3 原生音画生成），
+        仅作角色配音备忘；试听与上传自定义音色可正常使用。
+      </div>
       {/* 页头 */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-divider)]">
         <span className="text-sm font-semibold text-[var(--color-text-primary)] inline-flex items-center gap-1.5">

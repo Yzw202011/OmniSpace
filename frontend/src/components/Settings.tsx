@@ -383,11 +383,18 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* ============ 局域网访问（批2-1 2026-09-18）============ */}
+      {/* ============ 局域网访问（批2-1 2026-09-18；2026-09-20 拍板下线）============ */}
       <div className="settings-section card">
         <div className="settings-section-header">
-          <h2 className="settings-section-title">局域网访问</h2>
+          <h2 className="settings-section-title">局域网访问（已下线）</h2>
         </div>
+        <p className="settings-section-desc">
+          本功能已于 2026-09-20 下线（用户拍板）：局域网远程访问为结构性
+          死链且产品定位为单机使用。下方输入框仅作历史兼容展示，
+          不再建议配置。
+        </p>
+        {false && (
+        <>
         <p className="settings-section-desc">
           仅当后端以局域网模式（非 127.0.0.1 绑定）启动时生效：远程设备需
           输入访问令牌。本机访问不受影响。
@@ -439,6 +446,8 @@ export default function Settings() {
             <span className="text-xs" style={{ color: 'var(--color-success)' }}>已保存</span>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* ============ 硬件信息 ============ */}

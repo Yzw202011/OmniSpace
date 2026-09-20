@@ -89,6 +89,12 @@ def _translate(payload: Any) -> dict:
         rest = {k: v for k, v in payload.items() if k != "type"}
         rest.setdefault("module", "learn")
         rest["event"] = ptype
+        # R5-K2 根修（2026-09-20）：learn 帧补 task_id——前端
+        # normalizeTaskEvent 对无 id/task_id 的帧直接整帧丢弃，
+        # 自主学习此前在全局任务中心完全不可见。
+        _sid = rest.get("session_id") or ""
+        if _sid:
+            rest.setdefault("task_id", f"learn-{_sid}")
         if ptype == "learn_session_end":
             return {"type": "task_complete", "data": rest}
         return {"type": "task_progress", "data": rest}

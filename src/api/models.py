@@ -400,33 +400,19 @@ _MODEL_DEPENDENCIES: dict[str, list[dict]] = {
 
 
 def _kv_get(key: str, default: Any = None) -> Any:
-    """读 system_settings 表（JSON 值）；异常/缺失返回 default。"""
-    db = get_db_safe()
-    if db is None:
-        return default
-    try:
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?", (key,))
-        if row:
-            return json.loads(row["value"])
-    except Exception as exc:  # noqa: BLE001
-        log.debug("system_settings 读取失败 %s: %s", key, exc)
-    return default
+    """读 system_settings 表（JSON 值）；异常/缺失返回 default。
+
+    B1 根修（2026-09-20）：实现收拢至 data/settings_kv.py 单源
+    （原与 api/system.py 逐行克隆）。
+    """
+    from ..data.settings_kv import kv_get
+    return kv_get(key, default)
 
 
 def _kv_set(key: str, value: Any) -> None:
-    """写 system_settings 表（JSON 值，UPSERT）。"""
-    db = get_db_safe()
-    if db is None:
-        return
-    try:
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (key, json.dumps(value, ensure_ascii=False), time.time()))
-    except Exception as exc:  # noqa: BLE001
-        log.warning("system_settings 写入失败 %s: %s", key, exc, exc_info=True)
+    """写 system_settings 表（JSON 值，UPSERT）——单源同上。"""
+    from ..data.settings_kv import kv_set as _kv_set_impl
+    _kv_set_impl(key, value)
 
 
 def _models_config() -> dict:
@@ -1574,7 +1560,7 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
     in_models_dir = resolved == models_root or models_root in resolved.parents
     external_ok = Path(raw_path).is_absolute() and not raw_path.startswith("\\\\")
     if not (in_models_dir or external_ok) or len(resolved.parts) <= 2:
-        raise ApiError("MODEL_LOADING", "路径安全闸拒绝删除（不在模型目录且非登记外部路径）",
+        raise ApiError("SYSTEM_PARAM_INVALID", "路径安全闸拒绝删除（不在模型目录且非登记外部路径）",
                        detail={"path": raw_path})
 
     def _dir_size(p: Path) -> int:

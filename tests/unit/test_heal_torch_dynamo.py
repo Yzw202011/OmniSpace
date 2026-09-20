@@ -13,26 +13,28 @@ pytestmark = pytest.mark.skipif(
     sys.version_info < (3, 10), reason="需与后端一致的运行时")
 
 
-def _corrupt_dynamo_registry(strip_username: bool = False) -> None:
+def _corrupt_dynamo_registry(monkeypatch, strip_username: bool = False) -> None:
     """模拟真实损坏：删除 dynamo 模块群（保留 torch.compiler._cache 注册表）。
 
     strip_username=True 时同时剥掉用户身份环境变量，完整复现 launcher
     白名单环境下的原始故障（getpass.getuser() → import pwd → Windows 炸）。
+    2026-09-20 卫生修复：经 monkeypatch.delenv 剥离（自动恢复）——原
+    os.environ.pop 永久移除 USERNAME，毒害同进程后续全部测试。
     """
     for name in [n for n in sys.modules
                  if n == "torch._dynamo" or n.startswith("torch._dynamo.")]:
         del sys.modules[name]
     if strip_username:
         for k in ("USERNAME", "USER", "LOGNAME", "LNAME"):
-            os.environ.pop(k, None)
+            monkeypatch.delenv(k, raising=False)
 
 
-def test_heal_recovers_from_corrupted_registry():
+def test_heal_recovers_from_corrupted_registry(monkeypatch):
     """损坏后二次导入必炸 → 自愈 → 导入恢复正常。"""
     from src.services.inference.backends.transformers_backend import (
         _heal_torch_dynamo,
     )
-    _corrupt_dynamo_registry()
+    _corrupt_dynamo_registry(monkeypatch)
 
     # 1) 损坏确认：二次导入在重复注册处抛 AssertionError
     with pytest.raises(AssertionError, match="already registered"):
@@ -48,7 +50,7 @@ def test_heal_recovers_from_corrupted_registry():
     assert "precompile" in CacheArtifactFactory._artifact_types
 
 
-def test_heal_recovers_without_username_env():
+def test_heal_recovers_without_username_env(monkeypatch):
     """真实根因场景：无任何用户身份变量（launcher 白名单环境）也能自愈。
 
     dynamo 缓存目录解析经 getpass.getuser()，无身份变量时 fallback 到
@@ -58,7 +60,7 @@ def test_heal_recovers_without_username_env():
     from src.services.inference.backends.transformers_backend import (
         _heal_torch_dynamo,
     )
-    _corrupt_dynamo_registry(strip_username=True)
+    _corrupt_dynamo_registry(monkeypatch, strip_username=True)
     assert "USERNAME" not in os.environ
 
     assert _heal_torch_dynamo() is True

@@ -49,9 +49,16 @@ class EngineState(str, Enum):
 
     @classmethod
     def coerce(cls, raw: Any) -> EngineState:
-        """宽容映射：既有字符串/枚举/None → EngineState（未知 → UNLOADED）。"""
+        """宽容映射：既有字符串/枚举/None → EngineState（未知 → UNLOADED）。
+
+        R5-E1 根修（2026-09-20）：历史 "loading" 口径统一映射 BOOTING
+        ——此前静默跌落 UNLOADED，"paint 报 loading / dialog 报 booting"
+        的词汇分裂先在统一口径处咬合（改存量值域动调用方，风险后置）。
+        """
         if isinstance(raw, cls):
             return raw
+        if str(raw) == "loading":
+            return cls.BOOTING
         try:
             return cls(str(raw))
         except ValueError:

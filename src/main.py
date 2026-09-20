@@ -63,6 +63,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("OmniSpace AI v2.5.0 后端启动 (%s:%s)", config.HOST, config.PORT)
     log.info("版本: %s", config.APP_VERSION)
     log.info("=" * 60)
+    # 四连崩专项件③（2026-09-20）：faulthandler 双保险——①enable 把
+    # 硬崩溃（段错误等）的 Python 级栈落到 stderr；②每 30 分钟周期性
+    # 全线程转储落盘，进程"无痕蒸发"后末次转储即临终现场。
+    try:
+        import faulthandler
+        _fh_fp = open(config.LOGS_DIR / "faulthandler_dump.log", "w",
+                      encoding="utf-8")
+        faulthandler.enable(file=_fh_fp, all_threads=True)
+        faulthandler.dump_traceback_later(1800, repeat=True, file=_fh_fp)
+    except Exception as _fh_exc:  # noqa: BLE001 - 取证件失败绝不阻断启动
+        log.warning("faulthandler 取证挂钩失败（忽略）: %s", _fh_exc)
     # 全机单实例限制（2026-08-31）：双栈叠载会塞爆显存（当日实测关键帧采样
     # 20+ 分钟直至超时；08-29 蓝屏诱因同源），置于一切重资源初始化之前秒失败
     from .single_instance import acquire as _acquire_single_instance

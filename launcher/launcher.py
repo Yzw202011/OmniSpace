@@ -802,6 +802,61 @@ class BackendProcess:
         with self._crash_lock:
             self._handle_crash_locked(port)
 
+    # 四连崩专项件⑥（2026-09-20）：exit_code 语义解读表——无痕蒸发
+    # （exit=None）时 WER 事件是唯一死因线索，一并拉取。
+    _NTSTATUS_HINTS = {
+        0x80000003: "STATUS_BREAKPOINT（断点/调试器介入）",
+        0xC0000005: "STATUS_ACCESS_VIOLATION（内存访问违例）",
+        0xC0000409: "STATUS_STACK_BUFFER_OVERRUN（栈溢出防护/快速失败）",
+        0xC0000374: "STATUS_HEAP_CORRUPTION（堆损坏）",
+        0xC00000FD: "STATUS_STACK_OVERFLOW（栈溢出）",
+        0xC0000135: "STATUS_DLL_NOT_FOUND（缺 DLL）",
+        0xC0000142: "STATUS_DLL_INIT_FAILED（DLL 初始化失败）",
+        0x40000015: "STATUS_FATAL_APP_EXIT（应用自请求终止）",
+        0xC000013A: "STATUS_CONTROL_C_EXIT（Ctrl+C 退出）",
+        143: "SIGTERM=143（外部请求终止，如 stop 链——非崩溃）",
+        1: "exit=1（应用自报错误退出）",
+    }
+
+    @classmethod
+    def _interpret_exit_code(cls, code: int | None) -> str:
+        if code is None:
+            return ("None（无退出码——进程被强杀/内核级死亡；"
+                    "请查 wer 字段与 faulthandler_dump.log）")
+        hint = cls._NTSTATUS_HINTS.get(code)
+        if hint:
+            return hint
+        return f"未归类（hex={code & 0xFFFFFFFF:#x}）"
+
+    @staticmethod
+    def _pull_wer_events(minutes: int = 15) -> list[dict]:
+        """拉取近 N 分钟 WER/Application Error 事件（fail-open）。"""
+        try:
+            cmd = (
+                "Get-WinEvent -FilterHashtable @{LogName='Application';"
+                f"StartTime=(Get-Date).AddMinutes(-{minutes})}} "
+                "-ErrorAction SilentlyContinue | Where-Object { "
+                "$_.ProviderName -in 'Application Error',"
+                "'Windows Error Reporting','.NET Runtime' -and "
+                "$_.Message -match 'python|omnispace' } | "
+                "Select-Object -First 5 TimeCreated, ProviderName, "
+                "@{n='head';e={($_.Message -split \"`n\")[0..2]"
+                " -join ' | '}} | ConvertTo-Json -Compress"
+            )
+            r = subprocess.run(
+                ['powershell', '-NoProfile', '-Command', cmd],
+                capture_output=True, text=True, timeout=20,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if os.name == 'nt' else 0)
+            raw = (r.stdout or '').strip()
+            if not raw:
+                return []
+            import json as _json
+            data = _json.loads(raw)
+            return data if isinstance(data, list) else [data]
+        except Exception:  # noqa: BLE001 - WER 拉取失败不影响快照
+            return []
+
     def _write_crash_forensics(self, port: int,
                                exit_code: int | None) -> Path | None:
         """后端死亡现场快照：退出码 + RAM + GPU + 引擎子进程清单。
@@ -815,6 +870,8 @@ class BackendProcess:
                 'ts': datetime.now().isoformat(timespec='seconds'),
                 'backend_pid': self.process.pid if self.process else None,
                 'exit_code': exit_code,
+                'exit_code_hint': self._interpret_exit_code(exit_code),
+                'wer_events': self._pull_wer_events(),
                 'restart_count_so_far': self._restart_count,
                 'port': port,
                 'ram': {'percent': vm.percent,

@@ -210,10 +210,17 @@ def novel_project_get(project_id: str) -> dict[str, Any]:
 def novel_project_delete(project_id: str) -> dict[str, Any]:
     db = _db()
     _require_project(db, project_id)
-    for table in ("novel_outlines", "novel_chapters", "novel_characters",
-                  "novel_foreshadows"):
-        db.delete(table, "project_id=?", (project_id,))
-    db.delete("novel_projects", "id=?", (project_id,))
+
+    # R2-F3 根修（2026-09-20）：5 连删并入单事务（原先各自独立提交，
+    # 中途异常留半个项目尸体）。表名为静态常量，插值无注入面。
+    def _purge(conn) -> None:
+        for table in ("novel_outlines", "novel_chapters", "novel_characters",
+                      "novel_foreshadows"):
+            conn.execute(f"DELETE FROM {table} WHERE project_id=?",
+                         (project_id,))
+        conn.execute("DELETE FROM novel_projects WHERE id=?",
+                     (project_id,))
+    db.execute_in_transaction(_purge)
     try:  # 批5 P18 审计
         from ..services.audit_log import log_audit
         log_audit('novel', 'project_delete', target=project_id)

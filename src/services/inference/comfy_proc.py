@@ -553,34 +553,39 @@ class ComfyProcManager:
         """空闲巡检：无任务且超时 → 杀进程（释放 CUDA context + RAM）。"""
         while not self._exited:
             time.sleep(_IDLE_CHECK_INTERVAL_S)
-            if self._exited or self._proc is None:
-                continue
-            limit = _idle_shutdown_seconds()
-            if limit <= 0:
-                continue  # 配置禁用（常驻热启动）
-            if self._generation_active():
-                # 批3 空闲豁免：重型生成活跃（锁/登记簿）→ 冻结计时，
-                # 下一轮再看（不影响原 busy_count 判定语义）
+            # R7-AI2 根修（2026-09-20）：巡检体包异常续命——原先裸奔，
+            # kv 读取等上抛即线程死亡（ComfyUI 从此空闲永不关=VRAM 常驻）。
+            try:
+                if self._exited or self._proc is None:
+                    continue
+                limit = _idle_shutdown_seconds()
+                if limit <= 0:
+                    continue  # 配置禁用（常驻热启动）
+                if self._generation_active():
+                    # 批3 空闲豁免：重型生成活跃（锁/登记簿）→ 冻结计时，
+                    # 下一轮再看（不影响原 busy_count 判定语义）
+                    with self._lock:
+                        self._last_activity = time.monotonic()
+                    continue
                 with self._lock:
-                    self._last_activity = time.monotonic()
-                continue
-            with self._lock:
-                idle_for = time.monotonic() - self._last_activity
-                busy = self._busy_count > 0
-            if busy or self._proc is None or idle_for < limit:
-                continue
-            if self.poll() is not None:
-                continue
-            # 队列事实判据：计时到线但 ComfyUI 队列仍有活在跑（引擎漏打
-            # 忙碌标记 / 超长单 prompt）→ 重置计时下轮再看，绝不误杀
-            if self._queue_has_work():
-                with self._lock:
-                    self._last_activity = time.monotonic()
-                continue
-            log.info("ComfyUI 空闲 %.0fs（>=%ds 上限）自动关闭",
-                        idle_for, int(limit))
-            self.shutdown()
-            return
+                    idle_for = time.monotonic() - self._last_activity
+                    busy = self._busy_count > 0
+                if busy or self._proc is None or idle_for < limit:
+                    continue
+                if self.poll() is not None:
+                    continue
+                # 队列事实判据：计时到线但 ComfyUI 队列仍有活在跑（引擎漏打
+                # 忙碌标记 / 超长单 prompt）→ 重置计时下轮再看，绝不误杀
+                if self._queue_has_work():
+                    with self._lock:
+                        self._last_activity = time.monotonic()
+                    continue
+                log.info("ComfyUI 空闲 %.0fs（>=%ds 上限）自动关闭",
+                         idle_for, int(limit))
+                self.shutdown()
+                return
+            except Exception:  # noqa: BLE001 - 巡检异常续命，绝不让线程死
+                log.warning("空闲巡检异常（下一轮重试）", exc_info=True)
 
 
 _manager: ComfyProcManager | None = None

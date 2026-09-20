@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from ...config import VIDEO_MAX_DURATION
-from ...data.models import VIDEO_ROUTING_TABLE, VideoGenerateRequest, VideoModel
+from ...data.models import VideoGenerateRequest, VideoModel
 from ...middleware.error_handler import ApiError
 
 
@@ -20,16 +20,11 @@ class VideoRouter:
         available_vram_gb: float,
         user_override: str | None = None,
     ) -> VideoModel:
-        """根据可用显存选择视频模型。
+        """根据可用显存选择视频模型（用户 override 在本层，自动选型单源）。
 
-        规格 §5.2 路由表（从高到低）:
-          - 24GB+ -> LTX-2
-          - 16GB+ -> Wan2.1-14B-FP8
-          - 13GB+ -> Wan2.2-TI2V-5B（视频统一底座，I2V/TI2V）
-          - 12GB+ -> Wan2.1-14B-INT4
-          - 8GB+  -> Wan2.1-1.3B
-          - 6GB+  -> CogVideoX-2B
-          - 0GB+  -> CogVideoX-2B-CPU
+        R5-E2 根修（2026-09-20）：自动选型委托 ModelSelector.select_video_model
+        ——原实现与其函数级重复（同表同判据、各自维护）；本方法原 docstring
+        的 LTX/Wan 路由表描述属已删除时代（B3 收敛后仅 minimax-h3 系）。
 
         Args:
             available_vram_gb: 可用显存（GB）
@@ -52,10 +47,9 @@ class VideoRouter:
                 suggestion="请从 VIDEO_ROUTING_TABLE 中选择有效模型",
             )
 
-        # 按路由表自动选择
-        for entry in VIDEO_ROUTING_TABLE:
-            if available_vram_gb >= entry["min_vram_gb"]:
-                return entry["model"]
+        # 按路由表自动选择（单源委托：已下载优先 + 显存回退在 selector 侧）
+        from ..model_manager.selector import ModelSelector
+        return ModelSelector().select_video_model(available_vram_gb)
 
         # 兜底：CPU 模式
         return VideoModel.COGVIDEOX_2B_CPU

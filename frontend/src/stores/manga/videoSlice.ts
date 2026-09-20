@@ -23,6 +23,11 @@ import type { MangaState, MangaVideoTask, VideoSlice } from './types';
 export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (set, get) => {
   /** 同步视频行状态到本地 rows，并经全量保存持久化（单行 PUT 不含该字段） */
   const syncRowGenerationStatus = (rowId: string, status: StoryboardGenerationStatus): void => {
+    // R6-AF1 竞态守卫（2026-09-20）：项目已关闭（rows 清空/currentProject
+    // 缺失）时在飞轮询的迟到终态不再落盘——原实现会把空表全量保存到
+    // 'default' 兜底项目，后端自动补建项目行并清空其分镜（毁数据窗口）。
+    const st = get();
+    if (!st.currentProject || st.rows.length === 0) return;
     set((state) => ({
       rows: state.rows.map((r) =>
         r.id === rowId ? { ...r, generation_status: status } : r,
@@ -288,6 +293,10 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
     loadVideoHistory: async (projectId) => {
       try {
         const res = await mangaApi.listVideoTasks(projectId);
+        // R6-AF3 竞态守卫（2026-09-20）：响应落地前已切换/关闭项目则
+        // 丢弃——原实现会把 A 项目的历史任务注入 B 项目工作台
+        //（openProject 本就不清 videoTasks，叠加成串台）。
+        if (get().currentProject?.id !== projectId) return;
         // 列表按 created_at 倒序：每行首条即最新
         const latestByRow = new Map<string, mangaApi.VideoTaskRecord>();
         for (const t of res.items) {

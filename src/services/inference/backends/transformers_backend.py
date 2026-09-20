@@ -357,6 +357,13 @@ class TransformersBackend(DialogBackend):
                     if text:
                         yield text
             finally:
+                # R2-I2 根修（2026-09-20）：主消费侧 break（stop/断连）时
+                # 主动 end() 解除生成线程阻塞——否则 join(5s) 即弃后
+                # worker 继续在后台烧 GPU 至自然结束。
+                try:
+                    streamer.end()
+                except Exception:  # noqa: BLE001
+                    log.debug("stop 收尾 streamer.end 降级忽略", exc_info=True)
                 # 等待生成线程结束，避免后台残留写 streamer
                 thread.join(timeout=5.0)
 # 本项目仅供学习使用，商业授权请+Q 3559331368

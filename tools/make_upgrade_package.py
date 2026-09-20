@@ -218,6 +218,22 @@ def build_package(a: BuildArgs) -> Path:
               f"变更需整包重发，或显式评估后调整排除集", flush=True)
     changed = sorted(p for p in raw_changed if _keep(p, a.include))
     deleted = sorted(p for p in raw_deleted if _keep(p, a.include))
+    # AH4 根修（2026-09-21）：models 顶级差异默认静默丢弃——①清单真源
+    # models/models_manifest.json 永远随包（模型改名/新增不再失真）；
+    # ②其余内置件/权重差异响亮提示（--include models 或整包重发）。
+    if "models" not in a.include:
+        _models_touched = sorted(
+            p for p in list(raw_changed) + list(raw_deleted)
+            if p.startswith("models/")
+            and p != "models/models_manifest.json")
+        if _models_touched:
+            print(f"[WARN] models/ 有 {len(_models_touched)} 处差异（内置件/"
+                  f"权重）默认不进升级包（示例: {_models_touched[:3]}）——"
+                  f"内置件更新需 --include models 或整包重发", flush=True)
+    _MANIFEST_SRC = "models/models_manifest.json"
+    if _MANIFEST_SRC in raw_changed and _MANIFEST_SRC not in changed:
+        changed.append(_MANIFEST_SRC)
+        changed.sort()
     if not changed and not deleted:
         raise ToolError("两构建零差异（连 build_info 都没变），没有可升级的内容")
     # 新版全量身份清单必须随包走（升级落位后成为新副本的 build_id 真源）

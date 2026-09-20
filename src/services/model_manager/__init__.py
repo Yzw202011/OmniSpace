@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import gc
 import importlib
-import json
 import logging
 import re as _re
 import threading
@@ -196,17 +195,11 @@ def _clear_cache_on_unload_enabled() -> bool:
     True——清缓存是安全默认，开关只许关不许坏。
     """
     try:
-        from ...data.database import get_db_safe
-        db = get_db_safe()
-        if db is None:
-            return True
-        row = db.query_one(
-            "SELECT value FROM system_settings WHERE key=?",
-            ("system.inference_config",))
-        if row:
-            cfg = json.loads(row["value"])
-            if isinstance(cfg, dict):
-                return bool(cfg.get("clear_cache_on_unload", True))
+        # B1 根修（2026-09-21）：system_settings 读取统一走 settings_kv 单源
+        from ...data.settings_kv import kv_get
+        cfg = kv_get("system.inference_config")
+        if isinstance(cfg, dict):
+            return bool(cfg.get("clear_cache_on_unload", True))
     except Exception:  # noqa: BLE001 - 开关读取失败按默认清缓存
         log.debug("clear_cache_on_unload 读取失败（按默认 True）",
                   exc_info=True)

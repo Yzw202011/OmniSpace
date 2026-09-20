@@ -382,18 +382,11 @@ def read_tier_override() -> str:
 
 
 def write_tier_override(tier: str) -> None:
-    """持久化手动档位覆盖并刷新缓存。"""
-    import json as _json
+    """持久化手动档位覆盖并刷新缓存（B1 根修：走 settings_kv 单源）。"""
     import time as _t
 
-    from .database import get_db_safe
-    db = get_db_safe()
-    if db is not None:
-        db.sql(
-            "INSERT INTO system_settings (key, value, updated_at)"
-            " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-            " value=excluded.value, updated_at=excluded.updated_at",
-            (_TIER_OVERRIDE_KEY, _json.dumps(tier), _t.time()))
+    from .settings_kv import kv_set
+    kv_set(_TIER_OVERRIDE_KEY, tier)
     _tier_override_cache.update({"value": tier, "ts": _t.time()})
 
 

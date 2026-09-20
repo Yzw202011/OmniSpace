@@ -43,30 +43,17 @@ def lan_auth_enabled() -> bool:
 
 
 def get_lan_token() -> str:
-    """取（首次则生成并持久化）LAN 令牌。"""
-    from ..data.database import get_db_safe
-    db = get_db_safe()
-    if db is not None:
-        try:
-            row = db.query_one(
-                "SELECT value FROM system_settings WHERE key=?", (_KV_KEY,))
-            if row and str(row.get("value") or "").strip():
-                return str(row["value"]).strip()
-        except Exception:  # noqa: BLE001 - 表未建等：降级内存令牌
-            log.debug("lan.token 读取失败，走内存令牌", exc_info=True)
+    """取（首次则生成并持久化）LAN 令牌。
+
+    B1 根修（2026-09-21）：迁移 settings_kv 单源（JSON 编码）；旧裸串值
+    json.loads 失败→None→重新生成（LAN 已下线拍板，令牌更换无影响）。
+    """
+    from ..data.settings_kv import kv_get, kv_set
+    token = kv_get(_KV_KEY)
+    if isinstance(token, str) and token.strip():
+        return token.strip()
     token = secrets.token_urlsafe(24)
-    if db is not None:
-        try:
-            db.sql(
-                "INSERT INTO system_settings (key, value, updated_at)"
-                " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
-                " value=excluded.value, updated_at=excluded.updated_at",
-                (_KV_KEY, token, time.time()))
-        except Exception:  # noqa: BLE001 - 持久化失败仅本进程内有效
-            log.warning("lan.token 持久化失败（重启后令牌将更换）",
-                           exc_info=True)
-    else:
-        log.warning("DB 不可用：LAN 令牌仅本进程内有效（重启即换）")
+    kv_set(_KV_KEY, token)
     return token
 
 

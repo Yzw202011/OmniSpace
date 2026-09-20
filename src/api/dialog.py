@@ -1592,13 +1592,33 @@ def chat_get_session(session_id: str) -> dict[str, Any]:
 def chat_list_messages(session_id: str,
                        page: int = Query(1, ge=1),
                        page_size: int = Query(200, ge=1, le=1000)) -> dict[str, Any]:
-    """会话消息列表（分页，时间升序）。"""
+    """会话消息列表（分页，时间升序）。
+
+    R6-K5 根修（2026-09-21）：SQL 级 LIMIT/OFFSET 真分页——原实现
+    全量加载后 Python 切片（假分页），万级消息会话每次翻页都拖全表。
+    """
     if _get_session_row(session_id) is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
+    db = get_db_safe()
+    offset = (page - 1) * page_size
+    if db is not None:
+        try:
+            total = db.count("dialog_messages", "session_id=?",
+                             (session_id,))
+            rows = db.query(
+                "SELECT id, session_id, role, content, attachments,"
+                " model_used, rating, favorite, reasoning, timestamp"
+                " FROM dialog_messages WHERE session_id=? "
+                "ORDER BY timestamp ASC LIMIT ? OFFSET ?",
+                (session_id, page_size, offset))
+            return ok({"items": [_row_to_message(r) for r in rows],
+                       "total": total, "page": page,
+                       "page_size": page_size})
+        except Exception as exc:  # noqa: BLE001
+            log.warning("消息分页查询失败，降级内存全量: %s", exc,
+                        exc_info=True)
     msgs = _session_messages(session_id)
-    total = len(msgs)
-    start = (page - 1) * page_size
-    return ok({"items": msgs[start:start + page_size], "total": total,
+    return ok({"items": msgs[offset:offset + page_size], "total": len(msgs),
                "page": page, "page_size": page_size})
 
 

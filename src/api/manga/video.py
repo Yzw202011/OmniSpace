@@ -1189,6 +1189,28 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     now = _now()
     db = get_db_safe()
     persisted = False
+
+    async def _archive_4in1(b64: str) -> str:
+        """D2-① 根修（2026-09-21）：4in1 截图出库——base64 落文件、
+        列存相对路径（schema 注释本就预留双模式）。消费侧（paint_ I2V/
+        kenburns 分段）读的是请求对象非本列；历史内联值由
+        tools/screenshot_4in1_export.py 迁移。落盘失败回退内联（老行为）。"""
+        v = (b64 or "").strip()
+        if not v:
+            return ""
+        try:
+            raw = base64.b64decode(v)
+        except Exception:  # noqa: BLE001 - 非法值截断存档不阻断建任务
+            return v[:200]
+        try:
+            VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
+            fp = VIDEO_OUT_DIR / f"{task_id}_4in1.png"
+            await run_blocking(fp.write_bytes, raw)
+            return f"videos/{fp.name}"
+        except OSError as exc:  # noqa: BLE001
+            log.warning("4in1 截图落盘失败，回退内联存档: %s", exc)
+            return v
+
     # 审计修复：创建时生成路径未定（真实管线 / AnimateLCM / Ken Burns
     # 由后台线程探测链决定），model_used 置空待完成后回填真实值，
     # 不预设降级标注。
@@ -1202,7 +1224,8 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             # 同步 sqlite 写投到线程池，避免阻塞事件循环
             await run_blocking(db.insert, "video_tasks", {
                 "id": task_id, "storyboard_row_id": req.storyboard_row_id,
-                "description": req.description, "screenshot_4in1": req.screenshot_4in1,
+                "description": req.description,
+                "screenshot_4in1": await _archive_4in1(req.screenshot_4in1),
                 "character_assets": req.character_assets,
                 "audio_path": req.audio_path or "",
                 "resolution": req.resolution, "fps": req.fps,
@@ -1449,7 +1472,7 @@ def video_download(task_id: str) -> FileResponse:
             file_path = str(candidate)
     path = Path(file_path) if file_path else None
     if path is None or not path.is_file():
-        raise ApiError("VIDEO_RESOLUTION_DEGRADED", "视频文件不存在或尚未生成完成",
+        raise ApiError("VIDEO_NOT_READY", "视频文件不存在或尚未生成完成",
                        detail={"task_id": task_id,
                                "status": row.get("status", "pending")})
     return FileResponse(str(path), media_type="video/mp4",

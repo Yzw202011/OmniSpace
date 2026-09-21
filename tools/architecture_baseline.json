@@ -1,0 +1,53 @@
+{
+  "max_file_lines": {
+    "hard_limit": 2000,
+    "current_max": 3134,
+    "violators": [
+      "src/api/dialog.py",
+      "src/api/manga/comic_asset.py",
+      "src/api/manga/comic_gen.py",
+      "src/api/manga/keyframe.py",
+      "src/api/system.py",
+      "src/services/inference/dialog_engine.py",
+      "src/services/inference/video_engine.py"
+    ],
+    "recorded_lines": {
+      "src/api/dialog.py": 2235,
+      "src/api/manga/comic_asset.py": 2529,
+      "src/api/manga/comic_gen.py": 2080,
+      "src/api/manga/keyframe.py": 3134,
+      "src/api/system.py": 2477,
+      "src/services/inference/dialog_engine.py": 2220,
+      "src/services/inference/video_engine.py": 2754
+    },
+    "note": "存量巨石只减不增；新文件>2000行即红"
+  },
+  "css_tsx_hardcoded": {
+    "current": 3,
+    "note": "tsx 内联样式硬编码颜色存量；app.css 另有~31处不计入"
+  },
+  "body_dict_count": {
+    "current": 82,
+    "note": "API 层 body:dict 手搓校验存量（第四轮审计 165→锁定）"
+  },
+  "kv_sql_sites": {
+    "current": 0,
+    "note": "已根修到 1 种（settings_kv.py）"
+  },
+  "port_8189": {
+    "current": 3,
+    "exempt_files": [
+      "src/services/inference/comfy_paint_engine.py",
+      "src/services/inference/comfy_proc.py",
+      "src/services/inference/h3_engine.py"
+    ],
+    "note": "src/ 内 3 处存量（B2 根修时收敛自 5 处）"
+  },
+  "orphan_files": {
+    "current": 1,
+    "exempt": [
+      "src/services/lora_converter.py"
+    ],
+    "note": "已知孤儿；新孤儿即红"
+  }
+}

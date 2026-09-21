@@ -28,8 +28,43 @@
 - [ ] 我知道**大活必走方案四段制**（§16.1）：改动清单/影响面/验证方法/风险回退，四段齐才动手，用户拍板前不准改任何代码
 - [ ] 我知道**单测全绿 ≠ 验收**（§16.2）：功能交付必须实弹取证；论断必须标 ✅/🔶/⚠️ 验证状态 + 行号证据
 - [ ] 我知道**禁止清单红线**（§16.4）：改动不超方案圈定范围、不擅自加依赖、H3 主力链路与打包台/激活台冻结不动、未经拍板不 commit
+- [ ] 我知道**规则执行矩阵**（§0.5）：下表中的规则是**机器强制**的——新会话如果违反会在提交时被拦截
 
 **如有任何一项为NO，立即停止编码并重新读取此文件。**
+
+---
+
+## 0.5 规则执行矩阵（2026-09-21 标准引擎上线）
+
+> 本节让每个 AI 会话知道：哪些规则是**机器强制**（提交时自动拦截），
+> 哪些是**基线保护**（存量违规只减不增），哪些靠**自觉**。
+> 机器强制的规则**不需要你记住**——写了违规代码，pre-commit 会拦你。
+
+| 规则 | 执行方式 | 状态 |
+|------|---------|------|
+| 语法可编译 | pre-commit 第 1 步 compileall | ✅ 机器强制 |
+| ruff 六规则集 | pre-commit 第 2 步（缺失=FAIL 不跳过） | ✅ 机器强制 |
+| 冒烟测试 | pre-commit 第 3 步 pytest -m smoke | ✅ 机器强制 |
+| 类型检查 | pre-commit 第 4 步 mypy（基线 229 只减不增） | ✅ 机器强制 |
+| 文档对账 | pre-commit 第 5 步 doc_claims.json 23 断言 | ✅ 机器强制 |
+| **架构标准** | **pre-commit 第 6 步** test_architecture_standards | ✅ 机器强制 |
+| 错误码必须注册 | 哨兵 test_error_code_registry | ✅ 机器强制 |
+| KV 访问走 settings_kv | 哨兵 test_architecture_standards::kv_single_source | ✅ 机器强制 |
+| CSS 用 var(--color-*) | 哨兵 test_architecture_standards::css_discipline | ✅ 机器强制 |
+| 文件 ≤2000 行（新文件） | 哨兵 test_architecture_standards::file_size | ✅ 机器强制 |
+| 巨石只拆不涨（存量 7 个） | 哨兵（基线 recorded_lines+50 容忍窗） | ✅ 机器强制 |
+| 8189 端口不新增硬编码 | 哨兵 test_architecture_standards::port_8189 | ✅ 机器强制 |
+| 孤儿文件不新增 | 哨兵 test_architecture_standards::orphan | ✅ 机器强制 |
+| body:dict 不新增 | 哨兵（基线 82 处锁定） | ✅ 机器强制 |
+| 异步边界走 offload | 哨兵 test_async_boundary | ✅ 机器强制 |
+| 锁序单向 | 哨兵 test_lock_order_invariant | ✅ 机器强制 |
+| 黑窗闪现防护 | 哨兵 test_no_console_flash | ✅ 机器强制 |
+| 方案四段制/验收前置/拍板流程 | CLAUDE.md §16 文字 | ⚠️ AI 自觉 |
+| 团队协作/汇报格式/先读后写 | CLAUDE.md §15-16 文字 | ⚠️ AI 自觉 |
+
+**基线文件**：`tools/architecture_baseline.json`——存量违规记录，
+只减不增（同 mypy_baseline 模式）。每次修复存量后手动更新数字。
+**禁止自动 regen**（防止 AI 会话顺手把新增违规"合法化"）。
 
 ---
 

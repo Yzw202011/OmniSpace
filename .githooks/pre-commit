@@ -1,27 +1,42 @@
 #!/bin/sh
-# pre-commit 钩子（TASK-P1-02，审计 P18；TASK-P1-03 增补 ruff 步骤）
+# pre-commit 钩子（TASK-P1-02→标准引擎加固 2026-09-21）
 # 启用方式（每台开发机执行一次）:
 #   git config core.hooksPath .githooks
 # 检查内容: compileall 语法基线 + ruff 静态检查 + pytest -m smoke 冒烟
-#            + mypy 增量类型检查（2026-09-05 批4：基线冻结只增不减）
-#            + 文档对账闸（2026-09-19 第5闸：doc_claims.json 断言校验，防文档漂移）
+#            + mypy 增量类型检查（基线冻结只增不减）
+#            + 文档对账闸（doc_claims.json 断言校验）
+#            + 架构标准闸（test_architecture_standards.py 七项哨兵）
 # 绕过（自担风险）: git commit --no-verify
+#
+# 2026-09-21 标准引擎加固三处：
+#   ① Python 缺失 → exit 1（原 exit 0 静默放行）
+#   ② ruff.exe 缺失 → exit 1（原静默跳过）
+#   ③ 新增第 6 步架构标准闸
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-# B1（2026-09-13 拍板项 0=A）：主链 py312
 PY="$REPO_ROOT/runtime/py312/python.exe"
 RUFF="$REPO_ROOT/tools/ruff/ruff.exe"
 
+# ── 加固①：Python 缺失不再静默放行 ─────────────────────────────
 if [ ! -f "$PY" ]; then
-  echo "[pre-commit] 未找到嵌入式 Python ($PY)，跳过检查"
-  exit 0
+  echo "[pre-commit] ✗ 未找到嵌入式 Python ($PY)"
+  echo "  标准引擎要求：Python 必须存在才能执行六步闸。"
+  echo "  修复：确认 runtime/py312/python.exe 在位（打包台或手动部署）。"
+  exit 1
+fi
+
+# ── 加固②：钩子挂载自检 ─────────────────────────────────────────
+HOOK_PATH=$(git config core.hooksPath 2>/dev/null)
+if [ "$HOOK_PATH" != ".githooks" ]; then
+  echo "[pre-commit] ⚠ core.hooksPath 未指向 .githooks（当前='$HOOK_PATH'）"
+  echo "  钩子可能被意外绕过。执行以下命令修复："
+  echo "  git config core.hooksPath .githooks"
+  echo "  继续执行（本次不拦截），但请尽快修复。"
 fi
 
 cd "$REPO_ROOT" || exit 1
 
-echo "[pre-commit] [1/5] compileall 语法基线..."
-# src 扁平化（2026-09-15）：后端真源=src/；backend/ 仅剩兼容 shim 仍纳入编译
-# -x 排除 ComfyUI 便携目录（第三方 site-packages 含 py312 语法，编译必炸）
+echo "[pre-commit] [1/6] compileall 语法基线..."
 "$PY" -m compileall -q src backend launcher tools -x "ComfyUI_windows_portable|musubi-tuner"
 if [ $? -ne 0 ]; then
   echo ""
@@ -29,8 +44,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# ── 加固③：ruff 缺失不再静默跳过 ───────────────────────────────
 if [ -f "$RUFF" ]; then
-  echo "[pre-commit] [2/5] ruff 静态检查..."
+  echo "[pre-commit] [2/6] ruff 静态检查..."
   "$RUFF" check .
   if [ $? -ne 0 ]; then
     echo ""
@@ -38,10 +54,13 @@ if [ -f "$RUFF" ]; then
     exit 1
   fi
 else
-  echo "[pre-commit] [2/5] 未找到 ruff.exe（$RUFF），跳过静态检查"
+  echo "[pre-commit] ✗ 未找到 ruff.exe（$RUFF）"
+  echo "  标准引擎要求：ruff 必须存在才能执行六步闸。"
+  echo "  修复：从 tools/ruff/ 下载部署（或 tools/build_rc.py 自动化）。"
+  exit 1
 fi
 
-echo "[pre-commit] [3/5] pytest -m smoke 冒烟测试..."
+echo "[pre-commit] [3/6] pytest -m smoke 冒烟测试..."
 "$PY" -m pytest -m smoke -q
 if [ $? -ne 0 ]; then
   echo ""
@@ -50,7 +69,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[pre-commit] [4/5] mypy 增量类型检查（基线冻结只增不减）..."
+echo "[pre-commit] [4/6] mypy 增量类型检查（基线冻结只增不减）..."
 "$PY" tools/run_mypy.py --staged
 if [ $? -ne 0 ]; then
   echo ""
@@ -59,7 +78,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[pre-commit] [5/5] 文档对账闸（doc_claims.json 断言 vs 仓库实况）..."
+echo "[pre-commit] [5/6] 文档对账闸（doc_claims.json 断言 vs 仓库实况）..."
 "$PY" tools/doc_drift_check.py
 if [ $? -ne 0 ]; then
   echo ""
@@ -69,5 +88,19 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[pre-commit] ✓ 全部通过"
+echo "[pre-commit] [6/6] 架构标准闸（七项哨兵：文件大小/KV单源/CSS/端口/孤儿/校验比例）..."
+"$PY" -m pytest tests/unit/test_architecture_standards.py -q
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "[pre-commit] ✗ 架构标准违规，提交被拦截"
+  echo "  常见原因："
+  echo "    - 新文件超过 2000 行（先拆再提交）"
+  echo "    - system_settings SQL 绕过 settings_kv（走单源）"
+  echo "    - tsx 硬编码颜色（用 var(--color-*)）"
+  echo "    - body:dict 手搓校验新增（用 Pydantic）"
+  echo "  修复后重试；tools/architecture_baseline.json 记录存量基线。"
+  exit 1
+fi
+
+echo "[pre-commit] ✓ 六步闸全部通过"
 exit 0

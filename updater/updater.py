@@ -289,6 +289,14 @@ def main(argv: list[str]) -> int:
     # ⑥ 成功收尾
     shutil.rmtree(work_dir, ignore_errors=True)
     _prune_backups(install_root)
+    # U4 根修（2026-09-22）：升级成功后自动删除 .upg 包——
+    # 原先留在 updates/ 需用户手动清理，列表显示"版本不兼容"造成困惑。
+    try:
+        if pkg.exists():
+            pkg.unlink()
+            _log(install_root, f"已自动清理升级包: {package}")
+    except OSError as exc:
+        _log(install_root, f"升级包清理失败（不影响升级结果）: {exc}")
     _set_state(install_root, phase="success",
                reason=f"已升级到 v{to_version}（:{detail}）")
     _log(install_root, f"升级成功: v{to_version} on {detail}")

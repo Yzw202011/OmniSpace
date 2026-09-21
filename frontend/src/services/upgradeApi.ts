@@ -38,6 +38,7 @@ const PackageEntrySchema = z.object({
   signature_ok: z.boolean(),
   compatible: z.boolean(),
   compat_reason: z.string().optional(),
+  notes: z.string().optional(),
   manifest: PackageManifestSchema.nullable().optional(),
 });
 export type UpgradePackageEntry = z.infer<typeof PackageEntrySchema>;
@@ -53,6 +54,14 @@ const PackagesRespSchema = z.object({
 });
 export type UpgradePackagesResp = z.infer<typeof PackagesRespSchema>;
 
+/** U2: 升级状态机 phase 类型（updater state.json） */
+export interface UpgradeState {
+  phase?: string;
+  reason?: string;
+  package?: string;
+  to_version?: string;
+}
+
 const StatusRespSchema = z.object({
   current: z.object({
     version: z.string(),
@@ -60,7 +69,12 @@ const StatusRespSchema = z.object({
     edition: z.string(),
     updates_dir: z.string().optional(),
   }),
-  state: z.unknown().nullable().optional(),
+  state: z.object({
+    phase: z.string().optional(),
+    reason: z.string().optional(),
+    package: z.string().optional(),
+    to_version: z.string().optional(),
+  }).nullable().optional(),
   updater_present: z.boolean().optional(),
 });
 export type UpgradeStatusResp = z.infer<typeof StatusRespSchema>;

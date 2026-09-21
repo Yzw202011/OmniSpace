@@ -570,12 +570,18 @@ def _run_generate_task(task_id: str, params: dict,
                                          name="draw-comfy-hb")
                 _hb_t.start()
                 try:
+                    # 进度回调穿线（round-2026-09-20 F6）：comfy 轮询逐
+                    # 3s 上报估算百分比——progress 内含取消旗标检查，
+                    # 取消经引擎 /interrupt 止损后自然传播（旧实现旗标
+                    # 只在心跳线程自灭、主线程无感=假取消）。
                     if mask is not None and init_image is not None:
                         result = get_comfy_paint_engine().inpaint(
-                            params, init_image, mask)
+                            params, init_image, mask,
+                            progress=lambda pct: progress(pct, 0))
                     else:
                         result = comfy_paint_generate(
-                            params, ref_image=init_image)
+                            params, ref_image=init_image,
+                            progress=lambda pct: progress(pct, 0))
                 finally:
                     _hb_stop.set()
                     _hb_t.join(timeout=1)
@@ -591,6 +597,18 @@ def _run_generate_task(task_id: str, params: dict,
                 image_b64 = _pil_to_b64(image)
                 n.output(rel_path)
 
+            # 取消复核（round-2026-09-20 F7 根修）：生成期用户取消后，
+            # 旧实现仍把任务覆写为 done（cancelled→done 跳变）；落库前
+            # 复查取消旗标，命中则按取消收尾。
+            if task_id in _cancel_flags:
+                _cancel_flags.discard(task_id)
+                _task_update(task_id, status="cancelled", percent=100,
+                             file_path=rel_path)
+                _broadcast_progress(task_id, 100,
+                                    int(params.get("steps", 0)),
+                                    status="cancelled")
+                flow.end("cancelled", output_summary=rel_path)
+                return
             _task_update(task_id, status="done", percent=100,
                          file_path=rel_path, image_b64=image_b64,
                          seed=result["seed"], model=result["model"],

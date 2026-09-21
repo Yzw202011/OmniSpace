@@ -134,7 +134,7 @@ def _collect_refs(row: dict, row_id: str) -> list[dict]:
 
     db = get_db_safe()
     if db is None:
-        raise ApiError("VIDEO_RESOLUTION_DEGRADED", "数据库不可用(参考图收集)")
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用(参考图收集)")
     refs: list[dict] = []
     used: set[str] = set()
     # 分镜行 → 所属项目(同项目资产优先,防跨项目风格错位)
@@ -495,13 +495,13 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                     body = exc.read().decode("utf-8", "ignore")[:500]
                 except Exception:  # noqa: BLE001
                     log.debug("run_h3_chain_task: 降级忽略", exc_info=True)
-                raise ApiError("VIDEO_RESOLUTION_DEGRADED",
+                raise ApiError("COMFY_WORKFLOW_INVALID",
                                f"链式工作流被拒绝(HTTP {exc.code}): {body}") from exc
             if resp is None:
-                raise ApiError("VIDEO_RESOLUTION_DEGRADED", "ComfyUI 不可达（链式提交失败）")
+                raise ApiError("COMFY_UNREACHABLE", "ComfyUI 不可达（链式提交失败）")
             if resp.get("error") or resp.get("node_errors"):
                 import json as _j
-                raise ApiError("VIDEO_RESOLUTION_DEGRADED", "链式工作流校验失败: " + _j.dumps(
+                raise ApiError("COMFY_WORKFLOW_INVALID", "链式工作流校验失败: " + _j.dumps(
                     resp.get("node_errors") or resp.get("error"),
                     ensure_ascii=False)[:400])
             prompt_id = str(resp["prompt_id"])
@@ -540,7 +540,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 5. 收片：final MP4 → 项目视频目录
     src = (_COMFY_OUTPUT / video_rel)
     if not src.is_file():
-        raise ApiError("VIDEO_RESOLUTION_DEGRADED", f"链式成片缺失: {video_rel}")
+        raise ApiError("COMFY_NO_OUTPUT", f"链式成片缺失: {video_rel}")
     dest_dir = DATA_DIR / "videos" / str(row_ids[0])[:16]
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{task_id}.mp4"
@@ -593,7 +593,7 @@ def _poll_chain_history(engine: Any, prompt_id: str, seconds: float,
         status = entry.get("status") or {}
         if status.get("status_str") == "error":
             import json as _j
-            raise ApiError("VIDEO_RESOLUTION_DEGRADED", "链式执行失败: " + _j.dumps(
+            raise ApiError("COMFY_EXEC_FAILED", "链式执行失败: " + _j.dumps(
                 status.get("messages") or [], ensure_ascii=False)[:400])
         for node_out in (entry.get("outputs") or {}).values():
             for item in (node_out.get("images") or node_out.get("videos") or []):
@@ -603,11 +603,16 @@ def _poll_chain_history(engine: Any, prompt_id: str, seconds: float,
                     report(0.98, "拼装完成")
                     return f"{sub}/{fn}" if sub else fn
         if status.get("completed"):
-            raise ApiError("VIDEO_RESOLUTION_DEGRADED", "链式执行完成但无成片产物")
+            raise ApiError("COMFY_NO_OUTPUT", "链式执行完成但无成片产物")
         q = engine._api("GET", "/queue", timeout=5.0)
         if q is not None:
             busy = {str(it[1]) for it in (q.get("queue_running") or [])}
             pend = {str(it[1]) for it in (q.get("queue_pending") or [])}
             if prompt_id not in busy | pend:
                 raise ApiError("VIDEO_ENCODE_FAILED", "链式任务已被中断（不在队列且无产物）")
+    # 超时止损（round-2026-09-20 F6）：链式 H3 继续空跑会拖死后续任务
+    try:
+        engine._api("POST", "/interrupt", timeout=5.0)
+    except Exception:  # noqa: BLE001 - 止损失败不改变原异常
+        pass
     raise ApiError("VIDEO_ENCODE_FAILED", "链式生成超时", )

@@ -1373,15 +1373,17 @@ def _pil_to_png_b64(image: Image) -> str:
 
 
 def comfy_paint_generate(params: dict,
-                         ref_image: Image | None = None) -> dict:
+                         ref_image: Image | None = None,
+                         progress=None) -> dict:
     """ComfyUI klein-9b-fp8 统一出图入口（W3-C；legacy 结果同构）。
 
     params: prompt/negative/width/height/seed/steps/cfg——steps/cfg
     不传时走 paint.preset 档位（fast=4步/cfg1.0、quality=36步/cfg4.0）。
     ref_image: 参考条件生成（ReferenceLatent，等价 legacy img2img 的
-    ref conditioning 语义）。返回 {images:[PIL], seed, model,
-    elapsed_ms, engine}；不可用/失败抛 ApiError，由调用方既有降级链
-    处理。
+    ref conditioning 语义）。progress: 可选进度回调（int 百分比；回调
+    抛异常=协作取消，引擎先 /interrupt 止损再传播）。返回 {images:[PIL],
+    seed, model, elapsed_ms, engine}；不可用/失败抛 ApiError，由调用方
+    既有降级链处理。
     """
     from ...services.inference.comfy_paint_engine import (
         comfy_paint_available,
@@ -1395,9 +1397,9 @@ def comfy_paint_generate(params: dict,
     engine = get_comfy_paint_engine()
     t0 = time.perf_counter()
     if ref_image is not None:
-        result = engine.img2img(p, ref_image)
+        result = engine.img2img(p, ref_image, progress=progress)
     else:
-        result = engine.generate(p)
+        result = engine.generate(p, progress=progress)
     _z = str(p.get("model") or "") == "z-image-turbo"
     return {"images": result.get("images") or [],
             "seed": seed,

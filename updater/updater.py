@@ -150,11 +150,14 @@ def apply_payload(install_root: Path, work_dir: Path, manifest: dict) -> None:
 
 
 def _spawn_boot(install_root: Path) -> bool:
-    """拉起 Boot（桌面快捷方式同款命令；exe 缺失回退裸 python）。"""
-    boot_exe = install_root / "runtime" / "py310" / "OmniSpace-Boot.exe"
+    """拉起 Boot（桌面快捷方式同款命令；exe 缺失回退裸 python）。
+
+    round-2026-09-20 F10 根修：py310 → py312（B1 起发行包不带 py310，
+    旧路径两处全缺 → Popen 失败 → 升级空转超时回滚且回滚后不自启）。"""
+    boot_exe = install_root / "runtime" / "py312" / "OmniSpace-Boot.exe"
     boot_py = install_root / "launcher" / "boot.py"
     exe = str(boot_exe) if boot_exe.is_file() else str(
-        install_root / "runtime" / "py310" / "python.exe")
+        install_root / "runtime" / "py312" / "python.exe")
     creation = 0x00000008 | 0x08000000  # DETACHED_PROCESS | CREATE_NO_WINDOW
     try:
         subprocess.Popen(

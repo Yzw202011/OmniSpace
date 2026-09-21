@@ -18,13 +18,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev,
         *slash = '\0';
 
     /* 品牌化 Boot 优先（2026-09-02）：任务管理器显示 OmniSpace-Boot.exe
-     * + 项目 logo；包不完整时回退 pythonw 并报缺失。 */
-    snprintf(py, sizeof(py), "%s\\runtime\\py310\\OmniSpace-Boot.exe", root);
+     * + 项目 logo；包不完整时回退 pythonw 并报缺失。
+     * round-2026-09-20 F10：py310→py312（发行包 B1 起不带 py310）。 */
+    snprintf(py, sizeof(py), "%s\\runtime\\py312\\OmniSpace-Boot.exe", root);
     if (GetFileAttributesA(py) == INVALID_FILE_ATTRIBUTES) {
-        snprintf(py, sizeof(py), "%s\\runtime\\py310\\pythonw.exe", root);
+        snprintf(py, sizeof(py), "%s\\runtime\\py312\\pythonw.exe", root);
         if (GetFileAttributesA(py) == INVALID_FILE_ATTRIBUTES) {
             MessageBoxA(NULL,
-                        "Missing runtime\\py310\\OmniSpace-Boot.exe - package incomplete",
+                        "Missing runtime\\py312\\OmniSpace-Boot.exe - package incomplete",
                         "OmniSpace", MB_ICONERROR);
             return 1;
         }

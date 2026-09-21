@@ -2,7 +2,7 @@
 
 架构（2026-08-21 用户裁定采用 vLLM 集成）：
   - vLLM 运行于 runtime/py313 独立嵌入式 Python（vllm-windows-build
-    v0.26.0+cu128，官方 vLLM 不支持 Windows 原生）
+    v0.27.1+cu128，官方 vLLM 不支持 Windows 原生）
   - 以 OpenAI 兼容 HTTP 服务（127.0.0.1:8101）提供推理，后端通过
     requests 调用；不与主进程（py310 + transformers）共享 CUDA 上下文
   - 显存由 vLLM gpu_memory_utilization 预算控制（默认 0.85，16GB 卡

@@ -163,7 +163,8 @@ def test_full_pipeline_train_deploy_versions_rollback(fresh_svc, tmp_path):
     assert [v["version"] for v in vers] == ["v2", "v1"]
     r = fresh_svc.rollback(a, "v1")
     assert r["version"] == "v1"
-    assert fresh_svc.versions("a1")[0]["is_current"] is False or True
+    # （round-2026-09-20 F11：恢复断言语义——回滚后 v2 非当前）
+    assert fresh_svc.versions("a1")[0]["is_current"] is False
     assert next(v for v in fresh_svc.versions("a1")
                 if v["version"] == "v1")["is_current"]
 

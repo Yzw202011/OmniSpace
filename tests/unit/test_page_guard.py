@@ -90,3 +90,42 @@ def test_short_countdown_respected():
                 countdown_s=10, now=14.9) == "none"
     assert step(st, count=0, busy=False, enabled=True,
                 countdown_s=10, now=15.1) == "fire"
+
+
+def test_busy_cloud_running_keeps_alive(monkeypatch):
+    """round-2026-09-20 F9 回归：云端任务在跑（cloud_running 非空）时
+    _busy 必须为 True——全页关闭不得退出整机，否则付费云生成中途
+    丢失（资损）。_busy 为函数内局部 import，须打源模块属性。"""
+    import types
+
+    class _Q:
+        def __init__(self, snap):
+            self._s = snap
+
+        def snapshot(self):
+            return self._s
+
+    import src.services.image_queue as img
+    monkeypatch.setattr(
+        img, "get_image_queue",
+        lambda: _Q({"current": None, "queued": [],
+                    "cloud_running": ["cloud-task-1"]}))
+    import src.services.video_queue as vq
+    monkeypatch.setattr(
+        vq, "get_video_queue",
+        lambda: _Q({"current": None, "queued": [], "cloud_running": []}))
+    import src.middleware.feature_lock as fl
+    monkeypatch.setattr(
+        fl, "get_feature_lock",
+        lambda: types.SimpleNamespace(active_feature=None))
+    import src.services.browser_agent_service as bas
+    monkeypatch.setattr(
+        bas, "get_browser_agent_service",
+        lambda: types.SimpleNamespace(active_session=lambda: None))
+    import src.services.inference.gpu_budget as gb
+    monkeypatch.setattr(
+        gb, "get_busy_registry",
+        lambda: types.SimpleNamespace(entries=lambda: ()))
+
+    from src.services.page_guard import _busy
+    assert _busy() is True, "云任务在跑（cloud_running）必须判忙"

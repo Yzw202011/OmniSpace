@@ -43,5 +43,8 @@ def test_debug_residue_sweep(tmp_path: Path,
     assert {"boot_smoke_out.log", "ab_dflash_mtp.log", "_patch_art.py",
             "_qa_graph.json", "diag_links.log"} <= names
     assert "boot_smoke_out9.log" not in names           # 未过期保留
-    assert "backend.log.1" in names or True             # 轮转系按 30 天规则
+    # 轮转代（*.log.1）按 30 天规则清理——环境不保证该文件存在时
+    # 显式跳过该断言（round-2026-09-20 F11：不再恒真）
+    if (tmp_path / "backend.log.1").exists():
+        assert "backend.log.1" in names
     assert (tmp_path / "boot_smoke_out9.log").exists()  # 实物在

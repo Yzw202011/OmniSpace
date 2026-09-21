@@ -48,7 +48,8 @@ def patched(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(comic_gen, "_apply_turnaround_meta",
                         lambda meta, gen: None)
     monkeypatch.setattr(comic_gen, "_append_asset_history",
-                        lambda meta, action, old, rel: None)
+                        lambda meta, action, old, rel,
+                        elapsed_ms=None: None)  # 批1 P6：新增耗时参数
     db = type("_DB", (), {
         "query_one": staticmethod(lambda *a, **k: None),
         "query": staticmethod(lambda *a, **k: []),

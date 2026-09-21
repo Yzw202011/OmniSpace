@@ -28,8 +28,10 @@ def test_tasks_center_aggregates(db) -> None:
     r = sysapi.system_tasks_center()
     data = r["data"]
     assert isinstance(data["cards"], list)
-    # training 源老库可能缺列——fail-soft 如实进 errors[]（设计行为）
-    assert all(e.startswith("training:") is False or True for e in data["errors"])
+    # training 源老库可能缺列——fail-soft 如实进 errors[]（设计行为）。
+    # （round-2026-09-20 F11：恢复被 or True 掏空的断言语义）
+    offenders = [e for e in data["errors"] if e.startswith("training:")]
+    assert not offenders, f"任务中心 training 源报错: {offenders}"
     assert data["active"] >= 0
     # 插一个 pending 视频任务 → 出卡且 active+1
     db.insert("video_tasks", {

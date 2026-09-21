@@ -56,7 +56,7 @@ def test_non_windows_noop(monkeypatch):
 def test_queue_core_imports():
     # TaskQueueCore 模块加载即含 keep_awake 引用（接线存在性）
     import src.services.task_queue as tq
-    assert "keep_awake" in dir(tq) or True  # noqa: S101
+    assert "keep_awake" in dir(tq)  # noqa: S101
     import inspect
     src_text = inspect.getsource(tq.TaskQueueCore._run_one)
     assert "keep_awake(" in src_text

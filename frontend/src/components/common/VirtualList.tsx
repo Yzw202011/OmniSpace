@@ -112,13 +112,23 @@ export function VirtualList<T extends { id: string }>({
     }
     if (prevKey.current === idsKey) return;
     prevKey.current = idsKey;
-    heights.current = new Map();
+    // 保留按 id 记忆的实测行高（id 跨追加稳定，旧高度仍有效），仅裁剪
+    // 离场 id —— 旧实现整表清空实测高度，重建只能退回估算值。
+    const keep = new Map<string, number>();
+    for (const it of items) {
+      const h = heights.current.get(it.id);
+      if (h !== undefined) keep.set(it.id, h);
+    }
+    heights.current = keep;
     for (const ro of observers.current.values()) ro.disconnect();
     observers.current.clear();
-    const prev = offsets.current;
+    // 重建偏移：逐行取「实测高度 ?? 估算」（round-2026-09-20 F5 根修：
+    // 旧实现把「旧累积偏移 prev[i+1]」（前 i+1 行总高）当第 i 行高度
+    // 做增量，O(n²) 指数膨胀——会话超 60 条后追加任一条消息即触发，
+    // 流式期间逐块更新连续复利）。
     const off: number[] = [0];
     for (let i = 0; i < items.length; i++) {
-      off.push(off[i] + (prev?.[i + 1] ?? estimate) + gap);
+      off.push(off[i] + (heights.current.get(items[i].id) ?? estimate) + gap);
     }
     offsets.current = off;
     setWin([Math.max(0, items.length - 20), items.length - 1]);

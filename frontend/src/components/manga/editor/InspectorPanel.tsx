@@ -150,7 +150,7 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
             if (allowAutoRetry && /MODEL_LOAD_FAILED|PAINT_ENGINE_NOT_READY|绘画模型未就绪|模型未加载|未处于已加载/.test(msg)) {
               autoRetryingRef.current = true;
               showToast(
-                `${msg}。正在自动加载绘画模型（约 0.5-2 分钟，弹窗可见进度），就绪后将自动继续生成，无需重新点击`,
+                `${msg}。正在自动加载绘画模型（约 0.5-2 分钟），就绪后将自动继续生成，无需重新点击`,
                 'info',
               );
               void warmupFeature('paint')

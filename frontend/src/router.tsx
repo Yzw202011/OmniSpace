@@ -1,10 +1,11 @@
 // 本项目仅供学习使用，商业授权请+Q 3559331368
 /* ==========================================================================
- * OmniSpace AI v2.5.0 —— Hash 路由配置（10 个一级路由，规格 §6.1.2）
+ * OmniSpace AI v2.5.0 —— Hash 路由配置（11 个一级路径＝10 页面路由＋1 重定向，规格 §6.1.2）
  * --------------------------------------------------------------------------
  * 路由（规格 §6.1.2 左侧导航栏，无"首页"；2026-08-21 新增 logs、
- * 2026-09-05 新增 novel）：
- *   chat / paint / storyboard / novel / learning / models / style / settings / logs / help
+ * 2026-09-05 新增 novel、2026-09-17 新增 training 且 style 改重定向）：
+ *   chat / paint / storyboard / novel / learning / models / training / settings / logs / help
+ *   （/style → /training 重定向保书签，P1 训练中心 2026-09-17）
  * 根路径 `/` 与非法路径 `*` 均重定向到 /chat（Navigate replace，不留历史栈）。
  * 使用 react-router-dom 7 的 createHashRouter（Hash 路由，离线/静态可用，COM-001）。
  * 根路由挂载 AppShell（左侧导航 + 主内容 + 右侧面板 + 底部状态栏 + Toast）。
@@ -15,7 +16,8 @@
  *   - storyboard → components/manga/MangaPage.tsx
  *   - learning   → components/learning/LearningPage.tsx
  *   - models     → components/model/ModelManager.tsx
- *   - style      → components/style/StylePage.tsx
+ *   - training   → components/training/TrainingPage.tsx（2026-09-17 新增）
+ *   - style      → 重定向 /training（StylePage 以 embedded 内嵌于训练中心）
  *   - settings   → components/Settings.tsx
  *   - logs       → components/logs/LogsPage.tsx（2026-08-21 日志可视化面板）
  *   - help       → components/help/HelpPage.tsx
@@ -50,7 +52,7 @@ export function lazyPage(loader: () => Promise<{ default: React.ComponentType }>
   );
 }
 
-/** 路由表（9 个一级路由，根布局 AppShell；/ 与 * 重定向 /chat） */
+/** 路由表（10 个页面路由 + /style 重定向，根布局 AppShell；/ 与 * 重定向 /chat） */
 export const routes: RouteObject[] = [
   {
     path: '/',

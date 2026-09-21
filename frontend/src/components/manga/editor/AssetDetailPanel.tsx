@@ -331,7 +331,7 @@ export default function AssetDetailPanel() {
               })
               .catch(() => { /* 预热点火失败静默，指引已给 */ });
             showToast(
-              `${reason}。正在后台自动加载绘画模型（弹窗可见进度），就绪后请再点一次「AI 生图」`,
+              `${reason}。正在后台自动加载绘画模型（约 0.5-2 分钟），就绪后请再点一次「AI 生图」`,
               'warning',
             );
           } else {

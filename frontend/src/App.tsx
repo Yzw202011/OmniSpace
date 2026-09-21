@@ -43,8 +43,6 @@ import Tooltip from './components/common/Tooltip';
 import TechParticles from './components/common/TechParticles';
 import DaliParticles from './components/common/DaliParticles';
 import DaliVerse from './components/common/DaliVerse';
-import WarmupModal from './components/common/WarmupModal';
-import PaintWarmupModal from './components/common/PaintWarmupModal';
 import LicenseGate from './components/common/LicenseGate';
 import TopBar from './components/layout/TopBar';
 import RightPanel from './components/layout/RightPanel';
@@ -58,8 +56,7 @@ import { useHardwareStore } from './stores/useHardwareStore';
 import { useMangaStore } from './stores/useMangaStore';
 import { useTaskStore } from './stores/useTaskStore';
 import { useSystemHealthStore } from './stores/useSystemHealthStore';
-import { useWarmupStore } from './stores/useWarmupStore';
-import { releaseForModule, warmupFeature } from './services/modelApi';
+import { releaseForModule } from './services/modelApi';
 import { getWsHub } from './services/ws';
 import { canSwitchFeature, type ActiveFeature } from './types';
 
@@ -377,65 +374,17 @@ export function AppShell() {
     const isFirst = lastHeavyFeatureRef.current === null;
     const switched = !isFirst && feature !== lastHeavyFeatureRef.current;
     lastHeavyFeatureRef.current = feature;
-    let cancelled = false;
     void (async () => {
       // 模块切换（非首次）：其他模块 3s 内释放，优先供应目标模块
       if (switched) {
         await triggerModuleResourceRelease(feature);
       }
-      // 对话模块预热（2026-08-22 思考过长事故）：vLLM 冷启动 ~157s，
-      // 进入页面即点火（含首次——首句等待正是主诉），打字/阅读时间
-      // 即加载时间。带用户持久化选择的 modelId——引擎默认加载 4b 而
-      // 用户选 8b-awq 时发消息才热切换即二次冷启动，预热直接以用户
-      // 选择为目标。先等释放完成再点火避免装载竞争显存；预热不持
-      // 功能锁，用户切走时 release_for_module 可正常终止。
-      // S6 预热延迟（2026-08-28 V77 事故根修）：/chat 是默认路由，
-      // 启动/路过即点火 vLLM 与用户随后的生成任务争抢 GPU 算力
-      //（质量总督深度降步 36→14）。延迟 3s 点火——路过默认落地页
-      //（路由切走，cleanup 置 cancelled）不点火；重量级功能持锁
-      // 期间跳过（后端 vllm_service P0 门禁双保险）。
-      if (feature === 'dialog') {
-        const heavy = useAppStore.getState().activeFeature;
-        if (heavy === 'paint' || heavy === 'video_gen' || heavy === 'training') {
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        if (cancelled) return;
-        try {
-          const targetModel = useDialogStore.getState().modelId;
-          const r = await warmupFeature('dialog', targetModel);
-          if (r.started) {
-            // 冷启动进度弹窗（2026-08-23 替代一次性 toast）：
-            // 时间渐近进度条 + /dialog/status 就绪校正，见 WarmupModal
-            useWarmupStore.getState().begin(targetModel || undefined);
-          }
-        } catch {
-          /* silent-intent: 后端不可达静默 */
-        }
-      }
-      // AI 绘画预热（2026-08-31，用户需求「跟 AI 对话一样的冷启动弹窗」）：
-      // 进页面即点火 diffusers 管线（冷启动 10~60s），选参数/浏览时间即
-      // 加载时间；3s 延迟防路由路过误点火（与对话预热 S6 同口径），
-      // 视频生成/训练持锁期间跳过。弹窗 = PaintWarmupModal，
-      // 就绪信号 GET /draw/status loaded（诚实进度）
-      if (feature === 'paint') {
-        const heavy = useAppStore.getState().activeFeature;
-        if (heavy === 'video_gen' || heavy === 'training') {
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        if (cancelled) return;
-        try {
-          const r = await warmupFeature('paint');
-          if (r.started) {
-            useWarmupStore.getState().begin(undefined, 'paint');
-          }
-        } catch {
-          /* silent-intent: 后端不可达静默 */
-        }
-      }
+      // 冷启动策略改版（用户令 2026-09-20）：取消「进页 3 秒点火预热+
+      // 冷启动弹窗」——模型只在用户真正使用时才加载（对话=发送消息、
+      // 绘画/漫画=点生成），加载进度由发送/生成链内嵌呈现（对话状态帧
+      // 「冷启动中已排队」+ 生成按钮态），不再弹独立弹窗。旧的
+      // WarmupModal/PaintWarmupModal 与 useWarmupStore 已随本改版移除。
     })();
-    return () => { cancelled = true; };
   }, [location.pathname]);
 
   // 进入漫剧项目（currentProject: null → 项目）：漫剧工作台即将进行重型生成，
@@ -594,10 +543,6 @@ export function AppShell() {
       {/* 全局 Toast 容器 */}
       <ToastContainer />
 
-      {/* 对话模型冷启动进度弹窗（全局单例，App 根渲染不随路由卸载） */}
-      <WarmupModal />
-      {/* AI 绘画模型冷启动进度弹窗（同 store 分流，paint 预热时显示） */}
-      <PaintWarmupModal />
       {/* 激活门禁遮罩（P8 补洞）：任何接口报未激活即全屏弹激活窗 */}
       <LicenseGate />
     </div>

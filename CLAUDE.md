@@ -54,7 +54,7 @@
 | 浏览器 | **Playwright Chromium 进程池**（学习代理用）+ 用户系统浏览器 | CEF 120+ |
 | 加密 | **AES-256-GCM 字段级**（crypto.py）+ Windows DPAPI 密钥保护 | SQLCipher（未启用） |
 | 包管理 | 后端 **pip + requirements-lock.txt**（154 包钉版）；前端 **pnpm** | uv |
-| 静态检查 | **ruff（ruff.toml）+ mypy 第4闸**（2026-09-05 批4 上岗：存量 234 条基线冻结 tools/mypy_baseline.txt 只增不减；tools/run_mypy.py --staged / --rebaseline） | — |
+| 静态检查 | **ruff（ruff.toml）+ mypy 第4闸**（2026-09-05 批4 上岗：存量 234 条基线冻结 tools/mypy_baseline.txt 只增不减；tools/run_mypy.py --staged / --rebaseline）**+ 文档对账闸（第5闸，2026-09-19）**：tools/doc_drift_check.py 校验 tools/doc_claims.json 断言，防文档漂移（pre-commit 第5步+run_tests L0） | — |
 | 桌面壳层 | **launcher.bat/launcher.py + 系统浏览器**（ADR-002 裁剪） | Tauri 2.x / Electron |
 | 视频编码 | **FFmpeg（runtime/ffmpeg）**，encoder_service.py | 独立 SVT-AV1 构建 |
 
@@ -150,7 +150,7 @@ src/stores/：
 | 大模型卸载MUST三件套 | `del model; torch.cuda.empty_cache(); gc.collect()` |
 | 禁止循环中重复加载模型 | 引擎为模块级懒加载单例（双重检查锁） |
 | SQLite 写入串行化 | threading.local 连接 + 全局 _write_lock；批量写走 execute_in_transaction |
-| 静态检查 | ruff check + mypy 第4闸通过（提交前，.githooks 三闸+1；mypy 基线冻结只增不减，见 §12.1） |
+| 静态检查 | ruff check + mypy 第4闸 + 文档对账第5闸通过（提交前，.githooks 五步；mypy 基线冻结只增不减见 §12.1，文档断言清单见 tools/doc_claims.json） |
 | 降级必须诚实 | 不可用功能返回 degraded:true + degrade_reason，禁止伪造结果 |
 
 ### 3.1.1 目录布局（2026-09-15 src 扁平化重构后）
@@ -190,13 +190,13 @@ backend/          兼容 shim（仅 re-export src.main:app，救仓库外冻结�
 
 ---
 
-## 4. API路由现状（实测 2026-08-28；2026-09-02 复核：319 装饰器、模块 15 个）
+## 4. API路由现状（实测 2026-08-28；2026-09-19 对账闸复核：360 HTTP 装饰器 + 4 WS、18 个路由模块）
 
 ```
 Base URL: http://127.0.0.1:5800/api/v1   （直接 uvicorn / config.yaml）
           launcher 默认 --port 8765（冲突扫描 5800-5835）—— 两套端口并存，联调前先确认
 
-18 个路由模块 ≈**377 端点**（B1 2026-09-13 实测；API 面水分约 40%——38 死端点+112 仅测试/脚本消费，清退清单见 docs/全量技术评估总汇总与修复总方案-v4 §八）：
+18 个路由模块 ≈**360 端点**（2026-09-19 对账闸实测；B1 旧口径 377/水分约 40% 已过时——09-18 对账消费率 93%，仅 16 个测试专用+8 个死端点候选，见 docs/对账总表-2026-09-18.md；端点计数哨兵盯防登记于 tools/doc_claims.json）：
 ├── /api/v1/dialog  (≈/chat 别名)   对话（send/history/sessions/status，SSE: /chat/stream）
 ├── /api/v1/draw    (≈/paint 别名)  绘画（generate 异步任务 /img2img /inpaint /upscale /queue /history）
 ├── /api/v1/manga/*                 漫剧包：storyboard / comic / comic_asset / keyframe / video

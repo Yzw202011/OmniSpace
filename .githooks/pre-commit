@@ -4,6 +4,7 @@
 #   git config core.hooksPath .githooks
 # 检查内容: compileall 语法基线 + ruff 静态检查 + pytest -m smoke 冒烟
 #            + mypy 增量类型检查（2026-09-05 批4：基线冻结只增不减）
+#            + 文档对账闸（2026-09-19 第5闸：doc_claims.json 断言校验，防文档漂移）
 # 绕过（自担风险）: git commit --no-verify
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -18,7 +19,7 @@ fi
 
 cd "$REPO_ROOT" || exit 1
 
-echo "[pre-commit] [1/4] compileall 语法基线..."
+echo "[pre-commit] [1/5] compileall 语法基线..."
 # src 扁平化（2026-09-15）：后端真源=src/；backend/ 仅剩兼容 shim 仍纳入编译
 # -x 排除 ComfyUI 便携目录（第三方 site-packages 含 py312 语法，编译必炸）
 "$PY" -m compileall -q src backend launcher tools -x "ComfyUI_windows_portable|musubi-tuner"
@@ -29,7 +30,7 @@ if [ $? -ne 0 ]; then
 fi
 
 if [ -f "$RUFF" ]; then
-  echo "[pre-commit] [2/4] ruff 静态检查..."
+  echo "[pre-commit] [2/5] ruff 静态检查..."
   "$RUFF" check .
   if [ $? -ne 0 ]; then
     echo ""
@@ -37,10 +38,10 @@ if [ -f "$RUFF" ]; then
     exit 1
   fi
 else
-  echo "[pre-commit] [2/4] 未找到 ruff.exe（$RUFF），跳过静态检查"
+  echo "[pre-commit] [2/5] 未找到 ruff.exe（$RUFF），跳过静态检查"
 fi
 
-echo "[pre-commit] [3/4] pytest -m smoke 冒烟测试..."
+echo "[pre-commit] [3/5] pytest -m smoke 冒烟测试..."
 "$PY" -m pytest -m smoke -q
 if [ $? -ne 0 ]; then
   echo ""
@@ -49,12 +50,22 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "[pre-commit] [4/4] mypy 增量类型检查（基线冻结只增不减）..."
+echo "[pre-commit] [4/5] mypy 增量类型检查（基线冻结只增不减）..."
 "$PY" tools/run_mypy.py --staged
 if [ $? -ne 0 ]; then
   echo ""
   echo "[pre-commit] ✗ mypy 新增类型错误，提交被拦截（修复；"
   echo "             或确认属基线漂移后 runtime/py312/python.exe tools/run_mypy.py --rebaseline 重审）"
+  exit 1
+fi
+
+echo "[pre-commit] [5/5] 文档对账闸（doc_claims.json 断言 vs 仓库实况）..."
+"$PY" tools/doc_drift_check.py
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "[pre-commit] ✗ 文档对账失配（文档与代码漂移），提交被拦截"
+  echo "             （按每条断言的 why 勘正文档，或事实已变则同步更新"
+  echo "              tools/doc_claims.json；绕过 = git commit --no-verify 自担风险）"
   exit 1
 fi
 

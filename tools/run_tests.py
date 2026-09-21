@@ -1,6 +1,7 @@
 """全量测试统一入口（TASK-P2-09，审计 P24：双测试入口整合）。
 
 三层测试体系唯一命令：
+    L0  文档对账闸   tools/doc_drift_check.py（doc_claims.json 断言 vs 仓库实况）
     L1  后端 pytest   tests/unit（离线可跑：smoke / schema / unit 标记）
     L2  前端 vitest   frontend/src/**/*.test.ts（store / Zod / 枚举一致性 / 错误策略扫描）
     L3  E2E 流程编排  tests/flow（需活后端 http://127.0.0.1:5800，真实推理级）
@@ -43,6 +44,11 @@ def main() -> int:
         return 1
 
     results: dict[str, bool] = {}
+
+    # L0 文档对账闸（2026-09-19 第5闸：断言失配=文档漂移，防三轮复发的旧病）
+    results["L0 doc drift check"] = _run_layer(
+        "L0 文档对账闸", [str(PY), "tools/doc_drift_check.py"], ROOT
+    )
 
     # L1 后端 pytest（--smoke 时仅冒烟标记；默认全量，testpaths=tests/unit）
     pytest_cmd = [str(PY), "-m", "pytest"] + (["-m", "smoke"] if SMOKE_ONLY else [])

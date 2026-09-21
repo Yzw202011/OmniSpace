@@ -307,12 +307,13 @@ class SchedulerEngine:
                 self.dispatcher._preloaded.clear()
             # 池压缩（2026-08-23 显存锚定修复）：卸载后 empty_cache
             # 无法释放被 bge 等长驻小模型活跃块钉死的大 segment
-            # （实测 loaded=0 仍锚定 15.3GB 物理）——bge 停靠 CPU →
-            # 清池全段归还 → 回卡，物理显存才真正回到系统。
-            # 台账为空同样执行（卸载已发生但池仍臃肿的场景）
+            # （实测 loaded=0 仍锚定 15.3GB 物理）。空闲归零模式
+            # （2026-09-20 批1）：门槛 0 + 停靠不回卡——bge 留驻 CPU，
+            # 清池后 reserved→0（碎片率 0.00），RAG 首查由 vector_db
+            # 惰性回卡（付一次 PCIe 拷贝，<1s）。
             try:
                 from ..model_manager import deflate_cuda_pool
-                deflate_cuda_pool()
+                deflate_cuda_pool(0.0, restore=False)
             except Exception as exc:  # noqa: BLE001
                 log.debug("深回收后池压缩跳过: %s", exc)
 

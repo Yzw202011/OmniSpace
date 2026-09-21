@@ -5,16 +5,19 @@
 代替系统浏览器。由 boot.py 在启动链就绪后拉起（shell_poc.py 是 S0 验证档，
 本文件是其正式化转正）。
 
-关窗语义（ADR-004 吸收 page_guard 方案）：本壳不直接杀后端——关窗后页面
-WebSocket 断开，后端 page_guard 按「全部页面关闭 60s 且无任务」倒计时走
-正规退出链（/api/quit 由启动页发起）。壳进程自身随窗口关闭自然退出。
+关窗语义（用户令 2026-09-20 改版）：关壳＝完全退出软件，但必须弹窗
+二次确认——「是」走启动页 /api/quit 正规链（boot 收尾后端与全部子进
+程，绝不硬杀）；「否」窗口保持继续使用。确认前弹窗如实提示在跑任务
+数（GET /system/tasks/center，best-effort）。后端 page_guard 的
+「全部页面关闭 60s 且无任务」倒计时保留为无壳场景兜底（系统浏览器
+模式/壳异常退出）。
 
 单实例守卫（2026-09-14）：已有壳窗口时本进程置前旧窗并让位退出（exit 0），
 不开第二个窗——boot 让位分支再拉界面、用户重复手动拉壳都收敛到同一窗；
 OMNISPACE_ALLOW_MULTI=1 豁免（双实例联调，与 boot/后端互斥体同语义）。
 
 用法（boot 调用，也可手动）：
-  runtime/py310/OmniSpace-Shell.exe launcher/shell.py --url http://127.0.0.1:5800
+  runtime/py312/OmniSpace-Shell.exe launcher/shell.py --url http://127.0.0.1:5800
 """
 from __future__ import annotations
 
@@ -160,6 +163,42 @@ def _raise_existing_window(hwnd: int) -> None:
     user32.SetForegroundWindow(hwnd)
 
 
+def _running_tasks_hint() -> str:
+    """在跑任务数提示（best-effort，1.5s 超时；后端不可达给空串）。"""
+    try:
+        import json as _json
+        import urllib.request
+        req = urllib.request.Request(
+            'http://127.0.0.1:5800/api/v1/system/tasks/center',
+            headers={'Accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = (_json.loads(resp.read() or b'{}') or {}).get('data') or {}
+        active = int(data.get('active') or 0)
+        if active > 0:
+            return (f'\n\n当前有 {active} 个任务正在运行，'
+                    '退出会中断它们（下次启动将标记为失败）。')
+    except Exception:  # noqa: BLE001 - 探测失败不带忙提示（不影响确认）
+        pass
+    return ''
+
+
+def _trigger_graceful_quit() -> None:
+    """触发正规退出链：POST 启动页 /api/quit（boot 收尾后端与子进程）。
+
+    best-effort：启动页不可达（开发直跑壳等场景）时窗口照常关闭，
+    后端仍有 page_guard 60s 倒计时兜底。
+    """
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            'http://127.0.0.1:5850/api/quit', data=b'{}',
+            headers={'Content-Type': 'application/json'}, method='POST')
+        urllib.request.urlopen(req, timeout=2.0).read()
+        _log('已确认退出：正规链 /api/quit 已发（boot 收尾中）')
+    except Exception as exc:  # noqa: BLE001 - 兜底交给 page_guard 倒计时
+        _log(f'/api/quit 发送失败（后端由 page_guard 倒计时兜底）: {exc}')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--url', required=True, help='要装载的页面地址')
@@ -188,11 +227,35 @@ def main() -> int:
         'OmniSpace AI', args.url,
         width=args.width, height=args.height, min_size=(1024, 680))
 
+    def on_closing() -> bool:
+        """关壳二次确认（用户令 2026-09-20）：关壳=完全退出软件。
+
+        pywebview closing 语义：返回 False 取消关闭（窗口保持）；
+        确认「是」→ 触发正规退出链后放行关窗。默认焦点落在「否」
+        （安全侧），有在跑任务时弹窗如实提示数量。
+        """
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+        MB_YESNO, MB_ICONQUESTION, MB_DEFBUTTON2 = 0x04, 0x20, 0x100
+        IDYES = 6
+        ret = user32.MessageBoxW(
+            0,
+            '确定要完全退出 OmniSpace 吗？'
+            + _running_tasks_hint()
+            + '\n\n选择「是」：保存并正常关闭全部组件；'
+              '选择「否」：继续使用。',
+            'OmniSpace 退出确认',
+            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2)
+        if ret != IDYES:
+            _log('用户取消退出（二次确认选「否」），窗口保持')
+            return False
+        _trigger_graceful_quit()
+        return True
+
     def on_closed() -> None:
-        # 关窗=页面 WS 断开 → 后端 page_guard 60s 倒计时正规退出链
-        _log('窗口已关闭（后端由 page_guard 倒计时接管，60s 无任务自动退出）')
+        _log('窗口已关闭（已走 /api/quit 正规链；page_guard 倒计时为兜底）')
 
     assert window is not None  # create_window 类型宽收窄
+    window.events.closing += on_closing
     window.events.closed += on_closed
     try:
         webview.start(gui='edgechromium')

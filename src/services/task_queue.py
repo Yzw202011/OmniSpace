@@ -256,6 +256,13 @@ class TaskQueueCore:
                     # 收尾窗口内 submit/position/cancel 不被阻塞）
                     self._lock_held = False
                     drain = True
+                else:
+                    # 出队判空与 wait 必须同锁窗口（审计 round-2026-09-19
+                    # P1-6 根修）：先前分属两窗，判空释放锁后、进入 wait
+                    # 前的微秒窗内 submit 的 notify 会落空 → wait() 无超时
+                    # 永久睡眠，任务滞留。对齐 _cloud_dispatcher_loop 写法。
+                    self._cond.wait()
+                    continue
             if drain:
                 try:
                     if self.spec.unload_hook:
@@ -265,9 +272,7 @@ class TaskQueueCore:
                     self._h(self.spec.wake_hook)()
                 continue  # 重取：收尾窗口内新入队任务立即消费
             if task is None:
-                with self._cond:
-                    self._cond.wait()
-                continue
+                continue  # 不可达（None 已在锁内 wait+continue）——类型收窄
             task_id = str(task.get("task_id"))
             try:
                 if self.spec.run_one_hook:

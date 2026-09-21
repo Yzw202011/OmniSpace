@@ -153,6 +153,9 @@ class VectorDB:
     def __init__(self, collection_name: str = "omnispace_knowledge") -> None:
         self._collection_name = collection_name
         self._lock = threading.Lock()
+        # 设备搬移锁（2026-09-20 批1）：bge 停靠/回卡与 encode 串行化——
+        # 无锁时搬移撞上在飞 encode 会吞错降级哈希向量（语义静默丢失）
+        self._device_lock = threading.Lock()
         self._embed_model = None
         self._embed_backend = "hash"   # bge-large-zh | hash
         self._client = None
@@ -240,8 +243,9 @@ class VectorDB:
         if m is None:
             return True  # 未加载（哈希回退态），无需停靠
         try:
-            if str(getattr(m, "device", "")).startswith("cuda"):
-                m.to("cpu")
+            with self._device_lock:
+                if str(getattr(m, "device", "")).startswith("cuda"):
+                    m.to("cpu")
             return True
         except Exception as exc:  # noqa: BLE001
             log.warning("bge 停靠 CPU 失败（池压缩跳过）: %s", exc, exc_info=True)
@@ -255,9 +259,29 @@ class VectorDB:
         try:
             import torch  # type: ignore
             if torch.cuda.is_available():
-                m.to("cuda")
+                with self._device_lock:
+                    m.to("cuda")
         except Exception as exc:  # noqa: BLE001
             log.warning("bge 回卡失败（暂用 CPU 检索）: %s", exc, exc_info=True)
+
+    def _ensure_embed_on_cuda(self) -> None:
+        """惰性回卡（调用方须持 _device_lock，2026-09-20 批1）。
+
+        空闲归零（deflate restore=False）把 bge 留驻 CPU 后，首次
+        检索在此搬回 CUDA；失败留在 CPU——RAG 慢速但可用。
+        """
+        m = self._embed_model
+        if m is None:
+            return
+        try:
+            import torch  # type: ignore
+            if (torch.cuda.is_available()
+                    and not str(getattr(m, "device", "")).startswith("cuda")):
+                m.to("cuda")
+                log.info("bge 惰性回卡完成（空闲归零后的首次检索）")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("bge 惰性回卡失败（暂用 CPU 检索）: %s", exc,
+                        exc_info=True)
 
     def embed(self, text: str) -> list[float]:
         """将文本转换为向量。
@@ -267,9 +291,11 @@ class VectorDB:
         model = self._get_embed_model()
         if model is not None:
             try:
-                vec = model.encode(text, normalize_embeddings=True)
+                with self._device_lock:
+                    self._ensure_embed_on_cuda()
+                    vec = model.encode(text, normalize_embeddings=True)
                 return vec.tolist()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 log.warning("嵌入失败，使用哈希降级: %s", exc, exc_info=True)
         # 降级：基于哈希的稀疏向量（固定维度 256）
         return self._hash_embed(text)
@@ -298,8 +324,10 @@ class VectorDB:
         model = self._get_embed_model()
         if model is not None:
             try:
-                vecs = model.encode(texts, normalize_embeddings=True)
-                return [v.tolist() for v in vecs]
+                with self._device_lock:
+                    self._ensure_embed_on_cuda()
+                    vecs = model.encode(texts, normalize_embeddings=True)
+                    return [v.tolist() for v in vecs]
             except Exception:
                 log.debug("_embed_batch: 降级忽略", exc_info=True)
         return [self.embed(t) for t in texts]

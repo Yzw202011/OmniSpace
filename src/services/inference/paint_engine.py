@@ -1070,9 +1070,22 @@ class PaintEngine(BaseEngine):
             ensure = getattr(mgr, "ensure_loaded", None)
             if callable(ensure):
                 try:
-                    ensure("paint", want or "sdxl-base-1.0")
+                    mgr_ok = bool(ensure("paint", want or "sdxl-base-1.0"))
                 except Exception as exc:
                     log.debug("model_manager.ensure_loaded 调用失败: %s", exc)
+                    mgr_ok = True  # 管家不可用=不设闸，走引擎自载（保守兼容）
+                if not mgr_ok:
+                    # 尊重统一准入口裁决（round-2026-09-20 R2-B 根修）：
+                    # 此前返回值被弃置、无条件自载=paint 侧无准入，与
+                    # mgr 双轨抢装。现对齐 dialog 尊重 mgr_result 的写法
+                    #（V77）：拒绝即诚实失败并透出 mgr 原因。
+                    reason = (getattr(mgr, "last_error", "") or "").strip() \
+                        or f"显存准入拒绝: {want or 'sdxl-base-1.0'}"
+                    with self._lock:
+                        self._last_error = reason
+                        self._state = "error"
+                    log.warning("paint ensure_loaded 被准入门拒绝: %s", reason)
+                    return False
         except Exception:
             log.debug("ensure_loaded: 降级忽略", exc_info=True)
         return self.load_model(model_id)

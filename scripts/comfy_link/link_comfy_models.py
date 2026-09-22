@@ -21,7 +21,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]  # scripts/comfy_link/ → 仓库根
+# （2026-09-23 修复：自 modelxiazai/ 挪入 scripts/comfy_link/ 后原
+# parent.parent 少一级=指向 scripts/，CENTRAL 落 scripts\models 不存在
+# → 全部条目静默按「中央缺文件」跳过、报「新链 0」假账。parents[2]
+# 恢复正轨；产线挂接走 comfy_mount.py 不受此 bug 影响。）
 COMFY_MODELS = (REPO / "tools" / "ComfyUI_windows_portable" / "ComfyUI"
                 / "models")
 CENTRAL = REPO / "models"

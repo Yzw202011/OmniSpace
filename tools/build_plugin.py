@@ -72,9 +72,9 @@ def main() -> int:
     if not out_path.suffix.lower() == ".cutemamen":
         out_path = out_path.with_suffix(".CuteMamen")
 
-    # 解析技能
-    skills = [s.strip() for s in args.skills.split(",") if s.strip()]
-    invalid = [s for s in skills if s not in VALID_FEATURES]
+    # 解析技能名（Bug4：validate_skills 要求对象列表，展开在 cls 加载后做）
+    skill_names = [s.strip() for s in args.skills.split(",") if s.strip()]
+    invalid = [s for s in skill_names if s not in VALID_FEATURES]
     if invalid:
         print(f"❌ 无效技能: {invalid}（可选: {sorted(VALID_FEATURES)}）")
         return 1
@@ -82,6 +82,18 @@ def main() -> int:
     # 加载插件类
     cls = load_plugin_class(src_path)
     name = args.name or cls.__name__.replace("Plugin", "").lower()
+
+    # Bug4 根修（2026-09-22）：展开为合规 dict（需 cls/name 已就位）
+    skills = [
+        {
+            "id": f"{name}-{s}",
+            "feature": s,
+            "title": f"{getattr(cls, 'CAPABILITY', name)} ({s})",
+            "description": f"{name} plugin for {s}",
+            "input": "text",
+        }
+        for s in skill_names
+    ]
 
     # 实例化
     try:

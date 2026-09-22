@@ -29,6 +29,7 @@ const UPGRADE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** U2: 阶段名映射（updater state.json 的 phase → 用户可读文案） */
 const PHASE_LABELS: Record<string, string> = {
+  handed_over: '正在启动升级…',
   handover_wait: '等待服务退出…',
   backing_up: '备份当前版本…',
   applying: '正在替换文件…',
@@ -38,7 +39,9 @@ const PHASE_LABELS: Record<string, string> = {
   failed: '升级失败',
 };
 
-function phaseLabel(phase: string | undefined): string {
+function phaseLabel(phase: string | undefined, backendDown: boolean): string {
+  /* Bug1 根修（2026-09-22）：后端下线期间 phase 冻结——诚实显示推断态 */
+  if (backendDown) return '升级进行中（后端已下线，正在后台操作）';
   if (!phase) return '准备中…';
   return PHASE_LABELS[phase] ?? phase;
 }
@@ -72,6 +75,8 @@ export default function UpgradeSection() {
   const [upgradingTo, setUpgradingTo] = useState('');
   /** U2: 升级阶段（从 /upgrade/status 的 state.phase 读取） */
   const [phase, setPhase] = useState('');
+  /** Bug1: 后端下线标记（连续 poll 失败时 true，阶段显示切为推断态） */
+  const [backendDown, setBackendDown] = useState(false);
   /** U3: 超时标记 */
   const [timedOut, setTimedOut] = useState(false);
   /** U1: 拖拽视觉反馈 */
@@ -121,6 +126,7 @@ export default function UpgradeSection() {
       }
       try {
         const s = await getUpgradeStatus();
+        setBackendDown(false); /* Bug1: 后端复活，恢复精确阶段显示 */
         /* U2: 更新阶段显示 */
         if (s.state?.phase) setPhase(s.state.phase);
         if (s.current.build && s.current.build !== oldBuild) {
@@ -129,6 +135,8 @@ export default function UpgradeSection() {
           window.location.reload();
         }
       } catch {
+        /* Bug1 根修：后端下线→阶段冻结——诚实标记并显示推断态 */
+        setBackendDown(true);
         /* silent-intent: 升级期间后端下线属预期，继续等待 */
       }
     }, 3000);
@@ -196,7 +204,12 @@ export default function UpgradeSection() {
         e.dataTransfer.dropEffect = 'copy';
         setDragOver(true);
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(e) => {
+        /* 问题6 根修：仅当真正离开卡片时才取消高亮（子元素间不闪） */
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setDragOver(false);
+        }
+      }}
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
@@ -362,7 +375,7 @@ export default function UpgradeSection() {
           <h2>正在升级到 v{upgradingTo}</h2>
           {/* U2: 当前阶段 */}
           <p style={{ fontSize: 16, opacity: 0.9 }}>
-            {phaseLabel(phase)}
+            {phaseLabel(phase, backendDown)}
           </p>
           {/* 简易进度指示（阶段动画） */}
           <div style={{

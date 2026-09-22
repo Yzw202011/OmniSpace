@@ -270,6 +270,18 @@ def scan_updates() -> list[dict[str, Any]]:
             entry["compat_reason"] = reason
             entry["valid"] = ok
             entry["reason"] = reason
+            # Bug2 根修（2026-09-22）：从包内 README.txt 读更新说明
+            # （打包工具把 notes 写进 README 而非 manifest，前端
+            #   展开详情需要此字段）
+            try:
+                import zipfile
+                with zipfile.ZipFile(pkg) as zf:
+                    if "README.txt" in zf.namelist():
+                        txt = zf.read("README.txt").decode("utf-8", errors="replace").strip()
+                        if txt:
+                            entry["notes"] = txt[:2000]  # 截断防超长
+            except Exception:  # noqa: BLE001 - notes 读取失败不影响列表
+                pass
         except UpgradeError as exc:
             entry["reason"] = str(exc)
         except OSError as exc:

@@ -1248,6 +1248,17 @@ class BootOrchestrator:
         phase = str(state.get('phase') or '')
         if phase not in ('backing_up', 'applying', 'verifying_start'):
             return
+        # 问题5 根修（2026-09-22）：检查 state.json 的新鲜度——
+        # 如果 state 是最近 60 秒内更新的，说明 updater 还在跑
+        # （正常升级流程中 updater 自己拉起的 boot 也会先走这里，
+        #  不做检测会把刚替换的新文件还原回旧版=正常升级永远失败）。
+        import time as _time
+        state_mtime = state_file.stat().st_mtime
+        if _time.time() - state_mtime < 60:
+            self.state.log(
+                f'升级 state 新鲜（{phase}，{_time.time() - state_mtime:.0f}s 前更新）'
+                '——updater 可能仍在运行，跳过恢复（等 updater 自己收尾）')
+            return
         backup_root = root / 'updates' / 'backup'
         stamps = sorted((d for d in backup_root.iterdir() if d.is_dir()),
                         key=lambda d: d.name, reverse=True) \

@@ -148,16 +148,22 @@ def _parse_pkg_entry(pkg: CuteMamenPkg, name: str, raw: bytes) -> None:
     if name == "manifest.json":
         pkg.manifest = json.loads(raw.decode("utf-8"))
     elif name == "weights/weights.npz":
-        # allow_pickle=False：npy/npz 安全体（无任意代码执行面）
-        with np.load(io.BytesIO(raw), allow_pickle=False) as arrs:
-            zipf = getattr(arrs, "zip", None)
-            if zipf is not None:
-                expanded = sum(i.file_size for i in zipf.infolist())
-                if expanded > _PKG_WEIGHTS_MAX_EXPANDED:
-                    raise PluginLoadError(
-                        f"权重解压后超限: {expanded}B > "
-                        f"{_PKG_WEIGHTS_MAX_EXPANDED}B")
-            pkg.weights = {k: arrs[k] for k in arrs.files}
+        # Bug3 根修（2026-09-22）：0 字节权重（无预训练插件）→ 空字典
+        # 跳过 np.load（实测 0B 输入必抛 EOFError 裸穿成 500）。
+        # 与 pkg.py:269 的内核侧守卫对齐（两侧对称）。
+        if len(raw) == 0:
+            pkg.weights = {}
+        else:
+            # allow_pickle=False：npy/npz 安全体（无任意代码执行面）
+            with np.load(io.BytesIO(raw), allow_pickle=False) as arrs:
+                zipf = getattr(arrs, "zip", None)
+                if zipf is not None:
+                    expanded = sum(i.file_size for i in zipf.infolist())
+                    if expanded > _PKG_WEIGHTS_MAX_EXPANDED:
+                        raise PluginLoadError(
+                            f"权重解压后超限: {expanded}B > "
+                            f"{_PKG_WEIGHTS_MAX_EXPANDED}B")
+                pkg.weights = {k: arrs[k] for k in arrs.files}
     elif name == "source/plugin.py":
         # v2.1 内嵌源码（新类型插件单文件交付；上限卡规范 §2 的 256KB）
         if len(raw) > _PKG_SOURCE_MAX_BYTES:

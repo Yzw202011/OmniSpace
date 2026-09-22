@@ -133,8 +133,14 @@ def test_boot_hook_recovers_interrupted_upgrade(
     (backup_dir / "src" / "main.py").write_text(OLD_MAIN, encoding="utf-8")
     state = {"phase": "verifying_start", "package": "x.upg",
              "to_version": "2.9.9"}
-    (fake_install / "updates" / "state.json").write_text(
-        json.dumps(state), encoding="utf-8")
+    state_file = fake_install / "updates" / "state.json"
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    # 问题5 根修配套：把 state.json 的 mtime 设为 5 分钟前——
+    # 模拟"崩溃后过了一会儿用户才重启"（新鲜度检查要求 >60s 才恢复）
+    import os as _os
+    import time as _time
+    old_ts = _time.time() - 300
+    _os.utime(state_file, (old_ts, old_ts))
     # 生产里 restore.py 随包出厂——假安装根里放一份真身副本
     (fake_install / "updater").mkdir(parents=True, exist_ok=True)
     (fake_install / "updater" / "restore.py").write_text(

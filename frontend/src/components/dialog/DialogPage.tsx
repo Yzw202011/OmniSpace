@@ -182,10 +182,15 @@ export default function DialogPage() {
   }, [createSession, showToast]);
 
   const handleDeleteSession = useCallback(
-    (id: string) => {
-      deleteSession(id);
+    async (id: string) => {
+      try {
+        await deleteSession(id);
+        showToast('对话已删除', 'success');
+      } catch (err) {
+        showToast(getErrorMessage(err, '删除失败'), 'error');
+      }
     },
-    [deleteSession],
+    [deleteSession, showToast],
   );
 
   // 批量删除会话（2026-08-20：SessionList 批量管理模式）

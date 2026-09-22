@@ -375,7 +375,18 @@ export const useDialogStore = create<DialogState>((set, get) => ({
   },
 
   deleteSession: async (sessionId) => {
-    await dialogApi.deleteSession(sessionId);
+    // 2026-09-22 修「删除无反应」：会话已被删/未落库（幽灵条目）时
+    // 后端报 SYSTEM_RESOURCE_NOT_FOUND——就地移除视为成功，不再静默
+    // 吞错卡死；其余错误如实上抛由调用方提示
+    try {
+      await dialogApi.deleteSession(sessionId);
+    } catch (err: unknown) {
+      const text = `${err instanceof Error ? err.message : err}`;
+      if (!text.includes('不存在') && !text.includes('RESOURCE_NOT_FOUND')) {
+        reportBgError('删除会话失败', err);
+        throw err;
+      }
+    }
     set((state) => {
       const sessions = state.sessions.filter((s) => s.id !== sessionId);
       const isCurrent = state.currentSession?.id === sessionId;

@@ -514,14 +514,11 @@ def _run_generate_task(task_id: str, params: dict,
             )
             from .manga.common import comfy_paint_generate
 
-            if model_hint and model_hint not in (
-                    "flux2-klein-9b", "flux2-klein-4b", "z-image-turbo"):
-                # comfy 栈物理上只有 klein 系 + z-image-turbo 权重：其余
-                # 点名如实记录后按 klein 出活（白名单拒绝已在上方执行）
-                with flow.node("底座说明", friendly="底座口径说明") as n:
-                    n.output(f"comfy 栈仅 klein 系与 z-image-turbo 可用，"
-                             f"点名 {model_hint}"
-                             " 按 flux2-klein-9b-fp8 执行")
+            # 切换诚实性（2026-09-23）：废除「名单外静默按 klein-9b 出图」
+            # 的假切换——引擎 _run 按 COMFY_PAINT_MODELS 真源校验，名单外
+            # 如实失败 MODEL_NOT_ALLOWED（含 klein-4b 残局守卫）。旧注释
+            # 「白名单拒绝已在上方执行」所述检查位于本分支早退之后（仅护
+            # legacy 路径），comfy 时代从未生效，已随本修复废弃。
             _z_mode = model_hint == "z-image-turbo"
             with flow.node(
                     "模型加载",
@@ -1598,8 +1595,41 @@ def draw_image(filename: str, thumb: int = 0) -> FileResponse:
 
 @router.get("/draw/models")
 def draw_models() -> dict[str, Any]:
-    """绘画模型列表：路由表 + 本地实际可用状态。"""
+    """绘画模型列表：路由表 + 本地实际可用状态。
+
+    切换诚实性（2026-09-23）：gen_engine=comfy（默认）时清单改由
+    comfy_paint_engine.COMFY_PAINT_MODELS 真源出——列表 = 白名单 =
+    物理真身三表合一，杜绝「下拉可选但实际静默按 klein-9b 出图」。
+    legacy 分支保留旧路由表口径（gate=legacy 可达）。
+    """
     engine = get_paint_engine()
+    if _paint_gen_engine_comfy():
+        from ..services.inference.comfy_paint_engine import (
+            comfy_paint_models_ready,
+        )
+        items = [{
+            "id": m["id"],
+            "name": m["name"],
+            "category": "vision",
+            "min_vram_gb": m["min_vram_gb"],
+            "status": m["status"],
+            "local_model": m["id"] if m["status"] == "ready" else "",
+            "notes": m["notes"],
+        } for m in comfy_paint_models_ready()]
+        default_model = ""
+        try:
+            from ..api.models import get_module_model_scope
+            allowed, default_model = get_module_model_scope("paint")
+            if allowed is not None:
+                items = [m for m in items if m["id"] in allowed]
+        except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
+            log.warning("绘画模块白名单过滤跳过: %s", exc, exc_info=True)
+        return ok({
+            "items": items,
+            "total": len(items),
+            "engine": engine.get_status(),
+            "default_model": default_model or "",
+        })
     available = set(engine.available_models())
     items = []
     for m in PAINT_ROUTING_TABLE:

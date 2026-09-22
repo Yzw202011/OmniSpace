@@ -7,7 +7,8 @@ main.py 经 importlib 动态导入 api.manga 并挂载 mod.router，对外零变
   common       共享层（状态兜底 / 行辅助 / 引擎单例 / 出图规格铁律，无路由）
   storyboard   分镜表 + 情绪检测
   keyframe     关键帧（生成/批量/回滚/故事生图）
-  video        视频生成 + 媒体回读 + 叙事 + 模型清单
+  video        视频生成 + 媒体回读 + 叙事
+  models_available  模型清单（2026-09-23 自 video.py 拆出，巨石只拆不涨）
   voice        音色
   comic        漫画项目 + 剧本导入 + 场景 + 导出包
   comic_asset  资产库与资产 CRUD
@@ -28,6 +29,7 @@ from . import (
     comic_export,
     comic_script,
     keyframe,
+    models_available,
     storyboard,
     video,
     voice,
@@ -37,6 +39,8 @@ router = APIRouter()
 router.include_router(storyboard.router)
 router.include_router(keyframe.router)
 router.include_router(video.router)
+# 模型清单端点（2026-09-23 自 video.py 拆出——巨石只拆不涨，见模块头）
+router.include_router(models_available.router)
 router.include_router(voice.router)
 router.include_router(comic.router)
 router.include_router(comic_asset.router)

@@ -67,6 +67,73 @@ _Z_IMAGE_MODEL_ID = "z-image-turbo"
 # TextEncodeZImageOmni 原生参考条件上限（image1~3）
 _Z_IMAGE_MAX_REFS = 3
 
+# ── comfy 生图栈模型真源（2026-09-23 切换诚实性修复）──────────────
+# 单一真源：comfy 栈物理可用模型。三个消费方强制同源——
+#   ① 本引擎 _run 的模型校验（名单外如实失败，不再静默按 klein-9b 出图）
+#   ② /draw/models 清单（gen_engine=comfy 时）
+#   ③ 漫剧 /manga/models/available 的 paint 槽
+# klein-4b 摘除：models/diffusion_models/flux-2-klein-4b.safetensors 为
+# 2026-09-19 转换残局（fused to_qkv_mlp_proj + 外挂 modulation 的 Klein
+# 原生布局，comfy Flux2 类按 linear1/linear2 内嵌调制消费，加载必炸
+# mat1/mat2 形状错配——2026-09-23 对照实验 v0.34.0/v0.37.0 同错）。
+# 转换修复后：翻 _KLEIN_4B_BROKEN=False 并在表内恢复条目。
+_KLEIN_4B_BROKEN = True
+COMFY_PAINT_MODELS: list[dict] = [
+    {
+        "id": "flux2-klein-9b",
+        "name": "FLUX.2 Klein 9B（fp8·默认）",
+        "files": _PAINT_FILES,
+        "min_vram_gb": 8.5,
+        "notes": "多参考图/LoRA/PuLID 全链接力底座",
+    },
+    {
+        "id": _Z_IMAGE_MODEL_ID,
+        "name": "Z-Image-Turbo",
+        "files": _Z_IMAGE_FILES,
+        "min_vram_gb": 10.0,
+        "notes": "中文字渲染/写实，8 步蒸馏；unet 12.3GB bf16 动态换页",
+    },
+]
+_COMFY_PAINT_MODEL_IDS = frozenset(m["id"] for m in COMFY_PAINT_MODELS)
+
+
+def _reject_unavailable_model(model_id: str) -> None:
+    """comfy 栈模型点名校验（如实失败；切换诚实性修复 2026-09-23）。
+
+    历史行为「名单外记录一笔后静默按 klein-9b 出图」废除——用户以为
+    在用所选模型，实际出图恒为 klein-9b-fp8（假切换）。
+    """
+    names = "、".join(m["id"] for m in COMFY_PAINT_MODELS)
+    if model_id == "flux2-klein-4b":
+        raise ApiError(
+            "MODEL_NOT_ALLOWED",
+            "flux2-klein-4b 底座当前不可用（ComfyUI 格式转换残局，"
+            "修复中）；可用：" + names,
+            suggestion=f"请改选 {names}，或清空模型改用智能路由")
+    raise ApiError(
+        "MODEL_NOT_ALLOWED",
+        f"模型 {model_id} 不在 ComfyUI 生图栈可用范围；可用：{names}",
+        suggestion=f"请在模型配置中改选 {names}，或清空改用智能路由")
+
+
+def comfy_paint_models_ready() -> list[dict]:
+    """真源 + 磁盘就绪态（unet/TE/VAE 三件套齐 = ready）。
+
+    供 /draw/models 与漫剧 paint 槽清单消费；files 内部键剔除不外泄。
+    """
+    items: list[dict] = []
+    for m in COMFY_PAINT_MODELS:
+        files = m["files"]
+        ok = all((_COMFY_MODELS / cat / files[key]).is_file()
+                 for cat, key in (("diffusion_models", "unet"),
+                                  ("text_encoders", "clip"),
+                                  ("vae", "vae")))
+        items.append({"id": m["id"], "name": m["name"],
+                      "min_vram_gb": m["min_vram_gb"],
+                      "notes": m["notes"],
+                      "status": "ready" if ok else "not_installed"})
+    return items
+
 # PuLID-Flux2 身份注入（2026-08-28 P1）：klein 原生权重 v2
 # （iFayens/ComfyUI-PuLID-Flux2 节点 + Fayens/Pulid-Flux2 权重 +
 # antelopev2 人脸分析；EVA-CLIP 首跑经 open_clip 自动下载）
@@ -370,20 +437,21 @@ class ComfyPaintEngine:
         # 9B 的 Qwen3-8B；LoRA 跨底座挂载会键不匹配静默失效）。身份改由
         # LoRA 权重硬锁，PuLID 链保持原逻辑（调用方在 LoRA 在场时应置
         # pulid_strength=0，避免 4B 上未验证的 PuLID patch）。
+        # 2026-09-23：4b 底座转换残局挂守卫（_run 已按真源拦截显式点名，
+        # 此处兜住 D-LoRA 自动切换路径）——修复见 _KLEIN_4B_BROKEN 注释。
         unet_name = _PAINT_FILES["unet"]
         clip_name = _PAINT_FILES["clip"]
         if lora_name and str(params.get("lora_base") or "") == "4b":
+            if _KLEIN_4B_BROKEN:
+                _reject_unavailable_model("flux2-klein-4b")
             unet_name = "flux-2-klein-4b.safetensors"
             clip_name = "qwen_3_4b.safetensors"
 
-        # B7+（2026-09-14）：model 参数切换底座单文件（管理员 paint 槽
-        # default 或用户显式指定）——4b 组装件已在 diffusion_models，
-        # 9b-fp8 为默认。只在值非默认时覆盖，不影响已有流程。
+        # B7+（2026-09-14）：model 参数切换底座单文件。2026-09-23 起
+        # 名单收敛到真源 _COMFY_PAINT_MODEL_IDS（_run 统一拦截），本
+        # 构建器只会收到空值或 flux2-klein-9b（z-image 走独立 builder）。
         model_id = str(params.get("model") or "").strip()
-        if model_id == "flux2-klein-4b":
-            unet_name = "flux-2-klein-4b.safetensors"
-            clip_name = "qwen_3_4b.safetensors"
-        elif model_id == "flux2-klein-9b":
+        if model_id == "flux2-klein-9b":
             unet_name = "flux-2-klein-9b-fp8.safetensors"
             clip_name = "qwen3_8b.safetensors"
 
@@ -655,6 +723,11 @@ class ComfyPaintEngine:
         # noise_seed 下限 0，负值进工作流前解析为真随机
         if int(params.get("seed") or 0) < 0:
             params["seed"] = random.randint(0, 2 ** 31 - 1)
+        # 切换诚实性（2026-09-23）：白名单真源校验，名单外如实失败
+        # （generate/img2img/漫剧分格统一走 _run，单点拦截全覆盖）
+        _mid = str(params.get("model") or "").strip()
+        if _mid and _mid not in _COMFY_PAINT_MODEL_IDS:
+            _reject_unavailable_model(_mid)
         # 生成期间标记忙碌：空闲自动关闭计时暂停（mark/mark_idle 配对）
         proc_mgr = get_comfy_proc()
         proc_mgr.mark_busy()

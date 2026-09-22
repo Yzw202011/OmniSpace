@@ -48,6 +48,7 @@ SEMANTIC_CODES: dict[str, str] = {
     # ── 模型类（1xxx）────────────────────────────────────────────
     "MODEL_NOT_LOADED": "模型未加载到显存",                    # [文档]
     "MODEL_LOAD_FAILED": "模型加载失败，请检查显存是否充足",     # [文档]
+    "MODEL_NOT_ALLOWED": "模型不在该功能可用范围内，请调整模型配置",
     "VRAM_INSUFFICIENT": "显存不足",                           # [文档]
     "MODEL_INFERENCE_FAILED": "模型推理失败",                  # [文档]
     "MODEL_NOT_DOWNLOADED": "模型未下载",

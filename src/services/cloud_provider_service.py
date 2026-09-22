@@ -131,6 +131,18 @@ def filter_models_for_protocol(
     return kept, removed
 
 
+# 视觉对话模型判定（2026-09-22 云端图片透传）：名称启发式，覆盖
+# qwen-vl/qwen3-vl/qvq/omni/glm-4v/internvl/minicpm-v/llava/pixtral。
+# 前端 cloudApi.VISION_MODEL_RE 与此同口径（跨语言无法同源，改动需双侧）。
+VISION_MODEL_RE = re.compile(
+    r"vl|qvq|omni|vision|glm-4v|minicpm|internvl|llava|pixtral", re.I)
+
+
+def is_vision_model(model_name: str) -> bool:
+    """模型名是否为视觉对话型号（云端图片透传判定，启发式）。"""
+    return bool(VISION_MODEL_RE.search(model_name or ""))
+
+
 def looks_like_dashscope_task_404(resp: Any) -> bool:
     """404 返回体是否为 DashScope 任务查询形态（甄别协议不匹配的网关 404）。
 

@@ -30,6 +30,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from ...cloud_provider_service import (
     get_dialog_text_endpoint,
@@ -152,6 +153,50 @@ def _record_cloud_call(kind: str, provider: str, model: str, ok: bool,
         log.debug("云端调用事件记录失败", exc_info=True)
 
 
+def _image_to_data_url(img: Any) -> str:
+    """图片 → PNG data URL（OpenAI image_url 形态；PIL 或已有 base64）。"""
+    if isinstance(img, str):
+        return img if img.startswith("data:") else \
+            f"data:image/png;base64,{img}"
+    import base64
+    import io
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _strip_image_parts(messages: list[dict]) -> list[dict]:
+    """非视觉模型：剥除消息中的图片占位（诚实丢弃，保文本）。"""
+    out: list[dict] = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list):
+            kept = [p for p in content
+                    if not (isinstance(p, dict) and p.get("type") == "image")]
+            m = {**m, "content": kept}
+        out.append(m)
+    return out
+
+
+def _embed_images_as_data_urls(messages: list[dict], urls: list[str]) -> None:
+    """把引擎的 {"type": "image"} 占位（按序）替换为 OpenAI image_url。"""
+    idx = 0
+    for m in messages:
+        content = m.get("content")
+        if not isinstance(content, list) or idx >= len(urls):
+            continue
+        new_parts: list[dict] = []
+        for part in content:
+            if (isinstance(part, dict) and part.get("type") == "image"
+                    and idx < len(urls)):
+                new_parts.append({"type": "image_url",
+                                  "image_url": {"url": urls[idx]}})
+                idx += 1
+            else:
+                new_parts.append(part)
+        m["content"] = new_parts
+
+
 class RemoteDialogBackend(DialogBackend):
     """OpenAI 兼容云端端点后端（云厂商 API / 自建 vLLM 均为此形态）。
 
@@ -165,7 +210,9 @@ class RemoteDialogBackend(DialogBackend):
     """
 
     name = "remote"
-    supports_images = False  # MVP：远端多模态（Qwen-VL 服务端）后续批
+    # 2026-09-22 云端图片透传：引擎按此放行图片占位，是否真发由
+    # chat_stream 按模型视觉能力二次裁决（非视觉型号剥除占位）
+    supports_images = True
 
     def __init__(self, health_poll_s: float = 5.0,
                  health_wait_s: float = 300.0) -> None:
@@ -293,6 +340,19 @@ class RemoteDialogBackend(DialogBackend):
         }
         if extra_params:
             payload.update(extra_params)
+        # 云端图片透传（2026-09-22）：视觉型号把引擎占位换成 OpenAI
+        # image_url（PNG data URL）；非视觉型号剥除占位诚实丢弃——
+        # DeepSeek 文本系收图会 400，qwen3-vl/qvq/omni 系真看图
+        if images:
+            from ...cloud_provider_service import is_vision_model
+            if is_vision_model(self.model_id or ""):
+                _embed_images_as_data_urls(
+                    payload["messages"],
+                    [_image_to_data_url(i) for i in images])
+            else:
+                payload["messages"] = _strip_image_parts(payload["messages"])
+                log.info("云端模型 %s 非视觉型号，已忽略 %d 张图片",
+                         self.model_id, len(images))
         t0 = time.time()
 
         def _log_call(ok: bool, detail: str = "") -> None:

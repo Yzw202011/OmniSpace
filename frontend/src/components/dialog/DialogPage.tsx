@@ -21,6 +21,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import ModuleGuide from '@/components/common/ModuleGuide';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { rateMessage } from '@/services/dialogApi';
+import { VISION_MODEL_RE } from '@/services/cloudApi';
 import type { DialogSession, DialogMessage } from '@/types';
 
 /** 时间戳统一转毫秒 */
@@ -85,9 +86,13 @@ export default function DialogPage() {
   const lastAnswerModel = [...messages]
     .reverse()
     .find((m) => m.engine)?.engine;
-  const modelSupportsVision = modelOptions.find(
-    (m) => m.model_id === (lastAnswerModel ?? modelId),
-  )?.vision ?? true;
+  // 云端模型按名称启发式判视觉（2026-09-22 图片透传）；本地按清单
+  // vision 字段。非视觉模型不显示图片按钮——防「传了图模型却收不到」
+  const effectiveModel = lastAnswerModel ?? modelId;
+  const modelSupportsVision = effectiveModel.startsWith('cloud::')
+    ? VISION_MODEL_RE.test(effectiveModel.split('::')[2] || '')
+    : (modelOptions.find((m) => m.model_id === effectiveModel)
+       ?.vision ?? true);
 
   /** 引用请求（seq 递增驱动 DialogView 输入框回填） */
   const [quoteRequest, setQuoteRequest] = useState<{ seq: number; message: ChatMessage } | null>(null);

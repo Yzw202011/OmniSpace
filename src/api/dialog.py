@@ -774,7 +774,8 @@ async def dialog_send(request: Request,
     stream 缺省/false → 一次性返回完整文本。
     """
     message = str(body.get("message") or body.get("content") or "").strip()
-    if not message:
+    # 纯图片消息合法（2026-09-22 视觉对话）：有图无字不再拒收
+    if not message and not (body.get("images") or body.get("attachments")):
         raise ApiError("SYSTEM_PARAM_INVALID", "消息不能为空")
     # 单条消息字符上限（DoS 防护）：与 token 上下文窗口分开判定，
     # 防止超长字符输入进入分词/推理管线导致阻塞。
@@ -1931,7 +1932,8 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
 async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None:
     """处理一条用户消息：校验 → 引擎就绪 → RAG → 流式推理 → 落库。"""
     content = str(data.get("content") or "").strip()
-    if not content:
+    # 纯图片消息合法（2026-09-22 视觉对话）：有图无字不再拒收
+    if not content and not data.get("images"):
         await _ws_send_error(websocket, 30001, "消息不能为空")
         return
     if len(content) > DIALOG_MAX_INPUT_CHARS:

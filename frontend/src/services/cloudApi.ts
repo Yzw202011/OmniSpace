@@ -24,6 +24,12 @@ import { del, get, post, put } from './api';
 export const SUSPICIOUS_NON_TEXT_MODEL_RE =
   /audio|asr|tts|whisper|speech|paraformer|sensevoice|cosyvoice|embedding|rerank|image|video|flux|wan[\dx]|ocr/i;
 
+/** 视觉对话模型判定（2026-09-22 云端图片透传）：与后端
+ *  cloud_provider_service.VISION_MODEL_RE 同口径（跨语言无法同源，
+ *  改动需双侧同步）。命中才显示图片上传按钮/真正透传图片。 */
+export const VISION_MODEL_RE =
+  /vl|qvq|omni|vision|glm-4v|minicpm|internvl|llava|pixtral/i;
+
 /** 云端服务商连接（api_key 永不出后端，只有打码形态） */
 export interface CloudProvider {
   id: string;

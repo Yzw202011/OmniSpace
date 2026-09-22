@@ -303,6 +303,20 @@ class SchedulerEngine:
                     except Exception as exc:  # noqa: BLE001
                         log.warning("深层卸载失败 (%s): %s",
                                     entry.get("model_id"), exc)
+                # 大白话事件（2026-09-21）：此前深层回收只有后台日志，
+                # 用户「模型装好没动自己消失」零感知（对齐引擎 idle_unload）
+                try:
+                    from ..event_log import log_event
+                    _names = "、".join(str(e.get("model_id") or "?")
+                                       for e in heavy)
+                    log_event(
+                        "models", "idle_reclaim",
+                        f"空闲 {idle_s / 60:.0f} 分钟无人使用，已自动回收 "
+                        f"{len(heavy)} 个大模型（{_names}）释放显存；"
+                        "下次使用会自动重新加载",
+                        level="warning", detail=f"ids={_names}")
+                except Exception:  # noqa: BLE001 - 事件日志失败不阻断
+                    log.debug("深回收事件日志跳过", exc_info=True)
                 # 同步分发器预加载记账，防止状态页误报"已预载"
                 self.dispatcher._preloaded.clear()
             # 池压缩（2026-08-23 显存锚定修复）：卸载后 empty_cache

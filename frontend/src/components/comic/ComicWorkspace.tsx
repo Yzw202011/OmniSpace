@@ -23,6 +23,39 @@ import {
   type PanelBubble, type StoryboardRow,
 } from '@/types';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
+import { useGenProgress } from '../manga/editor/useGenProgress';
+
+/** 分格生成遮罩（2026-09-22 接入真实进度）：订阅 WS task_progress
+ *  （kind=keyframe, id=row_id，与漫剧同源），显示阶段标签+百分比条；
+ *  WS 静默时回退原「生成中…」文案 */
+function PanelGenProgress({ rowId, active }: { rowId: string; active: boolean }) {
+  const prog = useGenProgress('keyframe', rowId, active);
+  return (
+    <div className="comic-panel-gen">
+      <Loader2 size={22} className="spin" />
+      {prog ? (
+        <>
+          <div
+            className="comic-panel-genbar"
+            role="progressbar"
+            aria-label="分格生成进度"
+            aria-valuenow={prog.percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <i style={{ transform: `scaleX(${prog.percent / 100})` }} />
+          </div>
+          <span>
+            {prog.label || '生成中…'}
+            {prog.percent > 0 ? ` ${prog.percent}%` : ''}
+          </span>
+        </>
+      ) : (
+        <span>生成中…（约 1~2 分钟）</span>
+      )}
+    </div>
+  );
+}
 import { Modal } from '../common/Modal';
 import OmniLightbox, { downloadImage } from '../common/OmniLightbox';
 import CloudSlotBadge from '@/components/common/CloudSlotBadge';
@@ -795,12 +828,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                         </div>
                       );
                     })}
-                    {generating && (
-                      <div className="comic-panel-gen">
-                        <Loader2 size={22} className="spin" />
-                        <span>生成中…（约 1~2 分钟）</span>
-                      </div>
-                    )}
+                    {generating && <PanelGenProgress rowId={row.id} active={generating} />}
                   </div>
                   <div className="comic-panel-body">
                     <textarea
@@ -1154,12 +1182,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                         </div>
                       );
                     })}
-                    {generating && (
-                      <div className="comic-panel-gen">
-                        <Loader2 size={22} className="spin" />
-                        <span>生成中…（约 1~2 分钟）</span>
-                      </div>
-                    )}
+                    {generating && <PanelGenProgress rowId={row.id} active={generating} />}
                   </div>
                   <div className="comic-preview-ops">
                     <span className="comic-preview-no">第 {idx + 1} 格{kf ? ` · v${kf.version}` : ''}</span>

@@ -1748,6 +1748,15 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 pid = ((sb or {}).get("project_id") or "")
             style_line = _project_style_line(db, pid)
             gen_prompt = f"{style_line}，{prompt}" if style_line else prompt
+            # 角色锚+仲裁（2026-09-22 用户实弹 JK→修仙服）：直文本路径
+            # 此前无锚无仲裁，画风行服饰词（如「华丽古装」）压过参考图。
+            # 锚对齐 ABC 主路径 _shot_char_protocol（名字+设定图一致），
+            # 仲裁声明画风只管渲染、服饰以设定图为准。
+            char_prompt, _chosen = _shot_char_protocol(char_assets, prompt)
+            if char_prompt:
+                gen_prompt = (f"{gen_prompt}。{char_prompt}；"
+                              "画风仅约束渲染风格，"
+                              "角色服饰与外貌一律以参考图设定为准")
         broadcast_gen_progress("keyframe", row_id, percent=2,
                                label="正在生成")
         image, _actual = _gen_one(

@@ -2301,6 +2301,8 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .comic-panel-placeholder { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 .comic-panel-badge { position: absolute; top: 8px; left: 8px; font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); background: rgba(2,6,23,.62); color: #e2e8f0; }
 .comic-panel-gen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(2,6,23,.62); color: #e2e8f0; font-size: var(--font-size-xs); }
+.comic-panel-genbar { width: 62%; height: 6px; border-radius: 999px; background: var(--color-input-bg); overflow: hidden; }
+.comic-panel-genbar i { display: block; height: 100%; border-radius: 999px; background: var(--color-primary); transform-origin: left; transition: transform .4s ease; }
 .comic-panel-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .comic-panel-prompt { resize: vertical; font-size: 12px; line-height: 1.5; }
 .comic-panel-chars { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

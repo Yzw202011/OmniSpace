@@ -35,6 +35,9 @@
     "clip/t5xxl_fp8_e4m3fn.safetensors": "uno/t5xxl_fp8_e4m3fn.safetensors",
     "unet/flux-2-klein-4b.safetensors": "uno/flux-2-klein-4b.safetensors",
     "vae/flux2_klein_ae.safetensors": "uno/flux2_ae.safetensors",
-    "loras/xia_mumu_v1.safetensors": "../data/lora_train/xia_mumu/output/xia_mumu_v1.safetensors"
+    "loras/xia_mumu_v1.safetensors": "../data/lora_train/xia_mumu/output/xia_mumu_v1.safetensors",
+    "diffusion_models/qwen_image_2.1_int8_convrot.safetensors": "paint/qwen-image-2.1/qwen_image_2.1_int8_convrot.safetensors",
+    "text_encoders/qwen3vl_8b_w4a8.safetensors": "paint/qwen-image-2.1/text_encoder/qwen3vl_8b_w4a8.safetensors",
+    "vae/qwen_image_2.1_vae_bf16.safetensors": "paint/qwen-image-2.1/vae/qwen_image_2.1_vae_bf16.safetensors"
   }
 }

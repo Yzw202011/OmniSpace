@@ -526,12 +526,22 @@ def _slot_candidate_ids(slot: str) -> set[str]:
             ids.update(discover_dialog_models())
         except Exception as exc:  # noqa: BLE001
             log.debug("对话候选补充失败（不阻断配置）: %s", exc)
-    if slot == "paint":
+    if slot in ("paint", "manga-paint"):
         # PAINT_ROUTING_TABLE 全表（含未下载路由候选）。
         # 2026-08-29 模型裁剪：sdxl-base-1.0 退出绘画槽候选
         # （保留引擎候选供 LoRA 训练底座使用）。
         ids.update(m.get("model") for m in PAINT_ROUTING_TABLE
                    if m.get("model"))
+        # 分格链模型配置重接（2026-09-23 方案2）：并入 comfy 生图栈
+        # 真源（z-image-turbo/qwen-image-2.1 不在旧路由表/注册表——
+        # 缺位会使「默认模型不存在」校验拒绝保存，前端静默失败）。
+        try:
+            from ..services.inference.comfy_paint_engine import (
+                COMFY_PAINT_MODELS,
+            )
+            ids.update(m["id"] for m in COMFY_PAINT_MODELS)
+        except Exception as exc:  # noqa: BLE001 - 真源不可用不阻断配置
+            log.debug("comfy 真源并入候选集失败: %s", exc)
     ids.discard("")
     return ids
 

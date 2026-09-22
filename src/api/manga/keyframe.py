@@ -1190,6 +1190,12 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         #   chars=2 双 face 齐备走双 PuLID 硬锁（Step B 转正）；单/缺
         #   face 回落多参考软锁；chars≥3 参考稀释风险维持 diffusers）
         # ⑤该角色面部参考可加载（InsightFace 检测稳定的前提）
+        #
+        # 分格链模型配置重接（2026-09-23 方案2，设计语义见
+        # keyframe_model_slot 模块头）：槽位显式选择 > 自动选路；
+        # 空值 = 智能路由行为零变化。
+        _slot_model = _explicit_comfy_model()
+        _explicit_comfy = bool(_slot_model)
         use_comfy = engine_backend == "comfy"
         if engine_backend == "auto":
             use_comfy = (os.environ.get("OMNI_KEYFRAME_PULID_AUTO", "1") != "0"
@@ -1229,19 +1235,30 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                      f" pulid={pulid_available()}",
                      f" chars={len(char_assets)}",
                      f" face_ref={bool(any(face_refs))}")
+        # 方案2：槽位显式选择 > 自动选路（z/qwen21 软锁在 _gen_one 处理）
+        if _explicit_comfy and engine_backend == "auto":
+            use_comfy = True
+            log.info("引擎选路: comfy+显式模型=%s（manga-paint 槽用户选择"
+                     "优先；%s）", _slot_model,
+                     "PuLID 支持" if _slot_model.startswith("flux2-klein")
+                     else "z/qwen21 底座无 PuLID，角色锚走参考软锁")
         flux = False
         if use_comfy:
-            if not comfy_paint_available():
+            if not comfy_paint_available(_slot_model if _explicit_comfy else ""):
                 raise ApiError("PAINT_ENGINE_NOT_READY",
                                "ComfyUI 绘画管线未就绪（便携版或权重缺失）",
                                suggestion="检查 tools/ComfyUI_windows_portable 与权重目录；"
                                           "或在「模型管理 → AI 绘画」改用本地绘画模型后重试")
+            # 方案2：z/qwen21 生成前让渡（拆至 keyframe_model_slot）。
+            if _explicit_comfy:
+                from .keyframe_model_slot import yield_for_explicit
+                yield_for_explicit(_slot_model)
             # 冷启动可见性（2026-08-31 用户需求「加载要立刻、也要告知」）：
             # ComfyUI 拉起 ~40s + 首图权重装载，期间按钮进度条明示正在加载
             broadcast_gen_progress("keyframe", row_id, percent=1,
                                    label="ComfyUI 绘图引擎启动中（约 40-60s）")
             engine.unload_model()  # 本地管线让位（幂等，未载时快速返回）
-            flux = True  # comfy 工作流锁 klein-9b fp8（family 协议一致）
+            flux = True  # comfy 工作流（显式模型或 klein-9b fp8 auto 缺省）
         else:
             comfy = get_comfy_paint_engine()
             if comfy.is_alive():
@@ -1391,6 +1408,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             params = {"prompt": gen_prompt, "steps": 36, "cfg": 4.0,
                       "width": gw, "height": gh, "seed": seed,
                       "min_steps": 28}
+            # 方案2：显式底座透传（此前硬编码 klein-9b 缺省）；z/qwen21
+            # 无 PuLID 语义置软锁标志（use_comfy 分支内统一处理）。
+            _explicit_soft_lock = False
+            if _explicit_comfy:
+                params["model"] = _slot_model
+                from .keyframe_model_slot import is_soft_lock_model
+                _explicit_soft_lock = is_soft_lock_model(_slot_model)
             # 西化瞳色负面锚（v65 蓝绿眼，见 char_negative 注释）：
             # comfy 工作流 neg conditioning 原为空——西化瞳色先验
             # 无排除通道，ReferenceLatent 同样注入 neg 侧
@@ -1428,6 +1452,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     _PULID_STRENGTH if pulid_img else 0.0)
                 if pulid_img and reflat_hint:
                     params["reflatent"] = reflat_hint
+                # 方案2：显式 z/qwen21 无 PuLID → 软锁降级（实现拆至
+                # keyframe_model_slot.apply_soft_lock）。
+                if _explicit_soft_lock:
+                    from .keyframe_model_slot import apply_soft_lock
+                    apply_soft_lock(_slot_model, params)
+                    pulid_img = None
+                    pulid_img_b = None
                 # P1 多参考拆分（2026-08-28）→ R5 验收事故修订
                 #（2026-08-29）：PuLID 激活时 face 条目恒不入
                 # ReferenceLatent（身份归 PuLID；R2/ECU 专项实测
@@ -1446,7 +1477,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 # 未验证且身份已由 LoRA 承担）。LoRA 文件挂入 ComfyUI
                 # loras 目录（同卷硬链接优先）。
                 lora_entries = [e for e in shot_refs if e.get("kind") == "lora"]
-                if lora_entries:
+                if lora_entries and _explicit_soft_lock:
+                    # 显式 z/qwen21 + 角色 LoRA（klein-4b 架构）不兼容
+                    # → 不挂载如实告知（跨底座挂载会静默失效）
+                    log.warning("显式底座 %s 与角色 LoRA（klein-4b 架构）"
+                                "不兼容——LoRA 不挂载（跨底座挂载会静默"
+                                "失效），角色锚走参考软锁", _slot_model)
+                elif lora_entries:
                     import hashlib
                     import os
 
@@ -2211,6 +2248,12 @@ def _annotate_consistency(db: Database, kf_id: str, payload: dict) -> None:
             payload, ensure_ascii=False)}, "id=?", (kf_id,))
     except Exception as exc:  # noqa: BLE001
         log.warning("一致性标注落库失败 %s: %s", kf_id, exc, exc_info=True)
+
+
+def _explicit_comfy_model() -> str:
+    """读 manga-paint 槽显式底座（实现拆至 keyframe_model_slot）。"""
+    from .keyframe_model_slot import explicit_comfy_model
+    return explicit_comfy_model()
 
 
 async def _consistency_guard(row_id: str, project_id: str, kf_id: str,

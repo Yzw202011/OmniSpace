@@ -986,7 +986,9 @@ class ComfyPaintEngine:
             log.info("绘画任务已提交 (prompt_id=%s, model=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
                         prompt_id,
                         (_Z_IMAGE_MODEL_ID if z_mode else
-                         _Q21_MODEL_ID if q21_mode else "klein-9b-fp8"),
+                         _Q21_MODEL_ID if q21_mode else
+                         "klein-4b" if str(params.get("model") or "") == "flux2-klein-4b"
+                         else "klein-9b-fp8"),
                         int(params.get("width") or 1280),
                         int(params.get("height") or 720),
                         _log_steps,

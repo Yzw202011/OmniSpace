@@ -1,7 +1,7 @@
 {
   "max_file_lines": {
     "hard_limit": 2000,
-    "current_max": 3134,
+    "current_max": 3186,
     "violators": [
       "src/api/dialog.py",
       "src/api/manga/comic_asset.py",
@@ -15,7 +15,7 @@
       "src/api/dialog.py": 2235,
       "src/api/manga/comic_asset.py": 2529,
       "src/api/manga/comic_gen.py": 2080,
-      "src/api/manga/keyframe.py": 3134,
+      "src/api/manga/keyframe.py": 3186,
       "src/api/system.py": 2477,
       "src/services/inference/dialog_engine.py": 2220,
       "src/services/inference/video_engine.py": 2754

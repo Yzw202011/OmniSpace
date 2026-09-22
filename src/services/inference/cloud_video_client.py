@@ -30,6 +30,7 @@ from typing import Any
 from ..cloud_provider_service import (
     PROTOCOL_TASK_VIDEO,
     CloudEndpoint,
+    http_error_hint,
     looks_like_dashscope_task_404,
 )
 
@@ -109,10 +110,10 @@ def _ds_submit(ep: CloudEndpoint, prompt: str, first_frame,
     if resp.status_code != 200:
         body = (resp.text or "")[:200]
         raise RuntimeError(
-            f"云端视频任务提交失败 HTTP {resp.status_code}：{body}。常见"
-            "原因=API Key 无效或欠费（去服务商后台核对）、模型名与该"
-            f"服务商不符（当前={ep.model or '默认'}）、时长/画幅参数"
-            "不受该模型支持")
+            f"云端视频任务提交失败 HTTP {resp.status_code}：{body}。"
+            f"{http_error_hint(resp.status_code)}"
+            f"（当前模型={ep.model or '默认'}；时长/画幅参数也可能"
+            "不受该模型支持）")
     out = (resp.json() or {}).get("output") or {}
     task_id = str(out.get("task_id") or "")
     if not task_id:

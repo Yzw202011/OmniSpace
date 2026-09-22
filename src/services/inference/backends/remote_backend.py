@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from ...cloud_provider_service import (
     get_dialog_text_endpoint,
     has_dialog_binding_enabled,
+    http_error_hint,
     legacy_remote_fallback_allowed,
     parse_cloud_model_id,
     resolve_provider_endpoint,
@@ -44,6 +45,10 @@ log = logging.getLogger("omnispace.inference.backends.remote")
 
 _SETTINGS_KEY = "system.settings"
 _CFG_TTL_S = 5.0
+# 流式对话字节间读超时（秒）：正常流式 token 持续到达不会触发；超过该
+# 时长无任何新数据 = 服务端挂死/网络中断（2026-09-21 学习代理线程在
+# iter_lines 上无声卡 30 分钟取证），宁可报错让用户重试
+_STREAM_READ_TIMEOUT_S = 180.0
 _cfg_cache: tuple[float, RemoteDialogConfig] | None = None
 _cfg_lock = threading.Lock()
 
@@ -137,6 +142,16 @@ def probe_remote_health(base_url: str, api_key: str = "",
     return False, last
 
 
+def _record_cloud_call(kind: str, provider: str, model: str, ok: bool,
+                       ms: int, detail: str = "") -> None:
+    """云端调用事件记录（fail-open：日志失败绝不影响对话主链）。"""
+    try:
+        from ...cloud_provider_service import record_cloud_call
+        record_cloud_call(kind, provider, model, ok, ms, detail=detail)
+    except Exception:  # noqa: BLE001 - 事件记录失败不影响对话
+        log.debug("云端调用事件记录失败", exc_info=True)
+
+
 class RemoteDialogBackend(DialogBackend):
     """OpenAI 兼容云端端点后端（云厂商 API / 自建 vLLM 均为此形态）。
 
@@ -162,6 +177,8 @@ class RemoteDialogBackend(DialogBackend):
         self._timeout_s = 300.0
         self._loaded_key = ""  # 生效端点身份（base|model，切换检测用）
         self._provider_name = ""  # 生效服务商名（事件日志用）
+        # 最近一次 chat_stream 的 finish_reason（length=截断，上层标注用）
+        self.last_finish_reason = ""
 
     def load(self, model_id: str, model_dir=None,
              required_gb: float = 0.0) -> bool:
@@ -263,6 +280,7 @@ class RemoteDialogBackend(DialogBackend):
         if not self._ready:
             if not self.load("", None, 0.0):
                 raise RuntimeError(self._last_error or "云端 API 未就绪")
+        self.last_finish_reason = ""
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -278,8 +296,7 @@ class RemoteDialogBackend(DialogBackend):
         t0 = time.time()
 
         def _log_call(ok: bool, detail: str = "") -> None:
-            from ...cloud_provider_service import record_cloud_call
-            record_cloud_call(
+            _record_cloud_call(
                 "text", self._provider_name or "云端服务商",
                 self.model_id or "", ok,
                 int((time.time() - t0) * 1000), detail=detail)
@@ -287,7 +304,14 @@ class RemoteDialogBackend(DialogBackend):
         try:
             resp = requests.post(
                 self._base_url + "/v1/chat/completions", json=payload,
-                headers=headers, stream=True, timeout=(10, self._timeout_s))
+                headers=headers, stream=True,
+                timeout=(10, _STREAM_READ_TIMEOUT_S))
+        except requests.exceptions.Timeout as exc:
+            _log_call(False, f"connect timeout: {exc}")
+            raise RuntimeError(
+                "无法连接云端 API（连接超时）：请检查网络是否可用、"
+                "服务商是否在线，或到「设置 → 云端 API 服务」点"
+                "「测试连接」") from exc
         except Exception as exc:  # noqa: BLE001 - 网络异常收敛为带出路的错误
             _log_call(False, str(exc)[:200])
             raise RuntimeError(
@@ -300,9 +324,9 @@ class RemoteDialogBackend(DialogBackend):
             _log_call(False, f"HTTP {resp.status_code}: {body[:150]}")
             raise RuntimeError(
                 f"云端 API 返回 HTTP {resp.status_code}：{body}。"
-                "常见原因=API Key 无效或欠费（去服务商后台核对）、"
-                "模型名与该服务商不符（检查设置里的模型）；"
-                "也可到「设置 → 云端 API 服务」点「测试连接」排查")
+                + http_error_hint(resp.status_code))
+        content_yielded = False
+        reasoning_parts: list[str] = []
         try:
             for raw in resp.iter_lines():
                 if not raw:
@@ -320,12 +344,44 @@ class RemoteDialogBackend(DialogBackend):
                     continue
                 choices = obj.get("choices") or []
                 delta = (choices[0].get("delta") or {}) if choices else {}
+                # 思考型云端模型（DeepSeek-R1 系等）把输出放进
+                # reasoning_content 通道：累积作正文兜底，不直接透传
+                reasoning = delta.get("reasoning_content")
+                if reasoning:
+                    reasoning_parts.append(reasoning)
                 text = delta.get("content")
                 if text:
+                    content_yielded = True
                     yield text
-            _log_call(True)
+                fr = choices[0].get("finish_reason") if choices else None
+                if fr:
+                    self.last_finish_reason = str(fr)
+        except requests.exceptions.Timeout as exc:
+            _log_call(False, f"read timeout: {exc}")
+            raise RuntimeError(
+                "云端 API 流式响应超时（180 秒无新数据）：服务商可能"
+                "过载或网络中断，请重发重试") from exc
         finally:
             resp.close()
+        # 空回复兜底（2026-09-21 用户报「写 3000 字剧本一片空白」实测
+        # 根因：正文 0 片段也记成功 → 前端空气泡）。对齐本地 vLLM 通道
+        # 语义（vllm_service reasoning 正文回退）：宁可重复不给空白
+        if content_yielded:
+            _log_call(True)
+            return
+        if reasoning_parts:
+            _log_call(True,
+                      "reasoning_content 回退为正文（服务商未返回 content）")
+            yield "".join(reasoning_parts)
+            return
+        _log_call(False,
+                  f"empty stream, finish_reason="
+                  f"{self.last_finish_reason or 'none'}")
+        raise RuntimeError(
+            "云端模型未返回正文（回复可能全部是思考内容且被长度上限"
+            "截断，或服务商异常）。可尝试关闭深度思考后重发；若持续"
+            "出现，请到「设置 → 云端 API 服务」核对模型名并点"
+            "「测试连接」排查")
 
     def count_tokens(self, text: str) -> int:
         # 远端 tokenizer 计数代价不值；粗估满足上下文预算截断

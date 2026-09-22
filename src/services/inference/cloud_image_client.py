@@ -33,6 +33,7 @@ from ..cloud_provider_service import (
     PROTOCOL_OPENAI_IMAGE,
     PROTOCOL_TASK_IMAGE,
     CloudEndpoint,
+    http_error_hint,
     looks_like_dashscope_task_404,
 )
 
@@ -154,9 +155,9 @@ def _post_json(ep: CloudEndpoint, url: str, payload: dict,
     if resp.status_code != 200:
         body = (resp.text or "")[:200]
         raise RuntimeError(
-            f"云端图片服务返回 HTTP {resp.status_code}：{body}。常见原因="
-            "API Key 无效或欠费（去服务商后台核对）、模型名与该服务商"
-            f"不符（检查设置里的模型，当前={ep.model or '默认'}）")
+            f"云端图片服务返回 HTTP {resp.status_code}：{body}。"
+            f"{http_error_hint(resp.status_code)}"
+            f"（当前模型={ep.model or '默认'}）")
     try:
         return resp.json()
     except Exception as exc:  # noqa: BLE001
@@ -250,8 +251,8 @@ def _ds_submit(ep: CloudEndpoint, prompt: str, width: int, height: int,
         body = (resp.text or "")[:200]
         raise RuntimeError(
             f"云端图片任务提交失败 HTTP {resp.status_code}：{body}。"
-            "常见原因=API Key 无效或欠费（去服务商后台核对）、模型名"
-            f"与该服务商不符（当前={ep.model or '默认'}）")
+            f"{http_error_hint(resp.status_code)}"
+            f"（当前模型={ep.model or '默认'}）")
     out = (resp.json() or {}).get("output") or {}
     task_id = str(out.get("task_id") or "")
     if not task_id:

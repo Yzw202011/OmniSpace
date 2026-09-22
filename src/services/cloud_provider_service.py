@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -84,6 +85,50 @@ PROTOCOL_TASK_IMAGE = "task_image"
 PROTOCOL_TASK_VIDEO = "task_video"
 VALID_PROTOCOLS = (PROTOCOL_OPENAI_TEXT, PROTOCOL_OPENAI_IMAGE,
                    PROTOCOL_TASK_IMAGE, PROTOCOL_TASK_VIDEO)
+
+
+# ── 模型类别严格过滤（2026-09-21 用户令：工位只留对应类别）────────
+# 背景：服务商「拉取模型列表」会把 /v1/models 全量目录拉回来——阿里
+# 百炼代销第三方（MiniMax/Kimi/智谱等）+ 音频/画图/TTS/向量化全模态
+# 混在一页；手工粘贴同样可能混入。按连接协议做类别过滤，中转站 key
+# 与官方 key 走同一套代码同样受管。厂商名不过滤（中转站合法多厂商，
+# 对话下拉另有「非文本对话」标注兜底）。
+
+# 全协议通用排除：语音/音频/转写/实时流/向量化/重排——任何工位都不该出现
+_MODEL_EXCLUDE_COMMON_RE = re.compile(
+    r"audio|asr|tts|whisper|speech|paraformer|sensevoice|cosyvoice|s2s"
+    r"|livetranslate|realtime|embedding|rerank|unisound", re.I)
+# 文本协议追加排除：出图/视频/OCR/专用翻译（vl/vision/qvq 视觉对话保留）
+_MODEL_EXCLUDE_TEXT_RE = re.compile(
+    r"image|video|flux|wanx|wan[\dx]|z-image|ocr|qwen-mt|-mt-", re.I)
+
+
+def filter_models_for_protocol(
+        protocol: str, models: list[str]) -> tuple[list[str], list[str]]:
+    """按连接协议过滤模型类别（严格管理，2026-09-21 用户令）。
+
+    openai_text 只留文本对话类（含 vl/vision/qvq 视觉对话、coder、math、
+    omni 非实时、第三方代销对话模型）；图片/视频协议只排通用噪声
+    （语音/向量化类），出图出片模型名本身含 image/wanx 不受影响。
+
+    Returns:
+        (保留列表, 被过滤列表)，均保序。
+    """
+    kept: list[str] = []
+    removed: list[str] = []
+    for m in models:
+        name = str(m or "").strip()
+        if not name:
+            continue
+        if _MODEL_EXCLUDE_COMMON_RE.search(name):
+            removed.append(name)
+        elif protocol in IMAGE_PROTOCOLS or protocol in VIDEO_PROTOCOLS:
+            kept.append(name)
+        elif _MODEL_EXCLUDE_TEXT_RE.search(name):
+            removed.append(name)
+        else:
+            kept.append(name)
+    return kept, removed
 
 
 def looks_like_dashscope_task_404(resp: Any) -> bool:
@@ -677,6 +722,29 @@ def resolve_slot_cloud_model(slot: str) -> str | None:
 
 
 # ── 云端调用事件日志（系统日志升级，2026-09-06 用户要求）────────
+
+def http_error_hint(status: int) -> str:
+    """按云端服务商 HTTP 状态码给排查出路（2026-09-21 根修）。
+
+    此前 text/image/video 三条链一切非 200 都被归因为「API Key 无效或
+    欠费」，400 参数错（如把音频模型绑成文本对话）也被误导成 Key 问题。
+    """
+    if status in (400, 422):
+        return ("服务商拒绝了请求参数——最常见原因是绑定的模型名不是"
+                "该类工位对应的模型（如把音频转写/绘画/向量化模型绑成"
+                "「文本对话」），请到「设置 → 云端 API 服务」核对模型名")
+    if status in (401, 403):
+        return ("API Key 无效、已被停用或欠费，请去服务商后台核对 "
+                "Key 状态与余额")
+    if status == 404:
+        return ("模型名在该服务商不存在（或服务地址不对），请到"
+                "「设置 → 云端 API 服务」核对模型名与地址")
+    if status == 429:
+        return "触发服务商限流或额度不足，请稍后重试或核对余额/配额"
+    if status >= 500:
+        return "服务商服务端故障或过载，请稍后重试"
+    return "请到「设置 → 云端 API 服务」点「测试连接」排查"
+
 
 def record_cloud_call(kind: str, provider_name: str, model: str,
                       ok: bool, latency_ms: int,

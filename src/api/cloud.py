@@ -40,6 +40,15 @@ def _guard(fn: Any, *args: Any, **kwargs: Any) -> Any:
         raise ApiError(exc.code, exc.message) from exc
 
 
+def _filtered_suffix(removed: list[str]) -> str:
+    """被过滤模型的提示后缀（严格管理 2026-09-21：过滤要对用户可见）。"""
+    if not removed:
+        return ""
+    preview = "、".join(removed[:3]) + ("等" if len(removed) > 3 else "")
+    return (f"（已按工位类别自动过滤 {len(removed)} 个不匹配模型："
+            f"{preview}）")
+
+
 @router.get("/providers")
 def cloud_providers_list() -> dict[str, Any]:
     """连接列表（打码；首次访问懒迁移批3 旧远程配置）。"""
@@ -60,16 +69,22 @@ def ensure_migrated() -> int:
 @router.post("/providers")
 def cloud_provider_create(req: dict = Body(...)) -> dict[str, Any]:
     """新增连接（api_key 仅本机存储，响应打码）。"""
+    protocol = str(req.get("protocol") or svc.PROTOCOL_OPENAI_TEXT)
+    kept, removed = svc.filter_models_for_protocol(
+        protocol, list(req.get("models") or []))
     item = _guard(
         svc.create_provider,
         name=str(req.get("name") or ""),
-        protocol=str(req.get("protocol") or svc.PROTOCOL_OPENAI_TEXT),
+        protocol=protocol,
         base_url=str(req.get("base_url") or ""),
         api_key=str(req.get("api_key") or ""),
-        models=list(req.get("models") or []),
+        models=kept,
         enabled=bool(req.get("enabled", True)))
-    return ok(svc.get_provider(str(item["id"]), mask=True),
-              message="连接已添加")
+    data: dict[str, Any] = dict(
+        svc.get_provider(str(item["id"]), mask=True) or {})
+    if removed:
+        data["removed_models"] = removed
+    return ok(data, message="连接已添加" + _filtered_suffix(removed))
 
 
 @router.put("/providers/{provider_id}")
@@ -77,16 +92,31 @@ def cloud_provider_update(provider_id: str,
                           req: dict = Body(...)) -> dict[str, Any]:
     """更新连接；api_key 传空串/缺省 = 保持原值（打码回显不还原）。"""
     models = req.get("models")
+    removed: list[str] = []
+    kept_models = None
+    if models is not None:
+        protocol = str(req.get("protocol") or "")
+        if not protocol:
+            prov = _guard(svc.get_provider, provider_id, mask=False)
+            if prov is None:
+                raise ApiError("CLOUD_PROVIDER_NOT_FOUND",
+                               "服务商连接不存在或已删除")
+            protocol = str(prov.get("protocol") or svc.PROTOCOL_OPENAI_TEXT)
+        kept_models, removed = svc.filter_models_for_protocol(
+            protocol, list(models))
     item = _guard(
         svc.update_provider, provider_id,
         name=req.get("name"),
         protocol=req.get("protocol"),
         base_url=req.get("base_url"),
         api_key=str(req.get("api_key") or "") or None,
-        models=list(models) if models is not None else None,
+        models=kept_models,
         enabled=req.get("enabled"))
-    return ok(svc.get_provider(str(item["id"]), mask=True),
-              message="连接已更新")
+    data: dict[str, Any] = dict(
+        svc.get_provider(str(item["id"]), mask=True) or {})
+    if removed:
+        data["removed_models"] = removed
+    return ok(data, message="连接已更新" + _filtered_suffix(removed))
 
 
 @router.delete("/providers/{provider_id}")
@@ -141,13 +171,20 @@ def cloud_provider_test(req: dict = Body(...)) -> dict[str, Any]:
 
 @router.get("/providers/{provider_id}/models")
 def cloud_provider_models(provider_id: str) -> dict[str, Any]:
-    """拉取该连接的 OpenAI 兼容模型列表（/v1/models，8s 超时）。"""
+    """拉取该连接的 OpenAI 兼容模型列表（/v1/models，8s 超时）。
+
+    类别严格过滤（2026-09-21 用户令）：按连接协议只保留对应类别——
+    文本连接剔除音频/TTS/画图/向量化等（服务商 /v1/models 是全量目录，
+    含代销第三方与全模态，照单全收会把「非对话模型」混进对话下拉）。
+    """
     prov = _guard(svc.get_provider, provider_id, mask=False)
     if prov is None:
         raise ApiError("CLOUD_PROVIDER_NOT_FOUND", "服务商连接不存在或已删除")
     ids, err = svc.fetch_openai_models(str(prov.get("base_url") or ""),
                                        str(prov.get("api_key") or ""))
-    return ok({"models": ids, "error": err})
+    kept, removed = svc.filter_models_for_protocol(
+        str(prov.get("protocol") or svc.PROTOCOL_OPENAI_TEXT), ids)
+    return ok({"models": kept, "removed": removed, "error": err})
 
 
 @router.get("/bindings")

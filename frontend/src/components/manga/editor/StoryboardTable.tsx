@@ -51,6 +51,7 @@ import type { ComicAsset, ComicAssetKind, KeyframeItem, ShotSaveStatus, Storyboa
 import type { MangaVideoTask } from '@/stores/useMangaStore';
 import { VIDEO_STATUS_LABELS, KEYFRAME_STALE_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
+import { confirmDialog } from '@/stores/useConfirmStore';
 import { batchDescribe, batchKeyframes, readPromptPrefix } from './batchOps';
 
 /** 分镜行数硬上限（后端 STORYBOARD_MAX_ROWS，2026-08-23 50 → 200） */
@@ -730,8 +731,14 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
 
   /** 删除分镜 */
   const removeShot = useCallback(
-    (rowId: string) => {
-      if (!window.confirm('确定删除该分镜？此操作不可恢复')) return;
+    async (rowId: string) => {
+      const go = await confirmDialog({
+        level: 'heavy',
+        title: '确定删除该分镜？',
+        lines: ['此操作不可恢复'],
+        confirmText: '删除',
+      });
+      if (!go) return;
       const cur = useMangaStore.getState().rows;
       applyStructure(cur.filter((r) => r.id !== rowId));
       // selectedRowId 经 getState 调用时读取，避免闭包依赖破坏 useCallback 引用稳定
@@ -857,10 +864,15 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
     const targets = rows.filter((r) => checked.has(r.id));
     if (targets.length === 0) return;
     if (kind === 'delete') {
-      const msg = targets.length === 1
-        ? '确定删除该分镜？此操作不可恢复'
-        : `确定删除选中的 ${targets.length} 个分镜？此操作不可恢复`;
-      if (!window.confirm(msg)) return;
+      const go = await confirmDialog({
+        level: 'heavy',
+        title: targets.length === 1
+          ? '确定删除该分镜？'
+          : `确定删除选中的 ${targets.length} 个分镜？`,
+        lines: ['此操作不可恢复'],
+        confirmText: '删除',
+      });
+      if (!go) return;
       applyStructure(rows.filter((r) => !checked.has(r.id)));
       setChecked(new Set());
       showToast(`已删除 ${targets.length} 镜`, 'success');

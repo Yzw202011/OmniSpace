@@ -25,6 +25,7 @@ import {
 } from '@/services/mangaApi';
 import { VIDEO_STATUS_LABELS, KEYFRAME_STALE_LABELS, type VideoTaskStatus } from '@/constants/statusLabels';
 import { getErrorMessage } from '@/utils/errors';
+import { confirmDialog } from '@/stores/useConfirmStore';
 import { Modal } from '../../common/Modal';
 import AssetLightbox from './AssetLightbox';
 
@@ -179,8 +180,14 @@ export default function RecordsModal({ onClose }: { onClose: () => void }) {
   };
 
   /** 删除视频记录（2026-08-31 删除机制补全：DB 行 + MP4 文件级联，不可恢复） */
-  const handleDeleteVideo = (task: Awaited<ReturnType<typeof listVideoTasks>>['items'][number]) => {
-    if (!window.confirm(`确定删除镜 ${task.shot_number} 的视频记录？视频文件将一并删除，此操作不可恢复`)) return;
+  const handleDeleteVideo = async (task: Awaited<ReturnType<typeof listVideoTasks>>['items'][number]) => {
+    const go = await confirmDialog({
+      level: 'heavy',
+      title: `确定删除镜 ${task.shot_number} 的视频记录？`,
+      lines: ['视频文件将一并删除，此操作不可恢复'],
+      confirmText: '删除',
+    });
+    if (!go) return;
     setBusyId(task.task_id);
     deleteVideoHistory(task.task_id)
       .then(() => {

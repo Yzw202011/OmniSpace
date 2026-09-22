@@ -48,6 +48,7 @@ import PromptModal from './editor/PromptModal';
 import RecordsModal from './editor/RecordsModal';
 import ModelConfigModal from './editor/ModelConfigModal';
 import VideoConfirmModal from './editor/VideoConfirmModal';
+import { confirmDialog } from '@/stores/useConfirmStore';
 
 /** 抽屉种类（"" 关闭，单开互斥，占用右栏槽位） */
 type DrawerKind = '' | 'import' | 'video' | 'export' | 'voice';
@@ -153,7 +154,7 @@ export default function MangaWorkspace() {
 
   // 工序①角色推理：校验后打开进度弹窗（弹窗内发起 POST infer-entities
   // + 1s 轮询进度；完成后本组件刷新资产/分镜行并聚焦资产面板）
-  const handleInferEntities = useCallback(() => {
+  const handleInferEntities = useCallback(async () => {
     if (!currentProject || inferring) return;
     // 无剧本原文（0 行）→ 引导先导入剧本并开导入抽屉
     if (rows.length === 0) {
@@ -162,8 +163,13 @@ export default function MangaWorkspace() {
       return;
     }
     // 已有资产时二次确认（后端按 (kind,name) 去重复用，不覆盖已有资产）
-    if (assets.length > 0 && !window.confirm('已有资产，将按剧本重新推断角色清单（已有资产保留），是否继续？')) {
-      return;
+    if (assets.length > 0) {
+      const go = await confirmDialog({
+        level: 'medium',
+        title: '已有资产，将按剧本重新推断角色清单（已有资产保留），是否继续？',
+        confirmText: '继续',
+      });
+      if (!go) return;
     }
     setInferOpen(true);
     setInferring(true);

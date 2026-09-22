@@ -40,14 +40,80 @@ const DIALOG_PARAMS_STORAGE_KEY = 'omnispace.dialog.params';
 /** 最近一次已提醒的降级组合（from>engine）——同一降级只 toast 一次 */
 let _lastDegradedKey = '';
 
-/** 需持久化的对话参数 */
-interface DialogParamsSnapshot {
+/** 单模型对话参数槽（按模型分存） */
+interface DialogModelParams {
+  model: DialogModelSize;
+  temperature: number;
+  contextTokens: number;
+  thinking: boolean;
+}
+
+/** 需持久化的当前参数快照（写时并入按模型账本） */
+interface DialogParamsFlat {
   model: DialogModelSize;
   modelId: string;
   temperature: number;
   contextTokens: number;
   /** 深度思考开关（system prompt 四步框架引导 + reasoning 双通道） */
   thinking: boolean;
+}
+
+/** 持久化快照 v2（2026-09-21 按模型分存）：thinking/温度/上下文此前是
+ *  全局单值——用户报「4B 开的深度思考，切到别的模型开关仍开但无思考
+ *  输出」。v1（扁平单值结构）读取时整体迁移进 last 指向的模型槽。 */
+interface DialogParamsSnapshotV2 {
+  version: 2;
+  last: string;
+  byModel: Record<string, DialogModelParams>;
+}
+
+/** 参数缺省值（模型无已存槽位时回退） */
+const PARAMS_DEFAULTS = {
+  model: '4B' as DialogModelSize,
+  modelId: 'qwen3-vl-4b',
+  temperature: 0.7,
+  contextTokens: 4096,
+  thinking: false,
+};
+
+/** 模块级参数账本（loadDialogParams 初始化，persistDialogParams 增量写） */
+let _paramsStore: DialogParamsSnapshotV2 = {
+  version: 2,
+  last: PARAMS_DEFAULTS.modelId,
+  byModel: {},
+};
+
+/** 温度合法化（非法回 null，由调用方定缺省） */
+function _validTemp(v: unknown): number | null {
+  return typeof v === 'number' && v >= TEMPERATURE_MIN && v <= TEMPERATURE_MAX
+    ? v
+    : null;
+}
+
+/** 模型加载期待补发消息（2026-09-21）：后端铁律「未加载必须全自动」的
+ *  前端对齐——加载阶段失败发生在用户消息落库（后端 ensure_loaded 之后
+ *  才落库）之前，轮询引擎就绪后原样补发一次，不再让用户手点重发 */
+interface PendingResend {
+  sessionId: string;
+  content: string;
+  images?: string[];
+  pluginContext?: { title: string; text: string }[];
+  userMsgId: string;
+  assistantMsgId: string;
+  timer: number | null;
+  pollsLeft: number;
+}
+let _pendingResend: PendingResend | null = null;
+const _RESEND_POLL_MS = 3000;
+const _RESEND_MAX_POLLS = 120; // 6 分钟：覆盖 vLLM 冷启动 2-3 分钟+裕量
+const _RESEND_WAITING_HINT = '[等待模型就绪后自动补发…]';
+
+/** 取消待补发（新发送/补发超时时调用） */
+function cancelPendingResend(): void {
+  if (_pendingResend?.timer != null) {
+    clearInterval(_pendingResend.timer);
+  }
+  _pendingResend = null;
 }
 
 /** 旧档位标签 → 缺省完整 model_id（localStorage 兼容迁移） */
@@ -66,48 +132,85 @@ export function sizeFromModelId(modelId: string): DialogModelSize {
 }
 
 /** 从 localStorage 恢复对话参数（非法值回退默认，绝不抛错阻断启动） */
-function loadDialogParams(): DialogParamsSnapshot {
-  const fallback: DialogParamsSnapshot = {
-    model: '4B', modelId: 'qwen3-vl-4b', temperature: 0.7, contextTokens: 4096,
-    thinking: false,
-  };
+function loadDialogParams(): DialogParamsFlat {
   try {
     const raw = localStorage.getItem(DIALOG_PARAMS_STORAGE_KEY);
-    if (!raw) {
-      return fallback;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if ((parsed as { version?: unknown }).version === 2) {
+        const v2 = parsed as unknown as DialogParamsSnapshotV2;
+        _paramsStore = {
+          version: 2,
+          last: typeof v2.last === 'string' && v2.last
+            ? v2.last
+            : PARAMS_DEFAULTS.modelId,
+          byModel: (v2.byModel && typeof v2.byModel === 'object')
+            ? v2.byModel
+            : {},
+        };
+      } else {
+        // v1 扁平单值迁移：整体归入当时选中模型的槽位
+        const legacy = parsed as Partial<DialogParamsFlat>;
+        const legacySize =
+          DIALOG_MODEL_OPTIONS.includes(legacy.model as DialogModelSize)
+            ? (legacy.model as DialogModelSize)
+            : null;
+        const legacyModelId =
+          typeof legacy.modelId === 'string' && legacy.modelId
+            ? legacy.modelId
+            : (legacySize ? _LEGACY_SIZE_TO_MODEL[legacySize] : null)
+              || PARAMS_DEFAULTS.modelId;
+        _paramsStore = {
+          version: 2,
+          last: legacyModelId,
+          byModel: {
+            [legacyModelId]: {
+              model: legacySize ?? sizeFromModelId(legacyModelId),
+              temperature: _validTemp(legacy.temperature)
+                ?? PARAMS_DEFAULTS.temperature,
+              contextTokens:
+                (CONTEXT_TOKEN_OPTIONS as readonly number[]).includes(
+                  legacy.contextTokens as number)
+                  ? (legacy.contextTokens as number)
+                  : PARAMS_DEFAULTS.contextTokens,
+              thinking: legacy.thinking === true,
+            },
+          },
+        };
+      }
     }
-    const parsed = JSON.parse(raw) as Partial<DialogParamsSnapshot>;
-    const model = DIALOG_MODEL_OPTIONS.includes(parsed.model as DialogModelSize)
-      ? (parsed.model as DialogModelSize)
-      : fallback.model;
-    // modelId：新字段优先；旧快照只有档位标签 → 映射补全（迁移）
-    const modelId = typeof parsed.modelId === 'string' && parsed.modelId
-      ? parsed.modelId
-      : _LEGACY_SIZE_TO_MODEL[model] || fallback.modelId;
-    const temperature =
-      typeof parsed.temperature === 'number' &&
-      parsed.temperature >= TEMPERATURE_MIN &&
-      parsed.temperature <= TEMPERATURE_MAX
-        ? parsed.temperature
-        : fallback.temperature;
-    const contextTokens = (CONTEXT_TOKEN_OPTIONS as readonly number[]).includes(
-      parsed.contextTokens as number,
-    )
-      ? (parsed.contextTokens as number)
-      : fallback.contextTokens;
-    // thinking：旧快照无此字段 → 回退默认关闭（宽松布尔，仅 true 才开）
-    const thinking = parsed.thinking === true;
-    return { model: sizeFromModelId(modelId), modelId, temperature, contextTokens, thinking };
   } catch {
-    return fallback;
+    /* silent-intent: 快照损坏回默认账本 */
   }
+  const slot = _paramsStore.byModel[_paramsStore.last];
+  return {
+    modelId: _paramsStore.last,
+    model: slot?.model ?? sizeFromModelId(_paramsStore.last),
+    temperature: _validTemp(slot?.temperature) ?? PARAMS_DEFAULTS.temperature,
+    contextTokens:
+      (CONTEXT_TOKEN_OPTIONS as readonly number[]).includes(
+        slot?.contextTokens as number)
+        ? (slot?.contextTokens as number)
+        : PARAMS_DEFAULTS.contextTokens,
+    thinking: slot?.thinking === true,
+  };
 }
 
-/** 持久化对话参数到 localStorage（失败静默，不影响交互） */
-function persistDialogParams(snapshot: DialogParamsSnapshot): void {
+/** 持久化当前对话参数（并入按模型账本后整写 localStorage；失败静默） */
+function persistDialogParams(snapshot: DialogParamsFlat): void {
   try {
-    localStorage.setItem(DIALOG_PARAMS_STORAGE_KEY, JSON.stringify(snapshot));
-    mirrorPref(DIALOG_PARAMS_STORAGE_KEY, snapshot); // 界面偏好镜像（2026-09-12 修复重启回退）
+    _paramsStore.last = snapshot.modelId;
+    _paramsStore.byModel[snapshot.modelId] = {
+      model: snapshot.model,
+      temperature: snapshot.temperature,
+      contextTokens: snapshot.contextTokens,
+      thinking: snapshot.thinking,
+    };
+    localStorage.setItem(
+      DIALOG_PARAMS_STORAGE_KEY,
+      JSON.stringify(_paramsStore),
+    );
+    mirrorPref(DIALOG_PARAMS_STORAGE_KEY, _paramsStore); // 界面偏好镜像（2026-09-12 修复重启回退）
   } catch {
     /* silent-intent: 隐私模式等写入失败场景静默 */
   }
@@ -352,6 +455,9 @@ export const useDialogStore = create<DialogState>((set, get) => ({
 
     const sessionId = currentSession.id;
 
+    // 新发送取代旧的待补发（同一时刻至多一条在等待）
+    cancelPendingResend();
+
     // 1. 追加用户消息（plugin_skill=本地气泡标注，随 plugin_context 即焚）
     const userMsg: DialogMessage = {
       id: tempId(),
@@ -470,6 +576,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       engine?: string;
       message_id?: string;
       degraded_from?: string;
+      truncated?: boolean;
     }>(
       'meta',
       (data) => {
@@ -480,6 +587,15 @@ export const useDialogStore = create<DialogState>((set, get) => ({
               m.id === assistantId ? { ...m, id: data.message_id! } : m,
             ),
             _streamingMessageId: data.message_id,
+          }));
+        }
+        if (data?.truncated) {
+          set((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === (get()._streamingMessageId ?? assistantId)
+                ? { ...m, truncated: true }
+                : m,
+            ),
           }));
         }
         if (data?.engine) {
@@ -515,11 +631,39 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     );
 
     // error 事件（40002 模型未就绪，如实返回）
-    const offError = conn.on<{ code?: number; message?: string; detail?: unknown }>(
+    const offError = conn.on<{ code?: number | string; message?: string; detail?: unknown }>(
       'error',
       (data) => {
         const msg = data?.message || '生成失败';
-        useAppStore.getState().showToast(msg, 'error');
+        // 模型加载期失败（后端在用户消息落库前拒绝，2026-09-21）：
+        // 排队等待模型就绪后自动补发一次，不再让用户手点重发
+        const code = String(data?.code ?? '');
+        if (code === 'MODEL_LOADING' || code === 'MODEL_LOAD_FAILED'
+            || code === '30003') {
+          useAppStore.getState().showToast(
+            '模型仍在加载，就绪后将自动补发本条消息', 'warning');
+          set((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === assistantId
+                ? { ...m, content: _RESEND_WAITING_HINT }
+                : m,
+            ),
+            generating: false,
+          }));
+          cleanup();
+          releaseDialogFeature();
+          _armResendPoll({
+            sessionId,
+            content,
+            images,
+            pluginContext,
+            userMsgId: userMsg.id,
+            assistantMsgId: assistantId,
+            timer: null,
+            pollsLeft: _RESEND_MAX_POLLS,
+          });
+          return;
+        }
         // P1 修复（2026-09-02 冷启动实测）：content 为加载占位符时必须
         // 先清掉再写错误文案——`m.content ||` 短路会把错误吞进占位符，
         // 用户只看到永远「冷启动中」的气泡、无任何失败提示
@@ -745,8 +889,18 @@ export const useDialogStore = create<DialogState>((set, get) => ({
   /** 按完整 model_id 选定模型（2026-08-20 模型选择接线） */
   setModelId: (modelId) => {
     const model = sizeFromModelId(modelId);
-    set({ model, modelId });
-    const { temperature, contextTokens, thinking } = get();
+    // 按模型分槽（2026-09-21）：切换时载入该模型自己存过的参数，
+    // 没存过回缺省——修「A 模型开的深度思考切到 B 仍显示开着」
+    const slot = _paramsStore.byModel[modelId];
+    const temperature = _validTemp(slot?.temperature)
+      ?? PARAMS_DEFAULTS.temperature;
+    const contextTokens =
+      (CONTEXT_TOKEN_OPTIONS as readonly number[]).includes(
+        slot?.contextTokens as number)
+        ? (slot?.contextTokens as number)
+        : PARAMS_DEFAULTS.contextTokens;
+    const thinking = slot?.thinking === true;
+    set({ model, modelId, temperature, contextTokens, thinking });
     persistDialogParams({ model, modelId, temperature, contextTokens, thinking });
   },
 
@@ -757,6 +911,12 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       const models = res.models || [];
       set({ modelOptions: models });
       const { modelId } = get();
+      // 云端模型（cloud::prov::model）本就不在本地清单里，是设计内状态，
+      // 不能落入下方「不在清单→回退本地」分支（否则每次进对话页都会把
+      // 用户选好的云端模型静默改回本地模型并触发本地装载）
+      if (modelId.startsWith('cloud::')) {
+        return;
+      }
       const cur = models.find((m) => m.model_id === modelId);
       if (cur && !cur.fits_local) {
         // 当前选择本机装不下 → 回退第一个可承载项（无则保持原值由引擎路由）
@@ -794,6 +954,46 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     persistDialogParams({ model, modelId, temperature, contextTokens, thinking });
   },
 }));
+
+/** 武装待补发轮询：引擎就绪即撤占位并原样补发一次；超时诚实报错。
+ *  已切到其他会话则放弃补发（气泡占位随服务端真值回放自然消失）。 */
+function _armResendPoll(pending: PendingResend): void {
+  cancelPendingResend();
+  _pendingResend = pending;
+  const tick = async (): Promise<void> => {
+    const cur = _pendingResend;
+    if (cur !== pending) return;
+    cur.pollsLeft -= 1;
+    if (cur.pollsLeft <= 0) {
+      cancelPendingResend();
+      useDialogStore.setState((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === pending.assistantMsgId
+          && m.content === _RESEND_WAITING_HINT
+            ? { ...m, content: '[模型加载等待超时——请重发]' }
+            : m),
+      }));
+      return;
+    }
+    try {
+      const st = await dialogApi.getDialogEngineStatus();
+      if (_pendingResend !== pending || st.state !== 'ready') return;
+    } catch {
+      return; // 状态查询失败：下个周期再试
+    }
+    cancelPendingResend();
+    const snap = useDialogStore.getState();
+    if (snap.currentSession?.id !== pending.sessionId) return;
+    // 用户消息尚未落库（失败发生在后端落库前）：撤本地占位后原样补发
+    useDialogStore.setState((state) => ({
+      messages: state.messages.filter(
+        (m) => m.id !== pending.assistantMsgId && m.id !== pending.userMsgId),
+    }));
+    void snap.sendMessage(pending.content, pending.images,
+      pending.pluginContext);
+  };
+  pending.timer = window.setInterval(() => { void tick(); }, _RESEND_POLL_MS);
+}
 
 export default useDialogStore;
 // 本项目仅供学习使用，商业授权请+Q 3559331368

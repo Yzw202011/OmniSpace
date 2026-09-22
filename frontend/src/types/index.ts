@@ -347,6 +347,8 @@ export interface DialogMessage {
   web_refs?: WebRef[];
   /** 已应用的插件技能标题（技能插座批1：仅本地气泡标注，不落库、单回合即焚） */
   plugin_skill?: string;
+  /** 回复被截断（云端 finish_reason=length，2026-09-21：预算耗尽提示） */
+  truncated?: boolean;
 }
 
 /** 对话会话 */

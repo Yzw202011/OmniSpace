@@ -66,6 +66,8 @@ export interface ChatMessage {
   images?: string[];
   /** 联网搜索来源（web_refs 事件；回答带【n】引用标注，架构升级计划 B-阶段一） */
   web_refs?: WebRef[];
+  /** 回复被截断（云端 finish_reason=length 经 meta.truncated 带出，2026-09-21） */
+  truncated?: boolean;
 }
 
 export interface MessageBubbleProps {
@@ -502,6 +504,14 @@ export const MessageBubble = memo(function MessageBubble({
             </span>
           ) : null}
         </div>
+        ) : null}
+
+        {/* 截断标注（云端 finish_reason=length，meta.truncated 下发）：
+            预算耗尽——提示用户答案没写完，不是模型偷懒 */}
+        {!isUser && message.truncated ? (
+          <div className="mt-0.5 text-xs text-[var(--color-warning)]">
+            回复因长度上限被截断，可让模型「继续」或关闭深度思考后重试
+          </div>
         ) : null}
 
         {/* 联网来源卡片（web_refs 事件；仅助手消息，与回答中的【n】引用

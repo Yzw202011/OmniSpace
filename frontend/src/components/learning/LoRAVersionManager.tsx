@@ -14,6 +14,7 @@ import {
   type LoraVersion,
 } from '../../services/learnApi';
 import { useAppStore } from '../../stores/useAppStore';
+import { confirmDialog } from '../../stores/useConfirmStore';
 import { isApiError } from '../../services/api';
 
 type CompareField = { a: unknown; b: unknown; diff?: unknown };
@@ -72,7 +73,13 @@ export default function LoRAVersionManager() {
   };
 
   const onRollback = async (version: string) => {
-    if (!window.confirm(`确定回滚到 ${version}？当前生效版本将被替换。`)) return;
+    const go = await confirmDialog({
+      level: 'medium',
+      title: `确定回滚到 ${version}？`,
+      lines: ['当前生效版本将被替换。'],
+      confirmText: '回滚',
+    });
+    if (!go) return;
     setRollbackBusy(version);
     try {
       await rollbackLoraVersion(version);

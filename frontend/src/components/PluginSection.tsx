@@ -25,6 +25,7 @@ import {
   type PluginInfo,
 } from '../services/pluginApi';
 import { useAppStore } from '../stores/useAppStore';
+import { confirmDialog } from '../stores/useConfirmStore';
 import { isApiError } from '../services/api';
 
 /** 信任徽章配色（CSS 变量令牌，禁止硬编码 hex）
@@ -120,7 +121,13 @@ export default function PluginSection() {
   };
 
   const onDelete = async (p: PluginInfo) => {
-    if (!window.confirm(`确定删除插件「${p.name}」？此操作不可恢复。`)) {
+    const go = await confirmDialog({
+      level: 'heavy',
+      title: `确定删除插件「${p.name}」？`,
+      lines: ['此操作不可恢复。'],
+      confirmText: '删除',
+    });
+    if (!go) {
       return;
     }
     setBusy(true);

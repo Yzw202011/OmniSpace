@@ -17,6 +17,13 @@
 
 import { del, get, post, put } from './api';
 
+/** 疑似非文本对话模型关键词（2026-09-21 实测案例：qwen-audio-asr 系列
+ *  被绑成「文本对话」→ 服务商 400 UNSUPPORTED_FORMAT）。命中仅警示
+ *  不阻断——注意 qwen3-vl 等视觉对话模型不在名单。真源在本文件，
+ *  设置页保存警示与对话页模型下拉标注共用。 */
+export const SUSPICIOUS_NON_TEXT_MODEL_RE =
+  /audio|asr|tts|whisper|speech|paraformer|sensevoice|cosyvoice|embedding|rerank|image|video|flux|wan[\dx]|ocr/i;
+
 /** 云端服务商连接（api_key 永不出后端，只有打码形态） */
 export interface CloudProvider {
   id: string;
@@ -78,15 +85,17 @@ export function listCloudProviders() {
   return get<CloudProvidersResp>('/cloud/providers');
 }
 
+/** 保存响应 data = 打码后的 provider 本体；removed_models = 按工位类别
+ *  被后端严格过滤掉的模型清单（2026-09-21，仅保存时混入不匹配类别才有） */
 export function createCloudProvider(body: CloudProviderInput) {
-  return post<{ provider: CloudProvider | null; message: string }>(
+  return post<{ removed_models?: string[] }>(
     '/cloud/providers',
     body,
   );
 }
 
 export function updateCloudProvider(id: string, body: CloudProviderInput) {
-  return put<{ provider: CloudProvider | null; message: string }>(
+  return put<{ removed_models?: string[] }>(
     `/cloud/providers/${encodeURIComponent(id)}`,
     body,
   );
@@ -110,7 +119,7 @@ export function testCloudProvider(body: {
 }
 
 export function fetchCloudProviderModels(id: string) {
-  return get<{ models: string[]; error: string }>(
+  return get<{ models: string[]; removed: string[]; error: string }>(
     `/cloud/providers/${encodeURIComponent(id)}/models`,
   );
 }

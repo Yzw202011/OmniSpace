@@ -17,6 +17,7 @@ import { TRAIN_STATUS_CLASSES, TRAIN_STATUS_LABELS } from '@/constants/statusLab
 import { useLearnStore } from '@/stores/useLearnStore';
 import { useTaskStore } from '@/stores/useTaskStore';
 import { useAppStore } from '@/stores/useAppStore';
+import { confirmDialog } from '@/stores/useConfirmStore';
 
 /** 与 learnApi.DEFAULT_BASE_MODEL 对齐的兜底基座 */
 const DEFAULT_FORM = {
@@ -345,8 +346,14 @@ export const LearnView: React.FC = () => {
                   <div className="learn-task-actions">
                     <button
                       className="btn btn-secondary btn-sm"
-                      onClick={() => {
-                        if (!window.confirm(`确定删除训练任务记录「${task.name}」？此操作不可恢复`)) return;
+                      onClick={async () => {
+                        const go = await confirmDialog({
+                          level: 'heavy',
+                          title: `确定删除训练任务记录「${task.name}」？`,
+                          lines: ['此操作不可恢复'],
+                          confirmText: '删除',
+                        });
+                        if (!go) return;
                         void deleteTask(task.id);
                       }}
                     >

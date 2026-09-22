@@ -9,9 +9,10 @@
  * 对齐后端 src/api/cloud.py；方案真源=docs/云端API接入方案-2026-09-06.md
  * ========================================================================== */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Cloud } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
+import { confirmDialog } from '@/stores/useConfirmStore';
 import {
   clearCloudBinding,
   createCloudProvider,
@@ -22,6 +23,7 @@ import {
   setCloudBinding,
   testCloudProvider,
   updateCloudProvider,
+  SUSPICIOUS_NON_TEXT_MODEL_RE,
   type CloudBinding,
   type CloudProvider,
   type CloudSlots,
@@ -83,6 +85,8 @@ export default function CloudApiSettings() {
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState('');
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; text: string } | null>>({});
+  /** 非文本模型警示已出过（同一次表单会话只提醒一次，再点保存即放行） */
+  const warnedRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +109,7 @@ export default function CloudApiSettings() {
   function openCreate() {
     setEditingId(null);
     setForm(EMPTY_FORM);
+    warnedRef.current = false;
     setFormOpen(true);
   }
 
@@ -117,6 +122,7 @@ export default function CloudApiSettings() {
       protocol: (p.protocol as CloudProtocol) || 'openai_text',
       models_text: (p.models ?? []).join('\n'),
     });
+    warnedRef.current = false;
     setFormOpen(true);
   }
 
@@ -126,6 +132,19 @@ export default function CloudApiSettings() {
       showToast('请填写名称和服务地址', 'error');
       return;
     }
+    const models = form.models_text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    // 非文本模型警示（2026-09-21）：首次保存前提示，再点保存即放行
+    const suspicious = models.filter((m) => SUSPICIOUS_NON_TEXT_MODEL_RE.test(m));
+    if (suspicious.length > 0 && !warnedRef.current) {
+      warnedRef.current = true;
+      showToast(
+        `注意：${suspicious.join('、')} 疑似音频/向量化/绘画类模型，`
+        + '绑定为「文本对话」后对话会报错（如 UNSUPPORTED_FORMAT）。'
+        + '确认模型名无误可再次点「保存」放行',
+        'warning',
+      );
+      return;
+    }
     setSaving(true);
     try {
       const body = {
@@ -133,15 +152,19 @@ export default function CloudApiSettings() {
         protocol: form.protocol,
         base_url: form.base_url,
         api_key: form.api_key, // 空串=保持原值（后端语义）
-        models: form.models_text.split(/\n+/).map((s) => s.trim()).filter(Boolean),
+        models,
       };
-      if (editingId) {
-        await updateCloudProvider(editingId, body);
-        showToast('连接已更新', 'success');
-      } else {
-        await createCloudProvider(body);
-        showToast('连接已添加', 'success');
-      }
+      const u = editingId
+        ? await updateCloudProvider(editingId, body)
+        : await createCloudProvider(body);
+      const filtered = u.removed_models?.length ?? 0;
+      const verb = editingId ? '连接已更新' : '连接已添加';
+      showToast(
+        filtered > 0
+          ? `${verb}（已按工位类别自动过滤 ${filtered} 个不匹配模型）`
+          : verb,
+        'success',
+      );
       setFormOpen(false);
       await load();
     } catch (e) {
@@ -177,7 +200,13 @@ export default function CloudApiSettings() {
   }
 
   async function handleDelete(p: CloudProvider) {
-    if (!window.confirm(`确定删除连接「${p.name}」？指向它的工位绑定会一并解除。`)) return;
+    const go = await confirmDialog({
+      level: 'heavy',
+      title: `确定删除连接「${p.name}」？`,
+      lines: ['指向它的工位绑定会一并解除。'],
+      confirmText: '删除',
+    });
+    if (!go) return;
     try {
       await deleteCloudProvider(p.id);
       showToast('连接已删除', 'success');
@@ -199,9 +228,14 @@ export default function CloudApiSettings() {
         showToast('服务商未返回任何模型', 'error');
         return;
       }
-      // 拉到的模型直接并入该连接（编辑态不打断）
-      await updateCloudProvider(p.id, { name: p.name, protocol: p.protocol, base_url: p.base_url, models: r.models });
-      showToast(`已更新 ${r.models.length} 个模型`, 'success');
+      // 拉到的模型直接并入该连接（编辑态不打断）；更新端点会再做一次
+      // 类别过滤（双保险），被过滤数量由响应 message 带回
+      const u = await updateCloudProvider(p.id, { name: p.name, protocol: p.protocol, base_url: p.base_url, models: r.models });
+      const filteredNote = (r.removed.length > 0)
+        ? `，已自动剔除 ${r.removed.length} 个非本类模型`
+        : '';
+      showToast(`已更新 ${r.models.length} 个模型${filteredNote}`, 'success');
+      void u;
       await load();
     } catch (e) {
       showToast((e as Error).message, 'error');

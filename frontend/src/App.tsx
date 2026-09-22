@@ -48,6 +48,7 @@ import TopBar from './components/layout/TopBar';
 import RightPanel from './components/layout/RightPanel';
 import BottomStatusBar from './components/layout/BottomStatusBar';
 import RecoveryGuideCard from './components/common/RecoveryGuideCard';
+import { registerExitConfirmBridge } from './components/common/ExitConfirmBridge';
 import ConfirmDialog from './components/common/ConfirmDialog';
 import GlobalSearch from './components/common/GlobalSearch';
 import { useAppStore, type ToastItem, type ToastLevel } from './stores/useAppStore';
@@ -347,6 +348,10 @@ export function AppShell() {
   useEffect(() => {
     void useAppStore.getState().loadSettings();
   }, []);
+
+  // 壳关窗确认桥（2026-09-21 品牌化）：注册 window.__omniExitConfirm
+  // 供 launcher/shell.py evaluate_js 调用，替代 Win32 系统消息框
+  useEffect(() => registerExitConfirmBridge(), []);
 
   /* --------------------- 模块切换资源调度（2026-08-21） --------------------- */
   // 上一个重量级模块（跨轻量页面保留：paint→models→storyboard 仍触发释放；

@@ -23,6 +23,8 @@ export interface ConfirmOptions {
   lines?: string[];
   confirmText?: string;
   cancelText?: string;
+  /** 自定义徽标文案（heavy 默认「不可恢复」；如退出确认传「有任务在跑」） */
+  badge?: string;
 }
 
 interface PendingConfirm extends ConfirmOptions {

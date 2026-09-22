@@ -206,6 +206,7 @@ export function DialogView({
   const [skillPick, setSkillPick] = useState<PluginSkillInfo | null>(null);
   const [skillInput, setSkillInput] = useState('');
   const [skillBusy, setSkillBusy] = useState(false);
+  const skillInputRef = useRef<HTMLTextAreaElement>(null);
   /** 已就绪、待随下一条消息注入的技能产出（单条；发送即消费） */
   const [appliedSkill, setAppliedSkill] = useState<PluginSkillContext | null>(null);
   useEffect(() => {
@@ -256,6 +257,13 @@ export function DialogView({
       setSkillBusy(false);
     }
   };
+
+  // 进入运行面板时自动聚焦待处理文本框（键盘流不断）
+  useEffect(() => {
+    if (skillPanel !== 'run' || !skillPick) return undefined;
+    const t = window.setTimeout(() => skillInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [skillPanel, skillPick]);
 
   // 审计 R3-FE4：组件卸载时释放未发送的附件 blob: URL（经 ref 读取最新附件列表）
   const attachmentsRef = useRef<Attachment[]>([]);
@@ -850,13 +858,22 @@ export function DialogView({
                       <X className="w-4 h-4" />
                     </button>
                   </div>
-                  <textarea
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    rows={3}
-                    placeholder="要处理的文本（默认取输入框内容，可修改）"
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
-                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-[var(--color-text-tertiary)]">
+                      <span>待处理文本</span>
+                      {skillInput ? (
+                        <span>已自动带入输入框内容，可修改</span>
+                      ) : null}
+                    </div>
+                    <textarea
+                      ref={skillInputRef}
+                      value={skillInput}
+                      onChange={(e) => setSkillInput(e.target.value)}
+                      rows={3}
+                      placeholder="把要交给技能处理的文本粘到这里（留空无法运行）"
+                      className="w-full px-3 py-2 rounded-lg border border-[var(--color-input-border)] bg-[var(--color-input-bg)] text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] resize-none focus:outline-none focus:ring-2 focus:ring-sakura-300 focus:border-sakura-400"
+                    />
+                  </div>
                   <div className="flex justify-end gap-2">
                     <Button variant="ghost" onClick={() => setSkillPanel('closed')}>
                       取消

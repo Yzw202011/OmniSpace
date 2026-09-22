@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { MessageSquare, Palette, Clapperboard, BookOpen, Video, Package, CircleHelp, Compass, Rocket, Keyboard, Lightbulb, Flower2, ShieldCheck } from 'lucide-react';
 import { fetchLicenseStatus, unbindLicense, type LicenseStatus } from '@/services/licenseApi';
+import { confirmDialog } from '@/stores/useConfirmStore';
 import { reportActionError } from '@/utils/errors';
 
 /** 六大模块简介 */
@@ -93,8 +94,14 @@ const LicenseCard: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
-  const onUnbind = useCallback(() => {
-    if (!window.confirm('解绑后本机授权立即作废，需联系卖家换绑才能继续使用。确认解绑？')) return;
+  const onUnbind = useCallback(async () => {
+    const go = await confirmDialog({
+      level: 'heavy',
+      title: '确认解绑？',
+      lines: ['解绑后本机授权立即作废，需联系卖家换绑才能继续使用。'],
+      confirmText: '解绑',
+    });
+    if (!go) return;
     unbindLicense()
       .then((code) => setUnbindCode(code))
       .catch((err) => reportActionError(err, '解绑本机'));

@@ -41,7 +41,10 @@ import { useHardwareStore } from '@/stores/useHardwareStore';
 import DialogWarmupBar from '../common/DialogWarmupBar';
 import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
-import { listCloudProviders } from '@/services/cloudApi';
+import {
+  listCloudProviders,
+  SUSPICIOUS_NON_TEXT_MODEL_RE,
+} from '@/services/cloudApi';
 import { LEARN_SESSION_STATUS_LABELS, TRAIN_STATUS_LABELS } from '@/constants/statusLabels';
 
 /** 面板折叠态本地持久化键 */
@@ -120,6 +123,18 @@ function pctText(v: number | undefined | null): string {
   return v === null || v === undefined ? '--' : `${Math.round(v)}%`;
 }
 
+/** 云端模型推荐置顶序（2026-09-22 用户令「模型选择整理」）：命中者按此序
+ *  排在各自服务商分组最前，其余按字母序——常用款不再沉在百条清单底部 */
+const REC_CLOUD_MODELS = [
+  'qwen-plus',
+  'qwen-max',
+  'qwen3-vl-plus',
+  'qwen3-vl-flash',
+  'qwen-turbo',
+  'qwen-long',
+  'qwq-plus',
+];
+
 /** 秒 → mm:ss 已用时文本 */
 function elapsedText(sec: number | undefined): string {
   if (sec === undefined || sec < 0) {
@@ -168,12 +183,35 @@ function ChatPanel() {
           if (!p.enabled) continue;
           if (!(p.protocol ?? '').toLowerCase().includes('text')) continue;
           const models = (p.models ?? []).length > 0 ? p.models : [''];
+          const provOpts: Array<{ value: string; label: string }> = [];
           for (const m of models) {
-            opts.push({
+            // 非文本对话模型标注（2026-09-21 用户两选 qwen-audio-asr 报
+            // UNSUPPORTED_FORMAT 实测）：服务商「拉取模型列表」会把音频/
+            // TTS/画图/向量化模型全量拉进来，名字带 flash 极易误选——
+            // 命中关键词只加标注不禁选（不阻断，诚实提示）
+            const suspicious = m && SUSPICIOUS_NON_TEXT_MODEL_RE.test(m);
+            provOpts.push({
               value: `cloud::${p.id}::${m}`,
-              label: m ? `${p.name} · ${m}` : `${p.name} · 默认模型`,
+              label: m
+                ? `${p.name} · ${m}${suspicious ? '（非文本对话：音频/画图/语音类）' : ''}`
+                : `${p.name} · 默认模型`,
             });
           }
+          // 推荐置顶 + 字母序（2026-09-22 用户令「模型选择整理」）：
+          // 服务商模型多时常用款沉底难找——命中推荐表者按表序排前，
+          // 其余按模型名字母序，组内不打乱服务商归属
+          provOpts.sort((a, b) => {
+            const na = (a.value.split('::')[2] || '').toLowerCase();
+            const nb = (b.value.split('::')[2] || '').toLowerCase();
+            const ra = REC_CLOUD_MODELS.indexOf(na);
+            const rb = REC_CLOUD_MODELS.indexOf(nb);
+            if (ra !== rb) {
+              return (ra < 0 ? REC_CLOUD_MODELS.length : ra)
+                - (rb < 0 ? REC_CLOUD_MODELS.length : rb);
+            }
+            return na.localeCompare(nb);
+          });
+          opts.push(...provOpts);
         }
         setCloudOptions(opts);
       })

@@ -364,11 +364,14 @@ const NovelWorkspace: React.FC = () => {
         <button
           className="btn btn-secondary btn-sm"
           disabled={busy}
-          onClick={() => {
-            if (hasOutline && !window.confirm(
-              '重新生成会替换现有大纲树和待写章节（已写正文的章节保留）。继续？',
-            )) {
-              return;
+          onClick={async () => {
+            if (hasOutline) {
+              const go = await confirmDialog({
+                level: 'medium',
+                title: '重新生成会替换现有大纲树和待写章节（已写正文的章节保留）。继续？',
+                confirmText: '继续',
+              });
+              if (!go) return;
             }
             void generateOutline();
           }}

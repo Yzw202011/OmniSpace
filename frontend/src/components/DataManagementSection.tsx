@@ -21,6 +21,7 @@ import {
 } from '../services/systemApi';
 import { get, post } from '../services/api';
 import { useAppStore } from '../stores/useAppStore';
+import { confirmDialog } from '../stores/useConfirmStore';
 
 interface RestoreBackupItem {
   filename: string;
@@ -70,11 +71,17 @@ export default function DataManagementSection() {
   };
 
   const handleRestore = async (filename: string) => {
-    if (!window.confirm(
-      `恢复将从备份 "${filename}" 还原数据库。\n\n` +
-      '⚠️ 下次重启 OmniSpace 后生效（当前会话不受影响）。\n' +
-      '恢复前会自动把当前数据库再备份一份（可回退）。',
-    )) return;
+    const go = await confirmDialog({
+      level: 'medium',
+      title: `确定恢复备份 "${filename}"？`,
+      lines: [
+        '将从此备份还原数据库。',
+        '下次重启 OmniSpace 后生效（当前会话不受影响）。',
+        '恢复前会自动把当前数据库再备份一份（可回退）。',
+      ],
+      confirmText: '恢复',
+    });
+    if (!go) return;
     setBusy('restore');
     try {
       await post<unknown>('/system/restore', { filename });
@@ -108,7 +115,12 @@ export default function DataManagementSection() {
       showToast('请填写 .omnispace 归档文件路径', 'error');
       return;
     }
-    if (!window.confirm(`从 "${importPath.trim()}" 导入项目？`)) return;
+    const go = await confirmDialog({
+      level: 'medium',
+      title: `从 "${importPath.trim()}" 导入项目？`,
+      confirmText: '导入',
+    });
+    if (!go) return;
     setBusy('import');
     try {
       const res = await importProject(importPath.trim());

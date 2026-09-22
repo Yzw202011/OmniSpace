@@ -55,6 +55,7 @@ function mapMessage(m: DialogMessage, isStreaming: boolean): ChatMessage {
     images: m.images,
     web_refs: m.web_refs,
     pluginSkill: m.plugin_skill,
+    truncated: m.truncated,
   };
 }
 

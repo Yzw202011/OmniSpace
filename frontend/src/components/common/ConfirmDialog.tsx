@@ -48,7 +48,9 @@ export default function ConfirmDialog() {
           )}
           <strong style={{ fontSize: 'var(--font-size-base)' }}>{pending.title}</strong>
           {style.badge && (
-            <span className="badge error" style={{ marginLeft: 'auto' }}>{style.badge}</span>
+            <span className="badge error" style={{ marginLeft: 'auto' }}>
+              {pending.badge ?? style.badge}
+            </span>
           )}
         </div>
         {pending.lines && pending.lines.length > 0 && (

@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import os
 import sys
+import threading
 import time
 from ctypes import wintypes
 
@@ -226,35 +228,95 @@ def main() -> int:
     window = webview.create_window(
         'OmniSpace AI', args.url,
         width=args.width, height=args.height, min_size=(1024, 680))
+    assert window is not None  # create_window 类型宽收窄
 
-    def on_closing() -> bool:
-        """关壳二次确认（用户令 2026-09-20）：关壳=完全退出软件。
+    _exit_state = {'confirmed': False, 'asking': False}
 
-        pywebview closing 语义：返回 False 取消关闭（窗口保持）；
-        确认「是」→ 触发正规退出链后放行关窗。默认焦点落在「否」
-        （安全侧），有在跑任务时弹窗如实提示数量。
-        """
+    def _message_box_confirm(hint: str) -> bool:
+        """原生系统框兜底（可在后台线程调用；默认焦点「否」安全侧）。"""
+        assert window is not None
         user32 = ctypes.WinDLL('user32', use_last_error=True)
         MB_YESNO, MB_ICONQUESTION, MB_DEFBUTTON2 = 0x04, 0x20, 0x100
         IDYES = 6
         ret = user32.MessageBoxW(
             0,
             '确定要完全退出 OmniSpace 吗？'
-            + _running_tasks_hint()
+            + hint
             + '\n\n选择「是」：保存并正常关闭全部组件；'
               '选择「否」：继续使用。',
             'OmniSpace 退出确认',
             MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2)
-        if ret != IDYES:
-            _log('用户取消退出（二次确认选「否」），窗口保持')
-            return False
-        _trigger_graceful_quit()
-        return True
+        return ret == IDYES
+
+    def _ask_and_close_async(hint: str) -> None:
+        """后台线程接管关窗问答（2026-09-22 卡死根修）。
+
+        铁律：evaluate_js 绝不在 UI 线程调（on_closing 本身跑在 UI 线程，
+        2026-09-21 版在此同步等网页应答 = UI 线程与后台线程互相等 = 卡死）。
+        协议：页面先把 __omniExitResult 置 null 再弹品牌框，用户作答后把
+        true/false 写回该槽；本线程 0.2s 轮询取结果。页面未就绪（钩子不
+        存在 → show 返回 null）或轮询超时 → 系统框兜底，确认绝不绕过。
+        """
+        assert window is not None
+        try:
+            js_show = (
+                'window.__omniExitResult = null; '
+                'window.__omniExitConfirm ? '
+                f'(window.__omniExitConfirm({json.dumps(hint)}), true) : null'
+            )
+            if window.evaluate_js(js_show) is not True:
+                _log('页面品牌弹窗不可用（未就绪/无钩子），回退系统框')
+                answer = _message_box_confirm(hint)
+            else:
+                answer = None
+                deadline = time.time() + 600.0
+                while time.time() < deadline:
+                    ans = window.evaluate_js('window.__omniExitResult')
+                    if ans is True or ans is False:
+                        answer = ans
+                        break
+                    time.sleep(0.2)
+                if answer is None:
+                    try:
+                        window.evaluate_js(
+                            'window.__omniExitCancel && '
+                            'window.__omniExitCancel()')
+                    except Exception:  # noqa: BLE001
+                        pass
+                    _log('页面弹窗应答超时，回退系统框')
+                    answer = _message_box_confirm(hint)
+            if answer is True:
+                _exit_state['confirmed'] = True
+                _trigger_graceful_quit()
+                window.destroy()
+            else:
+                _log('用户取消退出（二次确认选「否」），窗口保持')
+        except Exception as exc:  # noqa: BLE001 - 询问链异常不 crash 壳
+            _log(f'关窗确认后台询问异常: {exc}')
+        finally:
+            _exit_state['asking'] = False
+
+    def on_closing() -> bool:
+        """关壳二次确认（用户令 2026-09-20；2026-09-22 非阻塞根修）。
+
+        pywebview closing 语义：返回 False 取消关闭。铁律：本回调跑在
+        UI 线程，绝不在此同步等网页/网络——本次关窗先取消，后台线程
+        接管弹品牌框问意向；确认后走正规退出链 + destroy 关窗。
+        """
+        if _exit_state['confirmed']:
+            return True  # destroy() 复入：已确认，放行
+        if _exit_state['asking']:
+            return False  # 品牌弹窗已在询问中，忽略重复点关闭
+        _exit_state['asking'] = True
+        threading.Thread(
+            target=_ask_and_close_async,
+            args=(_running_tasks_hint(),),  # 任务数网络探测也在后台线程
+            daemon=True).start()
+        return False
 
     def on_closed() -> None:
         _log('窗口已关闭（已走 /api/quit 正规链；page_guard 倒计时为兜底）')
 
-    assert window is not None  # create_window 类型宽收窄
     window.events.closing += on_closing
     window.events.closed += on_closed
     try:

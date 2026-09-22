@@ -60,7 +60,8 @@ def _snapshot_gpu() -> dict[str, Any] | None:
             ['nvidia-smi',
              '--query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu',
              '--format=csv,noheader,nounits'],
-            capture_output=True, text=True, timeout=5)
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW)
         parts = out.stdout.strip().splitlines()[0].split(', ')
         if out.returncode == 0 and len(parts) == 4:
             return {'vram_used_mb': int(parts[0]),

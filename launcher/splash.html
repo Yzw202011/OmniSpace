@@ -1154,7 +1154,14 @@ body::after {
     $('licBtn').disabled = !$('licAgree').checked;
   });
   $('licUnbindBtn').addEventListener('click', function () {
-    if (!confirm('解绑后本机授权立即作废，需卖家换绑才能继续使用。确认解绑？')) return;
+    // 品牌确认（2026-09-22）：替换原生 confirm
+    window.omniSplashExitAsk('解绑后本机授权立即作废，需卖家换绑才能继续使用。')
+      .then(function (ok) {
+        if (!ok) { return; }
+        doUnbind();
+      });
+  });
+  function doUnbind() {
     var base = redirectUrl || ('http://127.0.0.1:' + (backendPort || 5800));
     var msg = $('licMsg');
     postJSON(base + '/api/v1/license/unbind', { confirm: true })
@@ -1181,7 +1188,7 @@ body::after {
         msg.style.color = 'var(--coral)';
         msg.textContent = '✕ 无法连接后端，请稍候重试';
       });
-  });
+  }
   $('licBtn').addEventListener('click', function () {
     var code = $('licCode').value.trim();
     var msg = $('licMsg');
@@ -1238,12 +1245,90 @@ body::after {
     post('/api/comfy');
   });
   $('quitBtn').addEventListener('click', function () {
-    if (confirm('确定退出 OmniSpace？后端与 ComfyUI 将一并关闭。')) {
-      post('/api/quit').then(function () { setTimeout(function () { close(); }, 600); });
-    }
+    // 品牌确认（2026-09-22）：替换原生 confirm，与壳关窗桥同视觉
+    window.omniSplashExitAsk('后端与 ComfyUI 将一并关闭。')
+      .then(function (ok) {
+        if (ok) {
+          post('/api/quit').then(function () { setTimeout(function () { close(); }, 600); });
+        }
+      });
   });
 
   poll();
+})();
+</script>
+
+<!-- 壳关窗确认桥（2026-09-22 品牌化补齐）：shell.py 关窗时经
+     evaluate_js 调 window.__omniExitConfirm——此前桥只在主应用
+     （App.tsx）注册，启动页阶段关窗只能回退系统灰白框 -->
+<div id="exitVeil" hidden>
+  <style>
+    #exitVeil { position: fixed; inset: 0; z-index: 9999;
+      background: rgba(3, 6, 12, .72); display: flex;
+      align-items: center; justify-content: center; }
+    #exitVeil[hidden] { display: none; }
+    .exit-card { width: min(430px, calc(100vw - 40px));
+      background: var(--panel-solid); border: 1px solid var(--line);
+      border-radius: 14px; padding: 22px 24px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .55); }
+    .exit-title { font-size: 15px; font-weight: 600;
+      color: var(--ion); letter-spacing: .5px; }
+    .exit-hint { margin-top: 10px; font-size: 12.5px; line-height: 1.7;
+      color: rgba(var(--p-mute), 1); white-space: pre-line; }
+    .exit-actions { margin-top: 18px; display: flex;
+      justify-content: flex-end; gap: 10px; }
+    .exit-btn { cursor: pointer; border-radius: 9px; padding: 8px 18px;
+      font-size: 13px; border: 1px solid var(--line);
+      background: transparent; color: #cfe9ff; }
+    .exit-btn:hover { border-color: var(--ion); }
+    .exit-btn.primary { background: var(--ion); border-color: var(--ion);
+      color: #04121a; font-weight: 600; }
+    .exit-btn.primary:hover { background: var(--ion-hi); }
+  </style>
+  <div class="exit-card" role="dialog" aria-modal="true"
+       aria-label="退出确认">
+    <div class="exit-title">确定要完全退出 OmniSpace 吗？</div>
+    <div class="exit-hint" id="exitHint"></div>
+    <div class="exit-actions">
+      <button class="exit-btn" id="exitNoBtn" type="button">继续使用</button>
+      <button class="exit-btn primary" id="exitYesBtn" type="button">退出</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var veil = document.getElementById('exitVeil');
+  var hint = document.getElementById('exitHint');
+  var settle = null;
+
+  function ask(text) {
+    window.__omniExitResult = null;
+    hint.textContent = text || '';
+    veil.hidden = false;
+    return new Promise(function (resolve) { settle = resolve; });
+  }
+  function done(ok) {
+    if (veil.hidden) { return; }
+    veil.hidden = true;
+    var s = settle; settle = null;
+    window.__omniExitResult = ok;
+    if (s) { s(ok); }
+  }
+  /* 壳关窗桥（结果槽协议，与主应用 ExitConfirmBridge 同款契约） */
+  window.__omniExitConfirm = function (tasksHint) {
+    ask([
+      (tasksHint || '').trim(),
+      '选择「退出」：保存并正常关闭全部组件；选择「继续使用」：取消关窗。',
+    ].filter(Boolean).join('\n'));
+  };
+  window.__omniExitCancel = function () { done(false); };
+  document.getElementById('exitYesBtn').addEventListener(
+      'click', function () { done(true); });
+  document.getElementById('exitNoBtn').addEventListener(
+      'click', function () { done(false); });
+  /* 启动页退出按钮的品牌确认入口（quitBtn 处理器点击时经此调用） */
+  window.omniSplashExitAsk = ask;
 })();
 </script>
 </body>

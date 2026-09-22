@@ -264,8 +264,15 @@ def main() -> int:
                 'window.__omniExitConfirm ? '
                 f'(window.__omniExitConfirm({json.dumps(hint)}), true) : null'
             )
-            if window.evaluate_js(js_show) is not True:
-                _log('页面品牌弹窗不可用（未就绪/无钩子），回退系统框')
+            shown = window.evaluate_js(js_show) is True
+            if not shown:
+                # 一次 2s 重试（2026-09-22）：页面可能正处资源更新自愈
+                # 重载（懒加载失效 → RouteErrorScreen 自动 reload），桥
+                # 随新页面回来——重试仍无桥才退系统框
+                time.sleep(2.0)
+                shown = window.evaluate_js(js_show) is True
+            if not shown:
+                _log('页面品牌弹窗不可用（未就绪/无钩子，已重试一次），回退系统框')
                 answer = _message_box_confirm(hint)
             else:
                 answer = None

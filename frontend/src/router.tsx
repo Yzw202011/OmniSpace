@@ -30,6 +30,7 @@ import {
   type RouteObject,
 } from 'react-router-dom';
 import { PageStub, AppShell } from './App';
+import RouteErrorScreen from './components/common/RouteErrorScreen';
 // 导航元数据/分组/自定义序（P0 拆至纯模块 nav.ts，本模块原位再导出
 // 保兼容——App/TopBar 等既有 import('./router') 路径零改动）
 export {
@@ -57,6 +58,9 @@ export const routes: RouteObject[] = [
   {
     path: '/',
     element: <AppShell />,
+    // 品牌化错误屏（2026-09-22）：懒加载资源失效（开发期产物重建后
+    // 在线旧页面拿旧指纹）自动刷新自愈；其余错误友好中文卡片带出路
+    errorElement: <RouteErrorScreen />,
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat', element: lazyPage(() => import('@/components/dialog/DialogPage')) },

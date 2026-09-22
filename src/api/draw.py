@@ -520,16 +520,20 @@ def _run_generate_task(task_id: str, params: dict,
             # 「白名单拒绝已在上方执行」所述检查位于本分支早退之后（仅护
             # legacy 路径），comfy 时代从未生效，已随本修复废弃。
             _z_mode = model_hint == "z-image-turbo"
+            _q21_mode = model_hint == "qwen-image-2.1"
             with flow.node(
                     "模型加载",
-                    friendly=("ComfyUI Z-Image-Turbo 栈" if _z_mode
-                              else "ComfyUI klein-9b-fp8 栈")) as n:
+                    friendly=("ComfyUI Z-Image-Turbo 栈" if _z_mode else
+                              "ComfyUI Qwen-Image-2.1 栈" if _q21_mode else
+                              "ComfyUI klein-9b-fp8 栈")) as n:
                 if not comfy_paint_available():
                     raise RuntimeError(
                         "MODEL_LOAD_FAILED: ComfyUI klein 出图栈不可用"
                         "（便携版或权重缺失）")
                 n.output("z-image-turbo（中文字渲染/写实，8 步蒸馏）"
                          if _z_mode else
+                         "qwen-image-2.1（原生 2K/透明图/中文字强，25 步）"
+                         if _q21_mode else
                          "klein-9b-fp8（Qwen3 编码器中文直入，免翻译）")
 
             try:

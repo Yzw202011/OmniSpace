@@ -34,7 +34,8 @@ def _wf(params: dict) -> dict:
 def test_truth_set_matches_physical_reality() -> None:
     ids = {m["id"] for m in cpe.COMFY_PAINT_MODELS}
     if cpe._KLEIN_4B_BROKEN:
-        assert ids == {"flux2-klein-9b", "z-image-turbo"}
+        assert ids == {"flux2-klein-9b", "z-image-turbo",
+                       "qwen-image-2.1"}
         assert "flux2-klein-4b" not in ids
     # 旧栈候选永不在 comfy 真源（sdxl/qwen-2512 走 legacy diffusers 栈）
     assert "sdxl-base-1.0" not in ids
@@ -91,3 +92,50 @@ def test_valid_models_still_build() -> None:
     # 缺省（智能路由/空点名）：回落 klein-9b 默认底座
     wf2 = _wf({"prompt": "缺省"})
     assert wf2["unet"]["inputs"]["unet_name"] == "flux-2-klein-9b-fp8.safetensors"
+
+
+def test_qwen21_workflow_official_baseline() -> None:
+    # Qwen-Image-2.1 构建基线（2026-09-23 集成，POC 实弹同构）：
+    # 专用三输出编码器 + EmptyLatentImage 控宽高比 + 25 步/cfg1 官线
+    wf = cpe.ComfyPaintEngine._build_workflow_qwen21(
+        _eng(), {"prompt": "测试", "negative": "低清", "width": 832,
+                 "height": 480, "seed": 7}, None, "paint/t")
+    assert wf["unet"]["inputs"]["unet_name"] == (
+        "qwen_image_2.1_int8_convrot.safetensors")
+    assert wf["clip"]["inputs"]["clip_name"] == "qwen3vl_8b_w4a8.safetensors"
+    assert wf["clip"]["inputs"]["type"] == "qwen_image"
+    assert wf["vae"]["inputs"]["vae_name"] == "qwen_image_2.1_vae_bf16.safetensors"
+    enc = wf["encode"]
+    assert enc["class_type"] == "TextEncodeQwenImage21"
+    assert enc["inputs"]["prompt"] == "测试"
+    assert enc["inputs"]["negative_prompt"] == "低清"
+    assert enc["inputs"]["resolution"] == 832  # max(832,480) 取 32 倍数
+    assert wf["latent"]["class_type"] == "EmptyLatentImage"
+    assert wf["latent"]["inputs"]["width"] == 832
+    assert wf["latent"]["inputs"]["height"] == 480
+    ks = wf["sample"]["inputs"]
+    assert ks["steps"] == 25 and ks["cfg"] == 1.0
+    assert ks["sampler_name"] == "euler" and ks["scheduler"] == "simple"
+    assert ks["seed"] == 7
+    assert ks["positive"] == ["encode", 0] and ks["negative"] == ["encode", 1]
+    assert ks["latent_image"] == ["latent", 0]
+    assert wf["decode"]["class_type"] == "VAEDecode"
+    assert wf["save"]["class_type"] == "SaveImage"
+
+
+def test_qwen21_workflow_refs_and_lora() -> None:
+    wf = cpe.ComfyPaintEngine._build_workflow_qwen21(
+        _eng(), {"prompt": "参考", "lora_name": "hero_v1",
+                 "lora_scale": 0.8, "width": 1024, "height": 1024},
+        ["r1.png", "r2.png", "r3.png", "r4.png", "r5.png",
+         "r6.png", "r7.png", "r8.png", "r9.png"], "paint/t")
+    # LoRA 模型侧挂载、TE 不包（strength_clip=0）
+    assert wf["lora"]["inputs"]["strength_model"] == 0.8
+    assert wf["lora"]["inputs"]["strength_clip"] == 0.0
+    assert wf["sample"]["inputs"]["model"] == ["lora", 0]
+    assert wf["encode"]["inputs"]["clip"] == ["lora", 1]
+    # 参考图 ≤_MAX_WF_REFS 截断 + image1..N 条件注入
+    for i in range(1, 9):
+        assert wf[f"load_img{i}"]["class_type"] == "LoadImage"
+        assert wf["encode"]["inputs"][f"image{i}"] == [f"load_img{i}", 0]
+    assert "image9" not in wf["encode"]["inputs"]

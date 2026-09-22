@@ -67,6 +67,20 @@ _Z_IMAGE_MODEL_ID = "z-image-turbo"
 # TextEncodeZImageOmni 原生参考条件上限（image1~3）
 _Z_IMAGE_MAX_REFS = 3
 
+# Qwen-Image-2.1 权重族（2026-09-23 A 项集成）。许可=Qwen Research
+# License，商用授权未落定前不进发行包（本地开发/研究不受限）。量化档
+# = Comfy-Org 官方 int8_convrot DiT + w4a8 TE + RGBA VAE（16G 卡唯一
+# 可进组合）。专用节点 TextEncodeQwenImage21 三输出（pos/neg/latent
+# 自含）；CLIPLoader type=qwen_image。POC 实测（2026-09-23）：2048²×
+# 25 步 60s，显存峰值 15543/16303MB=95.3%（贴 95% 强卸线，生成期让渡
+# 护航）；中文文字渲染 VLM 目检零乱码。
+_Q21_FILES = {
+    "unet": "qwen_image_2.1_int8_convrot.safetensors",
+    "clip": "qwen3vl_8b_w4a8.safetensors",
+    "vae": "qwen_image_2.1_vae_bf16.safetensors",
+}
+_Q21_MODEL_ID = "qwen-image-2.1"
+
 # ── comfy 生图栈模型真源（2026-09-23 切换诚实性修复）──────────────
 # 单一真源：comfy 栈物理可用模型。三个消费方强制同源——
 #   ① 本引擎 _run 的模型校验（名单外如实失败，不再静默按 klein-9b 出图）
@@ -92,6 +106,14 @@ COMFY_PAINT_MODELS: list[dict] = [
         "files": _Z_IMAGE_FILES,
         "min_vram_gb": 10.0,
         "notes": "中文字渲染/写实，8 步蒸馏；unet 12.3GB bf16 动态换页",
+    },
+    {
+        "id": _Q21_MODEL_ID,
+        "name": "Qwen-Image-2.1（7B 量化·原生 2K）",
+        "files": _Q21_FILES,
+        "min_vram_gb": 15.5,
+        "notes": "原生 2K/RGBA 透明/中文字渲染强；峰值实测 95.3% 靠"
+                 "生成期让渡；许可 Qwen Research（商用授权另谈）",
     },
 ]
 _COMFY_PAINT_MODEL_IDS = frozenset(m["id"] for m in COMFY_PAINT_MODELS)
@@ -227,6 +249,8 @@ def comfy_paint_available(model_id: str = "") -> bool:
         return False
     if model_id == _Z_IMAGE_MODEL_ID:
         files = _Z_IMAGE_FILES
+    elif model_id == _Q21_MODEL_ID:
+        files = _Q21_FILES
     else:
         files = _PAINT_FILES
     checks = [
@@ -679,6 +703,77 @@ class ComfyPaintEngine:
             "images": ["decode", 0], "filename_prefix": filename_prefix}}
         return wf
 
+    def _build_workflow_qwen21(self, params: dict,
+                               ref_names: list[str] | None,
+                               filename_prefix: str) -> dict:
+        """Qwen-Image-2.1 工作流族（2026-09-23 集成，params.model=
+        qwen-image-2.1）。
+
+        官方基线（Comfy-Org 模板固化）：25 步/cfg1/euler/simple——
+        flow-matching 蒸馏口径，cfg=1 下负向语义由专用编码器节点内
+        置处理（TextEncodeQwenImage21 单节点吃正负双提示，三输出
+        pos/neg/latent 自含）；latent 走 EmptyLatentImage 显式控制
+        宽高比（与模板一致，编码器 resolution 仅作参考图缩放语义）。
+        参考/编辑图走编码器节点原生 image1..N 条件（≤8，_MAX_WF_REFS
+        截断）。角色 LoRA：模型侧 LoraLoader（strength_clip=0，同 z
+        族口径）。不支持：PuLID（flux2 专属 patch）。
+        """
+        prompt = str(params.get("prompt") or "")
+        negative = str(params.get("negative") or "")
+        width = int(params.get("width") or 1280)
+        height = int(params.get("height") or 720)
+        seed = int(params.get("seed") or 0)
+        refs = list(ref_names or [])[:_MAX_WF_REFS]
+
+        wf: dict[str, dict] = {
+            "unet": {"class_type": "UNETLoader", "inputs": {
+                "unet_name": _Q21_FILES["unet"],
+                "weight_dtype": "default"}},
+            "clip": {"class_type": "CLIPLoader", "inputs": {
+                "clip_name": _Q21_FILES["clip"],
+                "type": "qwen_image", "device": "default"}},
+            "vae": {"class_type": "VAELoader", "inputs": {
+                "vae_name": _Q21_FILES["vae"]}},
+        }
+
+        model_src = ["unet", 0]
+        clip_src = ["clip", 0]
+        lora_name = str(params.get("lora_name") or "")
+        lora_scale = float(params.get("lora_scale") or 1.0)
+        if lora_name:
+            wf["lora"] = {"class_type": "LoraLoader", "inputs": {
+                "model": model_src, "clip": clip_src,
+                "lora_name": lora_name,
+                "strength_model": lora_scale,
+                "strength_clip": 0.0}}
+            model_src = ["lora", 0]
+            clip_src = ["lora", 1]
+
+        enc_inputs: dict = {
+            "clip": clip_src, "prompt": prompt,
+            "negative_prompt": negative,
+            "resolution": max(32, int(round(max(width, height) / 32)) * 32)}
+        for i, name in enumerate(refs, start=1):
+            wf[f"load_img{i}"] = {"class_type": "LoadImage",
+                                  "inputs": {"image": name}}
+            enc_inputs[f"image{i}"] = [f"load_img{i}", 0]
+        wf["encode"] = {"class_type": "TextEncodeQwenImage21",
+                        "inputs": enc_inputs}
+        wf["latent"] = {"class_type": "EmptyLatentImage", "inputs": {
+            "width": width, "height": height, "batch_size": 1}}
+        wf["sample"] = {"class_type": "KSampler", "inputs": {
+            "model": model_src,
+            "positive": ["encode", 0], "negative": ["encode", 1],
+            "latent_image": ["latent", 0],
+            "seed": seed, "steps": 25, "cfg": 1.0,
+            "sampler_name": "euler", "scheduler": "simple",
+            "denoise": 1.0}}
+        wf["decode"] = {"class_type": "VAEDecode", "inputs": {
+            "samples": ["sample", 0], "vae": ["vae", 0]}}
+        wf["save"] = {"class_type": "SaveImage", "inputs": {
+            "images": ["decode", 0], "filename_prefix": filename_prefix}}
+        return wf
+
     # ── 对外接口（对齐 paint_engine）─────────────────────────────
 
     def generate(self, params: dict,
@@ -750,31 +845,36 @@ class ComfyPaintEngine:
         t0 = time.perf_counter()
 
         # Z-Image-Turbo 模式（Z1 2026-09-15）：PuLID 是 flux2 专属
-        # patch，z 底座诚实拒绝（身份锚定走参考图条件/Z4 角色 LoRA）
+        # patch，z 底座诚实拒绝（身份锚定走参考图条件/Z4 角色 LoRA）；
+        # Qwen-Image-2.1 同口径（2026-09-23 集成）
         z_mode = str(params.get("model") or "") == _Z_IMAGE_MODEL_ID
-        if z_mode and (pulid_image is not None
-                       or pulid_image_b is not None):
+        q21_mode = str(params.get("model") or "") == _Q21_MODEL_ID
+        if (z_mode or q21_mode) and (pulid_image is not None
+                                     or pulid_image_b is not None):
             raise ApiError(
                 code="COMFY_FEATURE_UNSUPPORTED",
-                message="Z-Image 底座暂不支持 PuLID 身份锁"
-                        "（PuLID 为 flux2 专属 patch）",
+                message=("Z-Image / Qwen-Image-2.1 底座暂不支持 PuLID "
+                         "身份锁（PuLID 为 flux2 专属 patch）"),
                 suggestion="身份锚定请改用参考图条件（img2img 传参考图）"
-                           "或等待 Z-Image 角色 LoRA（规划 Z4）")
+                           "或角色 LoRA")
         # 准入闸（2026-09-15 审计修复）：z 任务此前向 gpu-budget 申报
         # need=0.0G 裸发，19.6GB staged 全家桶靠 ComfyUI dynamic offload
         # 硬扛（首跑即 96% 显存越线+RAM 危急连环告警）。空闲低于 unet
         # 权重体积（11.5GB）时诚实早拒——宁可早拒不让装到一半死。
-        if z_mode:
+        # qwen21 同理（2026-09-23）：unet 7.26GB 起步，POC 实测峰值
+        # 95.3%——空闲不足 unet+VAE 底仓（7.5GB）时早拒。
+        if z_mode or q21_mode:
+            _floor_gb = 11.5 if z_mode else 7.5
             try:
                 import torch
                 if torch.cuda.is_available():
                     _free_b, _ = torch.cuda.mem_get_info(0)
-                    if _free_b < 11.5 * 1024 ** 3:
+                    if _free_b < _floor_gb * 1024 ** 3:
                         raise ApiError(
                             code="COMFY_VRAM_INSUFFICIENT",
-                            message=(f"Z-Image 需近乎空卡（unet 11.5GB 起"
-                                     f"+TE/VAE 靠 offload），实测空闲仅"
-                                     f" {_free_b / 1024 ** 3:.1f}GB"),
+                            message=(f"{'Z-Image' if z_mode else 'Qwen-Image-2.1'}"
+                                     f" 需近乎空卡（unet 权重起步+offload），"
+                                     f"实测空闲仅 {_free_b / 1024 ** 3:.1f}GB"),
                             suggestion="关闭占显存应用后重试，或改用"
                                        " klein-9b 引擎槽")
             except ApiError:
@@ -838,6 +938,10 @@ class ComfyPaintEngine:
                 wf = self._build_workflow_z_image(
                     params, ref_names,
                     filename_prefix=f"paint/{task_id}")
+            elif q21_mode:
+                wf = self._build_workflow_qwen21(
+                    params, ref_names,
+                    filename_prefix=f"paint/{task_id}")
             else:
                 wf = self._build_workflow(params, ref_names,
                                           filename_prefix=f"paint/{task_id}",
@@ -858,10 +962,12 @@ class ComfyPaintEngine:
                                message=f"绘画工作流校验失败: {detail}")
             prompt_id = str(resp["prompt_id"])
             _log_steps, _ = (_effective_steps_cfg(params)
-                             if not z_mode else (8, 1.0))
+                             if not (z_mode or q21_mode) else
+                             ((8, 1.0) if z_mode else (25, 1.0)))
             log.info("绘画任务已提交 (prompt_id=%s, model=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
                         prompt_id,
-                        _Z_IMAGE_MODEL_ID if z_mode else "klein-9b-fp8",
+                        (_Z_IMAGE_MODEL_ID if z_mode else
+                         _Q21_MODEL_ID if q21_mode else "klein-9b-fp8"),
                         int(params.get("width") or 1280),
                         int(params.get("height") or 720),
                         _log_steps,

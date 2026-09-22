@@ -94,8 +94,12 @@ def vllm_ram_needed_gb(weights_gb: float) -> float:
 
 # ══ GPU 侧常量（显存调度机制批1，2026-09-10 搬家集中）═══════════
 
-VLLM_UTIL_DEFAULT = 0.85
-"""vLLM gpu_memory_utilization 默认档（小权重 <8GB，8K 上下文）。"""
+VLLM_UTIL_DEFAULT = 0.80
+"""vLLM gpu_memory_utilization 默认档（小权重 <8GB，8K 上下文）。
+2026-09-21 降档 0.85→0.80：GPU 视频引擎故障（LiveKernelEvent 141×4）
+与显存 90-91% 高压同窗实测（crash_forensics 六连死），小权重档 KV
+（0.80×16.3−权重 ≥5GB）远超 8K 所需 1.5GB，让出 ~0.8GB 系统余量；
+大权重/MTP 档有启动失败实测约束（见各自注）不动。"""
 
 VLLM_UTIL_LARGE_WEIGHTS = 0.87
 """权重 ≥8GB 档：util 0.85 装载后 KV 仅剩 ~1.0GB 而 8K 上下文需

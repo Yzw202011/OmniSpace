@@ -33,6 +33,13 @@ from typing import Any, ClassVar
 from ...config import DIALOG_IDLE_UNLOAD_SECONDS, DIALOG_MAX_PREFILL_TOKENS, MODELS_DIR
 from .backends import DialogBackend, TransformersBackend, create_backend
 from .base_engine import BaseEngine
+from .thinking_policy import (
+    REPEAT_CUT_NOTICE,
+    THINKING_SYSTEM_SUFFIX,
+    _ThinkingStreamParser,
+    detect_repeat_loop,
+    is_native_reasoning_model,
+)
 
 log = logging.getLogger("omnispace.inference.dialog")
 
@@ -396,101 +403,6 @@ DEFAULT_SYSTEM_PROMPT = (
     "你是 OmniSpace AI 的内置创作助手，精通中文，擅长绘画提示词、剧本、"
     "分镜与创作相关问答。回答简洁准确，必要时使用 Markdown 格式。"
 )
-
-# 深度思考模式追加段（2026-08-22 思考过程展示）：Qwen3-VL Instruct
-# 模板无 enable_thinking 变量（实测渲染 diff 为空）；实测模型对
-# <think> 标签指令遵守度不足（0/1 输出标签），但对【步骤名】标记
-# 协议 100% 遵守 → 思考/正文分界改用【最终回答】标记协议。
-THINKING_SYSTEM_SUFFIX = (
-    "\n\n【深度思考模式】收到问题后，请先展示你的思考过程，"
-    "严格按以下四步框架组织，每步以【步骤名】开头：\n"
-    "【问题分析】拆解问题的核心诉求与关键约束；\n"
-    "【信息检索】列出回答所需的已知信息与缺失信息；\n"
-    "【方案评估】对比候选方案的优劣；\n"
-    "【决策依据】说明最终选择的理由。\n"
-    "四步思考完成后，另起一行输出标记【最终回答】，然后在标记之后"
-    "输出最终回答（简洁准确，不要重复思考内容）。"
-)
-
-# 思考/正文分界标记（与 THINKING_SYSTEM_SUFFIX 协议配对）
-_ANSWER_MARKER = "【最终回答】"
-
-
-class _ThinkingStreamParser:
-    """流式思考分隔解析器（思考过程展示，2026-08-22）。
-
-    协议（实测裁定）：把后端原始文本流切分为 reasoning / content 双通道——
-      - thinking 模式下初始即 reasoning 态（思考先行）；
-      - reasoning 态遇 ``【最终回答】`` 切换 content 态（标记本身吞掉
-        不输出，正文气泡只见答案）；
-      - holdback：产出尾部若是标记真前缀（``【`` ``【最`` ``【最终`` 等）
-        扣留至可判定（标记跨 chunk 分割安全），其余直通零缓冲；
-      - 退化：EOF 仍未见标记（模型未遵守协议）→ reasoning 全文复制为
-        content 一条事件（保底气泡可见正文，宁重复不丢答案）。
-    """
-
-    _SEP = _ANSWER_MARKER
-    # 标记的全部真前缀，用于尾部扣留判定
-    _PREFIXES = tuple(sorted(
-        {_ANSWER_MARKER[:i] for i in range(1, len(_ANSWER_MARKER))},
-        key=len, reverse=True))
-
-    def __init__(self) -> None:
-        self._in_reasoning = True    # thinking 模式思考先行
-        self._seen_sep = False
-        self._reasoning_all = ""     # 退化复制用（全文累积）
-        self._buf = ""
-
-    def _tail_prefix_len(self, s: str) -> int:
-        """s 尾部匹配标记前缀的最长长度（0 = 无扣留）。"""
-        for p in self._PREFIXES:
-            if s.endswith(p):
-                return len(p)
-        return 0
-
-    def feed(self, text: str) -> list[tuple[str, str]]:
-        """喂入一段增量，产出 [(kind, chunk), ...]（kind: reasoning/content）。"""
-        self._buf += text
-        out: list[tuple[str, str]] = []
-        while True:
-            if self._in_reasoning:
-                idx = self._buf.find(self._SEP)
-                if idx >= 0:
-                    if idx:
-                        chunk = self._buf[:idx]
-                        out.append(("reasoning", chunk))
-                        self._reasoning_all += chunk
-                    self._buf = self._buf[idx + len(self._SEP):]
-                    self._in_reasoning = False
-                    self._seen_sep = True
-                    continue
-                keep = self._tail_prefix_len(self._buf)
-                emit, self._buf = self._buf[:len(self._buf) - keep], \
-                    self._buf[len(self._buf) - keep:]
-                if emit:
-                    out.append(("reasoning", emit))
-                    self._reasoning_all += emit
-            else:
-                # 正文态：分隔只切一次，其后标记按字面量直通
-                if self._buf:
-                    out.append(("content", self._buf))
-                    self._buf = ""
-            return out
-
-    def flush(self) -> list[tuple[str, str]]:
-        """EOF 冲刷：残余按当前状态归属；未见标记时思考全文复制为正文。"""
-        out: list[tuple[str, str]] = []
-        if self._buf:
-            if self._in_reasoning:
-                out.append(("reasoning", self._buf))
-                self._reasoning_all += self._buf
-            else:
-                out.append(("content", self._buf))
-            self._buf = ""
-        if not self._seen_sep and self._reasoning_all:
-            out.append(("content", self._reasoning_all))
-        return out
-
 
 def strip_think_tags(text: str) -> str:
     """非流式兜底剥离（M-4）：解析器异常路径残留标签不再污染上下文。"""
@@ -1017,6 +929,9 @@ class DialogEngine(BaseEngine):
         with self._lock:
             self._last_error = ""
             self._degraded_from = ""  # 新加载意图=降级状态结束
+            # 空闲看门狗活动戳（2026-09-21 修复：此前 /models/load 不刷新
+            # 戳，装完不对话也按上次对话时间起算，15 分钟节点被看门狗卸掉）
+            self._last_activity_ts = time.monotonic()
             _t0 = time.perf_counter()
             _prev_model = self._model_id
             if self._state == "ready":
@@ -1817,6 +1732,7 @@ class DialogEngine(BaseEngine):
         max_new_tokens: int = 1024,
         enable_thinking: bool = False,
         stop_check: Callable[[], bool] | None = None,
+        extra_params: dict | None = None,
     ) -> Iterator[dict]:
         """结构化流式推理（思考过程展示，2026-08-22）。
 
@@ -1827,6 +1743,8 @@ class DialogEngine(BaseEngine):
         Args:
             enable_thinking: 思考模式（messages 的 system prompt 须已
                 拼接 THINKING_SYSTEM_SUFFIX，本方法不重复注入）
+            extra_params: 采样扩展参数透传（2026-09-22 对话防复读 A 案：
+                本地 vLLM 带 repetition_penalty；云端正交不传）
 
         Yields:
             {"type": "reasoning" | "content", "text": str}；
@@ -1842,8 +1760,25 @@ class DialogEngine(BaseEngine):
         剥除）；vLLM：引擎已剥离，全部按 content 直通。
         """
         _bn = self._backend_name or ""
-        if enable_thinking and _bn == "vllm":
+        self.last_repeat_cut = False  # B 案复读截断旗标（meta 帧诊断用）
+        if enable_thinking and _bn == "vllm" \
+                and is_native_reasoning_model(self._model_id):
+            # 仅原生思考型号旁路（服务端 parser 已剥离 <think>，叠加
+            # 标记协议会双思考打架——2026-09-10 根修，条件 2026-09-22
+            # 收窄）；其余 vLLM 模型（如 qwen3-vl-8b-awq Instruct）
+            # 与 transformers/remote 一样走【最终回答】标记协议
             enable_thinking = False
+            # 时序差防线：API 层注入判定在装载前（用请求模型名），模块
+            # 默认模型为原生思考型号时可能残留思考框架——旁路时剥除，
+            # 防【最终回答】标记协议文本漏进原生思考模型的正文
+            messages = [
+                {**m, "content": m["content"].replace(
+                    THINKING_SYSTEM_SUFFIX, "")}
+                if isinstance(m, dict) and m.get("role") == "system"
+                and isinstance(m.get("content"), str)
+                and THINKING_SYSTEM_SUFFIX in m["content"] else m
+                for m in messages
+            ]
         if _bn in ("gguf", "llama"):
             # GGUF（qwen35-9b-gguf-q4km 实测）：模型流内反复开关
             # <think>…</think> 块（Q4 量化思考退化冗长）——in_think
@@ -1854,9 +1789,18 @@ class DialogEngine(BaseEngine):
             _HOLDBACK = len(_CLOSE) - 1
             in_think = False
             buffer = ""
+            seen = ""
             for text in self.chat_stream(
                     messages, images=images, temperature=temperature,
-                    max_new_tokens=max_new_tokens, stop_check=stop_check):
+                    max_new_tokens=max_new_tokens, stop_check=stop_check,
+                    extra_params=extra_params):
+                seen += text
+                if detect_repeat_loop(seen[-4096:]):
+                    self.last_repeat_cut = True
+                    log.warning("检测到复读循环，已截断（backend=%s model=%s）",
+                                _bn, self._model_id)
+                    yield {"type": "content", "text": REPEAT_CUT_NOTICE}
+                    return
                 buffer += text
                 while True:
                     idx_open = buffer.find(_OPEN)
@@ -1887,9 +1831,18 @@ class DialogEngine(BaseEngine):
                        "text": buffer}
             return
         if not enable_thinking:
+            seen = ""
             for text in self.chat_stream(
                     messages, images=images, temperature=temperature,
-                    max_new_tokens=max_new_tokens, stop_check=stop_check):
+                    max_new_tokens=max_new_tokens, stop_check=stop_check,
+                    extra_params=extra_params):
+                seen += text
+                if detect_repeat_loop(seen[-4096:]):
+                    self.last_repeat_cut = True
+                    log.warning("检测到复读循环，已截断（backend=%s model=%s）",
+                                _bn, self._model_id)
+                    yield {"type": "content", "text": REPEAT_CUT_NOTICE}
+                    return
                 yield {"type": "content", "text": text}
             return
 
@@ -1897,6 +1850,8 @@ class DialogEngine(BaseEngine):
         self.last_first_content_ms = 0.0
         start = time.perf_counter()
         got_content = False
+        seen = ""
+        repeat_cut = False
 
         def _emit(kind: str, chunk: str) -> dict:
             nonlocal got_content
@@ -1911,11 +1866,23 @@ class DialogEngine(BaseEngine):
         try:
             for text in self.chat_stream(
                     messages, images=images, temperature=temperature,
-                    max_new_tokens=max_new_tokens, stop_check=stop_check):
+                    max_new_tokens=max_new_tokens, stop_check=stop_check,
+                    extra_params=extra_params):
+                seen += text
+                if detect_repeat_loop(seen[-4096:]):
+                    repeat_cut = True
+                    self.last_repeat_cut = True
+                    log.warning("检测到复读循环，已截断（backend=%s model=%s）",
+                                _bn, self._model_id)
+                    yield _emit("content", REPEAT_CUT_NOTICE)
+                    break
                 for kind, chunk in parser.feed(text):
                     yield _emit(kind, chunk)
-            for kind, chunk in parser.flush():
-                yield _emit(kind, chunk)
+            if not repeat_cut:
+                # 截断时不冲刷：解析器兜底会把思考全文复制为正文，
+                # 与截断提示叠加成重复（B 案语义=止损，宁缺勿滥）
+                for kind, chunk in parser.flush():
+                    yield _emit(kind, chunk)
         finally:
             if got_content:
                 log.info(

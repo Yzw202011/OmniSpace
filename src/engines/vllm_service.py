@@ -100,6 +100,16 @@ SLEEP_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/sleep"
 WAKE_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/wake_up"
 SLEEP_STATUS_URL = f"http://{VLLM_HOST}:{VLLM_PORT}/is_sleeping"
 
+# 原生思考模型的 reasoning parser 配对表（2026-09-22 抽单源）：
+# (模型名小写子串, parser 注册名)。启动参数注入（start_server）与
+# 引擎侧「该模型思考是否已由服务端剥离」判定
+# （dialog_engine.is_native_reasoning_model）共用此表——两处脱钩会
+# 复发 2026-09-10 的双思考打架（vLLM 剥离 + 标记协议叠加）。
+VLLM_REASONING_PARSERS: tuple[tuple[str, str], ...] = (
+    ("deepseek-r1", "deepseek_r1"),
+    ("qwen35", "qwen3"),
+)
+
 
 def resolve_kv_cache_dtype(device_idx: int) -> str | None:
     """KV cache 量化档（V3 显存分档 2026-09-08）。
@@ -695,20 +705,14 @@ class VLLMService:
                 "--no-enable-log-requests",
                 "--seed", "42",
             ]
-            # DeepSeek R1 系（2026-08-25 接入 W4A16）：reasoning parser
-            # 把 <think>...</think> 推理段分离到 delta.reasoning_content
-            # ——chat_stream 只读 delta.content，思考过程天然剥离不进
-            # 前端正文（parser 与模型架构无关，仅文本层解析 <think> 标签）
-            if "deepseek-r1" in mdir.name.lower():
-                cmd += ["--reasoning-parser", "deepseek_r1"]
-            elif "qwen35" in mdir.name.lower():
-                # Qwen3.5 原生思考默认开启（2026-09-06 冒烟实测：无
-                # parser 时思考文本混入正文且无 <think> 标签，前端
-                # 思考展示链失效）。qwen3 parser（vLLM 0.26 注册名，
-                # qwen3_engine_reasoning_parser）把思考段剥离到
-                # delta.reasoning_content——与 deepseek_r1 同一消费
-                # 语义，chat_stream 只读 delta.content 保持正文干净。
-                cmd += ["--reasoning-parser", "qwen3"]
+            # 原生思考模型（deepseek-r1 / qwen35 系，配对表同源 2026-09-22）：
+            # reasoning parser 把 <think>...</think> 推理段分离到
+            # delta.reasoning_content——chat_stream 只读 delta.content，
+            # 思考过程天然剥离不进前端正文
+            for _needle, _parser in VLLM_REASONING_PARSERS:
+                if _needle in mdir.name.lower():
+                    cmd += ["--reasoning-parser", _parser]
+                    break
             # B0（2026-09-13）：sleep mode 重开（门控见 sleep_mode_enabled）
             if sleep_mode_enabled():
                 cmd.append("--enable-sleep-mode")

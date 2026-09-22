@@ -23,7 +23,7 @@ def test_gpu_policy_values_locked_to_history() -> None:
     """GPU 侧九常量=历史字面量（显存调度机制批1 搬家，依据见各常量注）。"""
     from src.services import vram_policy as vp
 
-    assert vp.VLLM_UTIL_DEFAULT == 0.85
+    assert vp.VLLM_UTIL_DEFAULT == 0.80
     assert vp.VLLM_UTIL_LARGE_WEIGHTS == 0.87
     assert vp.VLLM_UTIL_MTP == 0.92
     assert vp.VLLM_FLOOR_OVERHEAD_GB == 4.2

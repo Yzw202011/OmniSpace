@@ -52,6 +52,17 @@ def test_short_and_empty_safe():
     assert detect_repeat_loop("短文本") is False
 
 
+def test_alternating_dialogue_cycle_detected():
+    """14:55 二次实弹：A/B 两句轮替循环（单圈 ~70 字）必须命中——
+    首版块长上限 48 漏网的真实回归样本。"""
+    a = '林昭轻笑："系统，你是不是忘了，我可是最会撩人的公主？"'
+    b = '系统调皮："宿主，你今天的目标是：让他爱上你。' \
+        "方法：用甜言蜜语撒娇卖萌空间养全家。\""
+    assert detect_repeat_loop("开头叙述。" + (a + b) * 15) is True
+    # 不足 4 圈放过
+    assert detect_repeat_loop("开头叙述。" + (a + b) * 3) is False
+
+
 def test_watchdog_wired_in_all_three_paths():
     """流式三条路径（gguf/直通/标记协议）都要接检测，防漏网。"""
     assert SRC.count("detect_repeat_loop(seen[-4096:])") == 3, (

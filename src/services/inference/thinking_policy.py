@@ -54,9 +54,12 @@ def is_native_reasoning_model(model_id: str | None) -> bool:
 # 复读循环流式检测参数（2026-09-22 对话防复读 B 案；写作台
 # novel_service.detect_repetition 是「全文任一 80 字窗出现 2 次」的
 # 章节级判据，对话直接套用会对正常排比/对白误伤——按流式场景调参：
-# 去空白后尾部同一 ≥8 字块连续重复 4 次才判循环。用户 12:18 实弹
-# 事故为 ~26 字块连抄 35 次，阈值远低于事故形态）
+# 去空白后尾部同一 ≥8 字块连续重复 4 次才判循环。
+# 14:55 二次实弹：A/B 两句轮替循环单圈 ~70 字，块长上限 48 漏网——
+# 上限提至 200 覆盖双句/多句对白轮替（性能：逐 token 扫描约 0.2M
+# 字符比较/次，可忽略；≥200 字块连续重复 4 次实际必是循环）
 REPEAT_LOOP_MIN_BLOCK = 8
+REPEAT_LOOP_MAX_BLOCK = 200
 REPEAT_LOOP_MIN_CYCLES = 4
 
 
@@ -64,12 +67,12 @@ def detect_repeat_loop(text: str) -> bool:
     """复读循环检测（纯函数，可测）：正文尾部是否陷入块级循环。
 
     判据：去空白后取尾部，存在长度 ≥REPEAT_LOOP_MIN_BLOCK 的块连续
-    重复 ≥REPEAT_LOOP_MIN_CYCLES 次即 True（块长上限 48，覆盖常见
-    句/对白循环且压低误伤面）。
+    重复 ≥REPEAT_LOOP_MIN_CYCLES 次即 True（块长上限
+    REPEAT_LOOP_MAX_BLOCK，覆盖单句/双句对白轮替循环且压低误伤面）。
     """
     t = "".join((text or "").split())
     n = len(t)
-    max_block = min(48, n // REPEAT_LOOP_MIN_CYCLES)
+    max_block = min(REPEAT_LOOP_MAX_BLOCK, n // REPEAT_LOOP_MIN_CYCLES)
     for k in range(REPEAT_LOOP_MIN_BLOCK, max_block + 1):
         if t[-k * REPEAT_LOOP_MIN_CYCLES:] == t[-k:] * REPEAT_LOOP_MIN_CYCLES:
             return True

@@ -61,22 +61,42 @@ def is_native_reasoning_model(model_id: str | None) -> bool:
 
 # 复读循环流式检测参数（2026-09-22 对话防复读 B 案；写作台
 # novel_service.detect_repetition 是「全文任一 80 字窗出现 2 次」的
-# 章节级判据，对话直接套用会对正常排比/对白误伤——按流式场景调参：
-# 去空白后尾部同一 ≥8 字块连续重复 4 次才判循环。
-# 14:55 二次实弹：A/B 两句轮替循环单圈 ~70 字，块长上限 48 漏网——
-# 上限提至 200 覆盖双句/多句对白轮替（性能：逐 token 扫描约 0.2M
-# 字符比较/次，可忽略；≥200 字块连续重复 4 次实际必是循环）
+# 章节级判据，对话直接套用会对正常排比/对白误伤——按流式场景调参。
+# 21:23 三次实弹（4B 系统报告）：带递增序号的循环（"1. 健康度良好…
+# 2. 健康度良好…"，序号变正文同）与超大块循环绕过「相同尾巴」判据
+# ——v3 加窗口 n 元片段重复计数：16 字片段（含 ≥6 实词字符，防表格
+# 分隔线误伤）在窗口内出现 ≥4 次即判循环。
 REPEAT_LOOP_MIN_BLOCK = 8
-REPEAT_LOOP_MAX_BLOCK = 200
+REPEAT_LOOP_MAX_BLOCK = 500
 REPEAT_LOOP_MIN_CYCLES = 4
+REPEAT_NGRAM = 16
+REPEAT_NGRAM_MIN_COUNT = 4
+REPEAT_NGRAM_MIN_ALNUM = 6
+REPEAT_NGRAM_STEP = 4
+
+
+def _has_repeated_ngram(t: str) -> bool:
+    """窗口 n 元片段重复计数（v3）：任一 16 字实词片段出现 ≥4 次。"""
+    counts: dict[str, int] = {}
+    for i in range(0, len(t) - REPEAT_NGRAM + 1, REPEAT_NGRAM_STEP):
+        g = t[i:i + REPEAT_NGRAM]
+        if sum(c.isalnum() for c in g) >= REPEAT_NGRAM_MIN_ALNUM:
+            c = counts.get(g, 0) + 1
+            if c >= REPEAT_NGRAM_MIN_COUNT:
+                return True
+            counts[g] = c
+    return False
 
 
 def detect_repeat_loop(text: str) -> bool:
-    """复读循环检测（纯函数，可测）：正文尾部是否陷入块级循环。
+    """复读循环检测（纯函数，可测）：流式正文是否陷入循环。
 
-    判据：去空白后取尾部，存在长度 ≥REPEAT_LOOP_MIN_BLOCK 的块连续
-    重复 ≥REPEAT_LOOP_MIN_CYCLES 次即 True（块长上限
-    REPEAT_LOOP_MAX_BLOCK，覆盖单句/双句对白轮替循环且压低误伤面）。
+    判据（任一命中即 True）：
+      1. 尾部块级循环：去空白后尾部同一 ≥8 字块连续重复 ≥4 次
+         （覆盖同句/对白轮替；块长上限 500 覆盖大块循环）；
+      2. 窗口 n 元重复：任一 16 字实词片段在输入内出现 ≥4 次
+         （覆盖递增序号/交错变体循环——正文相同前缀不同也算）。
+    调用方传 seen[-4096:] 作窗口，正常对白/排比不误伤。
     """
     t = "".join((text or "").split())
     n = len(t)
@@ -84,7 +104,7 @@ def detect_repeat_loop(text: str) -> bool:
     for k in range(REPEAT_LOOP_MIN_BLOCK, max_block + 1):
         if t[-k * REPEAT_LOOP_MIN_CYCLES:] == t[-k:] * REPEAT_LOOP_MIN_CYCLES:
             return True
-    return False
+    return _has_repeated_ngram(t)
 
 
 REPEAT_CUT_NOTICE = (

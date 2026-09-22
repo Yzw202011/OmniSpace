@@ -63,6 +63,41 @@ def test_alternating_dialogue_cycle_detected():
     assert detect_repeat_loop("开头叙述。" + (a + b) * 3) is False
 
 
+def test_incrementing_numbered_loop_detected():
+    """21:23 三次实弹：递增序号循环（序号变正文同）必须命中——
+    「相同尾巴」判据漏网形态，v3 窗口 n 元重复计数覆盖。"""
+    numbered = "".join(
+        f"{i}.系统健康度良好，各模块均已加载完毕。" for i in range(1, 12))
+    assert detect_repeat_loop("报告头部。" + numbered) is True
+
+
+def test_interleaved_warning_loop_detected():
+    """21:23 实弹同案：变体正文 + 固定警告句交错循环必须命中。"""
+    inter = "".join(
+        f"模块{i}状态正常。依赖警告：未找到可接受的字符集依赖。"
+        for i in range(8))
+    assert detect_repeat_loop(inter) is True
+
+
+def test_large_block_cycle_detected():
+    """>200 字大块连抄 ≥4 次命中（v3 上限 500）。"""
+    block = "".join(
+        f"{i}.系统运行状态良好，各模块均已加载完毕；资源分配正常。"
+        for i in range(1, 11))
+    assert detect_repeat_loop("前文。" + block * 4) is True
+
+
+def test_v3_no_false_positive_on_legit_text():
+    """误伤面：正常对白/表格分隔线/合法重复列表(×3)/不足 4 圈轮替。"""
+    assert not detect_repeat_loop(
+        '"你好。"他说。"你好。"她答。然后聊起天气与旅行计划，聊了很久。')
+    assert not detect_repeat_loop(
+        "|列A|列B|列C|\n|---|---|---|\n"
+        + "".join(f"|值{i}|数据|说明|\n" for i in range(8)))
+    assert not detect_repeat_loop("1.待办A2.待办B3.待办C")
+    assert not detect_repeat_loop("开头。" + "林昭轻笑。系统调皮。" * 3)
+
+
 def test_watchdog_wired_in_all_three_paths():
     """流式三条路径（gguf/直通/标记协议）都要接检测，防漏网。"""
     assert SRC.count("detect_repeat_loop(seen[-4096:])") == 3, (

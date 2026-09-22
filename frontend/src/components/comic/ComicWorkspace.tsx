@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, BookOpenText, Download, Loader2, Plus, Puzzle, Sparkles, Trash2, Upload, UserPlus, Wand2, X,
+  ArrowLeft, BookOpenText, Download, Loader2, Plus, Puzzle, Settings2, Sparkles, Trash2, Upload, UserPlus, Wand2, X,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import * as mangaApi from '@/services/mangaApi';
@@ -26,6 +26,7 @@ import { getErrorMessage, reportBgError } from '@/utils/errors';
 import { Modal } from '../common/Modal';
 import OmniLightbox, { downloadImage } from '../common/OmniLightbox';
 import CloudSlotBadge from '@/components/common/CloudSlotBadge';
+import ComicModelConfigModal from './ComicModelConfigModal';
 import AssetLibrary from './AssetLibrary';
 
 interface Props {
@@ -117,6 +118,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   // AI 写分格（C2 本地路，2026-09-08）：故事梗概 → N 格画面描述
   const [scriptFormOpen, setScriptFormOpen] = useState(false);
+  // 模型设置弹窗（2026-09-22：本地/云端二选一，与设置页同真源联动）
+  const [modelCfgOpen, setModelCfgOpen] = useState(false);
   const [scriptStory, setScriptStory] = useState('');
   const [scriptPanels, setScriptPanels] = useState(4);
   const [scriptReplace, setScriptReplace] = useState(false);
@@ -630,6 +633,10 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           </select>
         </div>
         <div className="comic-ws-ops">
+          {/* 模型设置（2026-09-22：本地/云端二选一，与设置页联动） */}
+          <button type="button" className="btn" onClick={() => setModelCfgOpen(true)}>
+            <Settings2 size={15} /> 模型设置
+          </button>
           {/* 批3 P5：绘画云端工位徽标（三槽任一绑定即亮；点击直达配置） */}
           <CloudSlotBadge slots={[
             { key: 'paint.image', label: '绘画出图' },
@@ -1089,6 +1096,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           </div>
         </Modal>
       )}
+
+      {/* 模型设置（本地/云端二选一，与设置页同真源联动，2026-09-22） */}
+      {modelCfgOpen && <ComicModelConfigModal onClose={() => setModelCfgOpen(false)} />}
 
       {/* 阅读预览（完整显示 contain + 预览中重新生成，C4 用户需求 2026-09-08） */}
       {previewOpen && (

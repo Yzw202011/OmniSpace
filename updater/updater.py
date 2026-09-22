@@ -25,10 +25,12 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -44,6 +46,64 @@ QUIT_GRACE_S = 90.0
 HEALTH_TIMEOUT_S = 300.0
 SETTLE_S = 2.0
 _BACKUP_KEEP = 1
+# Bug1 真修（2026-09-22）：升级状态伺服端口——updater 在整个升级过程
+# 中在此端口伺服 state.json，前端在后端下线期间直连此端口获取实时阶段。
+# 选 5890：在后端 5800-5835 / 启动页 5850-5869 / ComfyUI 8189 之外的空档。
+STATUS_PORT = 5890
+
+
+# ── Bug1 真修：升级状态伺服 ───────────────────────────────────
+# 后端在升级开始后就被杀掉，前端通过后端 HTTP 读不到 state.phase。
+# 此伺服线程让 updater 自己在 5890 端口伺服 state.json——
+# 前端后端下线期间直连 http://127.0.0.1:5890/state 获取实时阶段。
+# stdlib-only 约束不破（http.server 是标准库）。
+
+
+def _start_status_server(install_root: Path) -> ThreadingHTTPServer | None:
+    """启动升级状态伺服（5890 端口，GET /state 返回 state.json）。"""
+    state_file = install_root / core.STATE_DIRNAME / "state.json"
+
+    class _StatusHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path != "/state":
+                self.send_response(404)
+                self.end_headers()
+                return
+            try:
+                body = state_file.read_text(encoding="utf-8")
+            except (OSError, ValueError):
+                body = json.dumps({"phase": "unknown"})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass  # 安静——不打 stdout（updater 可能 DETACHED 无控制台）
+
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", STATUS_PORT),
+                                     _StatusHandler)
+        threading.Thread(target=server.serve_forever, daemon=True,
+                         name="upgrade-status").start()
+        _log(install_root,
+             f"状态伺服已启动: http://127.0.0.1:{STATUS_PORT}/state")
+        return server
+    except OSError as exc:
+        _log(install_root, f"状态伺服启动失败（不影响升级）: {exc}")
+        return None
+
+
+def _stop_status_server(server: ThreadingHTTPServer | None) -> None:
+    """升级结束后关掉状态伺服。"""
+    if server is not None:
+        try:
+            server.shutdown()
+            server.server_close()
+        except OSError:
+            pass
 
 
 def _log(install_root: Path, line: str) -> None:
@@ -217,6 +277,10 @@ def main(argv: list[str]) -> int:
     work_dir = install_root / core.STATE_DIRNAME / "_work"
 
     _log(install_root, f"updater 启动：{package} -> v{to_version}")
+
+    # Bug1 真修：启动状态伺服（前端在后端下线期间直连 5890 获取阶段）
+    status_server = _start_status_server(install_root)
+
     _set_state(install_root, phase="handover_wait")
     time.sleep(SETTLE_S)  # ① 让后端把响应发完
 
@@ -224,6 +288,7 @@ def main(argv: list[str]) -> int:
     if not quiet:
         _log(install_root, f"整链未退净，放弃升级（零改动）: {why}")
         _set_state(install_root, phase="failed", reason=f"整链未退净: {why}")
+        _stop_status_server(status_server)
         return 1
 
     # 重新读包+验清单（幂等防线：即使预检后包被换，这里再拦一次）。
@@ -253,6 +318,7 @@ def main(argv: list[str]) -> int:
         _log(install_root, f"包复核失败，零改动: {exc}")
         _set_state(install_root, phase="failed", reason=f"包复核失败: {exc}")
         shutil.rmtree(work_dir, ignore_errors=True)
+        _stop_status_server(status_server)
         return 1
 
     # ③ 备份
@@ -272,6 +338,7 @@ def main(argv: list[str]) -> int:
         _set_state(install_root, phase="rolled_back",
                    reason=f"落位失败已回滚({restored} 文件, 错误{len(errs)})")
         _spawn_boot(install_root)
+        _stop_status_server(status_server)
         return 1
 
     # ⑤ 验证启动
@@ -284,6 +351,7 @@ def main(argv: list[str]) -> int:
                    reason=f"验证失败已回滚({restored} 文件, {detail[:80]}, "
                           f"错误{len(errs)})")
         _spawn_boot(install_root)
+        _stop_status_server(status_server)
         return 1
 
     # ⑥ 成功收尾
@@ -300,6 +368,7 @@ def main(argv: list[str]) -> int:
     _set_state(install_root, phase="success",
                reason=f"已升级到 v{to_version}（:{detail}）")
     _log(install_root, f"升级成功: v{to_version} on {detail}")
+    _stop_status_server(status_server)
     return 0
 
 

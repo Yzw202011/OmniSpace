@@ -40,9 +40,13 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 function phaseLabel(phase: string | undefined, backendDown: boolean): string {
-  /* Bug1 根修（2026-09-22）：后端下线期间 phase 冻结——诚实显示推断态 */
-  if (backendDown) return '升级进行中（后端已下线，正在后台操作）';
+  /* Bug1 真修：后端下线但 updater 伺服有数据→显示真实阶段；
+   * 后端和 updater 都不可达→显示等待态 */
   if (!phase) return '准备中…';
+  if (backendDown) {
+    /* 后端下线但 phase 有值=来自 updater 伺服，是真实数据 */
+    return PHASE_LABELS[phase] ?? phase;
+  }
   return PHASE_LABELS[phase] ?? phase;
 }
 
@@ -110,38 +114,60 @@ export default function UpgradeSection() {
     void refresh();
   }, [refresh]);
 
-  /** 升级等待页：每 3s 探测后端心跳 + U2 阶段 + U3 超时 */
-  useEffect(() => {
-    if (!upgradingTo) return;
-    const oldBuild = current?.build ?? '';
-    startTimeRef.current = Date.now();
-    setTimedOut(false);
+/** Bug1 真修：从 updater 状态伺服（5890 端口）直读升级阶段。
+ *
+ * 后端在升级开始后就被杀掉——前端通过后端 HTTP 读不到 phase。
+ * updater 在整个升级过程中在 http://127.0.0.1:5890/state 伺服
+ * state.json，此函数在后端下线时直连该端口获取实时阶段。
+ */
+async function fetchUpdaterState(): Promise<{ phase?: string } | null> {
+  try {
+    const resp = await fetch('http://127.0.0.1:5890/state', {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!resp.ok) return null;
+    return await resp.json() as { phase?: string };
+  } catch {
+    return null; /* updater 伺服不可达（可能已退出或尚未启动） */
+  }
+}
 
-    const timer = window.setInterval(async () => {
-      /* U3: 超时检查 */
-      if (Date.now() - startTimeRef.current > UPGRADE_TIMEOUT_MS) {
+/** 升级等待页：每 3s 探测后端心跳 + Bug1 真修阶段反馈 + U3 超时 */
+useEffect(() => {
+  if (!upgradingTo) return;
+  const oldBuild = current?.build ?? '';
+  startTimeRef.current = Date.now();
+  setTimedOut(false);
+
+  const timer = window.setInterval(async () => {
+    /* U3: 超时检查 */
+    if (Date.now() - startTimeRef.current > UPGRADE_TIMEOUT_MS) {
+      window.clearInterval(timer);
+      setTimedOut(true);
+      return;
+    }
+    try {
+      const s = await getUpgradeStatus();
+      setBackendDown(false);
+      /* U2: 更新阶段显示（后端在线，走正常通道） */
+      if (s.state?.phase) setPhase(s.state.phase);
+      if (s.current.build && s.current.build !== oldBuild) {
         window.clearInterval(timer);
-        setTimedOut(true);
-        return;
+        showToast(`升级完成，已更新到 v${upgradingTo}`, 'success');
+        window.location.reload();
       }
-      try {
-        const s = await getUpgradeStatus();
-        setBackendDown(false); /* Bug1: 后端复活，恢复精确阶段显示 */
-        /* U2: 更新阶段显示 */
-        if (s.state?.phase) setPhase(s.state.phase);
-        if (s.current.build && s.current.build !== oldBuild) {
-          window.clearInterval(timer);
-          showToast(`升级完成，已更新到 v${upgradingTo}`, 'success');
-          window.location.reload();
-        }
-      } catch {
-        /* Bug1 根修：后端下线→阶段冻结——诚实标记并显示推断态 */
-        setBackendDown(true);
-        /* silent-intent: 升级期间后端下线属预期，继续等待 */
+    } catch {
+      /* Bug1 真修：后端下线→直连 updater 状态伺服获取实时阶段 */
+      setBackendDown(true);
+      const updaterState = await fetchUpdaterState();
+      if (updaterState?.phase) {
+        setPhase(updaterState.phase);
       }
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [upgradingTo, current?.build, showToast]);
+      /* updater 也不可达→保持最后已知阶段（比推断态好） */
+    }
+  }, 3000);
+  return () => window.clearInterval(timer);
+}, [upgradingTo, current?.build, showToast]);
 
   const doImport = async (file: File): Promise<void> => {
     if (!file.name.endsWith('.upg')) {

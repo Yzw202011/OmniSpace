@@ -86,12 +86,19 @@ _Q21_MODEL_ID = "qwen-image-2.1"
 #   ① 本引擎 _run 的模型校验（名单外如实失败，不再静默按 klein-9b 出图）
 #   ② /draw/models 清单（gen_engine=comfy 时）
 #   ③ 漫剧 /manga/models/available 的 paint 槽
-# klein-4b 摘除：models/diffusion_models/flux-2-klein-4b.safetensors 为
-# 2026-09-19 转换残局（fused to_qkv_mlp_proj + 外挂 modulation 的 Klein
-# 原生布局，comfy Flux2 类按 linear1/linear2 内嵌调制消费，加载必炸
-# mat1/mat2 形状错配——2026-09-23 对照实验 v0.34.0/v0.37.0 同错）。
-# 转换修复后：翻 _KLEIN_4B_BROKEN=False 并在表内恢复条目。
-_KLEIN_4B_BROKEN = True
+# klein-4b 摘除→回真：2026-09-19 转换残局已于 2026-09-23 修复
+# （convert_klein4b_to_comfy.py 子串误判根修：single_transformer_blocks
+# 含 transformer_blocks 子串致单流块误走双流分支，linear1/linear2/
+# norm 键名全部没转到位；修复后与 klein-9b-fp8 权威模板结构对拍
+# 100% 一致 + 实弹验收）。若再遇 4b 残局翻回 True 即恢复守卫。
+_KLEIN_4B_BROKEN = False
+# klein-4b 三件套（comfy 格式转换产物在 diffusion_models；TE 与
+# z-image 同源 Qwen3-4B；VAE 与 9b 同源 flux2-vae）
+_KLEIN_4B_FILES = {
+    "unet": "flux-2-klein-4b.safetensors",
+    "clip": "qwen_3_4b.safetensors",
+    "vae": "flux2-vae.safetensors",
+}
 COMFY_PAINT_MODELS: list[dict] = [
     {
         "id": "flux2-klein-9b",
@@ -99,6 +106,13 @@ COMFY_PAINT_MODELS: list[dict] = [
         "files": _PAINT_FILES,
         "min_vram_gb": 8.5,
         "notes": "多参考图/LoRA/PuLID 全链接力底座",
+    },
+    {
+        "id": "flux2-klein-4b",
+        "name": "FLUX.2 Klein 4B（comfy 转换版）",
+        "files": _KLEIN_4B_FILES,
+        "min_vram_gb": 12.0,
+        "notes": "D-LoRA 角色 LoRA 底座（2026-09-23 残局修复回真）",
     },
     {
         "id": _Z_IMAGE_MODEL_ID,
@@ -251,6 +265,8 @@ def comfy_paint_available(model_id: str = "") -> bool:
         files = _Z_IMAGE_FILES
     elif model_id == _Q21_MODEL_ID:
         files = _Q21_FILES
+    elif model_id == "flux2-klein-4b":
+        files = _KLEIN_4B_FILES
     else:
         files = _PAINT_FILES
     checks = [
@@ -471,13 +487,16 @@ class ComfyPaintEngine:
             unet_name = "flux-2-klein-4b.safetensors"
             clip_name = "qwen_3_4b.safetensors"
 
-        # B7+（2026-09-14）：model 参数切换底座单文件。2026-09-23 起
-        # 名单收敛到真源 _COMFY_PAINT_MODEL_IDS（_run 统一拦截），本
-        # 构建器只会收到空值或 flux2-klein-9b（z-image 走独立 builder）。
+        # B7+（2026-09-14）：model 参数切换底座单文件。2026-09-23 起名单
+        # 收敛到真源 _COMFY_PAINT_MODEL_IDS（_run 统一拦截）；z-image 走
+        # 独立 builder，klein-4b 残局已修复回真（本分支恢复可达）。
         model_id = str(params.get("model") or "").strip()
         if model_id == "flux2-klein-9b":
             unet_name = "flux-2-klein-9b-fp8.safetensors"
             clip_name = "qwen3_8b.safetensors"
+        elif model_id == "flux2-klein-4b":
+            unet_name = "flux-2-klein-4b.safetensors"
+            clip_name = "qwen_3_4b.safetensors"
 
         wf: dict[str, dict] = {
             "unet": {"class_type": "UNETLoader", "inputs": {

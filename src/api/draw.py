@@ -521,10 +521,12 @@ def _run_generate_task(task_id: str, params: dict,
             # legacy 路径），comfy 时代从未生效，已随本修复废弃。
             _z_mode = model_hint == "z-image-turbo"
             _q21_mode = model_hint == "qwen-image-2.1"
+            _k4_mode = model_hint == "flux2-klein-4b"
             with flow.node(
                     "模型加载",
                     friendly=("ComfyUI Z-Image-Turbo 栈" if _z_mode else
                               "ComfyUI Qwen-Image-2.1 栈" if _q21_mode else
+                              "ComfyUI klein-4b 栈" if _k4_mode else
                               "ComfyUI klein-9b-fp8 栈")) as n:
                 if not comfy_paint_available():
                     raise RuntimeError(
@@ -534,6 +536,8 @@ def _run_generate_task(task_id: str, params: dict,
                          if _z_mode else
                          "qwen-image-2.1（原生 2K/透明图/中文字强，25 步）"
                          if _q21_mode else
+                         "klein-4b（D-LoRA 角色底座）"
+                         if _k4_mode else
                          "klein-9b-fp8（Qwen3 编码器中文直入，免翻译）")
 
             try:

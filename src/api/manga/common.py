@@ -1402,14 +1402,17 @@ def comfy_paint_generate(params: dict,
         result = engine.generate(p, progress=progress)
     _z = str(p.get("model") or "") == "z-image-turbo"
     _q21 = str(p.get("model") or "") == "qwen-image-2.1"
+    _k4 = str(p.get("model") or "") == "flux2-klein-4b"
     return {"images": result.get("images") or [],
             "seed": seed,
             "model": ("z-image-turbo(comfy)" if _z else
                       "qwen-image-2.1(comfy)" if _q21 else
+                      "flux2-klein-4b(comfy)" if _k4 else
                       "flux2-klein-9b-fp8(comfy)"),
             "elapsed_ms": int((time.perf_counter() - t0) * 1000),
             "engine": ("comfy-z-image" if _z else
-                       "comfy-qwen21" if _q21 else "comfy-klein")}
+                       "comfy-qwen21" if _q21 else
+                       "comfy-klein-4b" if _k4 else "comfy-klein")}
 
 
 def unload_paint_engines_sync() -> None:

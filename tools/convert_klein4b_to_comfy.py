@@ -62,7 +62,14 @@ def map_key(k: str) -> str:
                     "double_stream_modulation_txt.lin.")
 
     # ── 块前缀（先长后短）──
-    is_double = "transformer_blocks." in nk
+    # 2026-09-23 残局修复：旧判定 "transformer_blocks." in nk 会把
+    # single_transformer_blocks 一并命中（子串包含）→ 单流块全体误走
+    # 双流分支，to_qkv_mlp_proj/to_out/norm 映射全部没打中——产物
+    # 键名 single_blocks.N.attn.* 与 comfy Flux 类（linear1/linear2/
+    # norm.query_norm）不匹配，加载必炸 mat1/mat2（v0.34/v0.37 对照
+    # 实验同错）。先判单流再判双流。
+    is_single = "single_transformer_blocks." in nk
+    is_double = ("transformer_blocks." in nk) and not is_single
     nk = nk.replace("single_transformer_blocks.", "single_blocks.")
     nk = nk.replace("transformer_blocks.", "double_blocks.")
 
@@ -84,11 +91,16 @@ def map_key(k: str) -> str:
         nk = nk.replace(".norm1.linear.", ".modulation.img.lin.")
         nk = nk.replace(".norm1_context.linear.", ".modulation.txt.lin.")
     else:
-        # ── 单流块 ──
+        # ── 单流块（2026-09-23 修复后真正可达）──
+        # comfy Flux 单流块键名（klein-9b-fp16 权威模板对拍）：
+        # linear1/linear2 + norm.query_norm/key_norm（scale 由尾部
+        # 统一重命名处理）。to_qkv_mlp_proj (27648,3072) 与 linear1
+        # 布局精确同构（3*hidden + mlp_first 融合）；to_out=(3072,
+        # 12288)=linear2（hidden+mlp_hidden）。
         nk = nk.replace(".attn.to_qkv_mlp_proj.", ".linear1.")
         nk = nk.replace(".attn.to_out.", ".linear2.")
-        nk = nk.replace(".attn.norm_q.", ".attn.norm.query_norm.")
-        nk = nk.replace(".attn.norm_k.", ".attn.norm.key_norm.")
+        nk = nk.replace(".attn.norm_q.", ".norm.query_norm.")
+        nk = nk.replace(".attn.norm_k.", ".norm.key_norm.")
         nk = nk.replace(".norm.linear.", ".modulation.lin.")
 
     # ── 输出层 ──
@@ -176,10 +188,16 @@ def convert() -> None:
     ok4 = "txt_in.weight" in out
     ok5 = "time_in.in_layer.weight" in out
     ok6 = "final_layer.linear.weight" in out
+    # 2026-09-23 残局修复新增：单流块键名必须落到 comfy 模板
+    ok7 = "single_blocks.0.linear1.weight" in out
+    ok8 = "single_blocks.0.linear2.weight" in out
+    ok9 = "single_blocks.0.norm.query_norm.scale" in out
+    ok10 = not any(".attn." in k for k in out if k.startswith("single_blocks."))
     print(f"输出: {DST.name} ({size_gb:.2f} GB, {len(out)} 键)")
     print(f"检测: norm_scale={ok1} img_in={ok2} mod_lin={ok3} "
-          f"txt_in={ok4} time_in={ok5} final={ok6}")
-    if all((ok1, ok2, ok3, ok4, ok5, ok6)):
+          f"txt_in={ok4} time_in={ok5} final={ok6} "
+          f"s_linear1={ok7} s_linear2={ok8} s_norm={ok9} s_no_attn={ok10}")
+    if all((ok1, ok2, ok3, ok4, ok5, ok6, ok7, ok8, ok9, ok10)):
         print("✓ 全部验证通过")
     else:
         print("✗ 有验证项失败！")

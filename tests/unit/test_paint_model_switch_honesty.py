@@ -36,7 +36,10 @@ def test_truth_set_matches_physical_reality() -> None:
     if cpe._KLEIN_4B_BROKEN:
         assert ids == {"flux2-klein-9b", "z-image-turbo",
                        "qwen-image-2.1"}
-        assert "flux2-klein-4b" not in ids
+    else:
+        # 2026-09-23 klein-4b 残局修复回真：四件套齐
+        assert ids == {"flux2-klein-9b", "flux2-klein-4b",
+                       "z-image-turbo", "qwen-image-2.1"}
     # 旧栈候选永不在 comfy 真源（sdxl/qwen-2512 走 legacy diffusers 栈）
     assert "sdxl-base-1.0" not in ids
     assert "qwen-image-2512" not in ids
@@ -58,6 +61,9 @@ def test_reject_unknown_model_honestly() -> None:
 
 
 def test_reject_klein_4b_residue_wording() -> None:
+    # 残局守卫文案（仅在 4b 摘除期间有意义；修复回真后跳过）
+    if not cpe._KLEIN_4B_BROKEN:
+        pytest.skip("klein-4b 已修复回真，守卫文案测试退役")
     with pytest.raises(ApiError) as ei:
         cpe._reject_unavailable_model("flux2-klein-4b")
     assert ei.value.code == "MODEL_NOT_ALLOWED"
@@ -92,6 +98,12 @@ def test_valid_models_still_build() -> None:
     # 缺省（智能路由/空点名）：回落 klein-9b 默认底座
     wf2 = _wf({"prompt": "缺省"})
     assert wf2["unet"]["inputs"]["unet_name"] == "flux-2-klein-9b-fp8.safetensors"
+    # klein-4b 回真（2026-09-23 修复）：显式点名真切 4b 三件套
+    if not cpe._KLEIN_4B_BROKEN:
+        wf4 = _wf({"prompt": "四B", "model": "flux2-klein-4b"})
+        assert wf4["unet"]["inputs"]["unet_name"] == (
+            "flux-2-klein-4b.safetensors")
+        assert wf4["clip"]["inputs"]["clip_name"] == "qwen_3_4b.safetensors"
 
 
 def test_qwen21_workflow_official_baseline() -> None:

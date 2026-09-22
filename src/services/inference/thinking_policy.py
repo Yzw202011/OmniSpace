@@ -7,10 +7,18 @@ dialog_engine 是架构基线巨石（只许拆不许涨），本模块承载其
   - _ThinkingStreamParser 流式 reasoning/content 双通道切分；
   - is_native_reasoning_model 原生思考型号判定（与 vLLM 启动注入同源，
     防双思考打架的旁路依据，2026-09-10 根修）；
-  - detect_repeat_loop 复读循环流式检测（2026-09-22 对话防复读 B 案）。
-dialog_engine 转出口径不变（API 层 import 路径零破坏）。
+  - detect_repeat_loop 复读循环流式检测（2026-09-22 对话防复读 B 案）；
+  - 长文两步走（2026-09-22 用户拍板）：先列提纲再按提纲写——计划型
+    记忆，复读高发于无计划的注水段（写作台实测）。
+dialog_engine / api.dialog 转出口径不变（import 路径零破坏）。
 """
 from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .dialog_engine import DialogEngine
 
 # 深度思考模式追加段（2026-08-22 思考过程展示）：Qwen3-VL Instruct
 # 模板无 enable_thinking 变量（实测渲染 diff 为空）；实测模型对
@@ -158,3 +166,47 @@ class _ThinkingStreamParser:
         if not self._seen_sep and self._reasoning_all:
             out.append(("content", self._reasoning_all))
         return out
+
+
+# ── 长文两步走（2026-09-22 用户拍板：对话页长文先列提纲再写）────────
+_OUTLINE_SKIP_RE = re.compile(r"提纲|大纲|目录")
+_OUTLINE_SYSTEM_PROMPT = (
+    "你是创作策划。根据用户请求写一份简明创作提纲：主题定位、结构分段"
+    "（每段一两句说明写什么）、关键情节推进点与结局走向。只输出提纲"
+    "本身，不超过 300 字，不要输出正文。")
+
+
+def is_longform_request(text: str) -> bool:
+    """长文创作请求判定（启发式）：字数暗示直接命中；文体+创作动词
+    组合命中。用户本身在要提纲/大纲时不介入。"""
+    if not text or _OUTLINE_SKIP_RE.search(text):
+        return False
+    if re.search(r"\d{3,}\s*字|长篇|中篇", text):
+        return True
+    return bool(re.search(r"小说|故事|剧本|散文|文章|作文|番外|章节", text)
+                and re.search(r"写|创作|续写|来一篇|生成", text))
+
+
+def longform_outline(engine: DialogEngine, request_text: str) -> str:
+    """两步走①：单轮轻上下文生成长文提纲；失败返回空串=退化一步直写。
+
+    engine 为 DialogEngine（仅类型标注用，运行时零耦合——绕开
+    thinking_policy ← dialog_engine 的循环导入）。
+    """
+    try:
+        msgs = [
+            {"role": "system", "content": _OUTLINE_SYSTEM_PROMPT},
+            {"role": "user", "content": request_text},
+        ]
+        out = (engine.chat(msgs, None, 0.6, 700) or "").strip()
+        return out.strip("`").strip()[:1500]
+    except Exception:  # noqa: BLE001 - 提纲失败不阻断对话
+        return ""
+
+
+def outline_system_block(outline: str) -> str:
+    """两步走②：提纲 → 注入系统提示的「必须遵循」块。"""
+    return (
+        "\n\n【创作提纲·必须遵循】按以下提纲结构完整撰写正文，"
+        "情节持续推进，禁止原地打转或复读已输出的句子：\n"
+        + outline)

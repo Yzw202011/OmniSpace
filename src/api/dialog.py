@@ -64,6 +64,11 @@ from ..services.inference.dialog_engine import (
     is_native_reasoning_model,
     strip_think_tags,
 )
+from ..services.inference.thinking_policy import (
+    is_longform_request,
+    longform_outline,
+    outline_system_block,
+)
 from ..services.offload import run_blocking, sync_core
 from ..services.plugin_runtime import get_plugin_runtime
 from ..services.plugin_runtime.registry import PluginRuntimeError
@@ -186,6 +191,10 @@ def _rag_enhance(message: str) -> tuple[str, list]:
     except Exception as exc:
         log.debug("RAG 注入不可用，跳过: %s", exc)
     return "", []
+
+
+# ── 长文两步走（2026-09-22 用户拍板）：判定与提纲生成在
+# services/inference/thinking_policy（架构闸拆分；引擎零改动）──
 
 
 # ── 被动补全（文档B §7.1.6.1 步骤4，审计 R2-B01）──────────────────────
@@ -774,7 +783,6 @@ async def dialog_send(request: Request,
     stream 缺省/false → 一次性返回完整文本。
     """
     message = str(body.get("message") or body.get("content") or "").strip()
-    # 纯图片消息合法（2026-09-22 视觉对话）：有图无字不再拒收
     if not message and not (body.get("images") or body.get("attachments")):
         raise ApiError("SYSTEM_PARAM_INVALID", "消息不能为空")
     # 单条消息字符上限（DoS 防护）：与 token 上下文窗口分开判定，
@@ -799,11 +807,8 @@ async def dialog_send(request: Request,
         max_new_tokens = 1024
     if thinking:
         max_new_tokens = max(max_new_tokens, 2048)  # 思考通道独立预算
-    # 云端默认预算提升（2026-09-21 用户报「写 3000 字剧本一片空白」
-    # 实测根修之一）：本地 1024/2048 是显存/耗时权衡，云端按量计费无
-    # 此压力——小预算会被思考通道耗尽或截断长文（reasoning 不进正文
-    # → 空气泡）。显式传值的调用方（写作台章节等）契约不变，仅提升
-    # 「未指定」时的默认。
+    # 云端默认预算提升（2026-09-21 空白回复根修）：云端按量计费无
+    # 显存压力，小预算会被思考耗尽/截断长文；显式传值契约不变
     _model_req_s = str(model_req) if model_req else ""
     if not _explicit_max_tokens and (
             _model_req_s.startswith("cloud::")
@@ -911,6 +916,11 @@ async def dialog_send(request: Request,
             # 联网搜索 v1（默认关；意图判定命中才搜，资料块并入上下文）
             knowledge_text, web_refs = await _web_search_augment(
                 message, knowledge_text)
+            # 长文两步走①：先出提纲防注水打转（未命中/失败=一步直写）
+            outline = ""
+            if is_longform_request(message) and not images:
+                outline = await run_blocking(
+                    longform_outline, engine, message)
             # 技能插座批1：插件技能产出并入参考上下文（即焚——只进
             # 本次 prompt，不落库、不进会话历史；气泡标记由前端凭
             # 发送时携带的 plugin_context 展示）
@@ -923,16 +933,15 @@ async def dialog_send(request: Request,
                 n.output(f"插件技能注入 ×{len(plugin_ctx)}")
             # 组装上下文（系统 Prompt + 注入 + 历史 + 当前输入）；
             # 深度思考模式追加四步框架引导（THINKING_SYSTEM_SUFFIX）。
-            # 2026-09-10 用户报「你好→一大段无关」根修 + 2026-09-22 收窄：
-            # 仅 gguf/llama（原生 <think> 标签协议）与 vLLM 原生思考型号
-            # （r1/qwen35，服务端已剥离）不注入——叠加会双思考打架；
-            # 其余（含 qwen3-vl-8b-awq 等 vLLM Instruct）注入标记协议
+            # 2026-09-22 收窄：仅原生思考型号不注入（防双思考打架）
             _backend_name = getattr(engine, "_backend_name", "") or ""
             if thinking and not (_backend_name in ("gguf", "llama")
                                  or is_native_reasoning_model(model_req)):
                 sys_prompt = DEFAULT_SYSTEM_PROMPT + THINKING_SYSTEM_SUFFIX
             else:
                 sys_prompt = DEFAULT_SYSTEM_PROMPT
+            if outline:
+                sys_prompt += outline_system_block(outline)
             history = _load_history(sid)
             max_ctx = min(int(body.get("context_length", 8192) or 8192), 8192)
             messages = engine.build_context(
@@ -952,7 +961,7 @@ async def dialog_send(request: Request,
                 engine, lock, sid, message, history, knowledge_text,
                 messages, images, refs,
                 temperature, max_new_tokens, max_ctx, thinking, flow,
-                web_refs=web_refs, request=request)
+                web_refs=web_refs, request=request, outline=outline)
             lock_handed_off = True  # flow 同样移交给 SSE 生成器收尾
             return resp
 
@@ -1118,7 +1127,8 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                            max_ctx: int, thinking: bool = False,
                            flow: Flow | None = None,
                            web_refs: list | None = None,
-                           request: Request | None = None) -> StreamingResponse:
+                           request: Request | None = None,
+                           outline: str = "") -> StreamingResponse:
     """构造 SSE 流式响应；生成结束后落库并释放功能锁。
 
     深度思考模式（2026-08-22）：思考段以 {"reasoning": str} 事件推送
@@ -1144,15 +1154,19 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                                   + (" · 深度思考" if thinking else ""),
                     friendly="AI 正在流式生成回复") as gen_node:
                 produced = 0
-                # 防复读 A 案（2026-09-22 用户报 8B 小说复读循环）：本地
-                # vLLM 默认带温和重复惩罚（写作台实弹参数的温和档；实测
-                # 证明参数单独不够，B 案流式检测在引擎层兜底）。云端不带
-                # ——严格服务商对未知采样参数可能 400。读新鲜 backend 名：
-                # 此处已在 ensure_loaded 之后，与注入判定处的装载前时序不同
+                # 防复读 A 案：本地 vLLM 带温和惩罚（B 案引擎层兜底）；
+                # 云端不带（严格服务商可能 400）
                 _bn_loaded = getattr(engine, "_backend_name", "") or ""
                 extra = ({"repetition_penalty": 1.05}
                          if _bn_loaded == "vllm" else None)
                 try:
+                    # 长文两步走②：提纲先行可见，落库后自带结构记忆
+                    if outline:
+                        lead = ("【创作提纲】\n" + outline
+                                + "\n\n——— 正文 ———\n\n")
+                        collected.append(lead)
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, ("token", lead))
                     for event in engine.chat_stream_ex(
                             messages, images=images or None,
                             temperature=temperature,
@@ -1879,6 +1893,15 @@ async def handle_dialog_stream(websocket: WebSocket, session_id: str) -> None:
         log.warning("对话流 WebSocket 异常: %s", exc, exc_info=True)
 
 
+async def _ws_push_status(websocket: WebSocket, phase: str, message: str) -> None:
+    """状态帧统一推送（降级忽略：状态提示失败不阻断对话）。"""
+    try:
+        await websocket.send_json({"type": "status", "data": {
+            "phase": phase, "message": message}})
+    except Exception:  # noqa: BLE001
+        log.debug("状态帧推送失败: %s", phase, exc_info=True)
+
+
 async def _ws_send_error(websocket: WebSocket, code: int | str, message: str) -> None:
     await websocket.send_json({
         "type": "error",
@@ -1932,7 +1955,6 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
 async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None:
     """处理一条用户消息：校验 → 引擎就绪 → RAG → 流式推理 → 落库。"""
     content = str(data.get("content") or "").strip()
-    # 纯图片消息合法（2026-09-22 视觉对话）：有图无字不再拒收
     if not content and not data.get("images"):
         await _ws_send_error(websocket, 30001, "消息不能为空")
         return
@@ -2048,8 +2070,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             log.warning("对话模块选型配置读取失败（跳过）: %s", exc, exc_info=True)
         # 深度思考模式（2026-08-22 思考过程展示）：前端 thinking 参数
         # 开启时 system prompt 追加四步框架引导，模型自输出 <think> 块。
-        # 2026-09-10 同 :912 根修 + 2026-09-22 收窄（口径同 REST）：
-        # 仅 gguf/llama 与 vLLM 原生思考型号不注入，其余注入标记协议
+        # 2026-09-22 收窄（口径同 REST）：仅原生思考型号不注入
         thinking = bool(data.get("thinking"))
         _backend_name = getattr(engine, "_backend_name", "") or ""
         if thinking and not (_backend_name in ("gguf", "llama")
@@ -2058,8 +2079,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         else:
             sys_prompt = DEFAULT_SYSTEM_PROMPT
         # 思考通道有独立 token 预算需求（思考 500-2000 token 常态）
-        # 思考通道有独立 token 预算需求（思考 500-2000 token 常态）。
-        # 云端路径预算提升（2026-09-21 空白回复根修，口径同 REST）：
+        # 思考通道有独立 token 预算（500-2000 常态）；云端提升口径同 REST：
         # 本地小预算是显存/耗时权衡，云端按量计费无此压力
         _ws_req_s = str(model_req) if model_req else ""
         if _ws_req_s.startswith("cloud::") or is_remote_dialog_enabled():
@@ -2083,18 +2103,10 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         # 冷启动窗口状态推送（2026-08-22 思考过长事故）：模型未就绪时
         # 先告知前端加载阶段——vLLM 冷启动 ~157s 全程零消息，用户只
         # 见"思考中"无任何反馈（含被模块切换杀掉后二次冷启动场景）
-        try:
-            if engine.get_status().get("state") != "ready":
-                await websocket.send_json({
-                    "type": "status",
-                    "data": {
-                        "phase": "model_loading",
-                        "message": "对话模型冷启动中（首次加载约 2-3 分钟），"
-                                   "请稍候，期间请勿切换页面",
-                    },
-                })
-        except Exception:  # noqa: BLE001 - 状态推送失败不阻断对话
-            log.debug("_ws_handle_message: 降级忽略", exc_info=True)
+        if engine.get_status().get("state") != "ready":
+            await _ws_push_status(
+                websocket, "model_loading",
+                "对话模型冷启动中（首次加载约 2-3 分钟），请稍候，期间请勿切换页面")
         # 审计 R1-04：同 dialog_send，ensure_loaded 阻塞调用经 run_blocking 卸载
         if not await run_blocking(engine.ensure_loaded, model_req):
             # P1 修复（2026-09-02 冷启动实测）：vLLM 正在 booting 时
@@ -2132,6 +2144,15 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                               if knowledge_text else plugin_block)
             log.info("对话插件技能注入 ×%d sid=%s", len(plugin_ctx), sid)
         history = _load_history(sid)
+        # 长文两步走①（口径同 REST）：未命中/失败=一步直写不变
+        outline = ""
+        if is_longform_request(content) and not images:
+            await _ws_push_status(
+                websocket, "outline",
+                "正在列创作提纲（约 10~30 秒），随后按提纲撰写正文")
+            outline = await run_blocking(longform_outline, engine, content)
+        if outline:
+            sys_prompt += outline_system_block(outline)
         messages = engine.build_context(
             content, history=history, knowledge_text=knowledge_text,
             system_prompt=sys_prompt, images=images or None,
@@ -2151,12 +2172,17 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         error_holder: list[str] = []
 
         def _produce() -> None:
-            # 防复读 A 案（2026-09-22，口径同 REST 流式路径）：本地 vLLM
-            # 带温和重复惩罚；云端不带（严格服务商可能 400）
+            # 防复读 A 案（口径同 REST）：本地 vLLM 温和惩罚
             _bn_loaded = getattr(engine, "_backend_name", "") or ""
             extra = ({"repetition_penalty": 1.05}
                      if _bn_loaded == "vllm" else None)
             try:
+                # 长文两步走②：提纲先行可见，落库后自带结构记忆
+                if outline:
+                    lead = "【创作提纲】\n" + outline + "\n\n——— 正文 ———\n\n"
+                    collected.append(lead)
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait, ("token", lead))
                 for event in engine.chat_stream_ex(
                         messages, images=images or None,
                         temperature=temperature,
@@ -2245,15 +2271,12 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                     engine.last_first_content_ms, 1)
             if passive:
                 meta["passive_completion"] = passive
-            # 截断标注（2026-09-21）：云端 finish_reason=length 时提示
-            # 前端「回复被截断」（max_tokens 预算耗尽，思考型模型常伴
-            # 空回复）；本地后端不设该字段
+            # 截断标注：云端 finish_reason=length → 前端提示被截断
             _fr = str(getattr(getattr(engine, "_backend", None),
                               "last_finish_reason", "") or "")
             if _fr == "length":
                 meta["truncated"] = True
-            # B 案复读截断旗标（2026-09-22）：正文已带截断提示，meta
-            # 供前端/诊断后续细化（对齐 truncated 字段语义）
+            # B 案复读截断旗标（正文内已有提示，meta 供诊断）
             if getattr(engine, "last_repeat_cut", False):
                 meta["repeat_cut"] = True
             await websocket.send_json({"type": "meta", "data": meta})

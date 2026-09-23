@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import random
+import re
 import subprocess
 import threading
 import time
@@ -183,6 +184,38 @@ _COMFY_SAMPLER_ALIAS = {
 
 def _comfy_sampler_name(raw: str) -> str:
     return _COMFY_SAMPLER_ALIAS.get(raw, raw)
+
+
+# ── klein 系人脸美学增强（2026-09-23 用户拍板方案1：自动注入不设开关）──
+# 背景：Klein 训练数据无东亚人脸美学偏置（字面执行「朴素/清秀」描述），
+# 而 z/qwen21 自带东亚审美先验——同提示词下 klein 人脸美观性显著落后
+# （2026-09-23 A/B 实证：英文直译版同样朴素=排除语言因素；中文美学词
+# 块版人脸明显提升=词块方案有效，见 logs/four_models/ab_9b_*.png）。
+# 人物类提示词（关键词门控）自动尾部追加东亚审美词块——尾部追加不
+# 覆盖用户词；场景图（无人物信号）不注入；z/qwen21 走独立 builder
+# 自带先验不注入。
+_FACE_BEAUTY_BLOCK = ("杰作，最佳画质，精致唯美的东亚年轻面容，清秀鹅蛋脸"
+                      "，大而明亮的杏眼，清澈有神的眼神，皮肤细腻白皙水光"
+                      "感，精致小巧的五官，自然柔和的妆容，电影级人像打光")
+_FACE_HINT_RE = re.compile(
+    r"女|男|少女|女孩|男孩|儿童|人像|人物|角色|肖像|美女|帅哥|小姐姐|脸"
+    r"|woman|girl|man|boy|person|people|portrait|character|face",
+    re.IGNORECASE)
+_KLEIN_MODEL_IDS = ("flux2-klein-9b", "flux2-klein-4b")
+
+
+def _inject_face_beauty(prompt: str, model_id: str) -> str:
+    """klein 系 + 人物类提示词 → 尾部追加东亚人脸美学词块（幂等）。
+
+    其余模型（z/qwen21 自带审美先验）/场景图（无人物信号）原样返回。
+    """
+    if model_id not in _KLEIN_MODEL_IDS:
+        return prompt
+    if not (prompt and _FACE_HINT_RE.search(prompt)):
+        return prompt
+    if _FACE_BEAUTY_BLOCK[:8] in prompt:
+        return prompt  # 幂等：已含词块不重复追加
+    return f"{prompt}，{_FACE_BEAUTY_BLOCK}"
 
 # 每步每百万像素耗时（2026-08-27 实测：1280x720=0.92MP @36步 euler
 # fp8 90s/镜 → ~2.7 s/步/MPix @ RTX 5070 Ti 16GB）
@@ -459,6 +492,10 @@ class ComfyPaintEngine:
         attention，采样期 wrapper 挂载/卸载）。
         """
         prompt = str(params.get("prompt") or "")
+        # klein 系人脸美学增强（2026-09-23 方案1）：人物类提示词自动
+        # 追加东亚审美词块（z/qwen21 走独立 builder 不经过本注入）
+        prompt = _inject_face_beauty(
+            prompt, str(params.get("model") or "flux2-klein-9b"))
         negative = str(params.get("negative") or "")
         steps, cfg = _effective_steps_cfg(params)
         width = int(params.get("width") or 1280)

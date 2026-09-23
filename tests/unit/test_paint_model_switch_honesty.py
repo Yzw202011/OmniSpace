@@ -151,3 +151,38 @@ def test_qwen21_workflow_refs_and_lora() -> None:
         assert wf[f"load_img{i}"]["class_type"] == "LoadImage"
         assert wf["encode"]["inputs"][f"image{i}"] == [f"load_img{i}", 0]
     assert "image9" not in wf["encode"]["inputs"]
+
+
+def test_face_beauty_injection_klein_only() -> None:
+    """klein 系人脸美学增强（2026-09-23 方案1）：三分支契约。"""
+    person = "22岁中国都市年轻女性，白色T恤，低马尾"
+    scene = "a cozy wooden bookshop interior at dusk"
+    # ① klein 系 + 人物类 → 注入东亚审美词块
+    for mid in ("flux2-klein-9b", "flux2-klein-4b"):
+        out = cpe._inject_face_beauty(person, mid)
+        assert "东亚年轻面容" in out
+        assert out.startswith(person), "词块必须尾部追加（用户词优先）"
+    # ② 幂等：已含词块不重复追加
+    once = cpe._inject_face_beauty(person, "flux2-klein-9b")
+    assert cpe._inject_face_beauty(once, "flux2-klein-9b") == once
+    # ③ 场景图（无人物信号）不注入
+    assert cpe._inject_face_beauty(scene, "flux2-klein-9b") == scene
+    # ④ z/qwen21 自带审美先验不注入
+    for mid in ("z-image-turbo", "qwen-image-2.1"):
+        assert cpe._inject_face_beauty(person, mid) == person
+    # ⑤ 空提示词安全
+    assert cpe._inject_face_beauty("", "flux2-klein-9b") == ""
+
+
+def test_face_beauty_builder_integration() -> None:
+    # 构建器级：klein 工作流的 pos 文本含词块
+    wf = _wf({"prompt": "22岁中国都市年轻女性，白色T恤"})
+    assert "东亚年轻面容" in wf["pos"]["inputs"]["text"]
+    # z/qwen21 构建器不受扰
+    wz = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "22岁女性"}, None, "paint/t")
+    assert "东亚年轻面容" not in wz["pos"]["inputs"]["text"]
+    wq = cpe.ComfyPaintEngine._build_workflow_qwen21(
+        _eng(), {"prompt": "22岁女性", "width": 832, "height": 480},
+        None, "paint/t")
+    assert "东亚年轻面容" not in wq["encode"]["inputs"]["prompt"]

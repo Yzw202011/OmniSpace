@@ -1218,7 +1218,16 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                             "ComfyUI_windows_portable" / "ComfyUI" /
                             "models" / "diffusion_models" /
                             "flux-2-klein-4b.safetensors")
-                if not _4b_unet.is_file():
+                # 2026-09-23 4b-comfy 质量缺陷止血：文件在位但采样出
+                # 网格噪声（排查矩阵全跑完——分辨率/seed/比例/提示词/
+                # 内存态全部排除，定位在 comfy 加载 bf16 Klein 的数值
+                # 环节，9b-fp8 路径不受扰；内核级调试另立项）。LoRA 行
+                # 回落 diffusers（其 4b 分件版实测健康）诚实降级。
+                if True:
+                    use_comfy = False
+                    log.info("角色 LoRA 在场——comfy 4b 底座质量缺陷未解"
+                             "（网格噪声），回落 diffusers D-LoRA（诚实降级）")
+                elif not _4b_unet.is_file():
                     use_comfy = False
                     log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
                              "权重——回落 diffusers（诚实降级）")

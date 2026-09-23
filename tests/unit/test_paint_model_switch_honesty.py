@@ -34,10 +34,10 @@ def _wf(params: dict) -> dict:
 def test_truth_set_matches_physical_reality() -> None:
     ids = {m["id"] for m in cpe.COMFY_PAINT_MODELS}
     if cpe._KLEIN_4B_BROKEN:
+        # 2026-09-23 晚二次止血：4b comfy 采样质量缺陷摘除
         assert ids == {"flux2-klein-9b", "z-image-turbo",
                        "qwen-image-2.1"}
     else:
-        # 2026-09-23 klein-4b 残局修复回真：四件套齐
         assert ids == {"flux2-klein-9b", "flux2-klein-4b",
                        "z-image-turbo", "qwen-image-2.1"}
     # 旧栈候选永不在 comfy 真源（sdxl/qwen-2512 走 legacy diffusers 栈）
@@ -98,7 +98,7 @@ def test_valid_models_still_build() -> None:
     # 缺省（智能路由/空点名）：回落 klein-9b 默认底座
     wf2 = _wf({"prompt": "缺省"})
     assert wf2["unet"]["inputs"]["unet_name"] == "flux-2-klein-9b-fp8.safetensors"
-    # klein-4b 回真（2026-09-23 修复）：显式点名真切 4b 三件套
+    # klein-4b 仅在修复回真后才可点名（二次止血期间拒绝）
     if not cpe._KLEIN_4B_BROKEN:
         wf4 = _wf({"prompt": "四B", "model": "flux2-klein-4b"})
         assert wf4["unet"]["inputs"]["unet_name"] == (

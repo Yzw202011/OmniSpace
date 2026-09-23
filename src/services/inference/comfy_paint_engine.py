@@ -86,14 +86,14 @@ _Q21_MODEL_ID = "qwen-image-2.1"
 #   ① 本引擎 _run 的模型校验（名单外如实失败，不再静默按 klein-9b 出图）
 #   ② /draw/models 清单（gen_engine=comfy 时）
 #   ③ 漫剧 /manga/models/available 的 paint 槽
-# klein-4b 摘除→回真：2026-09-19 转换残局已于 2026-09-23 修复
-# （convert_klein4b_to_comfy.py 子串误判根修：single_transformer_blocks
-# 含 transformer_blocks 子串致单流块误走双流分支，linear1/linear2/
-# norm 键名全部没转到位；修复后与 klein-9b-fp8 权威模板结构对拍
-# 100% 一致 + 实弹验收）。若再遇 4b 残局翻回 True 即恢复守卫。
-_KLEIN_4B_BROKEN = False
-# klein-4b 三件套（comfy 格式转换产物在 diffusion_models；TE 与
-# z-image 同源 Qwen3-4B；VAE 与 9b 同源 flux2-vae）
+# klein-4b 摘除（2026-09-23 晚二次止血）：转换格式已修复（键名结构与
+# 9b 官方模板对拍 100% 一致、源权重数值逐元素一致），但 comfy v0.37
+# 加载 bf16 Klein 采样系统性网格噪声——排查矩阵（分辨率 480~1024/
+# seed/横竖幅/提示词长短/冷启动）全部排除，定位在 comfy 加载 bf16
+# Klein 的数值环节（9b 走 fp8 路径不受扰），内核级调试另立项。
+# diffusers 栈 4b 分件版实测健康（四视图/D-LoRA 产线无恙）。
+# 修复后：翻 _KLEIN_4B_BROKEN=False 并在表内恢复条目。
+_KLEIN_4B_BROKEN = True
 _KLEIN_4B_FILES = {
     "unet": "flux-2-klein-4b.safetensors",
     "clip": "qwen_3_4b.safetensors",
@@ -106,13 +106,6 @@ COMFY_PAINT_MODELS: list[dict] = [
         "files": _PAINT_FILES,
         "min_vram_gb": 8.5,
         "notes": "多参考图/LoRA/PuLID 全链接力底座",
-    },
-    {
-        "id": "flux2-klein-4b",
-        "name": "FLUX.2 Klein 4B（comfy 转换版）",
-        "files": _KLEIN_4B_FILES,
-        "min_vram_gb": 12.0,
-        "notes": "D-LoRA 角色 LoRA 底座（2026-09-23 残局修复回真）",
     },
     {
         "id": _Z_IMAGE_MODEL_ID,
@@ -143,8 +136,9 @@ def _reject_unavailable_model(model_id: str) -> None:
     if model_id == "flux2-klein-4b":
         raise ApiError(
             "MODEL_NOT_ALLOWED",
-            "flux2-klein-4b 底座当前不可用（ComfyUI 格式转换残局，"
-            "修复中）；可用：" + names,
+            "flux2-klein-4b 底座当前不可用（comfy 采样质量缺陷，"
+            "修复中；D-LoRA 分格自动走 diffusers 不受影响）；可用："
+            + names,
             suggestion=f"请改选 {names}，或清空模型改用智能路由")
     raise ApiError(
         "MODEL_NOT_ALLOWED",

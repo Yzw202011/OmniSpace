@@ -33,10 +33,13 @@ def _slot(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_explicit_model_in_truth_set_passes(_slot: dict) -> None:
-    for mid in ("flux2-klein-9b", "flux2-klein-4b",
-                "z-image-turbo", "qwen-image-2.1"):
+    for mid in ("flux2-klein-9b", "z-image-turbo", "qwen-image-2.1"):
         _slot["value"] = mid
         assert _kf_mod._explicit_comfy_model() == mid
+    # 4b 二次止血期间不在真源 → 空串（显式点名将由引擎守卫拒绝）
+    if cpe._KLEIN_4B_BROKEN:
+        _slot["value"] = "flux2-klein-4b"
+        assert _kf_mod._explicit_comfy_model() == ""
 
 
 def test_auto_and_unknown_return_empty(_slot: dict) -> None:
@@ -59,10 +62,15 @@ def test_config_read_failure_returns_empty(
 
 
 def test_truth_set_contract_four_models() -> None:
-    # 方案2 验收契约：分格链可选 = comfy 真源四件套
+    # 方案2 验收契约：分格链可选 = comfy 真源
+    # （4b 二次止血期间摘除，修复回真后恢复四件套）
     ids = {m["id"] for m in cpe.COMFY_PAINT_MODELS}
-    assert ids == {"flux2-klein-9b", "flux2-klein-4b",
-                   "z-image-turbo", "qwen-image-2.1"}
+    if cpe._KLEIN_4B_BROKEN:
+        assert ids == {"flux2-klein-9b", "z-image-turbo",
+                       "qwen-image-2.1"}
+    else:
+        assert ids == {"flux2-klein-9b", "flux2-klein-4b",
+                       "z-image-turbo", "qwen-image-2.1"}
 
 
 def test_no_pulid_models_identified() -> None:

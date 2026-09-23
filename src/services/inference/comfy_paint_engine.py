@@ -19,12 +19,14 @@ import logging
 import os
 import random
 import re
+import shutil
 import subprocess
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
 from PIL import Image
 
@@ -216,6 +218,247 @@ def _inject_face_beauty(prompt: str, model_id: str) -> str:
     if _FACE_BEAUTY_BLOCK[:8] in prompt:
         return prompt  # 幂等：已含词块不重复追加
     return f"{prompt}，{_FACE_BEAUTY_BLOCK}"
+
+
+# ── klein 人脸精修 Pass（2026-09-23 用户拍板：参考图锚定自动精修）────
+# 全身/半身构图脸部像素占比 <5%，词块可及上限后仍显平淡（用户实测
+# 反馈「面部很丑」）。本 Pass 在主图完成后二次精修：insightface 检测
+# 主脸 → 裁剪放大 → img2img 局部重绘（ReferenceLatent 锚定用户参考
+# 图 + denoise）→ 椭圆羽化贴回。参考图可配置随时更换（config
+# paint.face_detail.ref_image，默认 models/paint/face_ref/default.png）。
+_FACE_REFINE_PROMPT = ("超写实3D游戏CG风格人像，杰作，最佳画质，精致的东亚"
+                       "美人面容，清秀鹅蛋脸，大而明亮的杏眼，眼神清澈有神，"
+                       "根根分明的眉毛，小巧挺直的鼻子，饱满水润的淡粉色嘴唇"
+                       "，瓷肌质感皮肤细腻通透，自然淡粉色腮红，乌黑柔顺发丝"
+                       "根根分明，额前轻薄碎发，电影级人像打光，锐利细节，8k"
+                       "分辨率")
+_FACE_REFINE_NEG = ("丑陋，畸形五官，呆滞眼神，皮肤粗糙，塑料感，动漫，卡通"
+                    "，模糊，低质量")
+_FACE_REFINE_MAX_SIDE = 768
+_FACE_REFINE_DENOISE = 0.55
+_FACE_REFINE_PAD = 1.9
+_FACE_REFINE_MAX_FACE_RATIO = 0.30  # 脸高超过画布 30%（大头照）不重复精修
+
+
+def _face_detail_cfg() -> dict:
+    """paint.face_detail 配置（enable/ref_image/denoise/guide_size）。"""
+    try:
+        from src.config import get_config
+        cfg = (get_config().get("paint") or {}).get("face_detail") or {}
+    except Exception:  # noqa: BLE001 - 配置异常走默认
+        cfg = {}
+    return {
+        "enable": bool(cfg.get("enable", True)),
+        "ref_image": str(cfg.get(
+            "ref_image",
+            ROOT_DIR / "models" / "paint" / "face_ref" / "default.png")),
+        "denoise": float(cfg.get("denoise", _FACE_REFINE_DENOISE)),
+        "guide_size": int(cfg.get("guide_size", _FACE_REFINE_MAX_SIDE)),
+    }
+
+
+def detect_main_face(image: Image.Image) -> list[int] | None:
+    """insightface scrfd 检测最大脸 bbox（x1,y1,x2,y2）；无脸/异常 None。"""
+    try:
+        from insightface.app import FaceAnalysis  # type: ignore[import-untyped]
+        app = FaceAnalysis(name="antelopev2",
+                           root=str(Path.home() / ".insightface"),
+                           providers=["CPUExecutionProvider"])
+        app.prepare(ctx_id=-1, det_size=(640, 640))
+        import numpy as np
+        arr = np.array(image.convert("RGB"))[:, :, ::-1]
+        faces = app.get(arr)
+        if not faces:
+            return None
+        main = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0])
+                   * (f.bbox[3] - f.bbox[1]))
+        return [int(v) for v in main.bbox]
+    except Exception:  # noqa: BLE001 - 检测失败视为无人脸（不阻断主流程）
+        log.warning("人脸检测失败（跳过精修）", exc_info=True)
+        return None
+
+
+def _crop_face_region(img: Image.Image, bbox: list[int],
+                      target: int) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    x1, y1, x2, y2 = bbox
+    w, h = x2 - x1, y2 - y1
+    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+    side = int(max(w, h) * _FACE_REFINE_PAD)
+    half = side // 2
+    left, top = max(0, cx - half), max(0, cy - half)
+    right, bottom = min(img.width, left + side), min(img.height, top + side)
+    left, top = max(0, right - side), max(0, bottom - side)
+    return (img.crop((left, top, right, bottom)).resize(
+                (target, target), Image.Resampling.LANCZOS),
+            (left, top, right, bottom))
+
+
+def _refine_face_img2img(crop: Image.Image, ref_image: Path,
+                         denoise: float, progress=None) -> Image.Image:
+    """脸部 crop 的 img2img 精修（VAEEncode 像素初始化 + ReferenceLatent
+    锚定参考图 + denoise 重绘）。走统一 comfy 子进程与任务锁。"""
+    from .comfy_proc import get_comfy_proc
+    proc_mgr = get_comfy_proc()
+    proc_mgr.mark_busy()
+    try:
+        proc_mgr.spawn("comfyui_paint.log")
+        self = get_comfy_paint_engine()
+        self._ensure_running()
+        # LoadImage 输入仅收文件名（文件须先落 input 目录）——b64 dict
+        # 是 /upload/image 响应格式，直接传会炸 endswith 校验
+        _COMFY_INPUT.mkdir(parents=True, exist_ok=True)
+        crop.save(_COMFY_INPUT / "face_refine_src.png", format="PNG")
+        init_name = "face_refine_src.png"
+        ref_name = None
+        if Path(ref_image).is_file():
+            shutil.copyfile(ref_image, _COMFY_INPUT / "face_ref_ref.png")
+            ref_name = "face_ref_ref.png"
+        wf = {
+            "unet": {"class_type": "UNETLoader", "inputs": {
+                "unet_name": _KLEIN_4B_FILES["unet"],
+                "weight_dtype": "default"}},
+            "clip": {"class_type": "CLIPLoader", "inputs": {
+                "clip_name": _KLEIN_4B_FILES["clip"],
+                "type": "flux2", "device": "default"}},
+            "vae": {"class_type": "VAELoader", "inputs": {
+                "vae_name": _KLEIN_4B_FILES["vae"]}},
+        }
+        if ref_name:
+            wf["ref_load"] = {"class_type": "LoadImage",
+                              "inputs": {"image": ref_name}}
+            wf["ref_scale"] = {"class_type": "ImageScaleToTotalPixels",
+                               "inputs": {"image": ["ref_load", 0],
+                                          "upscale_method": "lanczos",
+                                          "megapixels": 1.0,
+                                          "resolution_steps": 1}}
+            wf["ref_encode"] = {"class_type": "VAEEncode", "inputs": {
+                "pixels": ["ref_scale", 0], "vae": ["vae", 0]}}
+        wf.update({
+            "load": {"class_type": "LoadImage",
+                     "inputs": {"image": init_name}},
+            "encode": {"class_type": "VAEEncode", "inputs": {
+                "pixels": ["load", 0], "vae": ["vae", 0]}},
+            "pos": {"class_type": "CLIPTextEncode", "inputs": {
+                "clip": ["clip", 0], "text": _FACE_REFINE_PROMPT}},
+            "neg": {"class_type": "CLIPTextEncode", "inputs": {
+                "clip": ["clip", 0], "text": _FACE_REFINE_NEG}},
+            "guidance": {"class_type": "FluxGuidance", "inputs": {
+                "conditioning": (["ref_pos", 0] if ref_name is not None
+                                 else ["pos", 0]), "guidance": 4.0}},
+            "noise": {"class_type": "RandomNoise",
+                      "inputs": {"noise_seed": random.randint(0, 2**31 - 1)}},
+            "sampler": {"class_type": "KSamplerSelect",
+                        "inputs": {"sampler_name": "euler"}},
+            "sigmas": {"class_type": "BasicScheduler", "inputs": {
+                "model": ["unet", 0], "scheduler": "simple",
+                "steps": 24, "denoise": denoise}},
+            "guider": {"class_type": "CFGGuider", "inputs": {
+                "model": ["unet", 0],
+                "positive": (["ref_pos", 0] if ref_name is not None
+                             else ["pos", 0]),
+                "negative": ["neg", 0], "cfg": 4.0}},
+            "sample": {"class_type": "SamplerCustomAdvanced", "inputs": {
+                "noise": ["noise", 0], "guider": ["guider", 0],
+                "sampler": ["sampler", 0], "sigmas": ["sigmas", 0],
+                "latent_image": ["encode", 0]}},
+            "decode": {"class_type": "VAEDecode", "inputs": {
+                "samples": ["sample", 0], "vae": ["vae", 0]}},
+            # SaveImage 必须保留：history outputs 仅含输出型节点，
+            # 缺失则轮询取不到精修图（prompt_no_outputs 假校验失败）
+            "save": {"class_type": "SaveImage", "inputs": {
+                "images": ["decode", 0],
+                "filename_prefix": "face_detail"}},
+        })
+        if ref_name is not None:
+            wf["ref_pos"] = {"class_type": "ReferenceLatent", "inputs": {
+                "conditioning": ["pos", 0],
+                "latent": ["ref_encode", 0]}}
+        resp = self._api("POST", "/prompt", body={
+            "prompt": wf, "client_id": "face-detail"}, timeout=15.0)
+        if resp is None or resp.get("error") or resp.get("node_errors"):
+            detail = (resp.get("node_errors") if resp is not None else None) \
+                or (resp or {}).get("error") or "unknown"
+            raise ApiError("COMFY_WORKFLOW_INVALID",
+                           f"人脸精修工作流校验失败: "
+                           f"{json.dumps(detail, ensure_ascii=False)[:300]}")
+        prompt_id = str(resp["prompt_id"])
+        # 轮询精修结果（24 步小图 ~20s）
+        deadline = time.time() + 120.0
+        while time.time() < deadline:
+            time.sleep(3)
+            hist = self._api("GET", f"/history/{prompt_id}", timeout=10.0) or {}
+            if prompt_id not in hist:
+                if progress:
+                    progress(min(90, int((deadline - time.time()) / 1.2)))
+                continue
+            st = hist[prompt_id].get("status", {})
+            if st.get("status_str") == "error":
+                raise ApiError("PAINT_GENERATION_FAILED",
+                               "人脸精修执行失败（回退原图）")
+            for node_out in hist[prompt_id].get("outputs", {}).values():
+                for img in node_out.get("images", []):
+                    if img.get("type") != "output":
+                        continue
+                    sub = img.get("subfolder") or ""
+                    local = (_COMFY_OUTPUT / sub / img["filename"])
+                    if local.is_file():
+                        with Image.open(local) as im:
+                            return im.convert("RGB").copy()
+            break
+        raise ApiError("PAINT_GENERATION_FAILED", "人脸精修超时（回退原图）")
+    finally:
+        proc_mgr.mark_idle()
+
+
+def _paste_face_back(base: Image.Image, face: Image.Image,
+                     box: tuple[int, int, int, int]) -> Image.Image:
+    from PIL import ImageDraw, ImageFilter
+    left, top, right, bottom = box
+    face = face.resize((right - left, bottom - top), Image.Resampling.LANCZOS)
+    mask = Image.new("L", face.size, 0)
+    d = ImageDraw.Draw(mask)
+    fw, fh = face.size
+    d.ellipse((fw * 0.08, fh * 0.08, fw * 0.92, fh * 0.92), fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(24))
+    out = base.convert("RGB").copy()
+    out.paste(face, (left, top), mask)
+    return out
+
+
+def face_detail_pass(image: Image.Image, model_id: str,
+                     progress=None) -> tuple[Image.Image, bool]:
+    """klein 系人像自动精修 Pass（draw 链落盘前调用）。
+
+    返回 (处理后图, 是否执行了精修)。任何环节失败均回退原图不阻断
+    （best-effort 后处理）；触发条件：enable + klein 系 + 检测到脸 +
+    脸高 < 画布 30%（大头照不重复精修）。
+    """
+    cfg = _face_detail_cfg()
+    if not cfg["enable"] or model_id not in _KLEIN_MODEL_IDS:
+        return image, False
+    bbox = detect_main_face(image)
+    if bbox is None:
+        return image, False
+    face_h = bbox[3] - bbox[1]
+    if face_h > image.height * _FACE_REFINE_MAX_FACE_RATIO:
+        log.info("人脸精修跳过：脸高 %dpx 已超画布 30%%（特写无需精修）",
+                 face_h)
+        return image, False
+    crop, box = _crop_face_region(image, bbox, cfg["guide_size"])
+    if progress:
+        progress(2)
+    try:
+        refined = _refine_face_img2img(
+            crop, Path(cfg["ref_image"]), cfg["denoise"],
+            progress=progress)
+    except Exception:  # noqa: BLE001 - 精修失败回退原图（best-effort）
+        log.warning("人脸精修失败（回退原图）", exc_info=True)
+        return image, False
+    if progress:
+        progress(95)
+    out = _paste_face_back(image, refined, box)
+    log.info("人脸精修完成: bbox=%s guide=%dd", bbox, cfg["guide_size"])
+    return out, True
 
 # 每步每百万像素耗时（2026-08-27 实测：1280x720=0.92MP @36步 euler
 # fp8 90s/镜 → ~2.7 s/步/MPix @ RTX 5070 Ti 16GB）
@@ -1184,7 +1427,7 @@ class ComfyPaintEngine:
             from PIL import ImageFilter
             out = images[0].convert("RGB")
             if out.size != image.size:
-                out = out.resize(image.size, _PILImage.LANCZOS)  # type: ignore[attr-defined]
+                out = out.resize(image.size, _PILImage.Resampling.LANCZOS)  # type: ignore[attr-defined]
             soft = mask.filter(ImageFilter.GaussianBlur(6))
             blended = _PILImage.composite(out, image, soft)
             return {"images": [blended], "prompt_id": prompt_id,

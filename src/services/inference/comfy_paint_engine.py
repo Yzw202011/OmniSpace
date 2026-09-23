@@ -86,16 +86,17 @@ _Q21_MODEL_ID = "qwen-image-2.1"
 #   ① 本引擎 _run 的模型校验（名单外如实失败，不再静默按 klein-9b 出图）
 #   ② /draw/models 清单（gen_engine=comfy 时）
 #   ③ 漫剧 /manga/models/available 的 paint 槽
-# klein-4b 摘除（2026-09-23 晚二次止血）：转换格式已修复（键名结构与
-# 9b 官方模板对拍 100% 一致、源权重数值逐元素一致），但 comfy v0.37
-# 加载 bf16 Klein 采样系统性网格噪声——排查矩阵（分辨率 480~1024/
-# seed/横竖幅/提示词长短/冷启动）全部排除，定位在 comfy 加载 bf16
-# Klein 的数值环节（9b 走 fp8 路径不受扰），内核级调试另立项。
-# diffusers 栈 4b 分件版实测健康（四视图/D-LoRA 产线无恙）。
-# 修复后：翻 _KLEIN_4B_BROKEN=False 并在表内恢复条目。
-_KLEIN_4B_BROKEN = True
+# klein-4b 回真（2026-09-23 晚内核调试收官，方案 E）：网格噪声根因
+# 排除链最终定位 = 权重源问题——自转换 bf16 版在 comfy 采样系统性
+# 网格噪声（排查矩阵全排除后立项内核调试），改用黑森林官方 fp8 单
+# 文件（black-forest-labs/FLUX.2-klein-4b-fp8，4.07GB，走 comfy 已
+# 验证的 fp8 路径）实测 832×480/1024² 全部健康零噪声。官方 fp8 的
+# TE 亦为 Qwen3-4B（joint_attention_dim=7680，非 9b 的 12288）。
+# 注：调试中曾误判 mlp_ratio 需反推（config.json=3.0 与 comfy 写死
+# 一致，补丁已撤销），model_detection.py 留勘误注释。
+_KLEIN_4B_BROKEN = False
 _KLEIN_4B_FILES = {
-    "unet": "flux-2-klein-4b.safetensors",
+    "unet": "flux-2-klein-4b-fp8.safetensors",
     "clip": "qwen_3_4b.safetensors",
     "vae": "flux2-vae.safetensors",
 }
@@ -106,6 +107,13 @@ COMFY_PAINT_MODELS: list[dict] = [
         "files": _PAINT_FILES,
         "min_vram_gb": 8.5,
         "notes": "多参考图/LoRA/PuLID 全链接力底座",
+    },
+    {
+        "id": "flux2-klein-4b",
+        "name": "FLUX.2 Klein 4B（官方 fp8）",
+        "files": _KLEIN_4B_FILES,
+        "min_vram_gb": 6.0,
+        "notes": "官方 fp8 4.07GB（网格噪声根修）；D-LoRA 角色 LoRA 底座",
     },
     {
         "id": _Z_IMAGE_MODEL_ID,
@@ -133,13 +141,6 @@ def _reject_unavailable_model(model_id: str) -> None:
     在用所选模型，实际出图恒为 klein-9b-fp8（假切换）。
     """
     names = "、".join(m["id"] for m in COMFY_PAINT_MODELS)
-    if model_id == "flux2-klein-4b":
-        raise ApiError(
-            "MODEL_NOT_ALLOWED",
-            "flux2-klein-4b 底座当前不可用（comfy 采样质量缺陷，"
-            "修复中；D-LoRA 分格自动走 diffusers 不受影响）；可用："
-            + names,
-            suggestion=f"请改选 {names}，或清空模型改用智能路由")
     raise ApiError(
         "MODEL_NOT_ALLOWED",
         f"模型 {model_id} 不在 ComfyUI 生图栈可用范围；可用：{names}",
@@ -471,26 +472,28 @@ class ComfyPaintEngine:
         # 9B 的 Qwen3-8B；LoRA 跨底座挂载会键不匹配静默失效）。身份改由
         # LoRA 权重硬锁，PuLID 链保持原逻辑（调用方在 LoRA 在场时应置
         # pulid_strength=0，避免 4B 上未验证的 PuLID patch）。
-        # 2026-09-23：4b 底座转换残局挂守卫（_run 已按真源拦截显式点名，
-        # 此处兜住 D-LoRA 自动切换路径）——修复见 _KLEIN_4B_BROKEN 注释。
+        # 2026-09-23 晚：4b 改官方 fp8 后文件名统一引 _KLEIN_4B_FILES
+        # （此前 elif/D-LoRA/keyframe 闸三处各自硬编码的拷贝是本轮
+        # 「接线回真后产线仍崩」的根因——真源改了 fp8 名、硬编码仍指
+        # bf16 坏文件）。
         unet_name = _PAINT_FILES["unet"]
         clip_name = _PAINT_FILES["clip"]
         if lora_name and str(params.get("lora_base") or "") == "4b":
             if _KLEIN_4B_BROKEN:
                 _reject_unavailable_model("flux2-klein-4b")
-            unet_name = "flux-2-klein-4b.safetensors"
-            clip_name = "qwen_3_4b.safetensors"
+            unet_name = _KLEIN_4B_FILES["unet"]
+            clip_name = _KLEIN_4B_FILES["clip"]
 
         # B7+（2026-09-14）：model 参数切换底座单文件。2026-09-23 起名单
         # 收敛到真源 _COMFY_PAINT_MODEL_IDS（_run 统一拦截）；z-image 走
-        # 独立 builder，klein-4b 残局已修复回真（本分支恢复可达）。
+        # 独立 builder，klein-4b 官方 fp8 回真（文件名引真源常量）。
         model_id = str(params.get("model") or "").strip()
         if model_id == "flux2-klein-9b":
             unet_name = "flux-2-klein-9b-fp8.safetensors"
             clip_name = "qwen3_8b.safetensors"
         elif model_id == "flux2-klein-4b":
-            unet_name = "flux-2-klein-4b.safetensors"
-            clip_name = "qwen_3_4b.safetensors"
+            unet_name = _KLEIN_4B_FILES["unet"]
+            clip_name = _KLEIN_4B_FILES["clip"]
 
         wf: dict[str, dict] = {
             "unet": {"class_type": "UNETLoader", "inputs": {

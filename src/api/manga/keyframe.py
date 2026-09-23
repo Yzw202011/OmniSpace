@@ -1217,19 +1217,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 _4b_unet = (DATA_DIR.parent / "tools" /
                             "ComfyUI_windows_portable" / "ComfyUI" /
                             "models" / "diffusion_models" /
-                            "flux-2-klein-4b.safetensors")
-                # 2026-09-23 4b-comfy 质量缺陷止血：文件在位但采样出
-                # 网格噪声（排查矩阵全跑完——分辨率/seed/比例/提示词/
-                # 内存态全部排除，定位在 comfy 加载 bf16 Klein 的数值
-                # 环节，9b-fp8 路径不受扰；内核级调试另立项）。LoRA 行
-                # 回落 diffusers（其 4b 分件版实测健康）诚实降级。
-                if True:
+                            "flux-2-klein-4b-fp8.safetensors")
+                # 2026-09-23 晚内核调试收官：官方 fp8 权重替换自转换
+                # bf16 版（网格噪声根因=权重源，见立项文档 §四方案 E），
+                # 实测 832×480/1024² 健康零噪声——本闸恢复放行语义
+                if not _4b_unet.is_file():
                     use_comfy = False
-                    log.info("角色 LoRA 在场——comfy 4b 底座质量缺陷未解"
-                             "（网格噪声），回落 diffusers D-LoRA（诚实降级）")
-                elif not _4b_unet.is_file():
-                    use_comfy = False
-                    log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b 单文件"
+                    log.info("角色 LoRA 在场但 ComfyUI 缺 klein-4b fp8 单文件"
                              "权重——回落 diffusers（诚实降级）")
                 # W3-C Phase 2 完成（2026-09-18 e8d0590）：klein-4b 单文件
                 # 已转换落位 ComfyUI diffusion_models/，此闸正常放行——

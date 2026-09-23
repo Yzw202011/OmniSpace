@@ -62,8 +62,8 @@ def test_config_read_failure_returns_empty(
 
 
 def test_truth_set_contract_four_models() -> None:
-    # 方案2 验收契约：分格链可选 = comfy 真源
-    # （4b 二次止血期间摘除，修复回真后恢复四件套）
+    # 方案2 验收契约：分格链可选 = comfy 真源四件套
+    # （2026-09-23 晚官方 fp8 回真后恢复）
     ids = {m["id"] for m in cpe.COMFY_PAINT_MODELS}
     if cpe._KLEIN_4B_BROKEN:
         assert ids == {"flux2-klein-9b", "z-image-turbo",

@@ -157,31 +157,26 @@ def test_qwen21_workflow_refs_and_lora() -> None:
     assert "image9" not in wf["encode"]["inputs"]
 
 
-def test_face_beauty_injection_klein_only() -> None:
-    """klein 系人脸美学增强（2026-09-23 方案1）：三分支契约。"""
+def test_face_beauty_injection_disabled_for_klein() -> None:
+    """klein 人脸干预下线（2026-09-26 用户拍板）：词块不再注入。"""
     person = "22岁中国都市年轻女性，白色T恤，低马尾"
-    scene = "a cozy wooden bookshop interior at dusk"
-    # ① klein 系 + 人物类 → 注入东亚审美词块
     for mid in ("flux2-klein-9b", "flux2-klein-4b"):
-        out = cpe._inject_face_beauty(person, mid)
-        assert "东亚年轻面容" in out
-        assert out.startswith(person), "词块必须尾部追加（用户词优先）"
-    # ② 幂等：已含词块不重复追加
-    once = cpe._inject_face_beauty(person, "flux2-klein-9b")
-    assert cpe._inject_face_beauty(once, "flux2-klein-9b") == once
-    # ③ 场景图（无人物信号）不注入
-    assert cpe._inject_face_beauty(scene, "flux2-klein-9b") == scene
-    # ④ z/qwen21 自带审美先验不注入
-    for mid in ("z-image-turbo", "qwen-image-2.1"):
         assert cpe._inject_face_beauty(person, mid) == person
-    # ⑤ 空提示词安全
-    assert cpe._inject_face_beauty("", "flux2-klein-9b") == ""
+    # z-base 偶像词块保留（无精修 Pass 的补偿通道）
+    out = cpe._inject_face_beauty(person, "z-image-base")
+    assert "偶像级绝美少女" in out and out.startswith(person)
+    # 幂等
+    assert cpe._inject_face_beauty(out, "z-image-base") == out
+    # 场景图不注入
+    assert cpe._inject_face_beauty(
+        "a cozy wooden bookshop interior", "z-image-base") == (
+        "a cozy wooden bookshop interior")
 
 
 def test_face_beauty_builder_integration() -> None:
-    # 构建器级：klein 工作流的 pos 文本含词块
+    # klein 构建器不再注入（干净原生出图）
     wf = _wf({"prompt": "22岁中国都市年轻女性，白色T恤"})
-    assert "东亚年轻面容" in wf["pos"]["inputs"]["text"]
+    assert "东亚年轻面容" not in wf["pos"]["inputs"]["text"]
     # z/qwen21 构建器不受扰
     wz = cpe.ComfyPaintEngine._build_workflow_z_image(
         _eng(), {"prompt": "22岁女性"}, None, "paint/t")
@@ -214,14 +209,14 @@ def test_zbase_workflow_variant() -> None:
 
 
 def test_face_beauty_routing_by_model() -> None:
-    """美学词块按模型路由（2026-09-25 方案1：z-base 偶像词块）。"""
+    """美学词块按模型路由（2026-09-26 klein 下线后仅 z-base）。"""
     person = "22岁中国都市年轻女性，白色T恤"
     # z-base → 偶像级词块
     out = cpe._inject_face_beauty(person, "z-image-base")
     assert "偶像级绝美少女" in out and out.startswith(person)
-    # klein 系 → 清秀词块（原机制不退）
-    out9 = cpe._inject_face_beauty(person, "flux2-klein-9b")
-    assert "东亚年轻面容" in out9 and "偶像级绝美少女" not in out9
+    # klein 系 → 不注入（下线）
+    for mid in ("flux2-klein-9b", "flux2-klein-4b"):
+        assert cpe._inject_face_beauty(person, mid) == person
     # z-turbo/qwen21 不注入（自带先验）
     for mid in ("z-image-turbo", "qwen-image-2.1"):
         assert cpe._inject_face_beauty(person, mid) == person
@@ -235,8 +230,7 @@ def test_zbase_builder_injects_idol_block() -> None:
         _eng(), {"prompt": "22岁中国都市年轻女性",
                  "model": "z-image-base"}, None, "paint/t")
     assert "偶像级绝美少女" in wf["pos"]["inputs"]["text"]
-    # z-turbo builder 原样
-    wt = cpe.ComfyPaintEngine._build_workflow_z_image(
-        _eng(), {"prompt": "22岁中国都市年轻女性",
-                 "model": "z-image-turbo"}, None, "paint/t")
-    assert "偶像级绝美少女" not in wt["pos"]["inputs"]["text"]
+    # klein builder 原样（干预下线）
+    wk = _wf({"prompt": "22岁中国都市年轻女性"})
+    assert "偶像级绝美少女" not in wk["pos"]["inputs"]["text"]
+

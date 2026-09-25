@@ -611,28 +611,11 @@ def _run_generate_task(task_id: str, params: dict,
             with flow.node("结果落盘",
                            friendly="保存图像并写入历史记录") as n:
                 image = result["images"][0]
-                # klein 人脸精修 Pass（2026-09-23 用户拍板）：全身/半身
-                # 构图脸部像素占比小，词块可及上限后仍显平淡——主图完成
-                # 后自动检测+裁剪+参考图锚定 img2img 精修+贴回
-                # （best-effort：任何失败回退原图不阻断落盘）。
-                if model_hint in ("flux2-klein-9b", "flux2-klein-4b"):
-                    try:
-                        from ..services.inference.comfy_paint_engine import (
-                            face_detail_pass,
-                        )
-
-                        def _fd_progress(pct: int) -> None:
-                            _broadcast_progress(
-                                task_id, min(97, 90 + pct // 10),
-                                int(params.get("steps", 0)))
-
-                        image, _did = face_detail_pass(
-                            image, model_hint, progress=_fd_progress)
-                        if _did:
-                            n.output("人脸精修 Pass 完成")
-                    except Exception:  # noqa: BLE001 - 精修失败回退原图
-                        log.warning("人脸精修 Pass 异常（回退原图）",
-                                    exc_info=True)
+                # klein 人脸精修 Pass（2026-09-26 用户拍板下线）：词块+
+                # 精修均为「写实成人像」调校，动漫/萝莉场景帮倒忙——
+                # klein 恢复原生干净出图。代码保留（config 可随时翻回：
+                # paint.face_detail.enable=true + 词块路由表恢复）。
+                pass
                 rel_path = _save_result_local(
                     image, task_id, prompt, params.get("negative", ""),
                     {k: v for k, v in params.items() if k != "optimize"},

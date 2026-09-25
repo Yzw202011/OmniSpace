@@ -223,11 +223,14 @@ _FACE_BEAUTY_BLOCK = ("杰作，最佳画质，精致唯美的东亚年轻面容
 # 实证：同 seed 加词块后偶像感拉满——大眼双眼皮/浓睫/水光肌/精致唇形
 # 全命中，见 logs/four_models/idol_plus.png）。z-base 无 klein 的精修
 # Pass，词块是它唯一的人脸增强通道，用加强版。
+# 2026-09-26 修正：原词块含「镜头直视，超高清细节，8k」致模型把全身
+# 构图理解成面部特写（风格矩阵 s1 实测变大头拼贴）——改为「完整全身
+# 构图」中性表述，偶像脸部细节词全保留。
 _ZBASE_FACE_BLOCK = ("杰作，最佳画质，偶像级绝美少女，精致唯美的东亚美少女"
                      "面容，大而闪亮的杏眼，超精致双眼皮，浓密卷翘睫毛，清"
                      "澈水光眼神，根根分明眉毛，小巧挺直鼻梁，饱满水润渐变"
                      "咬唇妆，瓷肌白皙通透带自然粉调，柔顺发丝根根分明，偶"
-                     "像画报级打光，镜头直视，超高清细节，8k")
+                     "像画报级打光，完整全身构图，人物与场景协调")
 _FACE_HINT_RE = re.compile(
     r"女|男|少女|女孩|男孩|儿童|人像|人物|角色|肖像|美女|帅哥|小姐姐|脸"
     r"|woman|girl|man|boy|person|people|portrait|character|face",
@@ -235,9 +238,11 @@ _FACE_HINT_RE = re.compile(
 _KLEIN_MODEL_IDS = ("flux2-klein-9b", "flux2-klein-4b")
 # 美学词块路由（2026-09-25）：klein 系=清秀词块+精修 Pass；z-base=偶像
 # 词块（无精修 Pass 的补偿）；z-turbo/qwen21 自带审美先验不注入
+# 2026-09-26 用户拍板：klein 系人脸干预全面下线——词块+精修 Pass 均
+# 为「写实成人像」调校，动漫/萝莉/二次元场景下反而帮倒忙（写实锚把
+# 动漫脸拉向恐怖谷，ABC 实验定性）；klein 恢复原生干净出图。
+# z-base 保留偶像词块（无精修 Pass 的补偿通道，用户认可其效果）。
 _FACE_BEATUY_BY_MODEL = {
-    "flux2-klein-9b": _FACE_BEAUTY_BLOCK,
-    "flux2-klein-4b": _FACE_BEAUTY_BLOCK,
     _ZBASE_MODEL_ID: _ZBASE_FACE_BLOCK,
 }
 

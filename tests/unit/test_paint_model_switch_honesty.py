@@ -211,3 +211,32 @@ def test_zbase_workflow_variant() -> None:
     assert wt["neg"]["class_type"] == "ConditioningZeroOut"
     assert wt["sample"]["inputs"]["steps"] == 8
     assert wt["sample"]["inputs"]["cfg"] == 1.0
+
+
+def test_face_beauty_routing_by_model() -> None:
+    """美学词块按模型路由（2026-09-25 方案1：z-base 偶像词块）。"""
+    person = "22岁中国都市年轻女性，白色T恤"
+    # z-base → 偶像级词块
+    out = cpe._inject_face_beauty(person, "z-image-base")
+    assert "偶像级绝美少女" in out and out.startswith(person)
+    # klein 系 → 清秀词块（原机制不退）
+    out9 = cpe._inject_face_beauty(person, "flux2-klein-9b")
+    assert "东亚年轻面容" in out9 and "偶像级绝美少女" not in out9
+    # z-turbo/qwen21 不注入（自带先验）
+    for mid in ("z-image-turbo", "qwen-image-2.1"):
+        assert cpe._inject_face_beauty(person, mid) == person
+    # 幂等
+    once = cpe._inject_face_beauty(person, "z-image-base")
+    assert cpe._inject_face_beauty(once, "z-image-base") == once
+
+
+def test_zbase_builder_injects_idol_block() -> None:
+    wf = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "22岁中国都市年轻女性",
+                 "model": "z-image-base"}, None, "paint/t")
+    assert "偶像级绝美少女" in wf["pos"]["inputs"]["text"]
+    # z-turbo builder 原样
+    wt = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "22岁中国都市年轻女性",
+                 "model": "z-image-turbo"}, None, "paint/t")
+    assert "偶像级绝美少女" not in wt["pos"]["inputs"]["text"]

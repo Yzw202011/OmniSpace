@@ -219,25 +219,42 @@ def _comfy_sampler_name(raw: str) -> str:
 _FACE_BEAUTY_BLOCK = ("杰作，最佳画质，精致唯美的东亚年轻面容，清秀鹅蛋脸"
                       "，大而明亮的杏眼，清澈有神的眼神，皮肤细腻白皙水光"
                       "感，精致小巧的五官，自然柔和的妆容，电影级人像打光")
+# z-base 偶像级词块（2026-09-25 用户反馈「脸部不够偶像不够美」→ A/B
+# 实证：同 seed 加词块后偶像感拉满——大眼双眼皮/浓睫/水光肌/精致唇形
+# 全命中，见 logs/four_models/idol_plus.png）。z-base 无 klein 的精修
+# Pass，词块是它唯一的人脸增强通道，用加强版。
+_ZBASE_FACE_BLOCK = ("杰作，最佳画质，偶像级绝美少女，精致唯美的东亚美少女"
+                     "面容，大而闪亮的杏眼，超精致双眼皮，浓密卷翘睫毛，清"
+                     "澈水光眼神，根根分明眉毛，小巧挺直鼻梁，饱满水润渐变"
+                     "咬唇妆，瓷肌白皙通透带自然粉调，柔顺发丝根根分明，偶"
+                     "像画报级打光，镜头直视，超高清细节，8k")
 _FACE_HINT_RE = re.compile(
     r"女|男|少女|女孩|男孩|儿童|人像|人物|角色|肖像|美女|帅哥|小姐姐|脸"
     r"|woman|girl|man|boy|person|people|portrait|character|face",
     re.IGNORECASE)
 _KLEIN_MODEL_IDS = ("flux2-klein-9b", "flux2-klein-4b")
+# 美学词块路由（2026-09-25）：klein 系=清秀词块+精修 Pass；z-base=偶像
+# 词块（无精修 Pass 的补偿）；z-turbo/qwen21 自带审美先验不注入
+_FACE_BEATUY_BY_MODEL = {
+    "flux2-klein-9b": _FACE_BEAUTY_BLOCK,
+    "flux2-klein-4b": _FACE_BEAUTY_BLOCK,
+    _ZBASE_MODEL_ID: _ZBASE_FACE_BLOCK,
+}
 
 
 def _inject_face_beauty(prompt: str, model_id: str) -> str:
-    """klein 系 + 人物类提示词 → 尾部追加东亚人脸美学词块（幂等）。
+    """模型专属人脸美学词块注入（人物类提示词 + 幂等）。
 
-    其余模型（z/qwen21 自带审美先验）/场景图（无人物信号）原样返回。
+    z-turbo/qwen21 自带审美先验 / 场景图（无人物信号）原样返回。
     """
-    if model_id not in _KLEIN_MODEL_IDS:
+    block = _FACE_BEATUY_BY_MODEL.get(model_id)
+    if block is None:
         return prompt
     if not (prompt and _FACE_HINT_RE.search(prompt)):
         return prompt
-    if _FACE_BEAUTY_BLOCK[:8] in prompt:
+    if block[:8] in prompt:
         return prompt  # 幂等：已含词块不重复追加
-    return f"{prompt}，{_FACE_BEAUTY_BLOCK}"
+    return f"{prompt}，{block}"
 
 
 # ── klein 人脸精修 Pass（2026-09-23 用户拍板：参考图锚定自动精修）────
@@ -951,6 +968,10 @@ class ComfyPaintEngine:
         strength_clip=0；TE 未包裹）。不支持：PuLID（flux2 专属）、inpaint。
         """
         prompt = str(params.get("prompt") or "")
+        # 模型专属人脸美学词块（2026-09-25）：z-base 偶像级词块自动注入
+        # （用户拍板方案1）；z-turbo 原样（自带先验+蒸馏口径敏感）。
+        prompt = _inject_face_beauty(
+            prompt, str(params.get("model") or _Z_IMAGE_MODEL_ID))
         width = int(params.get("width") or 1280)
         height = int(params.get("height") or 720)
         seed = int(params.get("seed") or 0)
@@ -1021,11 +1042,16 @@ class ComfyPaintEngine:
                 "conditioning": pos_src}}
         wf["latent"] = {"class_type": "EmptySD3LatentImage", "inputs": {
             "width": width, "height": height, "batch_size": 1}}
+        # 采样器/调度器可透传（2026-09-25 用户设置优先）；缺省按蒸馏
+        # 口径：turbo=res_multistep/simple，base 同官方但允许 A/B 覆盖
+        _sampler = _comfy_sampler_name(
+            str(params.get("sampler") or "") or "res_multistep")
+        _sched = str(params.get("scheduler") or "") or "simple"
         wf["sample"] = {"class_type": "KSampler", "inputs": {
             "model": ["ms", 0], "positive": pos_src,
             "negative": ["neg", 0], "latent_image": ["latent", 0],
             "seed": seed, "steps": _steps, "cfg": _cfg,
-            "sampler_name": "res_multistep", "scheduler": "simple",
+            "sampler_name": _sampler, "scheduler": _sched,
             "denoise": 1.0}}
         wf["decode"] = {"class_type": "VAEDecode", "inputs": {
             "samples": ["sample", 0], "vae": ["vae", 0]}}

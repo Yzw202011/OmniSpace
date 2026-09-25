@@ -58,7 +58,6 @@ function PanelGenProgress({ rowId, active }: { rowId: string; active: boolean })
 }
 import { Modal } from '../common/Modal';
 import OmniLightbox, { downloadImage } from '../common/OmniLightbox';
-import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import ComicModelConfigModal from './ComicModelConfigModal';
 import AssetLibrary from './AssetLibrary';
 
@@ -670,12 +669,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           <button type="button" className="btn" onClick={() => setModelCfgOpen(true)}>
             <Settings2 size={15} /> 模型设置
           </button>
-          {/* 批3 P5：绘画云端工位徽标（三槽任一绑定即亮；点击直达配置） */}
-          <CloudSlotBadge slots={[
-            { key: 'paint.image', label: '绘画出图' },
-            { key: 'keyframe.image', label: '关键帧' },
-            { key: 'asset.image', label: '资产图' },
-          ]} />
+          {/* 云端工位徽标摘除（2026-09-26 用户拍板）：云端配置入口
+              保留在「模型设置」弹窗与设置页，页内不再重复提示 */}
           <button type="button" className="btn" onClick={() => setScriptFormOpen(true)}>
             <Sparkles size={15} /> AI 写分格
           </button>

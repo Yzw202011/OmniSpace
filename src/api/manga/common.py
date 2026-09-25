@@ -1400,17 +1400,21 @@ def comfy_paint_generate(params: dict,
         result = engine.img2img(p, ref_image, progress=progress)
     else:
         result = engine.generate(p, progress=progress)
-    _z = str(p.get("model") or "") == "z-image-turbo"
-    _q21 = str(p.get("model") or "") == "qwen-image-2.1"
-    _k4 = str(p.get("model") or "") == "flux2-klein-4b"
+    _mid = str(p.get("model") or "")
+    _z = _mid == "z-image-turbo"
+    _q21 = _mid == "qwen-image-2.1"
+    _k4 = _mid == "flux2-klein-4b"
+    _zbase = _mid == "z-image-base"
     return {"images": result.get("images") or [],
             "seed": seed,
             "model": ("z-image-turbo(comfy)" if _z else
+                      "z-image-base(comfy)" if _zbase else
                       "qwen-image-2.1(comfy)" if _q21 else
                       "flux2-klein-4b(comfy)" if _k4 else
                       "flux2-klein-9b-fp8(comfy)"),
             "elapsed_ms": int((time.perf_counter() - t0) * 1000),
             "engine": ("comfy-z-image" if _z else
+                       "comfy-z-base" if _zbase else
                        "comfy-qwen21" if _q21 else
                        "comfy-klein-4b" if _k4 else "comfy-klein")}
 

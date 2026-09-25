@@ -38,6 +38,7 @@
   "diffusion_models/qwen_image_2.1_int8_convrot.safetensors": "paint/qwen-image-2.1/qwen_image_2.1_int8_convrot.safetensors",
   "text_encoders/qwen3vl_8b_w4a8.safetensors": "paint/qwen-image-2.1/text_encoder/qwen3vl_8b_w4a8.safetensors",
   "vae/qwen_image_2.1_vae_bf16.safetensors": "paint/qwen-image-2.1/vae/qwen_image_2.1_vae_bf16.safetensors",
-  "diffusion_models/flux-2-klein-4b-fp8.safetensors": "paint/flux2-klein-4b-fp8/flux-2-klein-4b-fp8.safetensors"
+  "diffusion_models/flux-2-klein-4b-fp8.safetensors": "paint/flux2-klein-4b-fp8/flux-2-klein-4b-fp8.safetensors",
+  "diffusion_models/z_image_base-nvfp8-mixed.safetensors": "paint/z-image-base/z_image_base-nvfp8-mixed.safetensors"
  }
 }

@@ -62,15 +62,16 @@ def test_config_read_failure_returns_empty(
 
 
 def test_truth_set_contract_four_models() -> None:
-    # 方案2 验收契约：分格链可选 = comfy 真源四件套
-    # （2026-09-23 晚官方 fp8 回真后恢复）
+    # 方案2 验收契约：分格链可选 = comfy 真源（2026-09-25 D 线
+    # 收编 z-image-base → 五件套）
     ids = {m["id"] for m in cpe.COMFY_PAINT_MODELS}
     if cpe._KLEIN_4B_BROKEN:
         assert ids == {"flux2-klein-9b", "z-image-turbo",
                        "qwen-image-2.1"}
     else:
         assert ids == {"flux2-klein-9b", "flux2-klein-4b",
-                       "z-image-turbo", "qwen-image-2.1"}
+                       "z-image-turbo", "z-image-base",
+                       "qwen-image-2.1"}
 
 
 def test_no_pulid_models_identified() -> None:

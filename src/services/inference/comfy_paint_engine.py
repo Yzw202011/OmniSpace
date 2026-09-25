@@ -70,6 +70,19 @@ _Z_IMAGE_MODEL_ID = "z-image-turbo"
 # TextEncodeZImageOmni 原生参考条件上限（image1~3）
 _Z_IMAGE_MAX_REFS = 3
 
+# Z-Image-Base（2026-09-25 D 线第三候选实测收编）：阿里通义 6B 非蒸馏
+# 全量版，40 步采样细节显著优于 Turbo 8 步蒸馏（人脸美感仅次于
+# qwen21）；同 TE/VAE/架构——z builder 换 unet+步数即复用。nvfp8-
+# mixed 6.29GB（社区量化，Apache 2.0 底模）。显存峰值 ~9GB 友好，
+# 定位「qwen21 显存紧张时的高质量人像替补」。
+_ZBASE_MODEL_ID = "z-image-base"
+_ZBASE_FILES = {
+    "unet": "z_image_base-nvfp8-mixed.safetensors",
+    "clip": "qwen_3_4b.safetensors",
+    "vae": "z_image_ae.safetensors",
+}
+_ZBASE_STEPS = 40  # 非蒸馏全量采样步数（Turbo 蒸馏 8 步不适用）
+
 # Qwen-Image-2.1 权重族（2026-09-23 A 项集成）。许可=Qwen Research
 # License，商用授权未落定前不进发行包（本地开发/研究不受限）。量化档
 # = Comfy-Org 官方 int8_convrot DiT + w4a8 TE + RGBA VAE（16G 卡唯一
@@ -124,6 +137,13 @@ COMFY_PAINT_MODELS: list[dict] = [
         "files": _Z_IMAGE_FILES,
         "min_vram_gb": 10.0,
         "notes": "中文字渲染/写实，8 步蒸馏；unet 12.3GB bf16 动态换页",
+    },
+    {
+        "id": _ZBASE_MODEL_ID,
+        "name": "Z-Image-Base（全量 40 步）",
+        "files": _ZBASE_FILES,
+        "min_vram_gb": 9.0,
+        "notes": "6B 非蒸馏全量版，40 步细节优于 Turbo；人像替补档",
     },
     {
         "id": _Q21_MODEL_ID,
@@ -534,6 +554,8 @@ def comfy_paint_available(model_id: str = "") -> bool:
         return False
     if model_id == _Z_IMAGE_MODEL_ID:
         files = _Z_IMAGE_FILES
+    elif model_id == _ZBASE_MODEL_ID:
+        files = _ZBASE_FILES
     elif model_id == _Q21_MODEL_ID:
         files = _Q21_FILES
     elif model_id == "flux2-klein-4b":
@@ -933,16 +955,23 @@ class ComfyPaintEngine:
         height = int(params.get("height") or 720)
         seed = int(params.get("seed") or 0)
         refs = list(ref_names or [])[:_Z_IMAGE_MAX_REFS]
+        # base 变体（2026-09-25 D 线收编）：非蒸馏全量 40 步 + 负向词
+        # 有效（非蒸馏模型 cfg>1 语义可用）；turbo 蒸馏版维持 8 步/cfg1
+        # 官方基线（cfg>1 反致卡通化，见 zimg_matrix2 实测）。
+        is_base = str(params.get("model") or "") == _ZBASE_MODEL_ID
+        _files = _ZBASE_FILES if is_base else _Z_IMAGE_FILES
+        _steps = _ZBASE_STEPS if is_base else 8
+        _cfg = 4.0 if is_base else 1.0
 
         wf: dict[str, dict] = {
             "unet": {"class_type": "UNETLoader", "inputs": {
-                "unet_name": _Z_IMAGE_FILES["unet"],
+                "unet_name": _files["unet"],
                 "weight_dtype": "default"}},
             "clip": {"class_type": "CLIPLoader", "inputs": {
-                "clip_name": _Z_IMAGE_FILES["clip"],
+                "clip_name": _files["clip"],
                 "type": "lumina2", "device": "default"}},
             "vae": {"class_type": "VAELoader", "inputs": {
-                "vae_name": _Z_IMAGE_FILES["vae"]}},
+                "vae_name": _files["vae"]}},
         }
 
         pos_src = ["pos", 0]
@@ -983,14 +1012,19 @@ class ComfyPaintEngine:
             wf["z_pos"] = {"class_type": "TextEncodeZImageOmni",
                            "inputs": enc_inputs}
             pos_src = ["z_pos", 0]
-        wf["neg"] = {"class_type": "ConditioningZeroOut", "inputs": {
-            "conditioning": pos_src}}
+        if is_base:
+            # 非蒸馏全量版：负向词有效（真实负条件，非 ZeroOut）
+            wf["neg"] = {"class_type": "CLIPTextEncode", "inputs": {
+                "clip": clip_src, "text": str(params.get("negative") or "")}}
+        else:
+            wf["neg"] = {"class_type": "ConditioningZeroOut", "inputs": {
+                "conditioning": pos_src}}
         wf["latent"] = {"class_type": "EmptySD3LatentImage", "inputs": {
             "width": width, "height": height, "batch_size": 1}}
         wf["sample"] = {"class_type": "KSampler", "inputs": {
             "model": ["ms", 0], "positive": pos_src,
             "negative": ["neg", 0], "latent_image": ["latent", 0],
-            "seed": seed, "steps": 8, "cfg": 1.0,
+            "seed": seed, "steps": _steps, "cfg": _cfg,
             "sampler_name": "res_multistep", "scheduler": "simple",
             "denoise": 1.0}}
         wf["decode"] = {"class_type": "VAEDecode", "inputs": {
@@ -1140,11 +1174,12 @@ class ComfyPaintEngine:
         task_id = uuid.uuid4().hex[:12]
         t0 = time.perf_counter()
 
-        # Z-Image-Turbo 模式（Z1 2026-09-15）：PuLID 是 flux2 专属
-        # patch，z 底座诚实拒绝（身份锚定走参考图条件/Z4 角色 LoRA）；
-        # Qwen-Image-2.1 同口径（2026-09-23 集成）
-        z_mode = str(params.get("model") or "") == _Z_IMAGE_MODEL_ID
-        q21_mode = str(params.get("model") or "") == _Q21_MODEL_ID
+        # Z-Image 族模式（Z1 2026-09-15 + base 变体 2026-09-25）：PuLID
+        # 是 flux2 专属 patch，z 底座诚实拒绝（身份锚定走参考图条件/
+        # Z4 角色 LoRA）；Qwen-Image-2.1 同口径（2026-09-23 集成）
+        _mid_raw = str(params.get("model") or "")
+        z_mode = _mid_raw in (_Z_IMAGE_MODEL_ID, _ZBASE_MODEL_ID)
+        q21_mode = _mid_raw == _Q21_MODEL_ID
         if (z_mode or q21_mode) and (pulid_image is not None
                                      or pulid_image_b is not None):
             raise ApiError(
@@ -1159,8 +1194,14 @@ class ComfyPaintEngine:
         # 权重体积（11.5GB）时诚实早拒——宁可早拒不让装到一半死。
         # qwen21 同理（2026-09-23）：unet 7.26GB 起步，POC 实测峰值
         # 95.3%——空闲不足 unet+VAE 底仓（7.5GB）时早拒。
+        # z-base（2026-09-25）：nvfp8 unet 6.29GB，底仓 6.5GB。
         if z_mode or q21_mode:
-            _floor_gb = 11.5 if z_mode else 7.5
+            if not z_mode:
+                _floor_gb = 7.5
+            elif _mid_raw == _ZBASE_MODEL_ID:
+                _floor_gb = 6.5
+            else:
+                _floor_gb = 11.5
             try:
                 import torch
                 if torch.cuda.is_available():
@@ -1259,12 +1300,15 @@ class ComfyPaintEngine:
             prompt_id = str(resp["prompt_id"])
             _log_steps, _ = (_effective_steps_cfg(params)
                              if not (z_mode or q21_mode) else
-                             ((8, 1.0) if z_mode else (25, 1.0)))
+                             ((_ZBASE_STEPS, 4.0)
+                              if _mid_raw == _ZBASE_MODEL_ID else
+                              (8, 1.0) if z_mode else (25, 1.0)))
             log.info("绘画任务已提交 (prompt_id=%s, model=%s, %dx%d, %d步, lora=%s@%.2f, refs=%d/%s, pulid=%s@%.2f)",
                         prompt_id,
-                        (_Z_IMAGE_MODEL_ID if z_mode else
+                        (_ZBASE_MODEL_ID if _mid_raw == _ZBASE_MODEL_ID else
+                         _Z_IMAGE_MODEL_ID if z_mode else
                          _Q21_MODEL_ID if q21_mode else
-                         "klein-4b" if str(params.get("model") or "") == "flux2-klein-4b"
+                         "klein-4b" if _mid_raw == "flux2-klein-4b"
                          else "klein-9b-fp8"),
                         int(params.get("width") or 1280),
                         int(params.get("height") or 720),

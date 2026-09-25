@@ -32,17 +32,21 @@ def _wf(params: dict) -> dict:
 
 
 def test_truth_set_matches_physical_reality() -> None:
-    # 2026-09-23 晚内核调试收官（方案 E 官方 fp8）：四件套回真
+    # 2026-09-25 D 线收编 z-image-base → 五件套
     ids = {m["id"] for m in cpe.COMFY_PAINT_MODELS}
     if cpe._KLEIN_4B_BROKEN:
         assert ids == {"flux2-klein-9b", "z-image-turbo",
                        "qwen-image-2.1"}
     else:
         assert ids == {"flux2-klein-9b", "flux2-klein-4b",
-                       "z-image-turbo", "qwen-image-2.1"}
+                       "z-image-turbo", "z-image-base",
+                       "qwen-image-2.1"}
     # 旧栈候选永不在 comfy 真源（sdxl/qwen-2512 走 legacy diffusers 栈）
     assert "sdxl-base-1.0" not in ids
     assert "qwen-image-2512" not in ids
+    # FLUX.1-dev / HiDream-O1 实测不过关不集成（2026-09-25 D 线）
+    assert "flux1-dev" not in ids
+    assert "hidream-o1" not in ids
     for m in cpe.COMFY_PAINT_MODELS:
         assert set(m["files"]) == {"unet", "clip", "vae"}
         assert float(m["min_vram_gb"]) > 0
@@ -186,3 +190,24 @@ def test_face_beauty_builder_integration() -> None:
         _eng(), {"prompt": "22岁女性", "width": 832, "height": 480},
         None, "paint/t")
     assert "东亚年轻面容" not in wq["encode"]["inputs"]["prompt"]
+
+
+def test_zbase_workflow_variant() -> None:
+    """z-image-base 变体（2026-09-25 D 线收编）：40 步/负向词有效。"""
+    wf = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "测试", "negative": "低清",
+                 "model": "z-image-base"}, None, "paint/t")
+    assert wf["unet"]["inputs"]["unet_name"] == (
+        "z_image_base-nvfp8-mixed.safetensors")
+    # 非蒸馏版负向词有效（真实负条件）
+    assert wf["neg"]["class_type"] == "CLIPTextEncode"
+    ks = wf["sample"]["inputs"]
+    assert ks["steps"] == 40 and ks["cfg"] == 4.0
+    # turbo 蒸馏版基线不退（8 步/cfg1/ZeroOut）
+    wt = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "测试", "model": "z-image-turbo"}, None,
+        "paint/t")
+    assert wt["unet"]["inputs"]["unet_name"] == "z_image_turbo_bf16.safetensors"
+    assert wt["neg"]["class_type"] == "ConditioningZeroOut"
+    assert wt["sample"]["inputs"]["steps"] == 8
+    assert wt["sample"]["inputs"]["cfg"] == 1.0

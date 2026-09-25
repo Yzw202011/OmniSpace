@@ -519,12 +519,14 @@ def _run_generate_task(task_id: str, params: dict,
             # 如实失败 MODEL_NOT_ALLOWED（含 klein-4b 残局守卫）。旧注释
             # 「白名单拒绝已在上方执行」所述检查位于本分支早退之后（仅护
             # legacy 路径），comfy 时代从未生效，已随本修复废弃。
-            _z_mode = model_hint == "z-image-turbo"
+            _z_mode = model_hint in ("z-image-turbo", "z-image-base")
+            _zbase_mode = model_hint == "z-image-base"
             _q21_mode = model_hint == "qwen-image-2.1"
             _k4_mode = model_hint == "flux2-klein-4b"
             with flow.node(
                     "模型加载",
-                    friendly=("ComfyUI Z-Image-Turbo 栈" if _z_mode else
+                    friendly=("ComfyUI Z-Image-Turbo 栈" if model_hint == "z-image-turbo" else
+                              "ComfyUI Z-Image-Base 栈（全量 40 步）" if _zbase_mode else
                               "ComfyUI Qwen-Image-2.1 栈" if _q21_mode else
                               "ComfyUI klein-4b 栈" if _k4_mode else
                               "ComfyUI klein-9b-fp8 栈")) as n:
@@ -533,7 +535,9 @@ def _run_generate_task(task_id: str, params: dict,
                         "MODEL_LOAD_FAILED: ComfyUI klein 出图栈不可用"
                         "（便携版或权重缺失）")
                 n.output("z-image-turbo（中文字渲染/写实，8 步蒸馏）"
-                         if _z_mode else
+                         if model_hint == "z-image-turbo" else
+                         "z-image-base（6B 全量 40 步，人像细节档）"
+                         if _zbase_mode else
                          "qwen-image-2.1（原生 2K/透明图/中文字强，25 步）"
                          if _q21_mode else
                          "klein-4b（D-LoRA 角色底座）"
@@ -553,6 +557,18 @@ def _run_generate_task(task_id: str, params: dict,
             if params.get("optimize"):
                 with flow.node("提示词优化", friendly="AI 优化提示词") as n:
                     n.output("comfy klein 栈不支持提示词优化，原样使用")
+
+            # 大显存底座生成前让渡（2026-09-25 与分格链对齐）：显式选
+            # z/qwen21 时驻留对话模型先行让位（功能锁保护用户对话活跃）
+            if model_hint in ("z-image-turbo", "z-image-base",
+                              "qwen-image-2.1"):
+                try:
+                    from ..api.manga.keyframe_model_slot import (
+                        yield_for_explicit,
+                    )
+                    yield_for_explicit(model_hint)
+                except Exception:  # noqa: BLE001 - 让渡失败交准入闸兜底
+                    log.debug("draw 让渡失败（准入闸兜底）", exc_info=True)
 
             with flow.node(
                     "图像生成",

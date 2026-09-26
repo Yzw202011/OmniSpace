@@ -234,3 +234,36 @@ def test_zbase_builder_injects_idol_block() -> None:
     wk = _wf({"prompt": "22岁中国都市年轻女性"})
     assert "偶像级绝美少女" not in wk["pos"]["inputs"]["text"]
 
+
+
+def test_default_negative_injection() -> None:
+    """通用负面词默认注入（2026-09-26 拍板：klein 系+z-base 用户零填写）。"""
+    # ① 三模型空负面词 → 全套默认（欧美脸组打头）
+    for mid in ("flux2-klein-9b", "flux2-klein-4b", "z-image-base"):
+        out = cpe._effective_negative("", mid)
+        assert out.startswith("欧美人脸，西方人脸")
+        assert "畸形五官" in out and "水印" in out
+    # ② 用户手填 → 用户词在前+通用块合并；含欧美词不重复欧美组
+    out = cpe._effective_negative("不要猫", "flux2-klein-9b")
+    assert out.startswith("不要猫，")
+    assert "欧美人脸" in out  # 欧美脸组恒保留
+    out2 = cpe._effective_negative("欧美脸不要", "flux2-klein-9b")
+    assert out2.count("欧美人脸") == 0 and "畸形五官" in out2
+    # ③ z-turbo/qwen21 不注入（架构无效/弱化）
+    for mid in ("z-image-turbo", "qwen-image-2.1"):
+        assert cpe._effective_negative("", mid) == ""
+        assert cpe._effective_negative("x", mid) == "x"
+
+
+def test_default_negative_builder_integration() -> None:
+    # klein builder：neg 节点吃到默认块
+    wf = _wf({"prompt": "人物"})
+    assert "欧美人脸" in wf["neg"]["inputs"]["text"]
+    # z-base builder：base 变体 neg 节点吃到；turbo 保持 ZeroOut
+    wb = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "人物", "model": "z-image-base"}, None, "paint/t")
+    assert wb["neg"]["class_type"] == "CLIPTextEncode"
+    assert "欧美人脸" in wb["neg"]["inputs"]["text"]
+    wt = cpe.ComfyPaintEngine._build_workflow_z_image(
+        _eng(), {"prompt": "人物", "model": "z-image-turbo"}, None, "paint/t")
+    assert wt["neg"]["class_type"] == "ConditioningZeroOut"

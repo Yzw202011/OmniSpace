@@ -236,6 +236,37 @@ _FACE_HINT_RE = re.compile(
     r"|woman|girl|man|boy|person|people|portrait|character|face",
     re.IGNORECASE)
 _KLEIN_MODEL_IDS = ("flux2-klein-9b", "flux2-klein-4b")
+# ── 生图通用负面提示词（2026-09-26 用户拍板：klein 系 + z-base 默认
+# 注入，用户零填写）──欧美脸组为审美对齐刚需（klein 训练偏西方摄影
+# 数据，压制西化倾向）；其余为解剖纠错/画质/污染/构图/皮肤质感组。
+# 用户手填负面词时以用户词为主、通用块尾缀合并（欧美脸组恒保留）。
+_NEG_WESTERN_FACE = ("欧美人脸，西方人脸，高颧骨，深眼窝，欧美五官，混血脸")
+_NEG_GENERIC_BLOCK = (
+    "畸形五官，多余手指，缺手指，畸形手，六指，多余肢体，身体扭曲，"
+    "错误解剖，长脖子，斗鸡眼，脸部不对称，模糊，低质量，低分辨率，"
+    "噪点，压缩失真，过度锐化，水印，文字标识，签名，logo，边框，"
+    "拼贴，分割线，多余的人，克隆脸，重复人脸，背景人影干扰主体，"
+    "皮肤蜡像感，塑料皮肤，过度磨皮，油光过重，病态肤色")
+# 注入范围（拍板三家）；z-turbo 蒸馏 cfg1 负向无效、qwen21 蒸馏口径
+# 负向弱化——均不注入
+_NEG_DEFAULT_MODELS = ("flux2-klein-9b", "flux2-klein-4b", _ZBASE_MODEL_ID)
+
+
+def _effective_negative(user_negative: str, model_id: str) -> str:
+    """三模型默认负面词策略：用户词优先，通用块兜底，欧美脸组恒并。
+
+    其余模型原样返回用户词（架构上负向无效/弱化，不浪费引导权重）。
+    """
+    if model_id not in _NEG_DEFAULT_MODELS:
+        return user_negative
+    user = (user_negative or "").strip()
+    base = f"{_NEG_WESTERN_FACE}，{_NEG_GENERIC_BLOCK}"
+    if not user:
+        return base
+    # 用户词在前（权重高），通用块尾缀合并；含欧美组关键词则不重复
+    if "欧美" in user or "西方" in user:
+        return f"{user}，{_NEG_GENERIC_BLOCK}"
+    return f"{user}，{base}"
 # 美学词块路由（2026-09-25）：klein 系=清秀词块+精修 Pass；z-base=偶像
 # 词块（无精修 Pass 的补偿）；z-turbo/qwen21 自带审美先验不注入
 # 2026-09-26 用户拍板：klein 系人脸干预全面下线——词块+精修 Pass 均
@@ -783,7 +814,10 @@ class ComfyPaintEngine:
         # 追加东亚审美词块（z/qwen21 走独立 builder 不经过本注入）
         prompt = _inject_face_beauty(
             prompt, str(params.get("model") or "flux2-klein-9b"))
-        negative = str(params.get("negative") or "")
+        # 通用负面词默认注入（2026-09-26 拍板：klein 系默认，用户零填写）
+        negative = _effective_negative(
+            str(params.get("negative") or ""),
+            str(params.get("model") or "flux2-klein-9b"))
         steps, cfg = _effective_steps_cfg(params)
         width = int(params.get("width") or 1280)
         height = int(params.get("height") or 720)
@@ -1039,9 +1073,12 @@ class ComfyPaintEngine:
                            "inputs": enc_inputs}
             pos_src = ["z_pos", 0]
         if is_base:
-            # 非蒸馏全量版：负向词有效（真实负条件，非 ZeroOut）
+            # 非蒸馏全量版：负向词有效（真实负条件，非 ZeroOut）+
+            # 通用负面词默认注入（2026-09-26 拍板，用户零填写）
             wf["neg"] = {"class_type": "CLIPTextEncode", "inputs": {
-                "clip": clip_src, "text": str(params.get("negative") or "")}}
+                "clip": clip_src,
+                "text": _effective_negative(
+                    str(params.get("negative") or ""), _ZBASE_MODEL_ID)}}
         else:
             wf["neg"] = {"class_type": "ConditioningZeroOut", "inputs": {
                 "conditioning": pos_src}}

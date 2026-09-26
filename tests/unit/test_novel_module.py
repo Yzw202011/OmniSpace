@@ -364,3 +364,29 @@ def test_novel_batch_skip_completed(client):
     d2 = r2.json()["data"]
     assert d2["queued"] == 3 and d2["skipped_completed"] == 0
 # 本项目仅供学习使用，商业授权请+Q 3559331368
+
+
+def test_clean_chapter_text_separators_and_meta() -> None:
+    """2026-09-26 修复回归：分隔线与 meta 尾巴清洗。"""
+    from src.services.novel_service import clean_chapter_text
+    # 分隔线剥离（三种形态）
+    assert "---" not in clean_chapter_text("上段\n\n---\n\n下段")
+    assert "***" not in clean_chapter_text("上段\n\n***\n\n下段")
+    assert "* * *" not in clean_chapter_text("上段\n\n* * *\n\n下段")
+    # meta 尾巴：从 ps 行起整段截断
+    out = clean_chapter_text("正文段落一\n正文段落二\n\nps: 备注不该进正文\n还有更多备注")
+    assert "备注" not in out and out.endswith("正文段落二")
+    # byebye 尾巴
+    out2 = clean_chapter_text("正文\n\n谢谢你们的理解和支持\n下次再见 byebye")
+    assert "byebye" not in out2
+    # 干净正文不受影响
+    clean = "第一段。\n\n第二段。"
+    assert clean_chapter_text(clean) == clean
+
+
+def test_outline_prompt_no_dup_directive() -> None:
+    """2026-09-26 修复回归：大纲 prompt 含跨卷禁重章指令。"""
+    from src.services.novel_service import build_outline_prompt
+    p = build_outline_prompt(description="测试", genre="玄幻",
+                             style_notes="", plan_chapters=20)
+    assert "严禁重复章节" in p or "必须唯一" in p

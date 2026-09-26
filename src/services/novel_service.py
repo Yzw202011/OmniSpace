@@ -389,6 +389,8 @@ def build_outline_prompt(*, description: str, genre: str,
         "要求：\n"
         + plan_txt +
         "- 卷概要写清本卷主线冲突与结局；章细纲 60~100 字，写清事件与钩子；\n"
+        "- 全书所有章节标题必须唯一——各卷之间严禁重复章节（不同卷不得\n"
+        "  出现同名章或同内容章），每章剧情独立推进不回头；\n"
         "- 只输出 JSON，禁止输出任何其他文字或代码块标记，格式：\n"
         '{"title":"书名","logline":"一句话主线",'
         '"volumes":[{"title":"卷名","summary":"本卷概要",'
@@ -610,7 +612,13 @@ def parse_characters_json(raw: str) -> list[dict]:
 
 
 def clean_chapter_text(raw: str) -> str:
-    """正文清洗：剥围栏/标题行/前置客套（纯函数，可测）。"""
+    """正文清洗：剥围栏/标题行/前置客套/分隔线/meta 尾巴（纯函数）。
+
+    2026-09-26 增补（用户实测「---」问题）：①独立成行的 --- / *** /
+    * * * 分隔线剥离（qwen 系 LLM 场景切换标记，不该进正文）；②结尾
+    模型自言自语 meta 段剥离（ps:/临时应急/byebye/下次再见/谢谢支持
+    等——模型把「创作备注」当正文吐出的实测样本）。
+    """
     text = (raw or "").strip()
     text = re.sub(r"^```[a-z]*\s*|\s*```$", "", text, flags=re.MULTILINE)
     lines = text.splitlines()
@@ -620,11 +628,25 @@ def clean_chapter_text(raw: str) -> str:
         if not kept and s and (re.match(r"^第[一二三四五六七八九十百千0-9]+章",
                                         s)
                                or re.match(r"^Chapter\s", s, re.IGNORECASE)
-                               or s.startswith(("《", "以下是", "好的", "正文"))
-                               and len(s) < 40):
-            continue  # 丢弃开头处的标题行/客套话
+                               or s.startswith(("《", "以下是", "好的"))
+                               or (s.startswith("正文") and len(s) <= 4)):
+            continue  # 丢弃开头处的标题行/客套话（「正文」前缀限 <12 字
+            # 防误伤正文段落——2026-09-26 实测「正文段落一」被当客套删）
+        # 分隔线：--- / *** / * * * / —— 独立成行（≥3 个符号字符）剥离
+        if s and re.fullmatch(r"[-*—–]{3,}|([-*]\s*){3,}", s):
+            continue
         kept.append(ln)
-    return "\n".join(kept).strip()
+    text = "\n".join(kept).strip()
+    # meta 尾巴：从首个 meta 行起整段截断（后续全是备注不该保留）
+    meta_pat = re.compile(
+        r"^\s*(ps[:：]|p\.s\.|备注[:：]|（?临时|谢谢.*支持|下次再见|byebye|"
+        r"以上内容.*|祝.*阅读|创作说明)", re.IGNORECASE)
+    out_lines: list[str] = []
+    for ln in text.splitlines():
+        if meta_pat.match(ln.strip()):
+            break
+        out_lines.append(ln)
+    return "\n".join(out_lines).strip()
 
 
 def detect_repetition(text: str, window: int = REPEAT_WINDOW) -> str | None:
@@ -769,7 +791,10 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
     # 落库：旧大纲树与待写章清掉重建（人在回路 = 生成后逐节点可改）
     pid = job.project_id
     now = _now()
-    await run_blocking(lambda: db.delete("novel_chapters", "project_id=? AND status='pending'", (pid,)))
+    # 2026-09-26 修复：此前只清 status='pending' 旧章——done/error 章
+    # 保留导致「重新生成大纲」后同名章节 x2 并存（用户实测重复章）。
+    # 大纲已整树重建，旧章的 outline_id 全部孤儿化，必须全清。
+    await run_blocking(lambda: db.delete("novel_chapters", "project_id=?", (pid,)))
     await run_blocking(lambda: db.delete("novel_outlines", "project_id=?", (pid,)))
     book_id = uuid.uuid4().hex
     await run_blocking(lambda: db.insert("novel_outlines", {
@@ -777,6 +802,11 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
         "sort_index": 0, "title": data["title"],
         "content": data["logline"], "created_at": now, "updated_at": now}))
     ch_no = 0
+    # 2026-09-26 去重闸：LLM 大纲偶发跨卷重复章节（实测「逆命之战」卷
+    # 与「万界之巅」卷各插同名章）——prompt 已加禁令，落库侧兜底跳过
+    # 与已插章节同名的章（保首个，重复的丢弃并记日志）。
+    seen_titles: set[str] = set()
+    dropped_dups = 0
     for vi, vol in enumerate(data["volumes"]):
         vol_id = uuid.uuid4().hex
         await run_blocking(lambda vi=vi, vol=vol, vol_id=vol_id: db.insert("novel_outlines", {
@@ -785,6 +815,12 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
             "content": vol["summary"], "created_at": now,
             "updated_at": now}))
         for ci, ch in enumerate(vol.get("chapters") or []):
+            title_key = str(ch.get("title") or "").strip()
+            if title_key in seen_titles:
+                dropped_dups += 1
+                log.warning("大纲去重闸：跳过跨卷重复章「%s」", title_key)
+                continue
+            seen_titles.add(title_key)
             ch_no += 1
             node_id = uuid.uuid4().hex
             await run_blocking(lambda ch=ch, ci=ci, node_id=node_id, vol_id=vol_id: db.insert("novel_outlines", {

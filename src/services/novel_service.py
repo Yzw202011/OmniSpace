@@ -56,6 +56,10 @@ REPEAT_MIN_LEN = 400       # 短于此不检测（超短文天然重复率高，
 ANTI_REPEAT_ATTEMPTS = (  # (repetition_penalty, temperature, frequency_penalty)
     (1.15, 0.85, 0.4),
     (1.3, 1.0, 0.7),
+    # 2026-09-27 词语雪崩追加档：高温+高重复惩罚是把模型逼向雪崩的
+    # 药方（实弹第1章 1630 字后接龙 400+ 词）——末档反向降温/降压，
+    # 给模型「停下来叙事」的空间
+    (1.05, 0.6, 0.2),
 )
 # 小说生成偏好模型（实弹 20:03：4B GGUF 是复读重灾区且参数曾被忽略）。
 # 依次取第一个存在于 models/ 的：8B AWQ 走 vLLM（质量高、采样参数生效）；
@@ -668,6 +672,37 @@ def detect_repetition(text: str, window: int = REPEAT_WINDOW) -> str | None:
     return None
 
 
+# ── 词语雪崩检测（2026-09-27 用户实弹：第1章 1630 字后无限联想接龙 ──
+# 「信念→自由→财富→地理→神话→经济」400+ 词狂奔刹不住；复检发现第
+# 14 章也藏了轻度雪崩段）。复读检测的变体逃逸：无重复窗口但无叙事。
+# 核心判据「虚词率」：雪崩=纯名词/四字格接龙，虚词（的了是他等 35
+# 个高频字）占比骤降。标定（15 章实测）：雪崩窗 0.00~0.05，正常
+# 叙事 ≥0.10。判据：任一 300 字滑窗虚词率 < 0.05 即雪崩（局部命中
+# 即拒——雪崩通常只占半章，全章均值会被前半正常文稀释）。
+_AVALANCHE_MIN_CHARS = 200
+_FUNC_WORD_CHARS = set("的了是他她我你不在是有和就也都这那又会被说到"
+                       "上下中里去来着之其为于以及但而后让把跟从向")
+
+
+def detect_avalanche(text: str) -> str | None:
+    """词语雪崩检测（纯函数）：命中返回描述，干净返回 None。
+
+    滑窗 300 字（步 100）取最小虚词率：<0.05 判雪崩（雪崩接龙段
+    实测 0.00~0.02；正常叙事最差窗 ≥0.08，15 章标定）。短文免检。
+    """
+    t = re.sub(r"\s+", "", text or "")
+    if len(t) < _AVALANCHE_MIN_CHARS:
+        return None
+    win = 300
+    for i in range(0, max(1, len(t) - win + 1), 100):
+        seg = t[i:i + win]
+        fwr = sum(1 for ch in seg if ch in _FUNC_WORD_CHARS) / len(seg)
+        if fwr < 0.05:
+            return (f"300字窗虚词率 {fwr:.1%}（阈值 5%，名词接龙特征）"
+                    f"：…{seg[:24]}…")
+    return None
+
+
 # ═══════════════════════════════════════════════════════════════
 #  伏笔账本检查（纯函数，可测）
 # ═══════════════════════════════════════════════════════════════
@@ -927,6 +962,16 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
             queue.raise_if_cancelled(job.task_id)
             candidate = await run_blocking(clean_chapter_text, raw)
             repeated = await run_blocking(detect_repetition, candidate)
+            avalanche = await run_blocking(detect_avalanche, candidate) \
+                if repeated is None else None
+            if repeated is None and avalanche is not None:
+                # 词语雪崩（2026-09-27 实弹）：复读的变体逃逸——无重复
+                # 窗口但无限联想接龙。按复读同路重试（降温反向：雪崩是
+                # 高温+高压重复惩罚把模型逼向「永不停的新词流」）
+                log.warning(
+                    "章节生成第 %d 次检出词语雪崩（%s），重试",
+                    attempt, avalanche)
+                repeated = avalanche  # 走同一重试通道
             if repeated is None:
                 content = candidate
                 break

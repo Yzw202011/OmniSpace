@@ -390,3 +390,26 @@ def test_outline_prompt_no_dup_directive() -> None:
     p = build_outline_prompt(description="测试", genre="玄幻",
                              style_notes="", plan_chapters=20)
     assert "严禁重复章节" in p or "必须唯一" in p
+
+
+def test_detect_avalanche_funcword() -> None:
+    """2026-09-27 词语雪崩检测回归（虚词率判据）。"""
+    import sys
+    sys.path.insert(0, ".")
+    from src.services.novel_service import detect_avalanche
+    ava = ("毕竟每个人都有自己的信念信仰追求理想目标渴望实现自我价值"
+           "超越平凡世俗桎梏突破束缚限制摆脱枷锁获得自由自在畅快淋漓"
+           "尽情释放个性张扬魅力绽放光彩夺目耀眼夺目照亮黑夜驱散黑暗"
+           "带来光明温暖舒适宜人美好和谐宁静祥瑞如意吉祥如意万事顺利"
+           "心想事成好运连连福星高照财源滚滚运势旺旺事业蒸蒸日上步步"
+           "高升财运亨通发达兴旺繁荣昌盛富甲一方腰包鼓鼓钱包满满黄金"
+           "遍地珠宝堆砌珍馐美味佳肴琳琅满目应有尽有豪华别墅豪宅宫殿"
+           "城堡庄园花园泳池温泉按摩房健身房瑜伽馆私人影院")
+    assert detect_avalanche(ava) is not None, "雪崩样本必须检出"
+    good = ("林烬睁开眼，胸口还在隐隐作痛。他看了看四周，这是哪里？"
+            "他想不起来自己是谁，只知道心里有个声音在说：活下去。"
+            "屋外传来脚步声，他撑起身子，把被子拉到胸前。门开了，"
+            "一个青衣少女端着药碗走进来，看到他醒了大吃一惊。") * 6
+    assert detect_avalanche(good) is None, "正常叙事不得误报"
+    assert detect_avalanche("") is None
+    assert detect_avalanche("短文") is None

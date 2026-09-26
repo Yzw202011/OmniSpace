@@ -650,7 +650,21 @@ def clean_chapter_text(raw: str) -> str:
         if meta_pat.match(ln.strip()):
             break
         out_lines.append(ln)
-    return "\n".join(out_lines).strip()
+    text = "\n".join(out_lines).strip()
+    # 结尾空话尾巴（2026-09-27 全新重测发现）：模型收尾套话「为后续
+    # 篇章奠定基础…留下值得铭记的回忆」类车轱辘——末 200 字内含 ≥2
+    # 个空话锚词时，从首个锚词出现处截断（整窗剁掉防剁不干净）
+    tail_pat = re.compile(
+        r"(为后续|为今后|奠定.{0,8}基础|留下.{0,12}回忆|埋下.{0,8}(伏笔|一笔)|"
+        r"圆满落幕|精彩篇章|值得.{0,6}铭记|崭新.{0,4}篇章|浓墨重彩|"
+        r"即将展开的(故事|篇章))")
+    if len(text) > 60:
+        tail = text[-200:]
+        m = tail_pat.search(tail) if len(tail_pat.findall(tail)) >= 2 else None
+        if m is not None:
+            cut = max(0, len(text) - 200) + m.start()
+            text = text[:cut].rstrip("，。！？… \n") + "。"
+    return text.strip()
 
 
 def detect_repetition(text: str, window: int = REPEAT_WINDOW) -> str | None:

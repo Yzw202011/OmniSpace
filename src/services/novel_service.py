@@ -506,7 +506,9 @@ def build_characters_prompt(*, description: str, genre: str,
         f"【题材】{genre or '不限'}\n"
         f"【补充要求】{basis or '无'}\n\n"
         "要求：设计 3~6 个核心角色，summary 写清外貌特征/性格/动机/口癖"
-        "（60~120 字）；只输出 JSON 数组，禁止其他文字，格式：\n"
+        "（60~120 字）；角色必须与作品灵感强相关，主角卡必须包含核心"
+        "力量体系名称（与灵感中的功法/血脉名一致）；只输出 JSON 数组，"
+        "禁止其他文字，格式：\n"
         '[{"name":"角色名","role":"主角|配角|反派","summary":"人设"}]\n\n'
         "JSON：")
 
@@ -972,6 +974,40 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
     log_event("novel", "outline_generated",
               f"《{project.get('name')}》大纲生成完成：{len(data['volumes'])}卷 {ch_no}章",
               level="success")
+    # 2026-09-28 用户拍板：大纲完成自动生成角色卡——此前功能在但从未
+    # 触发（0 张卡），章节 prompt 的【主要角色】锚一直是空的，是章间
+    # 连贯性弱的一大根因。大纲刚出时人物名单最全，此时产卡最准。
+    try:
+        have_chars = await run_blocking(lambda: db.query_one(
+            "SELECT COUNT(*) AS n FROM novel_characters WHERE project_id=?",
+            (pid,)))
+        if not have_chars or int(have_chars["n"]) == 0:
+            req["stage"] = "characters"
+            req["detail"] = "大纲完成，正在生成角色卡"
+            # basis 带大纲产出的人物名单（书名+卷章概览摘要）——卡片
+            # 人物名必须与大纲正文用名一致（2026-09-28 实测：不带
+            # basis 时卡里主角叫"林玄"而大纲正文叫"林烬"，主角锚
+            # 落空；带大纲摘要后 LLM 按既有人名产卡）
+            _vol_brief = "；".join(
+                f"{v.get('title') or ''}：{(v.get('summary') or '')[:60]}"
+                for v in data["volumes"][:4])
+            _chap_names = "、".join(
+                ch.get("title") or "" for v in data["volumes"]
+                for ch in (v.get("chapters") or []))
+            char_task = NovelJob(
+                task_id=f"novel-chars-{pid}-auto-{uuid.uuid4().hex[:6]}",
+                kind="characters", project_id=pid,
+                chapter_id=(f"角色名必须与以下大纲既有人物/章名保持一致"
+                            f"（主角以大纲正文用名为准）：{_vol_brief[:200]}"
+                            f"；章节名：{_chap_names[:200]}")[:300],
+                run=run_characters_job)
+            await char_task.run(char_task, queue)
+            log_event("novel", "characters_auto_generated",
+                      f"《{project.get('name')}》大纲完成后自动生成角色卡",
+                      level="success")
+    except Exception:  # noqa: BLE001 - 角色卡失败不阻断大纲交付
+        log.warning("大纲后自动角色卡生成失败（不影响大纲）", exc_info=True)
+    req["stage"] = "done"
 
 
 async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:

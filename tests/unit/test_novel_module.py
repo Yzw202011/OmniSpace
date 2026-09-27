@@ -443,3 +443,23 @@ def test_normalize_exclamations() -> None:
     assert detect_convention_violations(out) is None
     # 连续第 3 感叹行降温为句号（v2：强制，短行不豁免）
     assert "心跳催促蜕变。" in out
+
+
+def test_clean_tail_pathology_suite() -> None:
+    """2026-09-27 衔接检查回归：六类病理尾巴全剥。"""
+    import sys
+    sys.path.insert(0, ".")
+    from src.services.novel_service import clean_chapter_text
+    cases = [
+        # 样本需 >20 字（clean 尾巴 gate 下限；真实章节 2000+ 字不受影响）
+        ("史诗空话尾", "他缓缓站了起来，环视四周的废墟与残阳。这一刻注定载入史册！", "载入史册"),
+        ("AI道别尾", "战斗结束了，硝烟散尽，众人缓缓离去。拜拜喽大家下次再见！", "拜拜"),
+        ("元信息尾", "林烬终于明白了自己的宿命与抉择的意义。这就是他的宿命。（全文约3000字）", "全文约"),
+        ("宣言尾", "他望向天边，眼神坚定，握紧了拳头。那就是……成为这个世界的主宰者！", "主宰者"),
+        ("破折号尾", "苏寒山愿为此战献出一切，全场寂静无声。就在这一刻———————————", "—————"),
+    ]
+    for name, text, anchor in cases:
+        out = clean_chapter_text(text)
+        assert anchor not in out, f"{name} 未清净"
+    good = "他望着远方的天际线，那里有新的风暴正在酝酿。"
+    assert clean_chapter_text(good) == good

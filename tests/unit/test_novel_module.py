@@ -413,3 +413,33 @@ def test_detect_avalanche_funcword() -> None:
     assert detect_avalanche(good) is None, "正常叙事不得误报"
     assert detect_avalanche("") is None
     assert detect_avalanche("短文") is None
+
+
+def test_detect_convention_violations() -> None:
+    """2026-09-27 修复回归：感叹号纪律+排比轰炸检测。"""
+    import sys
+    sys.path.insert(0, ".")
+    from src.services.novel_service import detect_convention_violations
+    # 双感叹
+    assert detect_convention_violations("他爆发了！！") is not None
+    # 连续 4 行感叹结尾
+    blast = "天地变色！\n风暴骤起！\n他站起来了！\n所有人都惊了！"
+    assert detect_convention_violations(blast) is not None
+    # 正常文本（≤3 行感叹、无双感叹）
+    ok = "他站起来。众人惊呼！这是不可能的。\n随后一切归于平静。\n他笑了！"
+    assert detect_convention_violations(ok) is None
+    assert detect_convention_violations("") is None
+
+
+def test_normalize_exclamations() -> None:
+    """2026-09-27 修复回归：感叹号修文（确定性达标）。"""
+    import sys
+    sys.path.insert(0, ".")
+    from src.services.novel_service import detect_convention_violations, normalize_exclamations
+    blast = ("力量暴涨！\n骨骼共鸣！\n心跳催促蜕变！\n爆发！！\n"
+             "雷霆炸开！！！\n轰隆！！！！")
+    out = normalize_exclamations(blast)
+    assert "！！" not in out
+    assert detect_convention_violations(out) is None
+    # 连续第 3 感叹行降温为句号（v2：强制，短行不豁免）
+    assert "心跳催促蜕变。" in out

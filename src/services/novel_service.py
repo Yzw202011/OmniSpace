@@ -361,6 +361,16 @@ _STYLE_PRESET_BLOCKS: dict[str, str] = {
         "一个浓度；\n"
         "  · 不同人物说话语气要有区分（口头禅/句式长短/用词习惯）；"
         "不写\"总之/综上\"式收束；\n"
+        # 2026-09-27 用户报「章节内容不符合写作规范」实测增补（第1章
+        # 连续 7 行感叹+56 个双感叹+排比轰炸段）：
+        "  · 感叹号纪律：全章「！」总量 ≤15 个，严禁「！！」双感叹与"
+        "「！！！」三感叹；高潮打斗也用陈述句+短句造势，不靠堆感叹号；\n"
+        "  · 禁排比轰炸：严禁连续 3 行以上同句式排比（如连续「他的…！」"
+        "三连），高潮段落要有动作细节和节奏变化，不是同一模板复制；\n"
+        "  · 网文规范段落：每段 1~4 句；单句成段仅用于关键转折且每章"
+        " ≤6 处，不得大段刷单句；\n"
+        "  · 对话规范：引号内说人话，台词与旁白交错，不写连续 5 段"
+        "以上的纯旁白轰炸；\n"
     ),
 }
 
@@ -717,6 +727,56 @@ def detect_avalanche(text: str) -> str | None:
     return None
 
 
+def normalize_exclamations(text: str) -> str:
+    """感叹号纪律修文（2026-09-27，确定性）：
+
+    实测 4B 模型感叹习惯极顽固（重抽 3 次仍 56 个双感叹），纯拒绝
+    赌不起——改为入库前自动修文：①！！+→！；②连续感叹行强制降温
+    ——每连续第 3 个感叹行句末！→。（v2 修复：短行≤6 字不降温导致
+    8 连感叹漏网；v1 的 run 重计逻辑也有漏洞——改为无条件「连续第
+    3 行必降温」，降温后 run 归零，最长残留 2 连）。
+    """
+    t = (text or "").replace("！！！", "！").replace("！！", "！")
+    # v3：空行不重置连续计数（网文高潮段「单句！+空行」交替是最典型
+    # 的排比轰炸形态，v2 被空行掩护漏网）
+    lines = t.splitlines()
+    run = 0
+    for i, ln in enumerate(lines):
+        if ln.strip().endswith("！"):
+            run += 1
+            if run >= 3:
+                lines[i] = ln.rstrip("！") + "。"
+                run = 0
+        elif ln.strip():
+            run = 0  # 仅非空非感叹行重置
+    return "\n".join(lines)
+
+
+def detect_convention_violations(text: str) -> str | None:
+    """写作规范体检（2026-09-27 用户报「内容不符合写作规范」）：
+
+    感叹号纪律与排比轰炸。实测病灶：第1章连续 7 行感叹结尾、双感叹
+    x56、三感叹 x4、「他的…！！」三连排比段。判据：
+    ① 双/三感叹（！！/！！！）出现——真人写手极少用，直接判违规；
+    ② 连续 ≥4 行以「！」结尾（排比轰炸段）。
+    """
+    t = text or ""
+    if "！！" in t:
+        return f"双/三感叹 x{t.count('！！')}"
+    # v3：空行不重置连续计数（与修文器口径一致——网文高潮段
+    # 「单句！+空行」交替是最典型的排比轰炸形态）
+    lines = [ln for ln in t.splitlines() if ln.strip()]
+    run = 0
+    for ln in lines:
+        if ln.strip().endswith("！"):
+            run += 1
+            if run >= 4:
+                return f"连续 {run} 行感叹结尾（排比轰炸）"
+        else:
+            run = 0
+    return None
+
+
 # ═══════════════════════════════════════════════════════════════
 #  伏笔账本检查（纯函数，可测）
 # ═══════════════════════════════════════════════════════════════
@@ -986,6 +1046,19 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
                     "章节生成第 %d 次检出词语雪崩（%s），重试",
                     attempt, avalanche)
                 repeated = avalanche  # 走同一重试通道
+            if repeated is None:
+                # 写作规范体检（2026-09-27）：违规重抽 3 次仍高发（4B
+                # 感叹习惯顽固），改为确定性修文——！！→！+连续感叹行
+                # 降温后放行（机械达标不赌重抽）
+                candidate = await run_blocking(
+                    normalize_exclamations, candidate)
+                violation = await run_blocking(
+                    detect_convention_violations, candidate)
+                if violation is not None:
+                    log.warning(
+                        "章节生成第 %d 次修文后仍有规范违规（%s），重试",
+                        attempt, violation)
+                    repeated = violation
             if repeated is None:
                 content = candidate
                 break

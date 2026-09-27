@@ -28,6 +28,7 @@ import {
   Plus,
   Puzzle,
   Save,
+  Settings2,
   Sparkles,
   Square,
   Trash2,
@@ -45,7 +46,7 @@ import { invokeNovelSkill } from '@/services/novelApi';
 import * as novelApi from '@/services/novelApi';
 import { useAppStore } from '@/stores/useAppStore';
 import { confirmDialog } from '@/stores/useConfirmStore';
-import CloudSlotBadge from '@/components/common/CloudSlotBadge';
+import NovelModelConfigModal from '@/components/novel/NovelModelConfigModal';
 import type { NovelSkillResult } from '@/services/novelApi';
 import { listSkills } from '@/services/pluginApi';
 import type { PluginSkillInfo } from '@/services/pluginApi';
@@ -310,6 +311,8 @@ const NovelWorkspace: React.FC = () => {
   const generateAllChapters = useNovelStore((s) => s.generateAllChapters);
   const addChapter = useNovelStore((s) => s.addChapter);
   const pollProgress = useNovelStore((s) => s.pollProgress);
+  // 写作模型设置弹窗（2026-09-28：本地/云端二选一，与设置页同源）
+  const [modelCfgOpen, setModelCfgOpen] = useState(false);
 
   // 进度轮询：3s 一拍（生成排队/进行中时刷新章节状态与正文回填）
   useEffect(() => {
@@ -358,8 +361,14 @@ const NovelWorkspace: React.FC = () => {
           <option value="light">文风·拟真轻</option>
           <option value="heavy">文风·拟真重</option>
         </select>
-        {/* 批3 P5：写作云端工位徽标（novel.text 绑定即亮；点击直达配置） */}
-        <CloudSlotBadge slots={[{ key: 'novel.text', label: '写作文本' }]} />
+        {/* 写作模型设置（2026-09-28 用户拍板：剔除页内云端徽章，
+            云端/本地选择收进独立弹窗，与设置页同真源联动） */}
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => setModelCfgOpen(true)}
+        >
+          <Settings2 size={14} aria-hidden="true" /> 模型设置
+        </button>
         <span className="flex-1" />
         <button
           className="btn btn-secondary btn-sm"
@@ -425,6 +434,7 @@ const NovelWorkspace: React.FC = () => {
         <ChapterPanel />
         <SidePanel />
       </div>
+      {modelCfgOpen && <NovelModelConfigModal onClose={() => setModelCfgOpen(false)} />}
     </div>
   );
 };

@@ -463,3 +463,20 @@ def test_clean_tail_pathology_suite() -> None:
         assert anchor not in out, f"{name} 未清净"
     good = "他望着远方的天际线，那里有新的风暴正在酝酿。"
     assert clean_chapter_text(good) == good
+
+
+def test_chapter_prompt_coherence_rules() -> None:
+    """2026-09-27 修复回归：连贯铁律注入章节 prompt。"""
+    import sys
+    sys.path.insert(0, ".")
+    from src.services.novel_service import build_chapter_prompt
+    p = build_chapter_prompt(
+        project_name="测试", genre="玄幻", style_notes="",
+        chapter_title="第二章", outline_text="测试细纲",
+        prev_summaries=[(1, "主角林烬遭遇血瞳魔尊")],
+        prev_tail="林烬望着血潭。", characters=[], worldview="",
+        target_words=1500)
+    assert "连贯铁律" in p
+    assert "不得凭空消失" in p
+    assert "严禁自造" in p
+    assert "另起炉灶" in p

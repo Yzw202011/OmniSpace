@@ -480,3 +480,18 @@ def test_chapter_prompt_coherence_rules() -> None:
     assert "不得凭空消失" in p
     assert "严禁自造" in p
     assert "另起炉灶" in p
+
+
+def test_chapter_prompt_prose_rule() -> None:
+    """2026-09-28 修复回归：剧本化防治——小说体裁铁律注入。"""
+    import sys
+    sys.path.insert(0, ".")
+    from src.services.novel_service import build_chapter_prompt
+    p = build_chapter_prompt(
+        project_name="测试", genre="玄幻", style_notes="",
+        chapter_title="第一章", outline_text="细纲",
+        prev_summaries=[], prev_tail="", characters=[], worldview="",
+        target_words=1500)
+    assert "不是剧本" in p
+    assert "画面跳转" in p
+    assert "省略号" in p

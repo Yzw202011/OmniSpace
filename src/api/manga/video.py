@@ -674,16 +674,12 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
             asset_images=asset_images, out_dir=seg_dir,
             progress_cb=gen_cb)
 
-        # 5b) FaceRefine 远景脸修复 pass（方案A，config 默认关；失败
-        # 降级原片零阻断——逻辑全在服务侧 refine_segments）
+        # 5b) 脸修复 pass + 5c) 逐帧放大 pass（均服务侧全兜底，殿后）
         from ...services.inference.h3_face_refine import refine_segments
-        seg_paths = refine_segments(
-            seg_paths, conv=conv, assets=assets,
-            asset_images=asset_images, progress_cb=progress_cb)
-
-        # 5c) 逐帧放大 pass（清晰度线，config 默认关；必须殿后——
-        # 交付前最后一步高清化；失败降级原片零阻断）
         from ...services.inference.h3_frame_upscale import upscale_segments
+        seg_paths = refine_segments(
+            seg_paths, conv=conv, assets=assets, asset_images=asset_images,
+            progress_cb=progress_cb)
         seg_paths = upscale_segments(seg_paths, progress_cb=progress_cb)
 
         seg_specs: list[tuple] = []
@@ -881,18 +877,23 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
                     input_summary=f"{req.resolution} {req.duration_seconds}s"
                                   f" {req.fps}fps",
                     friendly="视频模型推理生成") as gen_node:
-                # 2026-09-30 转义层：自由文本先升官方三段式（失败原样
-                # 直喂，零阻断）；A/B/C 结构化输入交由引擎内既有翻译链
+                # 转义层：A/B/C→确定性拼装；自由文本→LLM 改写
+                from ...services.inference.h3_prompt_normalizer import (
+                    abc_builder_from_desc,
+                )
                 from ...services.inference.h3_prompt_normalizer import (
                     normalize_prompt as _h3_normalize,
                 )
+                abc_official = abc_builder_from_desc(
+                    req.description or "", parse_abc=_parse_abc_shots,
+                    translate=_h3_translator())
                 result = _get_video_engine().generate(
                     req.model_copy(update={
-                        "description": _h3_normalize(req.description)}),
+                        "description": (abc_official or
+                                        _h3_normalize(req.description))}),
                     progress_cb=progress_cb)
-                gen_node.output(
-                    f"model={result.model_used} "
-                    f"{(result.generation_time_ms or 0) / 1000:.1f}s")
+                gen_node.output(f"model={result.model_used} "
+                                f"{(result.generation_time_ms or 0) / 1000:.1f}s")
             real_file = result.file_path or ""
             _check_cancel()
             elapsed_ms = int((time.time() - start) * 1000)

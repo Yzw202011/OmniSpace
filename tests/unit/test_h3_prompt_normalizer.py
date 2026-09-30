@@ -145,3 +145,57 @@ def test_normalize_freeform_zero_blocking():
     # 改写降级 → 原文直喂（零阻断铁律）
     assert norm.normalize_prompt(
         FREEFORM_DESC, chat=lambda m, **k: _BAD_OUT) == FREEFORM_DESC
+
+
+# ──────────── 普通单段链 A/B/C 拼装（2026-10-01 补缺口）────────────
+
+def test_abc_text_to_official_multishot():
+    """多镜合并：首镜无时间戳、切镜 At 分:秒.毫秒、台词 <d>、声音合并。"""
+    shots = [
+        {"text": "She stands on the pier", "camera": "static shot",
+         "sfx": "Waves", "dialogue": "到底在哪儿呢。", "start": 0.1},
+        {"text": "She looks at the paper", "camera": "slow push in",
+         "sfx": "Waves", "dialogue": "", "start": 3.0},
+    ]
+    out = norm.abc_text_to_official(shots, style_en="3D CG style")
+    assert "integrated_multimodal_description:" in out
+    assert out.startswith("integrated_multimodal_description: 3D CG style [Shot 1] She stands")  # 风格锚前置+首镜无时间戳
+    assert "At 00:02.900, the camera cuts to" in out     # 切镜毫秒格式
+    assert "<d>[Chinese] 到底在哪儿呢。</d>" in out        # 台词逐字
+    assert out.count("Waves") == 1                        # sfx 去重
+    assert out.rstrip().endswith("non_diegetic_music: N/A")
+
+
+def test_abc_builder_from_desc_flow(monkeypatch):
+    """入口函数：abc 输入→拼装；非 abc→空串（回退自由文本路）。"""
+    desc = ("A. 全局风格：3D CG。\nB. 世界观：临海街道。\n"
+            "C. 分镜时间轴：\n"
+            "[0.1s-3.0s] 画面：她站在码头上 | 音效：海浪声")
+    assert norm.detect_input_format(desc) == "abc"
+
+    def fake_parse(d):
+        return {"shots": [{"text": "She stands on the pier", "camera": "",
+                           "sfx": "Waves", "dialogue": "", "start": 0.1}]}
+
+    out = norm.abc_builder_from_desc(
+        desc, parse_abc=fake_parse, translate=lambda t: f"EN<{t}>")
+    assert "integrated_multimodal_description:" in out
+    assert "EN<" in out  # 翻译注入生效
+
+    # 非 abc → 空串
+    assert norm.abc_builder_from_desc(
+        "plain text", parse_abc=fake_parse, translate=lambda t: t) == ""
+    # 拆解无镜头 → 空串
+    assert norm.abc_builder_from_desc(
+        desc, parse_abc=lambda d: {"shots": []},
+        translate=lambda t: t) == ""
+
+
+def test_abc_builder_exception_degrades():
+    """拼装异常 → 空串（零阻断，调用方回退既有链）。"""
+    def boom(d):
+        raise RuntimeError("parse fail")
+
+    assert norm.abc_builder_from_desc(
+        "C. 分镜时间轴：\n[0.1s-3.0s] 画面：测试",
+        parse_abc=boom, translate=lambda t: t) == ""

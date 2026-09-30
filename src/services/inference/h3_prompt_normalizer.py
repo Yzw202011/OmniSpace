@@ -237,3 +237,97 @@ def normalize_prompt(desc: str, *,
         return abc_builder() if abc_builder is not None else text
     official = freeform_to_official(text, chat)
     return official if official is not None else text
+
+
+def abc_text_to_official(shots: list[dict], *, style_en: str = "",
+                         shot_offset_s: float = 0.0) -> str:
+    """已拆解的 A/B/C 镜头列表 → 官方三段式多镜文本（普通单段链用）。
+
+    与 _official_segment_prompt（网格链）同语法真源（base-en §2/§4）：
+    - 多镜合并一段：[Shot 1] 无时间戳，后续镜 `At 00:0X.XXX` 切镜
+      （时间戳相对首镜起点，严格递增）
+    - 运镜并入镜头自然句（翻译模板产出三维句形态）；台词 <d>[Chinese]
+      逐字；声音两段取各镜 sfx 合并（去重保序）
+    - 子件英文由调用方翻译注入（shots 内字段须已英文化）；本函数只
+      做确定性拼装，零 LLM。
+
+    Args:
+        shots: [{text, camera, sfx, dialogue, start, end}, ...]（首帧
+               保持段应已被解析层剔除）
+        style_en: A 段全局风格（英文化后）
+        shot_offset_s: 时间戳基准偏移（普通链传首镜 start 归零即可）
+    """
+    body_shots = [s for s in shots if (s.get("text") or s.get("dialogue")
+                                       or s.get("camera"))]
+    if not body_shots:
+        return ""
+    t0 = (body_shots[0].get("start") or 0.0) + shot_offset_s
+    parts: list[str] = []
+    sfx_seen: list[str] = []
+    for i, sh in enumerate(body_shots):
+        seg = (sh.get("text") or "").strip()
+        cam = (sh.get("camera") or "").strip()
+        if cam:
+            seg = (f"{seg} {cam}" if cam.lower().startswith(
+                ("the camera", "camera"))
+                else f"{seg}. The camera motion: {cam}")
+        dlg = (sh.get("dialogue") or "").strip()
+        if dlg:
+            seg = f"{seg.rstrip('.')} (S1) says: <d>[Chinese] {dlg}</d>"
+        if i == 0:
+            parts.append(f"[Shot 1] {seg}".strip())
+        else:
+            cut = max(0.0, (sh.get("start") or 0.0) + shot_offset_s - t0)
+            total_ms = int(round(cut * 1000))
+            mm, rem = divmod(total_ms, 60000)
+            sec = rem / 1000.0
+            parts.append(f"[Shot {i + 1}] At {mm:02d}:{sec:06.3f}, "
+                         f"the camera cuts to {seg}".strip())
+        sfx = (sh.get("sfx") or "").strip()
+        if sfx and sfx not in sfx_seen:
+            sfx_seen.append(sfx)
+    body = " ".join(parts)
+    desc = (f"{style_en.strip()} {body}".strip()
+            if style_en.strip() else body)
+    sfx_block = ((". ".join(sfx_seen) + ".") if sfx_seen
+                 else "Quiet ambient atmosphere only; no prominent sound events.")
+    return (
+        "integrated_multimodal_description: "
+        + desc + "\n\n"
+        + "overall_soundscape: " + sfx_block + "\n\n"
+        + "non_diegetic_music: N/A"
+    )
+
+
+def abc_builder_from_desc(desc: str, *, parse_abc, translate) -> str:
+    """A/B/C 描述词文本 → 官方三段式（普通单段链入口）。
+
+    parse_abc/translate 由调用方注入（API 层的 _parse_abc_shots 与
+    _h3_translator——与网格链共用同一翻译模板）。非 abc 输入、拆解
+    无实体镜头、拼装异常：返回空串（调用方回退 normalize_prompt
+    自由文本路），零阻断。
+    """
+    try:
+        if detect_input_format(desc) != "abc":
+            return ""
+        parsed = parse_abc(desc) or {}
+        shots = parsed.get("shots") or []
+        if not shots:
+            return ""
+        import re as _re
+
+        m = _re.search(r"(?m)^B[.、．]", desc)
+        a_text = desc[:m.start()].strip() if m else desc
+        style_en = translate(_re.sub(
+            r"^A[.、．]\s*(?:全局风格|Global\s*style)?\s*[：:]?\s*",
+            "", a_text, flags=_re.IGNORECASE))
+        shots_en = [{
+            **sh,
+            "text": translate(sh.get("text") or ""),
+            "camera": translate(sh.get("camera") or ""),
+            "sfx": translate(sh.get("sfx") or ""),
+        } for sh in shots]
+        return abc_text_to_official(shots_en, style_en=style_en)
+    except Exception as exc:  # noqa: BLE001 - 拼装失败回退既有链
+        log.warning("abc_builder_from_desc 拼装失败（回退既有链）: %s", exc)
+        return ""

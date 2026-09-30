@@ -150,13 +150,13 @@ comfyui:
   # 需要修脸时开。依赖 FaceRefine+NativeAudioLock 节点包与
   # sams/ultralytics/turbo LoRA 权重；缺失自动降级跳过不阻断生成
   h3_face_refine:
-    enabled: false
+    enabled: true
   # H3 逐帧放大 pass（清晰度线 2026-10-01）：导演台段生成（及可选脸
   # 修复）后做逐帧软件超分到 1344x768 交付档（+~110s/段，内容零改动）。
   # 默认 false；依赖 upscale_models/4x-UltraSharp.pth + VHS 包，缺失自动
   # 降级跳过。时序殿后（脸修复之后、拼接之前）
   h3_frame_upscale:
-    enabled: false
+    enabled: true
 
 manga:
   # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，

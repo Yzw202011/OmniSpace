@@ -1726,6 +1726,23 @@ class VideoEngine(BaseEngine):
             prompt=effective_prompt, width=width, height=height,
             seconds=seconds, out_path=out_path,
             first_frame=reference_img, progress_cb=relay)
+
+        # 后处理双 pass（2026-10-01 补普通单段链缺口，config 各自开关）：
+        # 脸修复在前、逐帧放大殿后；全失败路径回退原片零阻断（服务内
+        # 部兜底）。产物落位变化时同步修正 out_path。
+        from .h3_face_refine import face_refine_enabled, refine_video
+        from .h3_frame_upscale import frame_upscale_enabled, upscale_video
+        post = out_path
+        if face_refine_enabled():
+            post = refine_video(post, prompt=effective_prompt,
+                                ref_images=[reference_img]
+                                if reference_img is not None else [],
+                                progress_cb=relay)
+        if frame_upscale_enabled():
+            post = upscale_video(post, progress_cb=relay)
+        if post != out_path:
+            out_path = post
+
         elapsed_ms = int((time.time() - start_time) * 1000)
         return VideoGenResult(
             id=gen_id,

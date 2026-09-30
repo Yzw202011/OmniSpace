@@ -151,7 +151,7 @@ def test_six_field_order(result_en):
 
 def test_dialogue_verbatim_in_d_tag(result_no_trans):
     prompt = result_no_trans["project"]["shots"][1]["prompt"]
-    assert "<d>[cmn] 望云亭苑 C 区二街 36 号…… 到底在哪儿呢。</d>" in prompt
+    assert "<d>[Chinese] 望云亭苑 C 区二街 36 号…… 到底在哪儿呢。</d>" in prompt
 
 
 def test_music_na_when_no_bgm(result_no_trans):
@@ -170,7 +170,7 @@ def test_honest_degrade_without_translator(result_no_trans):
 def test_translate_injected_body_english(result_en):
     prompt = result_en["project"]["shots"][0]["prompt"]
     assert "EN<" in prompt                       # 正文经翻译
-    assert "<d>[cmn]" in result_en["project"]["shots"][1]["prompt"]
+    assert "<d>[Chinese]" in result_en["project"]["shots"][1]["prompt"]
     body = prompt.split("<d>")[0]
     assert "盛夏临海街道" not in body             # 正文不含未翻译中文
     assert result_en["degraded"] is False
@@ -260,3 +260,73 @@ def test_validate_subject_number_drift(result_en):
 def test_empty_shots_raises():
     with pytest.raises(ValueError, match="未解析到实体镜头"):
         conv.convert_row_to_project("A. 全局风格：测试\nB. 高密度世界观构建：测试")
+
+
+# ────────────── 官方语法锁定（2026-09-30 批2 对齐 base-en/ref-en）──────────────
+
+def _shot2_prompt(result: dict) -> str:
+    """样例第 2 镜（夏沐沐台词镜）的 prompt。"""
+    return result["project"]["shots"][1]["prompt"]
+
+
+def test_first_shot_no_timestamp(result_no_trans):
+    """A-1：第一镜禁时间戳（官方 base-en §4.2）。"""
+    p = result_no_trans["project"]["shots"][0]["prompt"]
+    assert "At 0.00 seconds" not in p
+    assert "[Shot 1]" in p  # 镜头标记本身保留
+
+
+def test_summary_prefix_combination(result_no_trans):
+    """A-2：首帧锚=帧锚定，前缀须组合 keyframe completion（ref-en §3）。"""
+    p = result_no_trans["project"]["shots"][0]["prompt"]
+    assert "[reference generation + keyframe completion]" in p
+
+
+def test_speaker_official_format_with_manner(result_no_trans):
+    """A-3：说话人=主体标签+圆括号 ID+manner（base-en §4.4）。
+
+    样例第 2 镜：夏沐沐（小声呢喃）→ "<Subject 1> (S1) murmurs: <d>[Chinese]..."
+    """
+    p = _shot2_prompt(result_no_trans)
+    assert "<Subject 1> (S1) murmurs: <d>[Chinese]" in p
+    assert "<S1>" not in p  # 旧尖括号 ID 形态绝迹
+
+
+def test_speaker_without_subject_binding_still_round_id(result_no_trans):
+    """A-3 边界：说话人非绑定角色 → 无 Subject 标签但保留 (Sx) 圆括号 ID。"""
+    p = _shot2_prompt(result_no_trans)
+    # 样例说话人=夏沐沐=绑定角色（挂双标）；负向确认整体格式无尖括号 ID
+    import re as _re
+    assert not _re.search(r"<S\d+>", p)
+
+
+def test_camera_no_label_line(result_en):
+    """A-4：运镜自然句形态，禁 "Camera:" 标签行（base-en §4.3）。
+
+    result_en 的假翻译器输出 "EN<n>" → 走 _camera_sentence 降级包裹
+    （"The camera motion: ..."），主路径自然句由翻译模板保证。
+    """
+    p = _shot2_prompt(result_en)
+    assert "\nCamera:" not in p
+    assert "The camera motion: EN<" in p  # 降级包裹形态锁定
+
+
+def test_camera_natural_sentence_passthrough():
+    """A-4 主路径：已是 "The camera ..." 自然句 → 原样通过。"""
+    from rules import _camera_sentence
+    assert _camera_sentence(
+        "the camera pushes in with small amplitude at slow speed"
+    ) == "The camera pushes in with small amplitude at slow speed"
+    assert _camera_sentence("") == ""
+
+
+def test_manner_zh_extraction_and_mapping(result_no_trans):
+    """语气括号捕获 + 中文→英文 manner 映射（表内最长匹配）。"""
+    from convert import _manner_en
+    assert _manner_en("小声呢喃") == "murmurs"
+    assert _manner_en("") == "says"
+    assert _manner_en("完全未知的语气词") == "says"
+    # 解析层：样例台词行括号语气被捕获
+    parsed = conv.parse_abc(SAMPLE_DESC)
+    shot2 = parsed["shots"][1]
+    assert shot2["manner_zh"] == "小声呢喃"

@@ -17,7 +17,7 @@ sys.path 注入本目录后 import 使用（P1 接线）。输入输出：
 - H3 生成段 5-30s（用户裁定 2026-08-29，>15s 为训练域外超域生成）×
   我们 C 段 2-4s/镜 → 生成段取 5s 下限，plan.trim_to 记录 C 段真实
   时长，生成毕 ffmpeg 裁时回时间轴
-- prompt 正文英文（translate 注入）；对白原文 <d>[cmn]...</d>
+- prompt 正文英文（translate 注入）；对白原文 <d>[Chinese]...</d>
 - 资产引用 {{ref:别名}}（素材集锁定 = asset_ids 绑定铁律）；
   角色 <Subject N> 全项目稳定编号；网格首帧 = 每镜时间对齐锚 ref
 """
@@ -52,23 +52,51 @@ _KIND_ZH = {"character": "角色", "scene": "场景", "prop": "道具"}
 _TC = r"[\[【]?\s*(\d[\d.]*)s?\s*[-–~—]\s*(\d[\d.]*)s?\s*[\]】]?"
 
 
-def _parse_dialogue(body: str) -> tuple[str, str]:
-    """镜头行正文 → (说话人, 台词原文)。格式：台词：夏沐沐（小声呢喃）：……
-    说话人=首个分隔符前文本；无说话人前缀时返回空说话人。"""
+def _parse_dialogue(body: str) -> tuple[str, str, str]:
+    """镜头行正文 → (说话人, 台词原文, 语气中文)。
+
+    格式：台词：夏沐沐（小声呢喃）：……
+    说话人=首个分隔符前文本；无说话人前缀时返回空说话人。
+    语气括号内容（小声呢喃等）2026-09-30 批2 起捕获——官方语法要求
+    delivery 描述在 <d> 标签外（base-en §4.4），此前被丢弃。
+    """
     m = re.search(r"台词[：:]\s*(.+?)(?=\s*(?:\||音效[：:]|$))", body)
     if not m:
-        return "", ""
+        return "", "", ""
     raw = m.group(1).strip()  # 对白逐字保留（含尾部标点，skill 铁律）
     if raw in {"无", "无台词", "N/A", "-"}:
-        return "", ""
-    # 形态1：说话人（语气）：台词 —— 语气括号吞掉不捕获
-    sp = re.match(r"^([^（(：:]{1,12})\s*[（(][^）)]*[）)]?\s*[：:]\s*(.+)$", raw)
+        return "", "", ""
+    # 形态1：说话人（语气）：台词 —— 语气括号捕获为 manner
+    sp = re.match(r"^([^（(：:]{1,12})\s*[（(]([^）)]*)[）)]\s*[：:]\s*(.+)$", raw)
     if sp:
-        return sp.group(1).strip(), sp.group(2).strip()
+        return sp.group(1).strip(), sp.group(3).strip(), sp.group(2).strip()
     sp = re.match(r"^([^：:]{1,12})[：:]\s*(.+)$", raw)
     if sp:
-        return sp.group(1).strip(), sp.group(2).strip()
-    return "", raw
+        return sp.group(1).strip(), sp.group(2).strip(), ""
+    return "", raw, ""
+
+
+# 常见语气中文 → 英文 manner（官方 delivery 位；表外兜底 says，
+# 避免为两三个语气词多跑一次翻译 LLM）
+_MANNER_EN = {
+    "小声": "murmurs", "低语": "whispers", "轻声": "says softly",
+    "呢喃": "murmurs", "喊": "shouts", "大喊": "shouts",
+    "叫": "calls out", "喊道": "shouts", "说": "says", "说道": "says",
+    "笑着说": "says with a smile", "冷冷地说": "says coldly",
+    "叹气": "sighs", "惊讶地说": "says in surprise",
+    "自言自语": "mutters to themself",
+}
+
+
+def _manner_en(zh: str) -> str:
+    """语气中文 → 英文 manner（最长匹配优先，无匹配 says）。"""
+    z = (zh or "").strip()
+    if not z:
+        return "says"
+    for k in sorted(_MANNER_EN, key=len, reverse=True):
+        if k in z:
+            return _MANNER_EN[k]
+    return "says"
 
 
 def parse_abc(desc: str) -> dict:
@@ -120,14 +148,14 @@ def parse_abc(desc: str) -> dict:
         seg_text = body.split("|")[0].strip()
         cm = re.search(r"运镜[：:]\s*([^|]+?)(?=\s*(?:\||台词[：:]|音效[：:]|$))", body)
         sm = re.search(r"音效[：:]\s*(.+?)(?=\s*(?:\||台词[：:]|$))", body)
-        speaker, line_txt = _parse_dialogue(body)
+        speaker, line_txt, manner_zh = _parse_dialogue(body)
         shots.append({
             "start": start, "end": end,
             "dur": round(max(end - start, 0.5), 2),
             "title": title, "text": seg_text,
             "camera": (cm.group(1).strip() if cm else ""),
             "sfx": (sm.group(1).strip() if sm else ""),
-            "speaker": speaker, "line": line_txt,
+            "speaker": speaker, "line": line_txt, "manner_zh": manner_zh,
         })
     return {"style": style, "world": world, "shots": shots, "layout": layout}
 
@@ -230,11 +258,17 @@ def _shot_prompt(sh: dict, idx: int, style_en: str, world_en: str,
     line_txt = (sh.get("line") or "").strip()
     if line_txt:
         speaker = (sh.get("speaker") or "").strip()
+        # 说话人是绑定角色时挂官方双标 <Subject N> (Sx)（base-en §4.4：
+        # 主体标签 + 圆括号 ID；身份细节由 subject_definitions 段供给）
+        subj_n = next((s["n"] for s in subjects
+                       if s["alias"] == _clean_alias(speaker, 0)
+                       or s["alias"] == speaker), None) if speaker else None
         dialogues.append({
             "speaker": speaker or "Subject",
             "speaker_id": speaker_map.get(speaker, "S1"),
             "line": line_txt,  # 对白原文，不翻译（skill 铁律）
-            "manner": "says",
+            "manner": _manner_en(sh.get("manner_zh", "")),
+            "subject_n": subj_n,
         })
 
     w_en = _maybe_en(world_en, translate, warnings, flag)

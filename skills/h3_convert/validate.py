@@ -11,7 +11,7 @@
 - {{ref:}} 引用必须全部登记于 project.assets（素材白名单锁定）
 - 禁止官方 Picture/Video/Audio 编号残留（必须 {{ref:}} 格式）
 - <Subject N> 全项目稳定编号、不被 {{ref:}} 取代
-- 对白原文保留在 <d>[cmn] ...</d>
+- 对白原文保留在 <d>[Chinese] ...</d>
 - plan.trim_to ≤ gen_seconds（裁时计划与生成段自洽）
 - 每段参考图 ≤9（素材上限）
 """
@@ -94,7 +94,7 @@ def validate_result(result: dict) -> tuple[list[str], list[str]]:
     for sh in shots:
         prompt = sh.get("prompt") or ""
         if re.search(r"(?m)\bS\d+> says:", prompt) and not _DIALOGUE.search(prompt):
-            errors.append(f"{sh.get('id')} 存在对白但缺少 <d>[cmn] 原文标签")
+            errors.append(f"{sh.get('id')} 存在对白但缺少 <d>[Chinese] 原文标签")
 
     # plan 自洽：裁时目标 ≤ 生成段时长；cells 均为有效拆格序号
     n_cells_expected = sum(len(p.get("cells") or []) for p in plan)

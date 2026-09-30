@@ -223,6 +223,41 @@ def _segment_prompt(desc: str, grid: dict, i: int) -> str:
     return "\n".join(lines)
 
 
+def _official_segment_prompt(req: VideoGenerateRequest, grid: dict, i: int) -> str:
+    """标准链单镜 → 官方三段式（2026-09-30 转义层接线，拍板 C）。
+
+    A/B/C 结构化数据确定性拼装（零 LLM 结构改动；子件经 _h3_translator
+    英文化——翻译模板批1-b 已注入官方运镜三维语法）。真源：
+    skills/h3_prompt_writing/references/base-en.txt §2/§3.1（I2VA 形态，
+    网格拆格首帧 = <Picture 1> 帧锚）。翻译失败时子件保留中文，
+    引擎内 _ensure_h3_prompt_english 兜底整段翻译（既有降级路径）。
+    """
+    from ...services.inference.h3_prompt_normalizer import abc_to_official
+
+    tr = _h3_translator()
+    shot = grid["shots"][i]
+    m = re.search(r"(?m)^B[.、．]", req.description)
+    a_text = req.description[:m.start()].strip() if m else req.description
+    # A 段标记剥离：中英双形态（冒烟实锤：纯英文输入时中文正则漏剥）
+    style_en = tr(re.sub(
+        r"^A[.、．]\s*(?:全局风格|Global\s*style)?\s*[：:]?\s*", "",
+        a_text, flags=re.IGNORECASE))
+
+    seg = tr(f"{shot.get('title') or ''} {shot.get('text') or ''}")
+    cam = tr(shot.get("camera") or "")
+    if cam:
+        # 官方 §4.3：运镜并入镜头描述自然句（翻译模板产出三维句形态）
+        seg = f"{seg} {cam}" if cam.lower().startswith(
+            ("the camera", "camera")) else f"{seg}. The camera motion: {cam}"
+    dialogue = (shot.get("dialogue") or "").strip()
+    if dialogue:
+        # 官方 §4.4：<d> 外仅识别信息；标准链无角色绑定 → 圆括号 ID
+        seg = (f"{seg.rstrip('.')} (S1) says: <d>[Chinese] {dialogue}</d>")
+    return abc_to_official(
+        first_frame_anchored=True, shot_desc_en=seg, style_en=style_en,
+        sfx_en=tr(shot.get("sfx") or ""))
+
+
 def _probe_has_audio(enc: EncoderService, path: Path) -> bool:
     """ffprobe 探测片段是否含音频流（不可用按有音频处理）。"""
     ffprobe = getattr(enc, "ffprobe_path", "") or getattr(enc, "_ffprobe", "")
@@ -404,10 +439,15 @@ def _generate_grid_video(req: VideoGenerateRequest, grid: dict,
 
             buf = io.BytesIO()
             cell.save(buf, "PNG")
+            # H3 真实管线走官方三段式（2026-09-30 转义层）；Ken Burns
+            # 降级引擎维持原拼接（其 prompt 语义无关官方语法）
+            seg_desc = (_official_segment_prompt(req, grid, i)
+                        if path != "kenburns" else
+                        _segment_prompt(req.description, grid, i))
             sub = req.model_copy(update={
                 "screenshot_4in1":
                     base64.b64encode(buf.getvalue()).decode("ascii"),
-                "description": _segment_prompt(req.description, grid, i),
+                "description": seg_desc,
                 "duration_seconds": float(shot["dur"]),
             })
             if path == "kenburns":
@@ -476,15 +516,29 @@ _H3_OUT_FPS = 24  # H3 恒 24fps（ctx_frames → 秒换算基准）
 
 # H3 六段提示词专用翻译模板：绘画/视频既有模板的 40/60 词压缩会把
 # B 段世界观细节截掉——H3 上下文窗口大，要求完整忠实翻译。
+# 2026-09-30 批1 升级：注入官方运镜三维语法与风格词表（真源 =
+# skills/h3_prompt_writing/references/base-en.txt §4.3/§4.1，
+# MiniMax 官方仓镜像）——H3 编码器按官方语法解析运镜措辞，
+# 标签式堆砌会被官方指南点名降权。
 _H3_TRANSLATE_SYSTEM = (
-    "Translate the Chinese video shot description into English. HARD "
-    "RULES:\n"
-    "1. Translate faithfully and COMPLETELY — preserve every visual "
+    "Translate the Chinese video shot description into English for the "
+    "MiniMax H3 video model. HARD RULES:\n"
+    "1. Translate faithfully and COMPLETELY - preserve every visual "
     "detail (appearance, clothing, hairstyle, props, lighting, weather); "
     "never summarize or drop content;\n"
-    "2. Keep action verbs and camera terms exact (dolly in, pan, "
-    "close-up, slow tilt up);\n"
-    "3. Single line, no explanation, no Chinese."
+    "2. Write camera motion as a natural English action following the "
+    "type + amplitude + speed pattern, e.g. 'The camera pushes in with "
+    "small amplitude at slow speed toward her face'. Standard motion "
+    "types: zoom in/out, push in/pull out, pan left/right, truck "
+    "left/right, tilt up/down, pedestal up/down, arc shot, tracking "
+    "shot, static shot. Amplitude: small/medium/large; speed: "
+    "slow/normal/fast; medium amplitude and normal speed may be "
+    "omitted. Do NOT stack camera terms as a label list;\n"
+    "3. Use standard style vocabulary when present: cinematic, "
+    "live-action, 2D-animated, 3D CG, watercolor, vintage film;\n"
+    "4. Keep action verbs exact; any text visible on screen stays in "
+    "its original language inside English double quotes;\n"
+    "5. Single line, no explanation, no Chinese."
 )
 
 
@@ -815,7 +869,15 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
                     input_summary=f"{req.resolution} {req.duration_seconds}s"
                                   f" {req.fps}fps",
                     friendly="视频模型推理生成") as gen_node:
-                result = _get_video_engine().generate(req, progress_cb=progress_cb)
+                # 2026-09-30 转义层：自由文本先升官方三段式（失败原样
+                # 直喂，零阻断）；A/B/C 结构化输入交由引擎内既有翻译链
+                from ...services.inference.h3_prompt_normalizer import (
+                    normalize_prompt as _h3_normalize,
+                )
+                result = _get_video_engine().generate(
+                    req.model_copy(update={
+                        "description": _h3_normalize(req.description)}),
+                    progress_cb=progress_cb)
                 gen_node.output(
                     f"model={result.model_used} "
                     f"{(result.generation_time_ms or 0) / 1000:.1f}s")

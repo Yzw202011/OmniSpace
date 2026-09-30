@@ -34,7 +34,7 @@ MAX_REF_VIDEOS = 3
 MAX_REF_AUDIOS = 3
 
 # 对白语言标签（我们台词为中文普通话）
-DIALOGUE_LANG = "cmn"
+DIALOGUE_LANG = "Chinese"
 
 
 def clamp_segment_duration(seconds: float) -> float:
@@ -76,8 +76,14 @@ def subject_definitions_section(env_refs: list[str],
 
 
 def summary_section(action_en: str) -> str:
-    """summary 段：一句话主行动（英文）。"""
-    return f"[reference generation] {action_en.strip()}"
+    """summary 段：一句话主行动（英文）。
+
+    任务前缀组合（官方 ref-en §3）：网格首帧 = 帧锚定（keyframe
+    completion），角色/场景资产 = 生成参考（reference generation），
+    多关系用 " + " 连接——漏报帧锚会让模型对首帧锚定强度犹豫。
+    """
+    return (f"[reference generation + keyframe completion] "
+            f"{action_en.strip()}")
 
 
 def retention_analysis_section(first_frame_alias: str,
@@ -113,25 +119,55 @@ def detailed_description_section(style_en: str,
     """detailed_description 段。
 
     style_en: A 段全局风格（英文，含项目 art_style 与氛围）；
-    action_en: 本镜画面/动作（英文）；camera_en: 运镜（英文）；
+    action_en: 本镜画面/动作（英文）；camera_en: 运镜（英文，官方
+    三维自然句形态——type+amplitude+speed，翻译模板已按此产出）；
     dialogues: [{"speaker": "夏沐沐", "speaker_id": "S1",
-                 "line": "望云亭苑 C 区二街 36 号……", "manner": "murmurs"}]
-    —— 对白逐字保留原文于 <d>[cmn] ...</d>，不翻译不润色。
+                 "line": "望云亭苑 C 区二街 36 号……",
+                 "manner": "murmurs", "subject_n": 1}]
+    —— 对白逐字保留原文于 <d>[Chinese] ...</d>，不翻译不润色。
+
+    官方语法（base-en §4.2/4.3/4.4，2026-09-30 批2 对齐）：
+    - 第一镜不带时间戳（时间戳仅标切镜，格式 At 00:03.500）
+    - 运镜写自然动作句，不堆 "Camera:" 标签行
+    - 说话人 = 主体标签 + 圆括号 ID + 识别短语，manner 在 <d> 外：
+      "<Subject 1> (S1), {识别短语}, murmurs: <d>[Chinese] ...</d>"
     """
     parts = [
         "The target video uses the established global art style: "
         + (style_en.strip() or "as defined by the project style")
         + ". No text, logos, borders, or watermarks appear.",
-        f"[Shot 1] At 0.00 seconds, {action_en.strip()}",
+        f"[Shot 1] {action_en.strip()}",
     ]
     if camera_en:
-        parts.append(f"Camera: {camera_en.strip()}")
+        parts.append(_camera_sentence(camera_en))
     for d in dialogues:
         manner = d.get("manner") or "says"
+        subj = d.get("subject_n")
+        voice = (d.get("voice_en") or "").strip()
+        head = (f"<Subject {subj}> " if subj else "") + f"({d['speaker_id']})"
+        if voice:
+            head += f", {voice}"
         parts.append(
-            f"<{d['speaker_id']}> {manner}: <d>[{DIALOGUE_LANG}] "
+            f"{head} {manner}: <d>[{DIALOGUE_LANG}] "
             f"{d['line']}</d>")
     return "\n".join(parts)
+
+
+def _camera_sentence(camera_en: str) -> str:
+    """运镜文本 → 官方自然动作句形态（base-en §4.3）。
+
+    主路径：翻译模板已产出 "The camera pushes in with small
+    amplitude at slow speed ..." 三维自然句——原样通过（仅兜底首字母
+    大写）。降级路径（翻译失败保留中文/短标签）：包进自然句框架，
+    仍优于官方点名的 "Camera:" 标签行。
+    """
+    c = camera_en.strip().rstrip(".")
+    if not c:
+        return ""
+    low = c.lower()
+    if low.startswith(("the camera", "camera")):
+        return c[0].upper() + c[1:]
+    return f"The camera motion: {c}"
 
 
 def overall_soundscape_section(sfx_en: str) -> str:

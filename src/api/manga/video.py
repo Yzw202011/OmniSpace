@@ -674,6 +674,13 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
             asset_images=asset_images, out_dir=seg_dir,
             progress_cb=gen_cb)
 
+        # 5b) FaceRefine 远景脸修复 pass（方案A，config 默认关；失败
+        # 降级原片零阻断——逻辑全在服务侧 refine_segments）
+        from ...services.inference.h3_face_refine import refine_segments
+        seg_paths = refine_segments(
+            seg_paths, conv=conv, assets=assets,
+            asset_images=asset_images, progress_cb=progress_cb)
+
         seg_specs: list[tuple] = []
         for seg, sp in zip(conv["plan"], seg_paths, strict=False):
             # P2：合并段先剥 22 帧 relay 上下文前缀，再按段内偏移切分

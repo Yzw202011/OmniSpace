@@ -1,0 +1,360 @@
+{
+ "15": {
+  "class_type": "KSamplerSelect",
+  "inputs": {
+   "sampler_name": "er_sde"
+  }
+ },
+ "16": {
+  "class_type": "BasicScheduler",
+  "inputs": {
+   "model": [
+    "31",
+    2
+   ],
+   "scheduler": "simple",
+   "steps": 8,
+   "denoise": 0.4
+  }
+ },
+ "17": {
+  "class_type": "RandomNoise",
+  "inputs": {
+   "noise_seed": 42
+  }
+ },
+ "18": {
+  "class_type": "SamplerCustomAdvanced",
+  "inputs": {
+   "noise": [
+    "17",
+    0
+   ],
+   "guider": [
+    "14",
+    0
+   ],
+   "sampler": [
+    "15",
+    0
+   ],
+   "sigmas": [
+    "16",
+    0
+   ],
+   "latent_image": [
+    "31",
+    0
+   ]
+  }
+ },
+ "22": {
+  "class_type": "H3FaceStitch",
+  "inputs": {
+   "base_images": [
+    "1",
+    0
+   ],
+   "refined_crops": [
+    "19",
+    0
+   ],
+   "transform": [
+    "2",
+    1
+   ],
+   "masks": [
+    "21",
+    0
+   ],
+   "paste_region": "face_only",
+   "mask_dilation": 24,
+   "feather": 24,
+   "colour_match": 1,
+   "blend": 1,
+   "undetected_frames": "fade_out",
+   "feather_scales_with_crop": false
+  }
+ },
+ "4": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+  }
+ },
+ "5": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+  }
+ },
+ "7": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "second_reference.png"
+  }
+ },
+ "9": {
+  "class_type": "MiniMaxH3ReferenceToVideo",
+  "inputs": {
+   "clip": [
+    "109",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ],
+   "audio_vae": [
+    "5",
+    0
+   ],
+   "ref_images.ref_image_0": [
+    "6",
+    0
+   ],
+   "ref_images.ref_image_1": [
+    "7",
+    0
+   ],
+   "ref_audios.ref_audio_0": [
+    "1",
+    2
+   ],
+   "width": 768,
+   "height": 768,
+   "length": 362,
+   "prompt": "integrated_multimodal_description: [Shot 1] 3D CG anime-realistic fusion style, a medium-wide shot frames a girl with long black hair standing on a seaside pier at dusk, seen from about eight meters away, her face small in frame as she looks at a crumpled paper in her hand. The camera holds a static shot. She looks up and says softly: <d>[Chinese] 到底在哪儿呢。</d>\n\noverall_soundscape: Steady sea waves and a gentle sea breeze.\n\nnon_diegetic_music: N/A",
+   "ref_image_size": "match"
+  }
+ },
+ "10": {
+  "class_type": "H3InjectVideoLatent",
+  "inputs": {
+   "av_latent": [
+    "9",
+    1
+   ],
+   "images": [
+    "2",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ]
+  }
+ },
+ "13": {
+  "class_type": "MiniMaxH3NativeAudioLock",
+  "inputs": {
+   "model": [
+    "12",
+    0
+   ],
+   "av_latent": [
+    "10",
+    0
+   ],
+   "audio_vae": [
+    "5",
+    0
+   ],
+   "audio": [
+    "1",
+    2
+   ]
+  }
+ },
+ "31": {
+  "class_type": "H3PerFrameDenoise",
+  "inputs": {
+   "model": [
+    "13",
+    0
+   ],
+   "av_latent": [
+    "13",
+    1
+   ],
+   "transform": [
+    "2",
+    1
+   ],
+   "denoise_multiplier_small_face": 1.0,
+   "denoise_multiplier_large_face": 0.35,
+   "scale_mode": "absolute_px",
+   "face_px_small": 30,
+   "face_px_large": 120,
+   "gamma": 1,
+   "smooth_frames": 9
+  }
+ },
+ "14": {
+  "class_type": "BasicGuider",
+  "inputs": {
+   "model": [
+    "31",
+    2
+   ],
+   "conditioning": [
+    "9",
+    0
+   ]
+  }
+ },
+ "19": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "18",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ]
+  }
+ },
+ "23": {
+  "class_type": "VHS_VideoCombine",
+  "inputs": {
+   "images": [
+    "22",
+    0
+   ],
+   "audio": [
+    "1",
+    2
+   ],
+   "frame_rate": 24,
+   "loop_count": 0,
+   "filename_prefix": "video/FaceRefined/output",
+   "format": "video/h264-mp4",
+   "pix_fmt": "yuv420p",
+   "crf": 16,
+   "save_metadata": true,
+   "trim_to_audio": false,
+   "pingpong": false,
+   "save_output": true,
+   "videopreview": ""
+  }
+ },
+ "12": {
+  "class_type": "LoraLoaderModelOnly",
+  "inputs": {
+   "model": [
+    "108",
+    0
+   ],
+   "lora_name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_resized_avg_rank_20_bf16.safetensors",
+   "strength_model": 1.0
+  }
+ },
+ "6": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "character_reference.png"
+  }
+ },
+ "1": {
+  "class_type": "VHS_LoadVideoPath",
+  "inputs": {
+   "video": "E:\\OmniSpace\\_live_ab\\h3_face_source.mp4",
+   "force_rate": 0,
+   "custom_width": 0,
+   "custom_height": 0,
+   "frame_load_cap": 0,
+   "skip_first_frames": 0,
+   "select_every_nth": 1,
+   "format": "None",
+   "videopreview": {
+    "hidden": false,
+    "paused": false,
+    "params": {
+     "filename": "<absolute path to your upscaled clip>.mp4",
+     "type": "path",
+     "format": "video/mp4",
+     "force_rate": 0,
+     "frame_load_cap": 0,
+     "skip_first_frames": 0,
+     "select_every_nth": 1
+    }
+   }
+  }
+ },
+ "2": {
+  "class_type": "H3FaceTrackCrop",
+  "inputs": {
+   "images": [
+    "1",
+    0
+   ],
+   "detector": "face_yolov8m.pt",
+   "confidence": 0.25,
+   "crop_factor": 3,
+   "canvas_width": 768,
+   "canvas_height": 768,
+   "canvas_mode": "manual",
+   "smooth_window": 21,
+   "size_smooth_window": 51,
+   "smooth_method": "gaussian",
+   "size_mode": "per_frame",
+   "identity_track": true,
+   "identity_threshold": 0.28,
+   "select": "largest_face",
+   "fallback_detector": "none",
+   "fallback_head_frac": 0.5,
+   "select_index": 0,
+   "identity_model": "insightface",
+   "cut_detection": "none",
+   "cut_threshold": 3,
+   "absent_shots": "off",
+   "X": 0,
+   "Y": 0,
+   "frame_index": 0
+  }
+ },
+ "20": {
+  "class_type": "SAMLoader",
+  "inputs": {
+   "model_name": "sam_vit_b_01ec64.pth",
+   "device_mode": "AUTO"
+  }
+ },
+ "21": {
+  "class_type": "H3FaceMaskSAM",
+  "inputs": {
+   "crops": [
+    "2",
+    0
+   ],
+   "sam_model": [
+    "20",
+    0
+   ],
+   "transform": [
+    "2",
+    1
+   ],
+   "threshold": 0.93,
+   "dilation": 0,
+   "temporal_smooth": 5
+  }
+ },
+ "108": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "MiniMax_H3_FL2VA_pruned_nvfp4.safetensors",
+   "weight_dtype": "default"
+  }
+ },
+ "109": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+   "type": "minimax",
+   "device": "default"
+  }
+ }
+}

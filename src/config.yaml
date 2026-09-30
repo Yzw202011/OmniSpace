@@ -145,6 +145,12 @@ comfyui:
   # 依赖：triton-windows + woct0rdho 真轮（已装，见
   # 记忆 sage-attention-v7-reopen）
   use_sage_attention: true
+  # H3 远景脸修复 pass（2026-09-30 方案A）：导演台每段生成后跑
+  # FaceRefine v2v 链（+~400s/段）。默认 false——只应在远景/全景镜
+  # 需要修脸时开。依赖 FaceRefine+NativeAudioLock 节点包与
+  # sams/ultralytics/turbo LoRA 权重；缺失自动降级跳过不阻断生成
+  h3_face_refine:
+    enabled: false
 
 manga:
   # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，

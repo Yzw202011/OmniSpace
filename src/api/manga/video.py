@@ -681,6 +681,11 @@ def _generate_grid_video_h3(req: VideoGenerateRequest, grid: dict,
             seg_paths, conv=conv, assets=assets,
             asset_images=asset_images, progress_cb=progress_cb)
 
+        # 5c) 逐帧放大 pass（清晰度线，config 默认关；必须殿后——
+        # 交付前最后一步高清化；失败降级原片零阻断）
+        from ...services.inference.h3_frame_upscale import upscale_segments
+        seg_paths = upscale_segments(seg_paths, progress_cb=progress_cb)
+
         seg_specs: list[tuple] = []
         for seg, sp in zip(conv["plan"], seg_paths, strict=False):
             # P2：合并段先剥 22 帧 relay 上下文前缀，再按段内偏移切分

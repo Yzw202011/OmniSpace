@@ -451,7 +451,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 2. 参考图落盘 + 计划(每镜一 shot,长度=17k+5)
     report(0.02, "准备参考图")
     refs = _prepare_refs(task_id, refs)
-    shots = []
+    shots: list[dict] = []
     for k, r in enumerate(rows, 1):
         frames = align_h3_frames(seconds)
         seed = str(int(hashlib.md5(f"{r['id']}|{seconds}".encode()).hexdigest()[:8], 16) % 1_000_000)
@@ -556,8 +556,23 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     if run_dir is not None and run_dir != _COMFY_OUTPUT \
             and _COMFY_OUTPUT in run_dir.parents:
         shutil.rmtree(run_dir, ignore_errors=True)
+    # 6. 后处理双 pass（2026-10-01 补链式引擎缺口——分镜行"生成视频"
+    # 主力链；脸修复在前、逐帧放大殿后；全失败路径回退原片零阻断，
+    # config comfyui.h3_face_refine / h3_frame_upscale 各自开关）
+    from .h3_face_refine import face_refine_enabled, refine_video
+    from .h3_frame_upscale import frame_upscale_enabled, upscale_video
+    post = dest
+    if face_refine_enabled():
+        first = shots[0] if shots else {}
+        chain_prompt = str(first.get("prompt", [""])[0]) if first else ""
+        post = refine_video(post, prompt=chain_prompt, ref_images=[],
+                            progress_cb=report)
+    if frame_upscale_enabled():
+        post = upscale_video(post, progress_cb=report)
+    if post != dest:
+        dest = post
     report(1.0, "完成")
-    total_seconds = sum(s["length"] for s in shots) / 24.0
+    total_seconds = sum(float(s["length"]) for s in shots) / 24.0
     return {"file_path": str(dest), "resolution": f"{width}x{height}",
             "duration_seconds": total_seconds,
             "run_name": run_name, "start_clip": start_clip}
@@ -566,7 +581,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
 def _poll_chain_history(engine: Any, prompt_id: str, seconds: float,
                         frames: int, report: Callable[[float, str], None],
                         check_cancel: Callable[[], None] | None = None,
-                        on_cancel: Callable[[], None] | None = None) -> str:
+                        on_cancel: Callable[[Any], None] | None = None) -> str:
     """链式轮询：整体 ETA 按帧数线性 + 队列活性检测（复用导演台口径）。
 
     check_cancel：每轮（3s）取消检查，命中经 on_cancel 中断 ComfyUI

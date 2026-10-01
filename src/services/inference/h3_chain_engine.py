@@ -26,8 +26,10 @@ if TYPE_CHECKING:
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -274,10 +276,12 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     abc = _split_abc(description)
     c_win = _timeline_window(abc["c"], total_seconds)
     # 摘要首拍：跳过转场拍（「衔接上一镜头…」是承上启下的空拍，
-    # 不是本镜实体画面——镜3 实测它曾被当成主画面写进 summary）
+    # 不是本镜实体画面——镜3 实测它曾被当成主画面写进 summary）；
+    # 2026-10-02 修正：无句号的镜头行会把「运镜/台词/音效」整块吞进
+    # summary（B 段被当台词朗读的诱因之一）——句号或换行都截断
     first_shot = ""
     for blk in c_win.split("画面：")[1:]:
-        cand = blk.split("。", 1)[0].strip()
+        cand = re.split(r"[。\n]", blk.strip(), maxsplit=1)[0].strip()
         if not cand or cand.startswith("衔接"):
             continue
         first_shot = cand[:120]
@@ -304,6 +308,9 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         f"[世界与人物状态] {abc['b'][:500]}" if abc["b"] else "",
         (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_win[:1500]}"
          if c_win else ""),
+        ("[运镜铁律] 本镜固定机位：全程镜头无位移、无推拉摇移变焦，"
+         "取景与构图保持不变。"
+         if "固定机位" in c_win else ""),
         ("[音频铁律] 本镜全程无角色台词、无任何人声说话、无字幕；"
          "音效为无（接近无声，仅极低房间底噪）。"
          if (sfx_vals and not sfx_named and not has_dialogue) else ""),
@@ -328,6 +335,63 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         f"overall_soundscape:\n{soundscape} 单镜时长约 {total_seconds:.0f} 秒。",
         "non_diegetic_music:\n无配乐。",
     ])
+
+
+def _chain_audio_spec(descriptions: list[str], seconds: float) -> tuple[bool, bool, bool]:
+    """多行链式的台词/音效并集判定 → (有台词, 有具名音效, 显式双无)。
+
+    显式双无 = 至少一行 C 段同时写出台词：无 与 音效：无（用户明确
+    要求静音）。任何一行出现具名台词/具名音效则不触发静音强制。
+    """
+    has_dlg = False
+    has_sfx = False
+    explicit_mute = False
+    for d in descriptions:
+        abc = _split_abc(d)
+        c_win = _timeline_window(abc["c"], seconds)
+        dlg = [x.strip() for x in re.findall(r"台词[：:]\s*([^\n|]+)", c_win)]
+        sfx = [x.strip() for x in re.findall(r"音效[：:]\s*([^\n|]+)", c_win)]
+        dlg_named = any(v not in {"无", "无台词", "N/A", "-"} for v in dlg)
+        sfx_named = any(v not in {"无", "无音效", "N/A", "-"} for v in sfx)
+        has_dlg = has_dlg or dlg_named
+        has_sfx = has_sfx or sfx_named
+        if dlg and sfx and not dlg_named and not sfx_named:
+            explicit_mute = True
+    return has_dlg, has_sfx, explicit_mute
+
+
+def _mute_audio_track(video: Path) -> Path:
+    """音轨替换为静音（台词：无+音效：无 的文件级强制，2026-10-02）。
+
+    提示词级禁令被模型三次无视（B 段散文被当旁白朗读，响度实测
+    -14dB）——C 段显式双无时直接换 anullsrc 静音轨，100% 执行用户
+    标注。视频流零拷贝（-c:v copy）；失败回退原片零阻断。
+    """
+    try:
+        from ..encoder_service import get_encoder_service  # type: ignore[import-untyped]
+        enc = get_encoder_service()
+        if not enc.available:
+            log.warning("[h3_chain] 静音替换跳过（FFmpeg 不可用），保留原音轨")
+            return video
+        tmp = video.with_name(f"{video.stem}_mute.mp4")
+        flags = (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        r = subprocess.run(
+            [enc.ffmpeg_path, "-y", "-i", str(video),
+             "-f", "lavfi",
+             "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+             "-shortest", "-map", "0:v:0", "-map", "1:a",
+             "-c:v", "copy", "-c:a", "aac", str(tmp)],
+            capture_output=True, text=True, timeout=120,
+            creationflags=flags)
+        if r.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 1000:
+            shutil.move(str(tmp), str(video))
+            log.info("[h3_chain] 音轨已替换为静音（台词：无+音效：无 文件级强制）")
+        else:
+            log.warning("[h3_chain] 静音替换失败（保留原音轨）: %s",
+                        (r.stderr or "")[-200:])
+    except Exception as exc:  # noqa: BLE001 - 静音失败不阻断交付
+        log.warning("[h3_chain] 静音替换异常（保留原音轨）: %s", exc)
+    return video
 
 
 def _prepare_refs(task_id: str, refs: list[dict]) -> list[dict]:
@@ -546,10 +610,14 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
             prompt_id = str(resp["prompt_id"])
             report(0.06, "链式采样中")
 
-            # 4. 轮询（复用导演台的帧数 ETA + 活性检测；3s 一查取消）
-            video_rel = _poll_chain_history(engine, prompt_id, seconds, frames,
-                                            report, check_cancel=check_cancel,
-                                            on_cancel=_cancel_interrupt)
+            # 4. 轮询（复用导演台的帧数 ETA + 活性检测；3s 一查取消）；
+            # 采样进度映射 0~0.68（2026-10-02 进度重置修复：给后处理双
+            # pass 留 0.70~0.99 全局区间，避免 pass 局部进度倒退假象）
+            video_rel = _poll_chain_history(
+                engine, prompt_id, seconds, frames,
+                lambda f, s: report(min(f, 1.0) * 0.68, s),
+                check_cancel=check_cancel,
+                on_cancel=_cancel_interrupt)
     finally:
         _get_comfy_proc().mark_idle()
         # 跑完必卸载,但仅在队列空闲时执行——若用户/其他任务已排队,
@@ -616,17 +684,33 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     if face_refine_enabled():
         first = shots[0] if shots else {}
         chain_prompt = str(first.get("prompt", [""])[0]) if first else ""
-        post = refine_video(post, prompt=chain_prompt,
-                            ref_images=ref_imgs, progress_cb=report)
+        # 进度映射（2026-10-02 用户报「进度条重置」）：pass 内部上报的是
+        # 自身局部进度（0→0.95），直通会覆盖采样期已到 ~0.9 的全局进度
+        # =进度条倒退假象。现映射进全局区间：采样 0~0.68 / 脸修复
+        # 0.70~0.85 / 放大 0.85~0.99 / 完成 1.0
+        post = refine_video(
+            post, prompt=chain_prompt, ref_images=ref_imgs,
+            progress_cb=lambda f, s: report(
+                0.70 + 0.15 * max(0.0, min(1.0, f)), s))
         try:
             engine.unload()
             log.info("[h3_chain] 脸修复毕已卸 H3 权重（放大前减压）")
         except Exception:  # noqa: BLE001 - 卸载失败不阻断
             pass
     if frame_upscale_enabled():
-        post = upscale_video(post, progress_cb=report)
+        post = upscale_video(
+            post, progress_cb=lambda f, s: report(
+                0.85 + 0.14 * max(0.0, min(1.0, f)), s))
     if post != dest:
         dest = post
+    # 音轨文件级强制（2026-10-02 三报定案）：C 段显式 台词：无+音效：无
+    # → 提示词禁令（soundscape/A 段中和/音频铁律）已被模型三次无视
+    # （B 段散文被当旁白朗读）——直接换静音轨执行用户标注
+    _has_dlg, _has_sfx, _explicit_mute = _chain_audio_spec(
+        [r["description"] for r in rows], seconds)
+    if _explicit_mute and not _has_dlg and not _has_sfx:
+        report(0.99, "音轨静音处理")
+        dest = _mute_audio_track(dest)
     report(1.0, "完成")
     total_seconds = sum(float(s["length"]) for s in shots) / 24.0
     return {"file_path": str(dest), "resolution": f"{width}x{height}",

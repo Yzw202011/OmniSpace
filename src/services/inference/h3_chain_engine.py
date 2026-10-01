@@ -569,6 +569,20 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     run_dir = next((a for a in src.parents
                     if a.name == f"h3chain_{task_id}"), None)
     shutil.move(str(src), dest)
+    # 角色参考图读入内存（脸修复身份锚；须在目录回收前读）
+    ref_imgs: list = []
+    for r in refs:
+        if r.get("kind") != "character":
+            continue
+        fp = Path(_COMFY_INPUT) / str(r.get("image") or "")
+        if fp.is_file():
+            try:
+                from PIL import Image as _Img
+                ref_imgs.append(_Img.open(fp).convert("RGB"))
+            except Exception:  # noqa: BLE001 - 单图失败不拦参考收集
+                pass
+        if len(ref_imgs) >= 2:
+            break
     shutil.rmtree(Path(_COMFY_INPUT) / f"h3chain_{task_id}",
                   ignore_errors=True)  # 参考图副本回收(防磁盘泄漏)
     # 中间帧工作目录回收：成片已剪切走，目录里只剩链式过程帧，留存会
@@ -585,8 +599,8 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     if face_refine_enabled():
         first = shots[0] if shots else {}
         chain_prompt = str(first.get("prompt", [""])[0]) if first else ""
-        post = refine_video(post, prompt=chain_prompt, ref_images=[],
-                            progress_cb=report)
+        post = refine_video(post, prompt=chain_prompt,
+                            ref_images=ref_imgs, progress_cb=report)
     if frame_upscale_enabled():
         post = upscale_video(post, progress_cb=report)
     if post != dest:

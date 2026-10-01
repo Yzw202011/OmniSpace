@@ -299,15 +299,49 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     has_dialogue = any(v not in {"无", "无台词", "N/A", "-"} for v in dlg_vals)
     sfx_named = [v for v in sfx_vals
                  if v not in {"无", "无音效", "N/A", "-"}]
+    # 台词官方标记化（2026-10-02 四报根因）：旧版 C 段原文透传=台词是
+    # 裸文本（「台词：夏沐沐（面无表情）：疼」），H3 靠 <d>[Chinese]
+    # </d> 标记识别「要说出的话」，裸文本导致台词/旁白混淆（B 段散文
+    # 被当台词朗读三报）。现解析台词行转官方形式：
+    #   夏沐沐 (S1) 面无表情地说: <d>[Chinese] 疼</d>
+    # 「无」行删除（音频铁律/soundscape 已覆盖）；S 编号按首次发声序。
+    _spk_ids: dict[str, str] = {}
+
+    def _mark_dialogue_line(m: re.Match[str]) -> str:
+        raw = m.group(1).strip()
+        if raw in {"无", "无台词", "N/A", "-"}:
+            return ""
+        spk, manner, line = "", "", raw
+        mm = re.match(r"^(.{1,12}?)（(.{1,12}?)）[：:]\s*(.+)$", raw)
+        if mm:
+            spk, manner, line = mm.group(1).strip(), mm.group(2).strip(), mm.group(3).strip()
+        else:
+            mm = re.match(r"^(.{1,12}?)[：:]\s*(.+)$", raw)
+            if mm:
+                spk, line = mm.group(1).strip(), mm.group(2).strip()
+        if not line:
+            return ""
+        key = spk or "_n"
+        if key not in _spk_ids:
+            _spk_ids[key] = f"S{len(_spk_ids) + 1}"
+        head = f"{spk} ({_spk_ids[key]})" if spk else f"({_spk_ids[key]})"
+        verb = f"{manner}地说" if manner else "说"
+        return f"{head} {verb}: <d>[Chinese] {line}</d>"
+
+    c_marked = re.sub(r"台词[：:]\s*([^\n|]+)", _mark_dialogue_line, c_win)
+    has_dialogue = bool(_spk_ids) or has_dialogue
     detailed = "\n\n".join(x for x in [
         "严格按下方时间轴逐拍演绎；场景、光影与人物动作以描述词为准，"
-        "参考图仅用于锁定人物与道具的外观既定形态。",
+        "参考图仅用于锁定人物与道具的外观既定形态。全局风格、世界与"
+        "人物状态、画面描述均为视觉信息——绝不可作为旁白朗读、不可"
+        "作为字幕、不可出任何人声念读；只有 <d>[Chinese] …</d> 标记"
+        "内的话是被说出的台词。",
         (f"[全局风格] {abc['a'][:400]}" if abc["a"] else "")
         .replace("仅保留环境自然音效与角色台词", "各镜音画以时间轴标注为准")
         if abc["a"] else "",
         f"[世界与人物状态] {abc['b'][:500]}" if abc["b"] else "",
-        (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_win[:1500]}"
-         if c_win else ""),
+        (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_marked[:1500]}"
+         if c_marked else ""),
         ("[运镜铁律] 本镜固定机位：全程镜头无位移、无推拉摇移变焦，"
          "取景与构图保持不变。"
          if "固定机位" in c_win else ""),

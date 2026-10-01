@@ -41,8 +41,13 @@ def test_workflow_construction(tmp_path, monkeypatch):
     assert out.name == "seg_fu.mp4"
     wf = captured["wf"]
     assert wf["2"]["inputs"]["model_name"] == "4x-UltraSharp.pth"
-    assert wf["4"]["inputs"]["width"] == 1344
-    assert wf["4"]["inputs"]["height"] == 768
+    # 双路调和：3a=模型锐利版 3b=lanczos 柔和版 4=ImageBlend
+    assert wf["3a"]["inputs"]["width"] == 1344
+    assert wf["3b"]["inputs"]["upscale_method"] == "lanczos"
+    assert wf["4"]["class_type"] == "ImageBlend"
+    assert wf["4"]["inputs"]["image1"] == ["3a", 0]
+    assert wf["4"]["inputs"]["image2"] == ["3b", 0]
+    assert 0.0 <= wf["4"]["inputs"]["blend_factor"] <= 1.0
     assert wf["6"]["inputs"]["filename_prefix"].startswith("frame_upscale/")
     # 音轨拼回：VideoCombine.audio ← LoadAudioUpload
     assert wf["6"]["inputs"]["audio"] == ["5", 0]

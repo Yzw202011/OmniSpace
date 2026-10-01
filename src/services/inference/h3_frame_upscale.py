@@ -55,6 +55,21 @@ def frame_upscale_enabled() -> bool:
         return False
 
 
+def _soft_mix() -> float:
+    """柔和占比（config comfyui.h3_frame_upscale.soft_mix，默认 0.45）。
+
+    0=全模型锐度（纹理幻觉风险），1=纯软件拉伸（无失真最软）。
+    用户报「放大后失真怪怪的」后引入的调和旋钮（2026-10-02）。
+    """
+    try:
+        from ...config import get_config
+        v = float(((get_config().get("comfyui") or {})
+                   .get("h3_frame_upscale") or {}).get("soft_mix", 0.45))
+        return min(1.0, max(0.0, v))
+    except Exception:  # noqa: BLE001 - 配置异常按默认
+        return 0.45
+
+
 def frame_upscale_ready(comfy_base: str = "http://127.0.0.1:8189") -> bool:
     """链路就绪预检（权重结论缓存；ComfyUI 探活失败=暂态不缓存，
     同 h3_face_refine.facerefine_ready 的分级约定）。"""
@@ -125,10 +140,22 @@ def upscale_video(src: Path, *,
                 "model_name": "4x-UltraSharp.pth"}},
             "3": {"class_type": "ImageUpscaleWithModel", "inputs": {
                 "upscale_model": ["2", 0], "image": ["1", 0]}},
-            "4": {"class_type": "ImageScale", "inputs": {
+            # 双路调和（2026-10-02 用户报放大后失真：4x-UltraSharp 对
+            # 软质 3D 二次元风有皮肤纹理幻觉+过度锐化）——模型锐利版与
+            # lanczos 柔和版按 soft_mix 调和：0=纯柔和（无幻觉），
+            # 1=全模型锐度。默认 0.55。
+            "3a": {"class_type": "ImageScale", "inputs": {
                 "image": ["3", 0], "upscale_method": "lanczos",
                 "width": _TARGET_W, "height": _TARGET_H,
                 "crop": "disabled"}},
+            "3b": {"class_type": "ImageScale", "inputs": {
+                "image": ["1", 0], "upscale_method": "lanczos",
+                "width": _TARGET_W, "height": _TARGET_H,
+                "crop": "disabled"}},
+            "4": {"class_type": "ImageBlend", "inputs": {
+                "image1": ["3a", 0], "image2": ["3b", 0],
+                "blend_factor": 1.0 - _soft_mix(),
+                "blend_mode": "normal"}},
             "5": {"class_type": "VHS_LoadAudioUpload", "inputs": {
                 "audio": au_name}},
             "6": {"class_type": "VHS_VideoCombine", "inputs": {

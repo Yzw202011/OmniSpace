@@ -56,18 +56,14 @@ def frame_upscale_enabled() -> bool:
 
 
 def _soft_mix() -> float:
-    """柔和占比（config comfyui.h3_frame_upscale.soft_mix，默认 0.45）。
+    """柔和占比（定档常量 0.55，2026-10-02 调参定案，非配置旋钮）。
 
-    0=全模型锐度（纹理幻觉风险），1=纯软件拉伸（无失真最软）。
-    用户报「放大后失真怪怪的」后引入的调和旋钮（2026-10-02）。
+    7 档盲调实测（用户真实项目视频，皮肤区+背景细节区双区域视觉模型
+    独立评审同指 0.55）：幻觉消失且细节几乎满血的甜点——0.70 残留
+    锐化光晕，0.45 起丢最细发丝。调参记录见 _tune/（mix00~mix100）。
+    0=全模型锐度（纹理幻觉），1=纯软件拉伸（无失真最软）。
     """
-    try:
-        from ...config import get_config
-        v = float(((get_config().get("comfyui") or {})
-                   .get("h3_frame_upscale") or {}).get("soft_mix", 0.45))
-        return min(1.0, max(0.0, v))
-    except Exception:  # noqa: BLE001 - 配置异常按默认
-        return 0.45
+    return 0.55
 
 
 def frame_upscale_ready(comfy_base: str = "http://127.0.0.1:8189") -> bool:
@@ -154,7 +150,7 @@ def upscale_video(src: Path, *,
                 "crop": "disabled"}},
             "4": {"class_type": "ImageBlend", "inputs": {
                 "image1": ["3a", 0], "image2": ["3b", 0],
-                "blend_factor": 1.0 - _soft_mix(),
+                "blend_factor": round(1.0 - _soft_mix(), 2),
                 "blend_mode": "normal"}},
             "5": {"class_type": "VHS_LoadAudioUpload", "inputs": {
                 "audio": au_name}},

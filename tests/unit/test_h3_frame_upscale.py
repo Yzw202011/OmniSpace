@@ -47,7 +47,8 @@ def test_workflow_construction(tmp_path, monkeypatch):
     assert wf["4"]["class_type"] == "ImageBlend"
     assert wf["4"]["inputs"]["image1"] == ["3a", 0]
     assert wf["4"]["inputs"]["image2"] == ["3b", 0]
-    assert 0.0 <= wf["4"]["inputs"]["blend_factor"] <= 1.0
+    # 定档 0.55 柔和（2026-10-02 盲调定案）→ blend_factor=0.45
+    assert wf["4"]["inputs"]["blend_factor"] == 0.45
     assert wf["6"]["inputs"]["filename_prefix"].startswith("frame_upscale/")
     # 音轨拼回：VideoCombine.audio ← LoadAudioUpload
     assert wf["6"]["inputs"]["audio"] == ["5", 0]

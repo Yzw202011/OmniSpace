@@ -294,14 +294,34 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_win[:1500]}"
          if c_win else ""),
     ] if x)
+    # 台词/音效抑制（2026-10-01 用户报「台词：无/音效：无 却有台词音效」）：
+    # 旧版 overall_soundscape 硬编码「环境自然音效与角色台词」=主动指示
+    # 模型说话，C 段的「无」全被无视。现解析时间轴窗口的台词/音效行——
+    # 全「无」则显式声明全程无人声；列明则按列明注入。C 段与 A 段模板
+    # 矛盾时 C 段权威（更具体）。
+    dlg_vals = [x.strip() for x in re.findall(r"台词[：:]\s*([^\n|]+)", c_win)]
+    sfx_vals = [x.strip() for x in re.findall(r"音效[：:]\s*([^\n|]+)", c_win)]
+    has_dialogue = any(v not in {"无", "无台词", "N/A", "-"} for v in dlg_vals)
+    sfx_named = [v for v in sfx_vals
+                 if v not in {"无", "无音效", "N/A", "-"}]
+    if sfx_vals and not sfx_named:
+        soundscape = ("用户明确要求：本镜无音效、接近无声，"
+                      "仅可能存在极低的房间底噪。")
+    elif sfx_named:
+        soundscape = "；".join(sfx_named) + "。"
+    else:
+        soundscape = "Quiet ambient atmosphere only; no prominent sound events."
+    if not has_dialogue:
+        soundscape += " 全程无角色台词、无任何人声说话、无字幕。"
+    else:
+        soundscape += " 角色台词已在时间轴中给出，按时间轴演绎。"
     return "\n".join([
         "subject_definitions:\n" + "\n".join(subj),
         "summary:\n[reference generation] " + (brief or description.strip()[:160]),
         "retention_analysis:\n" + "\n".join(retain) +
         "\n<Subject 1>: fully_preserved - 全程保持参考图既定外观与服饰。",
         "detailed_description:\n" + (detailed or description.strip()),
-        f"overall_soundscape:\n环境自然音效与角色台词,全程无字幕。"
-        f"单镜时长约 {total_seconds:.0f} 秒。",
+        f"overall_soundscape:\n{soundscape} 单镜时长约 {total_seconds:.0f} 秒。",
         "non_diegetic_music:\n无配乐。",
     ])
 

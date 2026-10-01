@@ -286,7 +286,8 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
         _st, _en = float(m.group(1)), float(m.group(2))
         if _st <= 0.01 and _en <= 0.5:
             continue  # 首帧保持段（协议 artifact）
-        text = cam = dlg = sfx = ""
+        text = cam = sfx = ""
+        dlg: list[str] = []  # 四轮挖掘②：同拍多台词行收集（旧版单值覆盖丢前句）
         for part in re.split(r"[|\n]", blk[m.end():]):
             p = part.strip()
             if not p:
@@ -296,18 +297,23 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
             elif p.startswith("运镜"):
                 cam = re.sub(r"^运镜[：:]\s*", "", p)
             elif p.startswith("台词"):
-                dlg = re.sub(r"^台词[：:]\s*", "", p)
+                dlg.append(re.sub(r"^台词[：:]\s*", "", p))
             elif p.startswith("音效"):
                 sfx = re.sub(r"^音效[：:]\s*", "", p)
             elif not text:
                 text = p
+        # 四轮挖掘③：转场拍（画面「衔接上一镜头…」承上启下空拍）——
+        # 每镜独立剧本看不到上一镜，引用即幻觉诱因；跳过（与 first_shot
+        # 同口径）。全为转场拍时该拍保留文本剥离引用词（诚实兜底）
+        if text.startswith("衔接"):
+            text = ""
         if text or dlg:
             shots.append({"start": _st, "end": _en, "text": text,
                           "cam": cam, "dlg": dlg, "sfx": sfx,
                           "spans": _en > seconds + 0.01})
     if not shots:  # 无有效拍块兜底：整段当单拍（诚实降级）
         shots = [{"start": 0.0, "end": seconds, "text": c_win, "cam": "",
-                  "dlg": "", "sfx": "", "spans": False}]
+                  "dlg": [], "sfx": "", "spans": False}]
     return shots, header_note
 
 
@@ -323,26 +329,33 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     # N 秒生成被稀释成「画风对了、内容不符」。现按 A/B/C 切分并按时长
     # 窗口取 C 段镜头，世界观/镜头语言按结构分位注入。
     abc = _split_abc(description)
+    # 四轮挖掘④：纯文本（无 A/B/C 标记）——abc 全空时结构化路径产出
+    # 空时间轴=原文整段丢失；直接原文兜底（教学头+原文，官方六段壳）
+    _plain = not (abc["a"] or abc["b"] or abc["c"])
     # C 段结构化解析（三轮挖掘统一单源 _parse_c_shots）：保持段跳过/
     # 协议标签官方化/跨窗拍 spans 标注/标记前正文（header_note）保留
     shots_p, header_note = _parse_c_shots(abc["c"], total_seconds)
-    # 摘要首拍：跳过转场拍（「衔接上一镜头…」是空拍非实体画面）
+    # 摘要首拍：跳过转场拍（解析层已剥离「衔接」引用，双保险口径一致）
     first_shot = next((s["text"][:120] for s in shots_p
                        if s["text"] and not s["text"].startswith("衔接")), "")
     brief = "；".join(x for x in [
         abc["b"].split("。", 1)[0][:120] if abc["b"] else "",
         first_shot,
     ] if x)
-    # 台词/音效并集（结构化取值；C 段与 A 段模板矛盾时 C 段权威）
-    dlg_vals = [s["dlg"] for s in shots_p if s["dlg"]]
+    # 台词/音效并集（结构化取值；dlg 为列表——同拍多台词全收）
+    dlg_vals = [d for s in shots_p for d in s["dlg"]]
     sfx_vals = [s["sfx"] for s in shots_p if s["sfx"]]
     has_dialogue = any(v not in {"无", "无台词", "N/A", "-"} for v in dlg_vals)
     sfx_named = [v for v in sfx_vals
                  if v not in {"无", "无音效", "N/A", "-"}]
     # 台词官方标记化（2026-10-02 四报根因）：H3 靠 <d>[Chinese] …</d>
     # 标记识别「要说的话」，裸文本致台词/旁白混淆（B 段散文被念三报）。
-    # S 编号按首次发声序；「无」返回空。
-    _spk_ids: dict[str, str] = {}
+    # 四轮挖掘①：S 编号绑定角色（refs 中 character 序号）——官方要求
+    # speaker ID 跨镜稳定，旧版按镜内发声序=多角色场景跨镜漂移；
+    # 非绑定角色按镜内出现序接在角色编号之后。
+    _char_names = [r["name"] for r in refs if r.get("kind") == "character"]
+    _extra_ids: dict[str, str] = {}
+    _spk_seen: set[str] = set()
 
     def _mark_dialogue_str(raw: str) -> str:
         raw = (raw or "").strip()
@@ -359,10 +372,16 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
                 spk, line = mm.group(1).strip(), mm.group(2).strip()
         if not line:
             return ""
-        key = spk or "_n"
-        if key not in _spk_ids:
-            _spk_ids[key] = f"S{len(_spk_ids) + 1}"
-        head = f"{spk} ({_spk_ids[key]})" if spk else f"({_spk_ids[key]})"
+        if spk and spk in _char_names:
+            sid = f"S{_char_names.index(spk) + 1}"
+        elif spk:
+            if spk not in _extra_ids:
+                _extra_ids[spk] = f"S{len(_char_names) + len(_extra_ids) + 1}"
+            sid = _extra_ids[spk]
+        else:
+            sid = "S1"
+        _spk_seen.add(sid)
+        head = f"{spk} ({sid})" if spk else f"({sid})"
         verb = f"{manner}地说" if manner else "说"
         return f"{head} {verb}: <d>[Chinese] {line}</d>"
 
@@ -381,9 +400,10 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         if _s["cam"]:
             parts.append(f"镜头运动：{_s['cam'].strip()}（严格执行，"
                          f"不得自行更改或增加镜头运动）")
-        _dlg_m = _mark_dialogue_str(_s["dlg"])
-        if _dlg_m:
-            parts.append(_dlg_m)
+        for _d_line in _s["dlg"]:  # 同拍多台词逐条标记（四轮挖掘②）
+            _dlg_m = _mark_dialogue_str(_d_line)
+            if _dlg_m:
+                parts.append(_dlg_m)
         if _s.get("spans"):
             # 跨窗拍（三轮挖掘②：旧版尾注在结构化时丢失）——画面语义
             # 超出生成时长，明确告知只演窗内前半
@@ -393,7 +413,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     c_marked = "\n".join(x for x in _tl_lines if x)
     if header_note:
         c_marked = f"{header_note}\n{c_marked}"
-    has_dialogue = bool(_spk_ids) or has_dialogue
+    has_dialogue = bool(_spk_seen) or has_dialogue
     # A 段矛盾句中和（三轮挖掘③：精确串匹配漏变体）——任何「保留/含/
     # 包含 … 台词/配音/人声/旁白」句式的句子都可能与 C 段「无」打架
     _a_text = abc["a"][:400] if abc["a"] else ""
@@ -409,8 +429,11 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         "内的话是被说出的台词。",
         f"[全局风格] {_a_text}" if _a_text else "",
         f"[世界与人物状态] {abc['b'][:500]}" if abc["b"] else "",
-        (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_marked[:1500]}"
-         if c_marked else ""),
+        # 四轮挖掘④：纯文本描述词原文直入（结构化路径产出空时间轴=
+        # 原文整段丢失）
+        (description.strip()[:1500] if _plain else
+         (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_marked[:1500]}"
+          if c_marked else "")),
         ("[运镜铁律] 本镜固定机位：全程镜头无位移、无推拉摇移变焦，"
          "取景与构图保持不变。"
          if any(s["cam"] for s in shots_p)
@@ -458,7 +481,7 @@ def _chain_audio_spec(descriptions: list[str], seconds: float) -> tuple[bool, bo
     for d in descriptions:
         abc = _split_abc(d)
         shots, _ = _parse_c_shots(abc["c"], seconds)
-        dlg = [s["dlg"] for s in shots if s["dlg"]]
+        dlg = [d for s in shots for d in s["dlg"]]
         sfx = [s["sfx"] for s in shots if s["sfx"]]
         dlg_named = any(v not in _none for v in dlg)
         sfx_named = any(v not in _none for v in sfx)

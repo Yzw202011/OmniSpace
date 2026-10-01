@@ -598,14 +598,31 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 6. 后处理双 pass（2026-10-01 补链式引擎缺口——分镜行"生成视频"
     # 主力链；脸修复在前、逐帧放大殿后；全失败路径回退原片零阻断，
     # config comfyui.h3_face_refine / h3_frame_upscale 各自开关）
+    # RAM 减压（2026-10-02 两次后端崩溃复盘 00:42/01:21：三道工序连跑
+    # 时 H3 权重+对话引擎叠加把 RAM 顶到 99% → 进程死亡 → 孤儿回收判
+    # error）：①工序前卸对话引擎（后端进程 ~9GB 大户）②脸修复毕立即
+    # 卸 H3 权重（放大只吃 ESRGAN ~1GB）
     from .h3_face_refine import face_refine_enabled, refine_video
     from .h3_frame_upscale import frame_upscale_enabled, upscale_video
+    try:
+        from .dialog_engine import get_dialog_engine
+        if get_dialog_engine().unload_model():
+            from .prompt_translator import shrink_working_set
+            shrink_working_set()
+            log.info("[h3_chain] 后处理前已卸对话引擎减压 RAM")
+    except Exception:  # noqa: BLE001 - 卸载失败不阻断
+        pass
     post = dest
     if face_refine_enabled():
         first = shots[0] if shots else {}
         chain_prompt = str(first.get("prompt", [""])[0]) if first else ""
         post = refine_video(post, prompt=chain_prompt,
                             ref_images=ref_imgs, progress_cb=report)
+        try:
+            engine.unload()
+            log.info("[h3_chain] 脸修复毕已卸 H3 权重（放大前减压）")
+        except Exception:  # noqa: BLE001 - 卸载失败不阻断
+            pass
     if frame_upscale_enabled():
         post = upscale_video(post, progress_cb=report)
     if post != dest:

@@ -286,24 +286,28 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         abc["b"].split("。", 1)[0][:120] if abc["b"] else "",
         first_shot,
     ] if x)
-    detailed = "\n\n".join(x for x in [
-        "严格按下方时间轴逐拍演绎；场景、光影与人物动作以描述词为准，"
-        "参考图仅用于锁定人物与道具的外观既定形态。",
-        f"[全局风格] {abc['a'][:400]}" if abc["a"] else "",
-        f"[世界与人物状态] {abc['b'][:500]}" if abc["b"] else "",
-        (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_win[:1500]}"
-         if c_win else ""),
-    ] if x)
-    # 台词/音效抑制（2026-10-01 用户报「台词：无/音效：无 却有台词音效」）：
+    # 台词/音效解析（先于 detailed 组装——音频铁律要引用判定结果）：
     # 旧版 overall_soundscape 硬编码「环境自然音效与角色台词」=主动指示
-    # 模型说话，C 段的「无」全被无视。现解析时间轴窗口的台词/音效行——
-    # 全「无」则显式声明全程无人声；列明则按列明注入。C 段与 A 段模板
-    # 矛盾时 C 段权威（更具体）。
+    # 模型说话，C 段的「无」全被无视（2026-10-01 用户实测）。C 段与 A
+    # 段模板矛盾时 C 段权威（更具体）。
     dlg_vals = [x.strip() for x in re.findall(r"台词[：:]\s*([^\n|]+)", c_win)]
     sfx_vals = [x.strip() for x in re.findall(r"音效[：:]\s*([^\n|]+)", c_win)]
     has_dialogue = any(v not in {"无", "无台词", "N/A", "-"} for v in dlg_vals)
     sfx_named = [v for v in sfx_vals
                  if v not in {"无", "无音效", "N/A", "-"}]
+    detailed = "\n\n".join(x for x in [
+        "严格按下方时间轴逐拍演绎；场景、光影与人物动作以描述词为准，"
+        "参考图仅用于锁定人物与道具的外观既定形态。",
+        (f"[全局风格] {abc['a'][:400]}" if abc["a"] else "")
+        .replace("仅保留环境自然音效与角色台词", "各镜音画以时间轴标注为准")
+        if abc["a"] else "",
+        f"[世界与人物状态] {abc['b'][:500]}" if abc["b"] else "",
+        (f"[本镜时间轴（共 {total_seconds:.0f} 秒）]\n{c_win[:1500]}"
+         if c_win else ""),
+        ("[音频铁律] 本镜全程无角色台词、无任何人声说话、无字幕；"
+         "音效为无（接近无声，仅极低房间底噪）。"
+         if (sfx_vals and not sfx_named and not has_dialogue) else ""),
+    ] if x)
     if sfx_vals and not sfx_named:
         soundscape = ("用户明确要求：本镜无音效、接近无声，"
                       "仅可能存在极低的房间底噪。")
@@ -471,6 +475,21 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 2. 参考图落盘 + 计划(每镜一 shot,长度=17k+5)
     report(0.02, "准备参考图")
     refs = _prepare_refs(task_id, refs)
+    # 角色参考图读入内存（脸修复身份锚）——必须在采样段 finally 的
+    # 参考图目录 rmtree 之前读（上一版插在收片后=图已被删=恒跳过）
+    ref_imgs: list = []
+    for r in refs:
+        if r.get("kind") != "character":
+            continue
+        fp = Path(_COMFY_INPUT) / str(r.get("image") or "")
+        if fp.is_file():
+            try:
+                from PIL import Image as _Img
+                ref_imgs.append(_Img.open(fp).convert("RGB"))
+            except Exception:  # noqa: BLE001 - 单图失败不拦参考收集
+                pass
+        if len(ref_imgs) >= 2:
+            break
     shots: list[dict] = []
     for k, r in enumerate(rows, 1):
         frames = align_h3_frames(seconds)
@@ -569,20 +588,6 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     run_dir = next((a for a in src.parents
                     if a.name == f"h3chain_{task_id}"), None)
     shutil.move(str(src), dest)
-    # 角色参考图读入内存（脸修复身份锚；须在目录回收前读）
-    ref_imgs: list = []
-    for r in refs:
-        if r.get("kind") != "character":
-            continue
-        fp = Path(_COMFY_INPUT) / str(r.get("image") or "")
-        if fp.is_file():
-            try:
-                from PIL import Image as _Img
-                ref_imgs.append(_Img.open(fp).convert("RGB"))
-            except Exception:  # noqa: BLE001 - 单图失败不拦参考收集
-                pass
-        if len(ref_imgs) >= 2:
-            break
     shutil.rmtree(Path(_COMFY_INPUT) / f"h3chain_{task_id}",
                   ignore_errors=True)  # 参考图副本回收(防磁盘泄漏)
     # 中间帧工作目录回收：成片已剪切走，目录里只剩链式过程帧，留存会

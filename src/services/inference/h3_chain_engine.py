@@ -275,46 +275,71 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     # 窗口取 C 段镜头，世界观/镜头语言按结构分位注入。
     abc = _split_abc(description)
     c_win = _timeline_window(abc["c"], total_seconds)
-    # 摘要首拍：跳过转场拍（「衔接上一镜头…」是承上启下的空拍，
-    # 不是本镜实体画面——镜3 实测它曾被当成主画面写进 summary）；
-    # 2026-10-02 修正：无句号的镜头行会把「运镜/台词/音效」整块吞进
-    # summary（B 段被当台词朗读的诱因之一）——句号或换行都截断
-    first_shot = ""
-    for blk in c_win.split("画面：")[1:]:
-        cand = re.split(r"[。\n]", blk.strip(), maxsplit=1)[0].strip()
-        if not cand or cand.startswith("衔接"):
+    # C 段结构化解析（2026-10-02 转义遗漏二轮挖掘）：①首帧保持段
+    # [0.0s-0.1s]（协议 artifact「参考图保持」）旧版透传进剧本污染语义
+    # ——网格/普通链均跳过，链式漏跳；②协议标签（画面：/运镜：/音效：）
+    # 与 [0.0s-5.0s] 时间戳均非官方语法——现按拍块结构化，组装官方
+    # 时间轴（[Shot n] + At 毫秒切镜戳 + 运镜指令行 + <d> 台词标记）。
+    _blocks = re.split(
+        r"(?=\[\d+(?:\.\d+)?s\s*[-~]\s*\d+(?:\.\d+)?s\])", c_win)
+    shots_p: list[dict] = []
+    for blk in _blocks[1:]:
+        m = re.match(
+            r"\[(\d+(?:\.\d+)?)s\s*[-~]\s*(\d+(?:\.\d+)?)s\]", blk.strip())
+        if not m:
             continue
-        first_shot = cand[:120]
-        break
+        _st, _en = float(m.group(1)), float(m.group(2))
+        if _st <= 0.01 and _en <= 0.5:
+            continue  # 首帧保持段跳过
+        text = cam = dlg = sfx = ""
+        for part in re.split(r"[|\n]", blk[m.end():]):
+            p = part.strip()
+            if not p:
+                continue
+            if p.startswith("画面"):
+                text = re.sub(r"^画面[：:]\s*", "", p)
+            elif p.startswith("运镜"):
+                cam = re.sub(r"^运镜[：:]\s*", "", p)
+            elif p.startswith("台词"):
+                dlg = re.sub(r"^台词[：:]\s*", "", p)
+            elif p.startswith("音效"):
+                sfx = re.sub(r"^音效[：:]\s*", "", p)
+            elif not text:
+                text = p
+        if text or dlg:
+            shots_p.append({"start": _st, "text": text, "cam": cam,
+                            "dlg": dlg, "sfx": sfx})
+    if not shots_p:  # 无有效拍块兜底：整段当单拍（诚实降级）
+        shots_p = [{"start": 0.0, "text": c_win, "cam": "", "dlg": "",
+                    "sfx": ""}]
+    # 摘要首拍：跳过转场拍（「衔接上一镜头…」是空拍非实体画面）
+    first_shot = next((s["text"][:120] for s in shots_p
+                       if s["text"] and not s["text"].startswith("衔接")), "")
     brief = "；".join(x for x in [
         abc["b"].split("。", 1)[0][:120] if abc["b"] else "",
         first_shot,
     ] if x)
-    # 台词/音效解析（先于 detailed 组装——音频铁律要引用判定结果）：
-    # 旧版 overall_soundscape 硬编码「环境自然音效与角色台词」=主动指示
-    # 模型说话，C 段的「无」全被无视（2026-10-01 用户实测）。C 段与 A
-    # 段模板矛盾时 C 段权威（更具体）。
-    dlg_vals = [x.strip() for x in re.findall(r"台词[：:]\s*([^\n|]+)", c_win)]
-    sfx_vals = [x.strip() for x in re.findall(r"音效[：:]\s*([^\n|]+)", c_win)]
+    # 台词/音效并集（结构化取值，替代旧版对原文的正则——保持段/标签
+    # 不再干扰判定；C 段与 A 段模板矛盾时 C 段权威）
+    dlg_vals = [s["dlg"] for s in shots_p if s["dlg"]]
+    sfx_vals = [s["sfx"] for s in shots_p if s["sfx"]]
     has_dialogue = any(v not in {"无", "无台词", "N/A", "-"} for v in dlg_vals)
     sfx_named = [v for v in sfx_vals
                  if v not in {"无", "无音效", "N/A", "-"}]
-    # 台词官方标记化（2026-10-02 四报根因）：旧版 C 段原文透传=台词是
-    # 裸文本（「台词：夏沐沐（面无表情）：疼」），H3 靠 <d>[Chinese]
-    # </d> 标记识别「要说出的话」，裸文本导致台词/旁白混淆（B 段散文
-    # 被当台词朗读三报）。现解析台词行转官方形式：
-    #   夏沐沐 (S1) 面无表情地说: <d>[Chinese] 疼</d>
-    # 「无」行删除（音频铁律/soundscape 已覆盖）；S 编号按首次发声序。
+    # 台词官方标记化（2026-10-02 四报根因）：H3 靠 <d>[Chinese] …</d>
+    # 标记识别「要说的话」，裸文本致台词/旁白混淆（B 段散文被念三报）。
+    # S 编号按首次发声序；「无」返回空。
     _spk_ids: dict[str, str] = {}
 
-    def _mark_dialogue_line(m: re.Match[str]) -> str:
-        raw = m.group(1).strip()
+    def _mark_dialogue_str(raw: str) -> str:
+        raw = (raw or "").strip()
         if raw in {"无", "无台词", "N/A", "-"}:
             return ""
         spk, manner, line = "", "", raw
         mm = re.match(r"^(.{1,12}?)（(.{1,12}?)）[：:]\s*(.+)$", raw)
         if mm:
-            spk, manner, line = mm.group(1).strip(), mm.group(2).strip(), mm.group(3).strip()
+            spk, manner, line = (mm.group(1).strip(),
+                                 mm.group(2).strip(), mm.group(3).strip())
         else:
             mm = re.match(r"^(.{1,12}?)[：:]\s*(.+)$", raw)
             if mm:
@@ -328,7 +353,27 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         verb = f"{manner}地说" if manner else "说"
         return f"{head} {verb}: <d>[Chinese] {line}</d>"
 
-    c_marked = re.sub(r"台词[：:]\s*([^\n|]+)", _mark_dialogue_line, c_win)
+    # 官方时间轴组装（[Shot n] + At 分:秒.毫秒 切镜戳；运镜独立指令行
+    # 严格锚定；音效不进时间轴——由 overall_soundscape 统一表达）
+    _t0 = shots_p[0]["start"]
+    _tl_lines: list[str] = []
+    for _i, _s in enumerate(shots_p):
+        _seg = _s["text"].strip().rstrip("。")
+        parts = [f"[Shot {_i + 1}] {_seg}"] if _i == 0 else []
+        if _i > 0:
+            _cut = max(0.0, _s["start"] - _t0)
+            _mm, _rem = divmod(int(round(_cut * 1000)), 60000)
+            parts.append(f"[Shot {_i + 1}] At {_mm:02d}:{_rem / 1000.0:06.3f}, "
+                         f"the camera cuts to {_seg}")
+        if _s["cam"]:
+            parts.append(f"镜头运动：{_s['cam'].strip()}（严格执行，"
+                         f"不得自行更改或增加镜头运动）")
+        _dlg_m = _mark_dialogue_str(_s["dlg"])
+        if _dlg_m:
+            parts.append(_dlg_m)
+        _tl_lines.append("。".join(p for p in parts if p.rstrip("。")) + "。"
+                         if parts else "")
+    c_marked = "\n".join(x for x in _tl_lines if x)
     has_dialogue = bool(_spk_ids) or has_dialogue
     detailed = "\n\n".join(x for x in [
         "严格按下方时间轴逐拍演绎；场景、光影与人物动作以描述词为准，"
@@ -344,7 +389,9 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
          if c_marked else ""),
         ("[运镜铁律] 本镜固定机位：全程镜头无位移、无推拉摇移变焦，"
          "取景与构图保持不变。"
-         if "固定机位" in c_win else ""),
+         if any(s["cam"] for s in shots_p)
+         and all("固定" in s["cam"] for s in shots_p if s["cam"])
+         else ""),
         ("[音频铁律] 本镜全程无角色台词、无任何人声说话、无字幕；"
          "音效为无（接近无声，仅极低房间底噪）。"
          if (sfx_vals and not sfx_named and not has_dialogue) else ""),

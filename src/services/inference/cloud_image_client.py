@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -144,14 +145,27 @@ def _post_json(ep: CloudEndpoint, url: str, payload: dict,
                timeout: tuple = (10, 180)) -> dict:
     import requests
 
-    try:
-        resp = requests.post(url, json=payload, headers=_bearer(ep),
-                             timeout=timeout)
-    except Exception as exc:  # noqa: BLE001 - 网络异常收敛为带出路的错误
+    # 断线自动重试（2026-10-03 MagicAI 实测连接五五开抖）：仅对未收到
+    # 响应的连接类异常重试 2 次（2s/4s 退避）；HTTP 错误码不重试（语义
+    # 错误重试无意义且重复计费）
+    resp = None
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, headers=_bearer(ep),
+                                 timeout=timeout)
+            last_exc = None
+            break
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(2.0 * (attempt + 1))
+    if resp is None:
         raise RuntimeError(
-            f"无法连接云端图片服务 {ep.provider_name or ep.base_url}："
-            f"{exc}。请检查网络与地址，或到{_SETUP_HINT}点「测试连接」"
-        ) from exc
+            f"无法连接云端图片服务 {ep.provider_name or ep.base_url}"
+            f"（已自动重试 3 次）：{last_exc}。请检查网络与地址，或到"
+            f"{_SETUP_HINT}点「测试连接」") from last_exc
     if resp.status_code != 200:
         body = (resp.text or "")[:200]
         raise RuntimeError(
@@ -166,6 +180,24 @@ def _post_json(ep: CloudEndpoint, url: str, payload: dict,
 
 # ── openai_image：同步 /v1/images/generations ────────────────────
 
+# gpt-image 系严格兑现的三档尺寸（OpenAI 官方约束；其他 OpenAI 兼容
+# 服务商不受此吸附影响——按模型名触发）
+_GPT_IMAGE_SIZES: tuple[tuple[int, int], ...] = (
+    (1024, 1024), (1536, 1024), (1024, 1536))
+
+
+def _gpt_image_size(width: int, height: int) -> str:
+    """任意请求尺寸按宽高比就近吸附到 gpt-image 支持档。
+
+    2026-10-03 MagicAI 实测：请求 832x1216 实出 1312x1199（上游不严
+    格兑现任意尺寸，回图比例乱后再缩回目标=压扁失真）。吸附出图后仍
+    经 _normalize_size 缩回目标尺寸，比例差微小（≤3%）不失真。
+    """
+    ratio = float(width) / max(1, int(height))
+    w, h = min(_GPT_IMAGE_SIZES, key=lambda s: abs(s[0] / s[1] - ratio))
+    return f"{w}x{h}"
+
+
 def _generate_openai_image(
         ep: CloudEndpoint, prompt: str, width: int, height: int,
         negative: str, ref_images: list,
@@ -176,10 +208,13 @@ def _generate_openai_image(
             f"连接「{ep.provider_name}」的协议（openai_image）暂不支持"
             "参考图/图生图：请在设置里把该工位换绑为任务型图片服务商"
             "（task_image，如通义万相）或恢复本地引擎")
+    size = (_gpt_image_size(width, height)
+            if re.search(r"gpt[-_]?image", ep.model or "", re.IGNORECASE)
+            else f"{width}x{height}")
     payload: dict = {
         "model": ep.model or "default",
         "prompt": prompt,
-        "size": f"{width}x{height}",
+        "size": size,
         "n": 1,
     }
     if negative.strip():

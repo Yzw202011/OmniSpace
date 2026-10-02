@@ -1038,6 +1038,13 @@ def _submit_task(task: dict, init_image=None, mask=None) -> None:
     任务打 cloud 标记走云端道。
     """
     cloud_ep = _resolve_paint_cloud_endpoint()
+    # openai_image 协议不支持参考图/图生图（2026-10-03 MagicAI 出图接
+    # 入）：带 init/mask 的任务自动回退本地引擎，不再硬报错打断用户
+    if cloud_ep is not None and (init_image is not None or mask is not None) \
+            and str(cloud_ep.protocol) == "openai_image":
+        log.info("绘画云端连接（openai_image）不支持参考图/图生图，"
+                 "本任务自动回退本地引擎")
+        cloud_ep = None
     if cloud_ep is None:
         _submit_precheck()
     if init_image is not None or mask is not None:

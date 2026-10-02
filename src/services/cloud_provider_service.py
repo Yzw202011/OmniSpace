@@ -65,7 +65,7 @@ ALL_SLOTS: dict[str, str] = {
     SLOT_NOVEL_TEXT: "写作台（小说创作）",
     SLOT_PAINT_IMAGE: "绘画页出图（文生图/图生图）",
     SLOT_KEYFRAME_IMAGE: "漫剧关键帧生成",
-    SLOT_ASSET_IMAGE: "漫剧资产图（角色/场景/道具；四视图与重生暂走本地）",
+    SLOT_ASSET_IMAGE: "漫剧资产图（角色/场景/道具；四视图与重生）",
     SLOT_MANGA_VIDEO: "漫剧镜头视频（图生视频，需该行已有关键帧）",
 }
 # 文本类槽位（openai_text 协议）

@@ -105,6 +105,71 @@ def test_openai_image_rejects_refs_with_guidance(mock_img) -> None:
                            ref_images=[Image.new("RGB", (8, 8))])
 
 
+# ── MagicAI 加固（2026-10-03）：gpt-image 尺寸吸附 + 断线重试 ────
+
+def test_gpt_image_size_snapped_to_supported(mock_img) -> None:
+    """gpt-image 系只兑现三档尺寸：竖图 832x1216 → 请求吸附 1024x1536，
+    出图后归一回目标尺寸；非 gpt-image 模型不吸附（老用例已锁定）。"""
+    ep = _task_ep(mock_img, protocol="openai_image", model="gpt-image-2")
+    img = cic.generate_image(ep, "竖版测试", width=832, height=1216)
+    assert mock_img.last_request["payload"]["size"] == "1024x1536"
+    assert img.size == (832, 1216)
+    img2 = cic.generate_image(ep, "横版测试", width=1280, height=720)
+    assert mock_img.last_request["payload"]["size"] == "1536x1024"
+    assert img2.size == (1280, 720)
+
+
+def test_post_json_retries_connection_errors(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """断线自动重试：前 2 次连接被重置、第 3 次成功 → 正常返回；
+    退避 sleep 打桩避免拖慢测试。"""
+    import requests as _requests
+
+    calls = {"n": 0}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        def json(self) -> dict:
+            return {"ok": True}
+
+    def _fake_post(url, json=None, headers=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _requests.exceptions.ConnectionError("connection reset")
+        return _Resp()
+
+    monkeypatch.setattr(_requests, "post", _fake_post)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    ep = CloudEndpoint(base_url="https://mock.invalid", api_key="sk-mock",
+                       model="gpt-image-2", provider_id="prov_mock",
+                       provider_name="Mock云图", protocol="openai_image",
+                       extra={})
+    assert cic._post_json(ep, "https://mock.invalid/x", {}) == {"ok": True}
+    assert calls["n"] == 3
+
+
+def test_post_json_retry_exhaustion(
+        monkeypatch: pytest.MonkeyPatch, mock_img) -> None:
+    """SSLError（ConnectionError 子类）持续失败 → 3 次后如实报错带
+    「已自动重试」字样与测试连接出路。"""
+    import requests as _requests
+
+    calls = {"n": 0}
+
+    def _always_fail(url, json=None, headers=None, timeout=None):
+        calls["n"] += 1
+        raise _requests.exceptions.SSLError("handshake eof")
+
+    monkeypatch.setattr(_requests, "post", _always_fail)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    ep = _task_ep(mock_img, protocol="openai_image", model="gpt-image-2")
+    with pytest.raises(RuntimeError, match="已自动重试"):
+        cic._post_json(ep, ep.base_url + "/x", {})
+    assert calls["n"] == 3
+
+
 # ── 适配器：task_image（DashScope 三段式）────────────────────────
 
 def test_task_image_t2i_three_phase(mock_img, fast_poll) -> None:

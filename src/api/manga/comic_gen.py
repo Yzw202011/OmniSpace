@@ -10,7 +10,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...config import (
     DATA_DIR,
@@ -1113,6 +1113,27 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
     # W3-C：引擎档位在编排口统一裁决（comfy 适配器 / legacy klein-4b；
     # comfy onepass 失败自然落入下方 legacy 全链回退）
     engine = _pick_turnaround_engine()
+    # ── 云端整图直出（2026-10-03 用户拍板：四视图/重生也走云端）──
+    # 资产槽绑定即走云（用户模板+白沟切分见 cloud_turnaround 服务模块）；
+    # 失败诚实落回下方本地自动链（不报死）
+    try:
+        from ...services.inference.cloud_turnaround import (
+            generate_turnaround_cloud,
+            resolve_asset_cloud_endpoint,
+        )
+        _cloud_ep = resolve_asset_cloud_endpoint()
+        if _cloud_ep is not None:
+            gen = generate_turnaround_cloud(
+                out_dir, name=name, prompt=prompt, cloud_ep=_cloud_ep,
+                on_progress=(lambda p, s: broadcast_gen_progress(
+                    "asset", ctx_id, percent=p, label=s) if ctx_id else None))
+            gen["consistency"] = _views_consistency(gen.pop("view_imgs", []))
+            log.info("云端整图直出四视图完成（asset 槽绑定）: %s model=%s",
+                     name, gen["model"])
+            return gen
+    except Exception as exc:  # noqa: BLE001 - 落回本地自动链
+        log.warning("四视图云端直出失败，落回本地自动链: %s", exc,
+                    exc_info=True)
     # Z2（2026-09-15）：zviews 分张管线优先——Z-Image 逐视图+参考锚
     # 身份+代码贴字，视图语义/标注两大痛点构造性消失；失败或 z-image
     # 不可用时自然回落 one-pass / legacy 逐视图（诚实降级链不变）
@@ -1194,6 +1215,19 @@ def _apply_turnaround_meta(meta: dict, gen: dict) -> None:
         meta.pop("prompt_en", None)
         meta.pop("degraded", None)
         meta.pop("degrade_reason", None)
+    elif gen["pipeline"] == "cloud-onepass":
+        # 云端整图直出（2026-10-03 用户拍板）：标注画入图内、无 VL 三关；
+        # 画幅=云端原生档（gen 自带 width/height，非本地 2560×1440）
+        meta["width"] = int(gen.get("width") or _ONEPASS_W)
+        meta["height"] = int(gen.get("height") or _ONEPASS_H)
+        meta["view_width"] = meta["width"] // 4
+        meta["view_height"] = meta["height"]
+        meta["prompt_zh"] = gen["prompt_zh"]
+        meta["master"] = gen["master"]
+        for k in ("layout_verified", "bg_verified", "match_verified",
+                  "verify_attempts", "prompt_en", "degraded",
+                  "degrade_reason"):
+            meta.pop(k, None)
     elif gen["pipeline"] == "zviews":
         # zviews：与 one-pass 同画布规格（标注/裁切/单视图重生同构），
         # 无 VL 三关（视图语义由分张提示词构造性保证）
@@ -1712,8 +1746,19 @@ def _regenerate_asset_sync(asset: dict) -> dict:
             broadcast_gen_progress("asset", _ctx, percent=p, label="正在生成")
 
         broadcast_gen_progress("asset", _ctx, percent=2, label="正在生成")
+        # 云端优先（2026-10-03 用户拍板：重生也走云端）：未绑定/失败
+        # 返回 None 落本地 FLUX/SDXL（服务模块内已收敛告警）
+        from ...services.inference.cloud_turnaround import regenerate_asset_cloud_image
+        _cloud = regenerate_asset_cloud_image(
+            asset["prompt"], width, height,
+            on_progress=_map_step if _ctx else None)
+        result: dict[str, Any]
         try:
-            if engine.ensure_loaded("flux2-klein-4b"):
+            if _cloud is not None:
+                image, engine_used = _cloud
+                prompt_out = None
+                result = {"seed": -1, "model": engine_used}
+            elif engine.ensure_loaded("flux2-klein-4b"):
                 params = _flux_asset_params(asset["prompt"], kind,
                                             width, height)
                 result = engine.generate(params, progress_cb=_map_step

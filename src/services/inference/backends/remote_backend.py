@@ -361,23 +361,45 @@ class RemoteDialogBackend(DialogBackend):
                 self.model_id or "", ok,
                 int((time.time() - t0) * 1000), detail=detail)
 
-        try:
-            resp = requests.post(
-                self._base_url + "/v1/chat/completions", json=payload,
-                headers=headers, stream=True,
-                timeout=(10, _STREAM_READ_TIMEOUT_S))
-        except requests.exceptions.Timeout as exc:
-            _log_call(False, f"connect timeout: {exc}")
+        # 断线自动重试（2026-10-03 MagicAI 实测连接抖动）：仅对未收到
+        # 响应的连接类异常重试 2 次（2s/4s 退避，stream=True 的 post 在
+        # 拿到响应头前失败=零字节已交付，重试无重复风险）；流中途断线
+        # 不重试（部分内容已交付）
+        resp = None
+        _fatal: Exception | None = None
+        for _attempt in range(3):
+            try:
+                resp = requests.post(
+                    self._base_url + "/v1/chat/completions", json=payload,
+                    headers=headers, stream=True,
+                    timeout=(10, _STREAM_READ_TIMEOUT_S))
+                break
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as exc:
+                _fatal = exc
+                if _attempt < 2:
+                    time.sleep(2.0 * (_attempt + 1))
+            except Exception as exc:  # noqa: BLE001 - 网络异常收敛为带出路的错误
+                _fatal = exc
+                break
+        if resp is None:
+            if isinstance(_fatal, requests.exceptions.Timeout):
+                _log_call(False, f"connect timeout: {_fatal}")
+                raise RuntimeError(
+                    "无法连接云端 API（连接超时，已自动重试 3 次）：请检查"
+                    "网络是否可用、服务商是否在线，或到「设置 → 云端 API "
+                    "服务」点「测试连接」") from _fatal
+            if isinstance(_fatal, requests.exceptions.ConnectionError):
+                _log_call(False, str(_fatal)[:200])
+                raise RuntimeError(
+                    f"无法连接云端 API {self._base_url}（已自动重试 3 次）："
+                    f"{_fatal}。请检查网络是否可用、地址是否正确，或到"
+                    "「设置 → 云端 API 服务」点「测试连接」") from _fatal
+            _log_call(False, str(_fatal)[:200])
             raise RuntimeError(
-                "无法连接云端 API（连接超时）：请检查网络是否可用、"
-                "服务商是否在线，或到「设置 → 云端 API 服务」点"
-                "「测试连接」") from exc
-        except Exception as exc:  # noqa: BLE001 - 网络异常收敛为带出路的错误
-            _log_call(False, str(exc)[:200])
-            raise RuntimeError(
-                f"无法连接云端 API {self._base_url}：{exc}。请检查"
+                f"无法连接云端 API {self._base_url}：{_fatal}。请检查"
                 "网络是否可用、地址是否正确，或到「设置 → 云端 API "
-                "服务」点「测试连接」") from exc
+                "服务」点「测试连接」") from _fatal
         if resp.status_code != 200:
             body = (resp.text or "")[:200]
             resp.close()

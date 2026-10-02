@@ -1845,6 +1845,10 @@ def _regenerate_view_sync(asset: dict, view: str, prompt_zh: str) -> dict:
         return _regenerate_view_onepass(asset, view, prompt_zh, meta)
     if meta.get("pipeline") == "zviews":
         return _regenerate_view_zviews(asset, view, prompt_zh, meta)
+    if meta.get("pipeline") == "cloud-onepass":
+        # 云资产单视图重生=整图重 roll（2026-10-03 拍板A；legacy 2×2
+        # 重建会拼坏云版 1×4 横排，禁入）
+        return _regenerate_asset_sync(asset)
     # 中文描述词先净化（剥离版式指令）再译英；翻译先于 paint 加载。
     prompt_en = _prepare_turnaround_prompt_en(prompt_zh)
     engine = get_paint_engine()

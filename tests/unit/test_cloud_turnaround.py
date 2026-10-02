@@ -8,12 +8,34 @@
 """
 from __future__ import annotations
 
+import pytest
 from PIL import Image
 
 from src.services.inference.cloud_turnaround import (
     build_turnaround_cloud_prompt,
     slice_views_by_white_gutters,
 )
+
+
+def test_cloud_onepass_view_regen_routes_to_full_reroll(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """云资产单视图重生=整图重 roll（2026-10-03 拍板 A）：cloud-onepass
+    meta 必须进 _regenerate_asset_sync，绝不落 legacy（2×2 重建会拼坏
+    云版 1×4 横排 + 丢画入标注）。"""
+    import src.api.manga.comic_gen as cg
+
+    called = {}
+
+    def _fake_full(asset: dict) -> dict:
+        called["asset_id"] = asset.get("asset_id")
+        return {**asset, "rerolled": True}
+
+    monkeypatch.setattr(cg, "_regenerate_asset_sync", _fake_full)
+    asset = {"asset_id": "a1", "prompt": "测试",
+             "meta": '{"pipeline": "cloud-onepass", "turnaround": true}'}
+    out = cg._regenerate_view_sync(asset, "side", "侧面全身")
+    assert called["asset_id"] == "a1"
+    assert out.get("rerolled") is True
 
 
 def test_build_prompt_contains_user_template_and_settings() -> None:

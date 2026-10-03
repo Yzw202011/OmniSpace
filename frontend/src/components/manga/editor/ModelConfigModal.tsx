@@ -21,7 +21,7 @@ import { getModuleModelConfig, saveModuleModelConfig } from '@/services/modelApi
 import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import { DEFAULT_MODEL_CONFIG, writeModelConfig, type MangaModelConfig } from '@/constants/modelConfig';
-import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig';
+import { loadModelConfig, snapToTiers, tierDurations, tierQualities } from '@/constants/modelConfig';
 import type { AvailableModel } from '@/types';
 import { Modal } from '../../common/Modal';
 
@@ -80,6 +80,11 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const [dialogModels, setDialogModels] = useState<AvailableModel[]>([]);
   const [paintModels, setPaintModels] = useState<AvailableModel[]>([]);
   const [videoModels, setVideoModels] = useState<AvailableModel[]>([]);
+  // 视频档位表（2026-10-03 分档具体化）：所选模型携带的「时长↔可选
+  // 分辨率」精确配对表；系统默认/清单未携带=静态兜底（与后端默认模型
+  // 档同源）。时长/分辨率切档自动校正，UI 层杜绝非法组合
+  const videoTiers = videoModels.find((m) => m.id === cfg.videoModel)?.tiers;
+  const snapped = snapToTiers(videoTiers, cfg.duration, cfg.quality);
 
   // 打开时并行拉取三类任务的可用模型（失败保留已保存配置，下拉仍可编辑）
   useEffect(() => {
@@ -120,7 +125,8 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
    *  用户「模型配置没生效」主诉根因）。后端同步失败仅提示，不阻断本地
    *  保存（画幅/时长仍生效）。 */
   const handleSave = () => {
-    writeModelConfig(cfg);
+    // 时长/分辨率按当前档位表校正后落存（档内精确配对）
+    writeModelConfig({ ...cfg, ...snapped });
     void (async () => {
       try {
         const res = await getModuleModelConfig();
@@ -209,17 +215,39 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
             <label className="manga-form-label">默认时长</label>
             <select
               className="manga-modal-select"
-              value={String(cfg.duration)}
+              value={String(snapped.duration)}
               aria-label="默认时长"
-              onChange={(e) => setCfg((c) => ({ ...c, duration: Number(e.target.value) }))}
+              onChange={(e) => setCfg((c) => ({
+                ...c,
+                ...snapToTiers(videoTiers, Number(e.target.value), c.quality),
+              }))}
             >
-              {VIDEO_DURATION_OPTIONS.map((d) => (
+              {tierDurations(videoTiers).map((d) => (
                 <option key={d} value={String(d)}>
                   {d} 秒
                 </option>
               ))}
             </select>
           </div>
+        </div>
+        <div>
+          <label className="manga-form-label">默认视频分辨率</label>
+          <select
+            className="manga-modal-select"
+            value={snapped.quality}
+            aria-label="默认视频分辨率"
+            onChange={(e) => setCfg((c) => ({ ...c, quality: e.target.value }))}
+          >
+            {tierQualities(videoTiers, snapped.duration).map((q) => (
+              <option key={q} value={q}>
+                {q === '720p' ? '720p 高清' : q === '480p' ? '480p 流畅' : q}
+              </option>
+            ))}
+          </select>
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            时长与分辨率选项随所选视频模型的档位联动（每档精确配对，如
+            720p 档仅 4/8 秒时长可选）。
+          </p>
         </div>
 
         <p className="manga-form-tip" style={{ margin: 0 }}>

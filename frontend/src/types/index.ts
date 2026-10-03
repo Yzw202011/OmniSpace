@@ -724,6 +724,15 @@ export interface AvailableModel {
   vram_gb: number;
   speed_label: string;
   notes?: string;
+  /** 视频模型档位表（2026-10-03 分档具体化）：时长↔可选分辨率精确
+   * 配对；云端端点/旧响应缺失=空表（前端回退静态兜底清单） */
+  tiers?: VideoModelTier[];
+}
+
+/** 视频模型档位（单一真源=后端 api/manga/video_caps.py） */
+export interface VideoModelTier {
+  duration: number;
+  qualities: string[];
 }
 
 /** 漫剧资产类型 */

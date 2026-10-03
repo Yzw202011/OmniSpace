@@ -214,10 +214,12 @@ export interface VideoSlice {
     row: StoryboardRow,
     opts?: {
       modelOverride?: string;
-      /** 时长（秒，4/8/11/15） */
+      /** 时长（秒，档位见所选模型 tiers） */
       duration?: number;
       /** 画幅 */
       aspect?: '16:9' | '9:16';
+      /** 分辨率档（720p/480p；缺省=时长档默认，2026-10-03 分档具体化） */
+      quality?: string;
     },
   ) => Promise<boolean>;
   /** 拉取项目历史视频任务（openProject 调用，行级取最新终态） */

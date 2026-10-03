@@ -1348,20 +1348,15 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         resp["engine"] = f"cloud:{_cloud_ep.provider_name}"
     elif use_h3_chain:
         seconds = min(max(float(req.duration_seconds or 10), 3.0), 15.0)
-        # 画质/画幅（2026-08-31 模型配置接线）：720p 的 16G 实测约束
-        # 本就是「单镜 ≤8s」——此前按 resolution 前缀判定，前端传宽高
-        # 串时恒落 480p；画幅从 resolution 宽高推导（9:16 竖屏翻转）
-        quality = "720p" if seconds <= 8.0 else "480p"
-        _aspect = "16:9"
-        try:
-            _w, _, _h = str(req.resolution or "").partition("x")
-            if _w and _h and int(_h) > int(_w):
-                _aspect = "9:16"
-        except ValueError:
-            log.debug("video_generate: 降级忽略", exc_info=True)
+        # 画质分档具体化（2026-10-03）：显式档精确配对校验/空=档默认
+        #（video_caps.py 档位表，非法组合带允许清单拒绝）；画幅复用
+        # 上方宽高推导 _aspect_any（9:16 竖屏翻转）
+        from .video_caps import resolve_quality
         runner = _make_h3_chain_runner(
             row_ids=[req.storyboard_row_id], seconds=seconds,
-            quality=quality, aspect=_aspect, flow=flow)
+            quality=resolve_quality(req.model_override or "", seconds,
+                                    req.quality),
+            aspect=_aspect_any, flow=flow)
         resp["engine"] = "h3_chain"
     else:
         VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)

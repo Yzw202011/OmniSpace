@@ -113,5 +113,12 @@ async def list_available_models(task_type: str = Query("dialog")) -> dict[str, A
             items = [m for m in items if m["id"] in allowed]
     except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
         log.warning("漫剧%s槽白名单过滤跳过: %s", task_type, exc, exc_info=True)
+    # 视频档位下发（2026-10-03 分档具体化）：每项附「时长↔可选分辨率」
+    # 精确配对表，前端时长/分辨率下拉按所选模型的档位渲染（单一真源
+    # video_caps.py；云端端点 tiers=[] → 前端回退静态兜底清单）
+    if task_type == "video":
+        from .video_caps import tiers_for
+        for it in items:
+            it["tiers"] = tiers_for(str(it.get("id") or ""))
     return ok({"items": items, "total": len(items),
                "default_model": default_model or ""})

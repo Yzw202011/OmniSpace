@@ -128,6 +128,7 @@ SEMANTIC_CODES: dict[str, str] = {
     "VIDEO_GENERATION_FAILED": "视频生成失败，请检查输入参数",
     "VIDEO_DURATION_EXCEEDED": "音画同步模式最长支持10秒",
     "VIDEO_RESOLUTION_DEGRADED": "当前显存不支持所选分辨率，已自动降级",
+    "VIDEO_QUALITY_TIER_INVALID": "所选分辨率与时长档不匹配",
     "VIDEO_ENCODE_FAILED": "FFmpeg编码失败",
     "VIDEO_NOT_READY": "视频文件不存在或尚未生成完成",
     # ComfyUI 域语义码（round-2026-09-20 R3-P1 根修：此前 20+ 类故障
@@ -440,6 +441,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "VIDEO_RESOLUTION_DEGRADED": "显存不足以支撑所选分辨率，已自动降级；如需更高清可关闭其他功能后重试",
     "VIDEO_ENCODE_FAILED": "视频合成失败，请重试；反复失败请导出诊断包",
     "VIDEO_NOT_READY": "视频尚未生成完成，请在任务列表等待完成后再查看",
+    "VIDEO_QUALITY_TIER_INVALID": "请从确认弹窗的分档下拉里选择该时长支持的分辨率",
     "COMFY_NOT_READY": "请确认 ComfyUI 便携版与模型权重完整（模型管理页可查缺失项）",
     "COMFY_PROC_EXITED": "ComfyUI 进程异常退出，稍后会自动重启；请重试一次，反复出现请导出诊断包",
     "COMFY_START_TIMEOUT": "ComfyUI 冷启动较慢，请稍等片刻后重试；反复超时请重启应用",

@@ -1,9 +1,10 @@
 import { mirrorPref } from '@/services/uiPrefs';
+import type { VideoModelTier } from '@/types';
 /* ==========================================================================
  * OmniSpace AI v2.5.0 —— 漫剧模型配置持久化（TASK-P2-07 迁出 ModelConfigModal）
  * --------------------------------------------------------------------------
  * localStorage 键「omnispace.manga.modelConfig」：
- * 结构 {dialogModel,paintModel,videoModel,aspect,duration}；
+ * 结构 {dialogModel,paintModel,videoModel,aspect,duration,quality}；
  * ModelConfigModal 写入，VideoConfirmModal 读取回填。
  * ========================================================================== */
 
@@ -20,8 +21,10 @@ export interface MangaModelConfig {
   videoModel: string;
   /** 视频默认画幅 */
   aspect: '16:9' | '9:16';
-  /** 视频默认时长（秒） */
+  /** 视频默认时长（秒，档位见所选模型 tiers） */
   duration: number;
+  /** 视频默认分辨率档（720p/480p；''=跟随档位默认） */
+  quality: string;
 }
 
 /** 默认配置（模型空串 = 系统默认；横屏 16:9；4 秒）——恢复默认入口共用 */
@@ -31,10 +34,54 @@ export const DEFAULT_MODEL_CONFIG: MangaModelConfig = {
   videoModel: '',
   aspect: '16:9',
   duration: 4,
+  quality: '',
 };
 
-/** 可选视频时长（秒，竞品对齐 4/8/11/15） */
+/** 可选视频时长（秒，竞品对齐 4/8/11/15；档位表缺失时的静态兜底） */
 export const VIDEO_DURATION_OPTIONS: readonly number[] = [4, 8, 11, 15];
+
+/** 静态兜底档位表（与后端 video_caps.py 的 h3 档同源镜像；仅当模型
+ * 清单响应未携带 tiers 时使用——正常路径以模型档位为准） */
+export const VIDEO_FALLBACK_TIERS: VideoModelTier[] = [
+  { duration: 4, qualities: ['720p', '480p'] },
+  { duration: 8, qualities: ['720p', '480p'] },
+  { duration: 11, qualities: ['480p'] },
+  { duration: 15, qualities: ['480p'] },
+];
+
+/** 档位表里的时长清单（空表=静态兜底） */
+export function tierDurations(tiers: VideoModelTier[] | undefined): number[] {
+  return tiers && tiers.length > 0 ? tiers.map((t) => t.duration) : [...VIDEO_DURATION_OPTIONS];
+}
+
+/** 指定时长档的可选分辨率（时长非档=就近落档，与后端 _tier_for 同语义） */
+export function tierQualities(
+  tiers: VideoModelTier[] | undefined,
+  duration: number,
+): string[] {
+  const list = tiers && tiers.length > 0 ? tiers : VIDEO_FALLBACK_TIERS;
+  let tier = list.find((t) => t.duration === duration);
+  if (!tier) {
+    const sorted = [...list].sort((a, b) => a.duration - b.duration);
+    tier = sorted.find((t) => t.duration >= duration)
+      ?? sorted[sorted.length - 1];
+  }
+  return tier.qualities;
+}
+
+/** 校正已存配置对档位的适配：时长落档、分辨率落该档清单（缺省取首位）
+ *  ——UI 层面杜绝非法组合，后端仍做精确配对终审 */
+export function snapToTiers(
+  tiers: VideoModelTier[] | undefined,
+  duration: number,
+  quality: string,
+): { duration: number; quality: string } {
+  const durations = tierDurations(tiers);
+  const d = durations.includes(duration) ? duration : durations[0];
+  const qualities = tierQualities(tiers, d);
+  const q = qualities.includes(quality) ? quality : qualities[0];
+  return { duration: d, quality: q };
+}
 
 /** 读取模型配置（localStorage 损坏/缺字段时逐项回退默认） */
 export function loadModelConfig(): MangaModelConfig {
@@ -53,6 +100,7 @@ export function loadModelConfig(): MangaModelConfig {
         typeof obj.duration === 'number' && VIDEO_DURATION_OPTIONS.includes(obj.duration)
           ? obj.duration
           : DEFAULT_MODEL_CONFIG.duration,
+      quality: typeof obj.quality === 'string' ? obj.quality : DEFAULT_MODEL_CONFIG.quality,
     };
   } catch {
     return { ...DEFAULT_MODEL_CONFIG };

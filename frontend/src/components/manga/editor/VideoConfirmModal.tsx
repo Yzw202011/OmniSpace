@@ -29,7 +29,7 @@ import { listAvailableModels } from '@/services/mangaApi';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import type { AvailableModel } from '@/types';
 import { Modal } from '../../common/Modal';
-import { VIDEO_DURATION_OPTIONS, loadModelConfig } from '@/constants/modelConfig';
+import { loadModelConfig, snapToTiers, tierDurations, tierQualities } from '@/constants/modelConfig';
 
 /** 时长（秒）→ 帧数：按 16fps 且帧数 ≡ 1 (mod 8) */
 const DURATION_TO_FRAMES: Record<number, number> = { 4: 65, 8: 129, 11: 177, 15: 241 };
@@ -59,6 +59,7 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
   const [videoModel, setVideoModel] = useState('');
   const [aspect, setAspect] = useState<'16:9' | '9:16'>('16:9');
   const [duration, setDuration] = useState(4);
+  const [quality, setQuality] = useState('720p');
   const [models, setModels] = useState<AvailableModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +71,7 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
     setVideoModel(cfg.videoModel);
     setAspect(cfg.aspect);
     setDuration(cfg.duration);
+    setQuality(cfg.quality || '720p');
     setSubmitting(false);
     let alive = true;
     setModelsLoading(true);
@@ -89,6 +91,11 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
   }, [open, showToast]);
 
   if (!open) return null;
+
+  // 视频档位表（2026-10-03 分档具体化）：所选模型「时长↔可选分辨率」
+  // 精确配对；系统默认/清单未携带=静态兜底（与后端默认模型档同源）
+  const tiers = models.find((m) => m.id === videoModel)?.tiers;
+  const snapped = snapToTiers(tiers, duration, quality);
 
   // 待处理行：rowIds 已由调用方筛选，此处仅做 id → 行映射（保持分镜行序）
   const targetRows = rows.filter((r) => rowIds.includes(r.id));
@@ -115,8 +122,10 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
           modelOverride: videoModel || undefined,
           // 2026-08-31 接线：画幅/时长此前只回填表单不进请求，
           // 后端恒用默认时长 → 「模型配置没生效」主诉根因
-          duration,
+          duration: snapped.duration,
           aspect,
+          // 2026-10-03 分档具体化：分辨率档随请求下发（档内精确配对）
+          quality: snapped.quality,
         }).catch(() => false);
         if (ok) submitted += 1;
       }
@@ -224,18 +233,41 @@ export default function VideoConfirmModal({ open, rowIds, onClose }: VideoConfir
             <label className="manga-form-label">时长</label>
             <select
               className="manga-modal-select"
-              value={String(duration)}
+              value={String(snapped.duration)}
               aria-label="时长"
               disabled={submitting}
-              onChange={(e) => setDuration(Number(e.target.value))}
+              onChange={(e) => {
+                const d = Number(e.target.value);
+                setDuration(d);
+                const qs = tierQualities(tiers, d);
+                if (!qs.includes(quality)) setQuality(qs[0]);
+              }}
             >
-              {VIDEO_DURATION_OPTIONS.map((d) => (
+              {tierDurations(tiers).map((d) => (
                 <option key={d} value={String(d)}>
                   {d} 秒
                 </option>
               ))}
             </select>
           </div>
+        </div>
+
+        {/* ④b 分辨率（档位驱动：随所选模型与时长档精确配对） */}
+        <div>
+          <label className="manga-form-label">分辨率</label>
+          <select
+            className="manga-modal-select"
+            value={snapped.quality}
+            aria-label="分辨率"
+            disabled={submitting}
+            onChange={(e) => setQuality(e.target.value)}
+          >
+            {tierQualities(tiers, snapped.duration).map((q) => (
+              <option key={q} value={q}>
+                {q === '720p' ? '720p 高清' : q === '480p' ? '480p 流畅' : q}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* ⑤ 参数换算预览（16fps / 帧数≡1 mod 8 / 宽高被 32 整除） */}

@@ -202,6 +202,7 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
       const mcfg = loadModelConfig();
       const duration = opts?.duration ?? mcfg.duration;
       const aspect = opts?.aspect ?? mcfg.aspect;
+      const quality = opts?.quality ?? mcfg.quality ?? '';
       const modelOverride = opts?.modelOverride
         || (mcfg.videoModel || undefined);
       // 点击即时反馈（同事故另一半根因）：POST 返回前先乐观置 pending——
@@ -232,9 +233,11 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           // 引擎点名透传（P1 2026-08-29）：如 "h3_director" = MiniMax H3 导演台
           model_override: modelOverride,
           // 模型配置·视频默认参数接线（2026-08-31）：时长/画幅随请求下发
-          //（画幅经宽高串表达，后端 H3 分支按时长定画质、按宽高比推导竖屏）
+          //（画幅经宽高串表达，后端 H3 分支按宽高比推导竖屏）；分辨率档
+          // 2026-10-03 分档具体化随请求下发（档内精确配对，空=档默认）
           duration_seconds: duration,
           resolution: aspect === '9:16' ? '576x1024' : '1024x576',
+          quality,
         });
         const degraded =
           typeof (res as { degraded?: unknown }).degraded === 'boolean'

@@ -285,6 +285,9 @@ export interface VideoGeneratePayload {
   codec?: string;
   /** 模型覆盖（可选） */
   model_override?: string;
+  /** 分辨率档 720p/480p（2026-10-03 分档具体化：空=时长档默认，
+   *  档位表见后端 api/manga/video_caps.py，非法组合被精确拒绝） */
+  quality?: string;
 }
 
 /** 发起视频生成（POST /manga/video/generate）→ {task_id, status, queue_position} */

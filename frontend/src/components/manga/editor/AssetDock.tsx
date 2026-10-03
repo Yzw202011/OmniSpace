@@ -20,7 +20,7 @@
  * 契约：GET /comic/asset/library、PUT bind|unbind、POST adopt|generate-turnaround|batch-generate
  * ========================================================================== */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Globe, ImagePlus, Layers, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
@@ -134,7 +134,7 @@ function AssetCard({
   );
 }
 
-export default function AssetDock() {
+export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number }) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const assets = useMangaStore((s) => s.assets);
@@ -159,6 +159,17 @@ export default function AssetDock() {
   const [batchKind, setBatchKind] = useState<ComicAssetKind>('character');
   const [batchNames, setBatchNames] = useState('');
   const [generating, setGenerating] = useState(false);
+  // 工序②「角色生图」接线（2026-10-04）：工序条点击信号 → 弹开批量
+  // 生成（当前页签）——此前工序②只聚焦面板，面板已在资产态时零变化
+  // （用户主诉「点了没反应」）；对齐兄弟工序「点击=弹批量确认」模式
+  const _batchSignalSeen = useRef(0);
+  useEffect(() => {
+    if (batchSignal > 0 && batchSignal !== _batchSignalSeen.current) {
+      _batchSignalSeen.current = batchSignal;
+      setBatchKind(tab);
+      setBatchOpen(true);
+    }
+  }, [batchSignal, tab]);
   /** 跨项目资产库（全局 + 其他项目资产，当前页签类型；不传 project_id = 全量） */
   const [libraryAssets, setLibraryAssets] = useState<ComicAsset[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);

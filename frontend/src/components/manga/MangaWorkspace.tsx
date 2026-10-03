@@ -99,6 +99,8 @@ export default function MangaWorkspace() {
   const [inferring, setInferring] = useState(false);
   /** 角色推理进度弹窗（工序①点击后弹出：进度条 + 预计时间） */
   const [inferOpen, setInferOpen] = useState(false);
+  /** 工序②角色生图→资产面板批量生成弹窗的接线信号（自增触发） */
+  const [assetBatchSignal, setAssetBatchSignal] = useState(0);
 
   // 打开项目时预取资产（右栏资产面板 + 工序条状态判定）
   useEffect(() => {
@@ -240,11 +242,14 @@ export default function MangaWorkspace() {
     // 角色生图完成 = 全部资产均已有图（资产桩 file_path 为空 = 无图，AssetDock 显示「无图像」）
     const assetImagesDone = assets.length > 0 && assets.every((a) => a.file_path);
     const isNarrative = currentProject?.work_mode === 'narrative';
-    // 工序②角色生图：清空 selectedAssetId/inspectRowId/抽屉 → 右栏回落资产面板槽位
+    // 工序②角色生图：清空 selectedAssetId/inspectRowId/抽屉 → 右栏回落
+    // 资产面板槽位；并发信号弹开批量生成（2026-10-04：此前只聚焦面板，
+    // 面板已在资产态时点击零变化=「没反应」主诉，对齐兄弟工序点击=执行）
     const focusAssets = () => {
       setDrawer('');
       setInspectRowId(null);
       setSelectedAsset(null);
+      setAssetBatchSignal((s) => s + 1);
     };
 
     let list: { label: string; done: boolean; action: () => void }[];
@@ -471,7 +476,9 @@ export default function MangaWorkspace() {
         {!drawer && !selectedAssetId && inspectRowId && (
           <InspectorPanel onBack={() => setInspectRowId(null)} onOpenVoice={() => setDrawer('voice')} />
         )}
-        {!drawer && !selectedAssetId && !inspectRowId && <AssetDock />}
+        {!drawer && !selectedAssetId && !inspectRowId && (
+          <AssetDock batchSignal={assetBatchSignal} />
+        )}
       </div>
 
       {/* ⑤ 批量工序确认（chevron 3/4，含提示词入口与实时进度） */}

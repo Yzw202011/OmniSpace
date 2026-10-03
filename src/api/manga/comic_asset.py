@@ -1893,7 +1893,22 @@ def _infer_entities_sync(project_id: str) -> dict:
         f"新增 {total_new} 个实体"
         f"（角色 {created['character']} · 场景 {created['scene']}"
         f" · 道具 {created['prop']}）")
-    return ok({"created": created, "items": items})
+    # 自动绑定（2026-10-04 用户令）：推理产物按名称绑到空绑定行——项目
+    # 优先/全局唯一可绑/同名歧义跳过；名称列回填后须重查最新行
+    try:
+        from .asset_autobind import auto_bind_rows
+        _sb = _find_storyboard(db, project_id) if db is not None else None
+        if db is not None and _sb is not None:
+            bind_stats = auto_bind_rows(db, project_id, db.query(
+                "SELECT id, characters, scene, props, asset_ids"
+                " FROM storyboard_rows WHERE storyboard_id=?", (_sb["id"],)))
+    except Exception as exc:  # noqa: BLE001 - 绑定失败不阻断推理结果
+        log.warning("推理自动绑定失败（推理结果不受影响）: %s", exc)
+        bind_stats = {}
+    # 裸 dict 返回：端点统一 ok() 包信封（2026-10-04 根修——此处历史
+    # 误用 ok() 致双层信封，前端解一层后 res.items=undefined →
+    # 「R.items is not iterable」推理完成即报失败）
+    return {"created": created, "items": items, "auto_bind": bind_stats}
 
 
 @router.post("/comic/asset/infer-entities")

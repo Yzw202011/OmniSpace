@@ -70,7 +70,6 @@ export default function InferProgressModal({
     // 主推理请求（后台运行时弹窗卸载，promise 仍在，回调照常驱动父组件）
     inferEntities(projectId)
       .then((res) => {
-        if (!alive.current) return;
         const c = { character: 0, scene: 0, prop: 0 };
         for (const it of res.items) {
           if (it.kind === 'character' || it.kind === 'scene' || it.kind === 'prop') c[it.kind] += 1;
@@ -81,7 +80,6 @@ export default function InferProgressModal({
       })
       .catch((err) => {
         const msg = getErrorMessage(err, '角色推理失败');
-        if (!alive.current) return;
         setErrorMsg(msg);
         setPhase('error');
         onError(msg);

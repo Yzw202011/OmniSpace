@@ -1234,21 +1234,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 }
 .manga-pipe-step:first-child { padding-left: var(--space-4); clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%); }
 .manga-pipe-step:hover { color: var(--color-text-primary); background: var(--color-primary-50); }
-/* 当前激活工序：竞品观感=明亮渐变底 + 白粗字 + 霓虹光晕（视觉层级最高） */
-.manga-pipe-step.current {
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-700));
-  color: #fff; font-weight: var(--font-weight-semibold);
-  box-shadow: 0 2px 14px rgba(var(--color-primary-rgb), 0.45);
-}
-.manga-pipe-step.done { background: var(--color-success-bg); color: var(--color-success); }
+/* 2026-10-04 用户拍板「统一配色去进度化」：五步同底同字、不做进度
+ * 观感（done/current 类仍由数据态打上但不再有任何颜色差异，完成
+ * 状态经 title 悬停提示传达）——原 current 渐变高亮与 done 绿底规则
+ * 整体移除，防误读成进度条 */
 .manga-pipe-num {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; border-radius: var(--radius-full); flex-shrink: 0;
   background: var(--color-divider); color: var(--color-text-secondary);
   font-size: 10px; font-weight: var(--font-weight-bold);
 }
-.manga-pipe-step.current .manga-pipe-num { background: rgba(255, 255, 255, 0.28); color: #fff; }
-.manga-pipe-step.done .manga-pipe-num { background: var(--color-success); color: #fff; }
 
 /* ---------- 表格式分镜（竞品编辑器中央区，10 列：☑│序号│原文│描述词│人物│场景│道具│分镜图│视频│操作） ---------- */
 .manga-sb-wrap { display: flex; flex-direction: column; gap: var(--space-3); }

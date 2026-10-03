@@ -403,7 +403,9 @@ export function AppShell() {
     prevProjectOpenRef.current = mangaProjectOpen;
   }, [mangaProjectOpen]);
 
-  // 漫剧工作台全屏：仅渲染主内容出口 + Toast（竞品编辑器=独立整页）
+  // 漫剧工作台全屏：主内容出口 + Toast + 全局确认弹窗宿主（2026-10-04
+  // 修复：此前只挂 Toast——confirmDialog 的 Promise 无人渲染永悬，全屏
+  // 下点「角色推理/删除本镜」等一切带确认的按钮零反应零报错）
   if (mangaFullscreen) {
     return (
       <div className="app-shell manga-fullscreen">
@@ -411,6 +413,7 @@ export function AppShell() {
           <Outlet />
         </main>
         <ToastContainer />
+        <ConfirmDialog />
       </div>
     );
   }

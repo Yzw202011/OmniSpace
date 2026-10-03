@@ -1,12 +1,12 @@
 """推理后资产自动绑定单测（2026-10-04 用户令：推理出的无图资产桩自动
-绑到分镜行）。
+绑到分镜行；同名≠同角色二定后仅绑项目域）。
 
 覆盖：
-- 优先级：项目同名 > 全局唯一；项目内多同名也算歧义跳过；
+- 仅项目域：跨项目/全局同名资产（样貌可能不同）绝不自动绑；
+- 项目内同 (kind,name) 多行（同名不同貌并存）= 歧义跳过；
 - 不覆盖：已有 asset_ids 的行原样保留；
 - 宽容拆分：scene 单字符串按 顿号/逗号 分隔多场景；
-- 顺序稳定：角色→场景→道具、去重；
-- 无候选资产时零副作用。
+- 顺序稳定：角色→场景→道具、去重；无候选零副作用。
 """
 from __future__ import annotations
 
@@ -25,14 +25,10 @@ class _FakeDB:
 
     def query(self, sql: str, params=()):  # noqa: ANN001
         if "FROM comic_assets" in sql:
-            out = []
-            if "scope<>'global'" in sql:
-                out += [a for a in self.assets
-                        if a["project_id"] == params[0]
-                        and a.get("scope") != "global"]
-            if "scope='global'" in sql or "OR" in sql:
-                out += [a for a in self.assets if a.get("scope") == "global"]
-            return out
+            # 仅项目域候选池（autobind 语义）；全局/他项目不进池
+            return [a for a in self.assets
+                    if a["project_id"] == params[0]
+                    and a.get("scope") != "global"]
         if "FROM storyboard_rows" in sql:
             return list(self.rows.values())
         raise AssertionError("unexpected sql: " + sql)
@@ -43,46 +39,51 @@ class _FakeDB:
         self.rows[rid].update(fields)
 
 
-def test_priority_project_over_global_and_ambiguity_skip() -> None:
+def _proj(aid: str, kind: str, name: str, project: str = "p1") -> dict:
+    return {"id": aid, "kind": kind, "name": name,
+            "project_id": project, "scope": "project"}
+
+
+def _glob(aid: str, kind: str, name: str) -> dict:
+    return {"id": aid, "kind": kind, "name": name,
+            "project_id": "", "scope": "global"}
+
+
+def test_project_only_and_in_project_ambiguity() -> None:
+    """全局同名（样貌可能不同）不绑；项目内同名多行=歧义跳过。"""
     db = _FakeDB(
         assets=[
-            {"id": "a_proj", "kind": "character", "name": "夏沐沐",
-             "project_id": "p1", "scope": "project"},
-            {"id": "a_glob", "kind": "character", "name": "夏沐沐",
-             "project_id": "", "scope": "global"},
-            {"id": "g1", "kind": "character", "name": "林飞雪",
-             "project_id": "", "scope": "global"},
-            {"id": "g2", "kind": "character", "name": "林飞雪",
-             "project_id": "", "scope": "global"},
-            {"id": "s1", "kind": "scene", "name": "别墅区街角大门",
-             "project_id": "p1", "scope": "project"},
+            _proj("a_proj", "character", "夏沐沐"),
+            _glob("a_glob", "character", "夏沐沐"),   # 同名不同貌：不进池
+            _glob("g1", "character", "林飞雪"),       # 仅全局存在：不绑
+            _proj("m1", "character", "林小曼"),        # 项目内同名×2（不同貌）
+            _proj("m2", "character", "林小曼"),
         ],
         rows=[
             {"id": "r1", "characters": json.dumps(["夏沐沐"]),
              "scene": "", "props": "[]", "asset_ids": None},
             {"id": "r2", "characters": json.dumps(["林飞雪"]),
              "scene": "", "props": "[]", "asset_ids": None},
+            {"id": "r3", "characters": json.dumps(["林小曼"]),
+             "scene": "", "props": "[]", "asset_ids": None},
         ])
     stats = auto_bind_rows(db, "p1", list(db.rows.values()))
-    # 夏沐沐：项目+全局同名 → 项目优先绑定 a_proj
-    # 林飞雪：全局×2 同名 → 歧义跳过
+    # 夏沐沐：项目唯一候选 → 绑；林飞雪：仅全局 → 不绑不计歧义；
+    # 林小曼：项目内×2 同名不同貌 → 歧义跳过
     assert stats == {"bound_rows": 1, "bound_assets": 1,
                      "skipped_ambiguous": 1}
     assert db.updates[0][1]["asset_ids"] == ["a_proj"]
     assert db.rows["r2"].get("asset_ids") is None
+    assert db.rows["r3"].get("asset_ids") is None
 
 
 def test_scene_split_and_order_and_no_manual_overwrite() -> None:
     db = _FakeDB(
         assets=[
-            {"id": "c1", "kind": "character", "name": "夏沐沐",
-             "project_id": "p1", "scope": "project"},
-            {"id": "s1", "kind": "scene", "name": "海边",
-             "project_id": "", "scope": "global"},
-            {"id": "s2", "kind": "scene", "name": "码头",
-             "project_id": "", "scope": "global"},
-            {"id": "p1_", "kind": "prop", "name": "行李箱",
-             "project_id": "p1", "scope": "project"},
+            _proj("c1", "character", "夏沐沐"),
+            _proj("s1", "scene", "海边"),
+            _proj("s2", "scene", "码头"),
+            _proj("p1_", "prop", "行李箱"),
         ],
         rows=[
             {"id": "r1", "characters": json.dumps(["夏沐沐"]),

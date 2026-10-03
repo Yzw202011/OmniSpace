@@ -2916,9 +2916,10 @@ async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
     # 云端路由（批2 云端API 2026-09-06）：关键帧工位绑定云端连接时，
     # 任务走云端道（队列跳过本地锁/热保护），生成核心换云端适配器。
     # 绑定解析失败按本地（不阻断生成）。
+    # 2026-10-04 用户二定路由：绘画模型显式选 cloud:: 才走云（统一闸）
     try:
-        from ...services.cloud_provider_service import get_image_endpoint
-        _cloud_ep = get_image_endpoint("keyframe.image")
+        from .common import paint_choice_cloud_ep
+        _cloud_ep = paint_choice_cloud_ep("keyframe.image")
     except Exception as exc:  # noqa: BLE001
         log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
@@ -2976,9 +2977,10 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
         raise ApiError("SYSTEM_PARAM_INVALID", "缺少 row_ids 数组")
 
     # 云端路由（批2）：整批共用一次绑定解析
+    # 2026-10-04 用户二定路由：绘画模型显式选 cloud:: 才走云（统一闸）
     try:
-        from ...services.cloud_provider_service import get_image_endpoint
-        _cloud_ep = get_image_endpoint("keyframe.image")
+        from .common import paint_choice_cloud_ep
+        _cloud_ep = paint_choice_cloud_ep("keyframe.image")
     except Exception as exc:  # noqa: BLE001
         log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None

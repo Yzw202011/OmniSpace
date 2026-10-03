@@ -5,9 +5,11 @@
 只回填名称列（characters/scene/props 文本），名称→绑定的最后一米
 全靠手动——本模块补上。
 
-解析优先级（同名歧义钳制，全局库同名资产真实存在如 林飞雪×3）：
-  项目内同名 > 全局唯一同名 > 同优先级多同名=跳过（留用户手动挑）。
-只填空 asset_ids（不覆盖手动绑定）；行三列名称按 kind 精确配对。
+同名二义性（2026-10-04 用户裁定）：**同名≠同角色**——同名不同描述词
+=不同样貌的独立资产。故只绑本项目推理自建的桩（项目域 (kind,name)
+索引）；跨项目/全局同名资产样貌可能完全不同，绝不因名字相同自动绑。
+项目内同 (kind,name) 多行（同名不同貌并存）= 跳过留用户手动挑；
+只填空 asset_ids，不覆盖手动绑定。
 """
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 
@@ -48,23 +50,21 @@ def auto_bind_rows(db: Database, project_id: str,
     skipped_ambiguous}；db.update 内部把 list 序列化为 JSON（与分镜行
     update 路径同一约定）。
     """
-    # 候选索引：(kind, name) -> [(id, priority)]，0=项目内 1=全局
-    idx: dict[tuple[str, str], list[tuple[str, int]]] = {}
-    for prio, cond, params in (
-            (0, "project_id=? AND scope<>'global'", (project_id,)),
-            (1, "scope='global'", ())):
-        try:
-            for r in db.query("SELECT id, kind, name FROM comic_assets"
-                              f" WHERE {cond}", params):
-                name = str(r.get("name") or "").strip()
-                kind = str(r.get("kind") or "")
-                if name:
-                    idx.setdefault((kind, name), []).append(
-                        (str(r["id"]), prio))
-        except Exception as exc:  # noqa: BLE001 - 索引失败=本次不绑不阻断
-            log.warning("自动绑定候选索引失败（跳过绑定）: %s", exc)
-            return {"bound_rows": 0, "bound_assets": 0,
-                    "skipped_ambiguous": 0}
+    # 候选索引（仅项目域）：(kind, name) -> [id]——跨项目/全局同名资产
+    # 样貌可能完全不同（用户裁定同名≠同角色），不进自动绑定池
+    idx: dict[tuple[str, str], list[str]] = {}
+    try:
+        for r in db.query("SELECT id, kind, name FROM comic_assets"
+                          " WHERE project_id=? AND scope<>'global'",
+                          (project_id,)):
+            name = str(r.get("name") or "").strip()
+            kind = str(r.get("kind") or "")
+            if name:
+                idx.setdefault((kind, name), []).append(str(r["id"]))
+    except Exception as exc:  # noqa: BLE001 - 索引失败=本次不绑不阻断
+        log.warning("自动绑定候选索引失败（跳过绑定）: %s", exc)
+        return {"bound_rows": 0, "bound_assets": 0,
+                "skipped_ambiguous": 0}
     if not idx:
         return {"bound_rows": 0, "bound_assets": 0, "skipped_ambiguous": 0}
 
@@ -80,13 +80,11 @@ def auto_bind_rows(db: Database, project_id: str,
             cands = idx.get((kind, name)) or []
             if not cands:
                 continue
-            best = min(p for _, p in cands)
-            top = [aid for aid, p in cands if p == best]
-            if len(top) > 1:
-                skipped += 1  # 同优先级同名歧义（如全局×3）留手动
+            if len(cands) > 1:
+                skipped += 1  # 项目内同名多行（同名不同貌并存）留手动
                 continue
-            if top[0] not in ids:
-                ids.append(top[0])
+            if cands[0] not in ids:
+                ids.append(cands[0])
         if ids:
             db.update("storyboard_rows", {"asset_ids": ids},
                       "id=?", (row["id"],))

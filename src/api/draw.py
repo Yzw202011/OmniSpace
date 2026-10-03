@@ -1021,8 +1021,18 @@ def _make_paint_queue_runner(
     return runner
 
 
-def _resolve_paint_cloud_endpoint():
-    """解析绘画工位云端端点（未绑定/连接停用返回 None=本地旧行为）。"""
+def _resolve_paint_cloud_endpoint(model_hint: str = ""):
+    """云端路由（2026-10-04 用户二定）：请求点名或绘画页模型默认为
+    cloud:: 才走云；本地选择/默认=本地（工位绑定只供选项与端点）。"""
+    sel = (model_hint or "").strip()
+    if not sel.startswith("cloud::"):
+        try:
+            from .models import module_default_model
+            sel = str(module_default_model("paint") or "")
+        except Exception:  # noqa: BLE001 - 配置读取失败按本地
+            sel = ""
+    if not sel.startswith("cloud::"):
+        return None
     try:
         from ..services.cloud_provider_service import get_image_endpoint
         return get_image_endpoint("paint.image")
@@ -1037,7 +1047,8 @@ def _submit_task(task: dict, init_image=None, mask=None) -> None:
     云端绑定（批2）：跳过热保护预检（云任务不占本地 GPU 温度无关），
     任务打 cloud 标记走云端道。
     """
-    cloud_ep = _resolve_paint_cloud_endpoint()
+    cloud_ep = _resolve_paint_cloud_endpoint(
+        str((task.get("params") or {}).get("model") or ""))
     # openai_image 协议不支持参考图/图生图（2026-10-03 MagicAI 出图接
     # 入）：带 init/mask 的任务自动回退本地引擎，不再硬报错打断用户
     if cloud_ep is not None and (init_image is not None or mask is not None) \

@@ -54,6 +54,10 @@
   --color-accent-300: #7EDCD5;
   --color-accent-600: #3BA8A0;
 
+  /* 警示色衍生（2026-10-04 登记：原文列道具名高亮等浅底徽章用） */
+  --color-warning-100: rgba(255, 217, 61, 0.14);
+  --color-warning-300: #FFE87A;
+
   /* 边框/分隔/遮罩（§6.3.2：输入框边框 #4ECDC4 30% 透明度） */
   --color-border: rgba(78, 205, 196, 0.22);       /* 通用边框（薄荷绿调） */
   --color-border-light: rgba(78, 205, 196, 0.12);

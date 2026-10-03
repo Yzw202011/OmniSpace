@@ -183,24 +183,16 @@ def _default_data_dir() -> Path:
     return DATA_DIR
 
 
-def resolve_asset_cloud_endpoint() -> CloudEndpoint | None:
-    """资产槽（asset.image）云端端点；未绑定/停用/解析失败返回 None
-    （=调用方走本地链，不阻断生成）。"""
-    try:
-        from ..cloud_provider_service import SLOT_ASSET_IMAGE, get_image_endpoint
-        return get_image_endpoint(SLOT_ASSET_IMAGE)
-    except Exception:  # noqa: BLE001 - 解析失败按本地
-        return None
-
-
 def regenerate_asset_cloud_image(prompt: str, width: int, height: int,
+                                 ep: CloudEndpoint | None,
                                  on_progress=None):
-    """普通资产重生的云端生成（未绑定/失败返回 None=调用方走本地）。
+    """普通资产重生的云端生成（ep=None/失败返回 None=调用方走本地）。
 
+    路由判定在调用方（api 层 paint_choice_cloud_ep 统一闸——2026-10-04
+    用户裁定：模型配置选云才走云，绑定不直接触发）；本函数只管生成。
     Returns:
         (PIL.Image, "cloud:<服务商名>") 二元组；云端不可用时 None。
     """
-    ep = resolve_asset_cloud_endpoint()
     if ep is None:
         return None
     try:

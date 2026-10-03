@@ -99,6 +99,26 @@ def manga_dialog_model_id() -> str:
     except Exception:  # noqa: BLE001 - 配置读取失败不阻断生词链路
         return "qwen35-9b-w4a16"
 
+
+def paint_choice_cloud_ep(slot: str = "asset.image"):
+    """绘画链云端路由统一闸（2026-10-04 用户裁定）。
+
+    模型配置·绘画模型（module_config manga-paint 槽）显式选择 cloud::
+    端点才走云；本地选择/系统默认=本地。工位绑定只负责让云端选项出现
+    在模型配置下拉（并在选中时解析端点），绑定本身不触发云端。
+    Returns: CloudEndpoint | None（None=本地）。绘画页（paint.image）/
+    资产（asset.image）/关键帧（keyframe.image）统一经此判定。
+    """
+    try:
+        from ...services.cloud_provider_service import get_image_endpoint
+        from ..models import module_default_model
+        if not str(module_default_model("manga-paint") or "") \
+                .startswith("cloud::"):
+            return None
+        return get_image_endpoint(slot)
+    except Exception:  # noqa: BLE001 - 解析失败按本地（不阻断生成）
+        return None
+
 # ── WS 进度广播注入点（2026-08-27 按钮实时进度条）──────────────────────
 # 模式对齐 api.draw：main 启动时注入 hub.broadcast（线程安全，任意
 # 工作线程可调用）。生图进度 → task_progress 直透前端 WsHub 协议，

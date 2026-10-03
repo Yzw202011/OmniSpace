@@ -1113,22 +1113,22 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
     # W3-C：引擎档位在编排口统一裁决（comfy 适配器 / legacy klein-4b；
     # comfy onepass 失败自然落入下方 legacy 全链回退）
     engine = _pick_turnaround_engine()
-    # ── 云端整图直出（2026-10-03 用户拍板：四视图/重生也走云端）──
-    # 资产槽绑定即走云（用户模板+白沟切分见 cloud_turnaround 服务模块）；
-    # 失败诚实落回下方本地自动链（不报死）
+    # ── 云端整图直出（2026-10-03 四视图上云；2026-10-04 用户二定路由）──
+    # 仅当模型配置·绘画模型显式选择 cloud:: 端点才走云（paint_choice_
+    # cloud_ep 统一闸）；本地选择/系统默认=本地自动链；失败诚实落回
     try:
+        from .common import paint_choice_cloud_ep
         from ...services.inference.cloud_turnaround import (
             generate_turnaround_cloud,
-            resolve_asset_cloud_endpoint,
         )
-        _cloud_ep = resolve_asset_cloud_endpoint()
+        _cloud_ep = paint_choice_cloud_ep()
         if _cloud_ep is not None:
             gen = generate_turnaround_cloud(
                 out_dir, name=name, prompt=prompt, cloud_ep=_cloud_ep,
                 on_progress=(lambda p, s: broadcast_gen_progress(
                     "asset", ctx_id, percent=p, label=s) if ctx_id else None))
             gen["consistency"] = _views_consistency(gen.pop("view_imgs", []))
-            log.info("云端整图直出四视图完成（asset 槽绑定）: %s model=%s",
+            log.info("云端整图直出四视图完成（绘画模型=云端）: %s model=%s",
                      name, gen["model"])
             return gen
     except Exception as exc:  # noqa: BLE001 - 落回本地自动链
@@ -1748,9 +1748,10 @@ def _regenerate_asset_sync(asset: dict) -> dict:
         broadcast_gen_progress("asset", _ctx, percent=2, label="正在生成")
         # 云端优先（2026-10-03 用户拍板：重生也走云端）：未绑定/失败
         # 返回 None 落本地 FLUX/SDXL（服务模块内已收敛告警）
+        from .common import paint_choice_cloud_ep
         from ...services.inference.cloud_turnaround import regenerate_asset_cloud_image
         _cloud = regenerate_asset_cloud_image(
-            asset["prompt"], width, height,
+            asset["prompt"], width, height, ep=paint_choice_cloud_ep(),
             on_progress=_map_step if _ctx else None)
         result: dict[str, Any]
         try:

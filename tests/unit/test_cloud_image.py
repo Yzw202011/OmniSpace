@@ -507,7 +507,9 @@ def test_image_wiring_sentinels() -> None:
 
     kf_src = (_ROOT_DIR / "src/api/manga/keyframe.py").read_text(
         encoding="utf-8")
-    assert 'get_image_endpoint("keyframe.image")' in kf_src
+    # 2026-10-04 用户二定路由：云判定收进 common.paint_choice_cloud_ep
+    # 统一闸（绘画模型显式选 cloud:: 才走云），各链只按槽位取端点
+    assert 'paint_choice_cloud_ep("keyframe.image")' in kf_src
     assert "cloud_endpoint=_cloud_ep" in kf_src
     # 生成核心：云端分支 + 引擎装载守卫 + 参考图加载条件
     assert "cloud_endpoint is not None" in kf_src
@@ -515,7 +517,7 @@ def test_image_wiring_sentinels() -> None:
 
     asset_src = (_ROOT_DIR / "src/api/manga/comic_asset.py").read_text(
         encoding="utf-8")
-    assert 'get_image_endpoint("asset.image")' in asset_src
+    assert 'paint_choice_cloud_ep("asset.image")' in asset_src
 
     common_src = (_ROOT_DIR / "src/api/manga/common.py").read_text(
         encoding="utf-8")

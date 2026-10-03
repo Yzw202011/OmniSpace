@@ -753,9 +753,17 @@ export async function deleteAssetReference(assetId: string): Promise<void> {
   await del(`/comic/asset/${assetId}/reference`);
 }
 
-/** 删除资产（DELETE /comic/asset/{assetId}）：DB 行 + 分镜行绑定清理 + 磁盘目录 */
-export async function deleteAsset(assetId: string): Promise<{ name: string; kind: string }> {
-  return del<{ name: string; kind: string }>(`/comic/asset/${assetId}`);
+/** 删除资产（DELETE /comic/asset/{assetId}）：DB 行 + 分镜行绑定清理 + 磁盘目录。
+ * 2026-10-04 用户裁定双语义：作品中删除=软删（只移出本作品，库副本
+ * 保留）；全部可用删除=真删——传 cascadeProject 时连同本作品同名同类
+ * 副本一并删除（后端级联，响应 cascade_removed 计数）。 */
+export async function deleteAsset(
+  assetId: string,
+  cascadeProject?: string,
+): Promise<{ name: string; kind: string; cascade_removed?: number }> {
+  const query = cascadeProject ? `?cascade_project=${encodeURIComponent(cascadeProject)}` : '';
+  return del<{ name: string; kind: string; cascade_removed?: number }>(
+    `/comic/asset/${assetId}${query}`);
 }
 
 /** 资产生成历史项（GET /comic/asset/{assetId}/history data.items 元素；url 可直接作 img src） */

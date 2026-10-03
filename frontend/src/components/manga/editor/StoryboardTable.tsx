@@ -68,24 +68,48 @@ function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** 原文只读态：命中角色名渲染为彩色高亮 span（资产库角色名 ∪ 行 characters） */
-function renderEntityHighlight(text: string, names: string[]): ReactNode {
-  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))].sort(
-    (a, b) => b.length - a.length,
-  );
+/** 场景列为单字符串（推理回填/手动输入可能顿号分隔多场景）→ 名清单 */
+function splitSceneNames(raw: string): string[] {
+  return (raw || '')
+    .replace('，', ',')
+    .replace('、', ',')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/** 实体高亮分组：names 命中后套 cls（2026-10-04 用户令：场景/道具与
+ * 角色同款标记、按类分色——角色=薄荷/场景=粉/道具=黄） */
+interface EntityHighlightGroup {
+  names: string[];
+  cls: string;
+}
+
+/** 原文只读态：命中实体名渲染为分色高亮 span（资产库名 ∪ 行实体列；
+ * 跨组同名时先到先得——调用方把角色组放最前） */
+function renderEntityHighlight(text: string, groups: EntityHighlightGroup[]): ReactNode {
+  const clsOf = new Map<string, string>();
+  for (const g of groups) {
+    for (const n of g.names) {
+      const name = n.trim();
+      if (name && !clsOf.has(name)) clsOf.set(name, g.cls);
+    }
+  }
+  const unique = [...clsOf.keys()].sort((a, b) => b.length - a.length);
   if (!text || unique.length === 0) return text;
   const pattern = new RegExp(`(${unique.map(escapeRegExp).join('|')})`, 'g');
   const hit = new Set(unique);
-  return text.split(pattern).map((part, i) =>
-    hit.has(part) ? (
+  return text.split(pattern).map((part, i) => {
+    const cls = clsOf.get(part);
+    return hit.has(part) && cls ? (
       // 高亮名为纯文本片段，key 用索引即可（列表静态无重排）
-      <span key={i} className="manga-entity">
+      <span key={i} className={cls}>
         {part}
       </span>
     ) : (
       part
-    ),
-  );
+    );
+  });
 }
 
 /* ------------------------------ 内联编辑单元格 ------------------------------ */
@@ -95,13 +119,13 @@ interface EditableCellProps {
   placeholder: string;
   /** AI 生成内容铺薄荷绿底（§14 约束12） */
   ai?: boolean;
-  /** 只读态实体高亮名表（原文列角色名高亮） */
-  highlightNames?: string[];
+  /** 只读态实体高亮分组（原文列：角色/场景/道具分色标记） */
+  highlightGroups?: EntityHighlightGroup[];
   /** 提交（失焦 / Ctrl+Enter） */
   onCommit: (v: string) => void;
 }
 
-function EditableCell({ value, placeholder, ai, highlightNames, onCommit }: EditableCellProps) {
+function EditableCell({ value, placeholder, ai, highlightGroups, onCommit }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
@@ -127,8 +151,8 @@ function EditableCell({ value, placeholder, ai, highlightNames, onCommit }: Edit
         }}
       >
         {value ? (
-          highlightNames && highlightNames.length > 0 ? (
-            renderEntityHighlight(value, highlightNames)
+          highlightGroups && highlightGroups.length > 0 ? (
+            renderEntityHighlight(value, highlightGroups)
           ) : (
             value
           )
@@ -266,8 +290,10 @@ interface StoryboardRowProps {
   currentKeyframe: KeyframeItem | undefined;
   /** 行最新视频任务（videoTasks 元素引用，无任务为 undefined） */
   videoTask: MangaVideoTask | undefined;
-  /** 原文列高亮名表（资产库角色名，父级 useMemo） */
+  /** 原文列高亮名表（资产库实体名，父级 useMemo；2026-10-04 起三类分色） */
   characterNames: string[];
+  sceneNames: string[];
+  propNames: string[];
   onSelectRow: (rowId: string) => void;
   onToggleCheck: (rowId: string) => void;
   onDescribe: (row: StoryboardRowData) => void;
@@ -298,6 +324,8 @@ const StoryboardRow = memo(function StoryboardRow({
   currentKeyframe,
   videoTask,
   characterNames,
+  sceneNames,
+  propNames,
   onSelectRow,
   onToggleCheck,
   onDescribe,
@@ -376,7 +404,11 @@ const StoryboardRow = memo(function StoryboardRow({
         <EditableCell
           value={row.original_dialogue}
           placeholder="原文台词 / 剧本内容…"
-          highlightNames={[...characterNames, ...row.characters]}
+          highlightGroups={[
+            { names: [...characterNames, ...row.characters], cls: 'manga-entity' },
+            { names: [...sceneNames, ...splitSceneNames(row.scene)], cls: 'manga-entity-scene' },
+            { names: [...propNames, ...row.props], cls: 'manga-entity-prop' },
+          ]}
           onCommit={(v) => onUpdateField(row.id, { original_dialogue: v })}
         />
       </div>
@@ -909,6 +941,10 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
 
   /** 原文列高亮名表：资产库角色名（行内与 row.characters 求并集；useMemo 稳定化，引用随 assets 变化才更新） */
   const characterNames = useMemo(() => assets.filter((a) => a.kind === 'character').map((a) => a.name), [assets]);
+  /** 原文列高亮名表：资产库场景/道具名（行内实体列求并集；2026-10-04
+   * 用户令——推理资产与角色同款分色标记） */
+  const sceneNames = useMemo(() => assets.filter((a) => a.kind === 'scene').map((a) => a.name), [assets]);
+  const propNames = useMemo(() => assets.filter((a) => a.kind === 'prop').map((a) => a.name), [assets]);
 
   return (
     <div className="manga-sb-wrap">
@@ -974,6 +1010,8 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               currentKeyframe={kfs?.find((k) => k.is_current)}
               videoTask={latestTask(r.id)}
               characterNames={characterNames}
+              sceneNames={sceneNames}
+              propNames={propNames}
               onSelectRow={setSelectedRow}
               onToggleCheck={toggleCheck}
               onDescribe={handleDescribe}

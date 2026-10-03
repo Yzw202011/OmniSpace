@@ -18,7 +18,6 @@ import { Loader2, Settings2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { listAvailableModels } from '@/services/mangaApi';
 import { getModuleModelConfig, saveModuleModelConfig } from '@/services/modelApi';
-import CloudSlotBadge from '@/components/common/CloudSlotBadge';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import { DEFAULT_MODEL_CONFIG, writeModelConfig, type MangaModelConfig } from '@/constants/modelConfig';
 import { loadModelConfig, snapToTiers, tierDurations, tierQualities } from '@/constants/modelConfig';
@@ -58,7 +57,7 @@ function ModelSelect({ label, value, models, loading, onChange }: ModelSelectPro
         >
           <option value="">系统默认（自动选择）</option>
           {models.map((m) => (
-            <option key={m.id} value={m.id} disabled={m.status !== 'ready' && m.status !== 'downloaded'}>
+            <option key={m.id} value={m.id} disabled={m.status !== 'ready' && m.status !== 'downloaded' && m.status !== 'cloud'}>
               {`${m.name}（${MODEL_AVAILABLE_STATUS_LABELS[m.status]}）`}
             </option>
           ))}
@@ -138,7 +137,12 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
         ];
         for (const [slot, modelId] of pairs) {
           const cur = configs[slot] || { allowed: [], default: '' };
-          configs[slot] = { allowed: cur.allowed, default: modelId };
+          // 2026-10-04 用户二定路由：选中即权威——后端校验要求 default
+          // 同时在 allowed 白名单与候选集内（云端端点已入候选）；选了
+          // 不在白名单里的模型（如云端端点）自动补入，保存不再被拒
+          const allowed = Array.isArray(cur.allowed) ? [...cur.allowed] : [];
+          if (modelId && !allowed.includes(modelId)) allowed.push(modelId);
+          configs[slot] = { allowed, default: modelId };
         }
         await saveModuleModelConfig(configs);
       } catch {
@@ -197,7 +201,7 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
           onChange={(id) => setCfg((c) => ({ ...c, videoModel: id }))}
         />
 
-        {/* ④ 视频默认参数：画幅 + 时长 */}
+        {/* ④ 视频默认参数：画幅 + 时长（档位驱动）+ 分辨率 */}
         <div className="manga-modelcfg-grid">
           <div>
             <label className="manga-form-label">默认画幅</label>
@@ -252,16 +256,9 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
 
         <p className="manga-form-tip" style={{ margin: 0 }}>
           保存后作为「生成视频」确认弹窗的默认参数；模型留空 = 系统默认自动选择。
+          云端模型由「设置 → 云端 API 服务」绑定后出现在上方下拉（标「云端·计费」）；
+          绘画/视频环节的云端路由由该绑定决定。
         </p>
-
-        {/* ⑤ 批3 P5：云端 API 工位（manga.text / manga.video）——绑定即
-            该环节走云端（零显存占用）；点击「去配置」直达设置页 AI 服务签 */}
-        <div className="manga-modelcfg-grid">
-          <CloudSlotBadge slots={[
-            { key: 'manga.text', label: '漫剧文本' },
-            { key: 'manga.video', label: '漫剧视频' },
-          ]} />
-        </div>
       </div>
     </Modal>
   );

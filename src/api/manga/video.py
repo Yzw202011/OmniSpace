@@ -1327,8 +1327,10 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     # 优先走云端图生视频（本地显卡零占用，与本地生成天然并行）；
     # model_override="local" 恒尊重（回归口）。
     resp = {"task_id": task_id, "status": "pending"}
-    _cloud_ep = None if str(req.model_override or "") == "local" \
-        else _resolve_video_cloud_endpoint()
+    # 2026-10-04 用户二定路由：视频模型显式选 cloud:: 才走云（确认弹窗
+    # 透传选择；工位绑定只供端点解析）；本地选择/系统默认=本地引擎
+    _cloud_ep = _resolve_video_cloud_endpoint() \
+        if str(req.model_override or "").startswith("cloud::") else None
     _aspect_any = "16:9"
     try:
         _w, _, _h = str(req.resolution or "").partition("x")

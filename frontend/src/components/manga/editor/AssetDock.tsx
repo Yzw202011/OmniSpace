@@ -10,7 +10,9 @@
  *     不传 project_id），组内搜索框；本项目资产点击 = 详情/绑定（同普通卡），
  *     他项目资产点击 = 「引入」（POST /comic/asset/adopt 复制入当前项目 + toast）；
  *     组末尾同样有「添加新角色」卡
- * 场景/道具页签：保持现有「作品中X / 全部可用X（可折叠）」双区，添加卡移至组末尾
+ * 场景/道具页签（2026-10-04 用户令对齐角色）：双区制——「作品中X」=
+ *   本项目全部X（不以绑定为前提）+「全部可用X」= 跨项目资产库；旧
+ *   「全局与跨项目X」独立区退役（09-30 只分作品/全部的拍板补齐）
  * 绑定模式（表格资产列「+」设置 bindingTarget 后进入）：
  *   - 顶部提示条「正在为 镜N 选择{类型}，点击资产绑定/解绑」+ 退出按钮
  *   - 页签自动切到目标类型；卡片点击 = bind/unbind toggle（追加语义契约）
@@ -150,7 +152,6 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
   const [tab, setTab] = useState<ComicAssetKind>('character');
   const [binding, setBinding] = useState('');
   const [boundQuery, setBoundQuery] = useState('');
-  const [poolQuery, setPoolQuery] = useState('');
   const [poolOpen, setPoolOpen] = useState(true);
   const [multiviewOpen, setMultiviewOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
@@ -178,6 +179,9 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
   const [adopting, setAdopting] = useState('');
   /** 删除确认弹窗目标资产（null 关闭） */
   const [confirmDel, setConfirmDel] = useState<ComicAsset | null>(null);
+  /** 删除来源（2026-10-04 用户裁定双语义）：project=作品中软删（库副本
+   * 保留）；library=全部可用真删（级联删本作品副本） */
+  const [delFrom, setDelFrom] = useState<'project' | 'library'>('project');
   /** 删除请求进行中（禁用按钮防重复提交） */
   const [deleting, setDeleting] = useState(false);
 
@@ -211,16 +215,6 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
     };
   }, [tab, showToast]);
 
-  /** 作品中资产 ID 集合（任一行 asset_ids 含该资产即视为作品中；asset_id 为兼容回退） */
-  const boundIds = useMemo(() => {
-    const set = new Set<string>();
-    rows.forEach((r) => {
-      const ids = r.asset_ids ?? (r.asset_id ? [r.asset_id] : []);
-      ids.forEach((id) => set.add(id));
-    });
-    return set;
-  }, [rows]);
-
   /** 绑定目标行（绑定模式高亮判定） */
   const targetRow = bindingTarget ? rows.find((r) => r.id === bindingTarget.rowId) : undefined;
   /** 目标行已绑定资产 ID 集合 */
@@ -232,28 +226,10 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
   /** 当前页签资产 */
   const tabAssets = useMemo(() => assets.filter((a) => a.kind === tab), [assets, tab]);
 
-  /** 作品中资产（已绑定到任一分镜行；场景/道具页签组一使用） */
-  const boundAssets = useMemo(
-    () =>
-      tabAssets.filter(
-        (a) => boundIds.has(a.asset_id) && (!boundQuery.trim() || a.name.includes(boundQuery.trim())),
-      ),
-    [tabAssets, boundIds, boundQuery],
-  );
-
   /** 作品中角色（角色页签组一 = 本项目全部角色，竞品语义，不以绑定为前提） */
   const projectChars = useMemo(
     () => tabAssets.filter((a) => !boundQuery.trim() || a.name.includes(boundQuery.trim())),
     [tabAssets, boundQuery],
-  );
-
-  /** 全部可用资产（未绑定池） */
-  const poolAssets = useMemo(
-    () =>
-      tabAssets.filter(
-        (a) => !boundIds.has(a.asset_id) && (!poolQuery.trim() || a.name.includes(poolQuery.trim())),
-      ),
-    [tabAssets, boundIds, poolQuery],
   );
 
   /** 库组资产（排除当前项目，剩全局 + 他项目；按名称过滤） */
@@ -327,10 +303,15 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
   const handleConfirmDelete = () => {
     if (!confirmDel || deleting) return;
     const target = confirmDel;
+    const hard = delFrom === 'library';
     setDeleting(true);
-    deleteAsset(target.asset_id)
-      .then(({ name }) => {
-        showToast(`已删除「${name}」`, 'success');
+    deleteAsset(target.asset_id, hard ? currentProject?.id : undefined)
+      .then(({ name, cascade_removed }) => {
+        showToast(
+          hard
+            ? `已彻底删除「${name}」${cascade_removed ? `（本作品副本同步移除 ${cascade_removed} 项）` : ''}`
+            : `已从本作品移除「${name}」（资产库副本保留，可重新引入）`,
+          'success');
         if (useMangaStore.getState().selectedAssetId === target.asset_id) {
           setSelectedAsset(null);
         }
@@ -345,14 +326,21 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
   };
 
   /** 卡片删除入口：打开二次确认弹窗 */
-  const handleConfirmDeleteOpen = (a: ComicAsset) => setConfirmDel(a);
+  const handleConfirmDeleteOpen = (a: ComicAsset) => {
+    setDelFrom('project');
+    setConfirmDel(a);
+  };
+  const handleLibraryDeleteOpen = (a: ComicAsset) => {
+    setDelFrom('library');
+    setConfirmDel(a);
+  };
 
   /** 库组卡片是否可删：本项目资产与全局资产可删，他项目资产不提供入口 */
   const libraryDeletable = (a: ComicAsset) =>
     currentProject && a.project_id === currentProject.id
       ? handleConfirmDeleteOpen
       : a.scope === 'global'
-        ? handleConfirmDeleteOpen
+        ? handleLibraryDeleteOpen
         : undefined;
 
   const handleMultiview = () => {
@@ -553,11 +541,11 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
           </>
         ) : (
           <>
-            {/* 作品中资产（已绑定到分镜行） */}
+            {/* 作品中X（本项目全部X，竞品/角色同款语义；2026-10-04 三区并双区） */}
             <div className="manga-dock-sec">
               <div className="manga-dock-sec-head">
                 <span className="manga-dock-sec-title">
-                  作品中{tabLabel}（{boundAssets.length}/{tabAssets.filter((a) => boundIds.has(a.asset_id)).length}）
+                  作品中{tabLabel}（{tabAssets.length}）
                 </span>
                 <span className="manga-dock-search">
                   <Search size={12} />
@@ -569,57 +557,23 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
                   />
                 </span>
               </div>
-              {boundAssets.length === 0 ? (
-                <div className="manga-dock-empty">暂无已绑定{tabLabel}</div>
+              {tabAssets.length === 0 ? (
+                <div className="manga-dock-empty">暂无作品中{tabLabel}</div>
               ) : (
                 <div className="manga-asset-grid">
-                  {boundAssets.map((a) => (
-                    <AssetCard
-                      key={a.asset_id}
-                      asset={a}
-                      busy={binding}
-                      bindMode={bindMode}
-                      boundToTarget={targetBoundIds.has(a.asset_id)}
-                      onClickCard={handleClickCard}
-                      onDelete={handleConfirmDeleteOpen}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 全部可用资产（未绑定池，可折叠） */}
-            <div className="manga-dock-sec">
-              <div className="manga-dock-sec-head">
-                <button type="button" className="manga-dock-sec-toggle" onClick={() => setPoolOpen((v) => !v)}>
-                  <span className="manga-dock-sec-title">
-                    全部可用{tabLabel}（{poolAssets.length}/{tabAssets.filter((a) => !boundIds.has(a.asset_id)).length}）
-                  </span>
-                  <ChevronDown size={14} className={`manga-dock-chevron${poolOpen ? ' open' : ''}`} />
-                </button>
-                <span className="manga-dock-search">
-                  <Search size={12} />
-                  <input
-                    value={poolQuery}
-                    maxLength={50}
-                    placeholder={`搜索${tabLabel}…`}
-                    onChange={(e) => setPoolQuery(e.target.value)}
-                  />
-                </span>
-              </div>
-              {poolOpen && (
-                <div className="manga-asset-grid">
-                  {poolAssets.map((a) => (
-                    <AssetCard
-                      key={a.asset_id}
-                      asset={a}
-                      busy={binding}
-                      bindMode={bindMode}
-                      boundToTarget={targetBoundIds.has(a.asset_id)}
-                      onClickCard={handleClickCard}
-                      onDelete={handleConfirmDeleteOpen}
-                    />
-                  ))}
+                  {tabAssets
+                    .filter((a) => !boundQuery.trim() || a.name.includes(boundQuery.trim()))
+                    .map((a) => (
+                      <AssetCard
+                        key={a.asset_id}
+                        asset={a}
+                        busy={binding}
+                        bindMode={bindMode}
+                        boundToTarget={targetBoundIds.has(a.asset_id)}
+                        onClickCard={handleClickCard}
+                        onDelete={handleConfirmDeleteOpen}
+                      />
+                    ))}
                   <button
                     type="button"
                     className="manga-asset-add"
@@ -633,12 +587,13 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
               )}
             </div>
 
-            {/* 全局与跨项目{tabLabel}（资产库：全局 + 他项目资产，点击 = 引入当前项目） */}
+            {/* 全部可用X（跨项目资产库：全局 + 他项目，点击 = 引入；2026-10-04
+                用户令对齐角色双区制——旧「全局与跨项目X」独立区退役） */}
             <div className="manga-dock-sec">
               <div className="manga-dock-sec-head">
                 <button type="button" className="manga-dock-sec-toggle" onClick={() => setPoolOpen((v) => !v)}>
                   <span className="manga-dock-sec-title">
-                    全局与跨项目{tabLabel}（{libraryFiltered.length}）
+                    全部可用{tabLabel}（{libraryFiltered.length}）
                   </span>
                   <ChevronDown size={14} className={`manga-dock-chevron${poolOpen ? ' open' : ''}`} />
                 </button>
@@ -647,7 +602,7 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
                   <input
                     value={libraryQuery}
                     maxLength={50}
-                    placeholder={`搜索全局${tabLabel}…`}
+                    placeholder={`搜索可用${tabLabel}…`}
                     onChange={(e) => setLibraryQuery(e.target.value)}
                   />
                 </span>
@@ -664,7 +619,7 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
                       {libraryFiltered.length === 0 && (
                         <div className="manga-dock-empty">
                           {libraryQuery.trim()
-                            ? `无匹配的全局${tabLabel}`
+                            ? `无匹配的可用${tabLabel}`
                             : `暂无全局/跨项目${tabLabel}（转为全局或删除项目的资产会出现在这里）`}
                         </div>
                       )}
@@ -734,18 +689,21 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
         <Modal title="删除资产" onClose={() => !deleting && setConfirmDel(null)} width={380}>
           <div className="flex flex-col gap-3">
             <p className="text-secondary" style={{ margin: 0, fontSize: 'var(--font-size-sm)' }}>
-              确认删除{KIND_LABELS[confirmDel.kind] ?? '资产'}
+              {delFrom === 'library' ? '彻底删除' : '从本作品移除'}
+              {KIND_LABELS[confirmDel.kind] ?? '资产'}
               <strong>「{confirmDel.name}」</strong>？
             </p>
             <p className="text-secondary" style={{ margin: 0, fontSize: 'var(--font-size-xs)' }}>
-              将同时清除分镜行绑定与磁盘图片文件，删除后不可恢复
+              {delFrom === 'library'
+                ? '将删除：全部可用（资产库）中的该资产 + 本作品中的同名副本（含分镜行绑定与图片文件），不可恢复'
+                : '仅从本作品移除（含分镜行绑定）；全部可用（资产库）中的副本保留，可随时重新引入'}
             </p>
             <div className="flex gap-3" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" disabled={deleting} onClick={() => setConfirmDel(null)}>
                 取消
               </button>
               <button type="button" className="btn btn-danger" disabled={deleting} onClick={handleConfirmDelete}>
-                {deleting ? '删除中…' : '删除'}
+                {deleting ? '删除中…' : delFrom === 'library' ? '彻底删除' : '移除'}
               </button>
             </div>
           </div>

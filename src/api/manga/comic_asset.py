@@ -121,12 +121,12 @@ def _asset_kind_endpoint(kind: str) -> Callable[[AssetGenerateRequest], Awaitabl
             f"资产生成：{(req.name or '')[:20]}",
             input_summary=f"{req.width}x{req.height} "
                           f"{(req.prompt or '')[:60]}")
-        # 云端路由（批2 云端API 2026-09-06）：资产工位绑定云端连接时
-        # 任务走云端道（队列跳过本地锁）、生成核心换云端适配器；
-        # 解析失败按本地（不阻断生成）
+        # 云端路由（2026-10-04 用户二定）：仅当模型配置·绘画模型显式
+        # 选 cloud:: 端点才走云（paint_choice_cloud_ep 统一闸；工位绑定
+        # 只供下拉选项与端点解析）；本地选择/系统默认=本地引擎
         try:
-            from ...services.cloud_provider_service import get_image_endpoint
-            _cloud_ep = get_image_endpoint("asset.image")
+            from .common import paint_choice_cloud_ep
+            _cloud_ep = paint_choice_cloud_ep("asset.image")
         except Exception as exc:  # noqa: BLE001
             log.warning("资产云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
             _cloud_ep = None
@@ -235,10 +235,11 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
         f"漫剧·批量{kind}资产生成（{len(req.items)} 项）",
         input_summary=", ".join(
             str(item.get("name") or "")[:12] for item in req.items[:8]))
-    # 云端路由（批2）：整批共用一次绑定解析
+    # 云端路由（2026-10-04 用户二定）：绘画模型显式选 cloud:: 才走云
+    # （统一闸；绑定不直接触发）；本地选择/系统默认=本地
     try:
-        from ...services.cloud_provider_service import get_image_endpoint
-        _cloud_ep = get_image_endpoint("asset.image")
+        from .common import paint_choice_cloud_ep
+        _cloud_ep = paint_choice_cloud_ep("asset.image")
     except Exception as exc:  # noqa: BLE001
         log.warning("资产云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
@@ -855,7 +856,13 @@ async def comic_asset_reference_upload(asset_id: str,
 
 
 @router.delete("/comic/asset/{asset_id}")
-def comic_asset_delete(asset_id: str) -> dict[str, Any]:
+def comic_asset_delete(
+        asset_id: str,
+        cascade_project: str = Query(
+            "", description="级联删除本项目中同 (kind,name) 作品副本——"
+            "全局资产硬删时由「全部可用」入口传入（2026-10-04 用户裁定："
+            "作品中删除=软删仅移出本作品；全部可用删除=真删，含本作品副本）"
+        )) -> dict[str, Any]:
     """删除单个资产（2026-08-20 用户裁定）：DB 行 + 分镜行绑定引用
     清理 + 磁盘目录清理。
 
@@ -865,7 +872,6 @@ def comic_asset_delete(asset_id: str) -> dict[str, Any]:
       严格位于 _COMIC_ASSET_DIR 内且深度 ≥3（comic_assets/{owner}/
       {kind}/{name}），防路径穿越与误删父目录；失败仅告警不阻断
     """
-    import shutil
     db = get_db_safe()
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除资产")
@@ -874,6 +880,38 @@ def comic_asset_delete(asset_id: str) -> dict[str, Any]:
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
+
+    # 级联（2026-10-04 用户裁定）：全局资产硬删时连删本项目的同名同类
+    # 副本（行+绑定+受防连坐闸保护的目录），计数如实回传
+    cascade_removed = 0
+    if cascade_project and asset.get("scope") == "global":
+        for sib in db.query(
+                "SELECT id FROM comic_assets"
+                " WHERE project_id=? AND kind=? AND name=?",
+                (cascade_project, asset.get("kind", ""),
+                 asset.get("name", ""))):
+            _purge_asset_row(db, sib["id"])
+            cascade_removed += 1
+
+    payload = _purge_asset_row(db, asset_id, asset)
+    if cascade_removed:
+        log.info("全局资产硬删级联：本作品移除 %d 个同名副本", cascade_removed)
+    return ok({**payload, "cascade_removed": cascade_removed})
+
+
+def _purge_asset_row(db: Any, asset_id: str, asset: dict | None = None) -> dict:
+    """单资产行清除：分镜绑定引用 + DB 行 + 目录（防连坐闸内清理）。
+
+    2026-10-04 拆出复用（级联删本作品副本走同一路）；目录部分与
+    comic_asset_delete 原第 3 步同逻辑，返回 ok 载荷（含 dir_kept）。
+    """
+    import shutil
+    if asset is None:
+        row = db.query_one(
+            f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
+        if row is None:
+            return {"asset_id": asset_id, "deleted": False}
+        asset = _asset_row_to_dict(row)
 
     # 1) 清分镜行绑定引用（asset_id 兼容列 + asset_ids JSON 数组）
     for r in db.query(
@@ -890,20 +928,48 @@ def comic_asset_delete(asset_id: str) -> dict[str, Any]:
     # 2) 删 DB 行
     db.delete("comic_assets", "id=?", (asset_id,))
 
-    # 3) 磁盘目录清理（越界防护：必须在 comic_assets 下且深度 ≥3）
+    # 3) 磁盘目录清理（越界防护 + 共享目录防连坐）
+    # 2026-10-04 用户令：同名不同描述词资产合法共存（同名≠同角色），
+    # 目录按名字落盘 → 多行共享同一目录；删一行绝不端掉别人还在用的
+    # 目录——还有其他行引用同目录就只删行保文件，查无引用才 rmtree
+    # （角色/场景/道具全类型通用；10-04 林小曼四视图/别墅区大门两起
+    # "删一行全灭"事故即此缺口）
     out_dir = _asset_dir_for(asset)
     try:
         resolved = out_dir.resolve()
         base = _COMIC_ASSET_DIR.resolve()
         depth_ok = len(resolved.relative_to(base).parts) >= 3
-        if resolved != base and base in resolved.parents and depth_ok:
-            shutil.rmtree(resolved, ignore_errors=True)
-        else:
+        if not (resolved != base and base in resolved.parents and depth_ok):
             log.warning("拒绝删除越界/浅层资产目录: %s", out_dir)
+        else:
+            shared = sum(
+                1 for other in db.query(
+                    "SELECT id, file_path, kind, name, project_id"
+                    " FROM comic_assets WHERE id<>?", (asset_id,))
+                if _same_asset_dir(other, resolved))
+            if shared:
+                log.info("资产目录 %s 尚有 %d 行引用（同名不同貌共存），"
+                         "仅删行保文件", out_dir, shared)
+                return {"asset_id": asset_id, "deleted": True,
+                        "name": asset.get("name", ""),
+                        "kind": asset.get("kind", ""),
+                        "dir_kept": True, "shared_rows": shared}
+            shutil.rmtree(resolved, ignore_errors=True)
     except (OSError, ValueError) as exc:  # noqa: BLE001 - 清理失败不阻断
         log.warning("资产目录删除失败 %s: %s", out_dir, exc, exc_info=True)
-    return ok({"asset_id": asset_id, "deleted": True,
-               "name": asset.get("name", ""), "kind": asset.get("kind", "")})
+    return {"asset_id": asset_id, "deleted": True,
+            "name": asset.get("name", ""), "kind": asset.get("kind", "")}
+
+
+def _same_asset_dir(other: dict, resolved: Path) -> bool:
+    """other 行的落盘目录是否与 resolved 同一目录（共享判定）。
+
+    解析异常（越界/不存在）一律按不同目录计（保守不保删）。
+    """
+    try:
+        return _asset_dir_for(other).resolve() == resolved
+    except (OSError, ValueError):
+        return False
 
 
 @router.delete("/comic/asset/{asset_id}/reference")
@@ -1783,6 +1849,9 @@ def _infer_entities_sync(project_id: str) -> dict:
         wanted[_kind] = {
             safe for raw_nm in wanted[_kind]
             if (safe := _safe_entity_name(raw_nm))}
+    # 去重口径（2026-10-04 二定）：仅本项目内 (kind,name) 算已存在——
+    # 用户裁定同名≠同角色（同名不同描述词=不同样貌的独立资产，跨项目/
+    # 全局同名不妨碍本项目自建）；重复推理不复制靠的是本项目桩在位
     existing = db.query(
         "SELECT kind, name FROM comic_assets WHERE project_id=?",
         (project_id,))
@@ -2434,13 +2503,13 @@ async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
     engine = get_dialog_engine()
     lock = await acquire_or_raise("dialog", task_id=asset_id)
     try:
-        if not engine.is_ready:
-            # 未加载必须全自动（2026-09-02 用户铁律，对齐 storyboard
-            # ai-describe / video 描述词端点同款）：按需自动加载漫剧·
-            # 文字槽默认模型（manga-dialog 槽 module_config 管控），
-            # 真失败才报错且带出路指引——不再甩给用户手动去对话模块
+        _want_model = manga_dialog_model_id()
+        if not engine.is_ready or engine.model_name != _want_model:
+            # 未加载必须全自动（2026-09-02 用户铁律）；2026-10-04 补：
+            # 已加载但与推理选择不一致（如对话页装了云模型）也必须切
+            # 换到所选模型——"已就绪"不再短路吞掉模型配置选择
             if not await run_blocking(engine.ensure_loaded,
-                                      manga_dialog_model_id()):
+                                      _want_model):
                 status = engine.get_status()
                 raise ApiError(
                     "DIALOG_NOT_READY",

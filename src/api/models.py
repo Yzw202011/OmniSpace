@@ -450,7 +450,7 @@ _MODULE_MODEL_SLOTS: dict[str, dict] = {
                      "desc": "剧本 / 分镜文案生成",
                      "hint": "清单 /manga/models/available?task_type=dialog"},
     "manga-paint": {"label": "漫剧 · 图片", "category": "vision",
-                    "desc": "角色 / 分镜生图",
+                    "desc": "角色四视图 / 分镜生图（2026-10-03 起角色四视图真切换；qwen-image-2.1 一次直出、klein-4b/9b 一次直出、z-image-turbo 分张，其余/未选=自动链）",
                     "hint": "清单 /manga/models/available?task_type=paint"},
     "manga-video": {"label": "漫剧 · 视频", "category": "video",
                     "desc": "图生视频",
@@ -542,6 +542,32 @@ def _slot_candidate_ids(slot: str) -> set[str]:
             ids.update(m["id"] for m in COMFY_PAINT_MODELS)
         except Exception as exc:  # noqa: BLE001 - 真源不可用不阻断配置
             log.debug("comfy 真源并入候选集失败: %s", exc)
+    # 云端端点入候选（2026-10-04 用户二定路由的保底）：模型配置可选/
+    # 保存云端模型（id=cloud::prov::model）——候选缺位会让「默认模型
+    # 必须在可选范围内」校验拒绝保存，下拉选了云也存不进去；槽→云端
+    # 工位映射与 /manga/models/available 同源
+    _cloud_slots_map = {
+        "manga-dialog": ("text", ("manga.text",)),
+        "manga-paint": ("image", ("asset.image", "keyframe.image")),
+        "paint": ("image", ("paint.image",)),
+        "manga-video": ("video", ("manga.video",)),
+    }
+    if slot in _cloud_slots_map:
+        kind, slots = _cloud_slots_map[slot]
+        try:
+            from ..services.cloud_provider_service import (
+                get_image_endpoint,
+                get_text_endpoint,
+                get_video_endpoint,
+            )
+            getter = {"text": get_text_endpoint, "image": get_image_endpoint,
+                      "video": get_video_endpoint}[kind]
+            for s in slots:
+                ep = getter(s)
+                if ep is not None:
+                    ids.add(f"cloud::{ep.provider_id}::{ep.model or ''}")
+        except Exception as exc:  # noqa: BLE001 - 云端候选并入失败不阻断
+            log.debug("槽 %s 云端候选并入失败: %s", slot, exc)
     ids.discard("")
     return ids
 

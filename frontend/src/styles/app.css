@@ -1522,6 +1522,16 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   color: var(--color-accent-300); background: var(--color-accent-100);
   border-radius: var(--radius-sm); padding: 0 3px; font-weight: var(--font-weight-medium);
 }
+/* 实体高亮分色（2026-10-04 用户令：推理资产与角色同款标记）：
+ * 角色=薄荷（上）/ 场景=粉 / 道具=黄——同款式仅换色族 */
+.manga-entity-scene {
+  color: var(--color-primary-300); background: var(--color-primary-100);
+  border-radius: var(--radius-sm); padding: 0 3px; font-weight: var(--font-weight-medium);
+}
+.manga-entity-prop {
+  color: var(--color-warning-300); background: var(--color-warning-100);
+  border-radius: var(--radius-sm); padding: 0 3px; font-weight: var(--font-weight-medium);
+}
 
 /* 资产单元格：缩略图卡横排堆叠 + 虚线「+」空位 */
 .manga-asset-cell { display: flex; flex-wrap: wrap; gap: var(--space-1); width: 100%; }

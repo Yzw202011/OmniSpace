@@ -483,7 +483,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 13
+    SCHEMA_VERSION = 14
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -578,6 +578,12 @@ class Database:
             # 全局资产域按产品面隔离（2026-09-08 用户令）：漫画/漫剧
             # 全局池分家；存量全局资产默认归漫剧（此前只有漫剧在用）
             ("comic_assets", "face", "TEXT NOT NULL DEFAULT 'manga'"),
+        )),
+        (14, (
+            # 资产编号体系（2026-10-05 用户令）：人类可读编号（XM-0001/
+            # CJ-0001/DJ-0001），重图换号、删除释放复用；空=存量未补编
+            # （一次性脚本 scripts/backfill_asset_codes.py 回填）
+            ("comic_assets", "code", "TEXT DEFAULT ''"),
         )),
     )
 

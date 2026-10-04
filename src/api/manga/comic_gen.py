@@ -1804,6 +1804,24 @@ def _regenerate_asset_sync(asset: dict) -> dict:
                  "seed": seed_out,
                  "model": model_out,
                  "regenerated_at": _now()})
+    # 重图换号（2026-10-05 用户令方案二）：重生成本新资产身份——释放
+    # 旧编号、分配新编号（code 列；失败不阻断重生成主体）
+    try:
+        from ...data.database import get_db_safe as _gdb
+        from .asset_codes import allocate, release
+        old_code = str(asset.get("code") or "")
+        new_code = allocate(kind)
+        if old_code:
+            release(old_code)
+        meta["code"] = new_code
+        _dbx = _gdb()
+        if _dbx is not None:
+            _dbx.update("comic_assets", {"code": new_code},
+                        "id=?", (asset["asset_id"],))
+        log.info("重图换号: %s → %s（%s）", old_code or "（无）",
+                 new_code, asset.get("name"))
+    except Exception as exc:  # noqa: BLE001 - 换号失败不阻断重生成
+        log.warning("重图换号失败（保留原编号）: %s", exc)
     if prompt_out is not None:
         meta["prompt_en"] = prompt_out
     _append_asset_history(meta, "regenerate", None, rel_path,

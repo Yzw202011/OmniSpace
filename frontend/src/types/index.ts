@@ -436,13 +436,16 @@ export interface PaintResult {
 /** 分镜行生成状态（对齐后端 _row_to_storyboard_row） */
 export type StoryboardGenerationStatus = 'pending' | 'generating' | 'done' | 'error' | 'skipped';
 
-/** 单条台词气泡（多角色场景，2026-09-08）：每角色一条+旁白（asset_id 空） */
-export type BubbleShape = 'dialogue' | 'narration' | 'thought' | 'shout' | 'whisper';
+/** 单条台词气泡（多角色场景，2026-09-08）：每角色一条+旁白（asset_id 空）。
+ *  2026-09-29 用户令「不限数量+手动添加+样式多加几款」：五款扩充为十款 */
+export type BubbleShape =
+  | 'dialogue' | 'narration' | 'thought' | 'shout' | 'whisper'
+  | 'electric' | 'cloud' | 'heart' | 'screen' | 'caption';
 
 export interface PanelBubble {
   /** 台词文本 */
   text: string;
-  /** 批6 P3（2026-09-19）：气泡形状（dialogue 对话/narration 旁白/thought 思考/shout 喊叫/whisper 低语；缺省=按 asset_id 推导） */
+  /** 批6 P3（2026-09-19）：气泡形状（dialogue 对话/narration 旁白/thought 思考/shout 喊叫/whisper 低语/electric 电波/cloud 云朵/heart 心声/screen 屏幕/caption 标题；缺省=按 asset_id 推导） */
   shape?: BubbleShape;
   /** 左上角横坐标（0~1 相对格宽；缺省=默认左上） */
   x?: number | null;
@@ -452,6 +455,12 @@ export interface PanelBubble {
   w?: number | null;
   /** 关联角色资产 id（空=旁白） */
   asset_id?: string | null;
+  /** 稳定标识（2026-09-29 气泡真源化：手动添加/同角色多条时保证 key 唯一；旧数据缺省） */
+  bid?: string;
+  /** 镜反（2026-09-29 用户令「气泡要能镜反，但是文字不镜反」）：只翻装饰件
+   *  （思考尾…/⚡/💗 角标与不对称圆角）到对侧指向说话人；正文、说话人与
+   *  拖拽坐标全不动（不整体 transform，免镜像把把手位置和拖拽手感搞反） */
+  flipped?: boolean;
 }
 
 /** 保存状态（顶栏状态点；前端本地状态机，无后端对应） */
@@ -716,11 +725,10 @@ export interface ModelConfig {
   duration_seconds?: number;
 }
 
-/** 可用模型信息（GET /manga/models/available） */
+/** 可用模型信息（GET /manga/models/available）；cloud=已绑定云端端点（按量计费） */
 export interface AvailableModel {
   id: string;
   name: string;
-  /** cloud=已绑定云端端点（2026-10-03 方案一下拉追加项，按量计费） */
   status: 'ready' | 'loading' | 'not_installed' | 'downloaded' | 'offload' | 'cloud';
   vram_gb: number;
   speed_label: string;
@@ -750,6 +758,9 @@ export interface ComicAsset {
   prompt: string;
   meta: Record<string, unknown>;
   created_at: number;
+  /** 人类可读编号（2026-10-05 用户令：XM-角色/CJ-场景/DJ-道具；重图
+   *  换号、删除释放复用；存量未补编=空串） */
+  code?: string;
   /** project=项目资产 / global=全局资产（跨项目复用，删除项目时保留） */
   scope?: 'project' | 'global';
 }

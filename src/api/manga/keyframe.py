@@ -71,21 +71,10 @@ from .common import (
     unload_paint_pipeline as _unload_paint_after_gen,
 )
 
-
-def _schedule_debounced_wake(source: str) -> None:
-    """生成收尾的去抖唤醒（批3 2026-09-10，方案 §3.4）。
-
-    keyframe 重抽释锁后不再立即唤醒 vLLM——立即唤醒会被紧邻的下一
-    任务（绘画/视频队列）功能锁门禁拒绝且无人重试；经协调器去抖窗
-    到点且重型生成域全空闲才唤醒。非阻塞（协调器内部起定时线程）。
-    """
-    from ...services.inference.gpu_budget import (
-        get_yield_coordinator,
-        heavy_generation_idle,
-    )
-
-    get_yield_coordinator().schedule_wake_if_idle(
-        source, heavy_generation_idle)
+# 2026-10-02 用户拍板「按需真实加载」：生成收尾的去抖唤醒
+# （_schedule_debounced_wake，批3 2026-09-10）整段摘除——生成间隙
+# 反复拉起 vLLM 与下一任务的让渡形成拉锯（V9-β wake 链路全线退役）。
+# 对话引擎回归真使用时 ensure_loaded（chat/评分/扩写按需自动装载）。
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1170,6 +1159,13 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     # 云端出图（批2 云端API 2026-09-06）：工位绑定云端连接时本地引擎
     # 选路/装载/互斥让位/降级链全部跳过（本地显卡零占用）；推理在
     # _gen_one 云端分支执行，参考图照常加载（云端图生图锚一致性）。
+    # flux/use_comfy 须在守卫外初始化（2026-09-28 修复）：守卫外的引用
+    # （flux: asset_refs/face_ref 装载与 _gen_one 本地分支；use_comfy:
+    # 尾段「生成毕即卸 ComfyUI」）若只在守卫内赋值，云端路径（整段
+    # 跳过）→ UnboundLocalError（实弹 6 格全 failed，其中 use_comfy 在
+    # 落库之后才炸——图已生成却整体报失败）。云端路径两者恒 False。
+    flux = False
+    use_comfy = False
     if cloud_endpoint is None:
         # 推理后端选路（2026-08-27 双链路对比）：comfy=ComfyUI 子进程
         # 工作流（Klein-9B fp8 硬链接权重，与 H3 共用 8189 实例）；
@@ -1244,7 +1240,6 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                      "优先；%s）", _slot_model,
                      "PuLID 支持" if _slot_model.startswith("flux2-klein")
                      else "z/qwen21 底座无 PuLID，角色锚走参考软锁")
-        flux = False
         if use_comfy:
             if not comfy_paint_available(_slot_model if _explicit_comfy else ""):
                 raise ApiError("PAINT_ENGINE_NOT_READY",
@@ -2225,9 +2220,22 @@ async def _wait_vllm_healthy(timeout_s: float = _CONSISTENCY_WAIT_S) -> bool:
     ——wake_from_paint 只处理前者（_stopped_for_paint 置位才重启），
     后者由本函数点火（2026-08-27 e2e 实测缺口：vLLM 未运行时纯
     轮询 300s 空等，一致性校验被跳过）。
+
+    2026-09-30 排队卡顿根修：点火前可行性快检（boot_feasible_now，
+    ~1s）——旧路径在本机（9B 地板 ~16.2GB 恒高于空闲 13~14GB）每图
+    点火 vLLM → 子进程 92s OOM 死 → 重试被拒 → 再回落 vl-4b，每张
+    图白烧 ~3.5 分钟且与下一绘画任务抢显存（01:17-01:22 实录）。
+    恒不可行 → 跳过点火与等待，直落对话引擎评分（实测 2s/镜）。
     """
     svc = get_vllm_service()
     if not svc.runtime_ready():
+        return False
+    if await run_blocking(svc.is_healthy):
+        return True  # 用户对话态在跑：直接复用，不进快检
+    feasible, why = await run_blocking(svc.boot_feasible_now)
+    if not feasible:
+        log.info("vLLM 点火跳过（可行性快检不可行：%s）"
+                 "——一致性评分直落对话引擎", why)
         return False
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s
@@ -2688,14 +2696,11 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
                   "自动重抽失败了，已保留原关键帧", level="warning",
                   detail=str(exc)[:200], trace_id=row_id)
     finally:
-        # S7 生成毕即卸：重抽毕卸管线再唤醒 vLLM 复评（见
-        # keyframe_generate 注释，两族权重不可同驻）
+        # S7 生成毕即卸：重抽毕卸管线（两族权重不可同驻）。2026-10-02
+        # 用户拍板「按需真实加载」：收尾不再去抖唤醒 vLLM（原批3 逻辑
+        # 已摘），对话引擎按需自愈装载
         await _unload_paint_after_gen()
         await lock.release("paint")
-        # 批3（2026-09-10）：释锁后立即唤醒 → 去抖唤醒——立即唤醒
-        # 会被紧邻的下一任务（绘画/视频队列）功能锁门禁拒绝且无人
-        # 重试（2026-09-08 实测撞锁形态）；经协调器到点仍空闲才唤醒
-        _schedule_debounced_wake(f"keyframe:{row_id}")
     if new_data is None:
         _annotate_consistency(db, kf_id, {
             "shots": scores, "face_sims": face_sims,

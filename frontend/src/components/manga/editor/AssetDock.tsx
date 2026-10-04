@@ -113,8 +113,13 @@ function AssetCard({
             {badge}
           </span>
         )}
-        <span className="manga-asset-name ellipsis" title={asset.name}>
-          {busy === asset.asset_id ? '处理中…' : asset.name}
+        <span
+          className="manga-asset-name ellipsis"
+          title={asset.code ? `${asset.code} · ${asset.name}` : asset.name}
+        >
+          {busy === asset.asset_id
+            ? '处理中…'
+            : asset.code ? `${asset.code} ${asset.name}` : asset.name}
         </span>
       </button>
       {onDelete && !bindMode && (

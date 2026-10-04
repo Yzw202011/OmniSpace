@@ -445,46 +445,14 @@ def comic_asset_adopt(req: AssetAdoptRequest) -> dict[str, Any]:
                 db, req.project_id, req.asset_id, existing["asset_id"])
             return ok({"asset": existing, "already_adopted": True,
                        "rebound_rows": rebound})
-    kind = asset.get("kind", "character")
-    conf = _ASSET_KIND_CONF.get(kind, _ASSET_KIND_CONF["character"])
-    name = asset.get("name") or "asset"
-
-    # ── 复制资产目录（old_dir_rel → new_dir_rel 前缀重写）─────────────
-    old_rel = (asset.get("file_path") or "").strip()
-    new_rel = ""
-    if old_rel:
-        old_dir_rel = old_rel.rsplit("/", 1)[0]
-        new_dir = _COMIC_ASSET_DIR / req.project_id / conf["subdir"] / name
-        new_dir.mkdir(parents=True, exist_ok=True)
-        old_dir = DATA_DIR / old_dir_rel
-        if old_dir.is_dir():
-            import shutil
-            shutil.copytree(old_dir, new_dir, dirs_exist_ok=True)
-        new_dir_rel = str(new_dir.relative_to(DATA_DIR)).replace("\\", "/")
-        new_rel = old_rel.replace(old_dir_rel, new_dir_rel, 1)
-        # meta 内所有旧路径前缀统一重写（views/canvas/history 等）
-        import json as _json
-        meta = asset.get("meta") if isinstance(asset.get("meta"), dict) else {}
-        meta = parse_json(
-            _json.dumps(meta, ensure_ascii=False)
-            .replace(old_dir_rel, new_dir_rel), {})
-    else:
-        meta = asset.get("meta") if isinstance(asset.get("meta"), dict) else {}
-    meta = dict(meta)
-    meta["adopted_from"] = req.asset_id
-    meta.pop("history", None)  # 历史记录属于源资产生成过程，不带入新项目
-
-    new_id = uuid.uuid4().hex
-    db.insert("comic_assets", {
-        "id": new_id, "project_id": req.project_id, "kind": kind,
-        "name": name, "file_path": new_rel, "prompt": asset.get("prompt", ""),
-        "meta": meta, "created_at": _now(), "scope": "project"})
-    # 引入即接管：目标项目行内对源资产的旧绑定同步替换为新副本 id
-    rebound = _replace_row_bindings(db, req.project_id, req.asset_id, new_id)
-    return ok({"asset": {**asset, "asset_id": new_id,
-                         "project_id": req.project_id,
-                         "file_path": new_rel, "meta": meta},
-               "rebound_rows": rebound})
+    # 2026-10-05 用户二定（编号体系）：引入=借用不复制——全局资产
+    # 本体留在全局库，本项目仅登记 adopted_from 审计标记；作品中
+    # "作品中X"按借用关系展示，退出项目无副本新增
+    log.info("资产借用: %s（%s）→ 项目 %s（不复制）",
+             asset.get("name"), req.asset_id, req.project_id)
+    rebound = _replace_row_bindings(
+        db, req.project_id, req.asset_id, req.asset_id)
+    return ok({"asset": asset, "borrowed": True, "rebound_rows": rebound})
 
 
 # ── 全局资产域（跨项目复用） ────────────────────────────────────────────
@@ -928,6 +896,10 @@ def _purge_asset_row(db: Any, asset_id: str, asset: dict | None = None) -> dict:
     # 2) 删 DB 行
     db.delete("comic_assets", "id=?", (asset_id,))
 
+    # 2.5) 编号释放（2026-10-05 用户令：删除释放复用，最小号优先）
+    from .asset_codes import release
+    release(asset.get("code") or "")
+
     # 3) 磁盘目录清理（越界防护 + 共享目录防连坐）
     # 2026-10-04 用户令：同名不同描述词资产合法共存（同名≠同角色），
     # 目录按名字落盘 → 多行共享同一目录；删一行绝不端掉别人还在用的
@@ -1363,23 +1335,37 @@ def _infer_era_llm(engine: DialogEngine, db: Database, project_id: str) -> str:
 
 
 # 实体名提取提示词（2026-08-24：AI 切分不填实体列，角色推理需从
-# 原文直接提取实体名；行协议输出与分镜协议同理——比 JSON 稳定）
+
+# 原文直接提取实体名；行协议输出与分镜协议同理——比 JSON 稳定。
+
+# 2026-10-05 用户令增强：①文字内容不是场景 ②道具保留外观定语）
+
 _ENTITY_NAMES_PROMPT = (
-    "你是漫剧制片助理。从下列剧本原文中提取全部实体名称，严格"
-    "忠于原文：\n"
+
+    "你是漫剧制片助理。从下列剧本原文中提取全部实体名称，严格忠于原文：\n"
+
     "1. 角色：出场人物的姓名或固定称呼\n"
-    "2. 场景：故事发生的地点/场所\n"
-    "3. 道具：角色可手持、携带或使用的可移动独立物件，且对剧情"
-    "有实际作用（如武器、行李箱、手机、信件、钥匙）；以下不提取："
-    "身体部位与服装部件（衣角、袖口、发丝）、植物花卉与自然物"
-    "（花瓣、树叶、云朵、雨滴）、建筑构件与环境固定物（围栏、门窗、"
-    "路灯）、场景的一部分（桌面、墙面、路面）、无特殊剧情作用的"
-    "日常泛用品（白纸、筷子、水杯）\n"
+
+    "2. 场景：故事发生的地点/场所（角色身处其中活动的物理空间）\n"
+
+    "3. 道具：角色可手持、携带或使用的可移动独立物件，且对剧情有实际作用（如武器、行李箱、手机、信件、钥匙）\n"
+
+    "边界规则（2026-10-05 增强critical）：\n"
+
+    "a. 文字内容不是场景——写在纸条/信件/招牌/手机上的地址、门牌、电话、人名、书名等“某物上呈现的字”，不是地点实体，不进场景列（例：“纸上的字迹——望云亭苑 C 区二街 36 号”中的地址是字条上的文字；若该载体（字条/信件）对剧情有作用，提取载体为道具）\n"
+
+    "b. 道具保留区别性外观定语——颜色/材质等定语与名词一起整名提取（例：“白色行李箱”提取为“白色行李箱”而非“行李箱”；“红色雨伞”提取为“红色雨伞”），外观定语是资产辨识的一部分\n"
+
+    "c. 以下不提取：身体部位与服装部件（衣角、袖口、发丝）、植物花卉与自然物（花瓣、树叶、云朵、雨滴）、建筑构件与环境固定物（围栏、门窗、路灯）、场景的一部分（桌面、墙面、路面）、无特殊剧情作用的日常泛用品（白纸、筷子、水杯）\n"
+
     "要求：不虚构原文没有的实体；泛称（如：路人、人群）不提取。\n"
-    "输出格式（严格遵守，三类各一行，多个用中文逗号分隔，没有则"
-    "写“无”）：\n"
+
+    "输出格式（严格遵守，三类各一行，多个用中文逗号分隔，没有则写“无”）：\n"
+
     "角色|名字1，名字2\n场景|名字1，名字2\n道具|名字1，名字2\n\n"
+
     "剧本原文：\n{chunk}"
+
 )
 # 实体名提取分块上限（块 1200 字 × 8 块 ≈ 万字剧本覆盖）
 _ENTITY_CHUNK_CHARS = 1200
@@ -1672,7 +1658,10 @@ def _infer_scene_prop_settings_llm(db: Database, project_id: str,
                 f"「{rules['desc_label']}」正文一段，系统性覆盖层次："
                 f"{rules['layers']}。要求：与剧本上下文高度一致，"
                 "原文没写的细节不得虚构情节性内容（可用常规视觉常识"
-                "补全材质光影）；不要输出美术风格/时代背景/版式要求"
+                "补全材质光影）；特别注意【剧本上下文】的[出现于]标注——"
+                "若名称只以文字形式出现（台词里提到的地址/字迹/书名），"
+                "它不是物理实体，按其载体物设定（如写着地址的字条），"
+                "不得虚构场所全景；不要输出美术风格/时代背景/版式要求"
                 "（我方另行拼装）。\n"
                 "输出格式（严格遵守，每个一块，之间空行）：\n"
                 f"【{label}】：名字\n{rules['desc_label']}：正文一段"
@@ -1944,10 +1933,12 @@ def _infer_entities_sync(project_id: str) -> dict:
                 meta = {"source": "infer_entities",
                         "inferred_by": "template"}
             asset_id = uuid.uuid4().hex
+            from .asset_codes import allocate
+            code = allocate(kind)
             db.insert("comic_assets", {
                 "id": asset_id, "project_id": project_id, "kind": kind,
                 "name": nm, "file_path": "", "prompt": prompt,
-                "meta": meta, "created_at": _now()})
+                "meta": meta, "created_at": _now(), "code": code})
             created[kind] += 1
             new_ids.append(asset_id)
     items: list[dict] = []
@@ -2285,7 +2276,11 @@ def _build_prop_prompt_v2(name: str, desc: str,
 
 def _entity_story_context(db: Database, project_id: str, name: str,
                           kind: str) -> str:
-    """收集实体在分镜行中的上下文（描述+台词摘要，前 4 行）。"""
+    """收集实体在分镜行中的上下文（描述+台词摘要，前 4 行）。
+    2026-10-05 用户令增强：每段摘要后附命中来源标注（台词/描述/实体
+    列），供设定 LLM 判别"名字是以什么形态出现"——如地址文字出现在
+    台词/描述里=字条上的字，不是物理场所，防止把文字内容脑补成场景。
+    """
     sb = _find_storyboard(db, project_id)
     if sb is None:
         return ""
@@ -2294,14 +2289,23 @@ def _entity_story_context(db: Database, project_id: str, name: str,
         " FROM storyboard_rows WHERE storyboard_id=?", (sb["id"],))
     hits: list[str] = []
     for r in rows:
-        blob = " ".join(str(r.get(k) or "") for k in
-                        ("description", "original_dialogue", "characters",
-                         "scene", "props"))
-        if name in blob:
-            snippet = f"{r.get('description') or ''}{r.get('original_dialogue') or ''}"
-            snippet = snippet.strip()[:120]
-            if snippet:
-                hits.append(snippet)
+        parts: list[tuple[str, str]] = [
+            ("描述", str(r.get("description") or "")),
+            ("台词", str(r.get("original_dialogue") or "")),
+        ]
+        matched: list[str] = []
+        snippets: list[str] = []
+        for label, text in parts:
+            if name in text:
+                matched.append(label)
+                snippets.append(text.strip()[:120])
+        for col, label in (("characters", "角色列"), ("scene", "场景列"),
+                           ("props", "道具列")):
+            if name in str(r.get(col) or ""):
+                matched.append(label)
+        if snippets:
+            hits.append(f"[出现于{'/'.join(matched)}]"
+                        f"{'；'.join(snippets)}")
         if len(hits) >= 4:
             break
     return "；".join(hits)

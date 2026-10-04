@@ -471,8 +471,8 @@ export interface StoryboardRow {
   stale_reason?: string;
   /** 出场角色（数组） */
   characters: string[];
-  /** 场景 */
-  scene: string;
+  /** 场景（null=清空态，消费方按空串处理；2026-10-05 schema 兼容） */
+  scene: string | null;
   /** 道具（数组） */
   props: string[];
   /** 配音音色 ID */
@@ -720,7 +720,8 @@ export interface ModelConfig {
 export interface AvailableModel {
   id: string;
   name: string;
-  status: 'ready' | 'loading' | 'not_installed' | 'downloaded' | 'offload';
+  /** cloud=已绑定云端端点（2026-10-03 方案一下拉追加项，按量计费） */
+  status: 'ready' | 'loading' | 'not_installed' | 'downloaded' | 'offload' | 'cloud';
   vram_gb: number;
   speed_label: string;
   notes?: string;

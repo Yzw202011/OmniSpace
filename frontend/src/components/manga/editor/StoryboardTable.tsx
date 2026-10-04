@@ -166,7 +166,18 @@ function EditableCell({ value, placeholder, ai, highlightGroups, onCommit }: Edi
     <textarea
       className="manga-cell-editor"
       value={draft}
-      rows={Math.min(10, Math.max(3, draft.split('\n').length + 1))}
+      // 行数=换行数+按字宽折行估算（2026-10-04 用户令：原文列点击后
+      // 与描述词列同款"撑开"体验——长段落无换行也要算出真实视觉行数，
+      // 此前 rows=换行+1 使整段原文只给 3 行矮框）
+      rows={Math.min(
+        14,
+        Math.max(
+          3,
+          draft
+            .split('\n')
+            .reduce((n, ln) => n + Math.max(1, Math.ceil(ln.length / 38)), 0) + 1,
+        ),
+      )}
       maxLength={2000}
       autoFocus
       onClick={(e) => e.stopPropagation()}
@@ -406,7 +417,7 @@ const StoryboardRow = memo(function StoryboardRow({
           placeholder="原文台词 / 剧本内容…"
           highlightGroups={[
             { names: [...characterNames, ...row.characters], cls: 'manga-entity' },
-            { names: [...sceneNames, ...splitSceneNames(row.scene)], cls: 'manga-entity-scene' },
+            { names: [...sceneNames, ...splitSceneNames(row.scene ?? '')], cls: 'manga-entity-scene' },
             { names: [...propNames, ...row.props], cls: 'manga-entity-prop' },
           ]}
           onCommit={(v) => onUpdateField(row.id, { original_dialogue: v })}

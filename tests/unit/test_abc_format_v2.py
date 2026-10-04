@@ -135,3 +135,42 @@ B. 高密度世界观构建：浅灰卫衣的小林，便利店，夜，阴雨�
     assert (parsed["shots"][1]["start"],
             parsed["shots"][1]["end"]) == (5.0, 10.0)
     assert "机位高度 2.1 米" in parsed["shots"][0]["camera"]
+
+
+def test_normalize_aligns_to_duration_rule_2x2() -> None:
+    """2026-10-05 用户令：外贴描述词归一化按末镜时长规则恒对齐——
+    10s/2 镜外贴词不再跳过对齐（此前 len∈{2,4} 直接放行 → 网格退化
+    1×2），末镜 end≥7s → 补齐 4 镜 2×2 田字格。"""
+    from src.api.manga.common import _normalize_direct_abc, _parse_abc_shots
+
+    desc = (
+        "A. 全局风格：\n3D CG 游戏风格、高精度 3D 建模。\n"
+        "B. 高密度世界观构建：\n宁静公路，蓝天白云。\n"
+        "C. 分镜时间轴：\n"
+        "[3.5s-6.0s] 画面：[转身的瞬间] 中景，女人转身背对镜头，"
+        "拖着行李箱进入画面。\n"
+        "[6.0s-10.0s] 画面：[渐远的旅程] 全景，固定机位，女人背影"
+        "走向公路深处，行李箱滚轮声。\n"
+    )
+    norm = _normalize_direct_abc(desc)
+    g = _parse_abc_shots(norm)
+    assert g["layout"] == "2x2"
+    assert len(g["shots"]) == 4
+    assert g["shots"][2]["text"] != g["shots"][1]["text"]
+
+
+def test_normalize_short_duration_stays_1x2() -> None:
+    """6s/2 镜外贴词 → 仍 1×2（时长规则不变，只是触发条件修复）。"""
+    from src.api.manga.common import _normalize_direct_abc, _parse_abc_shots
+
+    desc = (
+        "A. 全局风格：\n3D CG 游戏风格。\n"
+        "B. 高密度世界观构建：\n宁静公路。\n"
+        "C. 分镜时间轴：\n"
+        "[0.1s-3.0s] 画面：中景，女人转身。\n"
+        "[3.0s-6.0s] 画面：全景，背影远去。\n"
+    )
+    norm = _normalize_direct_abc(desc)
+    g = _parse_abc_shots(norm)
+    assert g["layout"] == "1x2"
+    assert len(g["shots"]) == 2

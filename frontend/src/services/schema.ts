@@ -50,7 +50,9 @@ export const StoryboardRowSchema = z
     original_dialogue: z.string().default(''),
     description: z.string().default(''),
     characters: z.array(z.string()).default([]),
-    scene: z.string().default(''),
+    // scene 可为 null（2026-10-05：推理清空路径曾写 SQL NULL；null 归一
+    // 空串，防 Zod 拒响应=「分镜表响应格式非法 rows.0.scene Invalid input」）
+    scene: z.string().nullable().default(''),
     props: z.array(z.string()).default([]),
     voice_id: z.string().default(''),
     voice_emotion: z.string().default('默认'),

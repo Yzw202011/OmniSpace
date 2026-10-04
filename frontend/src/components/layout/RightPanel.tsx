@@ -496,7 +496,10 @@ function StoryboardPanel() {
   const selectedRow = rows.find((r) => r.id === selectedRowId) ?? null;
 
   // 场景列表：从分镜行去重（真实数据）
-  const scenes = Array.from(new Set(rows.map((r) => r.scene).filter(Boolean)));
+  // scene 可为 null（2026-10-05 schema 兼容）：收窄为 string 再去重
+  const scenes = Array.from(
+    new Set(rows.map((r) => r.scene ?? '').filter(Boolean)),
+  );
   const aiRows = rows.filter((r) => r.is_ai_generated).length;
   // 角色列表：后端无角色端点，由分镜行 characters 去重派生（诚实门控）；
   // 配音状态 = 任一含该角色的分镜行已填写 voice_id

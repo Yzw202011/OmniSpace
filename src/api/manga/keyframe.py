@@ -357,11 +357,10 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
     a_text = desc[:m.start()].strip() if m else desc.strip()
     a_text = re.sub(r"^A[.、．]\s*全局风格[：:]\s*", "", a_text)
     a_text = a_text.replace("全程无字幕、无背景音乐、只有音效。", "")
-    # V49-bis 画风锚（见 docstring）：项目当前风格行替换 A 段——
-    # 剥空版已被 V49 实测证伪（default 包写实质量词主导 → 超写实
-    # 漂移），替换版经 C1 实测验证（网漫词+参考图=0.846）
-    if style_line and char_prompt:
-        a_text = style_line
+    # 2026-10-05 用户二定：分镜图以描述词为主——A 段风格词保留原文
+    # （描述词写 3D CG 就该出 3D CG 观感），项目风格行不再替换 A 段
+    #（生词链才以项目风格行为主；V49-bis 的替换版就此退役，历史
+    # 依据见 docstring）
     # 风格包识别（生图路由引擎 2026-08-27）：A 段风格词 → 词典
     # 命中（photoreal/cg3d/anime/watercolor/oilpaint/inkwash/
     # cyberpunk；未命中走 DEFAULT_PACK——行为与 v22 单判据一致）
@@ -1639,14 +1638,14 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             project_id = ((sb or {}).get("project_id") or "")
         style_line = _project_style_line(db, project_id)
         if style_pack_id:
-            log.info("画风锚(A段)=项目风格行: %s（pack=%s）",
-                     style_line[:40], style_pack_id)
+            log.info("分镜图风格=A段描述词原文（用户二定：描述词为主）"
+                     " pack=%s", style_pack_id)
         else:
             # 2026-09-02 可解释路由：嗅探路径带上裁决凭据（命中词/
             # 遮蔽关系），排障不再依赖脑内推演词序
             _pk, _why = explain_style(prompt)
-            log.info("画风锚(A段)=项目风格行: %s（嗅探→%s，%s）",
-                     style_line[:40], _pk.sid, _why)
+            log.info("分镜图风格=A段描述词原文（嗅探→%s，%s）",
+                     _pk.sid, _why)
         # 西化瞳色负面锚 → 模块常量 _CHAR_NEGATIVE_ANCHOR（2026-08-28
         # P1 逐镜化：随逐镜角色锚存在性注入，标定史 v65/v67/v69 见
         # 常量处注释）
@@ -1786,8 +1785,10 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                     "SELECT project_id FROM storyboards WHERE id=?",
                     (row.get("storyboard_id"),))
                 pid = ((sb or {}).get("project_id") or "")
+            # 2026-10-05 用户二定：分镜图以描述词为主——单帧回退路径
+            # 亦不前缀项目风格行（描述词 A 段自带风格词）
             style_line = _project_style_line(db, pid)
-            gen_prompt = f"{style_line}，{prompt}" if style_line else prompt
+            gen_prompt = prompt
             # 角色锚+仲裁（2026-09-22 用户实弹 JK→修仙服）：直文本路径
             # 此前无锚无仲裁，画风行服饰词（如「华丽古装」）压过参考图。
             # 锚对齐 ABC 主路径 _shot_char_protocol（名字+设定图一致），

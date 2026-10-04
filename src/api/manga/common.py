@@ -935,11 +935,12 @@ def _normalize_direct_abc(desc: str) -> str:
             "", line.strip())
         shot = _normalize_shot_line(s)
         norm_lines.append(shot if shot is not None else s)
-    # 镜头数对齐（时长基准取末镜 end——直传词无行 duration 字段）
-    if len(shots) not in (2, 4):
-        duration = shots[-1]["end"]
-        norm_lines = _reconcile_shot_lines(
-            norm_lines, 4 if duration >= 7 else 2, duration)
+    # 镜头数对齐（2026-10-05 用户令：按末镜时长规则恒对齐——此前
+    # 只在镜头数 ∉ {2,4} 时触发，外贴 10s/2 镜描述词被跳过、网格
+    # 退化 1×2，与生词链（duration≥7s→4 镜 2×2）不一致）
+    duration = shots[-1]["end"]
+    norm_lines = _reconcile_shot_lines(
+        norm_lines, 4 if duration >= 7 else 2, duration)
     # C 段确定性重拼（同 _finalize_abc_body 铁律：剥旧保持段，首镜前
     # 插标题（含网格标记）+ 保持段；连续空行折叠保证输出幂等）
     final_lines: list[str] = []

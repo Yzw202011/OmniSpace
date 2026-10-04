@@ -121,11 +121,15 @@ interface EditableCellProps {
   ai?: boolean;
   /** 只读态实体高亮分组（原文列：角色/场景/道具分色标记） */
   highlightGroups?: EntityHighlightGroup[];
+  /** 点击进编辑时回调（2026-10-04：同步选中所点行——stopPropagation
+   * 挡掉行点击后，行选中态会滞留上一行=用户报"编辑第2镜展开的是
+   * 第1镜原文"的根因；选中行才享有原文/描述词 300px 展开规则） */
+  onEditStart?: () => void;
   /** 提交（失焦 / Ctrl+Enter） */
   onCommit: (v: string) => void;
 }
 
-function EditableCell({ value, placeholder, ai, highlightGroups, onCommit }: EditableCellProps) {
+function EditableCell({ value, placeholder, ai, highlightGroups, onEditStart, onCommit }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
@@ -144,8 +148,18 @@ function EditableCell({ value, placeholder, ai, highlightGroups, onCommit }: Edi
       <div
         className={`manga-cell-text${ai ? ' ai' : ''}${!value ? ' empty' : ''}`}
         title={ai ? 'AI 生成内容，点击编辑' : '点击编辑'}
+        onMouseDown={(e) => {
+          // mousedown 先切选中（2026-10-05 用户令：编辑 A 行时点 B 行，
+          // blur→commit 先把 A 行闪回 300px 只读态、而 B 行选中要等
+          // click——中间帧=「A 展开着却没在编辑」。选中先行消除闪帧）
+          if (!editing) {
+            e.stopPropagation();
+            onEditStart?.();
+          }
+        }}
         onClick={(e) => {
           e.stopPropagation();
+          onEditStart?.();
           setDraft(value);
           setEditing(true);
         }}
@@ -166,8 +180,8 @@ function EditableCell({ value, placeholder, ai, highlightGroups, onCommit }: Edi
     <textarea
       className="manga-cell-editor"
       value={draft}
-      // 行数=换行数+按字宽折行估算（2026-10-04 用户令：原文列点击后
-      // 与描述词列同款"撑开"体验——长段落无换行也要算出真实视觉行数，
+      // 行数=换行数+按字宽折行估算（2026-10-04 用户令：原文列点击后与
+      // 描述词列同款"撑开"体验——长段落无换行也要算出真实视觉行数，
       // 此前 rows=换行+1 使整段原文只给 3 行矮框）
       rows={Math.min(
         14,
@@ -410,7 +424,7 @@ const StoryboardRow = memo(function StoryboardRow({
         </span>
       </div>
 
-      {/* 原文（只读态角色名高亮） */}
+      {/* 原文（只读态实体分色高亮：角色薄荷/场景粉/道具黄） */}
       <div className="manga-sb-td c-text">
         <EditableCell
           value={row.original_dialogue}
@@ -420,6 +434,7 @@ const StoryboardRow = memo(function StoryboardRow({
             { names: [...sceneNames, ...splitSceneNames(row.scene ?? '')], cls: 'manga-entity-scene' },
             { names: [...propNames, ...row.props], cls: 'manga-entity-prop' },
           ]}
+          onEditStart={() => onSelectRow(row.id)}
           onCommit={(v) => onUpdateField(row.id, { original_dialogue: v })}
         />
       </div>
@@ -430,6 +445,7 @@ const StoryboardRow = memo(function StoryboardRow({
           value={row.description}
           placeholder="分镜描述词（可点序号旁的 ⟳ 生成）…"
           ai={row.is_ai_generated}
+          onEditStart={() => onSelectRow(row.id)}
           onCommit={(v) => onUpdateField(row.id, { description: v, is_ai_generated: false })}
         />
       </div>
@@ -670,7 +686,14 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
   const keyframesMap = useMangaStore((s) => s.keyframes);
   const fetchKeyframes = useMangaStore((s) => s.fetchKeyframes);
   const assets = useMangaStore((s) => s.assets);
+  const globalAssets = useMangaStore((s) => s.globalAssets);
   const videoTasks = useMangaStore((s) => s.videoTasks);
+  /** 资产合并查找表：项目资产 + 该面全局资产（分镜行绑定引用可能指向
+   *  已转全局的资产——2026-10-03 绑定显示丢失根修） */
+  const allAssets = useMemo(
+    () => [...assets, ...globalAssets],
+    [assets, globalAssets],
+  );
   const setSelectedAsset = useMangaStore((s) => s.setSelectedAsset);
   const setBindingTarget = useMangaStore((s) => s.setBindingTarget);
   const bindAssetToRow = useMangaStore((s) => s.bindAssetToRow);
@@ -886,7 +909,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
   /** 资产缩略图右上角 X：解绑（toggle 语义——已绑定即解绑；useCallback 稳定化供行组件） */
   const handleUnbindAsset = useCallback(
     (assetId: string, rowId: string) => {
-      const assetName = assets.find((a) => a.asset_id === assetId)?.name ?? '资产';
+      const assetName = allAssets.find((a) => a.asset_id === assetId)?.name ?? '资产';
       bindAssetToRow(assetId, rowId)
         .then(() => {
           const still = useMangaStore
@@ -898,7 +921,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
         })
         .catch((err: unknown) => showToast(getErrorMessage(err, '解绑失败'), 'error'));
     },
-    [assets, bindAssetToRow, showToast],
+    [allAssets, bindAssetToRow, showToast],
   );
 
   /** 批量操作（批量条；锁定行由 batchOps 计入 skipped） */
@@ -951,11 +974,20 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
   };
 
   /** 原文列高亮名表：资产库角色名（行内与 row.characters 求并集；useMemo 稳定化，引用随 assets 变化才更新） */
-  const characterNames = useMemo(() => assets.filter((a) => a.kind === 'character').map((a) => a.name), [assets]);
+  const characterNames = useMemo(
+    () => allAssets.filter((a) => a.kind === 'character').map((a) => a.name),
+    [allAssets],
+  );
   /** 原文列高亮名表：资产库场景/道具名（行内实体列求并集；2026-10-04
    * 用户令——推理资产与角色同款分色标记） */
-  const sceneNames = useMemo(() => assets.filter((a) => a.kind === 'scene').map((a) => a.name), [assets]);
-  const propNames = useMemo(() => assets.filter((a) => a.kind === 'prop').map((a) => a.name), [assets]);
+  const sceneNames = useMemo(
+    () => allAssets.filter((a) => a.kind === 'scene').map((a) => a.name),
+    [allAssets],
+  );
+  const propNames = useMemo(
+    () => allAssets.filter((a) => a.kind === 'prop').map((a) => a.name),
+    [allAssets],
+  );
 
   return (
     <div className="manga-sb-wrap">
@@ -1017,7 +1049,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               isLast={idx === rows.length - 1}
               structSaving={structSaving}
               busyKey={busyKey}
-              assets={assets}
+              assets={allAssets}
               currentKeyframe={kfs?.find((k) => k.is_current)}
               videoTask={latestTask(r.id)}
               characterNames={characterNames}

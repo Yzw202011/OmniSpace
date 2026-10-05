@@ -1538,7 +1538,14 @@ def video_download(task_id: str) -> FileResponse:
         candidate = VIDEO_OUT_DIR / f"{task_id}.mp4"
         if candidate.is_file():
             file_path = str(candidate)
-    path = Path(file_path) if file_path else None
+    # 相对路径按 DATA_DIR 解析（2026-10-06 修：云端视频 file_path 为
+    # DATA_DIR 相对路径，裸 Path 在非项目根 cwd 下解析失败 → 回读 404）
+    path = (DATA_DIR / file_path) if file_path and not Path(file_path).is_absolute() \
+        else (Path(file_path) if file_path else None)
+    if path is not None and not path.is_file() and file_path:
+        candidate = VIDEO_OUT_DIR / f"{task_id}.mp4"
+        if candidate.is_file():
+            path = candidate
     if path is None or not path.is_file():
         raise ApiError("VIDEO_NOT_READY", "视频文件不存在或尚未生成完成",
                        detail={"task_id": task_id,

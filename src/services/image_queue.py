@@ -12,8 +12,10 @@
   - 所有生图入口（绘画页/关键帧/资产图）一律入队受理；
   - 排空循环持有 "paint" 功能锁（其他功能持锁时等待让位而非拒绝——
      与视频队列 video_gen 互斥经 feature_lock 天然成立）；
-  - 每任务开跑前 vLLM 睡眠让渡；队列排空才卸载绘画管线并唤醒 vLLM
-    （连续生图接力免换载churn）；
+  - 每任务开跑前 vLLM 睡眠让渡；队列排空卸载绘画管线（连续生图接力
+    免换载 churn）。2026-10-02 用户拍板「按需真实加载」：排空不再
+    唤醒 vLLM（防生成间隙反复拉起-被杀的拉锯），对话引擎回到真使用
+    时 ensure_loaded；
   - 排队位次（position）+ 排队等待广播钩子（wait_progress_cb，供
     漫剧生图按钮显示「排队中·前N」）；
   - submit_and_wait：同步响应端点（关键帧/资产图）在请求内排队等待，
@@ -38,19 +40,17 @@ from collections.abc import Callable
 from typing import Any
 
 from .task_queue import QueueSpec, TaskQueueCore
-from .vram_policy import WAKE_DEBOUNCE_S
 
 log = logging.getLogger("omnispace.services.image_queue")
 
 _WAIT_POLL_S = 1.0        # 等锁/热保护轮询周期（秒）
 _THERMAL_POLL_S = 2.0
 _DEFAULT_PRIORITY = 5     # 与 draw 既有语义一致：数值大者先跑
-# 排空→唤醒 vLLM 去抖窗（V9-β 2026-09-09）：客户端逐个提交（基准
-# 脚本/用户连点）时任务间隙即排空，旧实现排空即唤醒——唤醒重启会被
-# 紧邻的下一个任务撞死（15:37:04 实测：booting 被功能锁门禁拒绝且
-# 无人重试，state 卡 unloaded）。到点仍空闲才真唤醒。
-# （2026-09-10 批1 搬家 vram_policy 单源，本地名保留为别名）
-_WAKE_DEBOUNCE_S = WAKE_DEBOUNCE_S
+# 任务级显存需求档位表（2026-10-02 用户拍板「如实报数」）：kind → GB。
+# comic_asset = qwen21 整图直出四视图（TE 6.0G + UNet 6.9G ≈ 13G，
+# ComfyUI dynamic staging 实测口径，logs/comfyui_paint.log:4455/4465）；
+# 其余 kind 维持 0（现状行为零变化）。
+_PAINT_NEED_GB_BY_KIND: dict[str, float] = {"comic_asset": 13.0}
 
 
 class ImageTaskCancelled(Exception):
@@ -75,7 +75,9 @@ class ImageTaskQueue:
             thermal_hook="_thermal_paused",
             vllm_sleep_hook="_sleep_vllm_for_generation",
             unload_hook="_unload_paint_pipeline",
-            wake_hook="_schedule_wake_if_idle",
+            # 2026-10-02 用户拍板「按需真实加载」：不接排空唤醒——
+            # 生成间隙反复拉起 vLLM 与下一任务杀回形成拉锯（V9-β
+            # wake_hook 摘除，对话引擎回归真使用时 ensure_loaded）
             budget_admit_hook="_budget_admit",
             budget_release_hook="_budget_release",
             cloud_concurrency_hook="_cloud_concurrency",
@@ -84,7 +86,6 @@ class ImageTaskQueue:
             cloud_run_hook="_run_cloud_one",
             wait_poll_s=_WAIT_POLL_S, thermal_poll_s=_THERMAL_POLL_S,
             priority_sort=True, default_priority=_DEFAULT_PRIORITY))
-        self._wake_debounce_s = _WAKE_DEBOUNCE_S  # 实例化便于单测缩短
 
     @classmethod
     def instance(cls) -> ImageTaskQueue:
@@ -212,15 +213,53 @@ class ImageTaskQueue:
     # ── 准入协商（宿主钩子；本地道编排/准入循环已由 Core 承担）──
 
     def _budget_admit(self, task: dict) -> None:
-        """gpu_budget 顾问判定+登记（批2）：need_gb=0 登记式调用，
-        任务级显存需求估计批4 接档位表；任何异常不阻断任务。"""
+        """gpu_budget 顾问判定+登记（批2 need=0 登记式 → 2026-10-02
+        升级 kind 档位表如实报数：comic_asset 报 13G）。
+
+        WAIT（额度不足）时做一次增量让位——释放 ComfyUI 自持的上一单
+        模型缓存（vLLM 让渡已由 Core 在准入前经 vllm_sleep_hook 统一
+        调过，这里的增量动作只有 /free）。全程顾问语义：只让位不拦截
+        （绝不因额度拒绝生成，2026-10-02 用户拍板），任何异常不阻断。
+        """
         try:
-            from .inference.gpu_budget import get_gpu_budget
+            from .inference.gpu_budget import Verdict, get_gpu_budget
+            need = _PAINT_NEED_GB_BY_KIND.get(str(task.get("kind") or ""), 0.0)
             r = get_gpu_budget().request(
-                "paint", note=str(task.get("task_id")), advisory=True)
+                "paint", need_gb=need, note=str(task.get("task_id")),
+                advisory=True)
+            if need > 0 and r.verdict == Verdict.WAIT:
+                self._yield_paint_deficit()
             task["_budget_token"] = r.busy_token
         except Exception as exc:  # noqa: BLE001 - 顾问失败不影响任务
             log.debug("gpu_budget 顾问判定跳过: %s", exc)
+
+    def _yield_paint_deficit(self) -> None:
+        """额度不足的增量让位：请 ComfyUI 缓存与进程内对话模型让路。
+
+        实测口径（2026-10-02 logs/backend.log）：①连建角色窗口 admit 帧
+        external 9.5~10.9G 多为 ComfyUI 攥着的上一单 qwen21 权重（其
+        缓存 ~5min 才自动让）；②14:19 夏倩倩重生成前 6s 对话引擎自动
+        降级的 4B（transformers 进程内）占 9.0G → 空闲仅 5.0G →
+        qwen21/zviews「需近乎空卡」准入双双被拒回退 klein。vLLM 子
+        进程让渡已由 Core 前置钩子统一调过，这里的增量动作是 /free
+        与进程内对话模型卸载（paint 锁在手=对话互斥锁必然空闲，无
+        在途推理风险）。释放后下一任务冷载权重——时间换空间，用户
+        拍板优先不卡死。best-effort：未运行/失败静默跳过。
+        """
+        try:
+            from .inference.comfy_paint_engine import get_comfy_paint_engine
+            get_comfy_paint_engine().unload()
+            log.info("gpu-budget 额度不足让位：已请求 ComfyUI 释放自持"
+                     "模型缓存（POST /free）")
+        except Exception as exc:  # noqa: BLE001 - 让位失败不影响任务
+            log.debug("ComfyUI 缓存释放跳过: %s", exc)
+        try:
+            from .inference.dialog_engine import get_dialog_engine
+            if get_dialog_engine().unload_model():
+                log.info("gpu-budget 额度不足让位：已卸载进程内对话模型"
+                         "（对话按需自愈装载，产品铁律兜底）")
+        except Exception as exc:  # noqa: BLE001 - 让位失败不影响任务
+            log.debug("对话模型让位跳过: %s", exc)
 
     def _budget_release(self, task: dict) -> None:
         """gpu_budget 收尾（批2）：注销忙碌 + 结束帧日志（no-op 安全）。"""
@@ -236,8 +275,24 @@ class ImageTaskQueue:
     def _thermal_paused(self) -> bool:
         try:
             from .thermal_guard import get_thermal_guard
-            return bool(get_thermal_guard().is_paused())
-        except Exception:  # noqa: BLE001
+            if get_thermal_guard().is_paused():
+                return True
+        except Exception:  # noqa: BLE001 - 探测失败不阻断
+            pass
+        # 互斥增强（2026-10-05 用户令）：video_gen 本地道（H3 视频链）
+        # 占用中 → 本地 paint 任务排队让位，防 RAM/显存双大户叠跑卡死
+        # （云道任务不受此限——不占本地卡）
+        return self._video_local_busy()
+
+    def _video_local_busy(self) -> bool:
+        """video_gen 本地道是否占用中（2026-10-05 互斥增强：H3 视频链
+        是 RAM+显存双大户，分镜图与其叠跑曾致 RAM 提交 92% 卡死——
+        读 video 队列宿主 _lock_held 旗标，非阻塞）。"""
+        try:
+            from .video_queue import get_video_queue
+            q = get_video_queue()
+            return bool(getattr(q, "_lock_held", False))
+        except Exception:
             return False
 
     def _acquire_paint_lock(self, task_id: str,
@@ -268,32 +323,12 @@ class ImageTaskQueue:
         from .inference.gpu_budget import get_yield_coordinator
         get_yield_coordinator().sleep_for_generation("image_queue")
 
-    def _wake_vllm_after_generation(self) -> None:
-        try:
-            from ..engines.vllm_service import get_vllm_service
-            get_vllm_service().wake_from_paint()
-        except Exception as exc:  # noqa: BLE001 - 唤醒协商失败不影响生图结果
-            log.warning("vLLM 唤醒协商失败（不影响生图结果）: %s", exc, exc_info=True)
-
-    def _local_lane_idle(self) -> bool:
-        """本地道空闲：无在跑任务且无本地排队（仅剩云端任务不算忙，
-        云道不占 GPU）。判定委托 Core（队列态真源在 Core 侧）。"""
-        return self._core.local_lane_idle()
-
-    def _schedule_wake_if_idle(self) -> None:
-        """排空后延迟唤醒 vLLM（V9-β 2026-09-09；批3 起判定逻辑转
-        gpu_budget 让渡协调器单源——跨队列只认最新排空，video 队列
-        同款接入后两侧不再互相撞车）。
-
-        哨兵兼容：debounce 仍读实例属性 _wake_debounce_s（单测缩短
-        用）；唤醒动作注入 _wake_vllm_after_generation（V9-β 哨兵
-        monkeypatch 点，行为不变）。
-        """
-        from .inference.gpu_budget import get_yield_coordinator
-        get_yield_coordinator().schedule_wake_if_idle(
-            "image_queue", self._local_lane_idle,
-            debounce_s=self._wake_debounce_s,
-            wake=self._wake_vllm_after_generation)
+    # 2026-10-02 用户拍板「按需真实加载」：V9-β 排空唤醒三件套
+    # （_wake_vllm_after_generation / _local_lane_idle /
+    #  _schedule_wake_if_idle）随 wake_hook 接线一并摘除——生成间隙
+    # 反复拉起 vLLM 与下一任务的让渡形成拉锯（backend.log:67227 实
+    # 弹：唤醒被 RAM 闸拒绝时系统内存仅剩 5.8G）。对话引擎回归真使
+    # 用时 ensure_loaded（产品铁律：未加载必须全自动）。
 
     def _unload_paint_pipeline(self) -> None:
         try:

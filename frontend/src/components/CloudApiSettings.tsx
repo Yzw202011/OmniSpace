@@ -41,20 +41,22 @@ interface ProviderForm {
  *  2026-10-03 +sora_video：MagicAI Grok 视频的 Sora 任务式） */
 type CloudProtocol = 'openai_text' | 'openai_image' | 'task_image' | 'task_video' | 'sora_video';
 
+// 2026-10-06 用户令：连接类型归并为文本/图片/视频三个大项（协议细分
+// 收进 desc 说明）。视频两大主流形态（同步 generations / 异步任务 /
+// Sora 任务式）合并为一个「视频」选项——后端按 base_url 端点形态
+// 自动探测适配，用户不再需要分辨协议细节
 const PROTOCOL_OPTIONS: Array<{ value: CloudProtocol; label: string; desc: string }> = [
-  { value: 'openai_text', label: '文本（OpenAI 兼容）', desc: '对话/写作，如 DeepSeek、Kimi、硅基流动' },
-  { value: 'openai_image', label: '图片·同步', desc: '/v1/images/generations 同步出图，如硅基流动、Recraft' },
-  { value: 'task_image', label: '图片·异步任务', desc: '提交→轮询→下载三段式，如通义万相（DashScope）' },
-  { value: 'task_video', label: '视频·异步任务', desc: '图生视频三段式，如通义万相视频（DashScope）' },
-  { value: 'sora_video', label: '视频·Sora 任务式', desc: 'POST /v1/videos 提交→轮询→下载，如 MagicAI Grok 视频（4/8/10/15 秒档）' },
+  { value: 'openai_text', label: '文本', desc: '对话/写作（OpenAI 兼容），如 DeepSeek、Kimi、硅基流动、GPT' },
+  { value: 'openai_image', label: '图片', desc: '图片生成（OpenAI 兼容同步 / DashScope 异步任务均支持），如硅基流动、通义万相、Grok 图像' },
+  { value: 'sora_video', label: '视频', desc: '视频生成（Sora 任务式 / DashScope 异步任务均支持），如 MagicAI Grok 视频、通义万相视频（4/8/10/15 秒档）' },
 ];
 
 const PROTOCOL_LABELS: Record<string, string> = {
   openai_text: '文本',
-  openai_image: '图片·同步',
-  task_image: '图片·异步',
-  task_video: '视频·异步',
-  sora_video: '视频·Sora',
+  openai_image: '图片',
+  task_image: '图片',
+  task_video: '视频',
+  sora_video: '视频',
 };
 
 /** 工位协议匹配（与后端 set_binding 校验同源） */

@@ -152,6 +152,12 @@ def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
         raise RuntimeError(
             f"无法连接云端视频服务 {ep.provider_name or ep.base_url}：{exc}。"
             f"请检查网络与地址，或到{SETUP_HINT}点「测试连接」") from exc
+    if resp is not None and resp.status_code == 404:
+        # 404 = 该站无 /v1/videos（非 Sora 形态）→ 自动降级 DashScope
+        # 三段式（2026-10-06 用户令「三个下拉选项」：视频统一选项，
+        # 双形态自适应，用户不再分辨协议）
+        log.warning("Sora 提交 404（非 Sora 形态站），降级 DashScope 三段式")
+        return _ds_submit(ep, prompt, first_frame, duration_seconds, "16:9")
     if resp is None or resp.status_code != 200:
         body = ((resp.text if resp is not None else "") or "")[:200]
         retry_note = "（502/503 已自动重试 4 次）" if resp is not None else ""
@@ -247,6 +253,9 @@ def generate_video(
     import requests
 
     from ..cloud_provider_service import record_cloud_call
+    # 2026-10-06 用户令「三个下拉选项」：连接类型归并后视频统一走
+    # sora_video 协议值，本函数按 base_url 端点形态自动适配——
+    # /v1/videos 通=sora 形态；404/非 sora=自动降级 DashScope 三段式
     is_sora = ep.protocol == PROTOCOL_SORA_VIDEO
     if ep.protocol not in (PROTOCOL_TASK_VIDEO, PROTOCOL_SORA_VIDEO):
         raise RuntimeError(

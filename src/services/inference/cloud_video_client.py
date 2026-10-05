@@ -276,25 +276,46 @@ def generate_video(
     _check(check_cancel)
     t0 = time.time()
     try:
+        vendor = str((ep.extra or {}).get("vendor") or
+                     ("dashscope" if not is_sora else "sora"))
         if is_sora:
             task_id = _sora_submit(ep, prompt, first_frame, duration_seconds)
+        elif vendor == "kling":
+            task_id = _kling_submit(ep, prompt, first_frame, duration_seconds)
+        elif vendor == "ark":
+            task_id = _ark_submit(ep, prompt, first_frame, duration_seconds)
+        elif vendor == "vidu":
+            task_id = _vidu_submit(ep, prompt, first_frame, duration_seconds)
         else:
             task_id = _ds_submit(ep, prompt, first_frame, duration_seconds,
                                  aspect)
-        log.info("云端视频任务已提交: %s model=%s task=%s 时长=%.0fs 画幅=%s 协议=%s",
+        log.info("云端视频任务已提交: %s model=%s task=%s 时长=%.0fs 画幅=%s 协议=%s vendor=%s",
                     ep.provider_name, ep.model or "默认", task_id,
-                    duration_seconds, aspect, ep.protocol)
+                    duration_seconds, aspect, ep.protocol, vendor)
         if on_progress:
             on_progress(5)
-        poll_url = (ep.base_url + f"/v1/videos/{task_id}" if is_sora
-                    else ep.base_url + f"/api/v1/tasks/{task_id}")
+        if is_sora:
+            poll_url = ep.base_url + f"/v1/videos/{task_id}"
+        elif vendor == "kling":
+            poll_url = (ep.base_url.rstrip("/") +
+                        f"/v1/videos/{task_id}")
+        elif vendor == "ark":
+            poll_url = (ep.base_url.rstrip("/") +
+                        f"/api/v3/contents/generations/tasks/{task_id}")
+        elif vendor == "vidu":
+            poll_url = (ep.base_url.rstrip("/") +
+                        f"/resp/v1/video/generations/{task_id}")
+        else:
+            poll_url = ep.base_url + f"/api/v1/tasks/{task_id}"
         poll_interval = SORA_POLL_INTERVAL_S if is_sora else POLL_INTERVAL_S
+        poll_headers = (_kling_headers(ep) if vendor == "kling"
+                        else _bearer(ep))
         deadline = time.time() + TASK_TIMEOUT_S
         video_url = ""
         while True:
             _check(check_cancel)
             try:
-                resp = requests.get(poll_url, headers=_bearer(ep),
+                resp = requests.get(poll_url, headers=poll_headers,
                                     timeout=(5, 30))
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(
@@ -304,7 +325,29 @@ def generate_video(
                 raise RuntimeError(
                     f"云端视频任务轮询 HTTP {resp.status_code}："
                     f"{(resp.text or '')[:150]}")
-            if is_sora:
+            if vendor in ("kling", "ark", "vidu"):
+                data = resp.json() or {}
+                st = str(data.get("status") or data.get("task_status")
+                         or "").lower()
+                if st in ("succeed", "succeeded", "done", "completed",
+                          "finished"):
+                    video_url = (str(data.get("video_url") or "")
+                                 or str(data.get("content", {})
+                                        .get("video_url") or "")
+                                 or str(data.get("videos", [{}])[0]
+                                        .get("url") if data.get("videos")
+                                        else "") or "")
+                    if not video_url:
+                        raise RuntimeError(
+                            f"{vendor} 任务成功但未找到视频地址："
+                            f"{str(data)[:200]}")
+                    break
+                if st in ("failed", "error"):
+                    _fail = str(data.get('failed_reason')
+                                or data.get('error') or data)
+                    raise RuntimeError(
+                        f'云端视频任务失败：{_fail[:200]}')
+            elif is_sora:
                 status, video_url, fail_msg = _sora_parse(resp.json() or {})
                 if status == "done":
                     break
@@ -378,6 +421,12 @@ def probe_video_provider(ep: CloudEndpoint,
     if ep.protocol not in (PROTOCOL_TASK_VIDEO, PROTOCOL_SORA_VIDEO):
         return False, f"协议 {ep.protocol} 不支持视频连通性测试"
     headers = {"Authorization": f"Bearer {ep.api_key}"} if ep.api_key else {}
+    vendor = str((ep.extra or {}).get("vendor") or "dashscope")
+    _probe_paths = {"kling": "/v1/videos/__probe__",
+                    "ark": "/api/v3/contents/generations/tasks/__probe__",
+                    "vidu": "/resp/v1/video/generations/__probe__",
+                    "dashscope": "/api/v1/tasks/__probe__"}
+    probe_path = _probe_paths.get(vendor, "/api/v1/tasks/__probe__")
     if ep.protocol == PROTOCOL_SORA_VIDEO:
         # Sora 任务式探测（2026-10-03）：GET /v1/videos/__probe__ 查询
         # 不存在任务——绝不 POST 探测（会真创建任务计费）。gin 素 404
@@ -404,8 +453,10 @@ def probe_video_provider(ep: CloudEndpoint,
             return True, ""
         return False, f"HTTP {resp.status_code}：{(resp.text or '')[:120]}"
     try:
-        resp = requests.get(ep.base_url + "/api/v1/tasks/__probe__",
-                            headers=headers, timeout=timeout_s)
+        resp = requests.get(ep.base_url + probe_path,
+                            headers=(headers if vendor != "kling"
+                                     else _kling_headers(ep)),
+                            timeout=timeout_s)
     except Exception as exc:  # noqa: BLE001 - 网络异常归为不可达
         return False, f"连接失败：{exc}"
     if resp.status_code in (401, 403):
@@ -419,3 +470,131 @@ def probe_video_provider(ep: CloudEndpoint,
     if 200 <= resp.status_code < 500:
         return True, ""
     return False, f"HTTP {resp.status_code}：{(resp.text or '')[:120]}"
+
+# ── 可灵 Kling / 火山方舟 Ark(豆包 Seedance) / Vidu 适配 ──────────
+# 2026-10-06 用户令：国内外主流视频服务商对接。三家均任务式（提交→
+# 轮询→取 url），差异在鉴权与端点：
+#   kling: JWT 双 Key 签名（access_key/secret_key 经 extra 传入），
+#          POST {base}/v1/videos/image2video，GET {base}/v1/videos/{id}
+#   ark:   Bearer Key（火山方舟），POST {base}/api/v3/contents/generations
+#          /tasks，GET {base}/api/v3/contents/generations/tasks/{id}
+#   vidu:  Bearer Token，POST {base}/resp/v1/video/generations，
+#          GET {base}/resp/v1/video/generations/{id}
+# 连接配置：连接类型=视频；extra.vendor ∈ {dashscope, kling, ark, vidu}；
+# kling 另需 extra.access_key / extra.secret_key。
+
+
+def _kling_jwt(access_key: str, secret_key: str) -> str:
+    """可灵 JWT 签名（HS256，exp 30 分钟）。依赖 PyJWT（环境已含）。"""
+    import jwt as pyjwt
+
+    now = int(time.time())
+    payload = {"iss": access_key, "exp": now + 1800, "nbf": now - 5}
+    return pyjwt.encode(payload, secret_key, algorithm="HS256")
+
+
+def _kling_headers(ep: CloudEndpoint) -> dict:
+    ak = str((ep.extra or {}).get("access_key") or "")
+    sk = str((ep.extra or {}).get("secret_key") or "")
+    return {"Authorization": "Bearer " + _kling_jwt(ak, sk),
+            "Content-Type": "application/json"}
+
+
+def _kling_submit(ep: CloudEndpoint, prompt: str, first_frame,
+                  duration_seconds: float) -> str:
+    """可灵图生视频提交：POST /v1/videos/image2video → data.task_id。"""
+    import requests
+
+    url = ep.base_url.rstrip("/") + "/v1/videos/image2video"
+    payload: dict = {
+        "model_name": ep.model or "kling-v1",
+        "prompt": prompt,
+        "duration": str(int(duration_seconds)) if duration_seconds < 10
+        else "10",
+        "mode": "std",
+    }
+    if first_frame is not None:
+
+        buf = io_bytes_b64(first_frame)
+        payload["image"] = "data:image/jpeg;base64," + buf
+    resp = requests.post(url, json=payload, headers=_kling_headers(ep),
+                         timeout=(10, 120))
+    if resp.status_code != 200:
+        raise RuntimeError(f"可灵提交失败 HTTP {resp.status_code}："
+                           f"{(resp.text or '')[:200]}")
+    data = (resp.json() or {}).get("data") or {}
+    task_id = str(data.get("task_id") or "")
+    if not task_id:
+        raise RuntimeError("可灵提交未返回 task_id：" + str(data)[:150])
+    return task_id
+
+
+def io_bytes_b64(img) -> str:
+    """PIL 图 → base64 JPEG 字符串（可灵 image 域要求）。"""
+    import base64
+
+    return base64.b64encode(_jpeg_bytes(img)).decode()
+
+
+def _ark_submit(ep: CloudEndpoint, prompt: str, first_frame,
+                duration_seconds: float) -> str:
+    """火山方舟（豆包 Seedance）提交：content generations tasks。"""
+    import requests
+
+    url = (ep.base_url.rstrip("/") +
+           "/api/v3/contents/generations/tasks")
+    text = prompt
+    if first_frame is not None:
+        pass  # 首帧经 image_url 域在下方追加
+    from typing import Any as _AnyT
+    payload: dict[str, _AnyT] = {
+        "model": ep.model or "doubao-seedance-1-0-lite-t2v",
+        "content": [{"type": "text", "text": text}],
+    }
+    if first_frame is not None:
+        payload["content"].append({
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64," +
+                          base64.b64encode(_jpeg_bytes(first_frame)).decode()}})
+    resp = requests.post(url, json=payload,
+                         headers={"Authorization": "Bearer " + ep.api_key,
+                                  "Content-Type": "application/json"},
+                         timeout=(10, 120))
+    if resp.status_code != 200:
+        raise RuntimeError(f"方舟提交失败 HTTP {resp.status_code}："
+                           f"{(resp.text or '')[:200]}")
+    task_id = str((resp.json() or {}).get("id") or "")
+    if not task_id:
+        raise RuntimeError("方舟提交未返回任务 id：" + str(resp.json())[:150])
+    return task_id
+
+
+def _vidu_submit(ep: CloudEndpoint, prompt: str, first_frame,
+                 duration_seconds: float) -> str:
+    """Vidu 提交：POST /resp/v1/video/generations → id。"""
+
+    import requests
+
+    url = ep.base_url.rstrip("/") + "/resp/v1/video/generations"
+    payload: dict[str, Any] = {
+        "model": ep.model or "viduq1",
+        "prompt": prompt,
+        "duration": int(duration_seconds) if duration_seconds < 10 else 8,
+    }
+    if first_frame is not None:
+        img_entry: dict = {"type": "first_frame",
+                           "content": "data:image/jpeg;base64," +
+                           base64.b64encode(_jpeg_bytes(first_frame)).decode()}
+        payload["images"] = [img_entry]
+    resp = requests.post(url, json=payload,
+                         headers={"Authorization": "Token " + ep.api_key,
+                                  "Content-Type": "application/json"},
+                         timeout=(10, 120))
+    if resp.status_code != 200:
+        raise RuntimeError(f"Vidu 提交失败 HTTP {resp.status_code}："
+                           f"{(resp.text or '')[:200]}")
+    task_id = str((resp.json() or {}).get("task_id") or "")
+    if not task_id:
+        raise RuntimeError("Vidu 提交未返回 task_id：" +
+                           str(resp.json())[:150])
+    return task_id

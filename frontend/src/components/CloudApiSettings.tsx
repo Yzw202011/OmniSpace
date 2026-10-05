@@ -37,14 +37,16 @@ interface ProviderForm {
   models_text: string;
 }
 
-/** 协议选项（批3：文本 + 图片两套 + 视频；后端 VALID_PROTOCOLS 同源） */
-type CloudProtocol = 'openai_text' | 'openai_image' | 'task_image' | 'task_video';
+/** 协议选项（批3：文本 + 图片两套 + 视频；后端 VALID_PROTOCOLS 同源。
+ *  2026-10-03 +sora_video：MagicAI Grok 视频的 Sora 任务式） */
+type CloudProtocol = 'openai_text' | 'openai_image' | 'task_image' | 'task_video' | 'sora_video';
 
 const PROTOCOL_OPTIONS: Array<{ value: CloudProtocol; label: string; desc: string }> = [
   { value: 'openai_text', label: '文本（OpenAI 兼容）', desc: '对话/写作，如 DeepSeek、Kimi、硅基流动' },
   { value: 'openai_image', label: '图片·同步', desc: '/v1/images/generations 同步出图，如硅基流动、Recraft' },
   { value: 'task_image', label: '图片·异步任务', desc: '提交→轮询→下载三段式，如通义万相（DashScope）' },
   { value: 'task_video', label: '视频·异步任务', desc: '图生视频三段式，如通义万相视频（DashScope）' },
+  { value: 'sora_video', label: '视频·Sora 任务式', desc: 'POST /v1/videos 提交→轮询→下载，如 MagicAI Grok 视频（4/8/10/15 秒档）' },
 ];
 
 const PROTOCOL_LABELS: Record<string, string> = {
@@ -52,6 +54,7 @@ const PROTOCOL_LABELS: Record<string, string> = {
   openai_image: '图片·同步',
   task_image: '图片·异步',
   task_video: '视频·异步',
+  sora_video: '视频·Sora',
 };
 
 /** 工位协议匹配（与后端 set_binding 校验同源） */
@@ -59,7 +62,7 @@ function protocolMatchesSlot(protocol: string, slot: string): boolean {
   if (slot === 'dialog.text' || slot === 'manga.text' || slot === 'novel.text') {
     return protocol === 'openai_text';
   }
-  if (slot === 'manga.video') return protocol === 'task_video';
+  if (slot === 'manga.video') return protocol === 'task_video' || protocol === 'sora_video';
   return protocol === 'openai_image' || protocol === 'task_image';
 }
 

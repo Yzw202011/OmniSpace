@@ -74,17 +74,21 @@ TEXT_SLOTS = (SLOT_DIALOG_TEXT, SLOT_MANGA_TEXT, SLOT_NOVEL_TEXT)
 IMAGE_SLOTS = (SLOT_PAINT_IMAGE, SLOT_KEYFRAME_IMAGE, SLOT_ASSET_IMAGE)
 # 图片类协议（绑定图片槽位时校验连接协议）
 IMAGE_PROTOCOLS = ("openai_image", "task_image")
-# 视频类槽位/协议
+# 视频类槽位/协议（2026-10-03 起 +sora_video：MagicAI Grok 视频，
+# Sora 任务式 POST /v1/videos → GET /v1/videos/{id}，实弹验证见
+# docs/audit 与记忆 magicai-intro-page-2026-10-03）
 VIDEO_SLOTS = (SLOT_MANGA_VIDEO,)
-VIDEO_PROTOCOLS = ("task_video",)
+VIDEO_PROTOCOLS = ("task_video", "sora_video")
 
 # 协议类型（批3 起 task_video 开放）
 PROTOCOL_OPENAI_TEXT = "openai_text"
 PROTOCOL_OPENAI_IMAGE = "openai_image"
 PROTOCOL_TASK_IMAGE = "task_image"
 PROTOCOL_TASK_VIDEO = "task_video"
+PROTOCOL_SORA_VIDEO = "sora_video"
 VALID_PROTOCOLS = (PROTOCOL_OPENAI_TEXT, PROTOCOL_OPENAI_IMAGE,
-                   PROTOCOL_TASK_IMAGE, PROTOCOL_TASK_VIDEO)
+                   PROTOCOL_TASK_IMAGE, PROTOCOL_TASK_VIDEO,
+                   PROTOCOL_SORA_VIDEO)
 
 
 # ── 模型类别严格过滤（2026-09-21 用户令：工位只留对应类别）────────
@@ -697,6 +701,17 @@ def get_video_concurrency() -> int:
 
 # ── 文本槽位解析（漫剧文字/写作台调用点消费）────────────────────
 
+
+def get_text_endpoint(slot: str) -> CloudEndpoint | None:
+    """解析文本工位的云端端点；未绑定/连接停用/协议不符返回 None（本地）。
+
+    公开镜像 get_image_endpoint/get_video_endpoint（2026-10-03 方案一：
+    漫剧模型清单把已绑定云端模型列为可选项时消费——原私有
+    _slot_text_endpoint 仅供同文件 resolve 链使用，语义不变）。
+    """
+    return _slot_text_endpoint(slot)
+
+
 def _slot_text_endpoint(slot: str) -> CloudEndpoint | None:
     """文本槽位绑定解析（binding-only，不含 dialog 旧配置兜底）。"""
     if slot not in TEXT_SLOTS:
@@ -901,4 +916,53 @@ def fetch_openai_models(base_url: str, api_key: str,
         return sorted(set(ids)), ""
     except Exception as exc:  # noqa: BLE001 - 响应体非 OpenAI 格式
         return [], f"响应解析失败：{exc}"
+
+
+# ── 余额查询（OpenAI 兼容 billing 端点，尽力而为）────────────────
+
+def fetch_openai_billing(base_url: str, api_key: str,
+                         timeout_s: float = 8.0) -> dict:
+    """查询 OpenAI 兼容余额端点（/v1/dashboard/billing/*）。
+
+    大白话：one-api/new-api 系中转站普遍沿用 OpenAI 旧版两个 billing
+    端点报额度与用量；不支持的站点返回 supported=False（前端隐藏余额
+    卡）——余额探针失败绝不拖垮在线状态/模型池等其他动态项。
+    用量口径：total_usage 单位=美分（USD×100），换算回美元。
+    Returns: {supported, total_usd, used_usd, remain_usd, error}
+    """
+    import datetime
+
+    import requests
+
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return {"supported": False, "error": "未填写服务地址"}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        sub = requests.get(base + "/v1/dashboard/billing/subscription",
+                           headers=headers, timeout=timeout_s)
+    except Exception as exc:  # noqa: BLE001 - 网络异常归为不支持口径
+        return {"supported": False, "error": f"连接失败：{exc}"}
+    if sub.status_code != 200:
+        return {"supported": False,
+                "error": f"站点未开放余额查询（HTTP {sub.status_code}）"}
+    try:
+        total = float((sub.json() or {}).get("hard_limit_usd") or 0.0)
+    except Exception:  # noqa: BLE001 - 响应体非预期格式
+        return {"supported": False, "error": "余额响应解析失败"}
+    today = datetime.date.today()
+    usage = 0.0
+    try:
+        resp = requests.get(
+            base + "/v1/dashboard/billing/usage",
+            params={"start_date": (today - datetime.timedelta(days=30)).isoformat(),
+                    "end_date": (today + datetime.timedelta(days=1)).isoformat()},
+            headers=headers, timeout=timeout_s)
+        if resp.status_code == 200:
+            usage = float((resp.json() or {}).get("total_usage") or 0.0) / 100.0
+    except Exception:  # noqa: BLE001 - 用量失败不算整体失败
+        pass
+    return {"supported": True, "total_usd": round(total, 2),
+            "used_usd": round(usage, 2),
+            "remain_usd": round(max(total - usage, 0.0), 2), "error": ""}
 # 本项目仅供学习使用，商业授权请+Q 3559331368

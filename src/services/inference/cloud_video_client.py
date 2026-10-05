@@ -6,6 +6,11 @@ task_video 协议适配（方案 §5.3，docs/云端API接入方案-2026-09-06.m
 `/api/v1/services/aigc/video-generation/video-synthesis`——可灵/即梦
 同为异步三段式，差异在请求体模板，后续批按需扩 vendor）。
 
+sora_video 协议（2026-10-03 新增）：MagicAI Grok 视频的 Sora 任务式——
+POST /v1/videos（首帧图走 multipart input_reference，无首帧=纯文生）
+→ GET /v1/videos/{id} 轮询（终态词=done）→ video_url/CDN 下载。
+时长档位实测 4/8/10/15 秒（_sora_seconds 钳位映射）；平台无取消接口。
+
 统一契约：
 - 输入：CloudEndpoint + 提示词 + 首帧图（PIL）+ 时长秒 + 画幅标签 +
   check_cancel（轮询间隔协作取消）+ on_progress；
@@ -28,6 +33,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..cloud_provider_service import (
+    PROTOCOL_SORA_VIDEO,
     PROTOCOL_TASK_VIDEO,
     CloudEndpoint,
     http_error_hint,
@@ -37,6 +43,7 @@ from ..cloud_provider_service import (
 log = logging.getLogger("omnispace.inference.cloud_video")
 
 POLL_INTERVAL_S = 5.0        # 视频任务轮询周期（服务商常见 5~10s 粒度）
+SORA_POLL_INTERVAL_S = 8.0   # Sora 任务式轮询周期（渲染分钟级，放宽省请求）
 TASK_TIMEOUT_S = 1800.0      # 轮询总上限 30 分钟（方案 §5.3）
 SETUP_HINT = "「设置 → 云端 API 服务」"
 
@@ -78,6 +85,97 @@ def _result_headers(api_key: str, base_url: str, url: str) -> dict:
     except Exception:  # noqa: BLE001 - 解析不了按异源处理（宁可不带）
         return {}
     return {"Authorization": f"Bearer {api_key}"}
+
+
+def _jpeg_bytes(img) -> bytes:
+    """首帧 PIL → JPEG 字节（Sora multipart 上传用，体积小于 PNG）。"""
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=92)
+    return buf.getvalue()
+
+
+def _sora_seconds(duration_seconds: float) -> str | None:
+    """镜头时长 → 平台已实锤的时长档（2026-10-03 实测 4/8/10/15 四档）。
+
+    ≤5s 省略参数走默认 4s 档；6~9→"8"；10~12→"10"；其余→"15"。
+    更高档位未实测，钳在 15 防误触未知计费档。
+    """
+    d = float(duration_seconds or 5.0)
+    if d <= 5:
+        return None
+    if d <= 9:
+        return "8"
+    if d <= 12:
+        return "10"
+    return "15"
+
+
+def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
+                 duration_seconds: float) -> str:
+    """Sora 任务式提交（POST /v1/videos），返回任务 id。
+
+    有首帧图= multipart（input_reference 文件域，2026-10-03 实测路由层
+    接受；上游 i2v 通道当时 502 待复验）；无首帧= JSON 纯文生视频。
+    seconds 参数只带平台已实锤档位（_sora_seconds）。
+    """
+    import requests
+
+    url = ep.base_url + "/v1/videos"
+    fields: dict[str, str] = {"model": ep.model or "grok-imagine-video",
+                              "prompt": prompt}
+    seconds = _sora_seconds(duration_seconds)
+    if seconds:
+        fields["seconds"] = seconds
+    headers = {"Authorization": f"Bearer {ep.api_key}"} if ep.api_key else {}
+    try:
+        if first_frame is not None:
+            resp = requests.post(
+                url, data=fields, headers=headers,
+                files={"input_reference": ("first_frame.jpg",
+                                           _jpeg_bytes(first_frame),
+                                           "image/jpeg")},
+                timeout=(10, 120))
+        else:
+            resp = requests.post(url, json=fields,
+                                 headers={**headers,
+                                          "Content-Type": "application/json"},
+                                 timeout=(10, 120))
+    except Exception as exc:  # noqa: BLE001 - 网络异常收敛为带出路的错误
+        raise RuntimeError(
+            f"无法连接云端视频服务 {ep.provider_name or ep.base_url}：{exc}。"
+            f"请检查网络与地址，或到{SETUP_HINT}点「测试连接」") from exc
+    if resp.status_code != 200:
+        body = (resp.text or "")[:200]
+        raise RuntimeError(
+            f"云端视频任务提交失败 HTTP {resp.status_code}：{body}。"
+            f"{http_error_hint(resp.status_code)}"
+            f"（当前模型={ep.model or '默认'}；时长档位也可能不受支持）")
+    out = resp.json() or {}
+    task_id = str(out.get("id") or out.get("request_id") or "")
+    if not task_id:
+        raise RuntimeError(
+            f"云端视频任务提交未返回任务 id：{str(out)[:150]}")
+    return task_id
+
+
+def _sora_parse(data: dict) -> tuple[str, str, str]:
+    """解析 Sora 任务式轮询响应 → (归一状态, video_url, 失败信息)。
+
+    实测形态（2026-10-03 MagicAI）：{"id","status","video":{...},
+    "video_url"}——终态词是 **done**（非 completed）；video.url 可能是
+    相对路径（需拼 base_url）。
+    """
+    status = str(data.get("status") or "").strip().lower()
+    if status in ("done", "succeeded", "completed"):
+        url = str(data.get("video_url")
+                  or (data.get("video") or {}).get("url") or "")
+        if not url:
+            return "failed", "", "任务成功但未找到视频地址：" + str(data)[:200]
+        return "done", url, ""
+    if status in ("failed", "error", "cancelled", "canceled", "rejected"):
+        return ("failed", "",
+                str(data.get("error") or data.get("message") or data)[:200])
+    return "running", "", ""
 
 
 def _ds_submit(ep: CloudEndpoint, prompt: str, first_frame,
@@ -140,29 +238,39 @@ def generate_video(
     import requests
 
     from ..cloud_provider_service import record_cloud_call
-    if ep.protocol != PROTOCOL_TASK_VIDEO:
+    is_sora = ep.protocol == PROTOCOL_SORA_VIDEO
+    if ep.protocol not in (PROTOCOL_TASK_VIDEO, PROTOCOL_SORA_VIDEO):
         raise RuntimeError(
             f"连接「{ep.provider_name}」的协议 {ep.protocol} 不支持视频"
-            "生成，请到设置里换绑视频类连接（task_video）")
-    if first_frame is None:
+            "生成，请到设置里换绑视频类连接（task_video 或 sora_video）")
+    if first_frame is None and not is_sora:
+        # sora_video 平台支持纯文生视频，允许无首帧；DashScope 形态维持
+        # 既有契约（漫剧工位语义=图生视频）
         raise RuntimeError(
             "云端图生视频需要首帧图：请先为该分镜生成关键帧（或到设置"
             "解绑「漫剧镜头视频」工位回本地引擎）")
-    vendor = str((ep.extra or {}).get("vendor") or "dashscope")
-    if vendor != "dashscope":
-        raise RuntimeError(
-            f"连接「{ep.provider_name}」的供应商模板 {vendor} 尚未支持"
-            "（当前支持 dashscope）")
+    if not is_sora:
+        vendor = str((ep.extra or {}).get("vendor") or "dashscope")
+        if vendor != "dashscope":
+            raise RuntimeError(
+                f"连接「{ep.provider_name}」的供应商模板 {vendor} 尚未支持"
+                "（当前支持 dashscope）")
     _check(check_cancel)
     t0 = time.time()
     try:
-        task_id = _ds_submit(ep, prompt, first_frame, duration_seconds, aspect)
-        log.info("云端视频任务已提交: %s model=%s task=%s 时长=%.0fs 画幅=%s",
+        if is_sora:
+            task_id = _sora_submit(ep, prompt, first_frame, duration_seconds)
+        else:
+            task_id = _ds_submit(ep, prompt, first_frame, duration_seconds,
+                                 aspect)
+        log.info("云端视频任务已提交: %s model=%s task=%s 时长=%.0fs 画幅=%s 协议=%s",
                     ep.provider_name, ep.model or "默认", task_id,
-                    duration_seconds, aspect)
+                    duration_seconds, aspect, ep.protocol)
         if on_progress:
             on_progress(5)
-        poll_url = ep.base_url + f"/api/v1/tasks/{task_id}"
+        poll_url = (ep.base_url + f"/v1/videos/{task_id}" if is_sora
+                    else ep.base_url + f"/api/v1/tasks/{task_id}")
+        poll_interval = SORA_POLL_INTERVAL_S if is_sora else POLL_INTERVAL_S
         deadline = time.time() + TASK_TIMEOUT_S
         video_url = ""
         while True:
@@ -178,19 +286,30 @@ def generate_video(
                 raise RuntimeError(
                     f"云端视频任务轮询 HTTP {resp.status_code}："
                     f"{(resp.text or '')[:150]}")
-            out = (resp.json() or {}).get("output") or {}
-            status = str(out.get("task_status") or "").upper()
-            if status == "SUCCEEDED":
-                video_url = str(out.get("video_url") or "")
-                if not video_url:
+            if is_sora:
+                status, video_url, fail_msg = _sora_parse(resp.json() or {})
+                if status == "done":
+                    break
+                if status == "failed":
                     raise RuntimeError(
-                        f"云端视频任务成功但未找到 video_url：{str(out)[:200]}")
-                break
-            if status in ("FAILED", "CANCELED", "UNKNOWN"):
-                raise RuntimeError(
-                    f"云端视频任务失败（{status}）："
-                    f"{str(out.get('message') or out)[:200]}。可在服务商后台"
-                    "查看任务详情；常见原因=首帧图触发内容审核或参数不支持")
+                        f"云端视频任务失败：{fail_msg}。可在服务商后台"
+                        "查看任务详情；常见原因=首帧图触发内容审核或"
+                        "参数不支持（平台暂无取消接口，已提交任务会继续"
+                        "计费）")
+            else:
+                out = (resp.json() or {}).get("output") or {}
+                status = str(out.get("task_status") or "").upper()
+                if status == "SUCCEEDED":
+                    video_url = str(out.get("video_url") or "")
+                    if not video_url:
+                        raise RuntimeError(
+                            f"云端视频任务成功但未找到 video_url：{str(out)[:200]}")
+                    break
+                if status in ("FAILED", "CANCELED", "UNKNOWN"):
+                    raise RuntimeError(
+                        f"云端视频任务失败（{status}）："
+                        f"{str(out.get('message') or out)[:200]}。可在服务商后台"
+                        "查看任务详情；常见原因=首帧图触发内容审核或参数不支持")
             if time.time() >= deadline:
                 raise RuntimeError(
                     f"云端视频任务超时（>{TASK_TIMEOUT_S / 60:.0f} 分钟，"
@@ -200,7 +319,7 @@ def generate_video(
                 on_progress(min(85, 10 + int(
                     (time.time() + TASK_TIMEOUT_S - deadline)
                     / TASK_TIMEOUT_S * 75)))
-            time.sleep(POLL_INTERVAL_S)
+            time.sleep(poll_interval)
         # 下载 mp4（视频文件大，超时从宽）；Bearer 仅同源附加（P1-7）
         headers = _result_headers(ep.api_key, ep.base_url, video_url)
         try:
@@ -238,9 +357,34 @@ def probe_video_provider(ep: CloudEndpoint,
     """
     import requests
 
-    if ep.protocol != PROTOCOL_TASK_VIDEO:
+    if ep.protocol not in (PROTOCOL_TASK_VIDEO, PROTOCOL_SORA_VIDEO):
         return False, f"协议 {ep.protocol} 不支持视频连通性测试"
     headers = {"Authorization": f"Bearer {ep.api_key}"} if ep.api_key else {}
+    if ep.protocol == PROTOCOL_SORA_VIDEO:
+        # Sora 任务式探测（2026-10-03）：GET /v1/videos/__probe__ 查询
+        # 不存在任务——绝不 POST 探测（会真创建任务计费）。gin 素 404
+        # 「page not found」=路由不存在（协议不匹配）；结构化 404/200/
+        # 401 前的鉴权语义与 DashScope 同思路甄别。
+        try:
+            resp = requests.get(ep.base_url + "/v1/videos/__probe__",
+                                headers=headers, timeout=timeout_s)
+        except Exception as exc:  # noqa: BLE001 - 网络异常归为不可达
+            return False, f"连接失败：{exc}"
+        if resp.status_code in (401, 403):
+            return False, (f"已连上服务商，但 API Key 被拒绝"
+                           f"（HTTP {resp.status_code}）：请到服务商后台核对"
+                           "Key 与开通的模型服务")
+        if (resp.status_code == 404 and "page not found"
+                in (resp.text or "").lower() and "<html" not in
+                (resp.text or "").lower()):
+            return False, ("已连上服务器，但 Sora 任务端点不存在（HTTP 404"
+                           "）：请核对该服务商是否支持 /v1/videos 协议")
+        if resp.status_code == 502:
+            return False, ("服务商上游暂时不可用（HTTP 502）：稍后重试，"
+                           "或到服务商后台确认视频服务状态")
+        if 200 <= resp.status_code < 500:
+            return True, ""
+        return False, f"HTTP {resp.status_code}：{(resp.text or '')[:120]}"
     try:
         resp = requests.get(ep.base_url + "/api/v1/tasks/__probe__",
                             headers=headers, timeout=timeout_s)

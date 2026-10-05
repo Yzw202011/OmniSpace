@@ -64,6 +64,13 @@ export default function LicenseGate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 未激活时主界面整体灰置禁点（2026-10-02：UI 第二道闸；
+  // 硬闸 = 后端 license_gate_middleware 全业务 403）
+  useEffect(() => {
+    document.body.classList.toggle('license-locked', open);
+    return () => document.body.classList.remove('license-locked');
+  }, [open]);
+
   const copyFp = async () => {
     const text = (status?.fingerprints ?? []).join('\n');
     if (!text) return;
@@ -110,7 +117,7 @@ export default function LicenseGate() {
   const fpText = (status?.fingerprints ?? []).join('\n') || '（等待后端就绪后显示…）';
 
   return (
-    <div style={{
+    <div className="license-gate-overlay" style={{
       position: 'fixed', inset: 0, zIndex: 9999,
       background: 'rgba(6,9,14,.92)', backdropFilter: 'blur(6px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',

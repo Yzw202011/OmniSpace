@@ -11,7 +11,10 @@ ADR-002 交付形态（launcher + 系统浏览器）内的统一启动编排器�
   splash   启动页就绪（<1s 浏览器打开，stdlib HTTP :5850+）
   env      环境自检（复用 launcher.EnvironmentChecker，异步流式上报）
   backend  后端启动（幂等：先探测 5800-5835 健康实例→接管；否则 spawn）
-  warmup   预热点火（POST /models/warmup → vLLM 后台加载）
+  warmup   模型预热（POST /models/warmup）——2026-10-02 用户拍板
+           「按需真实加载」：默认**跳过**（原默认点火对话预热，9B 不
+           装不下自动降级 4B 占 9G 显存，6s 后的生图即被"近乎空卡"
+           准入拒绝——backend.log 14:18-14:19 实弹）；需要预热用 --warmup
   ready    就绪（启动页 5s 倒计时自动进入主应用）
 
 守护模式（ready 之后持续运行）：
@@ -22,7 +25,7 @@ ADR-002 交付形态（launcher + 系统浏览器）内的统一启动编排器�
 
 用法：
   runtime\\py310\\python.exe launcher\\boot.py [--port 5800] [--no-browser]
-      [--comfy] [--no-warmup]
+      [--comfy] [--warmup] [--no-warmup（已废弃，默认即不预热）]
 """
 from __future__ import annotations
 
@@ -1077,7 +1080,9 @@ class BootOrchestrator:
     def _trigger_warmup(self) -> None:
         self.state.set_phase('warmup', 'running')
         if not self.opts.warmup:
-            self.state.set_phase('warmup', 'skipped', '已按参数跳过')
+            self.state.set_phase(
+                'warmup', 'skipped',
+                '默认不预热（按需真实加载，2026-10-02 拍板；需要预热加 --warmup）')
             return
         base = self.state.backend['url']
         try:
@@ -1131,6 +1136,13 @@ class BootOrchestrator:
                 # （type/expires/permanent/days_left/generation）
                 'info': data.get('license') or {},
             }
+            # dev-only UI 预览钩子（2026-10-02）：开发构建门禁未启用，
+            # 设 OMNISPACE_FORCE_LICENSE_PAGE=1 可伪造「待激活」态预览
+            # 启动页激活门面；发行包门禁启用时本钩子恒不生效。
+            if (os.environ.get('OMNISPACE_FORCE_LICENSE_PAGE') == '1'
+                    and not data.get('gate_enabled')):
+                self.state.license['required'] = True
+                self.state.license['activated'] = False
         self.maybe_redirect_ready()
 
     def maybe_redirect_ready(self) -> None:
@@ -1399,7 +1411,14 @@ def main() -> int:
     parser.add_argument('--browser', action='store_true',
                         help='强制系统浏览器打开（覆盖设置页的桌面窗口选择）')
     parser.add_argument('--comfy', action='store_true', help='启动时预热 ComfyUI')
-    parser.add_argument('--no-warmup', action='store_true', help='跳过对话模型预热')
+    # 2026-10-02 用户拍板「按需真实加载」：对话预热默认关（原默认
+    # 点火致重启后对话模型常驻 9G，紧邻的生图被"近乎空卡"准入拒绝）；
+    # 需要预热显式传 --warmup。--no-warmup 保留接收但为 no-op（兼容
+    # 旧命令行/文档，如 OmniSpace-Boot.exe 历史启动参数）
+    parser.add_argument('--warmup', action='store_true',
+                        help='启动时预热对话模型（默认关闭=按需真实加载）')
+    parser.add_argument('--no-warmup', action='store_true',
+                        help='（已废弃 no-op）默认即不预热，保留兼容旧命令行')
     # 位置参数＝拖入透传（通道 A）：拖文件夹到 exe 上，Windows 以路径为
     # 参数启动；不定义此项 argparse 会因多余参数直接报错退出
     parser.add_argument('dropped', nargs='*',
@@ -1407,7 +1426,7 @@ def main() -> int:
     args = parser.parse_args()
 
     opts = BootOptions(port=args.port, no_browser=args.no_browser,
-                       comfy=args.comfy, warmup=not args.no_warmup,
+                       comfy=args.comfy, warmup=args.warmup,
                        force_browser=args.browser,
                        dropped=list(args.dropped or []))
     return BootOrchestrator(opts).run()

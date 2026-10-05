@@ -126,7 +126,15 @@ def filter_models_for_protocol(
             continue
         if _MODEL_EXCLUDE_COMMON_RE.search(name):
             removed.append(name)
-        elif protocol in IMAGE_PROTOCOLS or protocol in VIDEO_PROTOCOLS:
+        elif protocol in VIDEO_PROTOCOLS:
+            # 视频协议白名单（2026-10-06 用户令）：只留视频模型——
+            # 站点 /v1/models 全量混出会把文本/图片模型塞进视频连接
+            # （模型名含 video/i2v/t2v/v2v 视为视频）
+            if re.search(r"video|i2v|t2v|v2v", name, re.I):
+                kept.append(name)
+            else:
+                removed.append(name)
+        elif protocol in IMAGE_PROTOCOLS:
             kept.append(name)
         elif _MODEL_EXCLUDE_TEXT_RE.search(name):
             removed.append(name)

@@ -74,3 +74,26 @@ def test_result_preserves_order():
     models = ["qwen-turbo", "qwen-tts-x", "qwen-max"]
     kept, _ = filter_models_for_protocol("openai_text", models)
     assert kept == ["qwen-turbo", "qwen-max"]
+
+
+def test_video_protocol_whitelist_only_video_models() -> None:
+    """2026-10-06 用户实报：视频协议拉模型列表全量混出（文本/图片模型
+    塞进视频连接）——视频协议白名单只留视频模型，其余进 removed。"""
+    kept, removed = filter_models_for_protocol("task_video", [
+        "composer-2.5", "grok-4.3-latest", "grok-4.5",
+        "grok-imagine", "grok-imagine-image-2.0",
+        "grok-imagine-video", "grok-imagine-video-1.5",
+        "wanx-i2v-turbo",  # i2v 视频模型
+        "deepseek-chat",
+    ])
+    assert kept == ["grok-imagine-video", "grok-imagine-video-1.5",
+                    "wanx-i2v-turbo"]
+    assert set(removed) >= {"composer-2.5", "grok-4.3-latest",
+                            "grok-imagine-image-2.0", "deepseek-chat"}
+
+
+def test_sora_video_protocol_same_whitelist() -> None:
+    """sora_video 协议同规则（MagicAI Grok 视频实测场景）。"""
+    kept, _ = filter_models_for_protocol("sora_video", [
+        "grok-4.5", "grok-imagine-video", "grok-imagine-video-1.5"])
+    assert kept == ["grok-imagine-video", "grok-imagine-video-1.5"]

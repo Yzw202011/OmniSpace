@@ -378,7 +378,8 @@ def test_video_wiring_sentinels() -> None:
     assert '_resolve_video_cloud_endpoint' in video_src
     assert '"cloud": _cloud_ep is not None' in video_src
     assert "没有当前关键帧" in video_src  # 无首帧拒绝带出路
-    assert 'model_override or "") == "local"' in video_src  # local 回归口
+    # 2026-10-05 路由二定：local 回归口改为 cloud:: 前缀判定
+    assert 'startswith("cloud::") else None' in video_src  # local 回归口
     # B5 终态（2026-09-17 删 legacy）：云道派发/双道取队移居通用核心，
     # 哨兵改盯 task_queue.py（video 宿主只留钩子面与状态机）
     core_src = (_ROOT_DIR / "src/services/task_queue.py").read_text(

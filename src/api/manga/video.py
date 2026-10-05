@@ -1644,6 +1644,7 @@ def video_task_list(project_id: str = Query("", description="项目ID"),
 _MEDIA_ALLOWED_DIRS = ("comic_assets", "keyframes",
                        str(Path("generated") / "exports"),
                        str(Path("generated") / "preview_videos"),
+                       str(Path("generated") / "videos"),
                        str(Path("plugins") / "output"))
 _MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",

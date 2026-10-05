@@ -572,12 +572,15 @@ export async function listAssets(
   kind?: ComicAssetKind,
   scope?: 'project' | 'global',
   face?: 'manga' | 'comic',
+  /** 借用引入（2026-10-05 用户二定）：项目清单并入借用中的全局资产 */
+  borrowedFor?: string,
 ): Promise<ComicAsset[]> {
   const res = await get<{ items: ComicAsset[]; total: number }>('/comic/asset/library', {
     project_id: projectId,
     kind,
     scope,
     face,
+    borrowed_for: borrowedFor,
   });
   return res.items ?? [];
 }
@@ -874,6 +877,17 @@ export async function toGlobalAsset(
   return { asset: res.asset, alreadyGlobal: res.already_global === true };
 }
 
+/** 离开项目页：项目名下资产整体转全局（2026-09-30 用户令「资产只分
+ *  作品/全部，离开项目页自动转全部」；磁盘目录同步迁移）。
+ *  幂等：项目无 project 态资产时返回 promoted=0。 */
+export async function promoteProjectAssets(
+  projectId: string,
+): Promise<{ promoted: number }> {
+  return post<{ promoted: number }>('/comic/asset/promote-project', {
+    project_id: projectId,
+  });
+}
+
 /* ============================== 九、关键帧（/manga/keyframe/*） ============================== */
 
 /** 生成关键帧（POST /manga/keyframe/generate：分镜行描述 → SDXL 文生图 → 新版本登记） */
@@ -1096,6 +1110,7 @@ export default {
   adoptAsset,
   listLibraryCharacters,
   toGlobalAsset,
+  promoteProjectAssets,
   inferEntities,
   getInferProgress,
   describeAsset,

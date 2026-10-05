@@ -291,6 +291,11 @@ def comic_asset_library(project_id: str | None = Query(None),
                         scope: str | None = Query(
                             None, description="project=项目资产（默认）；"
                             "global=全局资产库（跨项目，忽略 project_id）"),
+                        borrowed_for: str | None = Query(
+                            None, description="2026-10-05 借用引入（用户二"
+                            "定）：列出该项目借用中的全局资产（meta."
+                            "adopted_from 链或绑定直连），并入 project 清"
+                            "单——借用不复制，作品中X按借用关系展示"),
                         face: str | None = Query(
                             "manga", description="全局资产归属面："
                             "manga(漫剧，缺省向后兼容) | comic(漫画页)"
@@ -315,8 +320,18 @@ def comic_asset_library(project_id: str | None = Query(None),
             cond.append("face=?")
             params.append(face)
     elif project_id:
-        cond.append("project_id=?")
-        params.append(project_id)
+        # 2026-10-05 借用引入：项目清单并入"该项目借用中的全局资产"
+        # （adopted_from 链指向全局原件——引入改借用后副本不存在）
+        if borrowed_for == project_id:
+            # 借用清单 = 项目自有 ∪ 借用中的全局资产
+            # （meta.borrowed_for JSON 数组含本项目 id——adopt 借用时写入）
+            cond.append("(project_id=? OR (scope='global' AND "
+                        "json_extract(meta, '$.borrowed_for') "
+                        "LIKE '%' || ? || '%'))")
+            params.extend([project_id, project_id])
+        else:
+            cond.append("project_id=?")
+            params.append(project_id)
     else:
         # 空 project_id = 跨项目「全部可用」：必须按产品面隔离
         # （2026-09-12 泄漏修复：此前此分支零过滤，漫剧资产坞把漫画
@@ -450,6 +465,16 @@ def comic_asset_adopt(req: AssetAdoptRequest) -> dict[str, Any]:
     # "作品中X"按借用关系展示，退出项目无副本新增
     log.info("资产借用: %s（%s）→ 项目 %s（不复制）",
              asset.get("name"), req.asset_id, req.project_id)
+    # 借用关系持久化（2026-10-05：全局行 meta.borrowed_for 记录哪些
+    # 项目在借用——项目资产清单据此并入，退出/解绑不自动清，删除
+    # 全局资产时才随行消失）
+    borrowed = parse_json(asset.get("meta"), {}).get("borrowed_for") or []
+    if req.project_id not in borrowed:
+        borrowed.append(req.project_id)
+        db.update("comic_assets",
+                  {"meta": {**asset["meta"], "borrowed_for": borrowed}},
+                  "id=?", (req.asset_id,))
+        asset = {**asset, "meta": {**asset["meta"], "borrowed_for": borrowed}}
     rebound = _replace_row_bindings(
         db, req.project_id, req.asset_id, req.asset_id)
     return ok({"asset": asset, "borrowed": True, "rebound_rows": rebound})

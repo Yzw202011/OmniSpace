@@ -7,6 +7,7 @@ import type { AssetSlice, MangaState } from './types';
 
 export const createAssetSlice: StateCreator<MangaState, [], [], AssetSlice> = (set, get) => ({
   assets: [],
+  globalAssets: [],
   assetsLoaded: false,
   assetsLoading: false,
   selectedAssetId: null,
@@ -15,8 +16,15 @@ export const createAssetSlice: StateCreator<MangaState, [], [], AssetSlice> = (s
   fetchAssets: async (kind) => {
     set({ assetsLoading: true });
     try {
-      const assets = await mangaApi.listAssets(currentPid(get), kind);
-      set({ assets, assetsLoaded: true, assetsLoading: false });
+      // 项目清单 + 该面全局清单并行拉：分镜行绑定引用可能指向全局资产
+      // （离开项目页自动转全局后），只查项目清单会让资产列渲染成空——
+      // 2026-10-03 绑定显示丢失根修（DB 绑定完好，纯查找表缺成员）
+      const [assets, globalAssets] = await Promise.all([
+        // borrowedFor=本项目：借用中的全局资产并入项目清单（2026-10-05 借用引入）
+        mangaApi.listAssets(currentPid(get), kind, undefined, undefined, currentPid(get)),
+        mangaApi.listAssets('', kind, 'global', 'manga'),
+      ]);
+      set({ assets, globalAssets, assetsLoaded: true, assetsLoading: false });
     } catch (err) {
       set({ assetsLoading: false });
       throw err;

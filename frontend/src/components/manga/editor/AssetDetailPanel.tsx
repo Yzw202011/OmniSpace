@@ -22,7 +22,6 @@ import {
   ArrowLeft,
   ChevronDown,
   CloudUpload,
-  Globe,
   History,
   ImagePlus,
   Mic,
@@ -44,12 +43,11 @@ import {
   getMediaUrl,
   regenerateAsset,
   replaceAssetImage,
-  toGlobalAsset,
   updateAsset,
   uploadAssetReference,
   type AssetHistoryItem,
 } from '@/services/mangaApi';
-import { getErrorMessage } from '@/utils/errors';
+import { getErrorMessage, reportBgError } from '@/utils/errors';
 import AssetLightbox from './AssetLightbox';
 import { useGenProgress } from './useGenProgress';
 
@@ -174,6 +172,24 @@ export default function AssetDetailPanel() {
     return getMediaUrl(dir ? `${dir}/reference.png` : 'reference.png', assetVer);
   })();
 
+  /** 右键下载（2026-10-06 用户令：详情面板四视图/主图右击可存）
+   *  fetch→blob 下载（a.download 跨源 URL 会忽略文件名，走 blob 保名） */
+  const downloadByUrl = (url: string, filename: string) => {
+    fetch(url)
+      .then((r) => r.blob())
+      .then((b) => {
+        const u = URL.createObjectURL(b);
+        const a = document.createElement('a');
+        a.href = u;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(u);
+      })
+      .catch((err) => reportBgError('AssetDetailPanel.download', err));
+  };
+
   /** 失焦保存（名称/描述词；仅变更时调用） */
   const commitField = (field: 'name' | 'prompt') => {
     const value = (field === 'name' ? nameDraft : promptDraft).trim();
@@ -209,26 +225,6 @@ export default function AssetDetailPanel() {
   const handlePickFile = () => {
     if (busy) return;
     fileRef.current?.click();
-  };
-
-  /** 🌐 转为全局资产（跨项目复用）：迁移磁盘目录 + 脱离当前项目 */
-  const handleToGlobal = () => {
-    if (busy) return;
-    setBusy('toGlobal');
-    toGlobalAsset(asset.asset_id)
-      .then(({ alreadyGlobal }) => {
-        showToast(
-          alreadyGlobal
-            ? `「${asset.name}」已是全局资产`
-            : `「${asset.name}」已转为全局资产，可在全部项目中使用`,
-          alreadyGlobal ? 'info' : 'success',
-        );
-        // 转全局后资产脱离当前项目列表 → 清除选中回到资产面板
-        setSelectedAsset(null);
-        return fetchAssets();
-      })
-      .catch((err: unknown) => showToast(getErrorMessage(err, '转为全局资产失败'), 'error'))
-      .finally(() => setBusy(''));
   };
 
   /** 上传前置校验（扩展名 + 10MB 上限，对齐后端约束） */
@@ -421,7 +417,11 @@ export default function AssetDetailPanel() {
             title="点击放大查看四视图整图（正面/侧面/背面/特写）"
             onClick={() => setLightbox({ srcs: [canvasUrl], idx: 0 })}
           >
-            <img src={canvasUrl} alt={`${asset.name} 四视图`} loading="lazy" />
+            <img src={canvasUrl} alt={`${asset.name} 四视图`} loading="lazy"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                downloadByUrl(canvasUrl, `${asset.name}-四视图.png`);
+              }} />
           </button>
           {/* zviews 生成来源与一致性标注（2026-09-15 契约修复）：
               meta.model 辨本地 z-image / 云端真身，consistent 为跨视图
@@ -455,8 +455,12 @@ export default function AssetDetailPanel() {
             <button
               type="button"
               className="manga-asset-preview-btn"
-              title="点击放大查看"
-              onClick={() => setLightbox({ srcs: [mainUrl], idx: 0 })}
+              title="点击放大查看（右键下载）"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                const ext = mainUrl.split('?')[0].endsWith('.jpg') ? 'jpg' : 'png';
+                downloadByUrl(mainUrl, `${asset.name}.${ext}`);
+              }}
             >
               <img src={mainUrl} alt={asset.name} />
             </button>
@@ -513,16 +517,6 @@ export default function AssetDetailPanel() {
         >
           <Scissors size={13} />
           AI 抠图
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm flex-1"
-          disabled={busy !== ''}
-          title="转为全局资产：脱离当前项目，全部项目可复用（删除项目时全局资产保留）"
-          onClick={handleToGlobal}
-        >
-          <Globe size={13} />
-          {busy === 'toGlobal' ? '转换中…' : '转为全局'}
         </button>
         <input
           ref={fileRef}

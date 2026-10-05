@@ -66,6 +66,7 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
               rows: [],
               selectedRowId: null,
               assets: [],
+              globalAssets: [],
               assetsLoaded: false,
               keyframes: {},
               selectedAssetId: null,
@@ -111,6 +112,7 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
               rows: [],
               selectedRowId: null,
               assets: [],
+              globalAssets: [],
               assetsLoaded: false,
               keyframes: {},
               selectedAssetId: null,
@@ -129,6 +131,7 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
       rows: [],
       selectedRowId: null,
       assets: [],
+      globalAssets: [],
       assetsLoaded: false,
       keyframes: {},
       selectedAssetId: null,
@@ -142,10 +145,11 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
       set({ loading: false });
       throw err;
     }
-    // 资产并行拉取（失败不阻塞分镜工作区，CONSOLE 级留痕）
-    void mangaApi
-      .listAssets(project.project_id)
-      .then((assets) => set({ assets, assetsLoaded: true }))
+    // 资产并行拉取（失败不阻塞分镜工作区，CONSOLE 级留痕）；
+    // 走 fetchAssets 统一入口=项目清单+该面全局清单（分镜行绑定引用
+    // 可能指向已转全局的资产，2026-10-03 绑定显示丢失根修）
+    get()
+      .fetchAssets()
       .catch((err) => {
         reportBgError('projectSlice.listAssets', err);
         set({ assetsLoaded: true });
@@ -165,6 +169,7 @@ export const createProjectSlice: StateCreator<MangaState, [], [], ProjectSlice> 
       rows: [],
       selectedRowId: null,
       assets: [],
+      globalAssets: [],
       assetsLoaded: false,
       keyframes: {},
       selectedAssetId: null,

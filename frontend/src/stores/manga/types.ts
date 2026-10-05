@@ -142,8 +142,12 @@ export interface RowsSlice {
 /* ------------------------------ 资产切片 ------------------------------ */
 
 export interface AssetSlice {
-  /** 当前项目资产列表（GET /comic/asset/library） */
+  /** 当前项目资产列表（GET /comic/asset/library，project_id 过滤） */
   assets: ComicAsset[];
+  /** 该面全局资产列表（分镜行绑定引用可能指向全局——离开页转全局后
+   *  项目清单查不到它们，资产列/已绑定组需合并查找。2026-10-03 绑定
+   *  显示丢失根修） */
+  globalAssets: ComicAsset[];
   /** 资产是否已加载过（按项目维度，切项目重置） */
   assetsLoaded: boolean;
   /** 资产加载中 */

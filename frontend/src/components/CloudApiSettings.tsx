@@ -387,7 +387,7 @@ export default function CloudApiSettings() {
                 style={{ minWidth: 280 }}
                 value={form.protocol}
                 onChange={(e) => setForm({ ...form, protocol: e.target.value as CloudProtocol })}
-                disabled={Boolean(editingId)}
+                disabled={false}
               >
                 {PROTOCOL_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value} title={o.desc}>{o.label}</option>

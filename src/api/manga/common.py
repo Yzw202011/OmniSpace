@@ -608,13 +608,36 @@ def _finalize_abc_body(raw: str, style_line: str,
     # 英文思考碎屑剥离（2026-10-05 用户报：云端模型把字数校验过程漏进
     # 氛围行——「Let me count… within 30 characters… Good」等内部推演
     # 直接混入正文）。特征行整行剥除：含英文自评词且非镜头行/段落正文
-    _THINK_RE = re.compile(
-        r"^(?![\[\dＢB][.、．\]])"  # 不剥 B 段标记行/镜头行
-        r".*(?:Let me|I need to|I'll |I will |needs to be|within \d+ "
-        r"characters?|Good[,.]|Count:|count:|characters? plus|"
-        r"That's too|too long\.?|Let us |draft|Draft).*$",
-        flags=re.MULTILINE)
-    text = _THINK_RE.sub("", text)
+    # 2026-10-05 二次加强（用户实报存量描述词整段英文推演残留——特征词
+    # 行级剥离不够）：段级英文行删除——判定「ASCII 字母>=8 且字母>cjk」，
+    # 连续>=2 行或长行成段丢弃；结构标记行（[时间码]/运镜：/台词：/
+    # 音效：/画面：/A-C 段标）豁免
+    _STRUCT_LINE = re.compile(
+        r"^(?:\[\d|运镜[：:]|台词[：:]|音效[：:]|画面[：:]|[ABC][.、．]|"
+        r"氛围[：:])")
+    out_lines: list[str] = []
+    en_run: list[str] = []
+    def _flush() -> None:
+        nonlocal en_run
+        if en_run:
+            if len(en_run) >= 2 or sum(len(x) for x in en_run) > 80:
+                en_run = []  # 英文推演（连续行/长行）：整段丢弃
+            else:
+                out_lines.extend(en_run)
+            en_run = []
+    for line in (text + "\n").splitlines():
+        letters = sum(1 for c in line if c.isascii() and c.isalpha())
+        cjk = sum(1 for c in line
+                  if "\u4e00" <= c <= "\u9fff")
+        is_en = letters >= 8 and letters > cjk
+        if is_en and not _STRUCT_LINE.match(line.strip()):
+            en_run.append(line)
+            continue
+        _flush()
+        if line.strip() or (out_lines and out_lines[-1].strip()):
+            out_lines.append(line)
+    _flush()
+    text = "\n".join(out_lines).strip()
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     # 氛围行（模板要求正文首行；4B 遵循不完全时回退默认氛围句）
     m = re.search(r"^氛围[：:]\s*(.+)$", text, flags=re.MULTILINE)
@@ -713,6 +736,12 @@ def _derive_fill_shot(src_body: str, slot: int, required: int) -> str:
     title_m = re.match(r"^(\[[^\[\]]+\])\s*", src_body)
     body = src_body[title_m.end():] if title_m else src_body
     seg_text = body.split("|")[0].strip()
+    # 新格式兼容（2026-10-05 用户令）：画面行为空时正文在「画面内容：」
+    # 续行里（多行格式键已并入 body）
+    if not seg_text:
+        cm2 = re.search(r"画面内容[：:]\s*([^|]+)", body)
+        if cm2:
+            seg_text = cm2.group(1).strip()
     cm = re.search(r"运镜[：:]\s*([^|]+)", body)
     camera = cm.group(1).strip() if cm else ""
     sm = re.search(r"音效[：:]\s*(.+)$", body)
@@ -1014,6 +1043,11 @@ def _parse_abc_shots(desc: str) -> dict:
         if tm:
             body = body[tm.end():]
         seg_text = body.split("|")[0].strip()
+        # 新格式兼容（2026-10-05）：画面行为空时正文在「画面内容：」续行
+        if not seg_text:
+            cm2 = re.search(r"画面内容[：:]\s*([^|]+)", body)
+            if cm2:
+                seg_text = cm2.group(1).strip()
         cm = re.search(r"运镜[：:]\s*([^|]+)", body)
         sm = re.search(r"音效[：:]\s*(.+)$", body)
         # 台词字段（2026-09-02 格式 v2）：「台词：…」（到 | 或行尾）；

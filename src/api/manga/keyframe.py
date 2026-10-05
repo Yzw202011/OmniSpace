@@ -410,6 +410,15 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
                           "eye color and skin tone as the reference "
                           "character")
     body = (shot.get("text") or "").strip()
+    # 新格式兼容（2026-10-05 用户令）：画面行「画面：」后为空时，
+    # 正文在「画面内容：」续行（_SHOT_CONT_RE 已合并进 shot text）。
+    # 提取兜底：无 body 时从 text 里捞画面内容段
+    if not body:
+        import re as _re
+        _m = _re.search(r"画面内容[：:]\s*([^|\n]+)",
+                        (shot.get("raw") or "") + "\n" + (shot.get("text") or ""))
+        if _m:
+            body = _m.group(1).strip()
     # C 段正文道具颜色词剥除（与资产颜色冲突消解，见 _strip_prop_colors）
     # P0 补缺口：剥除名词源 = strip_prop_nouns（绑定道具资产名）——
     # V49 后 props_prompt 恒空（不注入 prop 文本锚），颜色冲突剥除

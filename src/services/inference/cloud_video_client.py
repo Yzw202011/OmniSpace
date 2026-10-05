@@ -127,28 +127,37 @@ def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
     if seconds:
         fields["seconds"] = seconds
     headers = {"Authorization": f"Bearer {ep.api_key}"} if ep.api_key else {}
+    # 502/503 网关类重试（2026-10-06 MagicAI 实测：上游间歇 502 约 20s
+    # 自愈——直连单发成功后紧跟 502 两连，带退避重试过波峰）
+    _retryable = (502, 503, 504)
     try:
-        if first_frame is not None:
-            resp = requests.post(
-                url, data=fields, headers=headers,
-                files={"input_reference": ("first_frame.jpg",
-                                           _jpeg_bytes(first_frame),
-                                           "image/jpeg")},
-                timeout=(10, 120))
-        else:
-            resp = requests.post(url, json=fields,
-                                 headers={**headers,
-                                          "Content-Type": "application/json"},
-                                 timeout=(10, 120))
+        resp = None
+        for _attempt in range(4):
+            if first_frame is not None:
+                resp = requests.post(
+                    url, data=fields, headers=headers,
+                    files={"input_reference": ("first_frame.jpg",
+                                               _jpeg_bytes(first_frame),
+                                               "image/jpeg")},
+                    timeout=(10, 120))
+            else:
+                resp = requests.post(url, json=fields,
+                                     headers={**headers,
+                                              "Content-Type": "application/json"},
+                                     timeout=(10, 120))
+            if resp.status_code not in _retryable or _attempt >= 3:
+                break
+            time.sleep(15.0 * (_attempt + 1))
     except Exception as exc:  # noqa: BLE001 - 网络异常收敛为带出路的错误
         raise RuntimeError(
             f"无法连接云端视频服务 {ep.provider_name or ep.base_url}：{exc}。"
             f"请检查网络与地址，或到{SETUP_HINT}点「测试连接」") from exc
-    if resp.status_code != 200:
-        body = (resp.text or "")[:200]
+    if resp is None or resp.status_code != 200:
+        body = ((resp.text if resp is not None else "") or "")[:200]
+        retry_note = "（502/503 已自动重试 4 次）" if resp is not None else ""
         raise RuntimeError(
-            f"云端视频任务提交失败 HTTP {resp.status_code}：{body}。"
-            f"{http_error_hint(resp.status_code)}"
+            f"云端视频任务提交失败 HTTP {getattr(resp, 'status_code', 'N/A')}：{body}{retry_note}。"
+            f"{http_error_hint(getattr(resp, 'status_code', 0))}"
             f"（当前模型={ep.model or '默认'}；时长档位也可能不受支持）")
     out = resp.json() or {}
     task_id = str(out.get("id") or out.get("request_id") or "")

@@ -130,6 +130,21 @@ export function fetchCloudProviderModels(id: string) {
   );
 }
 
+/** 余额查询响应（尽力而为：站点不支持时 supported=false，非错误） */
+export interface CloudBilling {
+  supported: boolean;
+  total_usd?: number;
+  used_usd?: number;
+  remain_usd?: number;
+  error?: string;
+}
+
+export function fetchCloudProviderBilling(id: string) {
+  return get<CloudBilling>(
+    `/cloud/providers/${encodeURIComponent(id)}/billing`,
+  );
+}
+
 export function listCloudBindings() {
   return get<CloudBindingsResp>('/cloud/bindings');
 }

@@ -13,6 +13,7 @@ import {
   BrainCircuit,
   CircleQuestionMark,
   Clapperboard,
+  Cloud,
   Feather,
   LayoutGrid,
   MessageSquare,
@@ -57,6 +58,8 @@ export const NAV_ITEMS: NavItemMeta[] = [
   // P1 训练中心（2026-09-17 拍板 2A）：知识+风格训练归一屋檐（人物=P3）；
   // 旧 /style 路由保留重定向到 /training（书签不失效）
   { route: 'training', path: '/training', icon: BrainCircuit, label: '训练中心', group: 'forge' },
+  // MagicAI 中转介绍页（2026-10-03 用户拍板：系统组首位，专属站点模块）
+  { route: 'magicai', path: '/magicai', icon: Cloud, label: 'MagicAI 中转', group: 'system' },
   { route: 'settings', path: '/settings', icon: Settings, label: '设置', group: 'system' },
   { route: 'logs', path: '/logs', icon: ScrollText, label: '系统日志', group: 'system' },
   { route: 'help', path: '/help', icon: CircleQuestionMark, label: '帮助', group: 'system' },

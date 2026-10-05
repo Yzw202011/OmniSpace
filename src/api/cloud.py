@@ -187,6 +187,20 @@ def cloud_provider_models(provider_id: str) -> dict[str, Any]:
     return ok({"models": kept, "removed": removed, "error": err})
 
 
+@router.get("/providers/{provider_id}/billing")
+def cloud_provider_billing(provider_id: str) -> dict[str, Any]:
+    """余额查询（尽力而为）：OpenAI 兼容 /v1/dashboard/billing/* 端点。
+
+    站点不支持时返回 supported=False（MagicAI 介绍页等前端隐藏余额卡），
+    不作错误抛出——余额探针失败不影响在线状态/模型池等其他动态项。
+    """
+    prov = _guard(svc.get_provider, provider_id, mask=False)
+    if prov is None:
+        raise ApiError("CLOUD_PROVIDER_NOT_FOUND", "服务商连接不存在或已删除")
+    return ok(svc.fetch_openai_billing(str(prov.get("base_url") or ""),
+                                       str(prov.get("api_key") or "")))
+
+
 @router.get("/bindings")
 def cloud_bindings_get() -> dict[str, Any]:
     """工位绑定表（补充 provider_name 便于直显）。"""

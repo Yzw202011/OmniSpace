@@ -73,6 +73,8 @@ export const routes: RouteObject[] = [
       { path: 'training', element: lazyPage(() => import('@/components/training/TrainingPage')) },
       { path: 'style', element: <Navigate to="/training" replace /> },
       { path: 'settings', element: lazyPage(() => import('@/components/Settings')) },
+      // MagicAI 中转介绍页（2026-10-03 用户拍板，系统组专属站点模块）
+      { path: 'magicai', element: lazyPage(() => import('@/components/system/MagicAIPage')) },
       { path: 'logs', element: lazyPage(() => import('@/components/logs/LogsPage')) },
       { path: 'help', element: lazyPage(() => import('@/components/help/HelpPage')) },
       // 非法路由重定向到 AI 对话（规格 §6.1.2 无首页，默认落地对话页）

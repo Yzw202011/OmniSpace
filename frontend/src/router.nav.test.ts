@@ -31,14 +31,14 @@ describe('NAV_ITEMS 分组完备性', () => {
     expect(grouped.map((g) => g.label)).toEqual(['创作', '工场', '系统']);
   });
 
-  it('分组归属符合方案（创作5/工场2/系统3；P1 起工场=模型+训练中心）', () => {
+  it('分组归属符合方案（创作5/工场2/系统4；2026-10-03 系统组新增 MagicAI 中转）', () => {
     const grouped = regroupNavItems(NAV_ITEMS);
     expect(grouped[0].items.map((i) => i.route)).toEqual(
       ['chat', 'paint', 'storyboard', 'novel', 'learning'],
     );
     expect(grouped[1].items.map((i) => i.route)).toEqual(['models', 'training']);
     expect(grouped[2].items.map((i) => i.route)).toEqual(
-      ['settings', 'logs', 'help'],
+      ['magicai', 'settings', 'logs', 'help'],
     );
   });
 });
@@ -46,17 +46,19 @@ describe('NAV_ITEMS 分组完备性', () => {
 describe('regroupNavItems 兼容解读', () => {
   it('组序优先：跨组穿插的自定义平铺序按组收拢，不炸不丢', () => {
     // 模拟旧版拖出的乱序：系统项插在创作项中间
+    // （2026-10-03 系统组首位新增 magicai：索引 7=magicai 8=settings 9=logs 10=help）
     const flat: NavItemMeta[] = [
-      NAV_ITEMS[7], // settings(system)
+      NAV_ITEMS[8], // settings(system)
       NAV_ITEMS[0], // chat(create)
       NAV_ITEMS[5], // models(forge)
       NAV_ITEMS[1], // paint(create)
-      NAV_ITEMS[8], // logs(system)
+      NAV_ITEMS[9], // logs(system)
       NAV_ITEMS[2], // storyboard
       NAV_ITEMS[3], // novel
       NAV_ITEMS[6], // training(forge)
       NAV_ITEMS[4], // learning(create)
-      NAV_ITEMS[9], // help(system)
+      NAV_ITEMS[7], // magicai(system)
+      NAV_ITEMS[10], // help(system)
     ];
     const grouped = regroupNavItems(flat);
     // 组序固定
@@ -65,6 +67,7 @@ describe('regroupNavItems 兼容解读', () => {
     expect(grouped[2].items.map((i) => i.route)).toEqual([
       'settings',
       'logs',
+      'magicai',
       'help',
     ]);
     expect(grouped[0].items.map((i) => i.route)).toEqual([

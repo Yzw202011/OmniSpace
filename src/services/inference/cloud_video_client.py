@@ -127,13 +127,28 @@ def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
     if seconds:
         fields["seconds"] = seconds
     headers = {"Authorization": f"Bearer {ep.api_key}"} if ep.api_key else {}
+    # 2026-10-06 用户实报 415：grok-imagine-video 系不接受 multipart
+    # input_reference（xAI 上游 415）——图生视频改走 JSON + image
+    # dataurl（t2v/i2v 双形态实测 200）。官方 OpenAI Sora 域名保留
+    # multipart 旧行为
+    use_json_i2v = ("magicai" in (ep.base_url or "").lower()
+                    and first_frame is not None)
     # 502/503 网关类重试（2026-10-06 MagicAI 实测：上游间歇 502 约 20s
     # 自愈——直连单发成功后紧跟 502 两连，带退避重试过波峰）
     _retryable = (502, 503, 504)
     try:
         resp = None
         for _attempt in range(4):
-            if first_frame is not None:
+            if use_json_i2v:
+                import base64 as _b64
+                dataurl = ("data:image/jpeg;base64," +
+                           _b64.b64encode(_jpeg_bytes(first_frame)).decode())
+                resp = requests.post(
+                    url, json={**fields, "image": dataurl},
+                    headers={**headers,
+                             "Content-Type": "application/json"},
+                    timeout=(10, 120))
+            elif first_frame is not None:
                 resp = requests.post(
                     url, data=fields, headers=headers,
                     files={"input_reference": ("first_frame.jpg",

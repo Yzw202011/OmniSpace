@@ -362,10 +362,12 @@ export default function CloudApiSettings() {
         </div>
       )}
 
-      {/* 添加/编辑连接表单 */}
+      {/* 添加/编辑连接表单（2026-10-05 布局修正：窄面板里 settings-row
+          的 space-between 横排把 label 挤成一字一行竖排——表单整体改
+          纵向，行内 label 居上控件居下） */}
       {formOpen && (
-        <div style={{ borderTop: '1px solid var(--color-border, rgba(255,255,255,0.1))', marginTop: 12, paddingTop: 12 }}>
-          <div className="settings-row">
+        <div style={{ borderTop: '1px solid var(--color-border, rgba(255,255,255,0.1))', marginTop: 12, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, borderBottom: 'none' }}>
             <div className="settings-row-label">
               <span className="settings-row-name">名称</span>
             </div>
@@ -374,7 +376,7 @@ export default function CloudApiSettings() {
                 value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
           </div>
-          <div className="settings-row">
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, borderBottom: 'none' }}>
             <div className="settings-row-label">
               <span className="settings-row-name">连接类型</span>
               <span className="settings-row-desc">决定该连接能绑定到哪类工位</span>
@@ -396,22 +398,25 @@ export default function CloudApiSettings() {
               </div>
             </div>
           </div>
-          <div className="settings-row">
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, borderBottom: 'none' }}>
             <div className="settings-row-label">
               <span className="settings-row-name">服务地址</span>
               <span className="settings-row-desc">
                 {form.protocol === 'openai_text'
                   ? 'OpenAI 兼容基础地址，如 https://api.deepseek.com'
-                  : 'DashScope 形态地址，如 https://dashscope.aliyuncs.com'}
+                  : form.protocol === 'sora_video'
+                    ? '服务基础地址，如 https://magicai.click'
+                    : 'DashScope 形态地址，如 https://dashscope.aliyuncs.com'}
               </span>
             </div>
             <div className="settings-row-control">
               <input className="input settings-input" style={{ minWidth: 280 }}
-                placeholder={form.protocol === 'openai_text' ? 'https://api.deepseek.com' : 'https://dashscope.aliyuncs.com'}
+                placeholder={form.protocol === 'openai_text' ? 'https://api.deepseek.com'
+                  : form.protocol === 'sora_video' ? 'https://magicai.click' : 'https://dashscope.aliyuncs.com'}
                 value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
             </div>
           </div>
-          <div className="settings-row">
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, borderBottom: 'none' }}>
             <div className="settings-row-label">
               <span className="settings-row-name">API Key</span>
               <span className="settings-row-desc">{editingId ? '留空 = 保持原 Key 不变' : '服务商控制台获取，仅保存在本机'}</span>
@@ -421,7 +426,7 @@ export default function CloudApiSettings() {
                 value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
             </div>
           </div>
-          <div className="settings-row">
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, borderBottom: 'none' }}>
             <div className="settings-row-label">
               <span className="settings-row-name">模型列表</span>
               <span className="settings-row-desc">

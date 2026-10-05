@@ -432,6 +432,47 @@ STYLE_PACKS: tuple[StylePack, ...] = (
         base_prefs=("flux2-klein-9b",),
     ),
     StylePack(
+        # ── 2026-10-03 新增：超真实人像（用户实测沉淀的网感真人写
+        # 真提示词炼制——冷白皮/纯欲/莫兰迪配色/伦勃朗光词族；「莫兰迪」
+        # 单词会截胡预置「莫兰迪灰调」配色卡族（金标准拦下），故用全称）；
+        # 「仙侠打扮」同位覆盖 guofeng3d 的「仙侠」（真人感提示词里的
+        # 服装元素不该被 3D 场景包截走，同位遮蔽结构性压制）。
+        # 判据与
+        # photoreal 的 写实/摄影 词族零交集，最长命中天然胜出（如
+        # 「写实人像」4 字压「写实」2 字）；平局序登记 215（cg3d 与
+        # 145：真人感美学词（冷白皮/纯欲/网感）是主声明级信号，与
+        # 3D/PBR 同级提前——否则混入「仙侠打扮」等服装元素的真人提示词
+        # 会被 guofeng3d(150) 按优先级截走（实测 2026-10-03）。──
+        sid="realportrait", label="超真实人像",
+        keywords=("冷白皮", "纯欲", "网感", "莫兰迪配色",
+                  "ins风", "网红", "胶片写真", "伦勃朗", "真人感",
+                  "超真实", "真实感", "仙侠打扮"),
+        style_block=(
+            "hyper-realistic glamour portrait photography, cinematic "
+            "key light on face, Rembrandt lighting with strong "
+            "contrast and high dynamic range, analog film photography "
+            "with fine grain, slow shutter soft glow, shallow depth "
+            "of field, cool fair porcelain skin with luminous "
+            "glass-smooth texture, refined facial bone structure with "
+            "balanced proportions, trendy internet-celebrity "
+            "aesthetic face, Morandi color palette, INS-style "
+            "editorial photography, airy ethereal atmosphere, "
+            "emotional mood lighting, dreamy hazy aesthetics, "
+            "delicate natural makeup, loose flowing stray hair strands"
+        ),
+        quality_block=(
+            "photorealistic masterpiece portrait, realistic skin pores "
+            "and micro-texture, delicate glossy skin highlights, "
+            "detailed expressive eyes, professional portrait "
+            "retouching, ultra high resolution 32k, layered depth of "
+            "field composition, soft cinematic color grading, no "
+            "visible text, no watermark"
+        ),
+        negative_hint=_NEG_REALISTIC + ", oil painting, illustration, cg render, doll-like",
+        post="realistic",
+        base_prefs=("qwen-image-2512", "flux2-klein-9b"),
+    ),
+    StylePack(
         sid="photoreal", label="写实摄影",
         keywords=("写实", "照片", "摄影", "实拍", "纪实", "photoreal", "realistic"),
         style_block=(
@@ -563,7 +604,8 @@ PACK_PRIORITY: dict[str, int] = {
     # guofeng2d 裸「古风」；三张 3D 系包共同压 cg3d 裸「3D」。
     "xianxia_cg": 140, "guofeng3d": 150,
     "mystery3d": 160, "donghua3d": 170, "guofeng_hist": 180,
-    "guofeng2d": 190, "manhwa": 200, "cg3d": 210, "photoreal": 220,
+    "guofeng2d": 190, "manhwa": 200, "cg3d": 210,
+    "realportrait": 145, "photoreal": 220,
     "anime": 230, "battle": 240, "watercolor": 250, "oilpaint": 260,
     "inkwash": 270, "cyberpunk": 280,
 }

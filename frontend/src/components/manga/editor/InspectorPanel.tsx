@@ -67,14 +67,31 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
   const genProgress = useGenProgress('keyframe', selectedRowId ?? undefined, generating);
 
   // 选中行切换：拉取关键帧 + 描述词草稿跟随行数据
+  const lastSyncedDescRef = useRef('');
   useEffect(() => {
     if (!selectedRowId) return;
-    setDescDraft(row?.description ?? '');
+    const desc = row?.description ?? '';
+    lastSyncedDescRef.current = desc;
+    setDescDraft(desc);
     fetchKeyframes(selectedRowId).catch((err) =>
       reportBgError('InspectorPanel.fetchKeyframes', err),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRowId]);
+
+  // 行描述词被外部更新（行内列编辑/AI 生成/保存回写）→ 草稿跟随刷新。
+  // 脏检查：用户正在本面板编辑（草稿≠上次同步值）时不覆盖，防打断输入
+  //（2026-10-07 用户实报：行内改了描述词，右侧详情仍显示旧词）
+  useEffect(() => {
+    const desc = row?.description ?? '';
+    // 行数据瞬断保护（2026-10-07 实弹踩雷）：rows 重置/轮询空窗时
+    // desc 短暂为空——此时清草稿会让后续失焦把空值写库（描述词被静默
+    // 清空→原文直出兜底）。行数据回来后本 effect 会正常跟随
+    if (!desc && lastSyncedDescRef.current) return;
+    if (desc === lastSyncedDescRef.current) return;
+    if (descDraft === lastSyncedDescRef.current) setDescDraft(desc);
+    lastSyncedDescRef.current = desc;
+  }, [row?.description, descDraft]);
 
   /** AI 前置：本地新建行先全量持久化（单行端点要求服务端已有该行） */
   const ensurePersisted = useCallback(async () => {
@@ -83,13 +100,25 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
     }
   }, [selectedRowId, saveRows]);
 
-  /** 描述词失焦保存（与行数据不同才提交） */
-  const commitDescription = useCallback(() => {
-    if (!row || descDraft === row.description) return;
-    updateRow(row.id, { description: descDraft, is_ai_generated: false }).catch((err) =>
-      reportActionError(err, '描述词保存'),
-    );
+  /** 描述词提交（可等待）：与行数据不同才提交，失败向上抛 */
+  const commitDescriptionAwait = useCallback((): Promise<void> => {
+    if (!row) return Promise.resolve();
+    // 空草稿防误清（2026-10-07 实弹踩雷）：草稿为空而行值非空=瞬断/
+    // 异常态，不提交（真想清空走整表编辑；空描述词会触发原文直出兜底）
+    if (!descDraft.trim() && row.description.trim()) return Promise.resolve();
+    if (descDraft === row.description) return Promise.resolve();
+    return updateRow(row.id, { description: descDraft, is_ai_generated: false })
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        reportActionError(err, '描述词保存');
+        throw err;
+      });
   }, [row, descDraft, updateRow]);
+
+  /** 描述词失焦保存（fire-and-forget，错误已 toast） */
+  const commitDescription = useCallback(() => {
+    commitDescriptionAwait().catch(() => { /* 已 reportActionError */ });
+  }, [commitDescriptionAwait]);
 
   const handleDescribe = useCallback(() => {
     if (!currentProject || !row) return;
@@ -131,7 +160,11 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
 
       const runOnce = (allowAutoRetry: boolean) => {
         setGenerating(true);
-        ensurePersisted()
+        // 描述词先落库再生成（2026-10-07 用户令修竞态）：打完字不失焦
+        // 直接点生成时，后端曾按旧描述词出图且无任何提示——保存失败
+        // 则中止生成（autoRetry 正则不匹配此错误，不会重试）
+        commitDescriptionAwait()
+          .then(() => ensurePersisted())
           .then(() =>
             regenerate
               ? regenerateKeyframe({ row_id: selectedRowId, project_id: currentProject.id })

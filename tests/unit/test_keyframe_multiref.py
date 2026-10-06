@@ -127,10 +127,11 @@ def test_char_protocol_named_subset():
 
 def test_char_protocol_fallback_all_and_multi_wording():
     f = _char_protocol_ns()["_shot_char_protocol"]
+    # 2026-10-06 语义收紧：多角色绑定且正文全泛指 → 只锚首角色
+    # （防画风相近的多参考图复制多份同框——用户实报）
     prompt, chosen = f(_chars(), "她与他在灯塔下相遇（代词未点名）")
-    assert len(chosen) == 2
-    assert "画面中的角色共2位：小满、阿澈" in prompt
-    assert "除这些角色外不得出现任何其他人物" in prompt
+    assert len(chosen) == 1 and chosen[0]["name"] == "小满"
+    assert prompt.startswith("小满，外貌、服装与角色设定图严格一致")
     assert "始终只有这一个角色" not in prompt
 
 

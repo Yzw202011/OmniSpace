@@ -982,7 +982,15 @@ def _shot_char_protocol(char_assets: list,
     named = [a for a in char_assets
              if (a.get("name") or "").strip()
              and a["name"].strip() in text]
-    chosen = named or list(char_assets)
+    if named:
+        chosen = named
+    elif len(char_assets) == 1:
+        chosen = list(char_assets)  # 唯一角色=借用全员锚保底
+    else:
+        # 2026-10-06 用户实报修：多角色绑定 + 正文全泛指（无点名）→
+        # 只锚首角色（绑定位次第一），防「同一少女复制多份同框」——
+        # 旧全员锚会让画风相近的多参考图互相污染复制
+        chosen = char_assets[:1]
     anchors = [_char_anchor_name(a) for a in chosen]
     if not anchors:
         return "", []

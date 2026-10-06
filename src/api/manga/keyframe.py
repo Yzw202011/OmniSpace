@@ -196,6 +196,29 @@ _SHOT_FRAMING = {
     ],
 }
 
+# 镜文本景别仲裁（2026-10-06 用户实报修·第三格两个陈雪）：C 段正文
+# 明示景别时以文字为准（2026-10-05 用户二定「分镜图以描述词为主」
+# 的景别落地）——固定运镜脚本按格位钦定景别，与正文景别冲突时提示
+# 词自相矛盾（正文「全景背影」×脚本「头肩近景」＝同格既要一个人又
+# 要头肩构图，模型出两全其外的双人像）。特写优先判（「中近景」含
+# 「近景」，先命中特写语义）。
+_SHOT_TEXT_CLOSE_RE = re.compile(r"大特写|特写|中近景|近景|头肩|close-?up", re.I)
+_SHOT_TEXT_WIDE_RE = re.compile(
+    r"大远景|远景|全景|广角|wide shot|full shot|establishing|long shot", re.I)
+
+
+def _shot_text_framing(text: str) -> str:
+    """镜正文景别意图：close / wide / ""（未明示，交固定脚本裁定）。"""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    if _SHOT_TEXT_CLOSE_RE.search(t):
+        return "close"
+    if _SHOT_TEXT_WIDE_RE.search(t):
+        return "wide"
+    return ""
+
+
 # 远景/全景镜判定（2026-08-28 v51-v60 标定）：该类镜人脸在画面中
 # 占比极小，DINOv2 face 嵌入不稳定——同镜跨版本 face_sim
 # 0.311~0.781 漂移（换 seed 重抽 4 次全更差）而 VLM 恒判同一人
@@ -304,7 +327,8 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
                                 style_line: str = "",
                                 strip_prop_nouns: str = "",
                                 char_count: int = 0,
-                                text_priority: bool = False) -> str:
+                                text_priority: bool = False,
+                                text_framing: str = "") -> str:
     """A/B/C 描述词 → 单镜首帧提示词（方案 A：逐镜生成）。
 
     A 段风格 + B 段世界观 + 该镜景别指令 + 该镜画面（剥标题/运镜/
@@ -376,6 +400,16 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
     framing = _SHOT_FRAMING.get(grid.get("layout") or "")
     frame_cmd = (framing[shot_index]
                  if framing and shot_index < len(framing) else "")
+    # 景别仲裁（2026-10-06 第三格两个陈雪）：正文明示景别 > 固定脚本
+    # ——wide 借该布局首槽远景行，close 借 MCU 行（ECU 行含「单脸占满
+    # 整框」专用语义不外借）。脚本与正文一致时零改动。
+    if text_framing == "wide" and framing:
+        frame_cmd = framing[0]
+    elif (text_framing == "close" and framing
+            and not frame_cmd.startswith(
+                ("Extreme close-up", "Medium close-up"))):
+        frame_cmd = next((f for f in framing
+                          if f.startswith("Medium close-up")), frame_cmd)
     cp = char_prompt.strip("，。 ")
     # V35 人脸一致性事故（2026-08-27）：ECU 构图指令的写实强制
     # 词（realistic facial proportions / fine pores / no blush
@@ -1027,7 +1061,12 @@ def _comfy_ref_entries(shot_refs: list, pulid_img: bool,
       scene/prop 保留（角色 1.0MP=一致性锚定主力，D-2 逐图预算）；
     - 无 PuLID + 多角色锚定（chars=2）：face 同样不入（单人 ECU 面部
       图在多人镜头诱发复制病理），双角色立绘锚全保留进 latent 软锁；
-    - 无 PuLID 单角色：旧行为全量（face 入 latent 作唯一一致性通道）。
+    - 无 PuLID 单角色：face 入 latent 作一致性通道，但**顶替**同角色
+      全身立绘（2026-10-06 用户实报修·第三格两个陈雪）——软锁特写镜
+      「面部特写+全身立绘」两张同人图并列进 latent＝「同一人两框景」
+      多视图册信号，qwen21 复制成正面+侧面双人像（v27 多视图拼贴/
+      v26 klein 复制同族；文字锚「始终只有一个角色」禁令压不过参考
+      图先验）。closeup 图含发型/上装，身份锚定力不损；场景/道具保留。
     """
     if pulid_img and reflat_hint == "off":
         return [], []
@@ -1035,10 +1074,14 @@ def _comfy_ref_entries(shot_refs: list, pulid_img: bool,
     entries = [e for e in shot_refs
                if e.get("kind") != "lora"
                and not (drop_face and e.get("kind") == "face")]
+    if not drop_face and any(e.get("kind") == "face" for e in entries):
+        entries = [e for e in entries if e.get("kind") != "character"]
     refs = [e["image"] for e in entries]
     # D-2（2026-09-10）：逐图分辨率预算——角色参考 1.0MP（一致性
     # 锚定主力，0.35MP 时全身图几乎无锚定力）；场景/道具走引擎均匀分档
-    mps = [1.0 if e.get("kind") == "character" else None for e in entries]
+    # face 同享角色档（2026-10-06 顶替语义后＝特写镜唯一身份锚主力）
+    mps = [1.0 if e.get("kind") in ("character", "face") else None
+           for e in entries]
     return refs, mps
 
 
@@ -1542,8 +1585,15 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 # "image" 键，参考图列表须过滤（断点③ KeyError 拆除）。
                 lora_refs = [e for e in shot_refs
                              if e.get("kind") == "lora"]
-                img_refs = [e["image"] for e in shot_refs
-                            if e.get("image") is not None]
+                # face 顶替 character（2026-10-06 第三格两个陈雪，与
+                # _comfy_ref_entries 软锁语义对齐——同人双图并列=多视
+                # 图册信号，diffusers 原生多参考同样吃这套先验）
+                img_entries = [e for e in shot_refs
+                               if e.get("image") is not None]
+                if any(e.get("kind") == "face" for e in img_entries):
+                    img_entries = [e for e in img_entries
+                                   if e.get("kind") != "character"]
+                img_refs = [e["image"] for e in img_entries]
                 if lora_refs:
                     # D-LoRA 底座对齐（2026-09-15 E2E 发现的断点④）：角色
                     # LoRA 按 klein base-4b 训练，而路由链首位 flux2-klein-9b
@@ -1723,15 +1773,21 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             char_prompt, chosen = _shot_char_protocol(char_assets, shot_text)
             chosen_idx = [i for i, a in enumerate(char_assets)
                           if any(a is c for c in chosen)]
+            # 景别仲裁（2026-10-06 第三格两个陈雪）：正文明示 > 固定
+            # 脚本——wide 镜禁面部参考注入（人脸占比极小注入即稀释+
+            # 构图行打架），close 镜反向强制（脚本槽位没排到也加）
+            text_frame = _shot_text_framing(shot_text)
+            script_close = bool(
+                framing and si < len(framing)
+                and framing[si].startswith(("Extreme close-up",
+                                            "Medium close-up")))
+            is_close = (text_frame == "close") if text_frame else script_close
             sp = _shot_image_prompt_from_abc(prompt, grid, si, char_prompt,
                                              "", "", style_line,
                                              strip_prop_nouns=prop_names,
                                              char_count=len(chosen),
-                                             text_priority=text_priority)
-            is_close = bool(
-                framing and si < len(framing)
-                and framing[si].startswith(("Extreme close-up",
-                                            "Medium close-up")))
+                                             text_priority=text_priority,
+                                             text_framing=text_frame)
             # ArcReel 链式参考（用户指令② 2026-08-28）：组内（分镜
             # 行内连续剧情段）串行——ReferenceLatent 通道改用上一镜
             # 已定型帧（身份/画风/服装/光环境 latent 直传）；PuLID

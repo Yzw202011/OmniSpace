@@ -223,3 +223,69 @@ def test_ref_megapixels_pure():
     assert f(1) == 1.0 and f(2) == 1.0
     assert f(3) == 0.5 and f(4) == 0.5
     assert f(5) == 0.35 and f(8) == 0.35
+
+
+# ── 2026-10-06 用户实报修（第三格两个陈雪）─────────────────────────
+# 软锁特写镜 face+character 双人图并列进 latent＝多视图册信号，
+# qwen21 复制成正面+侧面双人像；镜文本景别与固定脚本冲突时提示词
+# 自相矛盾。修法：face 顶替 character + 景别仲裁（正文明示 > 脚本）。
+
+def _face_char_scene_refs():
+    return [
+        {"kind": "face", "name": "", "image": _img()},
+        {"kind": "character", "name": "陈雪", "image": _img()},
+        {"kind": "scene", "name": "大门", "image": _img()},
+    ]
+
+
+def test_comfy_refs_face_replaces_character_softlock():
+    ns = _extract(KEYFRAME_PY, {"_comfy_ref_entries"}, set())
+    f = ns["_comfy_ref_entries"]
+    refs = _face_char_scene_refs()
+    out, mps = f(refs, pulid_img=False, reflat_hint="pos",
+                 multi_anchor=False)
+    # face 顶替 character：同人双图不再并列（场景保留）
+    assert len(out) == 2
+    assert mps == [1.0, None]
+
+
+def test_comfy_refs_pulid_and_multi_anchor_unchanged():
+    ns = _extract(KEYFRAME_PY, {"_comfy_ref_entries"}, set())
+    f = ns["_comfy_ref_entries"]
+    refs = _face_char_scene_refs()
+    # PuLID 激活：face 归 attention 通道不入 latent，character 保留
+    out, _ = f(refs, pulid_img=True, reflat_hint="pos", multi_anchor=False)
+    assert len(out) == 2
+    # 多角色锚定：face 不入（单人面部图诱发复制病理），双立绘保留
+    out2, _ = f(refs, pulid_img=False, reflat_hint="pos", multi_anchor=True)
+    assert len(out2) == 2
+
+
+def test_shot_text_framing_arbiter():
+    ns = _extract(KEYFRAME_PY, {"_shot_text_framing"}, set())
+    f = ns["_shot_text_framing"]
+    assert f("全景，固定机位。女人的背影向着公路走去") == "wide"
+    assert f("大远景，地平线") == "wide"
+    assert f("特写收束镜头") == "close"
+    assert f("中近景过渡镜头") == "close"
+    assert f("近景，侧面视角") == "close"
+    assert f("中景，低角度仰拍") == ""
+    assert f("") == ""
+
+
+def test_text_framing_overrides_script_slot():
+    ns = _extract(KEYFRAME_PY, {"_shot_image_prompt_from_abc"}, set())
+    f = ns["_shot_image_prompt_from_abc"]
+    desc = ("A. 全局风格：\n网漫风格\n\nB. 高密度世界观构建：\n背景。\n\n"
+            "C. 分镜时间轴：\n[0.0s-2.0s] 画面：她站在门口")
+    grid = {"layout": "2x2", "shots": [{"text": "全景，远处背影"}]}
+    # 槽 2 脚本钦定 MCU，正文全景 → 构图行让位远景行
+    sp = f(desc, grid, 2, char_prompt="陈雪，与设定图严格一致",
+           text_framing="wide")
+    assert "Wide establishing shot" in sp
+    assert "Medium close-up" not in sp
+    # 槽 0 脚本是远景，正文特写 → 构图行借 MCU 行
+    sp2 = f(desc, grid, 0, char_prompt="陈雪，与设定图严格一致",
+            text_framing="close")
+    assert "Medium close-up" in sp2
+    assert "Wide establishing shot" not in sp2

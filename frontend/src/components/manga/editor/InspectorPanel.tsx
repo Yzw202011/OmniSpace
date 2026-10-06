@@ -24,6 +24,7 @@ import {
   generateKeyframe,
   getMediaUrl,
   regenerateKeyframe,
+  replaceKeyframeImage,
   rollbackKeyframe,
 } from '@/services/mangaApi';
 import { ROW_GEN_STATUS_LABELS } from '@/constants/statusLabels';
@@ -63,6 +64,9 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
   const [busyId, setBusyId] = useState('');
   const [lightbox, setLightbox] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 替换图片（2026-10-07 用户令）：本地上传 → 新版本落库
+  const replaceFileRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState(false);
   // WS 实时进度（后端逐镜/采样步级广播 → 按钮内进度条）
   const genProgress = useGenProgress('keyframe', selectedRowId ?? undefined, generating);
 
@@ -119,6 +123,37 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
   const commitDescription = useCallback(() => {
     commitDescriptionAwait().catch(() => { /* 已 reportActionError */ });
   }, [commitDescriptionAwait]);
+
+  /** 替换图片（2026-10-07 用户令）：选本地图 → data URL 上传 →
+   *  新版本落库为当前版；成功后刷新版本列表。FileReader 异步读入，
+   *  上传失败 toast 具体原因。 */
+  const handleReplaceFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedRowId) return;
+    if (file.size > 30 * 1024 * 1024) {
+      showToast('图片过大（超过 30MB），请压缩后再试', 'warning');
+      return;
+    }
+    setReplacing(true);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      setReplacing(false);
+      showToast('图片读取失败', 'error');
+    };
+    reader.onload = () => {
+      replaceKeyframeImage(selectedRowId, String(reader.result))
+        .then((r) => {
+          showToast(`已替换为当前版本 v${r.version}`, 'success');
+          invalidateKeyframes(selectedRowId);
+          return fetchKeyframes(selectedRowId);
+        })
+        .catch((err: unknown) =>
+          showToast(getErrorMessage(err, '替换失败'), 'error'))
+        .finally(() => setReplacing(false));
+    };
+    reader.readAsDataURL(file);
+  }, [selectedRowId, showToast, invalidateKeyframes, fetchKeyframes]);
 
   const handleDescribe = useCallback(() => {
     if (!currentProject || !row) return;
@@ -245,6 +280,24 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
     ? getMediaUrl(current.file_path, `${current.version}-${current.created_at}`)
     : '';
 
+  /** 右键下载（2026-10-07 用户令：分镜图预览/历史缩略图右击可存）
+   *  fetch→blob 下载（a.download 跨源 URL 会忽略文件名，走 blob 保名） */
+  const downloadByUrl = (url: string, filename: string) => {
+    fetch(url)
+      .then((r) => r.blob())
+      .then((b) => {
+        const u = URL.createObjectURL(b);
+        const a = document.createElement('a');
+        a.href = u;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(u);
+      })
+      .catch((err) => reportBgError('InspectorPanel.download', err));
+  };
+
   return (
     <aside className="manga-ed-inspector">
       {/* 1. 头部：← 返回 + 标题 + 状态 + 关闭 */}
@@ -278,8 +331,12 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
           <button
             type="button"
             className="manga-asset-preview-btn"
-            title="点击放大预览"
+            title="点击放大预览（右键下载）"
             onClick={() => setLightbox(true)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              downloadByUrl(currentUrl, `镜${row.shot_number}-v${current?.version ?? 1}.png`);
+            }}
           >
             <img src={currentUrl} alt={`镜 ${row.shot_number} 分镜图`} loading="lazy" />
             {current && !current.is_current && (
@@ -294,21 +351,35 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
         )}
       </div>
 
-      {/* 3. 描述词：AI 生成按钮 + textarea 失焦保存 */}
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        disabled={busy !== '' || (!(row?.asset_ids?.length ?? 0) && !row?.asset_id)}
-        title={
-          !(row?.asset_ids?.length ?? 0) && !row?.asset_id
-            ? '未绑定资产：先在分镜表资产列绑定角色/场景/道具才能生成描述词'
-            : '按原始台词 + 绑定资产 + 风格前缀生成 A/B/C 结构化分镜描述词（Qwen3-VL）'
-        }
-        onClick={handleDescribe}
-      >
-        <Sparkles size={13} />
-        {busy === 'describe' ? '生成中…' : 'AI 生成描述'}
-      </button>
+      {/* 3. 描述词：AI 生成（左）+ 替换图片（右）并排；textarea 失焦保存 */}
+      <div className="flex gap-2" style={{ width: '100%' }}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          style={{ flex: 1 }}
+          disabled={busy !== '' || (!(row?.asset_ids?.length ?? 0) && !row?.asset_id)}
+          title={
+            !(row?.asset_ids?.length ?? 0) && !row?.asset_id
+              ? '未绑定资产：先在分镜表资产列绑定角色/场景/道具才能生成描述词'
+              : '按原始台词 + 绑定资产 + 风格前缀生成 A/B/C 结构化分镜描述词（Qwen3-VL）'
+          }
+          onClick={handleDescribe}
+        >
+          <Sparkles size={13} />
+          {busy === 'describe' ? '生成中…' : 'AI 生成描述'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          style={{ flex: 1 }}
+          disabled={replacing || generating}
+          title="替换图片：上传本地图片作为该镜当前分镜图（旧版保留可回退）"
+          onClick={() => replaceFileRef.current?.click()}
+        >
+          <ImagePlus size={13} />
+          {replacing ? '上传中…' : '替换图片'}
+        </button>
+      </div>
       <div className="card manga-insp-card">
         <div className="manga-insp-title">描述词（A 全局风格 / B 世界观 / C 分镜时间轴）</div>
         <textarea
@@ -368,6 +439,13 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
           </>
         )}
       </button>
+      <input
+        ref={replaceFileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        style={{ display: 'none' }}
+        onChange={handleReplaceFile}
+      />
 
       {/* 5. 历史记录折叠区：关键帧版本列表 */}
       <div className="manga-history">
@@ -402,6 +480,14 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
                         src={getMediaUrl(k.file_path, `${k.version}-${k.created_at}`)}
                         alt={`v${k.version}`}
                         loading="lazy"
+                        title="右键下载"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          downloadByUrl(
+                            getMediaUrl(k.file_path, `${k.version}-${k.created_at}`),
+                            `镜${row.shot_number}-v${k.version}.png`,
+                          );
+                        }}
                         style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', background: 'var(--color-input-bg)', display: 'block' }}
                       />
                     ) : (

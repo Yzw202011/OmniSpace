@@ -824,8 +824,7 @@ class KeyframeGenerateRequest(BaseModel):
     # P2-B 逐镜重抽（2026-08-28 暴露到端点）：仅重生成指定镜号
     #（1-based），其余镜复用当前版本已落盘首帧与 seed——整版重抽
     # 会给已达标镜引入新方差（V48 教训）；None=整版生成（原行为）
-    only_shots: list[int] | None = None
-    # 竞品文本优先模式（2026-08-29 竞品对齐实验）：True 时跳过 C 段
+    only_shots: list[int] | None = None    # 竞品文本优先模式（2026-08-29 竞品对齐实验）：True 时跳过 C 段
     # 道具颜色词/角色外貌词剥除（_strip_prop_colors/_strip_char_appearance）
     # ——竞品样张实测为「描述词文本赢过资产图」（高马尾/白衬衫/白色
     # 行李箱均按 C 段原文渲染，尽管资产图为披肩发/黑色行李箱）。默认
@@ -847,6 +846,15 @@ class KeyframeBatchRequest(BaseModel):
     project_id: str | None = None
     model_override: str | None = None   # G2：覆盖默认绘画模型
     resolution: str = "2560x1440"          # G2：分辨率 2560x1440|1024x1024|1024x576|576x1024
+
+
+class KeyframeReplaceImageRequest(BaseModel):
+    """替换分镜图（2026-10-07 用户令）：上传本地图片作为该行当前版本。"""
+    row_id: str
+    project_id: str | None = None
+    # data URL（data:image/png;base64,…）或裸 base64。上限 48M 字符：
+    # 5136×2896 PNG ≈20MB → base64 ≈27MB，留余量
+    image: str = Field(min_length=32, max_length=48_000_000)
 
 
 class SceneObjectUpdate(BaseModel):

@@ -27,6 +27,7 @@ from ...data.database import Database, get_db_safe
 from ...data.models import (
     KeyframeBatchRequest,
     KeyframeGenerateRequest,
+    KeyframeReplaceImageRequest,
     StoryKeyframeRequest,
 )
 from ...engines.vllm_service import get_vllm_service, pil_images_to_b64
@@ -3174,6 +3175,97 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
 async def keyframe_regenerate(req: KeyframeGenerateRequest) -> dict[str, Any]:
     """重新生成关键帧（COMIC-123）：产出 v{n+1} 新版本，旧版保留可回退。"""
     return await keyframe_generate(req)
+
+
+def _decode_data_image(raw: str) -> Image.Image | None:
+    """data URL / 裸 base64 → PIL RGB 图（替换图片上传解码）。
+
+    支持 PNG/JPEG/WebP；超 8192px 边长等比收边（显存/下游管线防御）。
+    解码失败返回 None（调用方报参数错误）。
+    """
+    import base64 as _b64
+    import io as _io
+
+    from PIL import Image as _PILImage
+
+    s = (raw or "").strip()
+    if s.startswith("data:"):
+        _, _, s = s.partition(",")
+    if not s:
+        return None
+    try:
+        data = _b64.b64decode(s)
+        im = _PILImage.open(_io.BytesIO(data)).convert("RGB")
+    except Exception:  # noqa: BLE001 - 任何解码失败统一按坏图处理
+        return None
+    if max(im.size) > 8192:
+        sc = 8192 / max(im.size)
+        # getattr 取 LANCZOS：mypy 不报 attr-defined（不涨基线），ruff 走 noqa
+        im = im.resize((max(1, round(im.width * sc)),
+                        max(1, round(im.height * sc))),
+                       getattr(_PILImage, "LANCZOS"))  # noqa: B009
+    return im
+
+
+@router.post("/manga/keyframe/replace-image")
+def keyframe_replace_image(req: KeyframeReplaceImageRequest) -> dict[str, Any]:
+    """替换分镜图（2026-10-07 用户令）：上传本地图片作为该行当前版本。
+
+    语义：新版本落库（v=MAX+1）is_current=1，source_mode='replaced'
+    如实标记非生成产物；prompt 沿用上一当前版——视频网格判据
+    （_detect_row_grid）以关键帧 prompt 为准，替换图通常仍是同描述
+    词的网格图，沿用保住既有网格视频流（换非网格图请同步调整该行
+    描述词，否则描述词带网格标记会按格拆分）。落库后照常裁剪至
+    最新 10 版。
+    """
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法替换分镜图")
+    row = db.query_one(
+        f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?", (req.row_id,))
+    if row is None:
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
+                       detail={"row_id": req.row_id})
+    img = _decode_data_image(req.image)
+    if img is None:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "图片解码失败：仅支持 PNG/JPEG/WebP 且 base64 完整",
+                       detail={"row_id": req.row_id})
+    prev = db.query_one(
+        "SELECT prompt FROM keyframes WHERE row_id=? AND is_current=1",
+        (req.row_id,))
+    mx = db.query_one(
+        "SELECT COALESCE(MAX(version),0) AS m FROM keyframes WHERE row_id=?",
+        (req.row_id,))
+    version = int((mx or {}).get("m") or 0) + 1
+    out_dir = _KEYFRAME_DIR / req.row_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"v{version}.png"
+    img.save(out_path, "PNG")
+    rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
+    kf_id = uuid.uuid4().hex
+    _ensure_source_mode_column(db)
+    db.update("keyframes", {"is_current": 0}, "row_id=?", (req.row_id,))
+    project_id = req.project_id or (row.get("project_id") or "")
+    if not project_id:
+        sb = db.query_one(
+            "SELECT project_id FROM storyboards WHERE id=?",
+            (row.get("storyboard_id"),))
+        project_id = ((sb or {}).get("project_id") or "")
+    db.insert("keyframes", {
+        "id": kf_id, "row_id": req.row_id, "project_id": project_id,
+        "version": version, "file_path": rel_path,
+        "prompt": (prev or {}).get("prompt") or "",
+        "status": "done", "error": "", "is_current": 1,
+        "created_at": _now(), "shot_seeds": "[]", "consistency": "",
+        "source_mode": "replaced", "elapsed_ms": 0})
+    db.update("storyboard_rows", {"generation_status": "done"},
+              "id=?", (req.row_id,))
+    _prune_keyframes(db, req.row_id)
+    log.info("分镜图已替换: row=%s v%d %dx%d", req.row_id, version,
+             img.width, img.height)
+    return ok({"row_id": req.row_id, "keyframe_id": kf_id,
+               "version": version, "file_path": rel_path})
 
 
 @router.post("/manga/keyframe/rollback")

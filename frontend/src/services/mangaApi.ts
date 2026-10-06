@@ -933,6 +933,18 @@ export async function rollbackKeyframe(keyframeId: string): Promise<void> {
   await post('/manga/keyframe/rollback', { keyframe_id: keyframeId });
 }
 
+/** 替换分镜图（POST /manga/keyframe/replace-image，2026-10-07 用户令）：
+ *  上传本地图片（data URL）作为该行当前版本，旧版保留可回退 */
+export async function replaceKeyframeImage(
+  rowId: string,
+  image: string,
+): Promise<{ version: number }> {
+  return post<{ version: number }>('/manga/keyframe/replace-image', {
+    row_id: rowId,
+    image,
+  });
+}
+
 /** 删除关键帧版本（DELETE /manga/keyframe/{id}；当前版本删除后自动回退上一版） */
 export async function deleteKeyframe(keyframeId: string): Promise<void> {
   await del(`/manga/keyframe/${keyframeId}`);
@@ -1122,6 +1134,7 @@ export default {
   rollbackKeyframe,
   deleteKeyframe,
   listKeyframes,
+  replaceKeyframeImage,
   // 媒体
   getMediaUrl,
 };

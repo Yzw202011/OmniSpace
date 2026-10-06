@@ -2101,6 +2101,10 @@ _ART_STYLE_ZH: dict[str, str] = {
     # 国风两向（2026-08-29 强化：标签与描述词对齐调研口径）
     "guofeng": "国风2D、工笔重彩、东方美学、水墨淡彩、介于2D与3D之间",
     "xuanhuan": "3D国风玄幻、华丽古装、法术特效、宏大建筑、国风3D渲染",
+    # 2026-10-07 用户令：国风超真实（照片级国风，photoreal 族底座）
+    "guofeng_ultra": (
+        "国风超真实、照片级写实、汉服布料质感、东方古典美学、电影级光影"
+    ),
     # 2026-08-29：描述词去「国风」字——gen_router 国风2D 判据含「国风」，
     # 水墨描述须避免被国风2D 包抢占（水墨归 inkwash 判据「水墨|丹青」）
     "inkwash": "水墨丹青、写意笔触、意境留白、氤氲朦胧",
@@ -2154,6 +2158,8 @@ _ART_STYLE_ZH: dict[str, str] = {
 _PRESET_STYLE_PACK: dict[str, str] = {
     "pixar": "claymation", "anime": "anime", "chibi": "anime",
     "guofeng": "guofeng2d", "xuanhuan": "guofeng3d", "inkwash": "inkwash",
+    # 国风超真实 → realportrait（「超真实」即该包主判据，嗅探同族一致）
+    "guofeng_ultra": "realportrait",
     "manhwa": "manhwa", "thickpaint": "thickpaint", "cyberpunk": "cyberpunk",
     "real3d": "cg3d", "battle": "battle", "comic_en": "comic_en",
     "manga_bw": "manga_bw", "ghibli": "ghibli", "pixel": "pixel",

@@ -589,6 +589,11 @@ export const ART_STYLES: ArtStyleDef[] = [
     thumb: _styleImg('xuanhuan'),
   },
   {
+    key: 'guofeng_ultra', label: '国风超真实', desc: '照片级写实 · 东方美学',
+    prompt: 'chinese guofeng hyper-realistic style, photorealistic render with oriental aesthetics, ultra detailed hanfu fabric texture, realistic skin and hair detail, elegant ancient chinese architecture, cinematic lighting, 8k quality',
+    thumb: _styleImg('guofeng_ultra'),
+  },
+  {
     key: 'manhwa', label: '韩漫半写实', desc: '半写实 · 分层上色 · 爆款主力', hot: true,
     prompt: 'korean manhwa webtoon style, semi-realistic proportions, layered soft shading with subtle gradients, clean polished faces, trendy cinematic color grading',
     thumb: _styleImg('manhwa'),

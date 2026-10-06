@@ -137,14 +137,16 @@ export async function batchKeyframes(
 ): Promise<BatchResult> {
   const res: BatchResult = { done: 0, skipped: 0, failed: 0 };
   await ensurePersisted();
-  // 出图统一规格：分镜图默认 2560×1440（16:9）
+  // 出图规格（2026-10-07 用户令四宫格升格）：默认 5136×2896 =
+  // 每格 2568×1448 ×2×2（qwen21 原生直出）；旧档保留兼容
   const resMap: Record<string, { w: number; h: number }> = {
+    '5136x2896': { w: 5136, h: 2896 },
     '2560x1440': { w: 2560, h: 1440 },
     '1024x1024': { w: 1024, h: 1024 },
     '1024x576': { w: 1024, h: 576 },
     '576x1024': { w: 576, h: 1024 },
   };
-  const { w, h } = resMap[config?.resolution ?? '2560x1440'] ?? { w: 2560, h: 1440 };
+  const { w, h } = resMap[config?.resolution ?? '5136x2896'] ?? { w: 5136, h: 2896 };
   let processed = 0;
   for (const row of rows) {
     if (row.is_locked || !row.description.trim()) {

@@ -565,9 +565,13 @@ class StoryboardCreate(BaseModel):
 class BubbleLine(BaseModel):
     """单条台词气泡（多角色场景，2026-09-08）。"""
     text: str = Field(default="", max_length=200)
-    # 批6 P3（2026-09-19）：气泡形状五形；None=按 asset_id 推导（兼容旧数据）
-    shape: str | None = Field(default=None, max_length=16,
-                              pattern="^(dialogue|narration|thought|shout|whisper)$")
+    # 批6 P3（2026-09-19）：气泡形状五形；2026-09-29 用户令「样式多加几款」
+    # 扩为十形（+electric 电波/cloud 云朵/heart 心声/screen 屏幕/caption 标题，
+    # 对齐 CSP/主流漫画工具分类）；None=按 asset_id 推导（兼容旧数据）
+    shape: str | None = Field(
+        default=None, max_length=16,
+        pattern="^(dialogue|narration|thought|shout|whisper"
+                "|electric|cloud|heart|screen|caption)$")
     x: float | None = Field(default=None, ge=0.0, le=1.0)
     y: float | None = Field(default=None, ge=0.0, le=1.0)
     w: float | None = Field(default=None, ge=0.1, le=1.0)
@@ -661,6 +665,12 @@ class ProjectUpdate(BaseModel):
 class ProjectBatchDelete(BaseModel):
     """批量删除项目请求体（COMIC-004 扩展：一次最多 500 个）。"""
     project_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class ProjectPromoteRequest(BaseModel):
+    """项目资产整体转全局请求体（2026-09-30 用户令「资产只分作品/全部，
+    离开项目页自动转全部」）。"""
+    project_id: str = Field(min_length=1)
 
 
 class ArtStyleCreate(BaseModel):
@@ -799,9 +809,11 @@ class KeyframeGenerateRequest(BaseModel):
     row_id: str
     project_id: str | None = None
     prompt: str | None = None            # 缺省用分镜行 description
-    # 出图统一规格（2026-08-14 铁律）：分镜图 2560×1440（16:9）
-    width: int = Field(default=2560, ge=256, le=2560)
-    height: int = Field(default=1440, ge=256, le=2560)
+    # 出图规格（2026-10-07 用户令四宫格升格）：整图 5136×2896 =
+    # 每格 2568×1448 ×2×2（qwen21 原生 8 对齐全分辨率直出，实测
+    # 83.6s/格）；此前 2560×1440（每格 1280×720）
+    width: int = Field(default=5136, ge=256, le=5376)
+    height: int = Field(default=2896, ge=256, le=3024)
     # V37 seed 固定兜底（2026-08-27）：显式指定基础种子复用已验证
     # 结果；None = 沿用该行最近版本的已存 seed（无则随机）。逐镜派生
     # base_seed+shot_index，跨镜既有共享分量又有镜间差异

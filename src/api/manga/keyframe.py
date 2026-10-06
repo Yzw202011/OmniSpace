@@ -71,6 +71,63 @@ from .common import (
     unload_paint_pipeline as _unload_paint_after_gen,
 )
 
+# 历史版本保留上限（2026-10-07 用户令）：每行只留最新 10 个版本
+# （记录 + 主图 + v{N}_shot*.png 侧挂图一并清），生成落库后自动裁剪。
+_KEYFRAME_KEEP_VERSIONS = 10
+
+
+def _prune_keyframes(db, row_id: str,
+                     keep: int = _KEYFRAME_KEEP_VERSIONS) -> int:
+    """裁剪分镜行历史关键帧版本到最新 keep 条（2026-10-07 用户令）。
+
+    保留集 = created_at 最新的 keep 条 ∪ 当前版本（is_current=1，用户
+    回退后可能不在最新 keep 里，回退位必须保）。淘汰版本连文件一起删
+    （主图 + v{N}_shot*.png 侧挂图，R7-AG1 同规则），不留磁盘尸体。
+    裁剪失败不影响调用方（生成/删除后调用均吞异常）。
+
+    Returns:
+        删除的版本数。
+    """
+    try:
+        rows = db.query(
+            "SELECT id, version, file_path, is_current FROM keyframes"
+            " WHERE row_id=? ORDER BY created_at DESC, rowid DESC",
+            (row_id,))
+        keep_ids = {r["id"] for r in rows[:keep]}
+        keep_ids.update(r["id"] for r in rows if r.get("is_current"))
+        # 共享文件保护：撞号版本（并发重抽曾产生两条 v20 同 file_path）
+        # 删其一不得连带删共享图——文件只属于未被任何保留版本引用时才删
+        kept_paths = {r.get("file_path") for r in rows if r["id"] in keep_ids}
+        removed = 0
+        for r in rows:
+            if r["id"] in keep_ids:
+                continue
+            fp = DATA_DIR / str(r.get("file_path") or "")
+            shared = (r.get("file_path") or "") in kept_paths
+            if r.get("file_path") and fp.is_file() and not shared:
+                try:
+                    fp.unlink()
+                except OSError as exc:
+                    log.warning("裁剪：主图删除失败 %s: %s", fp, exc)
+            if r.get("file_path") and not shared:
+                try:
+                    for shot in fp.parent.glob(
+                            f"v{int(r.get('version') or 1)}_shot*.png"):
+                        shot.unlink(missing_ok=True)
+                except (OSError, ValueError) as exc:
+                    log.warning("裁剪：shot 图清理失败 row=%s v%s: %s",
+                                row_id, r.get("version"), exc)
+            db.delete("keyframes", "id=?", (r["id"],))
+            removed += 1
+        if removed:
+            log.info("历史裁剪: row=%s 删 %d 个旧版本（保留最新 %d）",
+                     row_id, removed, keep)
+        return removed
+    except Exception as exc:  # noqa: BLE001 - 裁剪失败不阻断主流程
+        log.warning("历史裁剪失败（跳过）: row=%s %s", row_id, exc,
+                    exc_info=True)
+        return 0
+
 # 2026-10-02 用户拍板「按需真实加载」：生成收尾的去抖唤醒
 # （_schedule_debounced_wake，批3 2026-09-10）整段摘除——生成间隙
 # 反复拉起 vLLM 与下一任务的让渡形成拉锯（V9-β wake 链路全线退役）。
@@ -549,9 +606,11 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
 def _compose_grid_image(frames: list, layout: str) -> Image.Image | None:
     """逐镜首帧列表 → 网格拼图 PIL 图（方案 A：代码拼图）。
 
-    每格为独立 16:9 首帧，按阅读顺序（镜头时间序）排入网格，格间
-    以 8px 黑缝分隔（故事板观感）。layout 1x2 → 横排两格；2x2 →
-    田字四格。frames 不足格数时缺格补黑。
+    每格为独立 16:9 首帧，按阅读顺序（镜头时间序）排入网格。
+    layout 1x2 → 横排两格；2x2 → 田字四格。frames 不足格数时缺格
+    补黑。无缝拼接（2026-10-07 用户令：四宫格 2568×1448/格 → 整图
+    精确 5136×2896；此前 8px 黑缝使整图多出 8px——视频 I2V 首帧
+    走独立 shot 文件不受影响，整图仅预览/导出用）。
     """
     from PIL import Image
 
@@ -560,7 +619,7 @@ def _compose_grid_image(frames: list, layout: str) -> Image.Image | None:
         return None
     # 以首帧尺寸为格基准（逐镜生成尺寸一致）
     cw, ch = frames[0].size
-    gap = 8
+    gap = 0
     W = cw * cols + gap * (cols - 1)
     H = ch * rows + gap * (rows - 1)
     canvas = Image.new("RGB", (W, H), (0, 0, 0))
@@ -1454,17 +1513,33 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             return img, seed
         step_cb = (lambda p, _s: on_step(p)) if on_step else None
         if flux:
-            scale = min(1.0, _IMG_GEN_MAX / out_w, _IMG_GEN_MAX / out_h)
-            gw = max(256, int(out_w * scale)) // 16 * 16
-            gh = max(256, int(out_h * scale)) // 16 * 16
+            # qwen21 显式底座：原生 8 对齐全分辨率直出（2026-10-07 用户令
+            # 四宫格 2568×1448/格、整图 5136×2896——实测 2560×1440 单格
+            # 83.6s 无 OOM，显存峰值 95% 由 offload 兜住）。_IMG_GEN_MAX
+            # 1344 是 klein/SDXL 友好上限，对 qwen21 不适用（否则 4K
+            # 需求被静默缩回 1344×756 再 LANCZOS 放大=假 4K）
+            _qwen_fullres = (_explicit_comfy
+                             and _slot_model.startswith("qwen"))
+            if _qwen_fullres:
+                scale = 1.0
+                gw = max(256, out_w) // 8 * 8
+                gh = max(256, out_h) // 8 * 8
+            else:
+                scale = min(1.0, _IMG_GEN_MAX / out_w, _IMG_GEN_MAX / out_h)
+                gw = max(256, int(out_w * scale)) // 16 * 16
+                gh = max(256, int(out_h * scale)) // 16 * 16
             # 步数 28→36（v20 质量档）：GGUF 量化噪声收敛更充分；
             # FLUX 帧接画质增强（保边降噪+电影感分级+锐化补偿）
             # min_steps=28（2026-08-28 V77 事故根修）：质量总督深度
             # 降档 36×0.40=14 曾击穿 klein 质量地板（shot3 棕发/shot4
             # 3D 化），28=v20 裁定的最低可接受步数，降至此仍诚实降级
-            params = {"prompt": gen_prompt, "steps": 36, "cfg": 4.0,
-                      "width": gw, "height": gh, "seed": seed,
-                      "min_steps": 28}
+            # qwen21 全分辨率档 25 步（实测 2560×1440 83.6s/格，4 格
+            # 约 5.6 分钟——步数照搬 36 档会把单版拖到 8 分钟以上）
+            params = {"prompt": gen_prompt,
+                      "steps": 25 if _qwen_fullres else 36, "cfg": 4.0,
+                      "width": gw, "height": gh, "seed": seed}
+            if not _qwen_fullres:
+                params["min_steps"] = 28
             # 方案2：显式底座透传（此前硬编码 klein-9b 缺省）；z/qwen21
             # 无 PuLID 语义置软锁标志（use_comfy 分支内统一处理）。
             _explicit_soft_lock = False
@@ -1711,10 +1786,12 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         # 西化瞳色负面锚 → 模块常量 _CHAR_NEGATIVE_ANCHOR（2026-08-28
         # P1 逐镜化：随逐镜角色锚存在性注入，标定史 v65/v67/v69 见
         # 常量处注释）
-        # 每格首帧尺寸：网格总宽按 width 摊，每格 16:9
+        # 每格首帧尺寸（2026-10-07 用户令）：宽高各自按行列摊（宽/2、
+        # 高/2，8 对齐）——此前 cell_h 从 cell_w 推 16:9，用户指定
+        # 5136×2896 总图时得 1440 而非 1448；行切分忠实用户数字
         cols = 2
         cell_w = max(640, (width // cols) // 8 * 8)
-        cell_h = max(360, (cell_w * 9 // 16) // 8 * 8)
+        cell_h = max(360, (height // cols) // 8 * 8)
         frames = []
         actual_seeds: list[int] = []
         # P2-B 逐镜重抽复用表：only_shots 指定重抽镜，其余镜从
@@ -1898,6 +1975,8 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
         pass
     db.update("storyboard_rows", {"generation_status": "done"},
               "id=?", (row_id,))
+    # 历史版本上限（2026-10-07 用户令）：落库即裁剪，每行只留最新 10 版
+    _prune_keyframes(db, row_id)
     broadcast_gen_progress("keyframe", row_id, percent=100, status="done",
                            label="生成完成")
     log.info("关键帧落库: row=%s v%d seeds=%s", row_id, version, actual_seeds)

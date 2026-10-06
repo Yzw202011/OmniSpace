@@ -16,7 +16,7 @@
  * 空项目（0 行）首入：整页剧本录入（ScriptImport），可跳过。
  * ========================================================================== */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   Download,
@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
+import { promoteProjectAssets } from '@/services/mangaApi';
 import { SAVE_STATUS_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import type { ShotSaveStatus, StoryboardRow } from '@/types';
@@ -41,6 +42,7 @@ import { ExportDrawer } from './drawers/ExportDrawer';
 import AssetDock from './editor/AssetDock';
 import AssetDetailPanel from './editor/AssetDetailPanel';
 import InspectorPanel from './editor/InspectorPanel';
+import VideoInspectorPanel from './editor/VideoInspectorPanel';
 import StoryboardTable from './editor/StoryboardTable';
 import BatchConfirmModal from './editor/BatchConfirmModal';
 import InferProgressModal from './editor/InferProgressModal';
@@ -85,6 +87,7 @@ export default function MangaWorkspace() {
   const [saveStatus, setSaveStatus] = useState<ShotSaveStatus>('idle');
   /** 行检查器打开的分镜行（null=右栏显示资产面板） */
   const [inspectRowId, setInspectRowId] = useState<string | null>(null);
+  const [videoInspectRowId, setVideoInspectRowId] = useState<string | null>(null);
   /** 批量工序确认（chevron 3/4/5） */
   const [confirmBatch, setConfirmBatch] = useState<'' | 'describe' | 'keyframe' | 'story_narrative' | 'story_keyframe' | 'video_narrative'>('');
   /** 提示词设置弹窗 */
@@ -109,6 +112,19 @@ export default function MangaWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
 
+  // 离开项目页：项目名下资产整体转全局（2026-09-30 用户令「资产只分
+  // 作品/全部，离开项目页自动转全部」；磁盘目录同步迁移）。换项目/
+  // 关页面均触发（prev=离开的那个项目）；fire-and-forget 失败静默
+  //（下次离开再试）。关闭浏览器不触发——下次进入该项目再离开即补转
+  const prevProjectRef = useRef(currentProject?.id ?? '');
+  useEffect(() => {
+    const prev = prevProjectRef.current;
+    prevProjectRef.current = currentProject?.id ?? '';
+    return () => {
+      if (prev) promoteProjectAssets(prev).catch(() => {});
+    };
+  }, [currentProject?.id]);
+
   // 抽屉开关切换（再次点击同一按钮 = 关闭；打开抽屉时清空资产详情/行检查器，槽位互斥）
   const toggleDrawer = useCallback(
     (kind: DrawerKind) => {
@@ -129,6 +145,21 @@ export default function MangaWorkspace() {
     (rowId: string) => {
       setSelectedRow(rowId);
       setInspectRowId(rowId);
+      setVideoInspectRowId(null);
+      setSelectedAsset(null);
+      setBindingTarget(null);
+      setDrawer('');
+    },
+    [setSelectedRow, setSelectedAsset, setBindingTarget],
+  );
+
+  // 打开视频详情面板（2026-10-07 用户令：视频独立右栏面板，与分镜图
+  // 面板互斥；表格视频缩略图点击进入）
+  const openVideoInspector = useCallback(
+    (rowId: string) => {
+      setSelectedRow(rowId);
+      setVideoInspectRowId(rowId);
+      setInspectRowId(null);
       setSelectedAsset(null);
       setBindingTarget(null);
       setDrawer('');
@@ -459,6 +490,7 @@ export default function MangaWorkspace() {
               onSaveStatus={setSaveStatus}
               onGenerateVideo={handleGenerateVideo}
               onOpenInspector={openInspector}
+              onOpenVideoInspector={openVideoInspector}
               onCancelVideo={handleCancelVideo}
             />
           )}
@@ -473,10 +505,17 @@ export default function MangaWorkspace() {
           </DrawerFrame>
         )}
         {!drawer && selectedAssetId && <AssetDetailPanel />}
-        {!drawer && !selectedAssetId && inspectRowId && (
+        {!drawer && !selectedAssetId && videoInspectRowId && (
+          <VideoInspectorPanel
+            rowId={videoInspectRowId}
+            onBack={() => setVideoInspectRowId(null)}
+            onGenerateVideo={handleGenerateVideo}
+          />
+        )}
+        {!drawer && !selectedAssetId && !videoInspectRowId && inspectRowId && (
           <InspectorPanel onBack={() => setInspectRowId(null)} onOpenVoice={() => setDrawer('voice')} />
         )}
-        {!drawer && !selectedAssetId && !inspectRowId && (
+        {!drawer && !selectedAssetId && !videoInspectRowId && !inspectRowId && (
           <AssetDock batchSignal={assetBatchSignal} />
         )}
       </div>

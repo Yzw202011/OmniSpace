@@ -140,6 +140,68 @@ def _video_update_task(task_id: str, fields: dict,
             log.debug("视频任务进度落库失败，仅更新内存: %s", exc)
     if task is not None:
         task.update(fields)
+    # 视频历史裁剪（2026-10-07 用户令：每行只留最新 5 个完成视频，
+    # 旧记录连 MP4 文件一并清）——单点接线：所有管线的终态回写
+    # （本地/H3/网格/云/降级）都经本函数
+    if fields.get("status") == "done":
+        _rid = ((task or {}).get("storyboard_row_id")
+                or (db is not None
+                    and (db.query_one(
+                        "SELECT storyboard_row_id FROM video_tasks"
+                        " WHERE id=?", (task_id,)) or {}).get(
+                            "storyboard_row_id", ""))
+                or "")
+        if _rid and db is not None:
+            _prune_videos(db, _rid)
+
+
+# 每行保留的完成视频数上限（2026-10-07 用户令）
+_VIDEO_KEEP_TASKS = 5
+
+
+def _prune_videos(db: Database, row_id: str,
+                  keep: int = _VIDEO_KEEP_TASKS) -> int:
+    """裁剪分镜行视频历史到最新 keep 个完成视频（用户令 5）。
+
+    保留 = done 任务按 created_at 最新 keep 个；pending/generating
+    在飞任务与 error/cancelled 记录一律不裁（在飞不可动，失败记录
+    供重试与排障展示）。淘汰的 done 任务连 MP4 文件一起删（文件
+    名=task_id 唯一，无共享文件风险；文件已丢的孤儿记录安静清掉）。
+    失败不阻断回写主流程（吞异常记日志）。
+
+    Returns:
+        删除的任务记录数。
+    """
+    try:
+        rows = db.query(
+            "SELECT id, file_path FROM video_tasks"
+            " WHERE storyboard_row_id=? AND status='done'"
+            " ORDER BY created_at DESC, rowid DESC", (row_id,))
+        keep_ids = {r["id"] for r in rows[:keep]}
+        removed = 0
+        for r in rows:
+            if r["id"] in keep_ids:
+                continue
+            fp = (str(r.get("file_path") or "").strip())
+            if fp:
+                f = Path(fp)
+                if not f.is_absolute():
+                    f = DATA_DIR / fp
+                try:
+                    f.unlink(missing_ok=True)
+                except OSError as exc:
+                    log.warning("视频裁剪：MP4 删除失败 %s: %s", f, exc)
+            db.delete("video_tasks", "id=?", (r["id"],))
+            _video_tasks.pop(r["id"], None)  # 内存镜像同步（有则清）
+            removed += 1
+        if removed:
+            log.info("视频历史裁剪: row=%s 删 %d 条旧任务（保留最新 %d）",
+                     row_id, removed, keep)
+        return removed
+    except Exception as exc:  # noqa: BLE001 - 裁剪失败不阻断回写
+        log.warning("视频历史裁剪失败（跳过）: row=%s %s", row_id, exc,
+                    exc_info=True)
+        return 0
 
 
 # ═══════════════════════════════════════════════════════════════════

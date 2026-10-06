@@ -329,6 +329,8 @@ interface StoryboardRowProps {
   /** 点缩略图右上角 X → 解绑资产（toggle 语义：已绑定即解绑） */
   onUnbindAsset: (assetId: string, rowId: string) => void;
   onOpenInspector: (rowId: string) => void;
+  /** 点视频缩略图 → 视频详情面板（2026-10-07 用户令：视频独立右栏） */
+  onOpenVideoInspector: (rowId: string) => void;
   onMove: (rowId: string, dir: -1 | 1) => void;
   onRemove: (rowId: string) => void;
   onGenerateVideo: (row: StoryboardRowData) => void;
@@ -360,13 +362,13 @@ const StoryboardRow = memo(function StoryboardRow({
   onStartBind,
   onUnbindAsset,
   onOpenInspector,
+  onOpenVideoInspector,
   onMove,
   onRemove,
   onGenerateVideo,
   onCancelVideo,
 }: StoryboardRowProps) {
   const locked = row.is_locked === true;
-  const [videoPreview, setVideoPreview] = useState<string | null>(null);
   return (
     <div
       className={`manga-sb-tr manga-sb-row${isSelected ? ' selected' : ''}${locked ? ' locked' : ''}`}
@@ -563,11 +565,13 @@ const StoryboardRow = memo(function StoryboardRow({
             )}
           </div>
         ) : videoTask && videoTask.status === 'done' && videoTask.download_url ? (
-          // 已生成视频：缩略视频框（悬停预览，角标下载/重新生成）
+          // 已生成视频：缩略视频框（悬停预览，角标下载/重新生成）；
+          // 点击开右侧详情面板（2026-10-07 用户令：大窗播放移入面板，
+          // 表格点击不再直接弹大窗）
           <div
               className="manga-video-thumb"
-              title={`镜 ${row.shot_number} 视频（悬停预览，点击大窗播放，右键下载）`}
-              onClick={(e) => { e.stopPropagation(); setVideoPreview(videoTask.download_url ?? null); }}
+              title={`镜 ${row.shot_number} 视频（悬停预览，右键下载，点击进详情）`}
+              onClick={(e) => { e.stopPropagation(); onOpenVideoInspector(row.id); }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -644,19 +648,6 @@ const StoryboardRow = memo(function StoryboardRow({
           <Trash2 size={14} />
         </button>
       </div>
-
-      {/* 视频预览大窗（点击缩略框打开） */}
-      {videoPreview && (
-        <div className="manga-media-preview" onClick={() => setVideoPreview(null)}>
-          <div className="manga-media-preview-body" onClick={(e) => e.stopPropagation()}>
-            <video src={videoPreview} controls autoPlay />
-            <div className="manga-media-preview-ops">
-              <a href={videoPreview} download onClick={(e) => e.stopPropagation()}>下载 MP4</a>
-              <button type="button" onClick={() => setVideoPreview(null)}>关闭</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 });
@@ -670,11 +661,13 @@ export interface StoryboardTableProps {
   onGenerateVideo: (row: StoryboardRowData) => void;
   /** 打开行检查器（详情/关键帧/音色） */
   onOpenInspector: (rowId: string) => void;
+  /** 点视频缩略图 → 视频详情面板（2026-10-07 用户令） */
+  onOpenVideoInspector: (rowId: string) => void;
   /** 取消视频生成（方案C：顶栏进度行移除后，取消入口收进视频列进度块） */
   onCancelVideo?: (taskId: string) => void;
 }
 
-export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector, onCancelVideo }: StoryboardTableProps) {
+export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector, onOpenVideoInspector, onCancelVideo }: StoryboardTableProps) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const rows = useMangaStore((s) => s.rows);
@@ -1064,6 +1057,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               onStartBind={handleStartBind}
               onUnbindAsset={handleUnbindAsset}
               onOpenInspector={onOpenInspector}
+              onOpenVideoInspector={onOpenVideoInspector}
               onMove={moveShot}
               onRemove={removeShot}
               onGenerateVideo={onGenerateVideo}

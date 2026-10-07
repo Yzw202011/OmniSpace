@@ -25,7 +25,8 @@ def test_workflow_construction(tmp_path, monkeypatch):
             d = tmp_path / "frame_upscale"
             d.mkdir(exist_ok=True)
             (d / "fake.mp4").write_bytes(b"mp4")
-            monkeypatch.setattr(fu, "_check_output_or_raise", lambda p: None)
+            monkeypatch.setattr(fu, "_check_output_or_raise",
+                                lambda p, w=0, h=0: None)
             return {"t1": {"status": {"completed": False},
                            "outputs": {"6": {"gifs": [{
                                "filename": "fake.mp4",
@@ -42,7 +43,7 @@ def test_workflow_construction(tmp_path, monkeypatch):
     wf = captured["wf"]
     assert wf["2"]["inputs"]["model_name"] == "4x-UltraSharp.pth"
     # 双路调和：3a=模型锐利版 3b=lanczos 柔和版 4=ImageBlend
-    assert wf["3a"]["inputs"]["width"] == 1344
+    assert wf["3a"]["inputs"]["width"] == 2688  # 2K 主档（2026-10-07）
     assert wf["3b"]["inputs"]["upscale_method"] == "lanczos"
     assert wf["4"]["class_type"] == "ImageBlend"
     assert wf["4"]["inputs"]["image1"] == ["3a", 0]
@@ -74,7 +75,7 @@ def test_resolution_sentinel(tmp_path):
     bad = tmp_path / "bad.mp4"
     bad.write_bytes(b"x")
     with pytest.raises(RuntimeError, match="分辨率"):
-        fu._check_output_or_raise(bad)  # 空文件 → ffprobe 空 → 不等目标档
+        fu._check_output_or_raise(bad, 2688, 1536)  # 空文件 → ffprobe 空 → 不等目标档
 
 
 def test_ready_weight_missing(monkeypatch):
@@ -107,3 +108,37 @@ def test_upscale_segments_zero_blocking(tmp_path, monkeypatch):
     monkeypatch.setattr(fu, "frame_upscale_ready", lambda base=None: False)
     # ready=False 走逐个 upscale_video 原片回退：值相等（未处理）即可
     assert fu.upscale_segments(segs) == segs
+
+
+def test_2k_failure_falls_back_to_1k(tmp_path, monkeypatch):
+    """2K 档失败 → 自动回退 1K 档重试（2026-10-07 用户令）。"""
+    monkeypatch.setattr(fu, "frame_upscale_ready", lambda base=None: True)
+    posts: list[dict] = []
+
+    def fake_api(base, method, path, body=None, timeout=10.0):
+        if method == "POST" and path == "/prompt":
+            posts.append(body["prompt"])
+            if len(posts) == 1:
+                return {"error": {"message": "2k oom"}}  # 首档（2K）失败
+            return {"prompt_id": "t2"}
+        if method == "GET" and path.startswith("/history/"):
+            d = tmp_path / "frame_upscale"
+            d.mkdir(exist_ok=True)
+            (d / "fake1k.mp4").write_bytes(b"mp4")
+            monkeypatch.setattr(fu, "_check_output_or_raise",
+                                lambda p, w=0, h=0: None)
+            return {"t2": {"status": {"completed": False},
+                           "outputs": {"6": {"gifs": [{
+                               "filename": "fake1k.mp4",
+                               "subfolder": "frame_upscale"}]}}}}
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(fu, "_api", fake_api)
+    monkeypatch.setattr(fu.time, "sleep", lambda s: None)
+    src = tmp_path / "seg.mp4"
+    src.write_bytes(b"src")
+    out = fu.upscale_video(src, comfy_input=tmp_path, comfy_output=tmp_path)
+    assert out.name == "seg_fu.mp4"
+    assert len(posts) == 2
+    assert posts[0]["3a"]["inputs"]["width"] == 2688  # 首档 2K
+    assert posts[1]["3a"]["inputs"]["width"] == 1344  # 回退 1K

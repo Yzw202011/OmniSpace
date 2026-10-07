@@ -1,10 +1,15 @@
 """H3 逐帧放大后处理服务（2026-10-01 方案：ESRGAN 接导演台链，用户拍板"动"）。
 
 清晰度线后处理：对已生成段落视频做逐帧软件超分（672/768 生成档 →
-1344×768 交付档），内容零改动（2026-10-01 实弹四路对比赢家：边缘锐利
-发丝可辨零伪影 + 内容保真高，110s/5s 段）。链路：
-VHS_LoadVideoPath → 4x-UltraSharp → ImageScale(1344×768, lanczos)
+2688×1536 交付档[2K，2026-10-07 用户令升级]），内容零改动（2026-10-01
+实弹四路对比赢家：边缘锐利发丝可辨零伪影 + 内容保真高，110s/5s 段）。
+链路：VHS_LoadVideoPath → 4x-UltraSharp → ImageScale(目标档, lanczos)
 → VHS_VideoCombine（原音轨拼回）。
+
+2K 交付档依据（2026-10-07）：4x-UltraSharp 对 672/768 生成档的原生
+输出本就是 2688×1536，此前被 lanczos 缩回 1344×768 丢弃——2K 交付
+只多编码不多算（ESRGAN 逐帧推理占 90%+ 耗时且与交付档无关）。失败
+自动整段回退 1K（1344×768 旧档）重试，再失败回退原片（零阻断铁律）。
 
 降级铁律同 h3_face_refine：权重/节点缺失、执行失败、产物分辨率或
 音轨不自验——一律回退原片并 warning，绝不阻断生成主流程。
@@ -37,9 +42,12 @@ _ESRGAN_WEIGHT = (_COMFY_DIR / "ComfyUI" / "models" / "upscale_models"
 _REQUIRED_NODES = ("VHS_LoadVideoPath", "UpscaleModelLoader",
                    "ImageUpscaleWithModel", "VHS_VideoCombine")
 
-# 交付档（H3 16GB 档原生上限；图像域 lanczos 回缩去 4x 锯齿）
-_TARGET_W, _TARGET_H = 1344, 768
-_TIMEOUT_S = 900.0  # 实测 110s/5s 段；留分段变长余量
+# 交付档（H3 16GB 档原生上限；图像域 lanczos 回缩去 4x 锯齿）。
+# 2K 主档（4x 原生输出，见模块头），1K 旧档=自动回退位
+_DELIVERY_2K = (2688, 1536)
+_DELIVERY_1K = (1344, 768)
+_TARGET_W, _TARGET_H = _DELIVERY_2K
+_TIMEOUT_S = 900.0  # 单档实测 110s/5s 段（2K 编码略增）；留分段变长余量
 
 _READY_CACHE: bool | None = None
 
@@ -105,116 +113,140 @@ def upscale_video(src: Path, *,
                   comfy_base: str = "http://127.0.0.1:8189",
                   comfy_input: Path | None = None,
                   comfy_output: Path | None = None,
-                  progress_cb: Any = None) -> Path:
+                  progress_cb: Any = None,
+                  target: tuple[int, int] = _DELIVERY_2K) -> Path:
     """单段视频逐帧放大到交付档；任何失败路径返回原片（零阻断）。
 
-    自验双哨兵：产物分辨率必须 = 1344×768，音轨必须存在
+    target 默认 2K（2688×1536）；2K 失败自动回退 1K（1344×768）重试
+    （2026-10-07 用户令「有问题回退到 1K」），再失败回退原片。
+
+    自验双哨兵：产物分辨率必须 = 目标交付档，音轨必须存在
     （ffmpeg ffprobe；探测链不可用时不拦，VHS 组装默认带音轨）。
     """
+    attempts = [target] + ([_DELIVERY_1K] if target != _DELIVERY_1K else [])
+    last_exc: Exception | None = None
+    for tw, th in attempts:
+        try:
+            return _upscale_once(src, tw, th, comfy_base=comfy_base,
+                                 comfy_input=comfy_input,
+                                 comfy_output=comfy_output,
+                                 progress_cb=progress_cb)
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            log.warning("逐帧放大 %dx%d HTTP 失败 %s: %s", tw, th,
+                        src.name, exc)
+        except Exception as exc:  # noqa: BLE001 - 逐档失败降下一档
+            last_exc = exc
+            log.warning("逐帧放大 %dx%d 失败 %s: %s", tw, th, src.name, exc)
+    log.warning("逐帧放大全档失败（回退原片）%s: %s", src.name, last_exc)
+    return src
+
+
+def _upscale_once(src: Path, target_w: int, target_h: int, *,
+                  comfy_base: str, comfy_input: Path | None,
+                  comfy_output: Path | None,
+                  progress_cb: Any = None) -> Path:
+    """单档位一次超分执行（2K/1K 共用同一工作流形态）。"""
     from .comfy_proc import COMFY_INPUT_DIR as _def_input
     from .comfy_proc import COMFY_OUTPUT_DIR as _def_output
     comfy_input = comfy_input or _def_input
     comfy_output = comfy_output or _def_output
 
     if not frame_upscale_ready(comfy_base):
-        return src
+        raise RuntimeError("逐帧放大链路未就绪（权重/节点缺失）")
 
     task_id = uuid.uuid4().hex[:12]
     in_name = f"fu_{task_id}.mp4"
     au_name = f"fu_{task_id}_audio.mp4"
-    try:
-        comfy_input.mkdir(parents=True, exist_ok=True)
-        shutil.copy(src, comfy_input / in_name)
-        shutil.copy(src, comfy_input / au_name)
-        wf = {
-            "1": {"class_type": "VHS_LoadVideoPath", "inputs": {
-                "video": str(comfy_input / in_name), "force_rate": 0,
-                "custom_width": 0, "custom_height": 0, "frame_load_cap": 0,
-                "skip_first_frames": 0, "select_every_nth": 1,
-                "format": "None"}},
-            "2": {"class_type": "UpscaleModelLoader", "inputs": {
-                "model_name": "4x-UltraSharp.pth"}},
-            "3": {"class_type": "ImageUpscaleWithModel", "inputs": {
-                "upscale_model": ["2", 0], "image": ["1", 0]}},
-            # 双路调和（2026-10-02 用户报放大后失真：4x-UltraSharp 对
-            # 软质 3D 二次元风有皮肤纹理幻觉+过度锐化）——模型锐利版与
-            # lanczos 柔和版按 soft_mix 调和：0=纯柔和（无幻觉），
-            # 1=全模型锐度。默认 0.55。
-            "3a": {"class_type": "ImageScale", "inputs": {
-                "image": ["3", 0], "upscale_method": "lanczos",
-                "width": _TARGET_W, "height": _TARGET_H,
-                "crop": "disabled"}},
-            "3b": {"class_type": "ImageScale", "inputs": {
-                "image": ["1", 0], "upscale_method": "lanczos",
-                "width": _TARGET_W, "height": _TARGET_H,
-                "crop": "disabled"}},
-            "4": {"class_type": "ImageBlend", "inputs": {
-                "image1": ["3a", 0], "image2": ["3b", 0],
-                "blend_factor": round(1.0 - _soft_mix(), 2),
-                "blend_mode": "normal"}},
-            "5": {"class_type": "VHS_LoadAudioUpload", "inputs": {
-                "audio": au_name}},
-            "6": {"class_type": "VHS_VideoCombine", "inputs": {
-                "images": ["4", 0], "audio": ["5", 0], "frame_rate": 24,
-                "loop_count": 0,
-                "filename_prefix": f"frame_upscale/{task_id}",
-                "format": "video/h264-mp4", "pix_fmt": "yuv420p",
-                "crf": 16, "save_metadata": True, "trim_to_audio": False,
-                "pingpong": False, "save_output": True}},
-        }
-        resp = _api(comfy_base, "POST", "/prompt",
-                    body={"prompt": wf, "client_id": f"omnispace-fu-{task_id}"},
-                    timeout=30.0)
-        if resp.get("error") or resp.get("node_errors"):
-            detail = json.dumps(resp.get("node_errors") or resp["error"],
-                                ensure_ascii=False)[:400]
-            raise RuntimeError(f"工作流校验失败: {detail}")
-        pid = str(resp["prompt_id"])
-        log.info("逐帧放大已提交 (prompt_id=%s, src=%s)", pid, src.name)
+    comfy_input.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src, comfy_input / in_name)
+    shutil.copy(src, comfy_input / au_name)
+    wf = {
+        "1": {"class_type": "VHS_LoadVideoPath", "inputs": {
+            "video": str(comfy_input / in_name), "force_rate": 0,
+            "custom_width": 0, "custom_height": 0, "frame_load_cap": 0,
+            "skip_first_frames": 0, "select_every_nth": 1,
+            "format": "None"}},
+        "2": {"class_type": "UpscaleModelLoader", "inputs": {
+            "model_name": "4x-UltraSharp.pth"}},
+        "3": {"class_type": "ImageUpscaleWithModel", "inputs": {
+            "upscale_model": ["2", 0], "image": ["1", 0]}},
+        # 双路调和（2026-10-02 用户报放大后失真：4x-UltraSharp 对
+        # 软质 3D 二次元风有皮肤纹理幻觉+过度锐化）——模型锐利版与
+        # lanczos 柔和版按 soft_mix 调和：0=纯柔和（无幻觉），
+        # 1=全模型锐度。默认 0.55。
+        "3a": {"class_type": "ImageScale", "inputs": {
+            "image": ["3", 0], "upscale_method": "lanczos",
+            "width": target_w, "height": target_h,
+            "crop": "disabled"}},
+        "3b": {"class_type": "ImageScale", "inputs": {
+            "image": ["1", 0], "upscale_method": "lanczos",
+            "width": target_w, "height": target_h,
+            "crop": "disabled"}},
+        "4": {"class_type": "ImageBlend", "inputs": {
+            "image1": ["3a", 0], "image2": ["3b", 0],
+            "blend_factor": round(1.0 - _soft_mix(), 2),
+            "blend_mode": "normal"}},
+        "5": {"class_type": "VHS_LoadAudioUpload", "inputs": {
+            "audio": au_name}},
+        "6": {"class_type": "VHS_VideoCombine", "inputs": {
+            "images": ["4", 0], "audio": ["5", 0], "frame_rate": 24,
+            "loop_count": 0,
+            "filename_prefix": f"frame_upscale/{task_id}",
+            "format": "video/h264-mp4", "pix_fmt": "yuv420p",
+            "crf": 16, "save_metadata": True, "trim_to_audio": False,
+            "pingpong": False, "save_output": True}},
+    }
+    resp = _api(comfy_base, "POST", "/prompt",
+                body={"prompt": wf, "client_id": f"omnispace-fu-{task_id}"},
+                timeout=30.0)
+    if resp.get("error") or resp.get("node_errors"):
+        detail = json.dumps(resp.get("node_errors") or resp["error"],
+                            ensure_ascii=False)[:400]
+        raise RuntimeError(f"工作流校验失败: {detail}")
+    pid = str(resp["prompt_id"])
+    log.info("逐帧放大已提交 (%dx%d, prompt_id=%s, src=%s)",
+             target_w, target_h, pid, src.name)
 
-        t0 = time.time()
-        while time.time() - t0 < _TIMEOUT_S:
-            time.sleep(10.0)
-            if progress_cb:
-                progress_cb(min(0.95, (time.time() - t0) / _TIMEOUT_S),
-                            "逐帧放大")
-            try:
-                hist = _api(comfy_base, "GET", f"/history/{pid}", timeout=10.0)
-            except Exception:  # noqa: BLE001 - 404=执行中
-                continue
-            entry = (hist or {}).get(pid) or {}
-            status = entry.get("status") or {}
-            if status.get("status_str") == "error":
-                msgs = json.dumps(status.get("messages") or [],
-                                  ensure_ascii=False)[:400]
-                raise RuntimeError(f"执行失败: {msgs}")
-            for node_out in (entry.get("outputs") or {}).values():
-                for item in (node_out.get("gifs")
-                             or node_out.get("images") or []):
-                    fn = str(item.get("filename") or "")
-                    if fn.endswith((".mp4", ".webm")) or item.get("animated"):
-                        sub = str(item.get("subfolder") or "")
-                        prod = comfy_output / (Path(sub) / fn if sub else fn)
-                        if not prod.is_file():
-                            continue
-                        _check_output_or_raise(prod)
-                        out = src.with_name(f"{src.stem}_fu.mp4")
-                        shutil.move(str(prod), out)
-                        log.info("逐帧放大完成 (%.0fs): %s → %s",
-                                 time.time() - t0, src.name, out.name)
-                        return out
-            if status.get("completed"):
-                raise RuntimeError("完成但无视频产物")
-        raise TimeoutError(f"逐帧放大超时（{_TIMEOUT_S:.0f}s）")
-    except urllib.error.HTTPError as exc:
-        log.warning("逐帧放大 HTTP 失败（回退原片）%s: %s", src.name, exc)
-    except Exception as exc:  # noqa: BLE001 - 全失败路径回退原片
-        log.warning("逐帧放大失败（回退原片）%s: %s", src.name, exc)
-    return src
+    t0 = time.time()
+    while time.time() - t0 < _TIMEOUT_S:
+        time.sleep(10.0)
+        if progress_cb:
+            progress_cb(min(0.95, (time.time() - t0) / _TIMEOUT_S),
+                        "逐帧放大")
+        try:
+            hist = _api(comfy_base, "GET", f"/history/{pid}", timeout=10.0)
+        except Exception:  # noqa: BLE001 - 404=执行中
+            continue
+        entry = (hist or {}).get(pid) or {}
+        status = entry.get("status") or {}
+        if status.get("status_str") == "error":
+            msgs = json.dumps(status.get("messages") or [],
+                              ensure_ascii=False)[:400]
+            raise RuntimeError(f"执行失败: {msgs}")
+        for node_out in (entry.get("outputs") or {}).values():
+            for item in (node_out.get("gifs")
+                         or node_out.get("images") or []):
+                fn = str(item.get("filename") or "")
+                if fn.endswith((".mp4", ".webm")) or item.get("animated"):
+                    sub = str(item.get("subfolder") or "")
+                    prod = comfy_output / (Path(sub) / fn if sub else fn)
+                    if not prod.is_file():
+                        continue
+                    _check_output_or_raise(prod, target_w, target_h)
+                    out = src.with_name(f"{src.stem}_fu.mp4")
+                    shutil.move(str(prod), out)
+                    log.info("逐帧放大完成 (%.0fs): %s → %s",
+                             time.time() - t0, src.name, out.name)
+                    return out
+        if status.get("completed"):
+            raise RuntimeError("完成但无视频产物")
+    raise TimeoutError(f"逐帧放大超时（{_TIMEOUT_S:.0f}s）")
 
 
-def _check_output_or_raise(prod: Path) -> None:
-    """产物自验：分辨率必须到交付档（ffprobe；探测器缺失不拦）。"""
+def _check_output_or_raise(prod: Path, target_w: int = _TARGET_W,
+                           target_h: int = _TARGET_H) -> None:
+    """产物自验：分辨率必须到目标交付档（ffprobe；探测器缺失不拦）。"""
     ffp_path = ROOT_DIR / "runtime" / "ffmpeg" / "bin" / "ffprobe.exe"
     ffp: str = (str(ffp_path) if ffp_path.is_file()
                 else (shutil.which("ffprobe") or ""))
@@ -227,9 +259,9 @@ def _check_output_or_raise(prod: Path) -> None:
          str(prod)],
         capture_output=True, text=True, timeout=30, creationflags=flags)
     dims = (r.stdout or "").strip()
-    if dims != f"{_TARGET_W},{_TARGET_H}":
+    if dims != f"{target_w},{target_h}":
         raise RuntimeError(
-            f"逐帧放大产物分辨率 {dims} != {_TARGET_W}x{_TARGET_H}")
+            f"逐帧放大产物分辨率 {dims} != {target_w}x{target_h}")
 
 
 def upscale_segments(seg_paths: list[Path], *,

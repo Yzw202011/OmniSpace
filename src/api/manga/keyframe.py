@@ -190,7 +190,12 @@ def _image_prompt_from_abc(desc: str) -> str:
     m = re.search(r"(?m)^B[.、．]", desc)
     a_text = desc[:m.start()].strip() if m else desc.strip()
     a_text = re.sub(r"^A[.、．]\s*全局风格[：:]\s*", "", a_text)
+    # 音频声明剥除（分镜图无声，语句不进画面提示词）——新旧两版都认：
+    # 2026-10-07 用户令改版前=「只有音效」，改版后=「仅保留环境自然音效
+    # 与角色台词」（存量行旧句/新生成行新句并存）
     a_text = a_text.replace("全程无字幕、无背景音乐、只有音效。", "")
+    a_text = a_text.replace(
+        "全程无字幕、无背景音乐，仅保留环境自然音效与角色台词。", "")
     a_text = a_text.strip("，。 ")
     # B 段：B 标记行起至 C 标记/首个镜头行止（标题可退化——2026-08-25
     # 实测 4B 常输出「B. 正文」或「B. 世界状态快照：…」形态）
@@ -263,6 +268,10 @@ _SHOT_FRAMING = {
 _SHOT_TEXT_CLOSE_RE = re.compile(r"大特写|特写|中近景|近景|头肩|close-?up", re.I)
 _SHOT_TEXT_WIDE_RE = re.compile(
     r"大远景|远景|全景|广角|wide shot|full shot|establishing|long shot", re.I)
+# 纵深远去措辞（2026-10-07 v39 第二格两个陈雪）：命中即补单人纪律句
+_RECEDE_RE = re.compile(
+    r"越走越远|越来越远|渐远|远去|走远|远离|渺小|驶远|背影.*远|"
+    r"reced|walk(?:ing)? away|into the distance", re.I)
 
 
 def _shot_text_framing(text: str) -> str:
@@ -427,7 +436,12 @@ def _shot_image_prompt_from_abc(desc: str, grid: dict,
     m = re.search(r"(?m)^B[.、．]", desc)
     a_text = desc[:m.start()].strip() if m else desc.strip()
     a_text = re.sub(r"^A[.、．]\s*全局风格[：:]\s*", "", a_text)
+    # 音频声明剥除（分镜图无声，语句不进画面提示词）——新旧两版都认：
+    # 2026-10-07 用户令改版前=「只有音效」，改版后=「仅保留环境自然音效
+    # 与角色台词」（存量行旧句/新生成行新句并存）
     a_text = a_text.replace("全程无字幕、无背景音乐、只有音效。", "")
+    a_text = a_text.replace(
+        "全程无字幕、无背景音乐，仅保留环境自然音效与角色台词。", "")
     # 2026-10-05 用户二定：分镜图以描述词为主——A 段风格词保留原文
     # （描述词写 3D CG 就该出 3D CG 观感），项目风格行不再替换 A 段
     #（生词链才以项目风格行为主；V49-bis 的替换版就此退役，历史
@@ -1849,6 +1863,14 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
 
             shot_text = (shots[si].get("text") or "").strip()
             char_prompt, chosen = _shot_char_protocol(char_assets, shot_text)
+            # 纵深单人纪律（2026-10-07 用户实报 v39 第二格两个陈雪）：
+            # 正文含「越走越远/渐远/渺小」类纵深措辞时，模型把纵深直接
+            # 画成「近处一个+远处一个」同人复制（参考图干净也发生，
+            # refs=2 实锤）——检测命中即补纪律句，压住文本语义打架
+            if _RECEDE_RE.search(shot_text):
+                char_prompt += ("。纵深距离感仅由人物比例与站位远近表现，"
+                                "同一人物全画面只出现一次，"
+                                "不得因远近复制人物")
             chosen_idx = [i for i, a in enumerate(char_assets)
                           if any(a is c for c in chosen)]
             # 景别仲裁（2026-10-06 第三格两个陈雪）：正文明示 > 固定

@@ -289,3 +289,14 @@ def test_text_framing_overrides_script_slot():
             text_framing="close")
     assert "Medium close-up" in sp2
     assert "Wide establishing shot" not in sp2
+
+
+def test_recede_re_single_instance() -> None:
+    """纵深远去措辞命中（2026-10-07 v39 第二格两个陈雪）。"""
+    ns = _extract(KEYFRAME_PY, {"_RECEDE_RE"}, set())
+    rx = ns["_RECEDE_RE"]
+    assert rx.search("女人的背影向着公路延伸的方向走去，越走越远")
+    assert rx.search("身影在广阔天地间显得渺小但坚定")
+    assert rx.search("渐远的旅程")
+    assert not rx.search("她转过身，背对镜头")
+    assert not rx.search("中景，低角度仰拍")

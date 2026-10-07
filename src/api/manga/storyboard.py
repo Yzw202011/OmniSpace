@@ -833,22 +833,19 @@ def _anchor_extract_shots(block: str, parsed: list[dict]) -> list[dict] | None:
 def _ai_split_block_sync(block: str, temperature: float = 0.3) -> str:
     """单块 AI 分镜推理（线程池内同步执行）。模型不可用返回空串。
 
-    云端路由（2026-09-06 文本槽位拆分）：「漫剧文字」工位绑定云端连接
-    时走云端（ensure_loaded(cloud::…) 内部完成本地↔云端切换）；未绑定
-    保持本地 qwen3-vl-4b 旧行为。
+    文本链统一闸（2026-10-07 用户令，对齐绘画链 paint_choice_cloud_ep）：
+    模型设置（module_config manga-dialog 槽）为唯一真源——显式选 cloud::
+    才走云，选本地=严格本地。此前两处坑：①import 少写 .services 被
+    静默吞（槽位绑定永远读不到）；②matches_target 被对话槽云绑定短路
+    （本地选择被劫持成云端 glm-5.3）。ensure_loaded 现在无条件调用
+    （已同目标=零成本短路；跨后端=自动切换）。
     """
     eng = get_dialog_engine()
-    try:
-        from ...cloud_provider_service import resolve_slot_cloud_model
-        _cloud_model = resolve_slot_cloud_model("manga.text")
-    except Exception:  # noqa: BLE001 - 解析失败按本地
-        _cloud_model = None
-    target = _cloud_model or "qwen3-vl-4b"
-    # 云端绑定：ensure_loaded 幂等（已同目标=matches_target 短路；
-    # 本地就绪时调它=触发本地↔云端切换），失败按未就绪返回空串
-    if _cloud_model or not eng.is_ready:
-        if not eng.ensure_loaded(target):
-            return ""
+    target = manga_dialog_model_id()
+    # ensure_loaded 幂等：已同目标=短路；跨后端/换模型=自动切换，
+    # 失败按未就绪返回空串
+    if not eng.ensure_loaded(target):
+        return ""
     return eng.chat([{"role": "user", "content": _SPLIT_PROMPT + block}],
                     temperature=temperature, max_new_tokens=1200)
 
@@ -1456,32 +1453,32 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     engine = get_dialog_engine()
     lock = await acquire_or_raise("dialog", task_id=row_id or None)
     try:
-        # 云端路由（2026-09-06 文本槽位拆分）：「漫剧文字」工位绑定云端
-        # 时优先 ensure_loaded(cloud::…)（内部完成本地↔云端切换，就绪
-        # 同目标=短路）；未绑定保持 module_config 本地模型旧行为
-        try:
-            from ...cloud_provider_service import resolve_slot_cloud_model
-            _cloud_model = resolve_slot_cloud_model("manga.text")
-        except Exception:  # noqa: BLE001 - 解析失败按本地
-            _cloud_model = None
-        if not engine.is_ready or _cloud_model:
-            _target = _cloud_model or manga_dialog_model_id()
-            if not await run_blocking(engine.ensure_loaded, _target):
-                status = engine.get_status()
-                raise ApiError(
-                    "DIALOG_NOT_READY",
-                    "对话模型未加载且自动加载失败，请先在对话模块加载模型",
-                    detail={"engine_state": status["state"],
-                            "last_error": status["last_error"]})
+        # 文本链统一闸（2026-10-07 用户令，对齐绘画链 paint_choice_cloud_ep）：
+        # 模型设置（module_config manga-dialog 槽）为唯一真源——显式选
+        # cloud:: 才走云，选本地=严格本地；工位绑定不再抢跑。此前两处
+        # 坑：①import 少写 .services 被 except 静默吞（槽位绑定永远读
+        # 不到，gpt-5.2 绑了个寂寞）；②matches_target 被对话槽云绑定
+        # 短路（本地选择被劫持成云端 glm-5.3，思考泄漏进描述词）。
+        # ensure_loaded 现在无条件调用（已同目标=零成本短路）
+        _target = manga_dialog_model_id()
+        if not await run_blocking(engine.ensure_loaded, _target):
+            status = engine.get_status()
+            raise ApiError(
+                "DIALOG_NOT_READY",
+                "对话模型未加载且自动加载失败，请先在对话模块加载模型",
+                detail={"engine_state": status["state"],
+                        "last_error": status["last_error"]})
         prefix = (req.prompt_prefix or "").strip()
         base_prompt = _build_abc_prompt(row, assets)
         prompt = f"{prefix}\n{base_prompt}" if prefix else base_prompt
         try:
-            # max_new_tokens=1536：氛围行 + B/C 正文 ~450 字 + R1 系思考段
-            # 预算（1024 以下正文易被思考段挤占，实测"模型返回为空"）
+            # max_new_tokens 1536→3072（2026-10-07 用户实报）：思考型云
+            # 端模型（glm-5.3 等）思考段可吞 1500+ token，1536 预算下
+            # 正文被挤到 0 字（finish=length 硬切，B 段截断实证）——
+            # 翻倍给正文留足空间；本地 4B 输出 ~450 字不受影响
             raw = (await run_blocking(
                 engine.chat, [{"role": "user", "content": prompt}],
-                temperature=0.7, max_new_tokens=1536)).strip()
+                temperature=0.7, max_new_tokens=3072)).strip()
         except Exception as exc:  # noqa: BLE001 - 推理失败收敛为语义错误码
             raise ApiError("MODEL_INFERENCE_FAILED",
                            f"分镜描述词生成失败：{exc}") from exc

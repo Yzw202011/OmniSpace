@@ -174,3 +174,45 @@ def test_normalize_short_duration_stays_1x2() -> None:
     g = _parse_abc_shots(norm)
     assert g["layout"] == "1x2"
     assert len(g["shots"]) == 2
+
+
+# ── 思考行定向清除（2026-10-07 用户实报：glm-5.3 思考经兜底回退混入）──
+
+def test_finalize_strips_cot_lines() -> None:
+    from src.api.manga.common import _finalize_abc_body
+    raw = (
+        "Let me analyze the task:\n"
+        "\n"
+        "3. The storyboard text:\n"
+        "氛围：盛夏正午蓝白清冷调\n"
+        "Let me draft:\n"
+        "B. 高密度世界观构建：\n"
+        "盛夏正午，沿海别墅小区入口，少女快步疾走。\n"
+        '"盛夏正午蓝白清冷色调，急促慌乱中透出松弛" - count: 盛(1)夏(2)\n'
+        "B段 draft: 在一个宁静世界里\n"
+        "C. 分镜时间轴：\n"
+        "[0.1s-3.0s] 画面：少女攥紧行李箱拉杆快步离开 | 运镜：跟随 | 音效：脚步声\n"
+    )
+    out = _finalize_abc_body(raw, "韩国网漫风", required_shots=1,
+                             duration=3.0)
+    # 思考残留零容忍
+    for marker in ("Let me", "analyze", "count:", "draft", "storyboard"):
+        assert marker not in out, marker
+    # 真 B/C 段完好
+    assert "高密度世界观构建" in out
+    assert "行李箱" in out
+
+
+def test_finalize_keeps_struct_lines_with_cot_words() -> None:
+    from src.api.manga.common import _finalize_abc_body
+    raw = (
+        "B. 高密度世界观构建：\n"
+        "少女快步走过街角。\n"
+        "C. 分镜时间轴：\n"
+        "[0.1s-3.0s] 画面：她轻声说台词 | 台词：夏沐沐（低语）：Let me go | "
+        "音效：风声\n"
+    )
+    out = _finalize_abc_body(raw, "韩国网漫风", required_shots=1,
+                             duration=3.0)
+    # 台词行（结构行）含思考特征词也豁免
+    assert "Let me go" in out

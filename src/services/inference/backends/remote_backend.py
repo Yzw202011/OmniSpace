@@ -293,6 +293,12 @@ class RemoteDialogBackend(DialogBackend):
             if ep is None:
                 return False
             want = f"{ep.base_url}|{parsed[1] or 'remote-model'}"
+        elif requested_model_id:
+            # 显式本地模型 id（非 cloud::）：语义=载本地——remote 后端
+            # 必然不匹配（返回 False 触发切回本地），不得拿对话槽绑定
+            # 短路（2026-10-07 用户实报：漫剧模型设置选本地，生词被
+            # 对话槽云绑定劫持成云端 glm-5.3）
+            return False
         else:
             ep = get_dialog_text_endpoint()
             if ep is None:
@@ -447,15 +453,24 @@ class RemoteDialogBackend(DialogBackend):
             resp.close()
         # 空回复兜底（2026-09-21 用户报「写 3000 字剧本一片空白」实测
         # 根因：正文 0 片段也记成功 → 前端空气泡）。对齐本地 vLLM 通道
-        # 语义（vllm_service reasoning 正文回退）：宁可重复不给空白
+        # 语义（vllm_service reasoning 正文回退）：宁可重复不给空白。
+        # 2026-10-07 收紧（用户实报分镜生词混英文思考）：finish=length
+        # 时思考被硬切在半截——回退出去的是残缺推演不是答案（分镜描述
+        # 词 B 段截断+「Let me analyze」泄漏实证），只认 finish=stop 的
+        # 思考回退；length 一律报错走重试
         if content_yielded:
             _log_call(True)
             return
-        if reasoning_parts:
+        if reasoning_parts and self.last_finish_reason == "stop":
             _log_call(True,
                       "reasoning_content 回退为正文（服务商未返回 content）")
             yield "".join(reasoning_parts)
             return
+        if reasoning_parts and self.last_finish_reason == "length":
+            _log_call(False, "reasoning-only truncated, finish_reason=length")
+            raise RuntimeError(
+                "云端思考型模型把 token 预算全部耗在思考上（finish=length），"
+                "正文 0 字。请重试；若持续出现，请在模型设置换非思考模型")
         _log_call(False,
                   f"empty stream, finish_reason="
                   f"{self.last_finish_reason or 'none'}")

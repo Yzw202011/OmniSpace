@@ -404,9 +404,11 @@ def _abc_style_block(style_line: str, atmosphere: str = "") -> str:
     """
     if atmosphere:
         return (f"A. 全局风格：{style_line}，{_ABC_FIXED_STYLE_TOKENS}。"
-                f"整体氛围为{atmosphere}。全程无字幕、无背景音乐、只有音效。")
+                f"整体氛围为{atmosphere}。全程无字幕、无背景音乐，"
+                f"仅保留环境自然音效与角色台词。")
     return (f"A. 全局风格：{style_line}，{_ABC_FIXED_STYLE_TOKENS}，"
-            "整体氛围贴合本镜剧情。全程无字幕、无背景音乐、只有音效。")
+            "整体氛围贴合本镜剧情。全程无字幕、无背景音乐，"
+            "仅保留环境自然音效与角色台词。")
 
 
 _ABC_PROMPT_TEMPLATE = """你是专业的 AI 视频分镜提示词工程师。根据下方【绑定资产设定】与【分镜原文】，为这一个分镜的视频生成模型撰写结构化描述词。
@@ -615,6 +617,18 @@ def _finalize_abc_body(raw: str, style_line: str,
     _STRUCT_LINE = re.compile(
         r"^(?:\[\d|运镜[：:]|台词[：:]|音效[：:]|画面[：:]|[ABC][.、．]|"
         r"氛围[：:])")
+    # 思考行定向清除（2026-10-07 用户实报：glm-5.3 思考经兜底回退混入
+    # 正文——「Let me analyze」「- count: 盛(1)夏(2)…」「B段 draft:」
+    # 等中英交错行，既有「连续≥2 行纯英文」规则拦不住）。两类整行弃：
+    # ①思维链特征词行；②冒号结尾的纯英文行（「Let me draft:」
+    # 「3. The storyboard text:」——推理小标题形态，正文不可能出现）。
+    # 结构行豁免；ABC 正文为中文叙事，误伤面趋零
+    _COT_LINE = re.compile(
+        r"(?:\b(?:let me|let's|i'll|i will|okay|hmm|draft|analyze|"
+        r"analysis|alternatively|option [ab12]|version [ab12]|"
+        r"character count|within \d+|step \d)\b"
+        r"|\bcount\s*[:：]|\bwait[,!.]|\bor[：:])", re.I)
+    _EN_HEADER = re.compile(r"^[^一-鿿]*[A-Za-z]{4,}[^一-鿿]*[:：]\s*$")
     out_lines: list[str] = []
     en_run: list[str] = []
     def _flush() -> None:
@@ -630,7 +644,15 @@ def _finalize_abc_body(raw: str, style_line: str,
         cjk = sum(1 for c in line
                   if "\u4e00" <= c <= "\u9fff")
         is_en = letters >= 8 and letters > cjk
-        if is_en and not _STRUCT_LINE.match(line.strip()):
+        stripped = line.strip()
+        # 思考特征行/纯英文小标题行立即整行弃（不走 en_run——单行短
+        # 英文会被保留规则放行，恰好是「Let me analyze the task:」
+        # 这类单行思考的逃生口）
+        if ((stripped and (_COT_LINE.search(line)
+                           or (is_en and _EN_HEADER.match(stripped))))
+                and not _STRUCT_LINE.match(stripped)):
+            continue
+        if is_en and not _STRUCT_LINE.match(stripped):
             en_run.append(line)
             continue
         _flush()

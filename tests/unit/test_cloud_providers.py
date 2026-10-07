@@ -277,7 +277,10 @@ def test_matches_target_scenarios(mem_kv) -> None:
     set_binding("dialog.text", item["id"], "deepseek-chat")
     b = _ready_backend("https://api.deepseek.com", "deepseek-chat")
     assert b.matches_target(None) is True  # 槽位绑定同目标 → 短路
-    assert b.matches_target("deepseek-chat") is True
+    # 显式本地模型 id（非 cloud::）：语义=载本地，remote 不短路
+    #（2026-10-07 用户实报：本地选择被对话槽云绑定劫持成 glm-5.3）
+    assert b.matches_target("deepseek-chat") is False
+    assert b.matches_target("qwen3-vl-4b") is False
     # 请求级 cloud:: 指向同连接同模型 → 短路
     assert b.matches_target(f"cloud::{item['id']}::deepseek-chat") is True
     # 请求级指定了不同模型 → 不短路（轻量重载换目标）

@@ -691,9 +691,13 @@ class DialogEngine(BaseEngine):
             # 传给 backend.load——返回裸模型名会让 load() 回落 dialog.text
             # 槽位端点（对话=A 漫剧=B 时，切 B 实际连 A 的错位）
             return (str(model_id), None, 0.0, "remote")
-        # 云端/远程模式（批3 D3 → 批1 泛化）：本地选型/显存闸门全部绕行，
-        # 模型名取 dialog.text 槽位绑定（未绑模型时透传请求的 model_id）
-        if _remote_dialog_enabled():
+        # 云端/远程模式（批3 D3 → 批1 泛化）：未指定模型（槽位默认
+        # 语义，ensure_loaded(None)）时取 dialog.text 槽位绑定。
+        # 2026-10-07 统一闸收紧（用户实报：漫剧模型设置选本地，分镜
+        # 生词被对话槽云绑定劫持成 glm-5.3——「本地选型全部绕行」的
+        # 旧设计与模型设置本地/云端二选一冲突）：显式本地 model_id
+        # 一律落下方本地候选，只有 cloud:: 或 None 走云。
+        if _remote_dialog_enabled() and not model_id:
             try:
                 from ..cloud_provider_service import get_dialog_text_endpoint
                 ep = get_dialog_text_endpoint()

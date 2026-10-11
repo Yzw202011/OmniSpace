@@ -396,6 +396,10 @@ class ComfyProcManager:
                         else COMFY_DIR / "python_embeded" / "python.exe")
             cmd = [str(comfy_py), "-s", "ComfyUI/main.py",
                    "--windows-standalone-build",
+                   # 压掉便携版强制的启动弹页（comfy/cli_args.py:291 对
+                   # standalone 强制 auto_launch=True，294 行本旗标后判
+                   # 定可覆盖；空闲自关+冷启动频繁，不压则每任务弹一页）
+                   "--disable-auto-launch",
                    # SageAttention V7 真内核（config comfyui.use_sage_attention
                    # 可关；进程级：H3/绘画共实例同时生效）
                    * (["--use-sage-attention"] if _use_sage_attention() else []),

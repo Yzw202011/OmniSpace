@@ -32,6 +32,8 @@ interface VideoInspectorPanelProps {
   rowId: string;
   onBack: () => void;
   onGenerateVideo: (row: StoryboardRow) => void;
+  /** 超分版视频 URL（2026-10-12 用户令：超分列缩略点击传入，主播放器播 SR） */
+  srUrl?: string;
 }
 
 /** 右键下载（fetch→blob 保文件名，同 InspectorPanel 范式） */
@@ -62,7 +64,7 @@ function hasVideo(t?: MangaVideoTask): boolean {
   return !!(t && t.status === 'done' && t.download_url);
 }
 
-export default function VideoInspectorPanel({ rowId, onBack, onGenerateVideo }: VideoInspectorPanelProps) {
+export default function VideoInspectorPanel({ rowId, onBack, onGenerateVideo, srUrl }: VideoInspectorPanelProps) {
   const rows = useMangaStore((s) => s.rows);
   const videoTasks = useMangaStore((s) => s.videoTasks);
   const showToast = useAppStore((s) => s.showToast);
@@ -83,7 +85,7 @@ export default function VideoInspectorPanel({ rowId, onBack, onGenerateVideo }: 
     .filter((t) => t.row_id === rowId && t.status === 'done' && t.download_url)
     .sort((a, b) => Number(b.created_at ?? 0) - Number(a.created_at ?? 0))
     .slice(0, 5);
-  const mainUrl = latest?.download_url ?? '';
+  const mainUrl = srUrl ?? latest?.download_url ?? '';
   const generating = latest?.status === 'generating' || latest?.status === 'pending';
 
   // 切行时关大窗
@@ -158,6 +160,9 @@ export default function VideoInspectorPanel({ rowId, onBack, onGenerateVideo }: 
               onMouseEnter={(e) => { void e.currentTarget.play().catch(() => { /* 自动播放被拒时静默 */ }); }}
               onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
             />
+            {srUrl && (
+              <span className="manga-insp-preview-tag">超分版</span>
+            )}
             {generating && (
               <span className="manga-insp-preview-tag">生成中 {Math.round((latest?.progress ?? 0) * 100)}%</span>
             )}

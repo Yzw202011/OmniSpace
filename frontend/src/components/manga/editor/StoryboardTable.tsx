@@ -331,6 +331,12 @@ interface StoryboardRowProps {
   onOpenInspector: (rowId: string) => void;
   /** 点视频缩略图 → 视频详情面板（2026-10-07 用户令：视频独立右栏） */
   onOpenVideoInspector: (rowId: string) => void;
+  /** 超分视频状态（taskId → 三态；父级轮询维护，2026-10-12 用户令） */
+  srState?: { status: string; progress?: number; url?: string; error?: string };
+  /** 点「超分」→ 触发该行交付视频按需超分 */
+  onStartSr: (taskId: string) => void;
+  /** SR 缩略点击 → 视频详情面板（srUrl=主播放器播超分版） */
+  onOpenSrInspector: (rowId: string, srUrl?: string) => void;
   onMove: (rowId: string, dir: -1 | 1) => void;
   onRemove: (rowId: string) => void;
   onGenerateVideo: (row: StoryboardRowData) => void;
@@ -363,6 +369,9 @@ const StoryboardRow = memo(function StoryboardRow({
   onUnbindAsset,
   onOpenInspector,
   onOpenVideoInspector,
+  srState,
+  onStartSr,
+  onOpenSrInspector,
   onMove,
   onRemove,
   onGenerateVideo,
@@ -633,6 +642,48 @@ const StoryboardRow = memo(function StoryboardRow({
         )}
       </div>
 
+      {/* 超分视频（2026-10-12 用户令：交付视频按需逐帧超分，独立产物列；
+          三态=超分按钮/进度/成品缩略，源视频列不动） */}
+      <div className="manga-sb-td c-sr" onClick={(e) => e.stopPropagation()}>
+        {videoTask && videoTask.status === 'done' && videoTask.download_url ? (
+          srState && srState.status === 'running' ? (
+            <div className="manga-video-prog" title="超分生成中">
+              <span className="manga-video-prog-bar" style={{ width: `${Math.round((srState.progress ?? 0) * 100)}%` }} />
+              <span className="manga-video-prog-text">
+                {Math.round((srState.progress ?? 0) * 100)}%
+              </span>
+            </div>
+          ) : srState && (srState.status === 'done' || srState.url) ? (
+            <div
+              className="manga-video-thumb manga-video-thumb-sr"
+              title={`镜 ${row.shot_number} 超分视频（点击进详情）`}
+              onClick={() => onOpenSrInspector(row.id, srState?.url)}
+            >
+              <video src={srState.url} muted playsInline preload="metadata" />
+              <span className="manga-sr-badge">SR</span>
+            </div>
+          ) : srState && srState.status === 'failed' ? (
+            <button
+              type="button"
+              className="manga-gen-btn error"
+              title={srState.error || '超分失败，点击重试'}
+              onClick={() => onStartSr(videoTask.task_id)}
+            >
+              超分重试
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="manga-gen-btn"
+              title="对该镜交付视频逐帧超分（分辨率见模型设置）"
+              onClick={() => onStartSr(videoTask.task_id)}
+            >
+              超分
+            </button>
+          )
+        ) : null}
+      </div>
+
       {/* 操作 */}
       <div className="manga-sb-td c-ops" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="manga-row-tool" title="分镜详情（预览/描述词/版本历史）" aria-label={`镜 ${row.shot_number} 详情`} onClick={() => onOpenInspector(row.id)}>
@@ -663,11 +714,17 @@ export interface StoryboardTableProps {
   onOpenInspector: (rowId: string) => void;
   /** 点视频缩略图 → 视频详情面板（2026-10-07 用户令） */
   onOpenVideoInspector: (rowId: string) => void;
+  /** 超分视频状态表（taskId → 三态；父级轮询维护，2026-10-12 用户令） */
+  srStates: Record<string, { status: string; progress?: number; url?: string; error?: string }>;
+  /** 点「超分」→ 触发该行交付视频按需超分 */
+  onStartSr: (taskId: string) => void;
+  /** SR 缩略点击 → 视频详情面板（srUrl=主播放器播超分版） */
+  onOpenSrInspector: (rowId: string, srUrl?: string) => void;
   /** 取消视频生成（方案C：顶栏进度行移除后，取消入口收进视频列进度块） */
   onCancelVideo?: (taskId: string) => void;
 }
 
-export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector, onOpenVideoInspector, onCancelVideo }: StoryboardTableProps) {
+export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenInspector, onOpenVideoInspector, onCancelVideo, srStates, onStartSr, onOpenSrInspector }: StoryboardTableProps) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const rows = useMangaStore((s) => s.rows);
@@ -1026,6 +1083,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
           <div className="manga-sb-td c-prop">道具</div>
           <div className="manga-sb-td c-image">分镜图</div>
           <div className="manga-sb-td c-video">视频</div>
+          <div className="manga-sb-td c-sr">超分视频</div>
           <div className="manga-sb-td c-ops">操作</div>
         </div>
 
@@ -1058,6 +1116,9 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               onUnbindAsset={handleUnbindAsset}
               onOpenInspector={onOpenInspector}
               onOpenVideoInspector={onOpenVideoInspector}
+              srState={srStates[latestTask(r.id)?.task_id ?? '']}
+              onStartSr={onStartSr}
+              onOpenSrInspector={onOpenSrInspector}
               onMove={moveShot}
               onRemove={removeShot}
               onGenerateVideo={onGenerateVideo}

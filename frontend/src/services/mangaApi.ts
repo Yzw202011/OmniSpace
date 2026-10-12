@@ -1175,3 +1175,33 @@ export async function uploadCustomVoice(
     '上传音色',
   );
 }
+
+/* ============================== 十四、超分视频（2026-10-12 用户令） ============================== */
+
+/** SR 状态（后端 GET super-resolution 的 data） */
+export interface VideoSrStatus {
+  status: 'none' | 'running' | 'done' | 'failed' | 'busy' | string;
+  progress?: number;
+  sr_url?: string;
+  error?: string;
+}
+
+/** 触发交付视频按需超分（POST /manga/video/{taskId}/super-resolution；异步作业） */
+export function startVideoSuperResolution(taskId: string): Promise<VideoSrStatus> {
+  return post<VideoSrStatus>(`/manga/video/${taskId}/super-resolution`);
+}
+
+/** 查询超分状态（GET /manga/video/{taskId}/super-resolution） */
+export function getVideoSuperResolutionStatus(taskId: string): Promise<VideoSrStatus> {
+  return get<VideoSrStatus>(`/manga/video/${taskId}/super-resolution`);
+}
+
+/** 读超分目标分辨率（GET /manga/video/sr-resolution；1k|2k） */
+export function getVideoSrResolution(): Promise<{ resolution: string }> {
+  return get<{ resolution: string }>('/manga/video/sr-resolution');
+}
+
+/** 写超分目标分辨率（PUT /manga/video/sr-resolution；下次 SR 作业即时生效） */
+export function setVideoSrResolution(resolution: '1k' | '2k'): Promise<{ resolution: string }> {
+  return put<{ resolution: string }>('/manga/video/sr-resolution', { resolution });
+}

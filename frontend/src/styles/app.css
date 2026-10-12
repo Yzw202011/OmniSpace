@@ -1245,19 +1245,19 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
   font-size: 10px; font-weight: var(--font-weight-bold);
 }
 
-/* ---------- 表格式分镜（竞品编辑器中央区，10 列：☑│序号│原文│描述词│人物│场景│道具│分镜图│视频│操作） ---------- */
+/* ---------- 表格式分镜（竞品编辑器中央区，11 列：☑│序号│原文│描述词│人物│场景│道具│分镜图│视频│超分视频│操作） ---------- */
 .manga-sb-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
 .manga-sb {
   border: 1px solid var(--color-border-light); border-radius: var(--radius-lg);
   /* 竞品表格底=极深灰近黑，微透出让极光背景渗透 */
   background: color-mix(in srgb, var(--color-card) 92%, transparent); overflow: hidden;
-  /* 10 列最小宽度：窄视口由 .manga-ed-center 横向滚动（overflow-y:auto 时 overflow-x 计算值为 auto） */
-  min-width: 1040px;
+  /* 11 列最小宽度：窄视口由 .manga-ed-center 横向滚动（overflow-y:auto 时 overflow-x 计算值为 auto） */
+  min-width: 1136px;
 }
 .manga-sb-tr {
   display: grid; align-items: start;
-  /* 竞品列宽比：描述词列最宽（≈30-35%），原文次之（≈18-20%） */
-  grid-template-columns: 36px 58px minmax(160px, 1.1fr) minmax(240px, 1.9fr) 128px 112px 100px 96px 92px 138px;
+  /* 竞品列宽比：描述词列最宽（≈30-35%），原文次之（≈18-20%）；末二列=视频/超分视频 */
+  grid-template-columns: 36px 58px minmax(160px, 1.1fr) minmax(240px, 1.9fr) 128px 112px 100px 96px 92px 92px 138px;
 }
 .manga-sb-head {
   position: sticky; top: 0; z-index: 1;
@@ -1275,7 +1275,15 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 .manga-sb-td.c-check { justify-content: center; padding-top: var(--space-3); }
 /* 序号列：圆标在上、竖排工具在下（表头沿用单列居中） */
 .manga-sb-td.c-idx { flex-direction: column; align-items: center; gap: 2px; padding-top: var(--space-2); }
-.manga-sb-td.c-image, .manga-sb-td.c-video { justify-content: center; }
+.manga-sb-td.c-image, .manga-sb-td.c-video, .manga-sb-td.c-sr { justify-content: center; }
+/* 超分视频列（2026-10-12 用户令）：SR 角标（缩略左上角，区别原视频） */
+.manga-sr-badge {
+  position: absolute; left: 3px; top: 3px;
+  padding: 1px 4px; border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.72); color: var(--color-primary);
+  font-size: 10px; font-weight: var(--font-weight-semibold); letter-spacing: 1px;
+  pointer-events: none;
+}
 /* 资产三列（出场人物/场景/道具）：内容顶对齐，与文本格视觉齐平 */
 .manga-sb-td.c-char, .manga-sb-td.c-scene, .manga-sb-td.c-prop { align-items: flex-start; padding-top: var(--space-2); }
 
@@ -1446,10 +1454,39 @@ input[type="range"].slider::-webkit-slider-thumb:hover { transform: scale(1.2); 
 
 /* ---------- 右侧资产面板（AssetDock，竞品对齐：340px 宽 + 4:5 竖版卡片） ---------- */
 .manga-dock {
-  width: 340px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
+  width: 340px; flex-shrink: 0; display: flex; flex-direction: row; min-height: 0;
   border-left: 1px solid var(--color-border-light);
   background: color-mix(in srgb, var(--color-card) 88%, transparent);
 }
+/* 收起态（2026-10-12 用户令）：面板缩为 28px 侧边栏把手，点击弹出 */
+.manga-dock.collapsed { width: 28px; }
+.manga-dock.collapsed .manga-dock-main { display: none; }
+.manga-dock-handle {
+  flex-shrink: 0; width: 28px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: var(--space-3); padding: var(--space-2) 0;
+  border: none; border-right: 1px solid var(--color-border-light); cursor: pointer;
+  background: transparent; color: var(--color-text-secondary);
+}
+/* 药丸箭头（2026-10-12 用户参考图样式）：圆角胶囊居中，hover 点亮主色 */
+.manga-dock-handle-pill {
+  width: 20px; height: 44px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border-light); border-radius: 999px;
+  background: color-mix(in srgb, var(--color-card) 92%, transparent);
+  transition: color var(--duration-hover) var(--ease-out),
+              border-color var(--duration-hover) var(--ease-out),
+              background var(--duration-hover) var(--ease-out);
+}
+.manga-dock-handle:hover { color: var(--color-primary); }
+.manga-dock-handle:hover .manga-dock-handle-pill {
+  color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+.manga-dock-handle-label {
+  writing-mode: vertical-rl; letter-spacing: 3px;
+  font-size: var(--font-size-xs); color: var(--color-text-tertiary);
+}
+.manga-dock-handle:hover .manga-dock-handle-label { color: var(--color-primary); }
+.manga-dock-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .manga-dock-head {
   display: flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border-light);

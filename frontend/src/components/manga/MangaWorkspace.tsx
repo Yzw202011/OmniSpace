@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
-import { promoteProjectAssets } from '@/services/mangaApi';
+import { promoteProjectAssets, getVideoSuperResolutionStatus, startVideoSuperResolution } from '@/services/mangaApi';
 import { SAVE_STATUS_LABELS } from '@/constants/statusLabels';
 import { getErrorMessage, reportBgError } from '@/utils/errors';
 import type { ShotSaveStatus, StoryboardRow } from '@/types';
@@ -104,6 +104,24 @@ export default function MangaWorkspace() {
   const [inferOpen, setInferOpen] = useState(false);
   /** 工序②角色生图→资产面板批量生成弹窗的接线信号（自增触发） */
   const [assetBatchSignal, setAssetBatchSignal] = useState(0);
+  /** 资产库面板收起态（右缘 28px 侧边栏把手；localStorage 持久化，刷新保持） */
+  const [dockCollapsed, setDockCollapsed] = useState(
+    () => localStorage.getItem('manga.dockCollapsed') === '1');
+  const toggleDockCollapsed = useCallback(() => {
+    setDockCollapsed((prev) => {
+      localStorage.setItem('manga.dockCollapsed', prev ? '0' : '1');
+      return !prev;
+    });
+  }, []);
+  /** 超分视频状态表（taskId → 三态；done 真源在后端文件存在，刷新后由探测重建）
+   *  （2026-10-12 用户令：超分视频列） */
+  const [srStates, setSrStates] = useState<
+    Record<string, { status: string; progress?: number; url?: string; error?: string }>
+  >({});
+  const srProbeRef = useRef<Set<string>>(new Set());
+  const srPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const srStatesRef = useRef(srStates);
+  srStatesRef.current = srStates;
 
   // 打开项目时预取资产（右栏资产面板 + 工序条状态判定）
   useEffect(() => {
@@ -154,11 +172,14 @@ export default function MangaWorkspace() {
   );
 
   // 打开视频详情面板（2026-10-07 用户令：视频独立右栏面板，与分镜图
-  // 面板互斥；表格视频缩略图点击进入）
+  // 面板互斥；表格视频缩略图点击进入。2026-10-12 扩展：srUrl 传入时
+  // 主播放器播超分版——超分视频列缩略图点击进入）
+  const [videoInspectSrUrl, setVideoInspectSrUrl] = useState<string | null>(null);
   const openVideoInspector = useCallback(
-    (rowId: string) => {
+    (rowId: string, srUrl?: string) => {
       setSelectedRow(rowId);
       setVideoInspectRowId(rowId);
+      setVideoInspectSrUrl(srUrl ?? null);
       setInspectRowId(null);
       setSelectedAsset(null);
       setBindingTarget(null);
@@ -166,6 +187,74 @@ export default function MangaWorkspace() {
     },
     [setSelectedRow, setSelectedAsset, setBindingTarget],
   );
+
+  // 超分轮询（2s 扫一遍 running 作业；全部终态即停。2026-10-12 用户令）
+  const ensureSrPolling = useCallback(() => {
+    if (srPollRef.current !== null) return;
+    srPollRef.current = setInterval(() => {
+      const running = Object.entries(srStatesRef.current).filter(
+        ([, s]) => s.status === 'running');
+      if (!running.length) {
+        if (srPollRef.current !== null) {
+          clearInterval(srPollRef.current);
+          srPollRef.current = null;
+        }
+        return;
+      }
+      for (const [taskId] of running) {
+        getVideoSuperResolutionStatus(taskId)
+          .then((res) => {
+            setSrStates((prev) => ({
+              ...prev,
+              [taskId]: res.status === 'done'
+                ? { status: 'done', url: res.sr_url }
+                : res.status === 'failed'
+                  ? { status: 'failed', error: res.error }
+                  : { status: 'running', progress: res.progress },
+            }));
+          })
+          .catch(() => { /* 瞬时网络错轮询自愈 */ });
+      }
+    }, 2000);
+  }, []);
+
+  // 点「超分」→ 触发该行交付视频按需超分（幂等；busy 如实提示）
+  const startSr = useCallback(
+    (taskId: string) => {
+      setSrStates((prev) => ({ ...prev, [taskId]: { status: 'running', progress: 0 } }));
+      ensureSrPolling();
+      startVideoSuperResolution(taskId)
+        .then((res) => {
+          if (res.status === 'done') {
+            setSrStates((prev) => ({ ...prev, [taskId]: { status: 'done', url: res.sr_url } }));
+          } else if (res.status === 'busy') {
+            setSrStates((prev) => ({ ...prev, [taskId]: { status: 'idle' } }));
+            showToast('已有超分任务在跑，请稍后再点', 'warning');
+          } else if (res.status === 'failed') {
+            setSrStates((prev) => ({ ...prev, [taskId]: { status: 'failed', error: '超分启动失败' } }));
+          }
+        })
+        .catch((err) => {
+          setSrStates((prev) => ({ ...prev, [taskId]: { status: 'failed', error: getErrorMessage(err) } }));
+        });
+    },
+    [ensureSrPolling, showToast],
+  );
+
+  // done 视频任务的 SR 状态探测（每任务每会话一次；刷新后由文件存在重建 done 态）
+  useEffect(() => {
+    for (const t of videoTasks) {
+      if (t.status !== 'done' || srProbeRef.current.has(t.task_id)) continue;
+      srProbeRef.current.add(t.task_id);
+      getVideoSuperResolutionStatus(t.task_id)
+        .then((res) => {
+          if (res.status === 'done' && res.sr_url) {
+            setSrStates((prev) => ({ ...prev, [t.task_id]: { status: 'done', url: res.sr_url } }));
+          }
+        })
+        .catch(() => { /* 探测失败静默，列显示超分按钮 */ });
+    }
+  }, [videoTasks]);
 
   // 行内 🎥 → 视频生成
   const handleGenerateVideo = useCallback(
@@ -492,6 +581,9 @@ export default function MangaWorkspace() {
               onOpenInspector={openInspector}
               onOpenVideoInspector={openVideoInspector}
               onCancelVideo={handleCancelVideo}
+              srStates={srStates}
+              onStartSr={startSr}
+              onOpenSrInspector={openVideoInspector}
             />
           )}
         </div>
@@ -505,10 +597,15 @@ export default function MangaWorkspace() {
           </DrawerFrame>
         )}
         {!drawer && selectedAssetId && <AssetDetailPanel />}
+        {!drawer && selectedAssetId && <AssetDetailPanel />}
         {!drawer && !selectedAssetId && videoInspectRowId && (
           <VideoInspectorPanel
             rowId={videoInspectRowId}
-            onBack={() => setVideoInspectRowId(null)}
+            srUrl={videoInspectSrUrl ?? undefined}
+            onBack={() => {
+              setVideoInspectRowId(null);
+              setVideoInspectSrUrl(null);
+            }}
             onGenerateVideo={handleGenerateVideo}
           />
         )}
@@ -516,7 +613,11 @@ export default function MangaWorkspace() {
           <InspectorPanel onBack={() => setInspectRowId(null)} onOpenVoice={() => setDrawer('voice')} />
         )}
         {!drawer && !selectedAssetId && !videoInspectRowId && !inspectRowId && (
-          <AssetDock batchSignal={assetBatchSignal} />
+          <AssetDock
+            batchSignal={assetBatchSignal}
+            collapsed={dockCollapsed}
+            onToggleCollapsed={toggleDockCollapsed}
+          />
         )}
       </div>
 

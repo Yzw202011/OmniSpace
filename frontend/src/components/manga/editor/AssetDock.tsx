@@ -23,7 +23,7 @@
  * ========================================================================== */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Globe, ImagePlus, Layers, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Globe, ImagePlus, Layers, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
 import {
@@ -141,7 +141,17 @@ function AssetCard({
   );
 }
 
-export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number }) {
+export default function AssetDock({
+  batchSignal = 0,
+  collapsed = false,
+  onToggleCollapsed,
+}: {
+  batchSignal?: number;
+  /** 收起态：面板缩为右缘 28px 侧边栏把手（2026-10-12 用户令） */
+  collapsed?: boolean;
+  /** 把手点击 = 收起/展开切换（状态与持久化在 MangaWorkspace） */
+  onToggleCollapsed?: () => void;
+}) {
   const showToast = useAppStore((s) => s.showToast);
   const currentProject = useMangaStore((s) => s.currentProject);
   const assets = useMangaStore((s) => s.assets);
@@ -395,7 +405,21 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
   const bindMode = !!bindingTarget && tab === bindingTarget.kind;
 
   return (
-    <aside className="manga-dock">
+    <aside className={`manga-dock${collapsed ? ' collapsed' : ''}`}>
+      {/* 收起/展开侧边栏把手（左缘竖条：药丸箭头居中；收起时加显「资产库」竖排字） */}
+      <button
+        type="button"
+        className="manga-dock-handle"
+        title={collapsed ? '展开资产库' : '收起资产库'}
+        aria-label={collapsed ? '展开资产库' : '收起资产库'}
+        onClick={onToggleCollapsed}
+      >
+        <span className="manga-dock-handle-pill">
+          {collapsed ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
+        </span>
+        {collapsed && <span className="manga-dock-handle-label">资产库</span>}
+      </button>
+      <div className="manga-dock-main">
       {/* 页签 + 刷新 */}
       <div className="manga-dock-head">
         <div className="seg" style={{ flex: 1 }}>
@@ -663,6 +687,7 @@ export default function AssetDock({ batchSignal = 0 }: { batchSignal?: number })
           批量生成
         </button>
       </div>
+      </div>{/* /manga-dock-main（收起时整体隐藏，Modal 留在外层不受影响） */}
 
       {/* 角色多视图生成 */}
       {multiviewOpen && (

@@ -27,25 +27,24 @@ export interface MangaModelConfig {
   quality: string;
 }
 
-/** 默认配置（模型空串 = 系统默认；横屏 16:9；4 秒）——恢复默认入口共用 */
+/** 默认配置（模型空串 = 系统默认；横屏 16:9；5 秒）——恢复默认入口共用 */
 export const DEFAULT_MODEL_CONFIG: MangaModelConfig = {
   dialogModel: '',
   paintModel: '',
   videoModel: '',
   aspect: '16:9',
-  duration: 4,
+  duration: 5,
   quality: '',
 };
 
-/** 可选视频时长（秒，竞品对齐 4/8/11/15；档位表缺失时的静态兜底） */
-export const VIDEO_DURATION_OPTIONS: readonly number[] = [4, 8, 11, 15];
+/** 可选视频时长（秒，2026-10-12 用户令 5/10/15；档位表缺失时的静态兜底） */
+export const VIDEO_DURATION_OPTIONS: readonly number[] = [5, 10, 15];
 
 /** 静态兜底档位表（与后端 video_caps.py 的 h3 档同源镜像；仅当模型
  * 清单响应未携带 tiers 时使用——正常路径以模型档位为准） */
 export const VIDEO_FALLBACK_TIERS: VideoModelTier[] = [
-  { duration: 4, qualities: ['720p', '480p'] },
-  { duration: 8, qualities: ['720p', '480p'] },
-  { duration: 11, qualities: ['480p'] },
+  { duration: 5, qualities: ['720p', '480p'] },
+  { duration: 10, qualities: ['720p', '480p'] },
   { duration: 15, qualities: ['480p'] },
 ];
 

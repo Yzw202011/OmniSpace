@@ -43,7 +43,7 @@ def test_workflow_construction(tmp_path, monkeypatch):
     wf = captured["wf"]
     assert wf["2"]["inputs"]["model_name"] == "4x-UltraSharp.pth"
     # 双路调和：3a=模型锐利版 3b=lanczos 柔和版 4=ImageBlend
-    assert wf["3a"]["inputs"]["width"] == 2688  # 2K 主档（2026-10-07）
+    assert wf["3a"]["inputs"]["width"] == 1344  # 默认交付档 1K（2026-10-12 用户令 2K→1K）
     assert wf["3b"]["inputs"]["upscale_method"] == "lanczos"
     assert wf["4"]["class_type"] == "ImageBlend"
     assert wf["4"]["inputs"]["image1"] == ["3a", 0]
@@ -137,8 +137,60 @@ def test_2k_failure_falls_back_to_1k(tmp_path, monkeypatch):
     monkeypatch.setattr(fu.time, "sleep", lambda s: None)
     src = tmp_path / "seg.mp4"
     src.write_bytes(b"src")
-    out = fu.upscale_video(src, comfy_input=tmp_path, comfy_output=tmp_path)
+    # 显式 2K 目标：本测试专验「2K 失败→1K 回退」链（默认档已改 1K，
+    # 2026-10-12 用户令——缺省调用只发一档）
+    out = fu.upscale_video(src, comfy_input=tmp_path, comfy_output=tmp_path,
+                           target=fu._DELIVERY_2K)
     assert out.name == "seg_fu.mp4"
     assert len(posts) == 2
     assert posts[0]["3a"]["inputs"]["width"] == 2688  # 首档 2K
     assert posts[1]["3a"]["inputs"]["width"] == 1344  # 回退 1K
+
+
+def test_chunked_streaming_2k(tmp_path, monkeypatch):
+    """流式分块（Video2X 式）：探测帧数→分块循环→合段；块 wf 无声+保真 fps。"""
+    monkeypatch.setattr(fu, "frame_upscale_ready", lambda base=None: True)
+    monkeypatch.setattr(fu, "_probe_video_meta", lambda s: (240, 24))
+    posts: list[dict] = []
+    muxed: list = []
+
+    def fake_api(base, method, path, body=None, timeout=10.0):
+        if method == "POST" and path == "/prompt":
+            posts.append(body["prompt"])
+            idx = len(posts)
+            d = tmp_path / "frame_upscale"
+            d.mkdir(exist_ok=True)
+            (d / f"chunk{idx}.mp4").write_bytes(b"mp4")
+            monkeypatch.setattr(fu, "_check_output_or_raise",
+                                lambda p, w=0, h=0: None)
+            return {"prompt_id": f"t{idx}"}
+        if method == "GET" and path.startswith("/history/"):
+            idx = int(path.rsplit("t", 1)[-1])
+            return {f"t{idx}": {"status": {"completed": False},
+                                "outputs": {"6": {"gifs": [{
+                                    "filename": f"chunk{idx}.mp4",
+                                    "subfolder": "frame_upscale"}]}}}}
+        raise AssertionError(f"unexpected {method} {path}")
+
+    def fake_mux(chunks, src, out, fps, progress_cb=None,
+                 target_w=None, target_h=None):
+        muxed.append((len(chunks), fps))
+        out.write_bytes(b"final")
+
+    monkeypatch.setattr(fu, "_concat_and_mux", fake_mux)
+    monkeypatch.setattr(fu, "_api", fake_api)
+    monkeypatch.setattr(fu.time, "sleep", lambda s: None)
+    src = tmp_path / "seg.mp4"
+    src.write_bytes(b"src")
+    out = fu.upscale_video(src, comfy_input=tmp_path, comfy_output=tmp_path)
+    # 240 帧 / 48 帧块 = 5 块
+    assert len(posts) == 5
+    assert [p["1"]["inputs"]["skip_first_frames"] for p in posts] == \
+        [0, 48, 96, 144, 192]
+    assert all(p["1"]["inputs"]["frame_load_cap"] == 48 for p in posts)
+    # 块 wf 无声（无 5/音轨节点），帧率保真 24
+    assert all("5" not in p for p in posts)
+    assert all(p["6"]["inputs"]["frame_rate"] == 24 for p in posts)
+    # 合段：5 块 + 源音轨拼回
+    assert muxed == [(5, 24)]
+    assert out.name == "seg_fu.mp4"

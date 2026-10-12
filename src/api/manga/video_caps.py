@@ -14,14 +14,16 @@ from __future__ import annotations
 
 import bisect
 
-# 档位表（具体配对；720p 档仅 ≤8s 是 16G 显存实测约束，2026-08-31 口径）
+# 档位表（具体配对；2026-10-12 用户令解锁 5/10/15s 档——720p×10s 经
+# 16G 实测通过（峰值 15.6G/43.7min，2026-10-12 探针），720p×15s 撞
+# H3 单镜 10.1s 结构上限（VIDEO_RUN_GRID 顶格 243 帧）保持锁定，
+# 链式分段另议。720p≤8s 旧口径（2026-08-31）作废）
 VIDEO_MODEL_TIERS: dict[str, dict] = {
     "minimax-h3": {
         "label": "minimax-h3",
         "tiers": [
-            {"duration": 4, "qualities": ["720p", "480p"]},
-            {"duration": 8, "qualities": ["720p", "480p"]},
-            {"duration": 11, "qualities": ["480p"]},
+            {"duration": 5, "qualities": ["720p", "480p"]},
+            {"duration": 10, "qualities": ["720p", "480p"]},
             {"duration": 15, "qualities": ["480p"]},
         ],
     },

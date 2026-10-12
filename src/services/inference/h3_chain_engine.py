@@ -288,20 +288,34 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
             continue  # 首帧保持段（协议 artifact）
         text = cam = sfx = ""
         dlg: list[str] = []  # 四轮挖掘②：同拍多台词行收集（旧版单值覆盖丢前句）
+        last_field = ""
         for part in re.split(r"[|\n]", blk[m.end():]):
             p = part.strip()
             if not p:
                 continue
             if p.startswith("画面"):
                 text = re.sub(r"^画面[：:]\s*", "", p)
+                last_field = "text"
             elif p.startswith("运镜"):
                 cam = re.sub(r"^运镜[：:]\s*", "", p)
+                last_field = "cam"
             elif p.startswith("台词"):
-                dlg.append(re.sub(r"^台词[：:]\s*", "", p))
+                _d = re.sub(r"^台词[：:]\s*", "", p).strip()
+                if _d:
+                    dlg.append(_d)
+                last_field = "dlg"
             elif p.startswith("音效"):
                 sfx = re.sub(r"^音效[：:]\s*", "", p)
+                last_field = "sfx"
             elif not text:
                 text = p
+                last_field = "text"
+            elif last_field == "dlg":
+                # 台词续行（2026-10-11 新格式变体实锤）：台词： 独立成行
+                # （空内容）+对白在下一行（无字段前缀的裸说话人行）——
+                # 原逻辑落到 not text 已被占/直接丢弃，台词整体丢失
+                dlg.append(p)
+                last_field = "dlg"
         # 四轮挖掘③：转场拍（画面「衔接上一镜头…」承上启下空拍）——
         # 每镜独立剧本看不到上一镜，引用即幻觉诱因；跳过（与 first_shot
         # 同口径）。全为转场拍时该拍保留文本剥离引用词（诚实兜底）
@@ -311,6 +325,44 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
             shots.append({"start": _st, "end": _en, "text": text,
                           "cam": cam, "dlg": dlg, "sfx": sfx,
                           "spans": _en > seconds + 0.01})
+    if not shots:
+        # 编号格式分支（描述词 v2 无时间码变体：「1. 画面：…」逐行）。
+        # 此前落整段单拍兜底，「1. 画面：衔接…」连转场带实拍糊成一条，
+        # 转场剥离/摘要首拍跳过双双失效（存量红测试
+        # test_six_section_summary_skips_transition_shot 实锤，2026-10-12）。
+        # 门卫：段数过半带字段前缀才按拍列表切（单段编号也放行——
+        # 「1. 画面：…」+台词/音效双无的单镜合法；散文列举 0 前缀仍拦）
+        num_segs = [s for s in re.split(r"(?:^|\n)\s*(?=\d+[\.、])",
+                                        c_win.strip()) if s.strip()]
+        _FIELD_PREFIXES = ("画面", "运镜", "台词", "音效")
+        stripped = [re.sub(r"^\d+[\.、]\s*", "", s.strip()) for s in num_segs]
+        if stripped and sum(
+                s.startswith(_FIELD_PREFIXES) for s in stripped) * 2 >= len(stripped):
+            for seg in stripped:
+                text = cam = sfx = ""
+                dlg_n: list[str] = []
+                for part in re.split(r"[|\n]", seg):
+                    p = part.strip()
+                    if not p:
+                        continue
+                    if p.startswith("画面"):
+                        text = re.sub(r"^画面[：:]\s*", "", p)
+                    elif p.startswith("运镜"):
+                        cam = re.sub(r"^运镜[：:]\s*", "", p)
+                    elif p.startswith("台词"):
+                        _d = re.sub(r"^台词[：:]\s*", "", p).strip()
+                        if _d:
+                            dlg_n.append(_d)
+                    elif p.startswith("音效"):
+                        sfx = re.sub(r"^音效[：:]\s*", "", p)
+                    elif not text:
+                        text = p
+                if text.startswith("衔接"):
+                    text = ""  # 转场拍：与时间码路径同口径剥离
+                if text or dlg_n:
+                    shots.append({"start": 0.0, "end": seconds, "text": text,
+                                  "cam": cam, "dlg": dlg_n, "sfx": sfx,
+                                  "spans": False})
     if not shots:  # 无有效拍块兜底：整段当单拍（诚实降级）
         shots = [{"start": 0.0, "end": seconds, "text": c_win, "cam": "",
                   "dlg": [], "sfx": "", "spans": False}]
@@ -546,9 +598,11 @@ _REQUIRED_NODES = frozenset({"1", "2", "3", "4", "110", "1700", "1701", "1706", 
 
 def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
-                  start_clip: int = 1) -> dict:
+                  start_clip: int = 1, turbo: bool = True) -> dict:
     graph = json.loads(json.dumps(template))
-    missing = _REQUIRED_NODES - graph.keys()
+    required = (set(_REQUIRED_NODES) if turbo
+                else set(_REQUIRED_NODES) - {"1961"} | {"122"})
+    missing = required - graph.keys()
     if missing:
         raise ApiError(
             "H3_WORKFLOW_TEMPLATE_BROKEN",
@@ -561,7 +615,17 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
     graph["2"]["inputs"]["clip_name"] = _CHAIN_H3_FILES["clip"]
     graph["3"]["inputs"]["vae_name"] = _CHAIN_H3_FILES["video_vae"]
     graph["4"]["inputs"]["vae_name"] = _CHAIN_H3_FILES["audio_vae"]
-    graph["1961"]["inputs"]["lora_name"] = _CHAIN_H3_FILES["turbo_lora"]
+    if turbo:
+        graph["1961"]["inputs"]["lora_name"] = _CHAIN_H3_FILES["turbo_lora"]
+    else:
+        # 官方非 turbo 基线（对照官方 1、For循环版 20 步模板 / V5·V6 双采
+        # 12,3 显式位移模板）：摘蒸馏 LoRA（1961）与 Turbo 采样器（1962），
+        # 采样器换模板内休眠的 KSamplerSelect(122, res_multistep)——
+        # shift 12/3 位移（节点 5）保留，与官方双采模板同构
+        graph["5"]["inputs"]["model"] = graph["1961"]["inputs"]["model"]
+        graph["124"]["inputs"]["sampler"] = ["122", 0]
+        graph.pop("1961", None)
+        graph.pop("1962", None)
     # （dual_clock 调用段已删——批5 A/B 收口 2026-09-18）
     p = graph["1700"]["inputs"]
     p["plan_json"] = plan_json
@@ -694,14 +758,19 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                       "prompt": [_six_section(r["description"], refs, seconds)],
                       "length": frames, "seed": seed})
     # 采样步数档位（批1b 2026-09-12）：config manga.h3_steps，标准 6 /
-    # 快速 4（Turbo LoRA 有效区间 4~8，钳制防呆）
+    # 快速 4（Turbo LoRA 有效区间 4~8，钳制防呆）。h3_turbo=false 走
+    # 官方非 turbo 基线（摘蒸馏 LoRA，官方目录步数=20；2026-10-11 挡位
+    # 战役放开 8~30 供 A/B，缺省仍 turbo，生产行为不变）
     try:
-        _steps = int((get_config().get("manga") or {}).get(
-            "h3_steps", 6) or 6)
+        _manga = (get_config().get("manga") or {})
+        _steps = int(_manga.get("h3_steps", 6) or 6)
+        _turbo = bool(_manga.get("h3_turbo", True))
     except Exception:  # noqa: BLE001 - 配置异常按标准档
-        _steps = 6
+        _steps, _turbo = 6, True
+    _steps = (max(4, min(8, _steps)) if _turbo
+              else max(8, min(30, _steps)))
     plan = {"defaults": {"duration_seconds": seconds,
-                         "steps": max(4, min(8, _steps))},
+                         "steps": _steps},
             "shots": shots}
     plan_json = json.dumps(plan, ensure_ascii=False, indent=1)
 
@@ -717,7 +786,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         with engine._gen_lock:
             graph = _render_graph(json.loads(_load_template_text()),
                                   plan_json, run_name, width, height,
-                                  refs, task_id, start_clip)
+                                  refs, task_id, start_clip, turbo=_turbo)
             import urllib.error
             try:
                 resp = engine._api("POST", "/prompt",
@@ -845,8 +914,13 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         dest = _mute_audio_track(dest)
     report(1.0, "完成")
     total_seconds = sum(float(s["length"]) for s in shots) / 24.0
+    # 真实档位标签（2026-10-11 挡位战役：turbo/非 turbo 与步数由本引擎
+    # 决定，调用方 model_used 直取，消「标签写死 turbo 名不符实」）
+    engine_label = ("h3_chain_turbo_v10" if _turbo
+                    else f"h3_chain_v10_s{_steps}")
     return {"file_path": str(dest), "resolution": f"{width}x{height}",
             "duration_seconds": total_seconds,
+            "engine_label": engine_label,
             "run_name": run_name, "start_clip": start_clip}
 
 

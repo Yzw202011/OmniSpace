@@ -153,10 +153,11 @@ comfyui:
     enabled: true
   # H3 逐帧放大 pass（清晰度线 2026-10-01）：导演台段生成（及可选脸
   # 修复）后做逐帧软件超分到 1344x768 交付档（+~110s/段，内容零改动）。
-  # 默认 false；依赖 upscale_models/4x-UltraSharp.pth + VHS 包，缺失自动
-  # 降级跳过。时序殿后（脸修复之后、拼接之前）
+  # 2026-10-12 用户令关闭自动放大：视频列回归模型设置分辨率原生直出，
+  # 超分改为漫剧工作台「超分视频」列按需触发（超分分辨率在模型设置选）。
+  # 依赖 upscale_models/4x-UltraSharp.pth + VHS 包，缺失自动降级跳过。
   h3_frame_upscale:
-    enabled: true
+    enabled: false
 
 manga:
   # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，
@@ -166,10 +167,18 @@ manga:
   camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
   pose_presets_count: 15
   voice_preset_emotions: ["默认", "愤怒", "悲伤"]
-  # H3 链采样步数（批1b 2026-09-12）：Turbo LoRA 有效区间 4~8 步
-  # （README 口径）。6 = 标准档（现行，大动态镜头更稳）；4 = 快速档
-  # （采样段再省 ~33%，大动态有 ghosting 风险）。改完重启后端生效。
-  h3_steps: 6
+  # H3 链采样步数（批1b 2026-09-12 设 6；2026-10-11 挡位战役转正 10）：
+  # 挡位战役 10 支实弹（双种子，data/h3_tune/results.jsonl）——10 步非
+  # turbo 全程 18.78min 与 6 步 turbo 基线持平，中景双脸清晰、质量全面
+  # 碾压（6 步 turbo 蒸馏纹理天花板=中景脸崩 2/2 种子复现）。改完重启
+  # 后端生效。
+  h3_steps: 10
+  # H3 turbo 蒸馏链开关（2026-10-11 挡位战役新增，缺省 true=旧行为）。
+  # false=官方非 turbo 基线：摘 turbo LoRA 与 Turbo 采样器，走
+  # res_multistep 标准采样（shift 12/3 保留，与官方 V5/V6 双采模板同构；
+  # 官方工作流目录步数=20）。战役数据：非 turbo 10/20 步质量显著优于
+  # turbo 6 步。turbo=true 时 h3_steps 钳 4~8，false 时钳 8~30。
+  h3_turbo: false
   # T8 双时钟采样器（P-4 2026-09-16，默认 false 待 A/B 收口）：true=H3
   # 采样段换 MiniMaxH3DualClockSamplerT8（社区口径再提速 ~100% 未独立
   # 复验；节点包 custom_nodes/comfyui-minimax-h3-audio-T8 零额外依赖）。
@@ -179,6 +188,8 @@ manga:
   # （丢格为构图级失败，VL 修复环不可修）——保持 legacy 直至 comfy
   # 侧多格方案（独立格生成+拼格/区域条件）验证通过。
   # Z2 2026-09-15：zviews=Z-Image 分张管线（逐视图+参考锚身份+代码贴字，语义/标注构造性正确）；回滚=改回 legacy。
+  # 2026-10-03 新增 klein/onepass 档（用户令试）：跳过 qwen21/zviews 闸，直接 FLUX.2 Klein 4B 一次出四格（legacy diffusers）。
+  #  10-03 实测：能出（262s 四格齐），但细节词服从（盘发/齐刘海）与速度均逊 qwen21——主力仍 qwen21，klein 留作手动档。
   turnaround_engine: zviews
   # 四视图云端档（拍板 B 2026-09-15：本地优先+云端显式选）：
   # off=本地 Z-Image（默认——旧「绑了云端端点即走云=默认烧配额」经拍板

@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -605,12 +606,18 @@ _H3_TRANSLATE_SYSTEM = (
 
 
 def _h3_translator() -> Callable[[str], str]:
-    """H3 描述词翻译器（完整忠实，不压缩；失败时转换层诚实降级保留中文）。"""
+    """H3 描述词翻译器（完整忠实，不压缩；失败时转换层诚实降级保留中文）。
+
+    翻译模型链（2026-10-10 转义层本地化）：漫剧文字槽显式选择优先
+    （cloud:: 或本地 id），其余本地就绪模型兜底，槽位默认殿后——
+    机械预处理本地优先，云模型留给创作（对齐统一闸裁定）。
+    """
     from ...services.inference.prompt_translator import translate_prompt_zh2en
 
     def _translate(text: str) -> str:
         return translate_prompt_zh2en(
-            text, max_tokens=768, system_prompt=_H3_TRANSLATE_SYSTEM)
+            text, max_tokens=768, system_prompt=_H3_TRANSLATE_SYSTEM,
+            prefer_models=[manga_dialog_model_id()])
 
     return _translate
 
@@ -1070,7 +1077,7 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
             _video_update_task(task_id, {
                 "status": "done", "progress": 1.0,
                 "file_path": result["file_path"],
-                "model_used": "h3_chain_turbo_v10",
+                "model_used": result.get("engine_label", "h3_chain_v10"),
                 "resolution": result["resolution"],
                 "duration_seconds": result["duration_seconds"],
                 "generation_time_ms": int((time.time() - t0) * 1000)})
@@ -1322,6 +1329,15 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     now = _now()
     db = get_db_safe()
     persisted = False
+    # 画质档 fail-fast 前置（2026-10-08 用户实报：档位校验曾排在任务
+    # 行落库之后——11s 档送 high 被拒，尸体 pending 行堵死该行全部
+    # 后续生成。档位解析是纯函数，前置零副作用）
+    _h3_seconds = min(max(float(req.duration_seconds or 10), 3.0), 15.0)
+    _quality_tier = req.quality
+    if use_h3_chain:
+        from .video_caps import resolve_quality
+        _quality_tier = resolve_quality(req.model_override or "",
+                                        _h3_seconds, req.quality)
 
     async def _archive_4in1(b64: str) -> str:
         """D2-① 根修（2026-09-21）：4in1 截图出库——base64 落文件、
@@ -1411,15 +1427,13 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                                           _aspect_any, flow)
         resp["engine"] = f"cloud:{_cloud_ep.provider_name}"
     elif use_h3_chain:
-        seconds = min(max(float(req.duration_seconds or 10), 3.0), 15.0)
-        # 画质分档具体化（2026-10-03）：显式档精确配对校验/空=档默认
-        #（video_caps.py 档位表，非法组合带允许清单拒绝）；画幅复用
-        # 上方宽高推导 _aspect_any（9:16 竖屏翻转）
-        from .video_caps import resolve_quality
+        seconds = _h3_seconds
+        # 画质分档具体化（2026-10-03）：显式档精确配对校验已前置到
+        # 任务落库之前（fail-fast，见上方 _quality_tier）——此处直接
+        # 用解析结果
         runner = _make_h3_chain_runner(
             row_ids=[req.storyboard_row_id], seconds=seconds,
-            quality=resolve_quality(req.model_override or "", seconds,
-                                    req.quality),
+            quality=_quality_tier,
             aspect=_aspect_any, flow=flow)
         resp["engine"] = "h3_chain"
     else:
@@ -1614,6 +1628,178 @@ def video_download(task_id: str) -> FileResponse:
                                "status": row.get("status", "pending")})
     return FileResponse(str(path), media_type="video/mp4",
                         filename=f"{task_id}.mp4")
+
+
+# ============================== 超分视频（2026-10-12 用户令） ==============================
+# 「超分视频」列按需逐帧超分：行视频 done 后点击 → 后台 ESRGAN 作业 →
+# 完成后在超分列播放。源=该任务当前交付文件；输出=同目录 {原名}_sr.mp4
+# （命名约定，零 DB 迁移）。状态持久真源=产物文件存在（作业表随进程
+# 重启丢失不影响 done 判定）；running 进度存进程内作业表。分辨率经
+# settings KV manga.sr_resolution（1k|2k）实时读取，模型设置弹窗可配。
+
+_SR_JOBS: dict[str, dict] = {}
+_SR_SEMAPHORE = threading.Semaphore(1)
+
+
+def _sr_target_resolution_name() -> str:
+    """当前超分分辨率设置名（settings KV manga.sr_resolution：1k|2k）。"""
+    from ...data.settings_kv import kv_get
+    return "2k" if str(kv_get("manga.sr_resolution", "1k") or "1k").lower() == "2k" else "1k"
+
+
+def _sr_target() -> tuple[int, int]:
+    """超分目标分辨率（settings KV manga.sr_resolution：1k|2k，默认 1k）。"""
+    from ...services.inference import h3_frame_upscale as _fu
+    return _fu._DELIVERY_2K if _sr_target_resolution_name() == "2k" \
+        else _fu._DELIVERY_1K
+
+
+def _sr_path_for(task_id: str, row: dict) -> Path:
+    """当前分辨率设置下的 SR 产物路径（{原名}_sr{1k|2k}.mp4）。
+
+    分辨率进命名（2026-10-12）：切档后旧档产物不冒充新档结果——
+    按需重跑，两档产物可共存。
+    """
+    src = _task_video_file(task_id, row)
+    return src.with_name(f"{src.stem}_sr{_sr_target_resolution_name()}.mp4")
+
+
+def _task_video_file(task_id: str, row: dict) -> Path:
+    """任务交付视频文件的解析路径（口径同 download 端点；缺失即抛）。"""
+    file_path = row.get("file_path") or ""
+    path = (DATA_DIR / file_path) if file_path and not Path(file_path).is_absolute() \
+        else (Path(file_path) if file_path else None)
+    if path is None or not path.is_file():
+        candidate = VIDEO_OUT_DIR / f"{task_id}.mp4"
+        if candidate.is_file():
+            return candidate
+        raise ApiError("VIDEO_NOT_READY", "视频文件不存在或尚未生成完成",
+                       detail={"task_id": task_id})
+    return path
+
+
+def _run_sr_job(task_id: str, src: Path, out: Path,
+                target: tuple[int, int]) -> None:
+    """SR 后台作业（worker 线程）：进度写作业表；成败如实；毕即释放单飞。"""
+    try:
+        from ...services.inference.h3_engine import get_h3_engine
+        from ...services.inference.h3_frame_upscale import upscale_video
+
+        # 冷启动（2026-10-12 探针实锤）：SR 可能先于任何生成任务到达——
+        # 重启后 ComfyUI 未起，10s 就绪探测对冷服务器必扑空。先经引擎
+        # 托管链拉起并等 API 就绪（与主链采样前等待同源）。
+        get_h3_engine()._ensure_running(lambda f, s: None)
+
+        def _cb(f: float, _stage: str) -> None:
+            job = _SR_JOBS.get(task_id)
+            if job is not None:
+                job["progress"] = max(0.0, min(1.0, float(f)))
+
+        result = upscale_video(src, target=target, progress_cb=_cb,
+                               out_name=out.name)
+        job = _SR_JOBS.get(task_id) or {}
+        if result == out and out.is_file():
+            job["status"], job["progress"] = "done", 1.0
+        else:
+            job["status"] = "failed"
+            job["error"] = "超分失败（管线零阻断回退，无产物）"
+        _SR_JOBS[task_id] = job
+    except Exception as exc:  # noqa: BLE001 - 失败如实进作业表
+        job = _SR_JOBS.get(task_id) or {}
+        job["status"], job["error"] = "failed", str(exc)[:300]
+        _SR_JOBS[task_id] = job
+    finally:
+        _SR_SEMAPHORE.release()
+
+
+@router.post("/manga/video/{task_id}/super-resolution")
+async def video_super_resolution_start(task_id: str) -> dict[str, Any]:
+    """触发交付视频的按需超分（异步作业，GET 同路径轮询进度）。
+
+    幂等：已有 done 产物 / running 作业直接返回现态。单飞：全局一次
+    一支 SR 作业，占线时返回 busy（前端提示稍后再点）。
+    """
+    row = _video_task_record(task_id)
+    if row is None:
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在",
+                       detail={"task_id": task_id})
+    if row.get("status") != "done":
+        raise ApiError("VIDEO_NOT_READY", "视频尚未生成完成，不能超分",
+                       detail={"task_id": task_id,
+                               "status": row.get("status", "")})
+    src = _task_video_file(task_id, row)
+    out = _sr_path_for(task_id, row)
+    if out.is_file():
+        return ok({"status": "done",
+                   "sr_url": f"{API_PREFIX}/manga/video/{task_id}/sr"})
+    job = _SR_JOBS.get(task_id)
+    if job is not None and job.get("status") == "running":
+        return ok({"status": "running",
+                   "progress": round(float(job.get("progress", 0.0)), 3)})
+    if not _SR_SEMAPHORE.acquire(blocking=False):
+        return ok({"status": "busy"})
+    _SR_JOBS[task_id] = {"status": "running", "progress": 0.0}
+    threading.Thread(target=_run_sr_job, args=(task_id, src, out, _sr_target()),
+                     name=f"video-sr-{task_id[:8]}", daemon=True).start()
+    return ok({"status": "running", "progress": 0.0})
+
+
+@router.get("/manga/video/{task_id}/super-resolution")
+def video_super_resolution_status(task_id: str) -> dict[str, Any]:
+    """SR 状态探测：none / running(progress) / done(sr_url) / failed(error)。"""
+    row = _video_task_record(task_id)
+    if row is None:
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在",
+                       detail={"task_id": task_id})
+    job = _SR_JOBS.get(task_id)
+    if job is not None and job.get("status") == "running":
+        return ok({"status": "running",
+                   "progress": round(float(job.get("progress", 0.0)), 3)})
+    try:
+        out = _sr_path_for(task_id, row)
+    except ApiError:
+        out = None
+    if out is not None and out.is_file():
+        return ok({"status": "done",
+                   "sr_url": f"{API_PREFIX}/manga/video/{task_id}/sr"})
+    if job is not None and job.get("status") == "failed":
+        return ok({"status": "failed",
+                   "error": str(job.get("error", ""))[:300]})
+    return ok({"status": "none"})
+
+
+@router.get("/manga/video/{task_id}/sr")
+def video_sr_stream(task_id: str) -> FileResponse:
+    """SR 视频流式回放（{原名}_sr{档位}.mp4；供超分列缩略/详情播放）。"""
+    row = _video_task_record(task_id)
+    if row is None:
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在",
+                       detail={"task_id": task_id})
+    out = _sr_path_for(task_id, row)
+    if not out.is_file():
+        raise ApiError("VIDEO_NOT_READY", "超分视频不存在",
+                       detail={"task_id": task_id})
+    return FileResponse(str(out), media_type="video/mp4", filename=out.name)
+
+
+@router.get("/manga/video/sr-resolution")
+def video_sr_resolution_get() -> dict[str, Any]:
+    """读超分目标分辨率（模型设置弹窗数据源；1k|2k）。"""
+    from ...data.settings_kv import kv_get
+    res = str(kv_get("manga.sr_resolution", "1k") or "1k").lower()
+    return ok({"resolution": "2k" if res == "2k" else "1k"})
+
+
+@router.put("/manga/video/sr-resolution")
+async def video_sr_resolution_put(body: dict[str, Any]) -> dict[str, Any]:
+    """写超分目标分辨率（模型设置弹窗保存；下次 SR 作业即时生效）。"""
+    res = str((body or {}).get("resolution", "")).lower()
+    if res not in ("1k", "2k"):
+        raise ApiError("SYSTEM_PARAM_INVALID", "超分分辨率仅支持 1k/2k",
+                       detail={"given": res[:40]})
+    from ...data.settings_kv import kv_set
+    kv_set("manga.sr_resolution", res)
+    return ok({"resolution": res})
 
 
 @router.delete("/video/history/{task_id}")

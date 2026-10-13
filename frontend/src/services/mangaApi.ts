@@ -1205,3 +1205,17 @@ export function getVideoSrResolution(): Promise<{ resolution: string }> {
 export function setVideoSrResolution(resolution: '1k' | '2k'): Promise<{ resolution: string }> {
   return put<{ resolution: string }>('/manga/video/sr-resolution', { resolution });
 }
+
+/** 图像队列快照条目（GET /paint/queue；关键帧/资产图同队） */
+export interface PaintQueueItem {
+  task_id: string;
+  type?: string;
+  kind?: string;
+  status: string;
+  percent?: number;
+}
+
+/** 读图像任务队列快照（GET /paint/queue；等待+运行中，用于刷新后恢复生成中态） */
+export function getPaintQueue(): Promise<{ pending: PaintQueueItem[]; running: PaintQueueItem[] }> {
+  return get<{ pending: PaintQueueItem[]; running: PaintQueueItem[] }>('/paint/queue');
+}

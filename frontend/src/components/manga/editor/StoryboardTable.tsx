@@ -607,8 +607,8 @@ const StoryboardRow = memo(function StoryboardRow({
             <button
               type="button"
               className="manga-video-redo"
-              title="重新生成视频"
-              disabled={busyKey !== ''}
+              title={srState?.status === 'running' ? '超分进行中，完成后可重新生成视频' : '重新生成视频'}
+              disabled={busyKey !== '' || srState?.status === 'running'}
               onClick={(e) => {
                 e.stopPropagation();
                 onGenerateVideo(row);

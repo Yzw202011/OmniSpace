@@ -69,6 +69,13 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
   const [replacing, setReplacing] = useState(false);
   // WS 实时进度（后端逐镜/采样步级广播 → 按钮内进度条）
   const genProgress = useGenProgress('keyframe', selectedRowId ?? undefined, generating);
+  // 刷新恢复态收敛（2026-10-12）：恢复的 generating 由 WS done/error 事件
+  // 关闸（正常生成流自有 await 收敛，不经过这里）
+  useEffect(() => {
+    if (genProgress?.status === 'done' || genProgress?.status === 'error') {
+      setGenerating(false);
+    }
+  }, [genProgress?.status]);
 
   // 选中行切换：拉取关键帧 + 描述词草稿跟随行数据
   const lastSyncedDescRef = useRef('');
@@ -80,6 +87,24 @@ export default function InspectorPanel({ onBack, onOpenVoice }: { onBack?: () =>
     fetchKeyframes(selectedRowId).catch((err) =>
       reportBgError('InspectorPanel.fetchKeyframes', err),
     );
+    // 刷新/重进项目恢复生成中态（2026-10-12 用户令）：图像队列里有本行
+    // 的关键帧在飞任务 → 恢复 generating，进度由 WS task_progress 续播
+    // （后端广播跨页面存活），done 事件经下方监听收敛
+    let alive = true;
+    import('@/services/mangaApi').then(({ getPaintQueue }) => getPaintQueue())
+      .then((snap) => {
+        if (!alive) return;
+        const prefix = `kf:${selectedRowId.slice(0, 12)}:`;
+        const inFlight = [...snap.running, ...snap.pending].some(
+          (t) => (t.kind === 'keyframe' || String(t.task_id).startsWith('kf:'))
+            && String(t.task_id).startsWith(prefix),
+        );
+        if (inFlight) setGenerating(true);
+      })
+      .catch(() => { /* 探测失败静默（生成中态丢一次刷新感知） */ });
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRowId]);
 

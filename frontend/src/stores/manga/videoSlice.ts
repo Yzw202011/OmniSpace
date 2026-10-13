@@ -309,10 +309,28 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
         }
         const existing = new Set(get().videoTasks.map((t) => t.task_id));
         const historyTasks: MangaVideoTask[] = [];
+        const resumePolls: Array<{ task_id: string; row_id: string }> = [];
         latestByRow.forEach((t) => {
           if (existing.has(t.task_id)) return;
-          // pending/generating 历史残留无轮询器接管，不进列表
-          //（避免永久卡在"生成中"假进度）
+          // pending/generating 历史任务（2026-10-12 用户令修复：刷新/重进
+          // 项目后进度消失）→ 纳入列表并由 startVideoPoll 接管轮询，进度
+          // 实时恢复；后端队列是真源，完成后经 done 分支自动落缩略
+          if (t.status === 'pending' || t.status === 'generating') {
+            resumePolls.push({ task_id: t.task_id, row_id: t.row_id });
+            historyTasks.push({
+              task_id: t.task_id,
+              row_id: t.row_id,
+              created_at: t.created_at,
+              shot_number: t.shot_number,
+              description: '',
+              status: t.status as MangaVideoTask['status'],
+              progress: t.progress,
+              queue_position: t.queue_position,
+              error: undefined,
+              download_url: undefined,
+            });
+            return;
+          }
           if (t.status !== 'done' && t.status !== 'error') return;
           historyTasks.push({
             task_id: t.task_id,
@@ -333,6 +351,10 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           set((state) => ({
             videoTasks: [...historyTasks, ...state.videoTasks],
           }));
+        }
+        // 在飞任务接管轮询（必须在 set 之后：poller tick 按 task_id 找条目）
+        for (const p of resumePolls) {
+          startVideoPoll(p.task_id, p.row_id);
         }
       } catch (err) {
         // 历史加载失败不阻塞工作区（CONSOLE 级留痕）

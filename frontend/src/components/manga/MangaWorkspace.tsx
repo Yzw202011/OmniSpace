@@ -250,11 +250,16 @@ export default function MangaWorkspace() {
         .then((res) => {
           if (res.status === 'done' && res.sr_url) {
             setSrStates((prev) => ({ ...prev, [t.task_id]: { status: 'done', url: res.sr_url } }));
+          } else if (res.status === 'running') {
+            // 刷新前发起的 SR 作业仍在跑（后端线程跨页面存活）→ 恢复
+            // running 显示并由轮询接管进度
+            setSrStates((prev) => ({ ...prev, [t.task_id]: { status: 'running', progress: res.progress } }));
+            ensureSrPolling();
           }
         })
         .catch(() => { /* 探测失败静默，列显示超分按钮 */ });
     }
-  }, [videoTasks]);
+  }, [videoTasks, ensureSrPolling]);
 
   // 行内 🎥 → 视频生成
   const handleGenerateVideo = useCallback(

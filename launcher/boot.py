@@ -24,7 +24,7 @@ ADR-002 交付形态（launcher + 系统浏览器）内的统一启动编排器�
   - 退出时清理 ComfyUI 残留（吸收 watchdog_backend.ps1 兜底职责）
 
 用法：
-  runtime\\py310\\python.exe launcher\\boot.py [--port 5800] [--no-browser]
+  runtime\\py312\\python.exe launcher\\boot.py [--port 5800] [--no-browser]
       [--comfy] [--warmup] [--no-warmup（已废弃，默认即不预热）]
 """
 from __future__ import annotations
@@ -1404,7 +1404,86 @@ class BootOrchestrator:
         self.state.log('已全部关闭')
 
 
+def _append_boot_log(message: str) -> None:
+    """守卫期直写 boot.log（BootState 尚未建立；追加式单行，超限轮转一代）。"""
+    line = (f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+            f"[boot] {message}\n")
+    with _boot_log_lock:
+        try:
+            if BOOT_LOG.exists() \
+                    and BOOT_LOG.stat().st_size > _BOOT_LOG_ROTATE_BYTES:
+                BOOT_LOG.replace(BOOT_LOG.with_name(BOOT_LOG.name + '.1'))
+            BOOT_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with BOOT_LOG.open('a', encoding='utf-8') as fh:
+                fh.write(line)
+        except OSError:
+            pass  # 日志失败不拦启动
+
+
+# ── 入口解释器守卫（2026-10-16 用户拍板 C：启动链回归 py312 主链）──────
+# 事故链（2026-10-16 实锤）：并发会话裸 `python launcher/boot.py` 起动，
+# 全机 PATH 前置 runtime/py313（vLLM 栈）→ boot 随 py313 → py313 无品牌
+# Backend.exe 回退 sys.executable → 后端同跑 py313 → 该运行时无 pynvml
+# → GPU 遥测假空闲 + 显存守卫失明。守卫先于一切端口/进程动作：
+# 非 py312 且仓内 py312 在 → 原参数转投重拉；带 OMNISPACE_REEXEC_GUARD=1
+# 标记仍不在 py312 → 报错退出防循环；仓内无 py312（发行包布局）→
+# fail-open 放行只提示。
+
+
+def _mainline_interpreters(root: Path) -> tuple[str, str] | None:
+    """仓内 py312 主链解释器 (console, windowless)；缺失 = None。"""
+    py_c = root / 'runtime' / 'py312' / 'python.exe'
+    if not py_c.is_file():
+        return None
+    py_w = py_c.with_name('pythonw.exe')
+    return str(py_c), str(py_w if py_w.is_file() else py_c)
+
+
+def _is_mainline_interpreter(root: Path, exe: str) -> bool:
+    """当前解释器是否位于仓内 py312 主链目录（品牌件同目录视为是）。"""
+    try:
+        return Path(exe).resolve().parent \
+            == (root / 'runtime' / 'py312').resolve()
+    except OSError:
+        return False
+
+
+def _guard_mainline_interpreter(root: Path | None = None) -> None:
+    """非 py312 主链解释器起动时自动转投重拉（背景见上方守卫注释）。"""
+    root = root or BOOT_DIR.parent
+    if _is_mainline_interpreter(root, sys.executable):
+        return
+    pair = _mainline_interpreters(root)
+    if pair is None:
+        print(f'[boot] 提示：仓内无 runtime/py312 主链，'
+              f'按当前解释器继续（{sys.executable}）', flush=True)
+        return
+    if os.environ.get('OMNISPACE_REEXEC_GUARD') == '1':
+        print('[boot] 错误：转投 py312 后仍在非主链解释器上，终止防循环'
+              f'（{sys.executable}）。请改用 启动OmniSpace.bat 启动',
+              flush=True)
+        raise SystemExit(1)
+    # console 链保住黑窗日志（python.exe），无窗链保 pythonw
+    windowless = Path(sys.executable).name.lower().endswith('w.exe')
+    target = pair[1] if windowless else pair[0]
+    _append_boot_log(
+        f'入口守卫：当前解释器非 py312 主链（{sys.executable}），'
+        f'自动转投 {target} 重拉 boot')
+    child_env = dict(os.environ)
+    child_env['OMNISPACE_REEXEC_GUARD'] = '1'
+    try:
+        ret = subprocess.run(
+            [target, str(Path(__file__).resolve()), *sys.argv[1:]],
+            env=child_env)
+    except OSError as exc:
+        print(f'[boot] 错误：转投 py312 主链失败（{exc}），'
+              '按当前解释器继续', flush=True)
+        return
+    raise SystemExit(ret.returncode)
+
+
 def main() -> int:
+    _guard_mainline_interpreter()
     parser = argparse.ArgumentParser(description='OmniSpace AI 启动主程序')
     parser.add_argument('--port', type=int, default=5800, help='后端端口')
     parser.add_argument('--no-browser', action='store_true', help='不自动打开界面')

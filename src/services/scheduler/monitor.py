@@ -38,7 +38,8 @@ def _try_import(name: str) -> Any:
 
 
 _pynvml = _try_import("pynvml")
-_torch = _try_import("torch")
+# torch 降级导入已随假数据回退分支一并移除（2026-10-16 方案B）——它曾
+# 只为该分支服务，且让每次后端启动无谓加载 torch（数秒级 + 百 MB 内存）
 
 
 class HardwareMonitor:
@@ -113,20 +114,13 @@ class HardwareMonitor:
             result["devices"] = devices
             return result
 
-        # 降级：使用 torch（主卡）
-        if _torch is not None and _torch.cuda.is_available():
-            try:
-                result["vram_total_mb"] = int(
-                    _torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
-                )
-                result["vram_used_mb"] = int(
-                    _torch.cuda.memory_allocated(0) // (1024 * 1024)
-                )
-                result["util_percent"] = 0.0  # torch 无法直接获取利用率
-                return result
-            except Exception:
-                pass
-
+        # NVML 不可用 = GPU 遥测整体未知（2026-10-16 方案B拍板：假数据
+        # 诚实化）。原 torch 降级只拿得到设备总量与本进程分配——后者是
+        # 进程本地值（本进程不加载模型则恒 0），util 写死 0、温度拿不到，
+        # 拼出「0.0/15.9GB 空闲」假象且被 _realtime_gpu 标 available=True
+        # 渲染成真读数，还让显存守卫失明（py313 无 pynvml 事故实锤）。
+        # 按 P1-05 诚实原则保持初始零值：上层判 vram_total_mb=0 →
+        # available=False → 前端显示 --（可辨识的未知，不再编空闲）。
         return result
 
     def _sample_all_gpu_devices(self) -> list[dict]:

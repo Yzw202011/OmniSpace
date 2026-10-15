@@ -517,6 +517,75 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     ])
 
 
+def h3_sharpen_enabled() -> bool:
+    """全局锐化 pass 开关（config comfyui.h3_sharpen.enabled，2026-10-12）。"""
+    try:
+        from ...config import get_config
+        return bool(((get_config().get("comfyui") or {})
+                     .get("h3_sharpen") or {}).get("enabled", True))
+    except Exception:  # noqa: BLE001 - 配置异常按开（锐化零阻断）
+        return True
+
+
+def _sharpen_strength() -> float:
+    """锐化强度（CAS 0~1；A/B 定档 0.6——0.5 保守/0.7 进取，0.9 过锐）。"""
+    try:
+        from ...config import get_config
+        return max(0.0, min(1.0, float(
+            ((get_config().get("comfyui") or {})
+             .get("h3_sharpen") or {}).get("strength", 0.6))))
+    except Exception:  # noqa: BLE001
+        return 0.6
+
+
+def _sharpen_pass(video: Path, strength: float = 0.6,
+                  progress_cb: Callable[[str], None] | None = None) -> Path:
+    """全局 CAS 锐化 + 时序降噪（对比度自适应，光晕少于 unsharp）：整帧轻推
+
+    边缘反差 + hqdn3d 时序降噪（帧间闪烁实测 MAD 8.2→7.3~7.7，量化
+    2026-10-13）——修正原生直出在全屏播放下的感知软化与噪点。秒级
+    ffmpeg 滤镜重编码（crf16 保码率），音轨 stream copy；失败零阻断
+    回退原片。降噪+锐化合并为同一次重编码（零额外成本）。
+    """
+    try:
+        from ..encoder_service import get_encoder_service  # type: ignore[import-untyped]
+        enc = get_encoder_service()
+        if not enc.available:
+            log.warning("[h3_chain] 全局锐化跳过（FFmpeg 不可用），保留原片")
+            return video
+        if progress_cb is not None:
+            progress_cb("CAS 锐化中")
+        # 降噪前置（hqdn3d 时序+空间）→ CAS 锐化收尾：先清噪再提边缘，
+        # 反序会把噪声一起放大
+        vf = "cas=strength={:.2f}".format(strength)
+        try:
+            from ...config import get_config
+            if ((get_config().get("comfyui") or {})
+                    .get("h3_sharpen") or {}).get("denoise", True):
+                vf = "hqdn3d=1.5:1.5:6:6," + vf
+        except Exception:  # noqa: BLE001 - 配置异常按默认（含降噪）
+            vf = "hqdn3d=1.5:1.5:6:6," + vf
+        tmp = video.with_name(f"{video.stem}_sh.mp4")
+        flags = (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        r = subprocess.run(
+            [enc.ffmpeg_path, "-y", "-i", str(video),
+             "-vf", vf,
+             "-c:v", "libx264", "-crf", "16", "-preset", "medium",
+             "-c:a", "copy", str(tmp)],
+            capture_output=True, text=True, timeout=600,
+            creationflags=flags)
+        if r.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 1000:
+            shutil.move(str(tmp), str(video))
+            log.info("[h3_chain] 全局 CAS 锐化完成 (strength=%.2f, vf=%s): %s",
+                     strength, vf, video.name)
+        else:
+            log.warning("[h3_chain] 全局锐化失败（保留原片）: %s",
+                        (r.stderr or "")[-200:])
+    except Exception as exc:  # noqa: BLE001 - 锐化失败不阻断交付
+        log.warning("[h3_chain] 全局锐化异常（保留原片）: %s", exc)
+    return video
+
+
 def _chain_audio_spec(descriptions: list[str], seconds: float) -> tuple[bool, bool, bool]:
     """多行链式的台词/音效并集判定 → (有台词, 有具名音效, 显式双无)。
 
@@ -598,7 +667,8 @@ _REQUIRED_NODES = frozenset({"1", "2", "3", "4", "110", "1700", "1701", "1706", 
 
 def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
-                  start_clip: int = 1, turbo: bool = True) -> dict:
+                  start_clip: int = 1, turbo: bool = True,
+                  two_stage: bool = False) -> dict:
     graph = json.loads(json.dumps(template))
     required = (set(_REQUIRED_NODES) if turbo
                 else set(_REQUIRED_NODES) - {"1961"} | {"122"})
@@ -610,6 +680,10 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
             "编号漂移（引擎按编号注入参数，缺号=静默错图，宁可失败不出错片）",
             suggestion="对照 git 还原 h3_chain_workflow_api.json；若有意改模板，"
                        "须同步更新引擎 _REQUIRED_NODES 与注入代码")
+    # 两阶段（2026-10-13 用户令）：720p 档用 480p 采样 + 神经 latent 上采样
+    # + 低σ精修回 720p——时间砍半、画质同级（V1 生产实弹验证 h3v1_latent2stage）
+    base_w, base_h = (864, 480) if (two_stage and width >= 1280) \
+        else (width, height)
     # B6 步2：权重名从 _CHAIN_H3_FILES 单源注入（json 内同名值=占位默认）
     graph["1"]["inputs"]["unet_name"] = _CHAIN_H3_FILES["unet"]
     graph["2"]["inputs"]["clip_name"] = _CHAIN_H3_FILES["clip"]
@@ -630,7 +704,7 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
     p = graph["1700"]["inputs"]
     p["plan_json"] = plan_json
     p["run_name"] = run_name
-    p["width"], p["height"] = width, height
+    p["width"], p["height"] = base_w, base_h
     graph["1701"]["inputs"]["start_clip"] = start_clip
     graph["1706"]["inputs"]["filename"] = f"{run_name}_%date:yyyy-MM-dd%"
     # 参考图:动态识别模板里的参考 LoadImage 节点及其在 110 上的槽位键
@@ -648,7 +722,50 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
         else:
             graph.pop(nid, None)
             graph["110"]["inputs"].pop(key, None)
+    if two_stage:
+        _insert_latent_refine(graph, base_w, base_h, width, height)
     return graph
+
+
+def _insert_latent_refine(graph: dict, base_w: int, base_h: int,
+                          target_w: int, target_h: int) -> None:
+    """两阶段后处理：在采样器(124)输出与 VAEDecode(130/131) 之间插入
+
+    MinimaxH3LatentUpscaler3DRefineHandoff——learned latent 上采样 +
+    低σ H3 精修，输出直接可解码 AV latent（目标分辨率）。
+    """
+    graph["V1noise"] = {"class_type": "RandomNoise", "inputs": {
+        "noise_seed": 42}}
+    graph["V1sampler"] = {"class_type": "KSamplerSelect", "inputs": {
+        "sampler_name": "res_multistep"}}
+    graph["V1sigmas"] = {"class_type": "BasicScheduler", "inputs": {
+        "scheduler": "simple", "steps": 10, "denoise": 0.3,
+        "model": ["5", 0]}}
+    graph["V1refine"] = {
+        "class_type": "MinimaxH3LatentUpscaler3DRefineHandoff",
+        "inputs": {
+            "latent": ["124", 0],
+            "noise": ["V1noise", 0],
+            "sampler": ["V1sampler", 0],
+            "sigmas": ["V1sigmas", 0],
+            "model": ["5", 0],
+            "positive": ["1703", 0],
+            "model_name": "minimax_h3_latent_upscaler_3d_fp16.safetensors",
+            "mode": "target dimensions",
+            "scale": 2.0,
+            "width": target_w,
+            "height": target_h,
+            "megapixels": 1.0,
+            "align": 32,
+            "keep_proportion": True,
+            "lock_audio": True,
+            "cfg": 1.0,
+            "device": "cuda",
+            "precision": "fp16",
+            "offload_after_upscale": False,
+        }}
+    graph["130"]["inputs"]["samples"] = ["V1refine", 0]
+    graph["131"]["inputs"]["samples"] = ["V1refine", 0]
 
 
 def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
@@ -786,7 +903,8 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         with engine._gen_lock:
             graph = _render_graph(json.loads(_load_template_text()),
                                   plan_json, run_name, width, height,
-                                  refs, task_id, start_clip, turbo=_turbo)
+                                  refs, task_id, start_clip, turbo=_turbo,
+                                  two_stage=(not _turbo and quality == "720p"))
             import urllib.error
             try:
                 resp = engine._api("POST", "/prompt",
@@ -902,6 +1020,14 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         post = upscale_video(
             post, progress_cb=lambda f, s: report(
                 0.85 + 0.14 * max(0.0, min(1.0, f)), s))
+    # 全局锐化 pass（2026-10-12 用户令「原生+全局锐化+FaceRefine」）：
+    # 原生直出整帧 CAS 锐化——修正全屏播放下 720p 原生纹理的感知软化
+    # （只有脸走 FaceRefine，背景锐差被拉大=「脸清景糊」主诉根因）。
+    # 秒级 ffmpeg 滤镜，失败零阻断回退原片
+    if h3_sharpen_enabled():
+        post = _sharpen_pass(
+            post, strength=_sharpen_strength(),
+            progress_cb=lambda s: report(0.99, s))
     if post != dest:
         dest = post
     # 音轨文件级强制（2026-10-02 三报定案）：C 段显式 台词：无+音效：无

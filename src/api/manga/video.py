@@ -1316,6 +1316,29 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                 detail={"storyboard_row_id": req.storyboard_row_id,
                         "suggestion": "右侧资产面板把角色/场景/道具拖入绑定"})
     task_id = uuid.uuid4().hex
+    # 重新生成时清理该行旧任务的超分产物（2026-10-12 用户令：视频重新
+    # 生成 → 超分列清空，等用户对新视频手动点超分；旧 _sr{档位}.mp4
+    # 已不匹配新视频内容，留盘即陈旧误导）。失败不阻断提交。
+    if req.storyboard_row_id and not req.storyboard_row_id.startswith("paint_"):
+        try:
+            _sr_db = get_db_safe()
+            if _sr_db is not None:
+                _old = await run_blocking(lambda: _sr_db.query(
+                    "SELECT file_path FROM video_tasks "
+                    "WHERE storyboard_row_id=? AND status='done' AND file_path!=''",
+                    (req.storyboard_row_id,))) or []
+                import glob as _glob
+                for _r in _old:
+                    _fp = _r.get("file_path") or ""
+                    _p = (DATA_DIR / _fp) if _fp and not Path(_fp).is_absolute() \
+                        else (Path(_fp) if _fp else None)
+                    if _p is None or not _p.parent.is_dir():
+                        continue
+                    for _sr in _p.parent.glob(f"{_p.stem}_sr*.mp4"):
+                        _sr.unlink(missing_ok=True)
+                        log.info("重新生成清理旧超分产物: %s", _sr.name)
+        except Exception as exc:  # noqa: BLE001 - 清理失败不阻断提交
+            log.warning("旧超分产物清理失败（忽略）: %s", exc)
     # 执行流程追踪（2026-08-23）：触发=用户提交视频生成
     from ...services.flow_trace import start_flow
     flow = start_flow(

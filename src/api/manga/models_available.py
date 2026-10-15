@@ -113,6 +113,48 @@ async def list_available_models(task_type: str = Query("dialog")) -> dict[str, A
             items = [m for m in items if m["id"] in allowed]
     except Exception as exc:  # noqa: BLE001 - 配置读取失败不阻断清单
         log.warning("漫剧%s槽白名单过滤跳过: %s", task_type, exc, exc_info=True)
+    # 云端可选项追加（2026-10-03 方案一，用户拍板）：对应云端工位已
+    # 绑定且启用时，把绑定的云端模型追加为一条选项（id=cloud::
+    # prov::model，status=cloud）。未绑定不出现（不制造假选项）。
+    # 选中语义：推理=真走云（消费点 ensure_loaded 原生路由 cloud::）；
+    # 绘画/视频=意图留痕+可见性（实际路由由工位绑定优先——2026-09-15
+    # 拍板 B 不变）；四视图不支持云端（comic_gen 侧明示落本地自动链）。
+    _cloud_slot_map = {"dialog": ("text",), "paint": ("asset.image",
+                                                     "keyframe.image"),
+                       "video": ("video",)}
+    _cloud_kind = _cloud_slot_map.get(task_type)
+    if _cloud_kind:
+        try:
+            from ...services.cloud_provider_service import (
+                get_image_endpoint,
+                get_text_endpoint,
+                get_video_endpoint,
+            )
+            if _cloud_kind == ("text",):
+                _eps = [get_text_endpoint("manga.text")]
+            elif task_type == "paint":
+                _eps = [get_image_endpoint("asset.image"),
+                        get_image_endpoint("keyframe.image")]
+            else:
+                _eps = [get_video_endpoint("manga.video")]
+            _seen: set[tuple[str, str]] = set()
+            for _ep in (_e for _e in _eps if _e is not None):
+                _key = (_ep.provider_id, _ep.model or "")
+                if _key in _seen:
+                    continue
+                _seen.add(_key)
+                items.append({
+                    "id": (f"cloud::{_ep.provider_id}::"
+                           f"{_ep.model or ''}"),
+                    "name": (f"云端·{_ep.provider_name}"
+                             f"·{_ep.model or '默认模型'}"),
+                    "status": "cloud",
+                    "vram_gb": 0,
+                    "speed_label": "云端",
+                    "notes": "按量计费；该环节生成走此云端服务商",
+                })
+        except Exception as exc:  # noqa: BLE001 - 云端项追加失败不阻断清单
+            log.warning("漫剧%s云端可选项追加跳过: %s", task_type, exc)
     # 视频档位下发（2026-10-03 分档具体化）：每项附「时长↔可选分辨率」
     # 精确配对表，前端时长/分辨率下拉按所选模型的档位渲染（单一真源
     # video_caps.py；云端端点 tiers=[] → 前端回退静态兜底清单）

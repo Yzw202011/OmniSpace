@@ -151,6 +151,15 @@ comfyui:
   # sams/ultralytics/turbo LoRA 权重；缺失自动降级跳过不阻断生成
   h3_face_refine:
     enabled: true
+  # H3 全局锐化 pass（2026-10-12 用户令「原生+全局锐化+FaceRefine」）：
+  # 原生直出后对整帧做 CAS 对比度自适应锐化（光晕少于 unsharp），
+  # 修正 720p 原生纹理在全屏播放下的感知软化——秒级 ffmpeg 滤镜，
+  # 不走 ComfyUI。强度 0~1；0.6=脸(已精修)与背景(原生纹理)的平衡档，
+  # 0.5=保守/0.7=进取（A/B 实测定档，见 data/h3_tune/sharpen/）。
+  # 依赖 ffmpeg cas 滤镜（8.1+ 自带），缺失自动跳过不阻断
+  h3_sharpen:
+    enabled: true
+    strength: 0.6
   # H3 逐帧放大 pass（清晰度线 2026-10-01）：导演台段生成（及可选脸
   # 修复）后做逐帧软件超分到 1344x768 交付档（+~110s/段，内容零改动）。
   # 2026-10-12 用户令关闭自动放大：视频列回归模型设置分辨率原生直出，

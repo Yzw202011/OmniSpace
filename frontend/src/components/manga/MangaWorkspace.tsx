@@ -602,7 +602,6 @@ export default function MangaWorkspace() {
           </DrawerFrame>
         )}
         {!drawer && selectedAssetId && <AssetDetailPanel />}
-        {!drawer && selectedAssetId && <AssetDetailPanel />}
         {!drawer && !selectedAssetId && videoInspectRowId && (
           <VideoInspectorPanel
             rowId={videoInspectRowId}

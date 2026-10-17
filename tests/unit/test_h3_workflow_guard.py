@@ -46,3 +46,43 @@ def test_render_graph_passes_with_intact_template() -> None:
     graph = eng._render_graph(_template(), plan_json="{}", run_name="t",
                               width=1344, height=768, refs=[], task_id="t")
     assert set(eng._REQUIRED_NODES) <= graph.keys()
+
+
+def test_two_stage_sweet_spot_wiring() -> None:
+    """两阶段甜点接线（2026-10-17 用户拍板唯一产链）：
+
+    720p 非 turbo → 480p 基座采样 + 精修 dn0.45 + 尾段+3 + 音频锁回，
+    精修吃尾段调度；直出链（two_stage=False）不得出现精修节点。
+    """
+    graph = eng._render_graph(_template(), plan_json="{}", run_name="t",
+                              width=1344, height=768, refs=[], task_id="t",
+                              turbo=False, two_stage=True)
+    # 基座降 480p 采样（循环计划宽高走 864×480）
+    assert graph["1700"]["inputs"]["width"] == 864
+    assert graph["1700"]["inputs"]["height"] == 480
+    # 精修 sigmas = 甜点 denoise 0.45 → 尾段+3 → RefineHandoff
+    assert graph["V1sigmas"]["inputs"]["denoise"] == 0.45
+    tail = graph["V1tail2"]
+    assert tail["class_type"] == "MiniMaxH3AVTailDetailScheduleT8Advanced"
+    assert tail["inputs"]["extra_tail_steps"] == 3
+    assert tail["inputs"]["sigmas"] == ["V1sigmas", 0]
+    assert tail["inputs"]["profile"] == "custom_strict"
+    refine = graph["V1refine"]
+    assert refine["inputs"]["sigmas"] == ["V1tail2", 0]
+    assert refine["inputs"]["latent"] == ["124", 0]
+    assert refine["inputs"]["lock_audio"] is True
+    assert refine["inputs"]["width"] == 1344
+    assert refine["inputs"]["height"] == 768
+    # 解码改吃精修输出
+    assert graph["130"]["inputs"]["samples"] == ["V1refine", 0]
+    assert graph["131"]["inputs"]["samples"] == ["V1refine", 0]
+
+
+def test_direct_chain_has_no_refine_nodes() -> None:
+    """直出链（two_stage=False，如 480p 档）不得混入两阶段节点。"""
+    graph = eng._render_graph(_template(), plan_json="{}", run_name="t",
+                              width=864, height=480, refs=[], task_id="t",
+                              turbo=False, two_stage=False)
+    assert "V1refine" not in graph
+    assert "V1tail2" not in graph
+    assert "V1sigmas" not in graph

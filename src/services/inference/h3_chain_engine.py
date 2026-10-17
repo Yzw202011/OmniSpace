@@ -733,21 +733,38 @@ def _insert_latent_refine(graph: dict, base_w: int, base_h: int,
 
     MinimaxH3LatentUpscaler3DRefineHandoff——learned latent 上采样 +
     低σ H3 精修，输出直接可解码 AV latent（目标分辨率）。
+
+    2026-10-17 用户拍板「双采+sig强化甜点」唯一产链：精修参数从
+    dn0.3 无尾段升级为 dn0.45 + 尾段+3（贪心扫荡定谳的唯一有效
+    旋钮组合，详见记忆 h3-quality-techlines-2026-10-16）。
     """
     graph["V1noise"] = {"class_type": "RandomNoise", "inputs": {
         "noise_seed": 42}}
     graph["V1sampler"] = {"class_type": "KSamplerSelect", "inputs": {
         "sampler_name": "res_multistep"}}
     graph["V1sigmas"] = {"class_type": "BasicScheduler", "inputs": {
-        "scheduler": "simple", "steps": 10, "denoise": 0.3,
+        "scheduler": "simple", "steps": 10, "denoise": 0.45,
         "model": ["5", 0]}}
+    # 尾段细化（+3 步渐降，低σ细节成形期加密）：SIGMAS 级纯调度无参考
+    # 门槛；profile 必须 custom_strict（默认 turbo_standard8 按 8 步校验
+    # 会拒绝本调度）
+    graph["V1tail2"] = {
+        "class_type": "MiniMaxH3AVTailDetailScheduleT8Advanced",
+        "inputs": {
+            "sigmas": ["V1sigmas", 0],
+            "extra_tail_steps": 3,
+            "spacing": "video_sigma_linear",
+            "shift_video": 12.0,
+            "shift_audio": 3.0,
+            "profile": "custom_strict",
+        }}
     graph["V1refine"] = {
         "class_type": "MinimaxH3LatentUpscaler3DRefineHandoff",
         "inputs": {
             "latent": ["124", 0],
             "noise": ["V1noise", 0],
             "sampler": ["V1sampler", 0],
-            "sigmas": ["V1sigmas", 0],
+            "sigmas": ["V1tail2", 0],
             "model": ["5", 0],
             "positive": ["1703", 0],
             "model_name": "minimax_h3_latent_upscaler_3d_fp16.safetensors",
@@ -886,6 +903,9 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
         _steps, _turbo = 6, True
     _steps = (max(4, min(8, _steps)) if _turbo
               else max(8, min(30, _steps)))
+    # 两阶段旗量（2026-10-17 用户拍板唯一产链=双采+sig强化甜点）：720p
+    # 非 turbo 即两阶段，标签带 _2s 后缀供调用方 model_used 如实上报
+    _two_stage = (not _turbo and quality == "720p")
     plan = {"defaults": {"duration_seconds": seconds,
                          "steps": _steps},
             "shots": shots}
@@ -904,7 +924,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
             graph = _render_graph(json.loads(_load_template_text()),
                                   plan_json, run_name, width, height,
                                   refs, task_id, start_clip, turbo=_turbo,
-                                  two_stage=(not _turbo and quality == "720p"))
+                                  two_stage=_two_stage)
             import urllib.error
             try:
                 resp = engine._api("POST", "/prompt",
@@ -1043,7 +1063,7 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 真实档位标签（2026-10-11 挡位战役：turbo/非 turbo 与步数由本引擎
     # 决定，调用方 model_used 直取，消「标签写死 turbo 名不符实」）
     engine_label = ("h3_chain_turbo_v10" if _turbo
-                    else f"h3_chain_v10_s{_steps}")
+                    else f"h3_chain_v10_s{_steps}" + ("_2s" if _two_stage else ""))
     return {"file_path": str(dest), "resolution": f"{width}x{height}",
             "duration_seconds": total_seconds,
             "engine_label": engine_label,

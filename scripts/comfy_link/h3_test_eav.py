@@ -1,8 +1,11 @@
 """V-EAV 试验：Enhance-A-Video/FETA 注意力增强——H3 画质提升（免训练）。
 
-图手术：以现行链 @720p×10s 渲染（非 turbo 10 步），在 SigmaShift(5) 与
-BasicGuider(121)/BasicScheduler(123) 之间插入 MiniMaxH3EnhanceAVideoT8Advanced
-模型 patch（temporal CFI 注意力调制，tau=4 论文候选值，apply_exp 模式）。
+图手术：以现行链 @720p×10s 渲染（非 turbo 20 步 stock20 档），在 SigmaShift(5)
+与 BasicGuider(121)/BasicScheduler(123) 之间插入
+MiniMaxH3EnhanceAVideoReferenceComposerT8Advanced 模型 patch——该节点原生
+allow_reference_blocks=True（allowed_tasks=Ref2VA/Hybrid），专为参考图条件
+架构设计：FETA 增益只从目标视频帧的 Q/K 计算，不碰参考/文本/音频行。
+普通视觉域节点 MiniMaxH3EnhanceAVideoT8Advanced 会拒绝 Ref2VA 参考块。
 
 对比基线 = V0（9ea6fae9，同 Rows 同种子无 EAV）。
 """
@@ -16,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-TASK_ID = "h3v_eav_tau4"
+TASK_ID = "h3v_eavref_tau4"
 ROW_ID = "0f67d2d85e024ea2aeff2bdbaafc8427"
 SECONDS = 10.0
 
@@ -67,7 +70,7 @@ def main() -> int:
     # ---- V-EAV 图手术：SigmaShift(5) 输出 → EAV patch → BasicGuider(121) ----
     # BasicScheduler(123) 的 model 保持接 5（sigma 计算不依赖注意力 patch）
     graph["V1eav"] = {
-        "class_type": "MiniMaxH3EnhanceAVideoT8Advanced",
+        "class_type": "MiniMaxH3EnhanceAVideoReferenceComposerT8Advanced",
         "inputs": {
             "model": ["5", 0],
             "sigmas": ["123", 0],
@@ -77,7 +80,6 @@ def main() -> int:
             "end_video_progress": 1.0,
             "max_workspace_mib": 32,
             "g_hard_limit": 1.5,
-            "sampling_profile": "stock20",
         }}
     graph["121"]["inputs"]["model"] = ["V1eav", 0]
     # BasicScheduler(123) 的 model 保持接 5（sigma 调度不依赖注意力 patch）

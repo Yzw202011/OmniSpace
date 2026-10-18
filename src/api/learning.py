@@ -354,8 +354,12 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
                        detail={"topic_id": topic_id})
 
-    base_name = str((body or {}).get("name", "") or "").strip() \
-        or f"{src['name']}-副本"
+    _raw_clone_name = (body or {}).get("name")
+    if _raw_clone_name is not None and not isinstance(_raw_clone_name, str):
+        raise ApiError("SYSTEM_PARAM_INVALID", "name 必须是字符串")
+    base_name = (str(_raw_clone_name).strip()
+                 if _raw_clone_name is not None and str(_raw_clone_name).strip()
+                 else f"{src['name']}-副本")
     # 名称冲突自动追加序号（clone 语义是允许复制的，不用 003 拒绝逻辑）
     existing_names: set[str] = set()
     if db is not None:

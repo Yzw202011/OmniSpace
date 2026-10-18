@@ -335,6 +335,8 @@ export interface VideoTaskRecord {
   model_used: string;
   created_at: number;
   generation_time_ms: number;
+  /** 排队位次（后端 _attach_queue_position 附带，仅排队中任务有值） */
+  queue_position?: number;
 }
 
 /** 项目视频任务记录（GET /manga/video/tasks?project_id=） */

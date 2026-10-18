@@ -235,7 +235,7 @@ export default function MangaWorkspace() {
           }
         })
         .catch((err) => {
-          setSrStates((prev) => ({ ...prev, [taskId]: { status: 'failed', error: getErrorMessage(err) } }));
+          setSrStates((prev) => ({ ...prev, [taskId]: { status: 'failed', error: getErrorMessage(err, '超分启动失败') } }));
         });
     },
     [ensureSrPolling, showToast],

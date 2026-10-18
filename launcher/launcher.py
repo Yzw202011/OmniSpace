@@ -608,7 +608,7 @@ class BackendProcess:
         env['OMNISPACE_PORT'] = str(port)
         env['OMNISPACE_LAUNCHER'] = '1'
         # 工具缓存钉死 E 盘（2026-09-17 用户令：项目产物不离开项目目录）：
-        # pip/HF/triton/torchinductor/playwright 默认全落 C:\Users\...，
+        # pip/HF/triton/torchinductor/playwright 默认全落 C:\Users\...，  # portable-ok（注释）
         # 实测累积 27G+（pip 13G/HF 13G/浏览器 0.7G）。setdefault 不覆盖
         # 外部显式设置，只补默认值。
         cache_root = PROJECT_ROOT / '.cache'

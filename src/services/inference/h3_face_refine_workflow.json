@@ -260,7 +260,7 @@
  "1": {
   "class_type": "VHS_LoadVideoPath",
   "inputs": {
-   "video": "E:\\OmniSpace\\_live_ab\\h3_face_source.mp4",
+   "video": "",
    "force_rate": 0,
    "custom_width": 0,
    "custom_height": 0,

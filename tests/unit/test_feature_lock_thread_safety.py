@@ -54,8 +54,18 @@ def test_cross_thread_hammer_counts_consistent() -> None:
     assert m.holders == {}
 
 
-def test_sync_holds_block_async_same_domain() -> None:
-    """训练线程持锁期间，事件循环侧同域 acquire 必须被拒（互斥语义保持）。"""
+def test_sync_holds_block_async_same_domain(monkeypatch) -> None:
+    """训练线程持锁期间，事件循环侧同域 acquire 必须被拒（互斥语义保持）。
+
+    环境隔离（2026-10-19）：远程对话开启时 dialog 归 "remote" 伪域
+    （gpu_domains 批3 设计——远程对话不占本地卡，与本地功能合法并行）。
+    本用例验证的是本地同域互斥语义，须显式关掉远程旗标，否则在绑定
+    云端对话的机器上必误报（此前被误判为「互斥破损 P1」，实为测试
+    未隔离环境）。
+    """
+    from src.services.inference.backends import remote_backend
+    monkeypatch.setattr(remote_backend, "is_remote_dialog_enabled",
+                        lambda: False)
     m = FeatureLockManager()
     assert m.acquire_sync("training", task_id="t1") is True
 

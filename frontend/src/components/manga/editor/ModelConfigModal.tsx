@@ -232,7 +232,31 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
           onChange={(id) => setCfg((c) => ({ ...c, videoModel: id }))}
         />
 
-        {/* ④ 视频默认参数：画幅 + 时长（档位驱动）+ 分辨率 */}
+        {/* ④ 超分模型（2026-10-18 用户令：四模式真切换；紧随视频模型） */}
+        <div>
+          <label className="manga-form-label">超分模型</label>
+          <select
+            className="manga-modal-select"
+            value={srModel}
+            aria-label="超分模型"
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'esrgan' || v === 'dlssnr' || v === 'rbvsr' || v === 'seedvr2') setSrModel(v);
+            }}
+          >
+            <option value="esrgan">ESRGAN 逐帧超分（默认 · 1K/2K 随上档）</option>
+            <option value="dlssnr">DLSS-NR 2x（NVIDIA 加速 · 约 2 分钟 · 2K）</option>
+            <option value="rbvsr">RealBasicVSR 时序修复（约 3 分钟 · 原尺寸）</option>
+            <option value="seedvr2">SeedVR2 生成式修复（顶级细节 · 1K 约 8 分钟 / 2K 约 90 分钟）</option>
+          </select>
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            「超分视频」列点击超分时走的真链路；保存后下次超分即时生效。
+            DLSS-NR 固定 2K 输出；RealBasicVSR 固定原尺寸；SeedVR2/ESRGAN
+            随下方超分分辨率档位。
+          </p>
+        </div>
+
+        {/* ⑤ 视频默认参数：画幅 + 时长（档位驱动）+ 分辨率 */}
         <div className="manga-modelcfg-grid">
           <div>
             <label className="manga-form-label">默认画幅</label>
@@ -285,7 +309,7 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
           </p>
         </div>
 
-        {/* ⑤ 超分分辨率（2026-10-12 用户令：超分视频列的目标档位） */}
+        {/* ⑥ 超分分辨率（2026-10-12 用户令：超分视频列的目标档位） */}
         <div>
           <label className="manga-form-label">超分分辨率</label>
           <select
@@ -299,30 +323,6 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
           </select>
           <p className="manga-form-tip" style={{ margin: 0 }}>
             「超分视频」列点击超分时的目标档位；保存后下次超分即时生效。
-          </p>
-        </div>
-
-        {/* ⑥ 超分模型（2026-10-18 用户令：四模式真切换） */}
-        <div>
-          <label className="manga-form-label">超分模型</label>
-          <select
-            className="manga-modal-select"
-            value={srModel}
-            aria-label="超分模型"
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === 'esrgan' || v === 'dlssnr' || v === 'rbvsr' || v === 'seedvr2') setSrModel(v);
-            }}
-          >
-            <option value="esrgan">ESRGAN 逐帧超分（默认 · 1K/2K 随上档）</option>
-            <option value="dlssnr">DLSS-NR 2x（NVIDIA 加速 · 约 2 分钟 · 2K）</option>
-            <option value="rbvsr">RealBasicVSR 时序修复（约 3 分钟 · 原尺寸）</option>
-            <option value="seedvr2">SeedVR2 生成式修复（顶级细节 · 1K 约 8 分钟 / 2K 约 90 分钟）</option>
-          </select>
-          <p className="manga-form-tip" style={{ margin: 0 }}>
-            「超分视频」列点击超分时走的真链路；保存后下次超分即时生效。
-            DLSS-NR 固定 2K 输出；RealBasicVSR 固定原尺寸；SeedVR2/ESRGAN
-            随上方超分分辨率档位。
           </p>
         </div>
 

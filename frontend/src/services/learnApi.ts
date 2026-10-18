@@ -106,8 +106,8 @@ export interface CreateTrainBody {
   hyperparams?: Record<string, unknown>;
 }
 
-/** 后端默认可训练基座（与 src/api/learn.py _TRAINABLE_BASE_MODELS 对齐） */
-const DEFAULT_BASE_MODEL = 'qwen3-vl-4b';
+/** 后端默认可训练基座（服务层按路径解析，须带 models/ 前缀） */
+const DEFAULT_BASE_MODEL = 'models/qwen3-vl-4b';
 
 /** 发起训练（阈值校验 + 引擎就绪门控；数据不足 40009 / GPU 占用 40007） */
 export async function createTrain(body: CreateTrainBody): Promise<TrainTask> {
@@ -204,14 +204,21 @@ export async function listLearnModels(): Promise<
       params?: string;
       size_gb?: number;
       trainable?: boolean;
+      /** G-09：磁盘实测就绪（与训练服务准入同口径） */
+      ready?: boolean;
+      /** G-10：服务层可直接消费的基座路径（表单 value 用它而非显示名） */
+      base_path?: string;
     }>;
     total: number;
   }>('/learn/models');
   return (res.items || []).map((m) => ({
+    id: m.id,
     name: m.name,
+    base_path: m.base_path,
     // 基座模型不携带 LoRA 类型语义，填默认占位（调用方按 name/ready 使用）
     type: 'knowledge_lora' as TrainType,
-    ready: Boolean(m.trainable),
+    // G-09：优先后端实测 ready（此前误读恒 true 的 trainable，置灰永不生效）
+    ready: m.ready ?? Boolean(m.trainable),
     current_count: 0,
     threshold: 0,
     description: [m.params, m.size_gb ? `${m.size_gb}GB` : '', m.category]

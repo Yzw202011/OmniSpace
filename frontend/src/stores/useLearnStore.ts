@@ -17,7 +17,10 @@ import { useTaskStore } from './useTaskStore';
 
 /** 可用学习模型 */
 export interface AvailableLearnModel {
+  id?: string;
   name: string;
+  /** G-10：服务层可直接消费的基座路径（表单 value 真源） */
+  base_path?: string;
   type: TrainType;
   ready: boolean;
   current_count: number;

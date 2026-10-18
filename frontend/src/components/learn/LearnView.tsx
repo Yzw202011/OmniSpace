@@ -30,8 +30,8 @@ const DEFAULT_FORM = {
   dataset_path: '',
 };
 
-/** 与 learnApi.DEFAULT_BASE_MODEL 对齐的兜底基座 */
-const FALLBACK_BASE_MODEL = 'qwen3-vl-4b';
+/** 与 learnApi.DEFAULT_BASE_MODEL 对齐的兜底基座（服务层按路径解析，带 models/ 前缀） */
+const FALLBACK_BASE_MODEL = 'models/qwen3-vl-4b';
 
 /**
  * 训练任务管理组件
@@ -61,11 +61,15 @@ export const LearnView: React.FC = () => {
     fetchAvailableModels();
   }, [fetchTasks, fetchAvailableModels]);
 
-  /* 可训练基座就绪后，校正表单 base_model（优先首个 ready 基座） */
+  /* 可训练基座就绪后，校正表单 base_model（优先首个 ready 基座；
+     G-10：value 用服务层可解析的 base_path，此前送显示名必败） */
   useEffect(() => {
     if (form.base_model) return;
     const ready = availableModels.find((m) => m.ready) ?? availableModels[0];
-    setForm((f) => ({ ...f, base_model: ready?.name ?? FALLBACK_BASE_MODEL }));
+    setForm((f) => ({
+      ...f,
+      base_model: ready?.base_path ?? ready?.id ?? FALLBACK_BASE_MODEL,
+    }));
   }, [availableModels, form.base_model]);
 
   /* 有排队/训练中任务时 3s 轮询兜底（WS 之外的进度保障） */
@@ -178,7 +182,9 @@ export const LearnView: React.FC = () => {
                   <option value={FALLBACK_BASE_MODEL}>{FALLBACK_BASE_MODEL}（默认基座）</option>
                 ) : (
                   availableModels.map((m) => (
-                    <option key={m.name} value={m.name} disabled={!m.ready}>
+                    <option key={m.base_path ?? m.name}
+                            value={m.base_path ?? m.name}
+                            disabled={!m.ready}>
                       {m.name}{m.ready ? '' : '（未就绪）'}{m.description ? ` — ${m.description}` : ''}
                     </option>
                   ))

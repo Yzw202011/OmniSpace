@@ -402,9 +402,18 @@ def _base_model_ready(model_id: str) -> bool:
 
 @router.get("/learn/models")
 def learn_models() -> dict[str, Any]:
-    """可训练的基础模型列表（规格 §4.4），附磁盘实测 ready 标志。"""
-    items = [{**m, "ready": _base_model_ready(m["id"])}
-             for m in _TRAINABLE_BASE_MODELS]
+    """可训练的基础模型列表（规格 §4.4），附磁盘实测 ready 标志与服务层基座路径。"""
+    from ..config import ROOT_DIR
+    items = []
+    for m in _TRAINABLE_BASE_MODELS:
+        # G-10（2026-10-19）：下发服务层可直接消费的基座路径——此前前端
+        # 表单送显示名，服务层 Path(显示名) 必败（历史失败任务存的全路径
+        # 即证据）；paint 类基座在 models/paint/ 子目录
+        base = ROOT_DIR / "models"
+        base_path = (base / "paint" / m["id"] if m["category"] == "paint"
+                     else base / m["id"])
+        items.append({**m, "ready": _base_model_ready(m["id"]),
+                      "base_path": str(base_path)})
     return ok({"items": items, "total": len(items)})
 
 

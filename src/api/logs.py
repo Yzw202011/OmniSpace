@@ -256,6 +256,7 @@ def logs_errors_summary(
     for e in items:
         key = (str(e.get("module") or "?"), str(e.get("event") or "?"))
         g = groups.get(key)
+        ts = str(e.get("ts") or "")
         if g is None:
             groups[key] = {
                 "module": key[0], "event": key[1], "count": 1,
@@ -264,7 +265,14 @@ def logs_errors_summary(
             }
         else:
             g["count"] += 1
-            g["last_ts"] = e.get("ts")
+            # 事件序=新→旧（query_events 游标口径），first/last 必须按
+            # 时间显式比较——逐条覆盖会把「最近一次」刷成「最早一次」
+            # （实测崩溃组 count 已涨、last_ts 却停在三天前）。
+            if ts:
+                if not g.get("first_ts") or ts < str(g["first_ts"]):
+                    g["first_ts"] = e.get("ts")
+                if not g.get("last_ts") or ts > str(g["last_ts"]):
+                    g["last_ts"] = e.get("ts")
             if len(str(e.get("friendly") or "")) > len(g["example"]):
                 g["example"] = str(e.get("friendly"))[:160]
     top = sorted(groups.values(), key=lambda g: -g["count"])[:limit]

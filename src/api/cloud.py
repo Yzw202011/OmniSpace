@@ -51,9 +51,19 @@ def _filtered_suffix(removed: list[str]) -> str:
 
 @router.get("/providers")
 def cloud_providers_list() -> dict[str, Any]:
-    """连接列表（打码；首次访问懒迁移批3 旧远程配置）。"""
+    """连接列表（打码；首次访问懒迁移批3 旧远程配置）。
+
+    N-2 家族补丁（2026-10-19）：读失败显式报错绝不返回空列表——
+    实测 DB 忙抖动曾致列表间歇清空（5→0→5），用户视角=全部连接
+    消失；与 learning topic/list 同一方子（短重试在服务层严格读内）。
+    """
     migrated = ensure_migrated()
-    return ok({"providers": svc.list_providers(mask=True),
+    try:
+        items = svc.list_providers(mask=True)
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError("SYSTEM_DB_BUSY",
+                       "连接列表暂时无法读取（数据库忙），请稍后刷新重试") from exc
+    return ok({"providers": items,
                "slots": svc.ALL_SLOTS, "legacy_migrated": migrated})
 
 

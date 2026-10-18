@@ -71,6 +71,13 @@ def _kv_set(key: str, value: Any) -> None:
     _kv_set_impl(key, value)
 
 
+def _kv_set_strict(key: str, value: Any) -> None:
+    """严格写（N-2 家族补丁 2026-10-19）：落库失败上抛，供设置整包
+    等高价值写路径——「内存生效、落库静默失败、重启回退」不可接受。"""
+    from ..data.settings_kv import kv_set_strict as _impl
+    _impl(key, value)
+
+
 def _load_persisted_settings() -> dict:
     """DB 持久化设置叠加默认值（DB 不可用 → 内存副本）。"""
     persisted = _kv_get(_SETTINGS_KEY)
@@ -78,6 +85,9 @@ def _load_persisted_settings() -> dict:
         merged = dict(SystemSettings().model_dump())
         merged.update(persisted)
         return merged
+    # N-2 家族可观测性（2026-10-19）：回退内存快照（boot 态）时必须
+    # 留痕——INFO 级可见，排障时能看出「页面显示的是旧值」。
+    log.warning("system settings 读取降级：返回内存快照（DB 不可用或读取失败）")
     return dict(_settings)
 
 # ── 路径白名单（审计 BK-028）────────────────────────────────────────
@@ -149,8 +159,14 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     if data.get("remote_dialog_api_key") == _REMOTE_KEY_MASK:
         data["remote_dialog_api_key"] = str(
             _load_persisted_settings().get("remote_dialog_api_key") or "")
+    # N-2 家族补丁（2026-10-19）：先严格落库、成功才提交内存——
+    # 此前内存先改、落库静默失败，重启静默回退且用户毫不知情。
+    try:
+        _kv_set_strict(_SETTINGS_KEY, data)
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError("SYSTEM_DB_BUSY",
+                       "设置保存失败（数据库忙），本次修改未生效，请稍后重试") from exc
     _settings = data
-    _kv_set(_SETTINGS_KEY, _settings)
     # 远程对话配置热生效（批3 D3）：清 5s TTL 缓存，下一跳即用新值
     try:
         from ..services.inference.backends.remote_backend import invalidate_remote_config_cache
@@ -2072,12 +2088,15 @@ def system_tasks_center() -> dict[str, Any]:
     # ② 训练任务（learn+style 两源）
     try:
         if db is not None:
+            # F-1（2026-10-19）：error 列历史 0/22 填充（写路径=训练中心
+            # G-01 缺口，归训练线）；此处先接通读侧，写侧落地后卡片即显因。
             for r in db.query(
-                    "SELECT id, dataset_path, status, progress"
+                    "SELECT id, dataset_path, status, progress, error"
                     " FROM train_tasks ORDER BY created_at DESC LIMIT 10"):
+                _detail = str(r.get("error") or "").strip()
                 _card("training", str(r.get("dataset_path") or "知识训练")[:30],
                       str(r.get("status") or ""), float(r.get("progress") or 0),
-                      task_id=str(r["id"]))
+                      detail=_detail[:60], task_id=str(r["id"]))
             # style_tasks 为训练服务懒建散表（迁移体系外）——新库未触
             # 风格训练时表不存在，按空列表处理而非 fail-soft 错误
             #（round-2026-09-20：批6 恒真断言掏空掩盖的「新库任务中心

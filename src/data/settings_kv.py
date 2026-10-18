@@ -51,3 +51,20 @@ def kv_set(key: str, value: Any) -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("system_settings 写入失败 %s: %s", key, exc,
                     exc_info=True)
+
+
+def kv_set_strict(key: str, value: Any) -> None:
+    """严格写：落库失败/库不可用一律上抛（N-2 家族补丁，2026-10-19）。
+
+    「内存已改、落库静默失败、重启静默回退」是诚实性漏洞——用户以为
+    保存了实际没保存。供高价值写路径（系统设置整包等）使用；kv_set
+    保持原降级语义服务低风险调用方。
+    """
+    db = _dbmod.get_db_safe()
+    if db is None:
+        raise RuntimeError("数据库不可用，写入未落库")
+    db.sql(
+        "INSERT INTO system_settings (key, value, updated_at)"
+        " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET"
+        " value=excluded.value, updated_at=excluded.updated_at",
+        (key, json.dumps(value, ensure_ascii=False), time.time()))

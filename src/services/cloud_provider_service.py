@@ -216,8 +216,34 @@ def _read_kv(key: str, default: object = None) -> object:
         val = kv_get(key)
         return default if val is None else val
     except Exception as exc:  # noqa: BLE001 - 配置读取失败按默认值
-        log.debug("cloud KV 读取失败 %s: %s", key, exc)
+        # N-2 家族（2026-10-19）：升级为 warning——INFO 级日志下 debug
+        # 不可见，抖动静默成「列表变空」无从取证（本轮实测 5→0→5）。
+        log.warning("cloud KV 读取失败 %s: %s（按默认值降级）", key, exc)
         return default
+
+
+def _read_kv_strict(key: str, default: object = None) -> object:
+    """严格读：短重试一次，仍失败上抛（N-2 家族补丁，2026-10-19）。
+
+    连接列表等「列表类」读取专用——绝不把读失败吞成默认空值冒充
+    「没有数据」（实测 cloud.providers DB 忙抖动致连接列表间歇清空，
+    用户视角=全部连接消失）。路由/并发等热路径仍走宽版 _read_kv，
+    保持「读失败按默认降级」的原语义，避免行为面扩大。
+    """
+    from ..data.settings_kv import kv_get
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            val = kv_get(key)
+            return default if val is None else val
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            log.warning("cloud KV 严格读取失败（第 %d 次）%s: %s",
+                        attempt + 1, key, exc)
+            if attempt == 0:
+                time.sleep(0.3)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _write_kv(key: str, value: object) -> bool:
@@ -242,7 +268,7 @@ def _load_providers() -> list[dict]:
     """
     from ..data.crypto import decrypt_text, is_encrypted
 
-    raw = _read_kv(KV_PROVIDERS, [])
+    raw = _read_kv_strict(KV_PROVIDERS, [])
     items = list(raw) if isinstance(raw, list) else []
     migrated = False
     for item in items:

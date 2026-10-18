@@ -205,6 +205,14 @@ def learn_knowledge_graph(kid: str = Query(""),
     return knowledge_graph(kid=kid, max_nodes=max_nodes)
 
 
+@router.get("/knowledge/export")
+def knowledge_export_legacy(format: str = Query("json"),
+                            topic: str = Query("")) -> dict[str, Any]:
+    """老路径别名（N-11，2026-10-19）：必须先于 /knowledge/{kid} 注册，
+    否则 "export" 会被当作知识 id 吞掉——路由遮蔽致老路径导出坏死实锤。"""
+    return learn_knowledge_export(format=format, topic=topic)
+
+
 @router.get("/knowledge/{kid}")
 def knowledge_detail(kid: str) -> dict[str, Any]:
     """知识详情。"""

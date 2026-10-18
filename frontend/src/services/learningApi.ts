@@ -375,10 +375,12 @@ export function getKnowledgeGraph(kid?: string, maxNodes?: number) {
   });
 }
 
-/** 导入文档（multipart，pdf/docx/txt） */
+/** 导入文档（multipart，pdf/docx/txt）。后端要求 topic 必填（N-10：
+ *  UI 曾从不传 topic → 拖拽上传必然 400），对齐图片导入先例归入固定主题桶。 */
 export function importDocument(file: File) {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('topic', '导入文档');
   return upload<{ imported: number; path?: string }>('/knowledge/import-document', formData);
 }
 

@@ -82,6 +82,13 @@ const MODULE_NAMES: Record<string, string> = {
   novel: '小说',
   cloud: '云端',
   frontend: '前端',
+  // 历史数据兼容 + event_log_auto._PREFIX_MODULES 新登记的模块（10-19 测试 GAP-01/02/03）
+  chat: '对话',
+  character: '人物',
+  plugins: '插件',
+  upgrade: '升级',
+  behavior: '行为',
+  video: '视频',
 };
 
 /** 自动刷新间隔（毫秒） */
@@ -578,7 +585,7 @@ export const LogsPage: React.FC = () => {
       ) : tab === 'resource' ? (
         /* ── 资源占用曲线（方案 C：显存/内存 30s 采样趋势） ── */
         <ResourceChart />
-      ) : (
+      ) : tab === 'raw' ? (
         /* ── 技术日志视图（方案 C：白名单 6 文件 + 关键词/级别过滤） ── */
         <div className="card hoverable mt-4" style={{ padding: 'var(--space-4)' }}>
           <div className="flex items-center gap-2 flex-wrap">
@@ -653,7 +660,7 @@ export const LogsPage: React.FC = () => {
             技术日志面向开发者：含后端/启动链/引擎日志，同样遵循 30 天自动清除。
           </div>
         </div>
-      )}
+      ) : null}
         {tab === 'gallery' && <FileGallery />}
 
       {/* 导出诊断包弹窗（方案 C） */}

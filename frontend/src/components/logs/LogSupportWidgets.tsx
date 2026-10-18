@@ -139,10 +139,16 @@ export function ExportDiagnosticsDialog({ onClose }: { onClose: () => void }) {
 export function ErrorSummaryCard() {
   const [data, setData] = useState<Awaited<ReturnType<typeof getErrorSummary>> | null>(null);
 
+  // 15s 轮询与页面统计卡同周期（BUG-02 修复：此前仅挂载拉一次，
+  // 自动刷新时同页「错误数」两处不同步，用户感知为日志不实时）
   useEffect(() => {
-    void getErrorSummary(7)
-      .then(setData)
-      .catch((err: unknown) => reportBgError('ErrorSummaryCard', err));
+    const load = () =>
+      void getErrorSummary(7)
+        .then(setData)
+        .catch((err: unknown) => reportBgError('ErrorSummaryCard', err));
+    load();
+    const t = window.setInterval(load, 15_000);
+    return () => window.clearInterval(t);
   }, []);
 
   if (!data || data.total_errors === 0) return null;

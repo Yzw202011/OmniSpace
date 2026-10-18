@@ -533,6 +533,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
         if (!text) {
           return;
         }
+        bumpActivity();
         consumeLoadingHint();
         if (!firstTokenAt) {
           firstTokenAt = Date.now();
@@ -556,6 +557,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       if (!text) {
         return;
       }
+      bumpActivity();
       set((state) => ({
         messages: state.messages.map((m) =>
           m.id === assistantId
@@ -570,6 +572,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     const offWebRefs = conn.on<{ refs?: Array<import('../types').WebRef> }>(
       'web_refs',
       (data) => {
+        bumpActivity();
         const refs = data?.refs;
         if (!refs || refs.length === 0) {
           return;
@@ -591,6 +594,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     }>(
       'meta',
       (data) => {
+        bumpActivity();
         if (data?.message_id) {
           // 后端下发正式 ID，替换临时 ID
           set((state) => ({
@@ -709,6 +713,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     const offStatus = conn.on<{ phase?: string; message?: string }>(
       'status',
       (data) => {
+        bumpActivity();
         if (!data?.message) return;
         const prevHint = loadingHint;
         loadingHint = `[${data.message}]`;
@@ -725,9 +730,43 @@ export const useDialogStore = create<DialogState>((set, get) => ({
     // 深度思考模式下首个产出是 reasoning 帧而非 token 帧 → reasoning
     // 通道同样清除占位（reasoning 不改 content，精确匹配安全）
     const offFirstReasoning = conn.on<{ text?: string }>('reasoning', () => {
+      bumpActivity();
       consumeLoadingHint();
       offFirstReasoning();
     });
+
+    // 静默看门狗（2026-10-19 B-03 复现实弹）：请求已发、连接 open，
+    // 但任何帧（token/reasoning/status/meta/web_refs）连续 240s 未到——
+    // 实测后端卡死时用户面对永久「思考中」无出路（单流 30+ 分钟无超时）。
+    // 任何帧到达即续期；正常生成期帧流持续不会误触（装载/排队期每 2s
+    // 有 status 帧）。超时诚实终止并给出路。以 generating 判活（meta
+    // 帧会替换 streamingMessageId，ID 口径不可靠）。
+    let silenceTimer: number | null = null;
+    const clearSilence = () => {
+      if (silenceTimer !== null) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+    };
+    const bumpActivity = () => {
+      clearSilence();
+      if (!get().generating) return;
+      silenceTimer = window.setTimeout(() => {
+        if (!get().generating) return;
+        const hint = loadingHint;
+        set((state) => ({
+          messages: state.messages.map((m) => {
+            if (m.id !== assistantId
+                && m.id !== get()._streamingMessageId) return m;
+            const base = !m.content || m.content === hint ? '' : m.content;
+            return { ...m, content: base || '[响应超时，生成已终止——请重发]' };
+          }),
+          generating: false,
+        }));
+        get().abortStream();
+      }, 240_000);
+    };
+    bumpActivity();
 
     // 断流兜底（2026-09-15 审计 P0 修复）：后端重启/断网时连接断开，
     // 本次生成不会再有 done/error 帧——旧实现 generating 永久 true，
@@ -778,6 +817,7 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       offFirstReasoning();
       offConnStatus();
       clearStreamGrace();
+      clearSilence();
       set({ _streamingMessageId: null, _streamUnsubs: [] });
       // 审计 R3-FE2：流式结束释放连接池条目（destroy 并移出 Map），避免池随会话数线性增长；
       // 同会话再次发送时 getDialogStream 会重建连接（connect 幂等，复用语义不变）

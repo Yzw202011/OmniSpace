@@ -102,14 +102,17 @@ def playwright_unavailable_reason() -> str:
 #  错误码（7xxxx 段：72001-72008，浏览器域）
 # ═══════════════════════════════════════════════════════════════════
 
-ERR_BROWSER_UNAVAILABLE = 72001   # playwright 未安装/初始化失败
-ERR_BROWSER_NOT_RUNNING = 72002   # 浏览器未运行
-ERR_TAB_LIMIT = 72003             # 标签页数量已达上限
-ERR_INVALID_URL = 72004           # 非 HTTP/HTTPS 协议
-ERR_DOMAIN_BLACKLISTED = 72005    # 域名在黑名单中
-ERR_PAGE_OPERATION = 72006        # 页面操作失败
-ERR_USER_TAKEOVER = 72007         # 用户已接管浏览器
-ERR_BROWSER_TIMEOUT = 72008       # 浏览器操作超时
+# 错误码语义串（2026-10-18）：批3 后数字码已退役，BrowserError 曾带数字
+# 码穿透到 API 信封被兜底渲染成 SYSTEM_INTERNAL_ERROR——按 _LEGACY_CODE_MAP
+# 档案语义改为注册过的语义串，前端与日志不再出现假"内部错误"。
+ERR_BROWSER_UNAVAILABLE = "BROWSER_UNAVAILABLE"            # playwright 未安装/初始化失败
+ERR_BROWSER_NOT_RUNNING = "BROWSER_NOT_RUNNING"            # 浏览器未运行
+ERR_TAB_LIMIT = "BROWSER_POOL_EXHAUSTED"                   # 标签页数量已达上限
+ERR_INVALID_URL = "BROWSER_PROTOCOL_FORBIDDEN"             # 非 HTTP/HTTPS 协议
+ERR_DOMAIN_BLACKLISTED = "BROWSER_DOMAIN_BLOCKED"          # 域名在黑名单中
+ERR_PAGE_OPERATION = "BROWSER_OPERATION_REJECTED"          # 页面操作失败
+ERR_USER_TAKEOVER = "BROWSER_USER_TAKEOVER"                # 用户已接管浏览器
+ERR_BROWSER_TIMEOUT = "BROWSER_PAGE_TIMEOUT"               # 浏览器操作超时
 
 
 class BrowserError(Exception):

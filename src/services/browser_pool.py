@@ -134,10 +134,11 @@ class BrowserPool:
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     raise BrowserError(
-                        72008, "获取浏览器实例超时（实例被占用）")  # ERR_BROWSER_TIMEOUT
+                        "BROWSER_PAGE_TIMEOUT",
+                        "获取浏览器实例超时（实例被占用）")  # ERR_BROWSER_TIMEOUT
                 self._cond.wait(min(remaining, 0.5))
             if self._shutdown:
-                raise BrowserError(72001, "浏览器池已关闭")
+                raise BrowserError("BROWSER_UNAVAILABLE", "浏览器池已关闭")
             self._leased = True
 
         inst: BrowserService | None = None

@@ -247,9 +247,18 @@ def _spawn_boot(install_root: Path) -> bool:
 
 
 def verify_start(install_root: Path, to_build_id: str) -> tuple[bool, str]:
-    """⑤ 验证启动：等 /health 200 且 build==目标（冷启动宽限 300s）。"""
+    """⑤ 验证启动：等 /health 200 且 build==目标（冷启动宽限 300s）。
+
+    G4 复测（2026-10-19）根修：旧逻辑对扫描到的**第一个**健康实例做
+    build 比对、不匹配立即判败——本机只要有其他 OmniSpace 副本先占低位
+    端口（开发实例 build=+dev / 另一渠道副本），任何升级都会被误杀回滚
+    （实锤：复测被并发会话刚拉起的开发实例 5800 误杀）。改为 deadline
+    内持续扫全部后端端口，任一实例 build 匹配即成功；到点无匹配才失败，
+    失败原因带上期间见到的最后实例身份。
+    """
     _spawn_boot(install_root)
     deadline = time.time() + HEALTH_TIMEOUT_S
+    last_seen = ""
     while time.time() < deadline:
         for port in BACKEND_PORTS:
             if _http_status(port) == 200:
@@ -260,12 +269,12 @@ def verify_start(install_root: Path, to_build_id: str) -> tuple[bool, str]:
                     build = str((data.get("data") or {}).get("build") or "")
                     if build == to_build_id:
                         return True, f":{port}"
-                    return False, (f"启动后 build={build or '?'} 与目标 "
-                                   f"{to_build_id} 不符")
+                    last_seen = f":{port} build={build or '?'}"
                 except (urllib.error.URLError, OSError, ValueError):
                     pass
         time.sleep(3.0)
-    return False, f"等待后端健康超时（{HEALTH_TIMEOUT_S:.0f}s）"
+    return False, (f"等待 build=={to_build_id} 超时（{HEALTH_TIMEOUT_S:.0f}s，"
+                   f"期间见到 {last_seen or '无健康实例'}）")
 
 
 def _prune_backups(install_root: Path) -> None:

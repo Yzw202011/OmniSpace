@@ -418,6 +418,11 @@ class ComfyProcManager:
             env = dict(os.environ)
             env.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
             env.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+            # WINDIR 兜底（2026-10-11 用户实报 mixlab 节点启动报
+            # 「Error finding system fonts: 'WINDIR'」）：第三方节点的
+            # 系统字体目录探测依赖该变量，父环境被裁剪时兜底缺省值
+            env.setdefault("WINDIR", os.environ.get("SYSTEMROOT",
+                                                    r"C:\Windows"))
             # runtime/ffmpeg 前置（2026-08-30 P0：防宿主 Electron 阉割版
             # ffmpeg 探测能过、执行报 Option not found）
             ff_bin = ROOT_DIR / "runtime" / "ffmpeg" / "bin"

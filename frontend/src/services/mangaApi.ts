@@ -1206,6 +1206,16 @@ export function setVideoSrResolution(resolution: '1k' | '2k'): Promise<{ resolut
   return put<{ resolution: string }>('/manga/video/sr-resolution', { resolution });
 }
 
+/** 读超分模型（GET /manga/video/sr-model；esrgan|dlssnr|rbvsr|seedvr2；2026-10-18 用户令） */
+export function getVideoSrModel(): Promise<{ model: string; modes: string[] }> {
+  return get<{ model: string; modes: string[] }>('/manga/video/sr-model');
+}
+
+/** 写超分模型（PUT /manga/video/sr-model；下次 SR 作业即时切换真链路） */
+export function setVideoSrModel(model: 'esrgan' | 'dlssnr' | 'rbvsr' | 'seedvr2'): Promise<{ model: string }> {
+  return put<{ model: string }>('/manga/video/sr-model', { model });
+}
+
 /** 图像队列快照条目（GET /paint/queue；关键帧/资产图同队） */
 export interface PaintQueueItem {
   task_id: string;

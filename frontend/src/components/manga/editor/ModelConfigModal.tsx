@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Settings2 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
-import { getVideoSrResolution, listAvailableModels, setVideoSrResolution } from '@/services/mangaApi';
+import { getVideoSrModel, getVideoSrResolution, listAvailableModels, setVideoSrModel, setVideoSrResolution } from '@/services/mangaApi';
 import { getModuleModelConfig, saveModuleModelConfig } from '@/services/modelApi';
 import { MODEL_AVAILABLE_STATUS_LABELS } from '@/constants/statusLabels';
 import { DEFAULT_MODEL_CONFIG, writeModelConfig, type MangaModelConfig } from '@/constants/modelConfig';
@@ -77,6 +77,8 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
   const [cfg, setCfg] = useState<MangaModelConfig>(loadModelConfig);
   /** 超分目标分辨率（后端 settings KV manga.sr_resolution；2026-10-12 用户令） */
   const [srRes, setSrRes] = useState<'1k' | '2k'>('1k');
+  /** 超分模型（后端 settings KV manga.sr_model；2026-10-18 用户令四模式真切换） */
+  const [srModel, setSrModel] = useState<'esrgan' | 'dlssnr' | 'rbvsr' | 'seedvr2'>('esrgan');
   const [loading, setLoading] = useState(true);
   const [dialogModels, setDialogModels] = useState<AvailableModel[]>([]);
   const [paintModels, setPaintModels] = useState<AvailableModel[]>([]);
@@ -113,10 +115,16 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
     };
   }, [showToast]);
 
-  // 打开时读当前超分分辨率（失败保持默认 1k，保存时再写）
+  // 打开时读当前超分分辨率+超分模型（失败保持默认，保存时再写）
   useEffect(() => {
     getVideoSrResolution()
       .then((res) => setSrRes(res.resolution === '2k' ? '2k' : '1k'))
+      .catch(() => { /* 读失败保持默认，保存时覆盖 */ });
+    getVideoSrModel()
+      .then((res) => {
+        const m = res.model as 'esrgan' | 'dlssnr' | 'rbvsr' | 'seedvr2';
+        if (m === 'esrgan' || m === 'dlssnr' || m === 'rbvsr' || m === 'seedvr2') setSrModel(m);
+      })
       .catch(() => { /* 读失败保持默认，保存时覆盖 */ });
   }, []);
 
@@ -163,6 +171,13 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
         await setVideoSrResolution(srRes);
       } catch {
         showToast('超分分辨率保存失败，可稍后重试', 'warning');
+        return;
+      }
+      // 超分模型写后端 KV（2026-10-18：四模式真切换；失败仅提示，不阻断其余保存）
+      try {
+        await setVideoSrModel(srModel);
+      } catch {
+        showToast('超分模型保存失败，可稍后重试', 'warning');
         return;
       }
       showToast('模型配置已保存', 'success');
@@ -284,6 +299,30 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
           </select>
           <p className="manga-form-tip" style={{ margin: 0 }}>
             「超分视频」列点击超分时的目标档位；保存后下次超分即时生效。
+          </p>
+        </div>
+
+        {/* ⑥ 超分模型（2026-10-18 用户令：四模式真切换） */}
+        <div>
+          <label className="manga-form-label">超分模型</label>
+          <select
+            className="manga-modal-select"
+            value={srModel}
+            aria-label="超分模型"
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'esrgan' || v === 'dlssnr' || v === 'rbvsr' || v === 'seedvr2') setSrModel(v);
+            }}
+          >
+            <option value="esrgan">ESRGAN 逐帧超分（默认 · 1K/2K 随上档）</option>
+            <option value="dlssnr">DLSS-NR 2x（NVIDIA 加速 · 约 2 分钟 · 2K）</option>
+            <option value="rbvsr">RealBasicVSR 时序修复（约 3 分钟 · 原尺寸）</option>
+            <option value="seedvr2">SeedVR2 生成式修复（顶级细节 · 1K 约 8 分钟 / 2K 约 90 分钟）</option>
+          </select>
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            「超分视频」列点击超分时走的真链路；保存后下次超分即时生效。
+            DLSS-NR 固定 2K 输出；RealBasicVSR 固定原尺寸；SeedVR2/ESRGAN
+            随上方超分分辨率档位。
           </p>
         </div>
 

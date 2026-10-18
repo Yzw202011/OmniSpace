@@ -1670,6 +1670,32 @@ def _sr_target_resolution_name() -> str:
     return "2k" if str(kv_get("manga.sr_resolution", "1k") or "1k").lower() == "2k" else "1k"
 
 
+# 超分模型（2026-10-18 用户令）：settings KV manga.sr_model，四模式真切换。
+# esrgan=现役逐帧超分（默认）；dlssnr=DLSS-NR 2x（甜点配色，93 秒级）；
+# rbvsr=RealBasicVSR 原尺寸时序修复（3 分钟级）；seedvr2=SeedVR2 3B 扩散修复。
+SR_MODES = ("esrgan", "dlssnr", "rbvsr", "seedvr2")
+
+
+def _sr_model() -> str:
+    """当前超分模型设置名（settings KV manga.sr_model，默认 esrgan）。"""
+    from ...data.settings_kv import kv_get
+    model = str(kv_get("manga.sr_model", "esrgan") or "esrgan").lower()
+    return model if model in SR_MODES else "esrgan"
+
+
+def _sr_model_tag(model: str) -> str:
+    """各模型的产物命名档位（与超分分辨率命名约定对齐，播放器探测兼容）。
+
+    dlssnr 固定 2x 输出（2752×1536）恒为 2k 档；rbvsr 原尺寸恢复恒为
+    1k 档；esrgan/seedvr2 随 manga.sr_resolution 设置走 1k/2k。
+    """
+    if model == "dlssnr":
+        return "2k"
+    if model == "rbvsr":
+        return "1k"
+    return _sr_target_resolution_name()
+
+
 def _sr_target() -> tuple[int, int]:
     """超分目标分辨率（settings KV manga.sr_resolution：1k|2k，默认 1k）。"""
     from ...services.inference import h3_frame_upscale as _fu
@@ -1678,13 +1704,14 @@ def _sr_target() -> tuple[int, int]:
 
 
 def _sr_path_for(task_id: str, row: dict) -> Path:
-    """当前分辨率设置下的 SR 产物路径（{原名}_sr{1k|2k}.mp4）。
+    """当前模型+分辨率设置下的 SR 产物路径（{原名}_sr{1k|2k}.mp4）。
 
     分辨率进命名（2026-10-12）：切档后旧档产物不冒充新档结果——
-    按需重跑，两档产物可共存。
+    按需重跑，两档产物可共存。2026-10-18 起模型也进档位语义
+    （dlssnr 恒 2k / rbvsr 恒 1k，esrgan/seedvr2 随分辨率设置）。
     """
     src = _task_video_file(task_id, row)
-    return src.with_name(f"{src.stem}_sr{_sr_target_resolution_name()}.mp4")
+    return src.with_name(f"{src.stem}_sr{_sr_model_tag(_sr_model())}.mp4")
 
 
 def _task_video_file(task_id: str, row: dict) -> Path:
@@ -1702,11 +1729,14 @@ def _task_video_file(task_id: str, row: dict) -> Path:
 
 
 def _run_sr_job(task_id: str, src: Path, out: Path,
-                target: tuple[int, int]) -> None:
-    """SR 后台作业（worker 线程）：进度写作业表；成败如实；毕即释放单飞。"""
+                target: tuple[int, int], model: str = "esrgan") -> None:
+    """SR 后台作业（worker 线程）：进度写作业表；成败如实；毕即释放单飞。
+
+    2026-10-18 起 model 分发四模式（esrgan 默认走原逐帧超分，其余走
+    sr_modes 服务三管线，契约一致：成功返回 out 路径，失败抛异常）。
+    """
     try:
         from ...services.inference.h3_engine import get_h3_engine
-        from ...services.inference.h3_frame_upscale import upscale_video
 
         # 冷启动（2026-10-12 探针实锤）：SR 可能先于任何生成任务到达——
         # 重启后 ComfyUI 未起，10s 就绪探测对冷服务器必扑空。先经引擎
@@ -1718,8 +1748,23 @@ def _run_sr_job(task_id: str, src: Path, out: Path,
             if job is not None:
                 job["progress"] = max(0.0, min(1.0, float(f)))
 
-        result = upscale_video(src, target=target, progress_cb=_cb,
-                               out_name=out.name)
+        result: Path | None
+        if model == "esrgan":
+            from ...services.inference.h3_frame_upscale import upscale_video
+            result = upscale_video(src, target=target, progress_cb=_cb,
+                                   out_name=out.name)
+        else:
+            from ...services.inference import sr_modes
+            if model == "dlssnr":
+                result = sr_modes.run_dlssnr(src, out, progress_cb=_cb)
+            elif model == "rbvsr":
+                result = sr_modes.run_rbvsr(src, out, progress_cb=_cb)
+            elif model == "seedvr2":
+                result = sr_modes.run_seedvr2(
+                    src, out, resolution_name=_sr_target_resolution_name(),
+                    progress_cb=_cb)
+            else:  # pragma: no cover - KV 已白名单校验，防御兜底
+                raise RuntimeError(f"未知超分模型: {model}")
         job = _SR_JOBS.get(task_id) or {}
         if result == out and out.is_file():
             job["status"], job["progress"] = "done", 1.0
@@ -1762,9 +1807,10 @@ async def video_super_resolution_start(task_id: str) -> dict[str, Any]:
     if not _SR_SEMAPHORE.acquire(blocking=False):
         return ok({"status": "busy"})
     _SR_JOBS[task_id] = {"status": "running", "progress": 0.0}
-    threading.Thread(target=_run_sr_job, args=(task_id, src, out, _sr_target()),
+    model = _sr_model()
+    threading.Thread(target=_run_sr_job, args=(task_id, src, out, _sr_target(), model),
                      name=f"video-sr-{task_id[:8]}", daemon=True).start()
-    return ok({"status": "running", "progress": 0.0})
+    return ok({"status": "running", "progress": 0.0, "model": model})
 
 
 @router.get("/manga/video/{task_id}/super-resolution")
@@ -1823,6 +1869,25 @@ async def video_sr_resolution_put(body: dict[str, Any]) -> dict[str, Any]:
     from ...data.settings_kv import kv_set
     kv_set("manga.sr_resolution", res)
     return ok({"resolution": res})
+
+
+@router.get("/manga/video/sr-model")
+def video_sr_model_get() -> dict[str, Any]:
+    """读超分模型（模型设置弹窗数据源；esrgan|dlssnr|rbvsr|seedvr2）。"""
+    return ok({"model": _sr_model(), "modes": list(SR_MODES)})
+
+
+@router.put("/manga/video/sr-model")
+async def video_sr_model_put(body: dict[str, Any]) -> dict[str, Any]:
+    """写超分模型（模型设置弹窗保存；下次 SR 作业即时切换真链路）。"""
+    model = str((body or {}).get("model", "")).lower()
+    if model not in SR_MODES:
+        raise ApiError("SYSTEM_PARAM_INVALID",
+                       "超分模型仅支持 esrgan/dlssnr/rbvsr/seedvr2",
+                       detail={"given": model[:40]})
+    from ...data.settings_kv import kv_set
+    kv_set("manga.sr_model", model)
+    return ok({"model": model})
 
 
 @router.delete("/video/history/{task_id}")

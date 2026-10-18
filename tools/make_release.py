@@ -7,9 +7,15 @@
 工作目录泄漏骗过去，跑的其实是仓库源码。protect_build 内置产物哨兵，
 守卫没真实编进二进制直接拒出厂。
 
+④ 渠道水印（2026-10-19 防逆向方案 v4·P2 拍板）：带 --serial 时在加壳完成后
+对自有代码区做 HMAC 签发+三暗标（license_console/watermark.py），泄露可溯源
+到渠道；回读验签不符=整链判败。
+
 用法：
   runtime/py310/python.exe tools/make_release.py             # 出包到 D:/ccd
   runtime/py310/python.exe tools/make_release.py --pubkey <hex>   # 正式发行（激活门禁）
+  runtime/py312/python.exe tools/make_release.py --pubkey <hex> \
+      --serial <渠道编号> --customer <渠道名>                # 带渠道水印
 产出：
   <out>/OmniSpace-<版本>-g<哈希>             源码包（可移植性验收用）
   <out>/OmniSpace-<版本>-g<哈希>-protected   加壳发行包（交付物）
@@ -23,6 +29,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 PY = sys.executable
+# 渠道水印默认签发区（自有代码+映射工具；22G 全量 HMAC 无取证增益）
+DEFAULT_ZONES = "src,launcher,skills,frontend/dist,modelxiazai"
 
 
 def main() -> int:
@@ -33,6 +41,12 @@ def main() -> int:
                     help="Cython 并行编译数（默认 2 控内存，开发机在跑时勿调高）")
     ap.add_argument("--pubkey", default="",
                     help="发行公钥 hex（透传 make_dist；注入后激活门禁生效）")
+    ap.add_argument("--serial", default="",
+                    help="渠道水印编号（发码台账 serial；留空=不打水印）")
+    ap.add_argument("--customer", default="",
+                    help="渠道/客户名（写入水印台账）")
+    ap.add_argument("--zones", default=DEFAULT_ZONES,
+                    help="水印签发区（逗号分隔相对目录）")
     args = ap.parse_args()
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -73,6 +87,22 @@ def main() -> int:
     if r.returncode != 0:
         print("❌ protect_build 失败")
         return 1
+
+    # ④ 渠道水印（v4·P2）：加壳成功后对自有代码区签发+三暗标，回读验签
+    if args.serial:
+        print("== ④ 渠道水印签发 ==", flush=True)
+        sys.path.insert(0, str(REPO))
+        sys.path.append(str(REPO / "pydeps"))
+        from license_console.watermark import sign as wm_sign
+        from license_console.watermark import verify as wm_verify
+        zones = [z.strip() for z in args.zones.split(",") if z.strip()]
+        wm_sign(dest, args.serial, args.customer, zones=zones)
+        info = wm_verify(dest)
+        if not info.get("watermarked") or info.get("serial") != args.serial:
+            print(f"❌ 水印回读不符（整链判败）：{info}")
+            return 1
+        print(f"✅ 渠道水印已签发并回读确认：serial={args.serial} "
+              f"customer={args.customer!r} files={info.get('signed_files')}")
 
     print(f"\n发行完成：\n  源码包 {src}\n  加壳包 {dest}")
     return 0

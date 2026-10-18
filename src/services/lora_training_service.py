@@ -235,7 +235,7 @@ DEFAULT_TRAIN_CONFIG: dict[str, Any] = {
 # train_tasks 表实际列（DB 更新时过滤）
 _TRAIN_TASK_COLUMNS = {
     "base_model", "lora_rank", "lora_alpha", "learning_rate", "epochs",
-    "dataset_path", "status", "progress", "updated_at",
+    "dataset_path", "status", "progress", "error", "updated_at",
 }
 
 
@@ -661,7 +661,8 @@ class LoRATrainingService:
             level="info", detail=f"task={task_id}")
 
         if not self._acquire_training_lock(task_id):
-            self._update_task(task_id, status="error")
+            self._update_task(task_id, status="error",
+                              error="无法获取 training 功能锁")
             _broadcast("training_failed",
                        {"task_id": task_id, "error": "无法获取 training 功能锁"})
             with self._state_lock:
@@ -733,7 +734,8 @@ class LoRATrainingService:
                        level="warning", detail=f"task={task_id}, {exc}")
         except TrainingFailed as exc:
             log.error("训练失败: %s: %s", task_id, exc)
-            self._update_task(task_id, status="error")
+            self._update_task(task_id, status="error",
+                              error=str(exc)[:500])
             _broadcast("training_failed", {"task_id": task_id, "error": str(exc)})
             _log_event("training", "training_failed",
                        f"训练失败了：{exc}。可以重试一次；"
@@ -741,7 +743,8 @@ class LoRATrainingService:
                        level="error", detail=f"task={task_id}")
         except Exception as exc:  # noqa: BLE001 - 未预期异常同失败处理
             log.exception("训练未预期异常: %s", task_id)
-            self._update_task(task_id, status="error")
+            self._update_task(task_id, status="error",
+                              error=f"未预期异常: {exc}"[:500])
             _broadcast("training_failed",
                        {"task_id": task_id, "error": f"未预期异常: {exc}"})
             _log_event("training", "training_failed",

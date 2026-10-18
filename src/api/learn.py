@@ -61,6 +61,15 @@ def _row_to_train_task(r: dict) -> dict:
         "dataset_path": r.get("dataset_path", ""),
         "status": r.get("status", TrainStatus.QUEUED.value),
         "progress": float(r.get("progress", 0.0) or 0.0),
+        # G-01（2026-10-18）：失败原因透出（此前只在 WS 瞬时帧/日志可见）
+        "error": str(r.get("error") or ""),
+        # 批1 UI 测试抓缺（2026-10-19）：created_at 此前被丢弃 → 前端
+        # 拿不到就盖 Date.now()，两个月前的任务卡全显示「创建: 刚刚」
+        "created_at": float(r.get("created_at") or 0.0),
+        "updated_at": float(r.get("updated_at") or 0.0),
+        # G-05（2026-10-19）：优先级透出——前端「自动/手动」徽章此前纯
+        # 客户端推断；3=background(调度器自动) / 2=low(API 手动) / 0=历史未记
+        "priority": int(r.get("priority") or 0),
     }
 
 
@@ -82,6 +91,14 @@ def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
     dataset_path 留空时自动从知识库 + 行为偏好对构建训练集
     （prepare_training_data，≥100 条才允许触发，规格 §3.3）。
     """
+    # G-06 双源一致（2026-10-18）：D3 维护期 API 与 UI 同闸。以模块属性
+    # 读取（非固化 import 名），测试可 monkeypatch 解冻路径
+    from ..services import training_common as _tc
+    if _tc.KNOWLEDGE_TRAINING_MAINTENANCE:
+        raise ApiError("TRAINING_MAINTENANCE",
+                       "知识训练维护中：训练依赖修复后恢复开放",
+                       suggestion="维护期间暂不能新建训练任务；"
+                                  "已有任务与 LoRA 版本不受影响")
     if not req.base_model:
         raise ApiError("SYSTEM_PARAM_INVALID", "base_model 不能为空")
 
@@ -129,8 +146,8 @@ def learn_train(req: TrainTaskCreate) -> dict[str, Any]:
         try:
             row = db.query_one(
                 "SELECT id, base_model, lora_rank, lora_alpha, learning_rate,"
-                " epochs, dataset_path, status, progress, created_at,"
-                " updated_at FROM train_tasks WHERE id=?",
+                " epochs, dataset_path, status, progress, error, priority,"
+                " created_at, updated_at FROM train_tasks WHERE id=?",
                 (task_id,))
             if row is not None:
                 return ok(_row_to_train_task(row), message="训练任务已创建")
@@ -149,8 +166,9 @@ def learn_tasks() -> dict[str, Any]:
         try:
             rows = db.query(
                 "SELECT id, base_model, lora_rank, lora_alpha, learning_rate,"
-                " epochs, dataset_path, status, progress, created_at,"
-                " updated_at FROM train_tasks ORDER BY created_at DESC")
+                " epochs, dataset_path, status, progress, error, priority,"
+                " created_at, updated_at FROM train_tasks"
+                " ORDER BY created_at DESC")
             items = [_row_to_train_task(r) for r in rows]
             return ok({"items": items, "total": len(items)})
         except Exception as exc:  # noqa: BLE001
@@ -168,8 +186,8 @@ def learn_task_detail(task_id: str) -> dict[str, Any]:
         try:
             row = db.query_one(
                 "SELECT id, base_model, lora_rank, lora_alpha, learning_rate,"
-                " epochs, dataset_path, status, progress, created_at,"
-                " updated_at FROM train_tasks WHERE id=?",
+                " epochs, dataset_path, status, progress, error, priority,"
+                " created_at, updated_at FROM train_tasks WHERE id=?",
                 (task_id,))
             if row is not None:
                 return ok(_row_to_train_task(row))

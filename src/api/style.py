@@ -131,6 +131,14 @@ def style_train(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     40007 GPU 被占用或已有训练进行中。
     """
     body = body or {}
+    # G-06 双源一致（2026-10-18）：D3 维护期 API 与 UI 同闸（前端
+    # 「开始训练（维护中）」已置灰）。模块属性读取，测试可 monkeypatch
+    from ..services import training_common as _tc
+    if _tc.STYLE_TRAINING_MAINTENANCE:
+        raise ApiError("TRAINING_MAINTENANCE",
+                       "风格训练维护中：基座与消费链恢复后开放",
+                       suggestion="维护期间暂不能新建训练任务；"
+                                  "已有数据集与版本不受影响")
     dataset_id = str(body.get("dataset_id") or "").strip()
     if not dataset_id:
         raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: dataset_id",

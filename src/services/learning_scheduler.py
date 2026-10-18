@@ -817,6 +817,12 @@ class LearningScheduler:
         """
         if self._auto_finetune_inflight:
             return
+        # G-06（2026-10-18）：知识训练维护中（D3）不自动触发——此前
+        # 维护期仍按周期自动造任务，基座缺失全数「失败 0%」堆积
+        from .training_common import KNOWLEDGE_TRAINING_MAINTENANCE
+        if KNOWLEDGE_TRAINING_MAINTENANCE:
+            log.debug("自动微调跳过：知识训练维护中（D3 维护闸）")
+            return
         from .browser_agent_service import get_learning_settings
         settings = get_learning_settings()
         # §4.3 自适应：连续质量下降已置暂停旗标时不再自动触发

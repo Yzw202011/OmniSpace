@@ -23,6 +23,18 @@ log = logging.getLogger("omnispace.services.training_common")
 
 
 # ═══════════════════════════════════════════════════════════════
+#  D3 维护闸（2026-09-21 拍板：知识/风格训练维护中，前端提交按钮置灰）
+#  G-06 双源一致性（2026-10-18）：API 与自动触发同闸——维护期
+#  /learn/train、/style/train 返回 TRAINING_MAINTENANCE，自动微调
+#  跳过（不再自动制造必败任务）。解冻：对应标志改 False 并同步
+#  前端按钮（LearnView.tsx / StylePage.tsx 的 disabled 硬编码）。
+# ═══════════════════════════════════════════════════════════════
+
+KNOWLEDGE_TRAINING_MAINTENANCE = True
+STYLE_TRAINING_MAINTENANCE = True
+
+
+# ═══════════════════════════════════════════════════════════════
 #  TrainingLockGuard——training 功能锁（三服务共用一把语义）
 # ═══════════════════════════════════════════════════════════════
 

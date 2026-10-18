@@ -284,6 +284,9 @@ CREATE TABLE IF NOT EXISTS train_tasks (
     dataset_path    TEXT NOT NULL,
     status          TEXT DEFAULT 'queued',
     progress        REAL DEFAULT 0.0,
+    -- G-01（2026-10-18）：失败原因落库——此前失败只写 status，原因仅
+    -- 存于 WS 瞬时帧与日志文件，任务列表「失败 0%」无线索（截图病灶 S2）
+    error           TEXT DEFAULT '',
     -- 审计 R3-BE1：/learn/tasks/reorder 排序字段
     priority        INTEGER DEFAULT 0,
     created_at      REAL NOT NULL DEFAULT 0,
@@ -483,7 +486,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 15
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -584,6 +587,12 @@ class Database:
             # CJ-0001/DJ-0001），重图换号、删除释放复用；空=存量未补编
             # （一次性脚本 scripts/backfill_asset_codes.py 回填）
             ("comic_assets", "code", "TEXT DEFAULT ''"),
+        )),
+        (15, (
+            # G-01（2026-10-18）：train_tasks 失败原因列——失败文本此前
+            # 只进 WS 瞬时帧/events.jsonl/backend.log，任务列表永远
+            # 无失败原因（新库 _SCHEMA 已含，幂等跳过）
+            ("train_tasks", "error", "TEXT DEFAULT ''"),
         )),
     )
 

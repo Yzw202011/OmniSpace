@@ -97,6 +97,7 @@ SEMANTIC_CODES: dict[str, str] = {
     "STYLE_TASK_NOT_FOUND": "风格训练任务不存在",
     "STYLE_ASSET_FORMAT": "风格素材格式不支持",
     "STYLE_FRAME_EXTRACT_FAILED": "视频抽帧失败（FFmpeg 不可用或文件损坏）",
+    "TRAINING_MAINTENANCE": "训练功能维护中，暂不接受新的训练任务",
     # ── 系统类（5xxx）────────────────────────────────────────────
     "SYSTEM_PARAM_INVALID": "参数校验失败",                    # [文档]
     "SYSTEM_UNAUTHORIZED": "未授权操作",                       # [文档]
@@ -105,6 +106,7 @@ SEMANTIC_CODES: dict[str, str] = {
     "SYSTEM_DISK_FULL": "磁盘空间不足，请清理后重试",           # [文档]
     "SYSTEM_RATE_LIMITED": "请求过于频繁，请稍后再试",
     "SYSTEM_DB_UNAVAILABLE": "数据库连接失败",
+    "SYSTEM_DB_BUSY": "数据库忙，请稍后重试",
     "SYSTEM_DB_DEGRADED": "数据库不可用，已降级到内存模式",
     "SYSTEM_BACKUP_FAILED": "备份失败，请检查磁盘空间",
     "HARDWARE_NO_GPU": "未检测到独立显卡，部分功能可能受限",
@@ -406,6 +408,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "STYLE_ASSET_FORMAT": "请改用支持的图片格式（jpg/png 等）重新上传",
     "STYLE_FRAME_EXTRACT_FAILED": "请确认视频文件完好且为常见格式（mp4/avi 等）后重试",
     "STYLE_TRAINING_LOCKED": "该画风正在训练中，请等训练完成后再操作",
+    "TRAINING_MAINTENANCE": "训练功能维护中，等恢复开放后再试；已有任务与版本不受影响",
     # ── 系统类 ───────────────────────────────────────────────────
     "SYSTEM_PARAM_INVALID": "请按页面提示检查填写的内容后重试",
     "SYSTEM_UNAUTHORIZED": "请确认您有该操作的权限后重试",
@@ -414,6 +417,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "SYSTEM_DISK_FULL": "请清理磁盘空间（可删旧生成结果）后重试",
     "SYSTEM_RATE_LIMITED": "操作太频繁了，请歇几秒再试",
     "SYSTEM_DB_UNAVAILABLE": "数据库未响应，请重启软件；反复出现请导出诊断包",
+    "SYSTEM_DB_BUSY": "系统正忙，请等几秒重试；反复出现请导出诊断包",
     "SYSTEM_DB_DEGRADED": "数据库暂时不可用，数据暂存内存；请先导出重要内容再重启软件",
     "SYSTEM_BACKUP_FAILED": "请检查磁盘剩余空间后重试备份",
     "SYSTEM_DEPENDENCY_MISSING": "该功能依赖的组件缺失，请到设置页导出诊断包反馈",
@@ -551,6 +555,7 @@ _SEMANTIC_HTTP: dict[str, int] = {
     "LICENSE_LOCKED": 429,
     "RATE_LIMITED": 429,
     "FEATURE_MUTEX_LOCKED": 409,
+    "TRAINING_MAINTENANCE": 503,
     "LICENSE_REQUIRED": 403,
     "SYSTEM_INTERNAL_ERROR": 500,
 }

@@ -198,9 +198,11 @@ def query_events(
     for e in _iter_entries(days=days, level=level, module=module,
                            keyword=keyword):
         total += 1
-        if len(items) < limit:
+        # offset 语义：跳过前 offset 条（新→旧游标翻页）。10-19 测试
+        # BUG-05：此前 offset 只参与 has_more 计算、从未跳条——契约翻页
+        # 实为恒返首页（稳定子集 10/10 重叠实锤）。
+        if total > offset and len(items) < limit:
             items.append(e)
-    # offset 语义：跳过前 offset 条（新→旧游标翻页）
     return {"items": items, "total": total,
             "has_more": total > offset + len(items)}
 

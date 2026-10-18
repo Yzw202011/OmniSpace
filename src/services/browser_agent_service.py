@@ -485,7 +485,8 @@ def _db() -> Database:
 
 
 def get_learning_settings() -> dict:
-    """读取学习设置（合并默认值）。"""
+    """读取学习设置（合并默认值；traffic_* 流量账本键不出本视图——
+    服务端内部计数器经 get_traffic_today() 读取，客户端契约不含账本）。"""
     settings = dict(DEFAULT_LEARNING_SETTINGS)
     db = _db()
     if db is not None:
@@ -494,6 +495,8 @@ def get_learning_settings() -> dict:
             from ..data.database import parse_json
             rows = db.query("SELECT key, value FROM learning_settings")
             for row in rows:
+                if row["key"].startswith("traffic_"):
+                    continue
                 settings[row["key"]] = parse_json(row.get("value"),
                                                   settings.get(row["key"]))
         except Exception as exc:  # noqa: BLE001

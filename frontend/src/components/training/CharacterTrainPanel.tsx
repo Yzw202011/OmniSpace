@@ -21,6 +21,7 @@ import {
 } from '@/services/characterLoraApi';
 import { getErrorMessage } from '@/utils/errors';
 import { useAppStore } from '@/stores/useAppStore';
+import { confirmDialog } from '@/stores/useConfirmStore';
 
 const STATUS_TEXT: Record<string, string> = {
   queued: '排队中', training: '训练中', done: '已完成',
@@ -90,6 +91,15 @@ export const CharacterTrainPanel: React.FC = () => {
   };
 
   const doRollback = async (assetId: string, version: string) => {
+    // G-04（2026-10-18）：回滚即换生图链生效版本——补 medium 级确认
+    // （与知识域 LoRAVersionManager 对齐；此前误触直接生效）
+    const go = await confirmDialog({
+      level: 'medium',
+      title: `确定回滚到 ${version}？`,
+      lines: ['当前生效版本将被替换，生图链即刻改用该版本。'],
+      confirmText: '回滚',
+    });
+    if (!go) return;
     try {
       await rollbackCharacterLora(assetId, version);
       showToast(`已回滚到 ${version}（生图链即刻生效）`, 'success');

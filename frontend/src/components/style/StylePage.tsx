@@ -38,6 +38,7 @@ import {
 import { useStyleStore } from '@/stores/useStyleStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { useHardwareStore } from '@/stores/useHardwareStore';
+import { confirmDialog } from '@/stores/useConfirmStore';
 import { reportBgError } from '@/utils/errors';
 import * as styleApi from '@/services/styleApi';
 import { isApiError } from '@/services/api';
@@ -116,6 +117,17 @@ export const StylePage: React.FC<{ embedded?: boolean }> = ({ embedded = false }
         setTemplatesFailed(true);
       });
   }, []);
+
+  /** 行级：回滚（G-04：medium 级确认——回滚即换生效版本，与知识域对齐） */
+  const confirmRollback = async (version: string) => {
+    const go = await confirmDialog({
+      level: 'medium',
+      title: `确定回滚到 ${version}？`,
+      lines: ['当前生效版本将被替换，风格消费链即刻改用该版本。'],
+      confirmText: '回滚',
+    });
+    if (go) void rollback(version);
+  };
 
   /** 行级：克隆（复制数据集+配置为新训练任务） */
   const handleClone = async (version: string) => {
@@ -744,7 +756,7 @@ export const StylePage: React.FC<{ embedded?: boolean }> = ({ embedded = false }
                     <button
                       className="btn btn-secondary btn-sm"
                       disabled={isCurrent}
-                      onClick={() => rollback(v.version)}
+                      onClick={() => void confirmRollback(v.version)}
                     >
                       回滚
                     </button>

@@ -9,10 +9,10 @@
 
 import { get } from './api';
 
-/** 统一训练队列条目（两源归一化后的公共形状） */
+/** 统一训练队列条目（三源归一化后的公共形状） */
 export interface UnifiedTrainingTask {
   id: string;
-  kind: 'knowledge' | 'style';
+  kind: 'knowledge' | 'style' | 'character';
   kindLabel: string;
   name: string;
   status: string;
@@ -38,15 +38,20 @@ export interface UnifiedQueue {
 /** 归一化一条任务（与后端 _norm 同口径；容错字段缺失） */
 export function normalizeTrainingItem(
   raw: Record<string, unknown>,
-  kind: 'knowledge' | 'style',
+  kind: 'knowledge' | 'style' | 'character',
 ): UnifiedTrainingTask {
   const name = String(
     raw.name ?? raw.style_prompt ?? raw.base_model ?? raw.id ?? '?',
   ).slice(0, 80);
+  const KIND_LABELS: Record<typeof kind, string> = {
+    knowledge: '知识训练',
+    style: '风格训练',
+    character: '人物训练',
+  };
   return {
     id: String(raw.id ?? ''),
     kind,
-    kindLabel: kind === 'knowledge' ? '知识训练' : '风格训练',
+    kindLabel: KIND_LABELS[kind],
     name,
     status: String(raw.status ?? 'unknown'),
     progress: Number(raw.progress ?? 0) || 0,
@@ -73,7 +78,12 @@ export async function fetchUnifiedTasks(): Promise<UnifiedQueue> {
     rawItems
       .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
       .map((x) => {
-        const kind = x.kind === 'style' ? 'style' : 'knowledge';
+        // 三源口径与后端 training.py 对齐（character 曾被兜底成
+        // knowledge → 人物任务错标「知识训练」，批1 UI 测试抓缺）
+        const kind =
+          x.kind === 'style' ? 'style'
+          : x.kind === 'character' ? 'character'
+          : 'knowledge';
         return normalizeTrainingItem(x, kind);
       }),
   );

@@ -283,7 +283,12 @@ export const LearnView: React.FC = () => {
                 <div className="learn-task-header">
                   <div className="learn-task-title-row">
                     <span className="learn-task-name">{task.name}</span>
-                    <span className={`learn-priority-badge ${pri.cls}`}>{pri.text}</span>
+                    <span
+                      className={`learn-priority-badge ${pri.cls}`}
+                      title={task.priority === 'auto'
+                        ? '自动（按任务优先级推断；历史任务提交渠道未记录）'
+                        : '手动提交'}
+                    >{pri.text}</span>
                     <span className={`learn-status-badge ${TRAIN_STATUS_CLASSES[task.status]}`}>
                       {TRAIN_STATUS_LABELS[task.status]}
                     </span>
@@ -325,10 +330,14 @@ export const LearnView: React.FC = () => {
                   </div>
                 )}
 
-                {/* 失败原因（如实展示后端错误） */}
-                {task.status === 'error' && task.error && (
+                {/* 失败原因（如实展示后端错误；诚实占位（2026-10-19）：
+                    error 列上线前的旧任务原因只在已轮转的日志里，
+                    明示「未记录」而非留白冒充无异常） */}
+                {task.status === 'error' && (
                   <div className="learn-progress-meta">
-                    <span className="text-error">错误: {task.error}</span>
+                    <span className="text-error">
+                      错误: {task.error || '失败原因未记录（error 列上线前的旧任务，原始日志已轮转）'}
+                    </span>
                   </div>
                 )}
 

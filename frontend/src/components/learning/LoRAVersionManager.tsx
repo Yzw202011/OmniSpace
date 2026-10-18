@@ -19,6 +19,13 @@ import { isApiError } from '../../services/api';
 
 type CompareField = { a: unknown; b: unknown; diff?: unknown };
 
+/** 版本状态中文映射（L-08，2026-10-19；与后端 lora_training_service 写入值对齐） */
+const LORA_STATUS_LABELS: Record<string, string> = {
+  registered: '已注册',
+  pending_review: '待审核',
+  pending_evaluation: '评估中',
+};
+
 export default function LoRAVersionManager() {
   const showToast = useAppStore((s) => s.showToast);
   const [versions, setVersions] = useState<LoraVersion[]>([]);
@@ -124,7 +131,12 @@ export default function LoRAVersionManager() {
                 </td>
                 <td>{v.quality_score != null ? v.quality_score : '—'}</td>
                 <td>{v.data_count ?? '—'}</td>
-                <td>{v.status ?? '—'}</td>
+                {/* L-08（2026-10-19）：中文映射，title 保留后端原文 */}
+                <td title={v.status || undefined}>
+                  {v.status
+                    ? (LORA_STATUS_LABELS[v.status] ?? v.status)
+                    : '—'}
+                </td>
                 <td>
                   <button
                     type="button"

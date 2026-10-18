@@ -42,6 +42,10 @@ interface RawTrainTask {
   status?: string;
   /** 0~1（兼容 0~100 百分制） */
   progress?: number;
+  /** 失败原因（G-01：后端落库后透出；空/缺省=无） */
+  error?: string;
+  /** 优先级数值（G-05：3=background 调度器自动 / 2=low API 手动 / 0=历史未记） */
+  priority?: number;
   created_at?: string | number;
   updated_at?: string | number;
 }
@@ -68,7 +72,11 @@ function normalizeTrainTask(
     name: fallback?.name ?? raw.base_model ?? '训练任务',
     status: TRAIN_STATUS_MAP[String(raw.status ?? 'queued')] ?? 'pending',
     progress: rawProgress > 1 ? rawProgress / 100 : rawProgress,
-    priority: fallback?.priority ?? 'auto',
+    error: raw.error || undefined,
+    // G-05：徽章改用 DB 优先级真源（3=自动/2=手动）；0=历史任务渠道
+    // 未记录，沿用「自动」显示但徽章带推断声明（LearnView title）
+    priority: fallback?.priority
+      ?? (raw.priority === 2 ? 'manual' : 'auto'),
     target_model: raw.base_model,
     dataset: raw.dataset_path || undefined,
     hyperparams: {

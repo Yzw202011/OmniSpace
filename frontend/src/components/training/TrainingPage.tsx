@@ -26,6 +26,17 @@ type Tab = 'knowledge' | 'style' | 'character';
 /** 统一队列显示上限（防历史任务刷屏；完整历史在各页签内） */
 const QUEUE_DISPLAY_CAP = 8;
 
+// G-07：页签持久化（localStorage；非法值/存取失败回退知识页签）
+const TAB_STORAGE_KEY = 'training.activeTab';
+
+function readInitialTab(): Tab {
+  try {
+    const v = localStorage.getItem(TAB_STORAGE_KEY);
+    if (v === 'style' || v === 'character') return v;
+  } catch { /* 忽略 */ }
+  return 'knowledge';
+}
+
 const TABS: { key: Tab; label: string; hint: string }[] = [
   { key: 'knowledge', label: '知识训练', hint: '喂文档，让对话更懂你（QLoRA）' },
   { key: 'style', label: '风格训练', hint: '喂素材，练视频画风 LoRA' },
@@ -147,7 +158,12 @@ const UnifiedQueueCard: React.FC<{
 };
 
 export const TrainingPage: React.FC = () => {
-  const [tab, setTab] = useState<Tab>('knowledge');
+  // G-07（2026-10-18）：页签选择持久化——此前本地 state 刷新即丢
+  const [tab, setTabState] = useState<Tab>(readInitialTab);
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    try { localStorage.setItem(TAB_STORAGE_KEY, t); } catch { /* 隐私模式等存取失败忽略 */ }
+  };
   const [queue, setQueue] = useState<UnifiedQueue | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

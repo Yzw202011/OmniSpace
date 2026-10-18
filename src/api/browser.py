@@ -134,7 +134,12 @@ def browser_tabs() -> dict[str, Any]:
 def browser_navigate(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """用户手动导航（仅 http/https；黑名单拒绝；≥1s 节流）。"""
     global _shot_cache
-    url = str((body or {}).get("url", "") or "").strip()
+    raw_url = (body or {}).get("url", "")
+    if raw_url is not None and not isinstance(raw_url, str):
+        # B-065（2026-10-19）：非字符串 url 曾被 str() 强转成"123"再以
+        # 协议违规报错——改为显式类型 400，人话与实情一致
+        raise ApiError("SYSTEM_PARAM_INVALID", "url 必须是字符串")
+    url = str(raw_url or "").strip()
     if not url:
         raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: url")
     svc = _ensure_ready()

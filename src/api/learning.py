@@ -127,7 +127,12 @@ def topic_create(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     LEARN-004/067：depth=shallow/standard/deep → max_pages 8/20/50。
     LEARN-005：seed_urls 作为会话起始页面（启动时注入 budget）。
     """
-    name = str((body or {}).get("name", "") or "").strip()
+    _raw_name = (body or {}).get("name", "")
+    if _raw_name is not None and not isinstance(_raw_name, str):
+        # B-007（2026-10-19）：非字符串 name 曾被 str() 静默强转（123→"123"
+        # 建卡成功）——契约收敛为显式 400
+        raise ApiError("SYSTEM_PARAM_INVALID", "name 必须是字符串")
+    name = str(_raw_name or "").strip()
     if not name:
         raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: name")
     keywords = (body or {}).get("keywords") or []

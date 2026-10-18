@@ -548,6 +548,19 @@ class PluginRuntime:
                 raise PluginRuntimeError(
                     "PLUGIN_LOAD_FAILED", f"插件加载失败: {exc}",
                     "检查插件源码/包完整性后重试 load") from exc
+            except Exception as exc:  # noqa: BLE001
+                # BUG-09 修复（2026-10-19）：生命周期回调抛非 PluginLoadError
+                # 异常（如 on_load 签名不符 TypeError、插件内任意 RuntimeError）
+                # 此前裸穿成 SYSTEM_INTERNAL_ERROR 且不落 last_error——设置页
+                # 「故障态/上次错误」UI 在该路径是死代码。统一按载入失败收口：
+                # 记录 + 可重试 + 语义错误码。
+                log.warning("插件加载异常: %s", name, exc_info=True)
+                entry.last_error = str(exc)
+                entry.instance = None
+                entry.state = STATE_UNLOADED  # 载入失败可重试
+                raise PluginRuntimeError(
+                    "PLUGIN_LOAD_FAILED", f"插件加载失败: {exc}",
+                    "检查插件源码/包完整性后重试 load") from exc
 
     def unload(self, name: str) -> None:
         """卸载（faulty 复位通道：unload→load 即重建）。"""

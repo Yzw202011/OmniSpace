@@ -28,6 +28,10 @@ const ACTION_LABELS: Record<string, string> = {
   model_delete_files: '删模型文件', provider_delete: '删云端连接',
   settings_update: '更新设置', unbind: '解绑本机',
   diagnostics_export: '导出诊断包', audit_clear: '清空审计',
+  // 2026-10-19 补齐实测在册动作（此前显英文原文）
+  quota_update: '学习额度更新',
+  restore_staged: '安排恢复',
+  restore_cancel: '撤销恢复',
 };
 
 export default function AuditCard() {

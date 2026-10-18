@@ -45,6 +45,11 @@ const THEME_KEY = 'omnispace.theme';
 /** 本次会话用户是否主动换过主题（true 时禁用后端主题回放，防竞态覆盖） */
 let userChangedTheme = false;
 
+/** 主题回写去抖定时器（2026-10-19 审计洪泛节流：连点主题每次都发 PUT
+ *  +审计一行——80 连点产生 69 行审计；改 1.2s 尾沿去抖，末次点击落库，
+ *  localStorage 即时性不受影响）。number | null（window.setTimeout 返回值） */
+let themeWriteTimer: number | null = null;
+
 /** 读取持久化主题（异常/旧值回退 Sakura 暗色；旧 'light' 值平滑迁移） */
 function loadTheme(): Theme {
   try {
@@ -200,9 +205,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const writeBack = (): void => {
       const s = get().settings;
       if (Object.keys(s).length > 0) {
-        updateSettings({ ...s, theme }).catch((e: unknown) =>
-          reportBgError('theme-writeback', e),
-        );
+        if (themeWriteTimer !== null) clearTimeout(themeWriteTimer);
+        themeWriteTimer = window.setTimeout(() => {
+          themeWriteTimer = null;
+          // 落库时取最新快照：去抖窗口内的连续点击只落末次主题
+          const cur = get();
+          updateSettings({ ...cur.settings, theme: cur.theme }).catch(
+            (e: unknown) => reportBgError('theme-writeback', e),
+          );
+        }, 1200);
       }
     };
     const { settings, settingsLoaded, loadSettings } = get();

@@ -85,6 +85,27 @@ def main() -> int:
         raise SystemExit("gcc 不可用（检查 WinLibs 安装/PATH）")
     _, env = ok_env
 
+    # G4 演练 P1-A 根修（2026-10-19）：清单 build_id 与 build_info 必须一致。
+    # 升级链装完后读 build_info 验证 to_build_id；本工具历史上只给清单
+    # build_id 加 "+cython" 而 build_info.py 不同步 → 凡从加壳树出的 .upg
+    # 升级必在「启动后验证」判败回滚（每次 221 文件白换）。编译前同步，
+    # 让构建号烧进 .pyd；已带 +cython 的树重入时先剥旧后缀防叠加。
+    _build_id = "unknown"
+    _old_manifest = pkg / "dist_manifest.json"
+    if _old_manifest.exists():
+        try:
+            _build_id = json.loads(
+                _old_manifest.read_text("utf-8")).get("build_id") or _build_id
+        except (OSError, ValueError):
+            pass
+    if _build_id.endswith("+cython"):
+        _build_id = _build_id[: -len("+cython")]
+    _bi = pkg / "src" / "build_info.py"
+    if _bi.is_file():
+        _bi.write_text(
+            '"""由 make_dist.py 生成的构建号文件（勿手改、勿提交）。"""\n'
+            f'BUILD_ID = "{_build_id}+cython"\n', encoding="utf-8")
+
     files = [p for t in TARGETS for p in (pkg / t).rglob("*.py")
              if p.relative_to(pkg).as_posix() not in SCRIPT_RUN
              and "_extracted" not in p.relative_to(pkg).parts]  # 第三方上游技能解包源码，保持原样

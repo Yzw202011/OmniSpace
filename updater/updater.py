@@ -163,20 +163,35 @@ def wait_chain_quiet(install_root: Path) -> tuple[bool, str]:
 
 def backup_files(install_root: Path, manifest: dict,
                  backup_dir: Path) -> None:
-    """③ 备份将被替换/删除的旧文件（含 DB 快照，若声明迁移）。"""
+    """③ 备份将被替换/删除的旧文件（含 DB 快照，若声明迁移）。
+
+    G4 演练 P1-B 根修（2026-10-19）：升级新增文件（目标原本不存在的
+    非删除项）记入 backup/_added_files.json——回滚时必须对称删除，
+    否则 .pyd 残留且导入优先于 .py，回滚后的机器跑的是新旧嵌合代码。
+    DB 快照改存 backup/data/ 镜像位（旧版存 backup 根，还原会错位到
+    安装根而非 data/——「升级回滚落错位」本尊）。
+    """
+    added: list[str] = []
     for ent in manifest["files"]:
         rel = ent["path"]
         target = core.payload_target(install_root, rel)
         if not target.is_file():
+            if ent.get("action") != "delete":
+                added.append(rel)
             continue  # 新增文件无旧版可备份
         dst = backup_dir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(target, dst)
+    if added:
+        (backup_dir / "_added_files.json").write_text(
+            json.dumps(added), encoding="utf-8")
     if manifest.get("contains_migration"):
         for name in ("omnispace.db", "omnispace.db-wal", "omnispace.db-shm"):
             db = install_root / "data" / name
             if db.is_file():
-                shutil.copy2(db, backup_dir / name)
+                dst = backup_dir / "data" / name
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(db, dst)
 
 
 def apply_payload(install_root: Path, work_dir: Path, manifest: dict) -> None:

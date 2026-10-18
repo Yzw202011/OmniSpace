@@ -249,7 +249,16 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
     try:
         tmp.write(package_bytes)
         tmp.close()
-        pkg = read_cutemamen_pkg(Path(tmp.name))
+        try:
+            pkg = read_cutemamen_pkg(Path(tmp.name))
+        except PluginLoadError as exc:
+            # BUG-03 修复（2026-10-19）：loader 的条目白名单拒绝（如包内
+            # 路径穿越条目）此前未被翻译，冒成 SYSTEM_INTERNAL_ERROR+堆栈；
+            # 安全闸本身成立，这里只把报错洗净
+            raise ApiError("PLUGIN_PACKAGE_INVALID",
+                           f"插件包校验失败: {exc}",
+                           suggestion="确认包由 tools/build_plugin.py 打包"
+                                      "（条目白名单见 docs/插件开发规范.md §4）") from exc
     finally:
         Path(tmp.name).unlink(missing_ok=True)
     manifest = pkg.manifest
@@ -341,7 +350,8 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
     imported_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     try:
         rt.register(name, source_path, pkg_path, trust,
-                    imported_at=imported_at, skills=skills)
+                    imported_at=imported_at, skills=skills,
+                    manifest={"capability": str(manifest.get("capability") or "")})
         rt.save_user_registry()
     except PluginRuntimeError as exc:
         for f in written:

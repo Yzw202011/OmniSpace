@@ -75,6 +75,10 @@ export interface BackupResult {
   /** 备份文件落盘路径（写盘失败为空串） */
   path: string;
   size_bytes: number;
+  /** 数据库热备落盘路径（.db / .db.enc） */
+  db_path?: string;
+  /** 数据库副本真实体积（BUG-07：toast 应显此值而非 size_bytes） */
+  db_size_bytes?: number;
 }
 
 /** 项目导出响应（POST /system/project/export 返回 data） */

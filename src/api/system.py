@@ -154,6 +154,20 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
     """更新系统设置（规格 §4.7）：写库持久化 + 刷新内存副本。"""
     global _settings
     data = req.model_dump()
+    # 值白名单校验（2026-10-19 BUG-02 修复）：单选键拒绝非法值直写，
+    # 空串按缺省归一（兼容历史脏库，老值 '' 视为未设置）
+    _ENUM_GUARDS: dict[str, tuple[str, set[str]]] = {
+        "launch_mode": ("shell", {"shell", "browser"}),
+        "ui_performance": ("full", {"full", "lite"}),
+    }
+    for _key, (_default, _allowed) in _ENUM_GUARDS.items():
+        _val = data.get(_key)
+        if _val == "" or _val is None:
+            data[_key] = _default
+        elif _val not in _allowed:
+            raise ApiError("SYSTEM_PARAM_INVALID",
+                           f"{_key} 非法值: {_val!r}",
+                           suggestion=f"允许值：{sorted(_allowed)}")
     # 打码回写保护（2026-09-15 审计修复）：GET 出网是掩码，前端整包
     # 回存时若不拦会把真实 key 覆写成掩码串——掩码入参保留旧值
     if data.get("remote_dialog_api_key") == _REMOTE_KEY_MASK:
@@ -325,7 +339,11 @@ async def system_backup() -> dict[str, Any]:
 
     return ok({"backup_id": backup_id, "path": file_path,
                "db_path": db_path,
-               "size_bytes": len(json.dumps(payload))})
+               "size_bytes": len(json.dumps(payload)),
+               # BUG-07 修复（2026-10-19）：库副本真实体积（此前前端 toast
+               # 只拿 settings 快照的 size_bytes，12MB 库显示成「0KB」）
+               "db_size_bytes": (Path(db_path).stat().st_size
+                                 if db_path and Path(db_path).is_file() else 0)})
 
 
 # ── B10（2026-09-14）恢复端点：半套备份 → 全套闭环 ─────────────────
@@ -467,7 +485,7 @@ def storage_inventory() -> dict[str, Any]:
     try:
         import psutil
         seen: set[str] = set()
-        for dp in {str(ROOT_DIR)[:3], "C:\\", str(DATA_DIR)[:3]}:
+        for dp in {str(ROOT_DIR)[:3], "C:\\", str(DATA_DIR)[:3]}:  # portable-ok（盘符枚举）
             drive = dp.rstrip("\\") + "\\"
             if drive.lower() in seen:
                 continue
@@ -714,7 +732,7 @@ def hardware_health() -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
         seen: set[str] = set()
-        for dp in (str(DATA_DIR)[:3], "C:\\"):
+        for dp in (str(DATA_DIR)[:3], "C:\\"):  # portable-ok（盘符枚举）
             drive = dp.rstrip("\\") + "\\"
             if drive.lower() in seen:
                 continue
@@ -789,6 +807,23 @@ async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> di
               detail=json.dumps({"source": safe}, ensure_ascii=False))
     return ok({"staged": True, "source": safe,
                "hint": "重启应用后恢复生效；替换前的当前库会先备份到 backups/"})
+
+
+@router.post("/system/restore/cancel")
+def restore_cancel() -> dict[str, Any]:
+    """撤销已安排的恢复（2026-10-19 BUG-05 修复）。
+
+    此前安排后无任何撤销通道，误触即成定时炸弹（下次重启整库回滚）。
+    删除暂存副本与标记文件即可解除，不触碰当前主库。
+    """
+    if not _RESTORE_PENDING_MARK.is_file() and not _RESTORE_PENDING_DB.is_file():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "当前没有待恢复的安排")
+    _RESTORE_PENDING_MARK.unlink(missing_ok=True)
+    _RESTORE_PENDING_DB.unlink(missing_ok=True)
+    from ..services.event_log import log_event
+    log_event("system", "restore_cancel",
+              "已撤销恢复安排（标记与暂存已清除）", level="info")
+    return ok({"cancelled": True})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1251,7 +1286,10 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
             "size_bytes": p.stat().st_size if p.is_file() else 0,
         })
 
-    return ok({
+    # 注意：内部函数返回裸字典（2026-10-19 BUG-06 修复）——此前误用 ok()
+    # 包成 HTTP 信封，下游 _write_project_archive 取 bundle["project"] 必炸，
+    # 项目导出全类型瘫痪。
+    return {
         "project": project,
         "storyboard": storyboard,
         "rows": rows,
@@ -1261,7 +1299,7 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
         "video_tasks": video_tasks,
         "voice_profiles": voices,
         "files_manifest": files_manifest,
-    })
+    }
 
 
 def _write_project_archive(path: Path, manifest: dict, bundle: dict) -> None:

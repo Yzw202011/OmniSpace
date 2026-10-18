@@ -105,6 +105,16 @@ export default function Settings() {
   const initialTab = searchParams.get('tab');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(
     SETTINGS_TABS.some((t) => t.key === initialTab) ? (initialTab as SettingsTab) : 'general');
+  // BUG-01 修复（2026-10-19）：已在 /settings 内时原地改 ?tab= 不重挂组件，
+  // useState 初值不会重算——监听 searchParams 变化同步签（页内深链接/
+  // 浏览器前进后退可用）
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    const next: SettingsTab = SETTINGS_TABS.some((x) => x.key === t)
+      ? (t as SettingsTab)
+      : 'general';
+    setSettingsTab((prev) => (prev === next ? prev : next));
+  }, [searchParams]);
   const [savings, setSavings] = useState<systemApi.LocalSavings | null>(null);
   const [savingsLoaded, setSavingsLoaded] = useState(false);
 

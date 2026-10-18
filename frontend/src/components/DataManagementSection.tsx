@@ -61,10 +61,34 @@ export default function DataManagementSection() {
     setBusy('backup');
     try {
       const res = await backup();
-      showToast(`备份完成（${(res.size_bytes / 1024).toFixed(0)}KB）`, 'success');
+      // BUG-07 修复（2026-10-19）：显示数据库副本真实体积——此前拿
+      // settings 快照的 size_bytes（~359B），12MB 库被显示成「0KB」
+      const dbSize = res.db_size_bytes ?? res.size_bytes;
+      showToast(`备份完成（${(dbSize / 1048576).toFixed(1)}MB）`, 'success');
       void fetchBackups();
     } catch (err) {
       showToast(err instanceof Error ? err.message : '备份失败', 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  /** 撤销已安排的恢复（BUG-05 修复配套：此前安排后无任何取消通道） */
+  const handleCancelRestore = async () => {
+    const go = await confirmDialog({
+      level: 'medium',
+      title: '撤销恢复安排？',
+      lines: ['取消后下次重启不再回滚数据库，当前数据保持不变。'],
+      confirmText: '撤销',
+    });
+    if (!go) return;
+    setBusy('cancel-restore');
+    try {
+      await post('/system/restore/cancel', {});
+      showToast('已撤销恢复安排', 'success');
+      void fetchBackups();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '撤销失败', 'error');
     } finally {
       setBusy('');
     }
@@ -144,7 +168,7 @@ export default function DataManagementSection() {
       <div className="settings-row" style={{ justifyContent: 'space-between' }}>
         <div>
           <strong>数据库备份</strong>
-          <p className="text-secondary text-sm">热备 SQLite 主库到 data/backups/（保留最近 3 份）</p>
+          <p className="text-secondary text-sm">热备 SQLite 主库到 data/backups/（自动清理未启用；可在「存储清理中心」手动只保留最近 3 份）</p>
         </div>
         <button
           type="button"
@@ -161,9 +185,19 @@ export default function DataManagementSection() {
       <div className="settings-row">
         <strong>从备份恢复</strong>
         {pendingRestore && (
-          <span className="badge warning" style={{ marginLeft: 8 }}>
-            待恢复（重启后生效）
-          </span>
+          <>
+            <span className="badge warning" style={{ marginLeft: 8 }}>
+              待恢复（重启后生效）
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy !== ''}
+              onClick={() => void handleCancelRestore()}
+            >
+              撤销安排
+            </button>
+          </>
         )}
         {backups.length === 0 ? (
           <p className="text-secondary text-sm">暂无可用备份</p>

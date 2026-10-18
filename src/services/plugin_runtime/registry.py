@@ -324,9 +324,14 @@ class PluginRuntime:
                  pkg_path: Path | None = None,
                  trust: str = "user_installed",
                  imported_at: str = "",
-                 skills: list[dict[str, Any]] | None = None
+                 skills: list[dict[str, Any]] | None = None,
+                 manifest: dict[str, Any] | None = None
                  ) -> None:
-        """登记新插件（未登记不可加载——治理闸，非安全沙箱）。"""
+        """登记新插件（未登记不可加载——治理闸，非安全沙箱）。
+
+        manifest（2026-10-19 BUG-04 修复）：可选元数据（如 capability），
+        未传时清单侧 capability 恒空（「无能力描述」失真）。
+        """
         with self._global:
             if name in self._registry:
                 raise PluginRuntimeError(
@@ -345,6 +350,7 @@ class PluginRuntime:
             self._registry[name] = _PluginEntry(
                 name=name, source_py=source_py, pkg_path=pkg_path,
                 trust=trust, imported_at=imported_at,
+                manifest=(manifest or {}),
                 skills=(skills or [])[:MAX_SKILLS_PER_PLUGIN])
 
     def save_user_registry(self) -> None:

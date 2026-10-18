@@ -21,7 +21,7 @@
 - [ ] 我知道后端代码已**扁平化至 src/**（2026-09-15 重构：backend/ 目录已删除，四层架构 = HTTP 层 src/api / 业务层 src/services / 资源层 src/engines+data / 内核层 src/core+cutemamen；config.yaml 位于 **src/config.yaml**；仓库外冻结进程的 backend.main:app 旧入口由 backend/ 兼容 shim 转发）
 - [ ] 我知道后端用 FastAPI 0.141 + Pydantic v2，不是 Django/Flask
 - [ ] 我知道**没有 Tauri/Rust 壳层**——ADR-002（2026-08-20）已裁剪，交付形态 = launcher + 系统浏览器
-- [ ] 我知道数据库是 SQLite（WAL，**32 张用户表＝主库 30 + flow 独立库 logs/flow_trace.db 2**，user_version=7，2026-09-01 实测校准）+ ChromaDB，不是 PostgreSQL/MongoDB
+- [ ] 我知道数据库是 SQLite（WAL，**32 张用户表＝主库 30 + flow 独立库 logs/flow_trace.db 2**，user_version=15，2026-10-19 实测校准）+ ChromaDB，不是 PostgreSQL/MongoDB
 - [ ] 我知道任务队列是**进程内 PriorityQueue（模拟 Celery 语义）**，没有 Celery/Redis 依赖（Redis 仅缓存可选降级）
 - [ ] 我知道所有CSS颜色必须用 var(--color-*)（权威源 frontend/src/styles/tokens.css），禁止硬编码
 - [ ] 我知道在进行所有项目操作和决策过程中，必须严格遵循团队协作模式（产品/设计/前端/后端/测试各司其职，决策基于讨论）
@@ -262,7 +262,7 @@ WebSocket 4 个：/ws（消息中枢）、/api/v1/dialog/stream/{session_id}（�
 
 | 数据库 | 用途 | 规则 |
 |--------|------|------|
-| SQLite (WAL) | `data/omnispace.db` 主库 **23 张 schema 表 + 12 张服务层散建表**（另有 FTS5 影子 5 张＝实体 41；B1 2026-09-13 实测）+ 独立库 `logs/flow_trace.db` 2 张 + 第三库 `data/model_usage.db` 1 张 | PRAGMA user_version=**13**（迁移组机制，历史组禁改只许追加；散建表迁入体系=v4 B10 待办）；FTS5 知识全文检索 |
+| SQLite (WAL) | `data/omnispace.db` 主库 **23 张 schema 表 + 12 张服务层散建表**（另有 FTS5 影子 5 张＝实体 41；B1 2026-09-13 实测）+ 独立库 `logs/flow_trace.db` 2 张 + 第三库 `data/model_usage.db` 1 张 | PRAGMA user_version=**15**（2026-10-19 实测；v14 资产编号、v15 train_tasks.error；迁移组机制，历史组禁改只许追加；散建表迁入体系=v4 B10 待办）；FTS5 知识全文检索 |
 | ChromaDB | 向量/知识库（data/chroma/） | bge-large-zh 1024 维；不可用降级 TF-IDF |
 | localStorage / IndexedDB | 前端偏好/缓存 | 前端直接读写 |
 

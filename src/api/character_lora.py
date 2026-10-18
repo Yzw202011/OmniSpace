@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Body
@@ -125,6 +126,11 @@ def character_lora_cancel(task_id: str) -> dict[str, Any]:
 def character_lora_versions(asset_id: str) -> dict[str, Any]:
     if not asset_id:
         raise ApiError("CHARACTER_LORA_PARAM", "asset_id 不能为空")
+    # K-04（2026-10-19 批2 测试抓缺）：asset_id 直拼版本根路径——
+    # `../` 可列出上级目录内容（信息泄漏）。字符集白名单拒一切
+    # 路径分隔符与点号；train/rollback 路径已有 DB 存在性/服务层双闸
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", asset_id):
+        raise ApiError("SYSTEM_PARAM_INVALID", "asset_id 不合法")
     return ok({"items": get_character_lora_service().versions(asset_id)})
 
 

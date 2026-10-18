@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import threading
 import time
@@ -42,6 +43,9 @@ VERSIONS_ROOT = ROOT_DIR / "data" / "character_lora"
 MIN_IMAGES = 4
 # 版本保留上限
 KEEP_VERSIONS = 3
+# 版本名白名单（G-02，2026-10-18）：rollback 的 version 此前仅 is_dir()
+# 判定，`../` 形态可越出资产版本根（三套回滚中唯一无白名单的一条）
+_VERSION_RE = re.compile(r"^v\d{1,6}$")
 
 STATUS_QUEUED = "queued"
 STATUS_TRAINING = "training"
@@ -563,13 +567,17 @@ class CharacterLoraService:
         return out
 
     def rollback(self, asset: dict[str, Any], version: str) -> dict[str, Any]:
-        d = self._asset_root(str(asset.get("asset_id") or asset.get("id"))) \
-            / version
-        if not d.is_dir():
+        version = str(version or "").strip()
+        if not _VERSION_RE.fullmatch(version):
+            raise CharacterTrainingFailed(f"非法版本名: {version[:64]}")
+        asset_id = str(asset.get("asset_id") or asset.get("id"))
+        root = self._asset_root(asset_id).resolve()
+        d = (root / version).resolve()
+        # 白名单（regex）+ 直接子目录 containment 双闸（对齐知识/风格域）
+        if d.parent != root or not d.is_dir():
             raise CharacterTrainingFailed(f"版本不存在: {version}")
         deployed = self._deploy_to_asset(asset, d)
-        self._set_current(str(asset.get("asset_id") or asset.get("id")),
-                          version)
+        self._set_current(asset_id, version)
         return {"version": version, "deployed": deployed}
 
     def _prune_versions(self, asset_id: str) -> None:

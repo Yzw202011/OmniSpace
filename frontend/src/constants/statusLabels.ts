@@ -91,6 +91,7 @@ export const MODEL_AVAILABLE_STATUS_LABELS: Record<AvailableModel['status'], str
   not_installed: '未安装',
   downloaded: '已下载',
   offload: '需卸载',
+  cloud: '云端·计费',
 };
 
 /** 知识学习会话状态 → 中文标签（learningApi.LearnSessionStatus.status） */

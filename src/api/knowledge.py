@@ -759,7 +759,8 @@ def learn_analysis_efficiency(days: int = Query(30, ge=1, le=365)) -> dict[str, 
         "SELECT COUNT(*) AS sessions,"
         " COALESCE(SUM(pages_visited),0) AS pages,"
         " COALESCE(SUM(knowledge_extracted),0) AS knowledge,"
-        " COALESCE(SUM(ended_at-started_at),0) AS seconds"
+        " COALESCE(SUM(CASE WHEN ended_at > 0 AND ended_at > started_at"
+        " THEN ended_at-started_at ELSE 0 END),0) AS seconds"
         " FROM learning_sessions WHERE created_at >= ?", (since,))
     sessions = int(row["sessions"] or 0)
     pages = int(row["pages"] or 0)
@@ -818,6 +819,16 @@ def learn_analysis_trend(days: int = Query(30, ge=1, le=365)) -> dict[str, Any]:
     for d in items:
         d["avg_quality_score"] = round(d.pop("_score_sum")
                                        / max(d["count"], 1), 3)
+    # H-2（2026-10-17）：空日补零——稀疏数据（如仅 1 天有提取）曾让前端
+    # 把单点柱渲染成全宽色块；补齐近 N 天完整日轴后图表恒有多柱。
+    seen = {d["date"]: d for d in items}
+    filled: list[dict] = []
+    for i in range(days - 1, -1, -1):
+        day = time.strftime("%Y-%m-%d", time.localtime(time.time() - i * 86400))
+        d = seen.get(day) or {"date": day, "count": 0}
+        d.setdefault("avg_quality_score", 0.0)
+        filled.append(d)
+    items = filled
     return ok({"days": days, "items": items,
                "total": sum(d["count"] for d in items)})
 

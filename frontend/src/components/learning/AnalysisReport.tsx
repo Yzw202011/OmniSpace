@@ -206,7 +206,7 @@ export default function AnalysisReport() {
           <div className="flex items-end gap-1" style={{ height: 64, overflowX: 'auto' }}>
             {trend.map((t) => (
               <div key={t.date} title={`${t.date}：${t.count} 条，均分 ${t.avg_quality_score}`}
-                   style={{ flex: `0 0 ${Math.max(10, 900 / Math.max(trend.length, 1))}px` }}>
+                   style={{ flex: `0 0 ${Math.min(32, Math.max(10, 900 / Math.max(trend.length, 1)))}px` }}>
                 <div style={{
                   height: `${Math.round((t.count / maxTrend) * 52) + 2}px`,
                   background: 'var(--color-accent)', borderRadius: 2, opacity: 0.85,

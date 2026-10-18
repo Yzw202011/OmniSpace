@@ -275,6 +275,7 @@ export const KnowledgeBrowser: React.FC = () => {
                   </button>
                   <button
                     className={`btn btn-sm ${confirmDeleteId === item.id ? 'btn-secondary' : 'btn-ghost'}`}
+                    style={{ minWidth: 88, whiteSpace: 'nowrap' }}
                     onClick={() => handleDelete(item.id)}
                   >
                     {confirmDeleteId === item.id ? '确认删除？' : '删除'}

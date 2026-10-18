@@ -143,6 +143,7 @@ export const TopicManager: React.FC = () => {
                   </button>
                   <button
                     className={`btn btn-sm ${confirmDeleteId === t.id ? 'btn-secondary' : 'btn-ghost'}`}
+                    style={{ minWidth: 88, whiteSpace: 'nowrap' }}
                     onClick={() => handleDelete(t.id)}
                   >
                     {confirmDeleteId === t.id ? '确认删除？' : '删除'}

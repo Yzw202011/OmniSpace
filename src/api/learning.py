@@ -41,7 +41,6 @@ from ..services.browser_agent_service import (
     ERR_QUOTA_DENIED,
     ERR_SESSION_RUNNING,
     ERR_TOPIC_LIMIT,
-    ERR_TOPIC_NOT_FOUND,
     LearningError,
     LearningSession,
     ensure_learning_tables,
@@ -212,13 +211,40 @@ def topic_list(keyword: str = Query(default=""),
                 " created_at, updated_at"
                 " FROM learning_topics ORDER BY created_at DESC")
             items = [_topic_row_to_dict(r) for r in rows]
-        except Exception as exc:  # noqa: BLE001
-            log.warning("主题查询失败，降级内存存储: %s", exc, exc_info=True)
-            items = sorted(_mem_topics.values(),
-                           key=lambda t: t.get("created_at", 0), reverse=True)
+        except Exception:  # noqa: BLE001
+            # N-2（2026-10-17）：DB 抖动曾降级到空的内存列表——用户视角
+            # =「主题全部消失」（实测触发后自愈）。改为短重试一次，仍失败
+            # 显式报错，绝不返回空列表冒充"没有主题"。
+            time.sleep(0.3)
+            try:
+                rows = db.query(
+                    "SELECT id, name, keywords, status, progress,"
+                    " knowledge_count, source, depth, seed_urls, max_pages,"
+                    " created_at, updated_at"
+                    " FROM learning_topics ORDER BY created_at DESC")
+                items = [_topic_row_to_dict(r) for r in rows]
+            except Exception as exc2:  # noqa: BLE001
+                log.warning("主题查询失败（重试后仍失败）: %s", exc2,
+                            exc_info=True)
+                raise ApiError(
+                    "SYSTEM_DB_BUSY",
+                    "主题数据暂时无法读取（数据库忙），请稍后刷新重试") from exc2
     else:
         items = sorted(_mem_topics.values(),
                        key=lambda t: t.get("created_at", 0), reverse=True)
+    # H-3（2026-10-18）：learning_topics.knowledge_count 建主题时写 0 后
+    # 无任何更新路径，列表恒显 0；真值在 knowledge_meta（topic-compare
+    # 接口同口径），按主题名实时覆盖，存量列仅作查询失败时的兜底。
+    if db is not None:
+        try:
+            by_name = {r["topic"]: int(r["c"] or 0) for r in db.query(
+                "SELECT topic, COUNT(*) AS c FROM knowledge_meta"
+                " WHERE topic != '' GROUP BY topic")}
+            for item in items:
+                item["knowledge_count"] = by_name.get(
+                    item["name"], item["knowledge_count"])
+        except Exception:  # noqa: BLE001
+            log.debug("topic_list: 知识计数覆盖失败，保留存量值", exc_info=True)
     # LEARN-006：筛选与排序
     if keyword:
         needle = keyword.strip().lower()
@@ -257,13 +283,37 @@ def topic_delete(body: dict = Body(default_factory=dict),
     if db is not None:
         try:
             ensure_learning_tables()
-            deleted = db.delete("learning_topics", "id=?", (topic_id,))
+            row = db.query_one("SELECT name FROM learning_topics WHERE id=?",
+                               (topic_id,))
+            if row is not None:
+                # F-6（2026-10-19）：删除主题须同事务摘除知识上的主题
+                # 标签，否则 knowledge_meta.topic 留孤儿（UAT图片知识/
+                # 漫剧剧本写作技巧幽灵主题混入对比表实测）。知识本身留
+                # 库（全局资产语义）。裸连接单事务，禁嵌套封装写方法。
+                # 知识库从未启用的新库无 knowledge_meta 表——查表守卫
+                # （同 system.py style_tasks 法），缺表=无可摘直接删。
+                _has_kmeta = db.query_one(
+                    "SELECT name FROM sqlite_master"
+                    " WHERE type='table' AND name='knowledge_meta'"
+                    " LIMIT 1") is not None
+                _name = row.get("name") or ""
+
+                def _delete_and_untag(conn) -> int:
+                    cur = conn.execute(
+                        "DELETE FROM learning_topics WHERE id=?", (topic_id,))
+                    if cur.rowcount and _name and _has_kmeta:
+                        conn.execute(
+                            "UPDATE knowledge_meta SET topic='' WHERE topic=?",
+                            (_name,))
+                    return cur.rowcount
+
+                deleted = db.execute_in_transaction(_delete_and_untag)
         except Exception as exc:  # noqa: BLE001
             log.warning("主题删除失败: %s", exc, exc_info=True)
     if _mem_topics.pop(topic_id, None) is not None:
         deleted += 1
     if deleted == 0:
-        raise ApiError(ERR_TOPIC_NOT_FOUND, "学习主题不存在",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
                        detail={"id": topic_id})
     return ok({"id": topic_id, "deleted": True}, message="主题已删除")
 
@@ -296,7 +346,7 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     if src is None and topic_id in _mem_topics:
         src = dict(_mem_topics[topic_id])
     if src is None:
-        raise ApiError(ERR_TOPIC_NOT_FOUND, "学习主题不存在",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
                        detail={"topic_id": topic_id})
 
     base_name = str((body or {}).get("name", "") or "").strip() \
@@ -376,7 +426,7 @@ def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict
             affected = db.update("learning_topics", patch, "id=?",
                                  (topic_id,))
             if affected == 0:
-                raise ApiError(ERR_TOPIC_NOT_FOUND, "学习主题不存在",
+                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
                                detail={"id": topic_id})
             row = db.query_one(
                 "SELECT id, name, keywords, status, progress,"
@@ -391,7 +441,7 @@ def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict
 
     topic = _mem_topics.get(topic_id)
     if topic is None:
-        raise ApiError(ERR_TOPIC_NOT_FOUND, "学习主题不存在",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
                        detail={"id": topic_id})
     topic.update(patch)
     topic["updated_at"] = _now()
@@ -482,7 +532,7 @@ def session_start(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         topic_seeds = list(_mem_topics[topic_id].get("seed_urls", []))
         topic_max_pages = int(_mem_topics[topic_id].get("max_pages", 0) or 0)
     if not goal:
-        raise ApiError(ERR_TOPIC_NOT_FOUND, "学习主题不存在",
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
                        detail={"topic_id": topic_id})
 
     settings = get_learning_settings()
@@ -733,14 +783,24 @@ def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
     """更新学习设置并持久化到 learning_settings 表（变更即时生效）。"""
     if not isinstance(body, dict) or not body:
         raise ApiError("SYSTEM_PARAM_INVALID", "请求体必须是非空 JSON 对象")
+
+    # N-1（2026-10-17）：数字字段统一类型校验——裸 int()/float() 曾把
+    # "abc" 之类变成 ValueError→500；现收敛为 400 人话。
+    def _num(cast, raw, label: str):
+        try:
+            return cast(raw)
+        except (TypeError, ValueError) as exc:
+            raise ApiError("UNSUPPORTED_FORMAT",
+                           f"{label} 必须是数字（收到 {raw!r}）") from exc
+
     # 基本校验
     if "max_time_minutes" in body:
-        v = int(body["max_time_minutes"])
+        v = _num(int, body["max_time_minutes"], "max_time_minutes")
         if not 1 <= v <= 60:
             raise ApiError("UNSUPPORTED_FORMAT", "max_time_minutes 范围为 1~60")
         body["max_time_minutes"] = v
     if "max_pages" in body:
-        v = int(body["max_pages"])
+        v = _num(int, body["max_pages"], "max_pages")
         if not 1 <= v <= 200:
             raise ApiError("UNSUPPORTED_FORMAT", "max_pages 范围为 1~200")
         body["max_pages"] = v
@@ -754,7 +814,8 @@ def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
         if list_key in body and not isinstance(body[list_key], list):
             raise ApiError("UNSUPPORTED_FORMAT", f"{list_key} 必须是数组")
     if "daily_traffic_limit_mb" in body:
-        v = float(body["daily_traffic_limit_mb"])
+        v = _num(float, body["daily_traffic_limit_mb"],
+                 "daily_traffic_limit_mb")
         if v <= 0:
             raise ApiError("UNSUPPORTED_FORMAT", "daily_traffic_limit_mb 必须大于 0")
         body["daily_traffic_limit_mb"] = v
@@ -763,7 +824,7 @@ def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
                         ("mem_percent_limit", 1.0, 100.0),
                         ("bandwidth_mbps_limit", 0.1, 1000.0)):
         if key in body:
-            v = float(body[key])
+            v = _num(float, body[key], key)
             if not lo <= v <= hi:
                 raise ApiError("SYSTEM_PARAM_INVALID", f"{key} 范围为 {lo}~{hi}")
             body[key] = v

@@ -84,10 +84,10 @@ export const BehaviorStatsPanel: React.FC = () => {
           </div>
         </div>
         <div>
-          <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>下次微调</div>
-          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }}>
+          <div className="text-tertiary" style={{ fontSize: 'var(--font-size-xs)' }}>下次微调（预估）</div>
+          <div className="text-sm" style={{ fontWeight: 'var(--font-weight-medium)' }} title="按近期操作速率滚动估算，随使用情况浮动，非排期时间">
             {stats?.finetune?.next_estimate
-              ? formatDateTime(stats.finetune.next_estimate * 1000)
+              ? `约 ${formatDateTime(stats.finetune.next_estimate * 1000)}`
               : stats?.finetune?.remaining_pairs != null && stats.finetune.remaining_pairs > 0
                 ? `还差 ${stats.finetune.remaining_pairs} 条训练数据`
                 : '按计划自动'}

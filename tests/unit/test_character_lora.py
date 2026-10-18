@@ -184,6 +184,18 @@ def test_api_assets_and_param_guards(api_client, monkeypatch):
     assert r2.json()["error"]["code"] == "CHARACTER_LORA_PARAM"
 
 
+def test_versions_asset_id_traversal_rejected(api_client):
+    """K-04（2026-10-19 批2 测试抓缺）：读端点 asset_id 无白名单，
+    `../` 可列出上级目录内容（信息泄漏）→ 字符集白名单拒绝。"""
+    r = api_client.get("/api/v1/character/lora/versions?asset_id=../")
+    assert r.json()["error"]["code"] == "SYSTEM_PARAM_INVALID"
+    r2 = api_client.get("/api/v1/character/lora/versions?asset_id=a/b")
+    assert r2.json()["error"]["code"] == "SYSTEM_PARAM_INVALID"
+    # 合法字符集照常放行（服务层返回空列表——路径不存在）
+    r3 = api_client.get("/api/v1/character/lora/versions?asset_id=a1")
+    assert r3.json()["success"] is True
+
+
 def test_aggregator_includes_character_source(api_client, monkeypatch):
     import src.api.training as tr
     monkeypatch.setattr(tr, "learn_tasks", lambda: {
@@ -201,3 +213,31 @@ def test_aggregator_includes_character_source(api_client, monkeypatch):
     assert len(items) == 1 and items[0]["kind"] == "character"
     assert items[0]["kind_label"] == "人物训练"
     assert "character" in body["data"]["sources"]
+
+
+# ── 回滚版本名白名单（G-02，2026-10-18）─────────────────────
+
+def _mk_one_version(fresh_svc, tmp_path):
+    """前置：练出一版（微缩桩训练核心，不碰 GPU）。"""
+    imgs = _mk_images(tmp_path, 4)
+    a = _asset(tmp_path, imgs)
+    _stub_train(fresh_svc, tmp_path, imgs)
+    fresh_svc.submit(a)
+    fresh_svc._worker_loop()
+    assert fresh_svc.versions("a1"), "前置失败：未产出版本"
+    return a
+
+
+def test_rollback_rejects_traversal_versions(fresh_svc, tmp_path):
+    """G-02：version 此前仅 is_dir() 判定，`../` 形态可越出资产版本根。"""
+    a = _mk_one_version(fresh_svc, tmp_path)
+    for bad in ("../v1", "v1/../../etc", "..", "v", "v99999999999", ""):
+        with pytest.raises(CharacterTrainingFailed):
+            fresh_svc.rollback(a, bad)
+
+
+def test_rollback_rejects_whitelisted_but_missing(fresh_svc, tmp_path):
+    """合法 vN 形态但目录不存在 → 如实报版本不存在（行为不变）。"""
+    a = _mk_one_version(fresh_svc, tmp_path)
+    with pytest.raises(CharacterTrainingFailed, match="版本不存在"):
+        fresh_svc.rollback(a, "v9")

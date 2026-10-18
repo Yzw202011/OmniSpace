@@ -21,6 +21,7 @@ import {
 } from '@/services/characterLoraApi';
 import { getErrorMessage } from '@/utils/errors';
 import { useAppStore } from '@/stores/useAppStore';
+import { useTaskStore } from '@/stores/useTaskStore';
 import { confirmDialog } from '@/stores/useConfirmStore';
 
 const STATUS_TEXT: Record<string, string> = {
@@ -55,8 +56,26 @@ export const CharacterTrainPanel: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
+  // G-03：WS task_progress 实时合并（REST 5s 轮询仍兜底）
+  const liveTasks = useTaskStore((s) => s.tasks);
+  const liveStatusMap: Record<string, CharacterTask['status']> = {
+    pending: 'queued', running: 'training',
+    done: 'done', error: 'error', cancelled: 'cancelled',
+  };
+  const mergedTasks = tasks.map((t) => {
+    const live = liveTasks.find((lt) => lt.id === t.id);
+    if (!live) return t;
+    return {
+      ...t,
+      status: live.status
+        ? (liveStatusMap[String(live.status)] ?? t.status)
+        : t.status,
+      progress: typeof live.progress === 'number' ? live.progress : t.progress,
+    };
+  });
+
   const activeByAsset = new Map(
-    tasks.filter((t) => t.status === 'queued' || t.status === 'training')
+    mergedTasks.filter((t) => t.status === 'queued' || t.status === 'training')
       .map((t) => [t.asset_id, t]));
 
   const doTrain = async (assetId: string, name: string) => {

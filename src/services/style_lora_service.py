@@ -47,6 +47,27 @@ from .training_common import TrainingLockGuard
 
 log = logging.getLogger("omnispace.style_lora")
 
+# ── G-03（2026-10-19）：/ws 中枢广播器（main.py lifespan 注入）────────
+# 对齐知识训练服务；ws_hub._translate 对 module 无关，training_* 事件
+# 直接复用前端 task_progress/complete/error 协议，帧必须带 task_id
+ws_broadcaster: Callable[[dict], None] | None = None
+
+
+def set_ws_broadcaster(fn: Callable[[dict], None] | None) -> None:
+    global ws_broadcaster
+    ws_broadcaster = fn
+
+
+def _broadcast(event: str, data: dict | None = None) -> None:
+    fn = ws_broadcaster
+    if fn is None:
+        return
+    try:
+        fn({"type": "status", "module": "style",
+            "data": {"event": event, **(data or {})}})
+    except Exception:  # noqa: BLE001 - 广播失败不影响训练
+        log.debug("style ws 广播失败（忽略）", exc_info=True)
+
 
 def _try_import(name: str) -> Any:
     """容错导入可选依赖。"""
@@ -476,6 +497,8 @@ class StyleLoraService:
             "created_at": now, "updated_at": now,
         }
         self._insert_task(record)
+        _broadcast("training_queued", {"task_id": task_id,
+                                       "name": record["name"]})
 
         with self._state_lock:
             self._seq += 1
@@ -516,14 +539,19 @@ class StyleLoraService:
             existing = self.get_task(task_id)
             if existing and existing.get("status") == "queued":
                 self._update_task(task_id, status="cancelled")
+                _broadcast("training_cancelled",
+                           {"task_id": task_id, "reason": "queued"})
                 return
         with self._state_lock:
             self._training_task_id = task_id
         self._update_task(task_id, status="training")
+        _broadcast("training_started", {"task_id": task_id})
 
         if not self._acquire_training_lock(task_id):
             self._update_task(task_id, status="error",
                               error="无法获取 training 功能锁")
+            _broadcast("training_failed",
+                       {"task_id": task_id, "error": "无法获取 training 功能锁"})
             with self._state_lock:
                 self._training_task_id = None
             return
@@ -536,24 +564,36 @@ class StyleLoraService:
             version = result["version"]
             self._update_task(task_id, status="evaluating", progress=0.95,
                               version=version)
+            _broadcast("training_evaluating",
+                       {"task_id": task_id, "version": version})
             report = self.evaluate(version)
             passed = bool(report.get("passed"))
             if passed:
                 self._set_current(version)
             self._update_task(task_id, status="done", progress=1.0)
+            _broadcast("training_completed",
+                       {"task_id": task_id, "version": version,
+                        "passed": passed})
             log.info("风格训练完成: %s → %s (score=%s, %s)",
                         task_id, version, report.get("quality_score"),
                         "registered" if passed else "pending_review")
         except StyleTrainingCancelled:
             log.info("风格训练任务已取消: %s", task_id)
             self._update_task(task_id, status="cancelled")
+            _broadcast("training_cancelled",
+                       {"task_id": task_id, "reason": "training"})
         except StyleTrainingFailed as exc:
             log.error("风格训练失败: %s: %s", task_id, exc)
             self._update_task(task_id, status="error", error=str(exc)[:500])
+            _broadcast("training_failed",
+                       {"task_id": task_id, "error": str(exc)[:500]})
         except Exception as exc:  # noqa: BLE001 - 未预期异常同失败处理
             log.exception("风格训练未预期异常: %s", task_id)
             self._update_task(task_id, status="error",
                               error=f"未预期异常: {exc}"[:500])
+            _broadcast("training_failed",
+                       {"task_id": task_id,
+                        "error": f"未预期异常: {exc}"[:500]})
         finally:
             self._release_training_lock()
             self._control_flags.pop(task_id, None)
@@ -567,6 +607,9 @@ class StyleLoraService:
             max_steps = max(1, info.get("max_steps", 1))
             progress = min(0.94, 0.05 + 0.9 * step / max_steps)
             self._update_task(task_id, progress=round(progress, 4))
+            _broadcast("training_progress",
+                       {"task_id": task_id, "progress": round(progress, 4),
+                        "loss": info.get("loss")})
         return cb
 
     # ── 任务控制（批 2 STYLE-017/018：pause/resume/cancel/resume-training）──
@@ -603,6 +646,7 @@ class StyleLoraService:
             return False, "state_invalid"
         self._flags(task_id)["pause"] = True
         self._update_task(task_id, status="paused")
+        _broadcast("training_paused", {"task_id": task_id})
         return True, "paused"
 
     def resume_task(self, task_id: str) -> tuple[bool, str]:
@@ -614,6 +658,7 @@ class StyleLoraService:
             return False, "state_invalid"
         self._flags(task_id)["pause"] = False
         self._update_task(task_id, status="training")
+        _broadcast("training_resumed", {"task_id": task_id})
         return True, "training"
 
     def cancel_task(self, task_id: str) -> tuple[bool, str]:

@@ -241,3 +241,27 @@ def test_rollback_rejects_whitelisted_but_missing(fresh_svc, tmp_path):
     a = _mk_one_version(fresh_svc, tmp_path)
     with pytest.raises(CharacterTrainingFailed, match="版本不存在"):
         fresh_svc.rollback(a, "v9")
+
+
+# ── G-03：WS 广播（2026-10-19）──────────────────────────────
+
+def test_worker_broadcasts_training_events(fresh_svc, tmp_path, monkeypatch):
+    """人物训练全生命周期经 /ws 中枢广播（帧带 task_id，前端可直接消费）。"""
+    frames: list[dict] = []
+    monkeypatch.setattr(svc_mod, "ws_broadcaster",
+                        lambda p: frames.append(p))
+    imgs = _mk_images(tmp_path, 4)
+    a = _asset(tmp_path, imgs)
+    _stub_train(fresh_svc, tmp_path, imgs)
+    task = fresh_svc.submit(a)
+    fresh_svc._worker_loop()
+    events = [f.get("data", {}).get("event") for f in frames]
+    assert "training_queued" in events, events
+    assert "training_started" in events, events
+    assert "training_completed" in events, events
+    # 帧契约：type=status + module=character + task_id 可归一
+    started = next(f for f in frames
+                   if f.get("data", {}).get("event") == "training_started")
+    assert started["type"] == "status"
+    assert started["module"] == "character"
+    assert started["data"]["task_id"] == task["id"]

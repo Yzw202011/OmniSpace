@@ -53,6 +53,27 @@ STATUS_DONE = "done"
 STATUS_ERROR = "error"
 STATUS_CANCELLED = "cancelled"
 
+# ── G-03（2026-10-19）：/ws 中枢广播器（main.py lifespan 注入）────────
+# 对齐知识训练服务；ws_hub._translate 对 module 无关，training_* 事件
+# 直接复用前端 task_progress/complete/error 协议，帧必须带 task_id
+ws_broadcaster: Callable[[dict], None] | None = None
+
+
+def set_ws_broadcaster(fn: Callable[[dict], None] | None) -> None:
+    global ws_broadcaster
+    ws_broadcaster = fn
+
+
+def _broadcast(event: str, data: dict | None = None) -> None:
+    fn = ws_broadcaster
+    if fn is None:
+        return
+    try:
+        fn({"type": "status", "module": "character",
+            "data": {"event": event, **(data or {})}})
+    except Exception:  # noqa: BLE001 - 广播失败不影响训练
+        log.debug("character ws 广播失败（忽略）", exc_info=True)
+
 
 class CharacterTrainingFailed(RuntimeError):
     """人物 LoRA 训练失败（原因如实上报）。"""
@@ -237,6 +258,8 @@ class CharacterLoraService:
             "version": None, "created_at": time.time(),
         }
         self._upsert_task(task)
+        _broadcast("training_queued",
+                   {"task_id": task["id"], "name": task["name"]})
         with self._queue_lock:
             self._queue.append({"task": task, "asset": dict(asset),
                                 "images": [str(p) for p in imgs]})
@@ -277,9 +300,13 @@ class CharacterLoraService:
                 self._cancel_flags.discard(task["id"])
                 task["status"] = STATUS_CANCELLED
                 self._upsert_task(task)
+                _broadcast("training_cancelled",
+                           {"task_id": task["id"], "reason": "queued"})
                 continue
             task["status"] = STATUS_TRAINING
             self._upsert_task(task)
+            _broadcast("training_started",
+                       {"task_id": task["id"], "name": task["name"]})
             lock_held = False
             try:
                 if not self._lock_guard.acquire(task["id"]):
@@ -297,14 +324,21 @@ class CharacterLoraService:
                              "version": result.get("version"),
                              "error": None})
                 self._upsert_task(task)
+                _broadcast("training_completed",
+                           {"task_id": task["id"],
+                            "version": task.get("version")})
             except CharacterTrainingCancelled:
                 task.update({"status": STATUS_CANCELLED, "error": None})
                 self._upsert_task(task)
+                _broadcast("training_cancelled",
+                           {"task_id": task["id"], "reason": "training"})
             except Exception as exc:  # noqa: BLE001 - 训练异常如实入账
                 log.warning("人物 LoRA 训练失败: %s", exc, exc_info=True)
                 task.update({"status": STATUS_ERROR,
                              "error": str(exc)[:500]})
                 self._upsert_task(task)
+                _broadcast("training_failed",
+                           {"task_id": task["id"], "error": task.get("error")})
             finally:
                 if lock_held:
                     try:
@@ -316,6 +350,8 @@ class CharacterLoraService:
                   **kw: Any) -> None:
         task["progress"] = max(0.0, min(1.0, pct))
         self._upsert_task(task)
+        _broadcast("training_progress",
+                   {"task_id": task.get("id"), "progress": task["progress"]})
 
     # ── 训练核心（Flux2 QLoRA） ──────────────────────────────
     # 条件通路闸（fail-closed，2026-09-17 真火结论）：Flux2 前向需要

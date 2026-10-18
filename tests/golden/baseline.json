@@ -1,14 +1,14 @@
 {
- "base": "http://127.0.0.1:5800",
+ "base": "http://127.0.0.1:5801",
  "probes": {
-  "health": "80adb3da81fc5d0511390b61a57b4786f80c15d6a216fb9f9a911a4b1fcb3167",
-  "models_list": "371f8cdefb3e77baa63ba6f94a5513bae0dd07acd8cefa4b19e786532895baba",
-  "models_status": "b0c9c88ca345dd6752781d87ea93842413bbf45e25b00d23821be51c8b113177",
-  "models_import_traversal": "3a0bf0c249114df6ae0447a04dd56c1551b72a55bacc8fc4faf1120721155cbf",
-  "chat_empty": "f3ad7874a852b3e82df1a551152fad39ca2b3e46f487cff34de83ff97959b0be",
-  "chat_huge": "4fa3d3131f19792e29164d8d82ccac00107d5e029befbd4c059116150fae350a",
+  "health": "97c647f61a586456074940cfe56c44542592be4c8e5d0b9af3d71d960cc93289",
+  "models_list": "279eb875afcab8183de026e2aff22a3fa532cc16048fd63a5ca7ec9db839c9e5",
+  "models_status": "a4c31449df302190b030a2ca392faac3118ad7b3f179412737e34007e347edea",
+  "models_import_traversal": "39a4e47395ed5d40fe258dc4cef1e37f1267ced206fe718a1105e307469f1006",
+  "chat_empty": "970189b8e29e7ce1f9a757cb6b753421294bf17a26b7de1b10d01d87424f9aae",
+  "chat_huge": "c2d8c034547f8ab95cc310f665b23abfc2268abf518022aaa4928a3595b8dc4c",
   "learn_topic_create": "87fe39bcc8341a84135a7cbec318e7e00facfaca4c2710cbc88943b1089f5dc8",
-  "knowledge_list": "9e31a8f979f79a69644b6821476974db61bee84c370f0fe3a4b7e4270ab95cf4",
+  "knowledge_list": "eb75ecd02e47347f999e04fe2a72b3c5cd7d7b71d5c72e7788c25b2700b42c7b",
   "style_list": "e81519a113e95af6c4457c2fabb314e334ad92878242fdad2a1236e3175c6dce"
  }
 }

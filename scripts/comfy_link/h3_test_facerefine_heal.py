@@ -40,7 +40,7 @@ def kill_comfy(cm) -> None:
 def main() -> int:
     import src.services.inference.h3_chain_engine as hce
     from src.data.database import get_db_safe
-    from src.services.inference.h3_face_refine import refine_video, _comfy_manager
+    from src.services.inference.h3_face_refine import _comfy_manager, refine_video
 
     cm = _comfy_manager()
     assert cm is not None

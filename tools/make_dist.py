@@ -8,6 +8,12 @@ r"""OmniSpace 发行打包器（P1）：白名单出包 + 哈希清单 + 包内�
   runtime/py310/python.exe tools/make_dist.py                 # 出包到 D:\ccd/
   runtime/py310/python.exe tools/make_dist.py --check-only <包目录>
                                                               # 只跑包内自检
+  runtime/py312/python.exe tools/make_dist.py --pubkey <hex>  # 正式发行（激活门禁）
+
+出厂哨兵（2026-10-19 H1，防逆向方案 v4 拍板）：不带 --pubkey 一律拒绝出包
+——空公钥=激活门禁完全旁路（license_gate_impl PUBKEY_HEX 占位空值语义），
+无锁包流出=全线失守。确需无锁包（开发/测试）加 --allow-unlocked 显式自担，
+包内自检仍会盖「无门禁」标记。
 版本单一真源：src/config.yaml 的 app.version；构建号 = 版本+git短哈希+日期，
 写入包内 src/build_info.py（开发环境 config.BUILD_ID 回退 "+dev"）。
 
@@ -28,6 +34,11 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+# --pubkey 分支的 license_console.crypto_core / src.asset_vault 以仓库根为
+# 导入根——脚本形态（sys.path[0]=tools/）解析不到，2026-10-19 G0 演练前
+# 探针实锤：直跑必 ModuleNotFoundError（带公钥出包从未实弹过的潜伏雷）
+sys.path.insert(0, str(REPO))
+sys.path.append(str(REPO / "pydeps"))
 
 
 def _extract_revocations(vault_db: Path) -> dict[str, int]:
@@ -76,7 +87,9 @@ def _backend_filter(parts: tuple[str, ...]) -> bool:
 
 
 def _plain_filter(parts: tuple[str, ...]) -> bool:
-    return bool(PYCACHE & set(parts[:-1]))
+    if bool(PYCACHE & set(parts[:-1])):
+        return True
+    return parts[-1].endswith(".log")   # 日志残渣不随包（2026-10-19 G0 演练）
 
 
 def _pydeps_filter(parts: tuple[str, ...]) -> bool:
@@ -103,7 +116,7 @@ def _comfy_filter(parts: tuple[str, ...]) -> bool:
     - custom_nodes：保留（MiniMaxH3 上下文循环等后端链路依赖）
     """
     _DROP = {"output", "input", "temp", "user", "__pycache__",
-             "update", ".git"}
+             "update", ".git", ".mimosa"}  # .mimosa=扫描器 hook-state 残渣（G0 演练实锤 7700+ 件）
     _KEEP_MODELS = {"vae_approx", "configs", "embeddings"}
     if "models" in parts[:-1]:
         i = parts.index("models")
@@ -170,7 +183,8 @@ COPY_FILES = [
 
 # ── 包内自检规则 ────────────────────────────────────────────────
 DRIVE_RE = re.compile(r"(?i)\b[a-z]:[\\/]")
-SYSTEM_PREFIXES = ("c:\\windows", "c:\\program files", "c:\\ffmpeg")
+SYSTEM_PREFIXES = ("c:\\windows", "c:\\program files", "c:\\programdata",
+                   "c:\\ffmpeg")
 MARKER = "portable-ok"
 SCAN_EXT = {".py", ".bat", ".ps1", ".cmd", ".yaml", ".yml", ".toml",
             ".cfg", ".ini", ".pth", ".ts", ".tsx", ".js", ".css", ".html", ".json"}
@@ -318,7 +332,7 @@ def write_manifest(dest: Path, build_id: str) -> int:
     return len(files)
 
 
-def self_check(dest: Path) -> list[str]:
+def self_check(dest: Path, skip_gate_check: bool = False) -> list[str]:
     alerts: list[str] = []
     scanned = 0
     zone_files: set[Path] = set()
@@ -366,6 +380,14 @@ def self_check(dest: Path) -> list[str]:
     for ess in ESSENTIALS:
         if not (dest / ess).exists():
             alerts.append(f"[必备件缺失] {ess}")
+    # H1 门禁哨兵（2026-10-19）：锁芯公钥空=无门禁包，除显式 allow-unlocked
+    # 外一律 FAIL（--check-only 复检旧包同样受检——旧无锁包就该报红）
+    if not skip_gate_check:
+        gate = dest / "src" / "license_gate_impl.py"
+        if gate.is_file() and 'PUBKEY_HEX = ""' in gate.read_text(
+                encoding="utf-8", errors="ignore"):
+            alerts.append("[门禁] 锁芯公钥为空——无门禁包禁止出厂"
+                          "（正式包须 --pubkey 注入）")
     print(f"自检扫描：{scanned} 个文本文件（自有区）+ 全包黑名单/必备件")
     return alerts
 
@@ -376,6 +398,8 @@ def main() -> int:
                     "发行产物不进开发目录；dist_out 会被目录审计报红）")
     ap.add_argument("--pubkey", default="",
                     help="发行公钥 hex（来自授权管理台；注入后激活门禁生效）")
+    ap.add_argument("--allow-unlocked", action="store_true",
+                    help="显式出无门禁包（开发/测试自担；正式发行禁止）")
     ap.add_argument("--check-only", metavar="包目录",
                     help="只对已有包目录跑自检，不打包")
     args = ap.parse_args()
@@ -384,6 +408,18 @@ def main() -> int:
         alerts = self_check(Path(args.check_only))
         _report(alerts)
         return 1 if alerts else 0
+
+    # H1 出厂哨兵（2026-10-19 拍板：无公钥默认拒绝出厂）
+    if not args.pubkey and not args.allow_unlocked:
+        print("❌ 拒绝出厂：未提供 --pubkey（发行公钥）——"
+              "这会产出一版【无激活门禁】的裸奔包。")
+        print("   正式发行：tools/make_dist.py --pubkey <hex>"
+              "（或走 make_release / 打包台）")
+        print("   确需无锁包（开发/测试自担）：加 --allow-unlocked")
+        return 1
+    if not args.pubkey and args.allow_unlocked:
+        print("⚠️⚠️ --allow-unlocked：正在出【无门禁包】——"
+              "仅供开发/测试，绝不可作为交付物流出！")
 
     version = read_version()
     gh = git_hash()
@@ -463,7 +499,7 @@ def main() -> int:
     m = write_manifest(dest, build_id)
     print(f"哈希清单 {m} 条 / {time.time() - t1:.0f}s → dist_manifest.json")
 
-    alerts = self_check(dest)
+    alerts = self_check(dest, skip_gate_check=args.allow_unlocked)
     _report(alerts)
     return 1 if alerts else 0
 

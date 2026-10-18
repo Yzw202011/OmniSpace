@@ -87,8 +87,8 @@ def main() -> int:
     import logging
     import shutil
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    from src.services.inference.h3_face_refine import _comfy_manager, _wait_comfy_ready
     from src.services.inference.comfy_proc import COMFY_INPUT_DIR
+    from src.services.inference.h3_face_refine import _comfy_manager, _wait_comfy_ready
 
     cm = _comfy_manager()
     cm.spawn("comfyui_h3.log")

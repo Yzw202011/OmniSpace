@@ -151,7 +151,6 @@ def main() -> int:
 
     # ---- 后处理对齐生产链：FaceRefine → 降噪+锐化 ----
     from src.services.inference.h3_face_refine import refine_video
-    from src.services.inference.h3_chain_engine import _sharpen_pass
     ref_pils = []
     for ref in refs:
         if ref.get("kind") != "character":

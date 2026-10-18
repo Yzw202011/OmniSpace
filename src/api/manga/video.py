@@ -1327,7 +1327,6 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                     "SELECT file_path FROM video_tasks "
                     "WHERE storyboard_row_id=? AND status='done' AND file_path!=''",
                     (req.storyboard_row_id,))) or []
-                import glob as _glob
                 for _r in _old:
                     _fp = _r.get("file_path") or ""
                     _p = (DATA_DIR / _fp) if _fp and not Path(_fp).is_absolute() \

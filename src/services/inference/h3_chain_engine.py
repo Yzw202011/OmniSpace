@@ -557,7 +557,7 @@ def _sharpen_pass(video: Path, strength: float = 0.6,
             progress_cb("CAS 锐化中")
         # 降噪前置（hqdn3d 时序+空间）→ CAS 锐化收尾：先清噪再提边缘，
         # 反序会把噪声一起放大
-        vf = "cas=strength={:.2f}".format(strength)
+        vf = f"cas=strength={strength:.2f}"
         try:
             from ...config import get_config
             if ((get_config().get("comfyui") or {})

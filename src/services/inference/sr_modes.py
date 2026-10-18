@@ -18,13 +18,13 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 log = logging.getLogger("omnispace.inference.sr_modes")
 
@@ -267,8 +267,8 @@ def run_seedvr2(src: Path, out: Path, *, resolution_name: str = "1k",
 def _ffmpeg_eq(video: Path, filters: str) -> None:
     """链尾色调（甜点配色 gamma1.10/sat1.06）；失败保留原片。"""
     import subprocess
-    ff = Path(__file__).resolve().parents[3] / "runtime" / "ffmpeg" / "bin" / "ffmpeg.exe"
-    ff = str(ff) if ff.is_file() else "ffmpeg"
+    ff_path = Path(__file__).resolve().parents[3] / "runtime" / "ffmpeg" / "bin" / "ffmpeg.exe"
+    ff = str(ff_path) if ff_path.is_file() else "ffmpeg"
     tmp = video.with_name(video.stem + "_eq.mp4")
     r = subprocess.run([ff, "-y", "-v", "error", "-i", str(video),
                         "-vf", filters, "-c:v", "libx264", "-crf", "16",

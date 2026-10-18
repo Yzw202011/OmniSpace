@@ -50,10 +50,9 @@ def main() -> int:
     args, _ = ap.parse_known_args()
     task_id = TASK_ID + args.task_suffix
 
-    import logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    from src.services.inference.h3_face_refine import _comfy_manager, _wait_comfy_ready
     from src.services.inference.comfy_proc import COMFY_OUTPUT_DIR
+    from src.services.inference.h3_face_refine import _comfy_manager, _wait_comfy_ready
 
     cm = _comfy_manager()
     cm.spawn("comfyui_h3.log")

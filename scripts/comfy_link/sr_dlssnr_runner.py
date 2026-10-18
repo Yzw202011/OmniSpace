@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import subprocess
 import json
 import os
 import platform
+import subprocess
 import sys
 import time
 import types
@@ -106,7 +106,6 @@ def main() -> int:
         # process_video_file 只做结构校验（键+文件存在），不重验宿主映射
         # ——backend 子进程 NVML 继承受限导致映射必挂时由此绕开（10-18）
         import hashlib
-        import zipfile as _zf
         manifest = json.loads((Path(root) / "t8-runtime-manifest.json")
                               .read_text(encoding="utf-8"))
         files_spec = {"executable": {"path": "bin/video2dlssnr.exe",
@@ -186,7 +185,7 @@ def _run_with_handle(mod, *, handle: dict, src: Path, out: Path, args) -> None:
         """backend 环境会毒化 exe 的 NVML 初始化——传最小干净环境"""
         clean = {"SystemRoot": os.environ.get("SystemRoot", r"C:\Windows"),
                  "SYSTEMDRIVE": "C:",
-                 "PATH": "C:\Windows\System32;C:\Windows;"
+                 "PATH": r"C:\Windows\System32;C:\Windows;"
                          + str(COMFY_DIR / "models" / "DLSS-NR" / "1.3" / "bin"),
                  "TEMP": os.environ.get("TEMP", r"C:\Windows\Temp")}
         kwargs["env"] = clean

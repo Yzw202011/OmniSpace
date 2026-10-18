@@ -297,8 +297,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # G-03（2026-10-19）：风格/人物训练服务接入同一 /ws 中枢
         from .services.style_lora_service import set_ws_broadcaster as _style_wsb
         _style_wsb(hub.broadcast)
-        from .services.character_lora_service import (
-            set_ws_broadcaster as _char_wsb)
+        from .services.character_lora_service import set_ws_broadcaster as _char_wsb
         _char_wsb(hub.broadcast)
         # 漫剧生图进度广播（2026-08-27 按钮实时进度条）：关键帧/资产
         # 生成循环与采样步级回调 → task_progress 推前端按钮进度条

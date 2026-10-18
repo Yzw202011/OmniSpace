@@ -11,7 +11,7 @@
  * store）；模型未加载时后端自动装载（产品铁律），前端无需「再点一次」。
  * ========================================================================== */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -577,6 +577,13 @@ const ChapterPanel: React.FC = () => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [dirty, setDirty] = useState(false);
+  // 脏稿守卫基线（K-08/C-33）：记录编辑器真正对应的章节内容，供切章/后台刷新
+  // 判断「会不会覆盖未保存修改」。dirtyRef 供 effect 读脏态（避免把 dirty 放进
+  // 依赖导致每次击键都重跑同步）；staleServer=后台已有新正文但被守卫拦下的快照。
+  const editRef = useRef({ id: '', title: '', content: '' });
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const [staleServer, setStaleServer] = useState<{ title: string; content: string } | null>(null);
   // 插件技能（技能插座批2）：清单懒取 + 建议对照（采纳进编辑器脏态，
   // 用户过目后点「保存修改」落库——两步走，防手滑洗稿）
   const [novelSkills, setNovelSkills] = useState<PluginSkillInfo[] | null>(null);
@@ -627,14 +634,60 @@ const ChapterPanel: React.FC = () => {
     setDirty(true);
   };
 
-  // 切换选中章 → 同步编辑器内容
+  // 切章/后台刷新 → 同步编辑器（K-08 脏稿守卫：未保存修改绝不静默覆盖）
+  // ① 同章刷新（生成完成写回等）：脏稿时保留用户稿，改挂「载入新正文」显式入口；
+  // ② 异章切换：确认「丢弃并切换」才换稿，取消则弹回原章（selectChapter 回旧 id）；
+  // ③ 章被删空（chapter=null）：复位守卫，避免残留脏态对下一章误报。
   useEffect(() => {
-    if (chapter) {
+    if (!chapter) {
+      editRef.current = { id: '', title: '', content: '' };
+      setDirty(false);
+      setStaleServer(null);
+      return;
+    }
+    const base = editRef.current;
+    if (base.id === chapter.id) {
+      if (dirtyRef.current) {
+        if (chapter.content !== base.content || chapter.title !== base.title) {
+          setStaleServer({ title: chapter.title, content: chapter.content });
+        }
+        return; // 用户稿优先
+      }
       setTitle(chapter.title);
       setContent(chapter.content);
-      setDirty(false);
+      editRef.current = { id: chapter.id, title: chapter.title, content: chapter.content };
+      setStaleServer(null);
+      return;
     }
-  }, [chapter?.id, chapter?.status, chapter]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (dirtyRef.current) {
+      void confirmDialog({
+        level: 'heavy',
+        title: '本章有未保存的修改',
+        lines: [
+          `《${base.title || '未命名'}》的修改尚未保存，直接切换将丢失这些修改。`,
+          '「丢弃并切换」不保存直接换章；「留在本章」可先点「保存修改」。',
+        ],
+        confirmText: '丢弃并切换',
+        cancelText: '留在本章',
+      }).then((go) => {
+        if (!chapter) return;
+        if (go) {
+          setTitle(chapter.title);
+          setContent(chapter.content);
+          editRef.current = { id: chapter.id, title: chapter.title, content: chapter.content };
+          setDirty(false);
+          setStaleServer(null);
+        } else {
+          void selectChapter(base.id); // 弹回原章，用户稿原样保留
+        }
+      });
+      return;
+    }
+    setTitle(chapter.title);
+    setContent(chapter.content);
+    editRef.current = { id: chapter.id, title: chapter.title, content: chapter.content };
+    setStaleServer(null);
+  }, [chapter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentTaskForChapter = progress?.current?.chapter_id === chapter?.id
     ? progress?.current
@@ -680,6 +733,27 @@ const ChapterPanel: React.FC = () => {
             />
             <span className="text-xs text-white/40">{content.length} 字</span>
           </div>
+          {staleServer && (
+            <div className="flex items-center gap-2 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs text-amber-200">
+              <AlertCircle size={12} aria-hidden="true" />
+              <span className="flex-1">
+                本章在后台已有新正文（如生成完成），为防洗稿未自动覆盖你正在编辑的内容。
+              </span>
+              <button
+                className="btn btn-ghost btn-sm text-amber-200"
+                onClick={() => {
+                  if (!chapter) return;
+                  setTitle(staleServer.title);
+                  setContent(staleServer.content);
+                  editRef.current = { id: chapter.id, title: staleServer.title, content: staleServer.content };
+                  setDirty(false);
+                  setStaleServer(null);
+                }}
+              >
+                载入新正文（放弃当前修改）
+              </button>
+            </div>
+          )}
           <textarea
             className="input font-medium leading-relaxed"
             style={{ minHeight: '48vh' }}

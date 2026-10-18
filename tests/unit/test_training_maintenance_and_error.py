@@ -115,3 +115,27 @@ def test_error_persists_and_flows_through_api(api_client):
     assert target["updated_at"] == 1.0
     # G-05：priority 透出（徽章真源）
     assert target["priority"] == 0
+
+
+def test_learn_models_ready_flag_matches_disk(api_client, tmp_path,
+                                              monkeypatch):
+    """G-09：/learn/models 必须下发与服务层准入同口径的 ready 盘检——
+    此前从不下发 ready，前端「（未就绪）置灰」永不生效。"""
+    from src.config import ROOT_DIR
+    real_models = ROOT_DIR / "models"
+    ready_ids = {m["id"] for m in
+                 (api_client.get("/api/v1/learn/models")
+                  .json()["data"]["items"]) if m["ready"]}
+    # 磁盘复核：ready 的必在盘且有权重/索引；不在盘的必不 ready
+    for mid in ("qwen3-vl-4b", "qwen2-vl-2b", "sdxl-base-1.0"):
+        on_disk = False
+        for cand in (real_models / mid, real_models / "paint" / mid):
+            if cand.is_dir() and (
+                any(cand.glob("*.safetensors"))
+                or any(cand.glob("*.bin"))
+                or any(cand.glob("*.gguf"))
+                or (cand / "model.safetensors.index.json").is_file()):
+                on_disk = True
+                break
+        assert (mid in ready_ids) == on_disk, (
+            f"{mid}: ready={mid in ready_ids} 与磁盘实测 {on_disk} 不一致")

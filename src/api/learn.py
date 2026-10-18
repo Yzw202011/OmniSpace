@@ -380,11 +380,32 @@ async def learn_dataset_upload(file: UploadFile = File(...)) -> dict[str, Any]:
               message="数据集已上传，可在 /learn/train 的 dataset_path 中引用")
 
 
+def _base_model_ready(model_id: str) -> bool:
+    """G-09（2026-10-19 批1 测试抓缺）：基座就绪盘检。
+
+    与 lora_training_service.train() 前置闸**同一口径**（目录 +
+    *.safetensors/*.bin/*.gguf/model.safetensors.index.json）——此前 API
+    从不下发 ready，前端「（未就绪）置灰」逻辑永不生效，权重缺失的基座
+    可被选中送训必败。
+    """
+    from ..config import ROOT_DIR
+    models_root = ROOT_DIR / "models"
+    for cand in (models_root / model_id, models_root / "paint" / model_id):
+        if cand.is_dir() and (
+            any(cand.glob("*.safetensors"))
+            or any(cand.glob("*.bin"))
+            or any(cand.glob("*.gguf"))
+            or (cand / "model.safetensors.index.json").is_file()):
+            return True
+    return False
+
+
 @router.get("/learn/models")
 def learn_models() -> dict[str, Any]:
-    """可训练的基础模型列表（规格 §4.4）。"""
-    return ok({"items": _TRAINABLE_BASE_MODELS,
-               "total": len(_TRAINABLE_BASE_MODELS)})
+    """可训练的基础模型列表（规格 §4.4），附磁盘实测 ready 标志。"""
+    items = [{**m, "ready": _base_model_ready(m["id"])}
+             for m in _TRAINABLE_BASE_MODELS]
+    return ok({"items": items, "total": len(items)})
 
 
 @router.get("/learn/training/status")

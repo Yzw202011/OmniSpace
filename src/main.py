@@ -450,6 +450,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await scheduler.stop()
         except Exception:
             log.warning("调度器停止失败", exc_info=True)
+    # 10-19 测试 GAP-12：正规退出此前在事件账无终笔（boot.log 有、日志页时间线
+    # 没有）——补「已安全关闭」。异常崩溃（RAM 耗尽等）不走此路径，时间线
+    # 无此终笔即指向异常退出，语义恰好。log_event 永不抛错，双保险 try。
+    try:
+        from .services.event_log import log_event
+        log_event("system", "backend_stopped",
+                  "OmniSpace 已安全关闭；下次启动将自动就绪",
+                  level="info")
+    except Exception:  # noqa: BLE001 - 停止收尾绝不阻断退出
+        pass
     log.info("后端已停止")
 
 

@@ -23,6 +23,7 @@ import shutil
 import threading
 import time
 from collections import deque
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,9 @@ class ResourceSampler:
         self._samples: deque[dict[str, Any]] = deque(maxlen=maxlen)
         # 巡检越界状态（edge-triggered，防止逐样本刷屏）
         self._alarmed = {"ram_pct": False, "vram_pct": False, "disk_pct": False}
+        # usage 过期清理节流（10-19 测试 GAP-13：USAGE_KEEP_DAYS=30 此前
+        # 只有声明没有实现，JSONL 无限累积——启动清一次 + 循环内每小时巡检）
+        self._last_usage_cleanup = 0.0
 
     # ── 生命周期 ──────────────────────────────────────────────
 
@@ -95,6 +99,7 @@ class ResourceSampler:
         if self._thread is not None and self._thread.is_alive():
             return
         USAGE_DIR.mkdir(parents=True, exist_ok=True)
+        self._cleanup_expired_files()
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._loop, daemon=True, name="resource-sampler")
@@ -113,9 +118,26 @@ class ResourceSampler:
                 samp = _snapshot()
                 self._record(samp)
                 self._patrol(samp)
+                if time.time() - self._last_usage_cleanup > 3600:
+                    self._last_usage_cleanup = time.time()
+                    self._cleanup_expired_files()
             except Exception as exc:  # noqa: BLE001 - 采样异常不拖垮线程
                 log.debug("资源采样失败: %s", exc)
             self._stop.wait(self._interval_s)
+
+    def _cleanup_expired_files(self) -> None:
+        """usage JSONL 超 USAGE_KEEP_DAYS 即删（按文件名日期，与事件账同法）。"""
+        try:
+            cutoff = (datetime.now() - timedelta(days=USAGE_KEEP_DAYS)).date()
+            for f in USAGE_DIR.glob("usage-*.jsonl"):
+                try:
+                    day = datetime.strptime(f.stem, "usage-%Y%m%d").date()
+                except ValueError:
+                    continue
+                if day < cutoff:
+                    f.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001 - 清理失败不影响采样
+            log.debug("usage 过期清理失败: ", exc_info=True)
 
     # ── 采样落地 ──────────────────────────────────────────────
 

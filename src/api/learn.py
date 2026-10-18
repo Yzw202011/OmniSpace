@@ -409,10 +409,11 @@ def learn_models() -> dict[str, Any]:
         # G-10（2026-10-19）：下发服务层可直接消费的基座路径——此前前端
         # 表单送显示名，服务层 Path(显示名) 必败（历史失败任务存的全路径
         # 即证据）；paint 类基座在 models/paint/ 子目录
+        mid = str(m["id"])
         base = ROOT_DIR / "models"
-        base_path = (base / "paint" / m["id"] if m["category"] == "paint"
-                     else base / m["id"])
-        items.append({**m, "ready": _base_model_ready(m["id"]),
+        base_path = (base / "paint" / mid if str(m["category"]) == "paint"
+                     else base / mid)
+        items.append({**m, "ready": _base_model_ready(mid),
                       "base_path": str(base_path)})
     return ok({"items": items, "total": len(items)})
 

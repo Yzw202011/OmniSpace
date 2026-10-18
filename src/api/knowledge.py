@@ -845,6 +845,13 @@ def learn_analysis_topic_compare(topics: str = Query("")) -> dict[str, Any]:
             " WHERE topic != '' GROUP BY topic ORDER BY c DESC LIMIT 10")
         names = [r["topic"] for r in rows]
     items = []
+    # F-6（2026-10-19）：删主题不清 knowledge_meta.topic，对比表会混入
+    # 「幽灵主题」（知识真实存在、主题实体已删）。加 topic_exists 旗标
+    # 供前端把幽灵行灰显标注，数据不动（知识归属是历史事实）。
+    live_topics = {r["name"] for r in db.query(
+        "SELECT name FROM learning_topics")} if db.query_one(
+        "SELECT 1 FROM sqlite_master WHERE type='table'"
+        " AND name='learning_topics'") else set()
     for name in names:
         row = db.query_one(
             "SELECT COUNT(*) AS c, AVG(quality_score) AS avg_score,"
@@ -852,6 +859,7 @@ def learn_analysis_topic_compare(topics: str = Query("")) -> dict[str, Any]:
             (name,))
         items.append({
             "topic": name,
+            "topic_exists": name in live_topics,
             "knowledge_count": int(row["c"] or 0),
             "avg_quality_score": round(float(row["avg_score"] or 0.0), 3),
             "latest_at": float(row["latest"] or 0.0)})

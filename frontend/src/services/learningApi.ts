@@ -463,6 +463,8 @@ export async function getLearnTrend(days = 30): Promise<LearnTrendItem[]> {
 /** 主题对比（GET /learn/analysis/topic-compare?topics=A,B） */
 const LearnTopicCompareItemSchema = z.object({
   topic: z.string(),
+  /** F-6：主题实体是否仍存在（false=幽灵主题：知识在、主题已删） */
+  topic_exists: z.boolean().optional(),
   knowledge_count: z.number(),
   avg_quality_score: z.number(),
   latest_at: z.number(),

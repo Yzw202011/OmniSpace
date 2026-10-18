@@ -185,7 +185,12 @@ export default function AnalysisReport() {
               <tbody>
                 {topics.map((t) => (
                   <tr key={t.topic}>
-                    <td>{t.topic}</td>
+                    <td style={t.topic_exists === false ? { opacity: 0.55 } : undefined}>
+                      {t.topic}
+                      {t.topic_exists === false && (
+                        <span style={{ opacity: 0.75, marginLeft: 4 }}>（主题已删）</span>
+                      )}
+                    </td>
                     <td>{t.knowledge_count}</td>
                     <td>{t.avg_quality_score}</td>
                     <td title={formatTime(t.latest_at)}>{formatTime(t.latest_at).slice(5, 16)}</td>

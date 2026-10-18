@@ -59,6 +59,14 @@ _PREFIX_MODULES: tuple[tuple[str, str], ...] = (
     ("/api/v1/license", "license"),
     ("/api/v1/novel", "novel"),
     ("/api/v1/cloud", "cloud"),
+    # 10-19 测试 GAP-01/02/11 补登记：此前落首段兜底裸显英文
+    ("/api/v1/character", "character"),
+    ("/api/v1/plugins", "plugins"),
+    ("/api/v1/upgrade", "upgrade"),
+    ("/api/v1/training", "training"),
+    ("/api/v1/behavior", "behavior"),
+    ("/api/v1/video", "video"),
+    ("/api/v1/chat", "dialog"),  # dialog 路由的 /chat 别名，标签归一
 )
 
 #: 模块标签 → 中文（friendly 用；与前端 LogsPage MODULE_NAMES 保持镜像）
@@ -78,6 +86,13 @@ _MODULE_ZH: dict[str, str] = {
     "license": "激活",
     "novel": "小说",
     "cloud": "云端",
+    # 10-19 测试 GAP-01/02/03/11 补齐（与前端 LogsPage MODULE_NAMES 镜像）
+    "character": "人物",
+    "plugins": "插件",
+    "upgrade": "升级",
+    "training": "训练",
+    "behavior": "行为",
+    "video": "视频",
 }
 
 #: 可选精修：(method, path) → 中文动作名。未登记走通用模板兜底
@@ -92,13 +107,25 @@ EVENT_LABELS: dict[tuple[str, str], str] = {
 }
 
 
+#: 兜底白名单（10-19 测试 GAP-10）：只有真实存在的 API 首段才允许成为模块
+#: 标签——对不存在端点的探测（历史 fuzz 曾产出 __no_such_endpoint__ 等
+#: 垃圾标签并污染日志页模块下拉）一律归入 system，不再制造新模块
+_KNOWN_FIRST_SEGMENTS = frozenset({
+    "dialog", "chat", "draw", "paint", "manga", "learn", "learning",
+    "knowledge", "browser", "models", "style", "art", "vision", "voice",
+    "hardware", "system", "logs", "license", "novel", "cloud", "upgrade",
+    "plugins", "training", "character", "behavior", "video",
+})
+
+
 def _module_for(path: str) -> str:
     """路径 → 模块标签；未登记前缀取 /api/v1/<第一段> 兜底（新模块自动可见）。"""
     for prefix, module in _PREFIX_MODULES:
         if path.startswith(prefix):
             return module
     rest = path[len("/api/v1/"):] if path.startswith("/api/v1/") else path.lstrip("/")
-    return rest.split("/", 1)[0] or "system"
+    mod = rest.split("/", 1)[0] or "system"
+    return mod if mod in _KNOWN_FIRST_SEGMENTS else "system"
 
 
 def _label_for(method: str, path: str) -> str:

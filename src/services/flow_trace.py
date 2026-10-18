@@ -95,6 +95,21 @@ _current_flow: ContextVar[Flow | None] = ContextVar("flow_trace", default=None)
 
 # ── 资源快照（CPU/内存/GPU，全 try 包裹，缺库降级空值） ────────────
 _monitor_instance = None
+_cpu_primed = False
+
+
+def _prime_cpu_percent() -> None:
+    """psutil.cpu_percent(interval=None) 首调恒返 0（10-19 测试 BUG-03：
+    流程资源快照 CPU 曾恒 0%）——进程内先烧一次基线，此后才是真实均值。"""
+    global _cpu_primed
+    if _cpu_primed:
+        return
+    _cpu_primed = True
+    try:
+        import psutil
+        psutil.cpu_percent(interval=None)
+    except Exception:  # noqa: BLE001 - 预烧失败不影响业务
+        pass
 
 
 def _monitor() -> HardwareMonitor:
@@ -116,6 +131,7 @@ def resource_snapshot() -> dict[str, Any]:
     GPU 走 HardwareMonitor 的 2s TTL 缓存——单次 <1ms。
     """
     snap: dict[str, Any] = {}
+    _prime_cpu_percent()
     try:
         import psutil
         snap["cpu_percent"] = round(psutil.cpu_percent(interval=None), 1)

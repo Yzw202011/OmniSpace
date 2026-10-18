@@ -123,8 +123,10 @@ class ResourceSampler:
         with self._lock:
             self._samples.append(samp)
         # 异步落盘（append 单行 JSONL，每分钟一条级别，量极小）
+        # 10-19 测试 GAP-06：gmtime(UTC) 日切与事件账本地日切差 8 小时——
+        # 统一改本地时区，与 logs/events/events-YYYYMMDD.jsonl 同口径
         try:
-            fh = USAGE_DIR / f"usage-{time.strftime('%Y%m%d', time.gmtime(samp['timestamp']))}.jsonl"
+            fh = USAGE_DIR / f"usage-{time.strftime('%Y%m%d', time.localtime(samp['timestamp']))}.jsonl"
             with fh.open("a", encoding="utf-8") as fp:
                 fp.write(json.dumps(samp, ensure_ascii=False) + "\n")
         except Exception as exc:  # noqa: BLE001 - 落盘失败不影响内存采样

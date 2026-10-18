@@ -137,5 +137,26 @@ def test_learn_models_ready_flag_matches_disk(api_client, tmp_path,
                 or (cand / "model.safetensors.index.json").is_file()):
                 on_disk = True
                 break
-        assert (mid in ready_ids) == on_disk, (
-            f"{mid}: ready={mid in ready_ids} 与磁盘实测 {on_disk} 不一致")
+    assert (mid in ready_ids) == on_disk, (
+        f"{mid}: ready={mid in ready_ids} 与磁盘实测 {on_disk} 不一致")
+
+
+def test_lora_version_delete_rejects_current_version(api_client, tmp_path,
+                                                     monkeypatch):
+    """F-10 事故回归（2026-10-19）：current 拒闸此前用 hasattr 猜方法名
+    （真名 get_current，猜错静默空串跳闸）→ 当前生效版 v4 被实删。
+    修后：当前版必拒且目录完好；非当前版照常可删。"""
+    from src.services import lora_training_service as lts
+    lora_dir = tmp_path / "lora"
+    (lora_dir / "v1").mkdir(parents=True)
+    (lora_dir / "v2").mkdir(parents=True)
+    monkeypatch.setattr(lts, "LORA_DIR", lora_dir)
+    monkeypatch.setattr(lts, "CURRENT_FILE", lora_dir / "current.json")
+    (lora_dir / "current.json").write_text('{"current": "v1"}',
+                                           encoding="utf-8")
+    r = api_client.delete("/api/v1/learn/lora/versions/v1")
+    assert r.json()["error"]["code"] == "SYSTEM_PARAM_INVALID"
+    assert (lora_dir / "v1").is_dir(), "当前版目录必须完好"
+    r2 = api_client.delete("/api/v1/learn/lora/versions/v2")
+    assert r2.json()["success"] is True
+    assert not (lora_dir / "v2").exists()

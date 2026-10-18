@@ -478,11 +478,11 @@ def learn_lora_version_delete(version: str) -> dict[str, Any]:
             " ('running','training','queued','pending') LIMIT 1"):
         raise ApiError("TRAIN_STYLE_LOCKED",
                        "有训练任务进行中，暂不能删版本")
-    try:
-        svc = lts.LoRATrainingService()
-        current = svc.current_version() if hasattr(svc, "current_version") else ""
-    except Exception:  # noqa: BLE001
-        current = ""
+    # F-10 事故根修（2026-10-19）：current 拒闸此前用
+    # hasattr(svc, "current_version") 猜方法名——真名是 get_current()，
+    # 猜错静默回退空串跳闸，当前生效版本 v4 被实删（测试探针亲证）。
+    # 修后直走服务单例 get_current()（真源 current.json），不再吞错。
+    current = get_lora_training_service().get_current()
     if current and str(current) == version:
         raise ApiError("SYSTEM_PARAM_INVALID",
                        "该版本当前生效中——请先回滚到其他版本再删除",

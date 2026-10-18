@@ -132,14 +132,18 @@ export default function MangaWorkspace() {
 
   // 离开项目页：项目名下资产整体转全局（2026-09-30 用户令「资产只分
   // 作品/全部，离开项目页自动转全部」；磁盘目录同步迁移）。换项目/
-  // 关页面均触发（prev=离开的那个项目）；fire-and-forget 失败静默
-  //（下次离开再试）。关闭浏览器不触发——下次进入该项目再离开即补转
+  // 关页面均触发（prev=离开的那个项目）；fire-and-forget 失败留痕不扰
+  //（下次离开再试，reportBgError 进诊断）。关闭浏览器不触发——下次
+  // 进入该项目再离开即补转
   const prevProjectRef = useRef(currentProject?.id ?? '');
   useEffect(() => {
     const prev = prevProjectRef.current;
     prevProjectRef.current = currentProject?.id ?? '';
     return () => {
-      if (prev) promoteProjectAssets(prev).catch(() => {});
+      if (prev) {
+        promoteProjectAssets(prev)
+          .catch((err: unknown) => reportBgError('manga.promoteAssets', err));
+      }
     };
   }, [currentProject?.id]);
 

@@ -1045,9 +1045,16 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
                      if r.get("status") == "done" and (r.get("summary") or "").strip()]
         prev_tail = ""
         if prev_rows:
-            last = prev_rows[-1]
-            if last.get("status") == "done":
-                prev_tail = (last.get("content") or "")[-PREV_TAIL_CHARS:]
+            # 前章断链根修（R16）：衔接锚取最近一个「完成且有正文」的章，
+            # 而非最高索引行——紧邻章失败/空稿时锚不再整段丢失
+            #（与 summaries 只收 done 的口径对齐）。
+            last_done = next(
+                (r for r in reversed(prev_rows)
+                 if r.get("status") == "done"
+                 and (r.get("content") or "").strip()),
+                None)
+            if last_done is not None:
+                prev_tail = (last_done.get("content") or "")[-PREV_TAIL_CHARS:]
         characters = await run_blocking(lambda: db.query(
             "SELECT name, role, summary FROM novel_characters "
             "WHERE project_id=? ORDER BY created_at", (job.project_id,)))

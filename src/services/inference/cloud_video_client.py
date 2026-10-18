@@ -327,6 +327,7 @@ def generate_video(
                         else _bearer(ep))
         deadline = time.time() + TASK_TIMEOUT_S
         video_url = ""
+        status = "unknown"  # 超时文案引用；kling 分支用 st，先绑定防空引用
         while True:
             _check(check_cancel)
             try:
@@ -344,6 +345,7 @@ def generate_video(
                 data = resp.json() or {}
                 st = str(data.get("status") or data.get("task_status")
                          or "").lower()
+                status = st or status
                 if st in ("succeed", "succeeded", "done", "completed",
                           "finished"):
                     video_url = (str(data.get("video_url") or "")

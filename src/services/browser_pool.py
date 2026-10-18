@@ -149,7 +149,7 @@ class BrowserPool:
                 log.info("浏览器池冷启动（首次 acquire，同步拉起）...")
                 if not inst.init(headless=True, timeout=25.0):
                     raise BrowserError(
-                        72001,
+                        "BROWSER_UNAVAILABLE",
                         f"浏览器初始化失败：{inst.unavailable_reason}")
             # 脏实例防护：上次会话未正常归还 → 先清理（隔离保证）
             with self._cond:

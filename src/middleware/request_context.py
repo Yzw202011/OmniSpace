@@ -62,12 +62,35 @@ class RequestContextMiddleware:
         _report_user_activity(scope)
         rid = uuid.uuid4().hex
         token_id = _request_id.set(rid)
-        token_ts = _start_ts.set(time.perf_counter())
+        start = time.perf_counter()
+        token_ts = _start_ts.set(start)
         # 写入 scope 便于异常处理器/日志取用
         scope["state"] = {**scope.get("state", {}), "request_id": rid}  # type: ignore[arg-type]
+        method = str(scope.get("method") or "")
+        path = str(scope.get("path") or "")
+        status_box = {"code": 0}
+
+        async def _send_capture(message: object) -> None:
+            # N-03 观测缺口根修：request_id 只回信封不落日志，前后端对不上账。
+            # 捕获响应状态码供 finally 的访问日志行使用。
+            if isinstance(message, dict) and message.get("type") == \
+                    "http.response.start":
+                status_box["code"] = int(message.get("status") or 0)
+            await send(message)  # type: ignore[arg-type]
+
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, receive, _send_capture)
         finally:
+            # 访问留痕（降噪两档）：非 2xx 或慢请求（≥500ms）上 INFO——
+            # 排障时可按 rid 与异常 WARNING 行对账；正常快请求只 DEBUG，
+            # 避免状态栏 2s 级轮询把日志灌成噪声。
+            duration_ms = max(0, int((time.perf_counter() - start) * 1000))
+            code = status_box["code"]
+            line = f"{method} {path} -> {code} {duration_ms}ms rid={rid}"
+            if code >= 400 or duration_ms >= 500:
+                log.info(line)
+            else:
+                log.debug(line)
             _request_id.reset(token_id)
             _start_ts.reset(token_ts)
 

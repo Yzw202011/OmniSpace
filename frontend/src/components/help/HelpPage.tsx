@@ -3,25 +3,29 @@
  * HelpPage.tsx —— 帮助页（/help）
  * --------------------------------------------------------------------------
  * 静态中文使用指南：
- *   六大模块简介 / 快速上手 5 步 / 快捷键表 / 常见问题 6 条 / 关于卡片 v2.5.0
+ *   功能模块简介（九模块）/ 快速上手 5 步 / 快捷键表 / 常见问题 6 条 / 关于卡片 v2.5.0
  * 纯静态内容，使用 Sakura 主题样式（card / badge / input 等）。
  * ========================================================================== */
 
 import React, { useCallback, useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { MessageSquare, Palette, Clapperboard, BookOpen, Video, Package, CircleHelp, Compass, Rocket, Keyboard, Lightbulb, Flower2, ShieldCheck } from 'lucide-react';
+import { MessageSquare, Feather, Images, Clapperboard, BookOpen, GraduationCap, Package, Cloud, ScrollText, CircleHelp, Compass, Rocket, Keyboard, Lightbulb, Flower2, ShieldCheck } from 'lucide-react';
 import { fetchLicenseStatus, unbindLicense, type LicenseStatus } from '@/services/licenseApi';
 import { confirmDialog } from '@/stores/useConfirmStore';
 import { reportActionError } from '@/utils/errors';
 
-/** 六大模块简介 */
+/** 功能模块简介（2026-10-19 与 11 路由现状对齐：AI绘画→AI漫画 更名、
+ *  视频风格已并入训练中心、补写作台/训练中心/MagicAI 中转/系统日志） */
 const MODULES: Array<{ icon: LucideIcon; name: string; desc: string }> = [
   { icon: MessageSquare, name: 'AI对话', desc: '与本地大模型多轮对话，支持知识库增强问答，回答引用已学习的知识。' },
-  { icon: Palette, name: 'AI绘画', desc: '文生图 / 图生图，支持批量出图（1~4）；高清修复后端就绪但界面入口未开放，ControlNet 与绘画 LoRA 叠加尚未开放，页面已如实标注。' },
-  { icon: Clapperboard, name: '漫剧创作', desc: '分镜表驱动的漫剧流水线：剧本拆解、机位管理、截图资产与语音绑定。' },
+  { icon: Feather, name: '写作台', desc: 'AI 小说创作：灵感 → 大纲 → 章节 → 导出，每一步可人工修改，内置重复章/虚词率等质检闸。' },
+  { icon: Images, name: 'AI漫画', desc: '分格漫画创作：建角色 → 写分格 → 逐格出图 → 气泡台词与镜反 → 预览导出成册；资产作用域分作品/全部。' },
+  { icon: Clapperboard, name: '漫剧创作', desc: '五步工序流水线：角色整理 → 角色生图 → 分镜生词 → 分镜生图 → 生成视频，支持超分列与批量生成。' },
   { icon: BookOpen, name: '知识学习', desc: '主题管理、实时浏览查看、行为学习与知识库管理（浏览器代理辅助抓取，无全自动自主学习）。' },
-  { icon: Video, name: '视频风格', desc: '上传视频/图片素材训练专属风格 LoRA（需 LTX-2 基座权重，离线版未随包分发，就绪后自动开放），支持版本管理与回滚。' },
-  { icon: Package, name: '模型管理', desc: '本地模型的导入、加载、卸载与显存占用监控，协同调度一目了然（离线版本不提供在线下载）。' },
+  { icon: GraduationCap, name: '训练中心', desc: '知识 / 风格 / 人物三线训练统一队列，LoRA 版本管理与一键回滚，产物直连漫剧角色。' },
+  { icon: Package, name: '模型管理', desc: '本地模型的导入、装载、卸载与显存占用监控，三模块工位选型集中切换，协同调度一目了然。' },
+  { icon: Cloud, name: 'MagicAI 中转', desc: '云端订阅转 API 中转的接入状态、工位绑定与模型池一览；云端模型由服务商承载，本地显存零占用。' },
+  { icon: ScrollText, name: '系统日志', desc: '事件时间线 / 执行流程 / 技术日志 / 资源曲线 / 作品文件五视图，支持诊断包导出与过期清理。' },
 ];
 
 /** 快速上手 5 步 */
@@ -198,7 +202,7 @@ export const HelpPage: React.FC = () => {
       <p className="page-subtitle">OmniSpace AI 使用指南与常见问题</p>
 
       <div className="flex flex-col gap-4 mt-5">
-        {/* 六大模块简介 */}
+        {/* 功能模块简介 */}
         <section className="card hoverable" aria-label="功能模块">
           <h3 className="card-title"><Compass size={16} aria-hidden="true" /> 功能模块</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

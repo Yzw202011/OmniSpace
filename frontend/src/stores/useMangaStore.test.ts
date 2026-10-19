@@ -24,7 +24,8 @@ vi.mock('@/services/mangaApi', () => ({
   listAssets: vi.fn(),
   bindAsset: vi.fn(),
   unbindAsset: vi.fn(),
-  listKeyframes: vi.fn(),
+  listKeyframes: vi.fn(async () => []),
+  listVideoTasks: vi.fn(async () => []),
   listVoices: vi.fn(),
   bindVoice: vi.fn(),
   updateVoiceEmotion: vi.fn(),
@@ -127,7 +128,11 @@ describe('useMangaStore 项目与分镜表状态流转', () => {
     // 资产并行拉取（微任务完成后收敛）
     await Promise.resolve();
     expect(mockedApi.getStoryboardRows).toHaveBeenCalledWith('p1');
-    expect(mockedApi.listAssets).toHaveBeenCalledWith('p1');
+    // fetchAssets 双清单制（2026-10-03 绑定显示丢失根修）：项目内 + 该面全局各拉一次
+    expect(mockedApi.listAssets).toHaveBeenCalledWith(
+      'p1', undefined, undefined, undefined, 'p1');
+    expect(mockedApi.listAssets).toHaveBeenCalledWith(
+      '', undefined, 'global', 'manga');
   });
 
   it('openProject 失败：loading 收敛为 false 且异常上抛', async () => {

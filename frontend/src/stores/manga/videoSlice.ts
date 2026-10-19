@@ -67,7 +67,7 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
    * 取图失败返回 ''（退纯文生视频，不阻断生成）。 */
   const fetchCurrentKeyframeB64 = async (rowId: string): Promise<string> => {
     try {
-      const items = await mangaApi.listKeyframes(rowId);
+      const items = (await mangaApi.listKeyframes(rowId)) || [];
       const current = items.find((k) => k.is_current) ?? items[0];
       if (!current?.file_path) return '';
       const res = await fetch(

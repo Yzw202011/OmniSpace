@@ -160,7 +160,8 @@ export type VideoGenerateResp = z.infer<typeof VideoGenerateRespSchema>;
 export const VideoStatusRespSchema = z
   .object({
     task_id: z.string(),
-    status: z.enum(['pending', 'generating', 'done', 'error', 'cancelled']),
+    status: z.enum(['pending', 'generating', 'done', 'error', 'cancelled',
+      'running', 'busy', 'failed', 'none']),
     progress: z.number().min(0).max(1),
     error: z.string().optional(),
     /** 排队位次（1 起，仅 pending 且仍在队列中时返回；2026-09-02 视频队列） */

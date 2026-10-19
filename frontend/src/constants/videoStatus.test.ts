@@ -23,9 +23,12 @@ import { VideoStatusRespSchema } from '@/services/schema';
 /** 后端 manga 包源码目录（vitest cwd = frontend/；TASK-P2-01 拆包后为目录） */
 const BACKEND_MANGA_DIR = path.resolve(process.cwd(), '../src/api/manga');
 
-/** 读取包内全部 .py 模块源码合并为单一文本 */
+/** 读取包内 .py 模块源码合并为单一文本（域排除：models_available.py 的
+ * ready/cloud/downloaded/… 属「模型可用性」域，由 statusLabels.test 的
+ * MODEL_AVAILABLE 断言承接，不属 video_tasks 域——2026-10-19 域分清） */
 function readBackendMangaSrc(): string {
-  const files = readdirSync(BACKEND_MANGA_DIR).filter((f) => f.endsWith('.py'));
+  const files = readdirSync(BACKEND_MANGA_DIR).filter(
+    (f) => f.endsWith('.py') && f !== 'models_available.py');
   if (files.length === 0) throw new Error(`manga 包为空: ${BACKEND_MANGA_DIR}`);
   return files.map((f) => readFileSync(path.join(BACKEND_MANGA_DIR, f), 'utf-8')).join('\n');
 }

@@ -16,7 +16,8 @@ import { reportActionError } from '@/utils/errors';
 
 /** 功能模块简介（2026-10-19 与 11 路由现状对齐：AI绘画→AI漫画 更名、
  *  视频风格已并入训练中心、补写作台/训练中心/MagicAI 中转/系统日志） */
-const MODULES: Array<{ icon: LucideIcon; name: string; desc: string }> = [
+/** 导出供 helpContent.test.ts 锚词一致性测试钉住（防静态文案再漂移） */
+export const MODULES: Array<{ icon: LucideIcon; name: string; desc: string }> = [
   { icon: MessageSquare, name: 'AI对话', desc: '与本地大模型多轮对话，支持知识库增强问答，回答引用已学习的知识。' },
   { icon: Feather, name: '写作台', desc: 'AI 小说创作：灵感 → 大纲 → 章节 → 导出，每一步可人工修改，内置重复章/虚词率等质检闸。' },
   { icon: Images, name: 'AI漫画', desc: '分格漫画创作：建角色 → 写分格 → 逐格出图 → 气泡台词与镜反 → 预览导出成册；资产作用域分作品/全部。' },
@@ -30,7 +31,8 @@ const MODULES: Array<{ icon: LucideIcon; name: string; desc: string }> = [
 
 /** 快速上手 5 步（2026-10-19 与现行页面对齐：AI绘画→AI漫画、视频风格并入
  *  训练中心、漫剧已有多项目库——旧口径三处死引用清退） */
-const QUICK_STEPS: string[] = [
+/** 导出供 helpContent.test.ts 锚词一致性测试钉住 */
+export const QUICK_STEPS: string[] = [
   '在「模型管理」中加载随包附带的对话模型（如 Qwen3-VL-4B），等待状态变为就绪。',
   '打开「AI对话」开始提问；回答不满意时，可在「知识学习」添加相关主题让 AI 补充学习。',
   '在「知识学习」点击「+ 添加新主题」，或导入本地 PDF/DOCX/TXT 文档扩充知识库。',

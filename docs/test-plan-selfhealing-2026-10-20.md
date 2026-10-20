@@ -675,8 +675,15 @@
 | 活体探针批 | ✅ 2026-10-20 已执行（11 项 10✅1🔶） | ✅A-22 启动页 status（build_id 字段在，开发态空值=打包态才有，🔶）｜✅J-17 diagnose 27 项 shape（status=pass 枚举，GPU 检测过）｜✅G-04 restore/list（pre_restore_*.db.enc encrypted:true=BUG-10 活体实锤）｜✅V-01 穿越拒「非法备份文件名」+出路｜✅K-09 白名单外 400+allowed 清单｜✅K-09b kill_orphans 无孤儿安全空跑｜✅V-07 Host 伪造 400｜✅J-12 raw 白名单六选一拒外｜✅J-13 前端事件 recorded:true+落盘 jsonl 可查｜✅V-08 限流 310 连发=300×200+10×429 分毫不差 |
 | F-14 九套队列孤儿审计 | ✅ 2026-10-20 已执行 | **实锤 P1×4 + 新立 SH-GAP-13**（详见 §二 SH-GAP-03 行与批 4）：char_lora_tasks 全盲+cancel 不落库、train/style queued 永挂且锁死自动微调与版本删除、learning_sessions 僵尸 running+restore_checkpoint 死代码、style resume 造假 running；对话/行为/浏览器①/绘画页=内存态天然自愈 ✅；video=双保险标杆。**→ 批4 已落地 6193866c（单测 9 绿）** |
 | J-05 长链埋点审计 | ✅ 2026-10-20 已执行 | **实锤 A 类盲区 7 链 + B 类假 stalled 8 链**（详见 §二 SH-GAP-11 行）：三训练队列/关键帧/批量分格/大纲/角色卡全盲；小说章节/云端视频/资产 5 链缺 node 必假 stalled；对话 SSE 断连 end 无 finally。**→ 批5 P0 已落地 4fb9e251（三训练链+章节 node）**；P1/P2 待续 |
-| 修复批落地账 | ✅ 2026-10-20 四笔入库 | 615ca270 批1四件+UP009｜c9f1cf41 计划文档｜6193866c 批4 队列孤儿根治｜4fb9e251 批5 P0 埋点。批1 活体已验（health-check 10/10）；批4 实弹待重启、批5 实弹待 GPU 训练窗 |
+| 修复批落地账 | ✅ 2026-10-20 五笔入库 | 615ca270 批1四件+UP009｜c9f1cf41 计划文档｜6193866c 批4 队列孤儿根治｜4fb9e251 批5 P0 埋点｜3ba375e0 批5 P2 云端视频节点。批1 活体已验（10/10）；批4 实弹待重启、批5 真火待 GPU 训练窗。**翻案 1 条：J-05「对话 SSE 无 finally」为误报（dialog.py:1266 收尾本就在 finally 内），不改码只记账** |
 | R2~R12 | ⬜ 待窗口 | 按 §六轮次推进；A/B/S 组需停机/浸泡专窗，C/D/E 需 GPU 窗口 |
+
+### ⭐ 下次重启窗口待办清单（用户拍板「稍后安静时再重启」，2026-10-20）
+1. **批4 实弹**：重启后查四张表——`SELECT status,COUNT(*) FROM train_tasks GROUP BY status` 等同款四连（train_tasks/style_tasks/char_lora_tasks/learning_sessions），应零 queued/training/running 幽灵（重启瞬间新入队任务除外）；再验自动微调可发+版本可删（幽灵锁解除）。
+2. **A 组启动链测试批**（A-01~A-28，⛔停机窗口）：死锁根修 A-05、断电自愈 A-17、端口递进 A-02/03 优先。
+3. **批1 复认**：GET /system/health-check 应 10/10（已验过一次，顺手复认）。
+4. **批5 真火（搭 GPU 训练窗）**：任一训练链跑短任务→查 flow_trace 该流程 nodes≥1 且有心跳；批量章节跑 2 章→零假 stalled。
+5. 窗口尚需**GPU 安静期**的：C/D/E 组引擎批（杀 comfy 自愈 D-09~12、让渡 E-09 等）。
 
 ---
 

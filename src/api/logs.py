@@ -241,6 +241,18 @@ def logs_cleanup() -> dict[str, Any]:
 #  错误聚合 / 前端采集 / 导出诊断包（2026-09-01 日志机制方案 C）
 # ═══════════════════════════════════════════════════════════════════
 
+def _error_group_key(item: dict) -> tuple[str, str]:
+    """错误聚合分组键（SH-GAP-10，2026-10-21 拍板）：参数校验类 api_failed
+    （客户端 4xx 性质，learn/style 两域累计数千次的噪声大户）单独归入
+    api_param_invalid 桶——与真失败分榜，防「按 count 排序」时噪声把
+    真故障挤出视野；数据不删，只是分开展示。"""
+    module = str(item.get("module") or "?")
+    event = str(item.get("event") or "?")
+    if event == "api_failed" and "参数校验失败" in str(item.get("friendly") or ""):
+        event = "api_param_invalid"
+    return module, event
+
+
 @router.get("/logs/errors/summary")
 def logs_errors_summary(
     days: int = Query(7, ge=1, le=30, description="聚合回溯天数"),
@@ -254,7 +266,7 @@ def logs_errors_summary(
                          level="error")["items"]
     groups: dict[tuple, dict] = {}
     for e in items:
-        key = (str(e.get("module") or "?"), str(e.get("event") or "?"))
+        key = _error_group_key(e)
         g = groups.get(key)
         ts = str(e.get("ts") or "")
         if g is None:

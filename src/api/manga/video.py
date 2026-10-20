@@ -1061,19 +1061,35 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                 except Exception:  # noqa: BLE001 - 行状态回写失败不阻断任务终态
                     log.debug("_set_rows: 降级忽略", exc_info=True)
 
+        # 10-20 测试 BUG-04：H3 路径此前只 start/end 不打节点——流程账
+        # nodes 恒 0（53 条 success 全 0 实锤）。心跳经 cb 转发进节点，
+        # 防 20 分钟长跑被误标卡住。
+        _h3_node: list = []
+
         def cb(frac: float, stage: str = "") -> None:
             _video_update_task(task_id, {"progress": round(float(frac), 3)},
                                guard_cancelled=True)
+            for _n in _h3_node:
+                try:
+                    _n.progress(f"{int(frac * 100)}% {stage}")
+                except Exception:  # noqa: BLE001 - 心跳失败不影响生成
+                    pass
 
         try:
             from ...services.inference.h3_chain_engine import run_h3_chain_task
             keep_loaded = get_video_queue().next_kind() == "h3_chain"
-            result = run_h3_chain_task(task_id, row_ids, seconds, quality,
-                                       start_clip=start_clip,
-                                       run_name=run_name, progress_cb=cb,
-                                       aspect=aspect,
-                                       check_cancel=check_cancel,
-                                       keep_loaded=keep_loaded)
+            with _flow.node("H3 链生成",
+                            input_summary=(f"{len(row_ids)} 镜 × {seconds}s "
+                                           f"{quality} {aspect}"),
+                            friendly="H3 链式视频生成") as _n:
+                _h3_node.append(_n)
+                result = run_h3_chain_task(task_id, row_ids, seconds, quality,
+                                           start_clip=start_clip,
+                                           run_name=run_name, progress_cb=cb,
+                                           aspect=aspect,
+                                           check_cancel=check_cancel,
+                                           keep_loaded=keep_loaded)
+                _h3_node.clear()
             _video_update_task(task_id, {
                 "status": "done", "progress": 1.0,
                 "file_path": result["file_path"],

@@ -568,7 +568,10 @@ export const LogsPage: React.FC = () => {
             {!loading && events.length === 0 && (
               <div className="card" style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
                 <div className="text-secondary text-sm">
-                  {total === 0
+                  {/* 10-19 测试 BUG-06：筛选态下 total 是筛选后的 0，用 total===0
+                      分支会把「筛选无匹配」误说成「还没有日志事件，去用 AI 对话」——
+                      须以「无任何筛选条件」判定真空库 */}
+                  {!level && !module && !keyword && total === 0
                     ? '还没有日志事件。用一用 AI 对话、切换模型或跑一次训练，这里就会出现记录'
                     : '当前筛选条件下没有匹配的事件，试试放宽筛选'}
                 </div>

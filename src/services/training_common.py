@@ -28,9 +28,13 @@ log = logging.getLogger("omnispace.services.training_common")
 #  /learn/train、/style/train 返回 TRAINING_MAINTENANCE，自动微调
 #  跳过（不再自动制造必败任务）。解冻：对应标志改 False 并同步
 #  前端按钮（LearnView.tsx / StylePage.tsx 的 disabled 硬编码）。
+#
+#  知识训练解冻（2026-10-20 拍板）：训练链依赖已经 10-18 训练中心
+#  战役修复（G-01~G-10 等 16 项），knowledge 训练闸解冻。风格训练
+#  闸维持冻结（其依赖修复另线）。
 # ═══════════════════════════════════════════════════════════════
 
-KNOWLEDGE_TRAINING_MAINTENANCE = True
+KNOWLEDGE_TRAINING_MAINTENANCE = False
 STYLE_TRAINING_MAINTENANCE = True
 
 

@@ -33,14 +33,29 @@ export const BehaviorStatsPanel: React.FC = () => {
     return () => clearInterval(timer);
   }, [fetchBehaviorStats]);
 
-  /** 立即微调：触发一次 knowledge_lora 训练（功能互斥由 useLearnStore 处理） */
+  /** 立即微调（2026-10-20 拍板解冻）：从 /learn/models 实测 ready 列表
+   *  挑第一个可用基座（G-09 口径）；无可用基座时 toast 指引而非静默失败。
+   *  功能互斥由 useLearnStore 处理。 */
   const handleFinetune = async () => {
-    const ok = await createTrain({
-      type: 'knowledge_lora',
-      name: `行为偏好微调 ${formatDateTime(Date.now())}`,
-      priority: 'manual',
-    });
-    if (ok) showToast('微调任务已加入队列', 'success');
+    try {
+      const { listLearnModels } = await import('@/services/learnApi');
+      const models = await listLearnModels();
+      const ready = models.find(
+        (m) => m.ready && (m as { type?: string }).type === 'knowledge_lora');
+      if (!ready) {
+        showToast('暂无就绪的知识微调基座模型，请到「模型管理」查看', 'warning');
+        return;
+      }
+      const ok = await createTrain({
+        type: 'knowledge_lora',
+        base_model: ready.name,
+        name: `行为偏好微调 ${formatDateTime(Date.now())}`,
+        priority: 'manual',
+      });
+      if (ok) showToast('微调任务已加入队列，进度见「训练中心」', 'success');
+    } catch {
+      showToast('微调任务创建失败，请稍后重试', 'error');
+    }
   };
 
   return (
@@ -52,16 +67,15 @@ export const BehaviorStatsPanel: React.FC = () => {
             <ClipboardList size={13} aria-hidden="true" />
             查看日志
           </button>
-          {/* D3 冻结（2026-09-21 拍板）：knowledge_lora 训练 08-27 后零成功
-              （依赖缺失），诚实降级置灰——数据查看保留可用。 */}
+          {/* 2026-10-20 拍板解冻：训练链依赖已由训练中心战役修复
+              （G-01~G-10），运行时就绪守卫见 handleFinetune。 */}
           <button
             className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
             onClick={handleFinetune}
-            disabled
-            title="知识微调维护中：训练链依赖修复后恢复"
+            title="基于行为偏好与知识库触发一次知识微调"
           >
             <Zap size={13} aria-hidden="true" />
-            立即微调（维护中）
+            立即微调
           </button>
           <button className="btn btn-ghost btn-sm inline-flex items-center gap-1.5" onClick={() => setConfirmReset(true)}>
             <Trash2 size={13} aria-hidden="true" />

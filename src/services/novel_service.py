@@ -901,119 +901,139 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
     project = _get_project(db, job.project_id)
     if project is None:
         raise RuntimeError(f"项目不存在: {job.project_id}")
-    await run_blocking(_ensure_engine_sync)
-    _JOB_PROGRESS[job.task_id] = {"stage": "generating", "detail": "构思大纲中"}
-    req = _JOB_PROGRESS[job.task_id]
-    # 批3 P4：篇幅规划三参数（建作品时存 meta；旧项目无此键=历史缺省）。
-    # meta 在 DB 行里是 JSON 字符串——旧代码 isinstance(dict) 守卫对字符串
-    # 恒 False，requirement 实为死参；此处经 parse_json_field 修正。
-    _om = parse_json_field(project.get("meta"))
-    _meta = _om if isinstance(_om, dict) else {}
-    plan_chapters = int(_meta.get("plan_chapters") or 0)
-    volume_count = int(_meta.get("volume_count") or 0)
-    words_per_chapter = int(_meta.get("words_per_chapter") or 0)
-    # 章数多时大纲 JSON 变长，生成上限随计划章数放宽（每章细纲≈120token）
-    outline_tokens = 3072 + (max(0, plan_chapters - 15) * 150 if plan_chapters else 0)
-    prompt = build_outline_prompt(
-        description=project.get("description") or "",
-        genre=project.get("genre") or "",
-        style_notes=project.get("style_notes") or "",
-        requirement=str(_meta.get("requirement") or ""),
-        plan_chapters=plan_chapters,
-        volume_count=volume_count,
-        words_per_chapter=words_per_chapter)
-    raw = await run_blocking(
-        _llm_sync, prompt, temperature=0.75,
-        max_new_tokens=min(outline_tokens, 8192))
-    queue.raise_if_cancelled(job.task_id)
-    req["detail"] = "解析大纲结构"
-    data = await run_blocking(parse_outline_json, raw)
-
-    # 落库：旧大纲树与待写章清掉重建（人在回路 = 生成后逐节点可改）
-    pid = job.project_id
-    now = _now()
-    # 2026-09-26 修复：此前只清 status='pending' 旧章——done/error 章
-    # 保留导致「重新生成大纲」后同名章节 x2 并存（用户实测重复章）。
-    # 大纲已整树重建，旧章的 outline_id 全部孤儿化，必须全清。
-    await run_blocking(lambda: db.delete("novel_chapters", "project_id=?", (pid,)))
-    await run_blocking(lambda: db.delete("novel_outlines", "project_id=?", (pid,)))
-    book_id = uuid.uuid4().hex
-    await run_blocking(lambda: db.insert("novel_outlines", {
-        "id": book_id, "project_id": pid, "parent_id": "", "level": "book",
-        "sort_index": 0, "title": data["title"],
-        "content": data["logline"], "created_at": now, "updated_at": now}))
-    ch_no = 0
-    # 2026-09-26 去重闸：LLM 大纲偶发跨卷重复章节（实测「逆命之战」卷
-    # 与「万界之巅」卷各插同名章）——prompt 已加禁令，落库侧兜底跳过
-    # 与已插章节同名的章（保首个，重复的丢弃并记日志）。
-    seen_titles: set[str] = set()
-    dropped_dups = 0
-    for vi, vol in enumerate(data["volumes"]):
-        vol_id = uuid.uuid4().hex
-        await run_blocking(lambda vi=vi, vol=vol, vol_id=vol_id: db.insert("novel_outlines", {
-            "id": vol_id, "project_id": pid, "parent_id": book_id,
-            "level": "volume", "sort_index": vi, "title": vol["title"],
-            "content": vol["summary"], "created_at": now,
-            "updated_at": now}))
-        for ci, ch in enumerate(vol.get("chapters") or []):
-            title_key = str(ch.get("title") or "").strip()
-            if title_key in seen_titles:
-                dropped_dups += 1
-                log.warning("大纲去重闸：跳过跨卷重复章「%s」", title_key)
-                continue
-            seen_titles.add(title_key)
-            ch_no += 1
-            node_id = uuid.uuid4().hex
-            await run_blocking(lambda ch=ch, ci=ci, node_id=node_id, vol_id=vol_id: db.insert("novel_outlines", {
-                "id": node_id, "project_id": pid, "parent_id": vol_id,
-                "level": "chapter_outline", "sort_index": ci,
-                "title": ch["title"], "content": ch["outline"],
-                "created_at": now, "updated_at": now}))
-            await run_blocking(lambda ch=ch, ch_no=ch_no, node_id=node_id: db.insert("novel_chapters", {
-                "id": uuid.uuid4().hex, "project_id": pid,
-                "outline_id": node_id, "chapter_index": ch_no,
-                "title": ch["title"], "status": "pending",
-                "created_at": now, "updated_at": now}))
-    req["stage"] = "done"
-    req["detail"] = f"完成：{len(data['volumes'])} 卷 {ch_no} 章"
-    from ..services.event_log import log_event
-    log_event("novel", "outline_generated",
-              f"《{project.get('name')}》大纲生成完成：{len(data['volumes'])}卷 {ch_no}章",
-              level="success")
-    # 2026-09-28 用户拍板：大纲完成自动生成角色卡——此前功能在但从未
-    # 触发（0 张卡），章节 prompt 的【主要角色】锚一直是空的，是章间
-    # 连贯性弱的一大根因。大纲刚出时人物名单最全，此时产卡最准。
+    # 批5 P1（2026-10-20 J-05 收口）：大纲链此前零埋点——进度只存内存
+    # _JOB_PROGRESS（重启即无痕），stalled 检测完全不可见。补 start_flow +
+    # 三出口 end（对齐章节 job 的 GAP-16 修法）。
+    from .flow_trace import start_flow
+    flow = start_flow(
+        "novel", "outline_generate",
+        f"小说大纲生成：{(project.get('name') or '')[:20]}",
+        trigger="用户提交生成",
+        input_summary=f"project={job.project_id}",
+        detail=f"task={job.task_id}")
     try:
-        have_chars = await run_blocking(lambda: db.query_one(
-            "SELECT COUNT(*) AS n FROM novel_characters WHERE project_id=?",
-            (pid,)))
-        if not have_chars or int(have_chars["n"]) == 0:
-            req["stage"] = "characters"
-            req["detail"] = "大纲完成，正在生成角色卡"
-            # basis 带大纲产出的人物名单（书名+卷章概览摘要）——卡片
-            # 人物名必须与大纲正文用名一致（2026-09-28 实测：不带
-            # basis 时卡里主角叫"林玄"而大纲正文叫"林烬"，主角锚
-            # 落空；带大纲摘要后 LLM 按既有人名产卡）
-            _vol_brief = "；".join(
-                f"{v.get('title') or ''}：{(v.get('summary') or '')[:60]}"
-                for v in data["volumes"][:4])
-            _chap_names = "、".join(
-                ch.get("title") or "" for v in data["volumes"]
-                for ch in (v.get("chapters") or []))
-            char_task = NovelJob(
-                task_id=f"novel-chars-{pid}-auto-{uuid.uuid4().hex[:6]}",
-                kind="characters", project_id=pid,
-                chapter_id=(f"角色名必须与以下大纲既有人物/章名保持一致"
-                            f"（主角以大纲正文用名为准）：{_vol_brief[:200]}"
-                            f"；章节名：{_chap_names[:200]}")[:300],
-                run=run_characters_job)
-            await char_task.run(char_task, queue)
-            log_event("novel", "characters_auto_generated",
-                      f"《{project.get('name')}》大纲完成后自动生成角色卡",
-                      level="success")
-    except Exception:  # noqa: BLE001 - 角色卡失败不阻断大纲交付
-        log.warning("大纲后自动角色卡生成失败（不影响大纲）", exc_info=True)
-    req["stage"] = "done"
+        await run_blocking(_ensure_engine_sync)
+        _JOB_PROGRESS[job.task_id] = {"stage": "generating", "detail": "构思大纲中"}
+        req = _JOB_PROGRESS[job.task_id]
+        # 批3 P4：篇幅规划三参数（建作品时存 meta；旧项目无此键=历史缺省）。
+        # meta 在 DB 行里是 JSON 字符串——旧代码 isinstance(dict) 守卫对字符串
+        # 恒 False，requirement 实为死参；此处经 parse_json_field 修正。
+        _om = parse_json_field(project.get("meta"))
+        _meta = _om if isinstance(_om, dict) else {}
+        plan_chapters = int(_meta.get("plan_chapters") or 0)
+        volume_count = int(_meta.get("volume_count") or 0)
+        words_per_chapter = int(_meta.get("words_per_chapter") or 0)
+        # 章数多时大纲 JSON 变长，生成上限随计划章数放宽（每章细纲≈120token）
+        outline_tokens = 3072 + (max(0, plan_chapters - 15) * 150 if plan_chapters else 0)
+        prompt = build_outline_prompt(
+            description=project.get("description") or "",
+            genre=project.get("genre") or "",
+            style_notes=project.get("style_notes") or "",
+            requirement=str(_meta.get("requirement") or ""),
+            plan_chapters=plan_chapters,
+            volume_count=volume_count,
+            words_per_chapter=words_per_chapter)
+        raw = await run_blocking(
+            _llm_sync, prompt, temperature=0.75,
+            max_new_tokens=min(outline_tokens, 8192))
+        queue.raise_if_cancelled(job.task_id)
+        req["detail"] = "解析大纲结构"
+        data = await run_blocking(parse_outline_json, raw)
+
+        # 落库：旧大纲树与待写章清掉重建（人在回路 = 生成后逐节点可改）
+        pid = job.project_id
+        now = _now()
+        # 2026-09-26 修复：此前只清 status='pending' 旧章——done/error 章
+        # 保留导致「重新生成大纲」后同名章节 x2 并存（用户实测重复章）。
+        # 大纲已整树重建，旧章的 outline_id 全部孤儿化，必须全清。
+        await run_blocking(lambda: db.delete("novel_chapters", "project_id=?", (pid,)))
+        await run_blocking(lambda: db.delete("novel_outlines", "project_id=?", (pid,)))
+        book_id = uuid.uuid4().hex
+        await run_blocking(lambda: db.insert("novel_outlines", {
+            "id": book_id, "project_id": pid, "parent_id": "", "level": "book",
+            "sort_index": 0, "title": data["title"],
+            "content": data["logline"], "created_at": now, "updated_at": now}))
+        ch_no = 0
+        # 2026-09-26 去重闸：LLM 大纲偶发跨卷重复章节（实测「逆命之战」卷
+        # 与「万界之巅」卷各插同名章）——prompt 已加禁令，落库侧兜底跳过
+        # 与已插章节同名的章（保首个，重复的丢弃并记日志）。
+        seen_titles: set[str] = set()
+        dropped_dups = 0
+        for vi, vol in enumerate(data["volumes"]):
+            vol_id = uuid.uuid4().hex
+            await run_blocking(lambda vi=vi, vol=vol, vol_id=vol_id: db.insert("novel_outlines", {
+                "id": vol_id, "project_id": pid, "parent_id": book_id,
+                "level": "volume", "sort_index": vi, "title": vol["title"],
+                "content": vol["summary"], "created_at": now,
+                "updated_at": now}))
+            for ci, ch in enumerate(vol.get("chapters") or []):
+                title_key = str(ch.get("title") or "").strip()
+                if title_key in seen_titles:
+                    dropped_dups += 1
+                    log.warning("大纲去重闸：跳过跨卷重复章「%s」", title_key)
+                    continue
+                seen_titles.add(title_key)
+                ch_no += 1
+                node_id = uuid.uuid4().hex
+                await run_blocking(lambda ch=ch, ci=ci, node_id=node_id, vol_id=vol_id: db.insert("novel_outlines", {
+                    "id": node_id, "project_id": pid, "parent_id": vol_id,
+                    "level": "chapter_outline", "sort_index": ci,
+                    "title": ch["title"], "content": ch["outline"],
+                    "created_at": now, "updated_at": now}))
+                await run_blocking(lambda ch=ch, ch_no=ch_no, node_id=node_id: db.insert("novel_chapters", {
+                    "id": uuid.uuid4().hex, "project_id": pid,
+                    "outline_id": node_id, "chapter_index": ch_no,
+                    "title": ch["title"], "status": "pending",
+                    "created_at": now, "updated_at": now}))
+        req["stage"] = "done"
+        req["detail"] = f"完成：{len(data['volumes'])} 卷 {ch_no} 章"
+        from ..services.event_log import log_event
+        log_event("novel", "outline_generated",
+                  f"《{project.get('name')}》大纲生成完成：{len(data['volumes'])}卷 {ch_no}章",
+                  level="success")
+        # 2026-09-28 用户拍板：大纲完成自动生成角色卡——此前功能在但从未
+        # 触发（0 张卡），章节 prompt 的【主要角色】锚一直是空的，是章间
+        # 连贯性弱的一大根因。大纲刚出时人物名单最全，此时产卡最准。
+        try:
+            have_chars = await run_blocking(lambda: db.query_one(
+                "SELECT COUNT(*) AS n FROM novel_characters WHERE project_id=?",
+                (pid,)))
+            if not have_chars or int(have_chars["n"]) == 0:
+                req["stage"] = "characters"
+                req["detail"] = "大纲完成，正在生成角色卡"
+                # basis 带大纲产出的人物名单（书名+卷章概览摘要）——卡片
+                # 人物名必须与大纲正文用名一致（2026-09-28 实测：不带
+                # basis 时卡里主角叫"林玄"而大纲正文叫"林烬"，主角锚
+                # 落空；带大纲摘要后 LLM 按既有人名产卡）
+                _vol_brief = "；".join(
+                    f"{v.get('title') or ''}：{(v.get('summary') or '')[:60]}"
+                    for v in data["volumes"][:4])
+                _chap_names = "、".join(
+                    ch.get("title") or "" for v in data["volumes"]
+                    for ch in (v.get("chapters") or []))
+                char_task = NovelJob(
+                    task_id=f"novel-chars-{pid}-auto-{uuid.uuid4().hex[:6]}",
+                    kind="characters", project_id=pid,
+                    chapter_id=(f"角色名必须与以下大纲既有人物/章名保持一致"
+                                f"（主角以大纲正文用名为准）：{_vol_brief[:200]}"
+                                f"；章节名：{_chap_names[:200]}")[:300],
+                    run=run_characters_job)
+                await char_task.run(char_task, queue)
+                log_event("novel", "characters_auto_generated",
+                          f"《{project.get('name')}》大纲完成后自动生成角色卡",
+                          level="success")
+        except Exception:  # noqa: BLE001 - 角色卡失败不阻断大纲交付
+            log.warning("大纲后自动角色卡生成失败（不影响大纲）", exc_info=True)
+        req["stage"] = "done"
+        flow.end("success",
+                 output_summary=f"{len(data['volumes'])} 卷 {ch_no} 章")
+    except NovelJobCancelled:
+        flow.end("cancelled", output_summary="用户取消生成")
+        raise
+    except Exception as exc:
+        flow.end("error", error_code="NOVEL_OUTLINE_FAILED",
+                 output_summary=str(exc)[:120])
+        raise
 
 
 async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
@@ -1205,25 +1225,44 @@ async def run_characters_job(job: NovelJob, queue: NovelJobQueue) -> None:
     project = _get_project(db, job.project_id)
     if project is None:
         raise RuntimeError(f"项目不存在: {job.project_id}")
-    await run_blocking(_ensure_engine_sync)
-    _JOB_PROGRESS[job.task_id] = {"stage": "generating", "detail": "设计角色中"}
-    basis = str(job.chapter_id or "")  # 复用字段带补充要求（API 层填入）
-    raw = await run_blocking(
-        _llm_sync, build_characters_prompt(
-            description=project.get("description") or "",
-            genre=project.get("genre") or "", basis=basis),
-        temperature=0.8, max_new_tokens=1200)
-    queue.raise_if_cancelled(job.task_id)
-    items = await run_blocking(parse_characters_json, raw)
-    now = _now()
-    for it in items:
-        await run_blocking(lambda it=it: db.insert("novel_characters", {
-            "id": uuid.uuid4().hex, "project_id": job.project_id,
-            "name": it["name"], "role": it["role"],
-            "summary": it["summary"], "created_at": now,
-            "updated_at": now}))
-    _JOB_PROGRESS[job.task_id] = {"stage": "done",
-                                  "detail": f"完成：{len(items)} 个角色"}
+    # 批5 P1（2026-10-20 J-05 收口）：角色卡链此前零埋点——进度只存内存
+    # _JOB_PROGRESS，重启即无痕、stalled 检测完全不可见。补 start_flow +
+    # 三出口 end（对齐章节 job 的 GAP-16 修法）。
+    from .flow_trace import start_flow
+    flow = start_flow(
+        "novel", "characters_generate",
+        f"小说角色卡生成：{(project.get('name') or '')[:20]}",
+        trigger="用户提交生成",
+        input_summary=f"project={job.project_id}",
+        detail=f"task={job.task_id}")
+    try:
+        await run_blocking(_ensure_engine_sync)
+        _JOB_PROGRESS[job.task_id] = {"stage": "generating", "detail": "设计角色中"}
+        basis = str(job.chapter_id or "")  # 复用字段带补充要求（API 层填入）
+        raw = await run_blocking(
+            _llm_sync, build_characters_prompt(
+                description=project.get("description") or "",
+                genre=project.get("genre") or "", basis=basis),
+            temperature=0.8, max_new_tokens=1200)
+        queue.raise_if_cancelled(job.task_id)
+        items = await run_blocking(parse_characters_json, raw)
+        now = _now()
+        for it in items:
+            await run_blocking(lambda it=it: db.insert("novel_characters", {
+                "id": uuid.uuid4().hex, "project_id": job.project_id,
+                "name": it["name"], "role": it["role"],
+                "summary": it["summary"], "created_at": now,
+                "updated_at": now}))
+        _JOB_PROGRESS[job.task_id] = {"stage": "done",
+                                      "detail": f"完成：{len(items)} 个角色"}
+        flow.end("success", output_summary=f"{len(items)} 个角色")
+    except NovelJobCancelled:
+        flow.end("cancelled", output_summary="用户取消生成")
+        raise
+    except Exception as exc:
+        flow.end("error", error_code="NOVEL_CHARACTERS_FAILED",
+                 output_summary=str(exc)[:120])
+        raise
 
 
 def parse_json_field(value: Any) -> Any:

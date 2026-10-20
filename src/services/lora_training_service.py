@@ -269,6 +269,9 @@ class LoRATrainingService:
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._training_task_id: str | None = None
+        #: 当前训练流程的 node 心跳槽（video._h3_node 同款列表模式，
+        #: 批5 P0 J-05 收口：进度回调转发心跳防长训误标 stalled）
+        self._flow_node: list = []
         self._cancel_flags: set[str] = set()   # 强制取消的任务 ID（运行时中断）
         self._dataset: dict | None = None   # prepare_training_data 缓存
         self._last_train_data: dict | None = None  # 最近训练实际使用的数据集（供评估取验证集）
@@ -660,11 +663,41 @@ class LoRATrainingService:
             f"基于模型「{cfg['base_model']}」",
             level="info", detail=f"task={task_id}")
 
+        # 批5 P0（2026-10-20 J-05 收口）：训练全链 flow 埋点——任务最长
+        # （小时级）却零节点，卡死时流程账不可见。节点心跳经进度回调
+        # 续命（_make_progress_cb）；埋点自身失败绝不影响训练。
+        _flow = _node = None
+        try:
+            from .flow_trace import start_flow
+            _flow = start_flow(
+                "training", "knowledge_lora",
+                f"知识 LoRA 训练：{str(cfg.get('name') or '')[:20] or task_id}",
+                trigger="queue",
+                input_summary=f"base={cfg['base_model']} task={task_id}")
+            _node = _flow.node("训练执行", friendly="LoRA 训练执行")
+            _node.__enter__()
+            self._flow_node = [_node]
+        except Exception:  # noqa: BLE001
+            _flow = _node = None
+            self._flow_node = []
+
         if not self._acquire_training_lock(task_id):
             self._update_task(task_id, status="error",
                               error="无法获取 training 功能锁")
             _broadcast("training_failed",
                        {"task_id": task_id, "error": "无法获取 training 功能锁"})
+            if _node is not None:
+                try:
+                    _node.__exit__(None, None, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            if _flow is not None:
+                try:
+                    _flow.end("error", error_code="TRAINING_LOCK_DENIED",
+                              output_summary="训练功能锁获取失败")
+                except Exception:  # noqa: BLE001
+                    pass
+            self._flow_node = []
             with self._state_lock:
                 self._training_task_id = None
             return
@@ -756,6 +789,30 @@ class LoRATrainingService:
             self._clear_cancel(task_id)
             with self._state_lock:
                 self._training_task_id = None
+            # 批5 P0：流程账收口（按任务终态映射，诚实记账）
+            if _node is not None:
+                try:
+                    _node.__exit__(None, None, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            if _flow is not None:
+                try:
+                    _row = None
+                    _db2 = get_db_safe()
+                    if _db2 is not None:
+                        _row = _db2.query_one(
+                            "SELECT status, version, error FROM train_tasks"
+                            " WHERE id=?", (task_id,))
+                    _st = str((_row or {}).get("status") or "error")
+                    _flow.end(
+                        "success" if _st == "done" else _st,
+                        output_summary=(f"status={_st}"
+                                        f" version={(_row or {}).get('version') or ''}"),
+                        error_code="" if _st == "done"
+                        else str((_row or {}).get("error") or "")[:120])
+                except Exception:  # noqa: BLE001
+                    pass
+            self._flow_node = []
 
     def _make_progress_cb(self, task_id: str) -> Callable[[dict], None]:
         """训练进度回调：更新 train_tasks.progress + 推送 training_progress。"""
@@ -764,6 +821,12 @@ class LoRATrainingService:
             max_steps = max(1, info.get("max_steps", 1))
             progress = min(0.94, 0.05 + 0.9 * step / max_steps)
             self._update_task(task_id, progress=round(progress, 4))
+            # 批5 P0：转发节点心跳，防小时级长训被误标 stalled
+            for _n in self._flow_node:
+                try:
+                    _n.progress(f"{int(progress * 100)}% step={step}")
+                except Exception:  # noqa: BLE001 - 心跳失败不影响训练
+                    pass
             _broadcast("training_progress", {
                 "task_id": task_id, "loss": info.get("loss"),
                 "epoch": info.get("epoch"), "step": step,

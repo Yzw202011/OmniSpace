@@ -119,6 +119,8 @@ class CharacterLoraService:
         #: 当前真在训的任务 id（worker 持有期间非 None）——cancel 判
         #: 「真训练 vs 幽灵训练行」的存活判别器（F-14，2026-10-20）
         self._training_task_id: str | None = None
+        #: 当前训练流程的 node 心跳槽（批5 P0 J-05 收口，同 lora 服务）
+        self._flow_node: list = []
         self._mem_tasks: dict[str, dict[str, Any]] = {}
         self._lock_guard = TrainingLockGuard()
         self._worker: threading.Thread | None = None
@@ -320,6 +322,24 @@ class CharacterLoraService:
             self._upsert_task(task)
             _broadcast("training_started",
                        {"task_id": task["id"], "name": task["name"]})
+
+            # 批5 P0（2026-10-20 J-05 收口）：训练全链 flow 埋点（同 lora
+            # 服务；此表此前连崩溃清扫都不在白名单，流程账双重盲区）
+            _flow = _node = None
+            try:
+                from .flow_trace import start_flow
+                _flow = start_flow(
+                    "training", "character_lora",
+                    f"人物 LoRA 训练：{task['name'][:20]}",
+                    trigger="queue",
+                    input_summary=f"asset={task['asset_id']} task={task['id']}")
+                _node = _flow.node("训练执行", friendly="人物 LoRA 训练执行")
+                _node.__enter__()
+                self._flow_node = [_node]
+            except Exception:  # noqa: BLE001 - 埋点失败绝不影响训练
+                _flow = _node = None
+                self._flow_node = []
+
             lock_held = False
             try:
                 if not self._lock_guard.acquire(task["id"]):
@@ -354,6 +374,25 @@ class CharacterLoraService:
                            {"task_id": task["id"], "error": task.get("error")})
             finally:
                 self._training_task_id = None
+                # 批5 P0：流程账收口（task 字典在 handler 里就地更新，
+                # 直接读它的终态，诚实记账）
+                if _node is not None:
+                    try:
+                        _node.__exit__(None, None, None)
+                    except Exception:  # noqa: BLE001
+                        pass
+                if _flow is not None:
+                    try:
+                        _st = str(task.get("status") or STATUS_ERROR)
+                        _flow.end(
+                            "success" if _st == STATUS_DONE else _st,
+                            output_summary=(f"status={_st}"
+                                            f" version={task.get('version') or ''}"),
+                            error_code="" if _st == STATUS_DONE
+                            else str(task.get("error") or "")[:120])
+                    except Exception:  # noqa: BLE001
+                        pass
+                self._flow_node = []
                 if lock_held:
                     try:
                         self._lock_guard.release()
@@ -364,6 +403,12 @@ class CharacterLoraService:
                   **kw: Any) -> None:
         task["progress"] = max(0.0, min(1.0, pct))
         self._upsert_task(task)
+        # 批5 P0：转发节点心跳，防长训被误标 stalled
+        for _n in self._flow_node:
+            try:
+                _n.progress(f"{int(task['progress'] * 100)}%")
+            except Exception:  # noqa: BLE001 - 心跳失败不影响训练
+                pass
         _broadcast("training_progress",
                    {"task_id": task.get("id"), "progress": task["progress"]})
 

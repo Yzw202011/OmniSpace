@@ -1028,7 +1028,9 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
         raise RuntimeError(f"项目不存在: {job.project_id}")
     # 10-20 测试 GAP-16：章节生成此前零埋点——入队成功后事件账/流程账
     # 双零（章节 done 仍无任何痕迹）。补 start_flow + 三出口 end（end 自
-    # 带事件账写入），不加 node 包裹以最小化 diff 避开并发 novel 线。
+    # 带事件账写入）。同日批5 P0（J-05 收口）：正文推理段再补 node——
+    # LLM 生成常态 >2min，无节点=批量时每章必出假 stalled（120s 阈值）；
+    # 心跳在尝试边界与子步骤转发。
     from .flow_trace import start_flow
     flow = start_flow(
         "novel", "chapter_generate",
@@ -1110,47 +1112,50 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
         content = ""
         # 批3 P13：重拟真档略升温（多样性与拟真度正相关；轻/标准不动）
         _temp_delta = 0.05 if style_preset == "heavy" else 0.0
-        for attempt, (rep_penalty, temp, freq_penalty) in enumerate(
-                ANTI_REPEAT_ATTEMPTS, start=1):
-            raw = await run_blocking(
-                _llm_sync, prompt, temperature=temp + _temp_delta,
-                max_new_tokens=chapter_tokens,
-                extra_params={"repetition_penalty": rep_penalty,
-                              "frequency_penalty": freq_penalty})
-            queue.raise_if_cancelled(job.task_id)
-            candidate = await run_blocking(clean_chapter_text, raw)
-            repeated = await run_blocking(detect_repetition, candidate)
-            avalanche = await run_blocking(detect_avalanche, candidate) \
-                if repeated is None else None
-            if repeated is None and avalanche is not None:
-                # 词语雪崩（2026-09-27 实弹）：复读的变体逃逸——无重复
-                # 窗口但无限联想接龙。按复读同路重试（降温反向：雪崩是
-                # 高温+高压重复惩罚把模型逼向「永不停的新词流」）
-                log.warning(
-                    "章节生成第 %d 次检出词语雪崩（%s），重试",
-                    attempt, avalanche)
-                repeated = avalanche  # 走同一重试通道
-            if repeated is None:
-                # 写作规范体检（2026-09-27）：违规重抽 3 次仍高发（4B
-                # 感叹习惯顽固），改为确定性修文——！！→！+连续感叹行
-                # 降温后放行（机械达标不赌重抽）
-                candidate = await run_blocking(
-                    normalize_exclamations, candidate)
-                violation = await run_blocking(
-                    detect_convention_violations, candidate)
-                if violation is not None:
+        with flow.node("正文生成", friendly="章节正文推理") as _gen_node:
+            for attempt, (rep_penalty, temp, freq_penalty) in enumerate(
+                    ANTI_REPEAT_ATTEMPTS, start=1):
+                _gen_node.progress(f"第 {attempt} 次尝试")
+                raw = await run_blocking(
+                    _llm_sync, prompt, temperature=temp + _temp_delta,
+                    max_new_tokens=chapter_tokens,
+                    extra_params={"repetition_penalty": rep_penalty,
+                                  "frequency_penalty": freq_penalty})
+                queue.raise_if_cancelled(job.task_id)
+                candidate = await run_blocking(clean_chapter_text, raw)
+                repeated = await run_blocking(detect_repetition, candidate)
+                avalanche = await run_blocking(detect_avalanche, candidate) \
+                    if repeated is None else None
+                if repeated is None and avalanche is not None:
+                    # 词语雪崩（2026-09-27 实弹）：复读的变体逃逸——无重复
+                    # 窗口但无限联想接龙。按复读同路重试（降温反向：雪崩是
+                    # 高温+高压重复惩罚把模型逼向「永不停的新词流」）
                     log.warning(
-                        "章节生成第 %d 次修文后仍有规范违规（%s），重试",
-                        attempt, violation)
-                    repeated = violation
-            if repeated is None:
-                content = candidate
-                break
-            log.warning(
-                "章节生成第 %d 次检出复读循环（片段=%s…），%s",
-                attempt, repeated[:30],
-                "升温加压重试" if attempt < len(ANTI_REPEAT_ATTEMPTS)
-                else "放弃入库")
+                        "章节生成第 %d 次检出词语雪崩（%s），重试",
+                        attempt, avalanche)
+                    repeated = avalanche  # 走同一重试通道
+                if repeated is None:
+                    # 写作规范体检（2026-09-27）：违规重抽 3 次仍高发（4B
+                    # 感叹习惯顽固），改为确定性修文——！！→！+连续感叹行
+                    # 降温后放行（机械达标不赌重抽）
+                    candidate = await run_blocking(
+                        normalize_exclamations, candidate)
+                    violation = await run_blocking(
+                        detect_convention_violations, candidate)
+                    if violation is not None:
+                        log.warning(
+                            "章节生成第 %d 次修文后仍有规范违规（%s），重试",
+                            attempt, violation)
+                        repeated = violation
+                if repeated is None:
+                    content = candidate
+                    break
+                _gen_node.progress(f"第 {attempt} 次检出问题，重试")
+                log.warning(
+                    "章节生成第 %d 次检出复读循环（片段=%s…），%s",
+                    attempt, repeated[:30],
+                    "升温加压重试" if attempt < len(ANTI_REPEAT_ATTEMPTS)
+                    else "放弃入库")
         if not content:
             raise RuntimeError(
                 "模型连续多次陷入复读循环（同段反复抄写），已拒绝把低"

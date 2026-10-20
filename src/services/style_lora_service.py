@@ -189,6 +189,8 @@ class StyleLoraService:
         self._worker_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._training_task_id: str | None = None
+        #: 当前训练流程的 node 心跳槽（批5 P0 J-05 收口，同 lora 服务）
+        self._flow_node: list = []
         self._mem_tasks: dict[str, dict] = {}   # DB 不可用时任务镜像
         self._loop: asyncio.AbstractEventLoop | None = None
         self._lock_via_fallback = False
@@ -547,11 +549,40 @@ class StyleLoraService:
         self._update_task(task_id, status="training")
         _broadcast("training_started", {"task_id": task_id})
 
+        # 批5 P0（2026-10-20 J-05 收口）：训练全链 flow 埋点（同 lora
+        # 服务——小时级任务零节点=流程账盲区；心跳经进度回调续命）
+        _flow = _node = None
+        try:
+            from .flow_trace import start_flow
+            _flow = start_flow(
+                "training", "style_lora",
+                f"视频风格 LoRA 训练：{str(cfg.get('name') or '')[:20] or task_id}",
+                trigger="queue",
+                input_summary=f"task={task_id} dataset={cfg.get('dataset_id') or ''}")
+            _node = _flow.node("训练执行", friendly="风格 LoRA 训练执行")
+            _node.__enter__()
+            self._flow_node = [_node]
+        except Exception:  # noqa: BLE001 - 埋点失败绝不影响训练
+            _flow = _node = None
+            self._flow_node = []
+
         if not self._acquire_training_lock(task_id):
             self._update_task(task_id, status="error",
                               error="无法获取 training 功能锁")
             _broadcast("training_failed",
                        {"task_id": task_id, "error": "无法获取 training 功能锁"})
+            if _node is not None:
+                try:
+                    _node.__exit__(None, None, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            if _flow is not None:
+                try:
+                    _flow.end("error", error_code="TRAINING_LOCK_DENIED",
+                              output_summary="训练功能锁获取失败")
+                except Exception:  # noqa: BLE001
+                    pass
+            self._flow_node = []
             with self._state_lock:
                 self._training_task_id = None
             return
@@ -599,6 +630,25 @@ class StyleLoraService:
             self._control_flags.pop(task_id, None)
             with self._state_lock:
                 self._training_task_id = None
+            # 批5 P0：流程账收口（按任务终态映射，诚实记账）
+            if _node is not None:
+                try:
+                    _node.__exit__(None, None, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            if _flow is not None:
+                try:
+                    _t = self.get_task(task_id) or {}
+                    _st = str(_t.get("status") or "error")
+                    _flow.end(
+                        "success" if _st == "done" else _st,
+                        output_summary=(f"status={_st}"
+                                        f" version={_t.get('version') or ''}"),
+                        error_code="" if _st == "done"
+                        else str(_t.get("error") or "")[:120])
+                except Exception:  # noqa: BLE001
+                    pass
+            self._flow_node = []
 
     def _make_progress_cb(self, task_id: str) -> Callable[[dict], None]:
         def cb(info: dict) -> None:
@@ -607,6 +657,12 @@ class StyleLoraService:
             max_steps = max(1, info.get("max_steps", 1))
             progress = min(0.94, 0.05 + 0.9 * step / max_steps)
             self._update_task(task_id, progress=round(progress, 4))
+            # 批5 P0：转发节点心跳，防长训被误标 stalled
+            for _n in self._flow_node:
+                try:
+                    _n.progress(f"{int(progress * 100)}% step={step}")
+                except Exception:  # noqa: BLE001 - 心跳失败不影响训练
+                    pass
             _broadcast("training_progress",
                        {"task_id": task_id, "progress": round(progress, 4),
                         "loss": info.get("loss")})

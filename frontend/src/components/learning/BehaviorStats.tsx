@@ -48,7 +48,9 @@ export const BehaviorStatsPanel: React.FC = () => {
       }
       const ok = await createTrain({
         type: 'knowledge_lora',
-        base_model: ready.name,
+        // createTrain 映射器只认 target_model→base_model；传 base_model
+        // 会被静默丢弃回落默认基座（f89628af 引入，2026-10-21 修正）
+        target_model: ready.name,
         name: `行为偏好微调 ${formatDateTime(Date.now())}`,
         priority: 'manual',
       });

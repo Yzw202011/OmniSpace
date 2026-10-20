@@ -223,14 +223,21 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
           loading={loading}
           onChange={(id) => setCfg((c) => ({ ...c, paintModel: id }))}
         />
-        {/* ③ 视频模型（生成视频） */}
-        <ModelSelect
-          label="视频模型"
-          value={cfg.videoModel}
-          models={videoModels}
-          loading={loading}
-          onChange={(id) => setCfg((c) => ({ ...c, videoModel: id }))}
-        />
+        {/* ③ 视频模型（生成视频；K-02 真消费 2026-10-21 用户拍板） */}
+        <div>
+          <ModelSelect
+            label="视频模型"
+            value={cfg.videoModel}
+            models={videoModels}
+            loading={loading}
+            onChange={(id) => setCfg((c) => ({ ...c, videoModel: id }))}
+          />
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            保存后下次生成视频生效：选云端模型=走绑定的云端连接（按量计费，
+            端点取工位绑定）；本地模型/默认=H3 主力链不变。生成弹窗里单次
+            显式选择恒优先于本默认。
+          </p>
+        </div>
 
         {/* ④ 超分模型（2026-10-18 用户令：四模式真切换；紧随视频模型） */}
         <div>

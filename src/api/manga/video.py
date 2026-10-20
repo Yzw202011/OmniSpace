@@ -1137,6 +1137,19 @@ def _resolve_video_cloud_endpoint():
         return None
 
 
+def _manga_video_slot_default() -> str:
+    """读漫剧「模型设置」视频模型选择（module-config manga-video 槽）。
+
+    K-02 真消费（2026-10-21 用户拍板）：'' = 未配置走系统默认（H3 主力）；
+    cloud:: 项由调用方走云端路由。读取失败按未选择（不阻断生成）。
+    """
+    try:
+        from ..models import module_default_model
+        return str(module_default_model("manga-video") or "").strip()
+    except Exception:  # noqa: BLE001 - 读取失败按未选择走系统默认路由
+        return ""
+
+
 def _load_first_frame_for_row(row_id: str):
     """取分镜行当前关键帧首帧（云端图生视频的输入图）。
 
@@ -1461,8 +1474,14 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     resp = {"task_id": task_id, "status": "pending"}
     # 2026-10-04 用户二定路由：视频模型显式选 cloud:: 才走云（确认弹窗
     # 透传选择；工位绑定只供端点解析）；本地选择/系统默认=本地引擎
+    # K-02 真消费（2026-10-21 用户拍板）：单镜未显式选择时读「模型设置·
+    # 视频模型」槽默认——云端项真走云、本地项/默认仍 H3 主力链（主力
+    # 锁定令不变）；显式 model_override 恒优先于槽默认。
+    _effective_override = str(req.model_override or "").strip()
+    if not _effective_override:
+        _effective_override = _manga_video_slot_default()
     _cloud_ep = _resolve_video_cloud_endpoint() \
-        if str(req.model_override or "").startswith("cloud::") else None
+        if _effective_override.startswith("cloud::") else None
     _aspect_any = "16:9"
     try:
         _w, _, _h = str(req.resolution or "").partition("x")

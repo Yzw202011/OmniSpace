@@ -453,7 +453,7 @@ _MODULE_MODEL_SLOTS: dict[str, dict] = {
                     "desc": "角色四视图 / 分镜生图（2026-10-03 起角色四视图真切换；qwen-image-2.1 一次直出、klein-4b/9b 一次直出、z-image-turbo 分张，其余/未选=自动链）",
                     "hint": "清单 /manga/models/available?task_type=paint"},
     "manga-video": {"label": "漫剧 · 视频", "category": "video",
-                    "desc": "图生视频",
+                    "desc": "图生视频（K-02 真消费：选云端模型=走绑定连接；本地/默认=H3 主力链）",
                     "hint": "清单 /manga/models/available?task_type=video"},
 }
 

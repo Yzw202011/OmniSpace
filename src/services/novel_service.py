@@ -1026,6 +1026,17 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
     project = _get_project(db, job.project_id)
     if project is None:
         raise RuntimeError(f"项目不存在: {job.project_id}")
+    # 10-20 测试 GAP-16：章节生成此前零埋点——入队成功后事件账/流程账
+    # 双零（章节 done 仍无任何痕迹）。补 start_flow + 三出口 end（end 自
+    # 带事件账写入），不加 node 包裹以最小化 diff 避开并发 novel 线。
+    from .flow_trace import start_flow
+    flow = start_flow(
+        "novel", "chapter_generate",
+        f"小说章节生成：{(ch.get('title') or '')[:20]}",
+        trigger="用户提交生成",
+        input_summary=f"第 {ch.get('chapter_index') or 1} 章 · "
+                      f"细纲{'有' if ch.get('outline_id') else '无'}",
+        detail=f"chapter={job.chapter_id} project={job.project_id}")
     await run_blocking(lambda: db.update("novel_chapters",
               {"status": "generating", "progress": 0.05, "error": ""},
               "id=?", (job.chapter_id,)))
@@ -1165,13 +1176,17 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
             "updated_at": _now()}, "id=?", (job.chapter_id,)))
         log.info("章节生成完成: %s《%s》%d 字",
                  job.chapter_id, ch.get("title"), word_count)
+        flow.end("success", output_summary=f"{word_count} 字")
     except NovelJobCancelled:
+        flow.end("cancelled", output_summary="用户取消生成")
         await run_blocking(lambda: db.update("novel_chapters", {
             "status": "error", "progress": 0.0,
             "error": "已取消（可重新生成）", "updated_at": _now()},
             "id=?", (job.chapter_id,)))
     except Exception as exc:
         err_msg = str(exc)[:300]  # exc 出 except 块即被删——先快照进闭包
+        flow.end("error", error_code="NOVEL_CHAPTER_FAILED",
+                 output_summary=err_msg[:120])
         await run_blocking(lambda: db.update("novel_chapters", {
             "status": "error", "progress": 0.0,
             "error": err_msg, "updated_at": _now()},

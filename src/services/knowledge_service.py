@@ -815,6 +815,7 @@ class KnowledgeProcessingService:
         best_sim = 0.0
         best_id = ""
         best_len = 0
+        best_quality = 0.0
         for row in self._iter_simhashes():
             other = row.get("simhash") or ""
             if not other or other == knowledge.simhash and row["id"] == knowledge.id:
@@ -824,14 +825,22 @@ class KnowledgeProcessingService:
                 best_sim = sim
                 best_id = row["id"]
                 best_len = len(row.get("content") or "")
+                best_quality = float(row.get("quality_score") or 0.0)
         knowledge.extra["dedup_max_similarity"] = round(best_sim, 4)
         if best_sim > skip_threshold:
             knowledge.extra["merge_target_id"] = best_id
             return "skip"
         if best_sim >= SIM_MERGE:
             knowledge.extra["merge_target_id"] = best_id
-            # 信息完整度：内容更长者胜出
-            knowledge.extra["merge_keep_new"] = len(knowledge.content) > best_len
+            # N-15（2026-10-20）：会话来源内容永不替换既有条目——G4 实测
+            # 长垃圾页曾凭纯长度比较覆盖精选短事实（12 条真实语料被改写）。
+            # 非 会话/低质 来源的合并也须「更长且质量分不低」双条件，
+            # 纯长度比较与风格包路由「英文压中文」同类反模式。
+            if knowledge.extra.get("from_session"):
+                return "skip"
+            knowledge.extra["merge_keep_new"] = (
+                len(knowledge.content) > best_len
+                and (knowledge.quality_score or 0.0) >= best_quality)
             return "merge"
         return "new"
 
@@ -854,7 +863,7 @@ class KnowledgeProcessingService:
         if self._db is not None:
             try:
                 return self._db.query(
-                    "SELECT id, content, simhash FROM knowledge_meta "
+                    "SELECT id, content, simhash, quality_score FROM knowledge_meta "
                     "ORDER BY created_at DESC LIMIT ?", (DEDUP_SCAN_LIMIT,))
             except Exception as exc:  # noqa: BLE001
                 log.warning("读取 simhash 失败: %s", exc, exc_info=True)
@@ -1007,6 +1016,8 @@ class KnowledgeProcessingService:
                 n_candidates += 1
                 k.topic = topic
                 k.source_url = source_url or ""
+                if from_session:
+                    k.extra["from_session"] = True  # N-15：dedup 据此禁 merge 覆盖
                 # F-6 拍板 A：会话来源豁免相关性闸（空主题=相关性记 1.0，
                 # 密度/时效/质检照评）；非会话路径维持字面覆盖率语义
                 score = self.evaluate_quality(k, "" if from_session else topic)

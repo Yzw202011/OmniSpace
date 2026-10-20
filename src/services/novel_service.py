@@ -1063,7 +1063,11 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
               {"status": "generating", "progress": 0.05, "error": ""},
               "id=?", (job.chapter_id,)))
     try:
-        await run_blocking(_ensure_engine_sync)
+        # 批5 P0 补遗（2026-10-21 实弹发现）：引擎加载段可达数分钟（vLLM
+        # 冷启动），无节点=正文生成节点开启前的盲段，stalled 只能报
+        # 「无节点」而非「卡在加载」——包节点后卡点可定位。
+        with flow.node("引擎加载", friendly="对话引擎加载"):
+            await run_blocking(_ensure_engine_sync)
         outline = (await run_blocking(lambda: db.query_one(
             "SELECT * FROM novel_outlines WHERE id=?",
             (ch.get("outline_id") or "",)))

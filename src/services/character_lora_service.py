@@ -116,6 +116,9 @@ class CharacterLoraService:
         self._queue: list[dict[str, Any]] = []
         self._queue_lock = threading.Lock()
         self._cancel_flags: set[str] = set()
+        #: 当前真在训的任务 id（worker 持有期间非 None）——cancel 判
+        #: 「真训练 vs 幽灵训练行」的存活判别器（F-14，2026-10-20）
+        self._training_task_id: str | None = None
         self._mem_tasks: dict[str, dict[str, Any]] = {}
         self._lock_guard = TrainingLockGuard()
         self._worker: threading.Thread | None = None
@@ -277,7 +280,16 @@ class CharacterLoraService:
             task["status"] = STATUS_CANCELLED
             self._upsert_task(task)
         elif task["status"] == STATUS_TRAINING:
-            self._cancel_flags.add(task_id)
+            if self._training_task_id == task_id:
+                # 真在训：置旗标，worker 下个检查点抛取消
+                self._cancel_flags.add(task_id)
+            else:
+                # 幽灵训练行（上一进程遗骸）：旗标无人消费，必须直接
+                # 落库取消，否则连手动取消都救不回（F-14 实锤 2026-10-20）
+                task["status"] = STATUS_CANCELLED
+                self._upsert_task(task)
+                _broadcast("training_cancelled",
+                           {"task_id": task_id, "reason": "ghost"})
         return task
 
     def _ensure_worker(self) -> None:
@@ -304,6 +316,7 @@ class CharacterLoraService:
                            {"task_id": task["id"], "reason": "queued"})
                 continue
             task["status"] = STATUS_TRAINING
+            self._training_task_id = task["id"]
             self._upsert_task(task)
             _broadcast("training_started",
                        {"task_id": task["id"], "name": task["name"]})
@@ -340,6 +353,7 @@ class CharacterLoraService:
                 _broadcast("training_failed",
                            {"task_id": task["id"], "error": task.get("error")})
             finally:
+                self._training_task_id = None
                 if lock_held:
                     try:
                         self._lock_guard.release()

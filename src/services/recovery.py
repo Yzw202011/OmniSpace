@@ -49,15 +49,36 @@ def sweep_stale_tasks() -> dict[str, int]:
                " WHERE status='generating'", (interrupted,))
     if n:
         swept["novel_chapters"] = n
-    # 训练任务 running/training→error（learn/style 两表）
+    # 训练任务 queued/running/training→error（learn/style 两表）。queued
+    # 幽灵有毒（2026-10-20 F-14 审计实锤）：_has_active_training 计入
+    # queued 会永久锁死自动微调，ghost queued 还阻断版本删除
     for table in ("train_tasks", "style_tasks"):
         try:
             n = db.sql(f"UPDATE {table} SET status='error'"
-                       " WHERE status IN ('running','training')")
+                       " WHERE status IN ('queued','running','training')")
             if n:
                 swept[table] = n
         except Exception:  # noqa: BLE001 - 表缺列（老库）跳过
             continue
+    # 人物 LoRA 任务 queued/training→error（F-14 实锤：此表此前完全不在
+    # 清扫白名单，ghost 'training' 连手动 cancel 都救不回——cancel 只置
+    # 内存旗标不写库，跨进程无人消费）
+    try:
+        n = db.sql("UPDATE char_lora_tasks SET status='error', error=?"
+                   " WHERE status IN ('queued','training')", (interrupted,))
+        if n:
+            swept["char_lora_tasks"] = n
+    except Exception:  # noqa: BLE001 - 表不存在（从未用过）跳过
+        pass
+    # 学习会话 running→interrupted（既有状态词，browser_agent_service
+    # 自身即用 interrupted；崩溃遗留 running 行=僵尸会话，F-14 实锤）
+    try:
+        n = db.sql("UPDATE learning_sessions SET status='interrupted',"
+                   " stop_reason=? WHERE status='running'", ("应用退出中断",))
+        if n:
+            swept["learning_sessions"] = n
+    except Exception:  # noqa: BLE001 - 表不存在跳过
+        pass
     if swept:
         log.warning("P20 启动清扫：上一进程挂死任务已标记中断 %s", swept)
     return swept

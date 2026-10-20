@@ -650,12 +650,17 @@ class StyleLoraService:
         return True, "paused"
 
     def resume_task(self, task_id: str) -> tuple[bool, str]:
-        """恢复已暂停任务（STYLE-017）。"""
+        """恢复已暂停任务（STYLE-017）。仅训练线程存活时可恢复——重启后
+        paused 行没有 worker 持有，盲翻 training=假 running（F-14 实锤
+        2026-10-20）；此时诚实拒绝 worker_gone，出路=断点续训
+        resume_training（复制配置重入队新任务）。"""
         task = self.get_task(task_id)
         if task is None:
             return False, "not_found"
         if task.get("status") != "paused":
             return False, "state_invalid"
+        if self._training_task_id != task_id:
+            return False, "worker_gone"
         self._flags(task_id)["pause"] = False
         self._update_task(task_id, status="training")
         _broadcast("training_resumed", {"task_id": task_id})

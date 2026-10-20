@@ -589,7 +589,12 @@ def create_app() -> FastAPI:
     # 异常处理（§6.1 / §8）
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
-        log.warning("ApiError: code=%s msg=%s", exc.code, exc.message)
+        # N-03 关联闭环（2026-10-21）：恒 200 信封设计下 request_context 的
+        # HTTP 状态码 INFO 闸对信封错误永不触发——错误排障恰是最需要 rid 的
+        # 场景，故在既有告警行上直接补 rid（该行本就是排障第一现场）。
+        from .middleware.request_context import current_request_id
+        log.warning("ApiError: code=%s msg=%s rid=%s",
+                    exc.code, exc.message, current_request_id())
         return error(exc.code, exc.message, exc.detail, suggestion=exc.suggestion)
 
     @app.exception_handler(RequestValidationError)

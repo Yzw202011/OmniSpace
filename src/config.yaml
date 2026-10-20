@@ -144,7 +144,13 @@ comfyui:
   # false 可关（回退 SDPA）。进程级开关：H3/绘画共实例同时生效。
   # 依赖：triton-windows + woct0rdho 真轮（已装，见
   # 记忆 sage-attention-v7-reopen）
-  use_sage_attention: true
+  # ⚠️ 2026-10-17 关闭：本机 triton 工具链修复后 sage 真内核将首次
+  # 真正生效，但 Blackwell (sm_120) 上 triton 后端 SageAttention 有
+  # 社区实锤黑输出问题（Wan 系模型，ComfyUI discussion 11583），
+  # FlashVSR 黑砖即同款症状。历史上此开关实际一直静默回退 SDPA
+  # （triton 坏的），关闭=回到事实产线态，零速度损失。待用
+  # sm_120 专用轮（nhathoangfoto/SpargeAttn 等）重评后才可开。
+  use_sage_attention: false
   # H3 远景脸修复 pass（2026-09-30 方案A）：导演台每段生成后跑
   # FaceRefine v2v 链（+~400s/段）。默认 false——只应在远景/全景镜
   # 需要修脸时开。依赖 FaceRefine+NativeAudioLock 节点包与
@@ -286,3 +292,10 @@ vllm:
   # ⚠️ 归位勘误（2026-09-15 深夜）：这两键曾被 Z1 提交时的 config 重写
   # 误挪进 manga 节（vllm. 前缀读取永远读不到=开关假死）——已移回。
   # DFlash 草稿权重目录（项目相对路径，须含 model.safetensors）
+
+# ── 视频队列自动重试（SH-GAP-04，2026-10-21 拍板「做」）─────────────
+# 本地普通视频任务（kind=local）失败后原样重入队一次（幂等：每任务
+# 每进程至多 1 次）；云端任务（计费代价）与 H3 链（段内已有韧性，
+# 整链重跑代价分钟级×N）绝不自动重试。false=关闭自动重试回手动。
+video_auto_retry:
+  enabled: true

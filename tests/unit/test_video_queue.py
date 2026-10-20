@@ -47,11 +47,9 @@ class Harness:
                             lambda: self.events.append("vllm_sleep"))
         monkeypatch.setattr(self.q, "_unload_paint_pipeline",
                             lambda: self.events.append("unload_paint"))
-        monkeypatch.setattr(self.q, "_wake_vllm_after_generation",
-                            lambda: self.events.append("vllm_wake"))
-        # 批3（2026-09-10）：排空即唤醒 → 去抖唤醒（对齐 image 队列
-        # V9-β）；单测缩短去抖窗（默认 10s 会超 8s 等待上限）
-        monkeypatch.setattr(self.q, "_wake_debounce_s", 0.05)
+        # 2026-10-02 用户拍板「按需真实加载」：排空唤醒已摘除（原
+        # _wake_vllm_after_generation / _wake_debounce_s patch 行删除；
+        # 各用例 vllm_wake 断言翻转为 not-in 或改以 release 为收尾信号）
         monkeypatch.setattr(self.q, "_reconcile_orphan_tasks",
                             lambda task: None)
 
@@ -128,11 +126,10 @@ def test_fifo_order_and_status_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     _wait_until(lambda: "status:t3:generating" in h.events, what="t3 接力")
     gates["t3"].set()
     _wait_until(lambda: "release" in h.events, what="排空释放锁")
-    _wait_until(lambda: "vllm_wake" in h.events, what="排空唤醒 vLLM")
-    # 全程一次 acquire / 一次 release / 一次唤醒
+    # 全程一次 acquire / 一次 release；排空不唤醒（2026-10-02 按需真实加载）
     assert sum(1 for e in h.events if e.startswith("acquire:")) == 1
     assert h.events.count("release") == 1
-    assert h.events.count("vllm_wake") == 1
+    assert h.events.count("vllm_wake") == 0
     assert h.statuses("t3") == ["generating", "runner_started", "done"]
 
 
@@ -151,7 +148,7 @@ def test_cancel_queued_task_never_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     gate1.set()
     _wait_until(lambda: "status:t3:generating" in h.events, what="t3 跳过 t2 接力")
     gate3.set()
-    _wait_until(lambda: "vllm_wake" in h.events, what="排空收尾")
+    _wait_until(lambda: "release" in h.events, what="排空收尾")
     # t2 从未开跑（无 runner_started/generating）
     assert h.statuses("t2") == []
 
@@ -179,7 +176,7 @@ def test_cancel_running_task_via_checkpoint(
     assert h.q.cancel("t1") == "running"
     proceed.set()
     _wait_until(lambda: "status:t1:cancelled" in h.events, what="取消终态")
-    _wait_until(lambda: "vllm_wake" in h.events, what="取消后排空收尾")
+    _wait_until(lambda: "release" in h.events, what="取消后排空收尾")
 
 
 def test_next_kind_and_position(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -215,7 +212,7 @@ def test_runner_escape_cancelled_is_backstopped(
 
     h.q.submit(h.task("t1", bad_runner))
     _wait_until(lambda: "status:t1:cancelled" in h.events, what="兜底终态")
-    _wait_until(lambda: "vllm_wake" in h.events, what="排空收尾")
+    _wait_until(lambda: "release" in h.events, what="排空收尾")
 
 
 def test_admission_cancel_wait(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,4 +231,73 @@ def test_admission_cancel_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert h.q.cancel("t1") == "running"
     _wait_until(lambda: "status:t1:cancelled" in h.events, what="等锁取消终态")
     assert "runner_started" not in h.statuses("t1")
+
+
+# ── SH-GAP-04 视频自动重试（2026-10-21 拍板「做」）──────────────────
+
+
+def test_auto_retry_once_then_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """本地任务失败→自动原样重入队一次→重试成功=done（恰跑 2 次）。"""
+    h = Harness(monkeypatch)
+    calls = {"n": 0}
+
+    def flaky_runner(task: dict, check_cancel: Callable) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("COMFY 引擎瞬断")
+        h.update(task["task_id"], {"status": "done"})
+
+    h.q.submit(h.task("t-retry", flaky_runner))
+    _wait_until(lambda: h.statuses("t-retry")[-1] == "done", what="重试后 done")
+    assert calls["n"] == 2, "首败+自动重试恰跑 2 次"
+    # 重入队前先翻回 pending（前端不悬挂在 error 态）
+    assert "status:t-retry:pending" in h.events
+
+
+def test_auto_retry_second_failure_honest_error(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """幂等铁律：同任务第二次失败不再重试，诚实落 error 终态。"""
+    h = Harness(monkeypatch)
+    calls = {"n": 0}
+
+    def always_fail(task: dict, check_cancel: Callable) -> None:
+        calls["n"] += 1
+        raise RuntimeError("确定性失败")
+
+    h.q.submit(h.task("t-perm", always_fail))
+    _wait_until(lambda: h.statuses("t-perm")[-1] == "error",
+                what="二败诚实 error")
+    assert calls["n"] == 2, "重试恰好 1 次后放弃"
+
+
+def test_auto_retry_never_for_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """范围铁律：云端任务绝不自动重试（计费代价），失败即 error。"""
+    h = Harness(monkeypatch)
+    calls = {"n": 0}
+
+    def cloud_fail(task: dict, check_cancel: Callable) -> None:
+        calls["n"] += 1
+        raise RuntimeError("云端 500")
+
+    h.q.submit(h.task("t-cloud", cloud_fail, kind="cloud"))
+    _wait_until(lambda: h.statuses("t-cloud")[-1] == "error",
+                what="云端失败直落 error")
+    assert calls["n"] == 1, "云端零自动重试"
+
+
+def test_auto_retry_gate_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """门控：video_auto_retry.enabled=false 时失败直落 error（回手动）。"""
+    monkeypatch.setattr("src.config.get_config",
+                        lambda: {"video_auto_retry": {"enabled": False}})
+    h = Harness(monkeypatch)
+    calls = {"n": 0}
+
+    def fail_once(task: dict, check_cancel: Callable) -> None:
+        calls["n"] += 1
+        raise RuntimeError("失败")
+
+    h.q.submit(h.task("t-gate", fail_once))
+    _wait_until(lambda: h.statuses("t-gate")[-1] == "error",
+                what="门控关=失败直落 error")
+    assert calls["n"] == 1
 # 本项目仅供学习使用，商业授权请+Q 3559331368

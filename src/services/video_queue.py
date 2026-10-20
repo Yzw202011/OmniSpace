@@ -45,7 +45,6 @@ import time
 from collections.abc import Callable
 
 from .task_queue import QueueSpec, TaskQueueCore
-from .vram_policy import WAKE_DEBOUNCE_S
 
 log = logging.getLogger("omnispace.services.video_queue")
 
@@ -85,7 +84,9 @@ class VideoTaskQueue:
             thermal_hook="_thermal_paused",
             vllm_sleep_hook="_sleep_vllm_for_generation",
             unload_hook=None,
-            wake_hook="_schedule_wake_if_idle",
+            # 2026-10-02 用户拍板「按需真实加载」：不接排空唤醒（同
+            # image 队列——生成间隙拉起 vLLM 与下一任务让渡拉锯，V9-β
+            # 摘除），对话引擎回归真使用时 ensure_loaded
             budget_admit_hook="_budget_admit",
             budget_release_hook="_budget_release",
             # 宿主编排：video 任务全流程状态机（经 update_status 的
@@ -102,10 +103,8 @@ class VideoTaskQueue:
         # 的读写保护；与 Core 的队列态互不重叠）
         self._cond = threading.Condition()
         self._lock_held = False                # 本队列当前持有 video_gen
-        # 排空→唤醒去抖窗（批3 2026-09-10，对齐 image 队列 V9-β）：
-        # 实例化便于单测缩短
-        self._wake_debounce_s = WAKE_DEBOUNCE_S
         self._reconciled = False               # 孤儿任务回收只做一次
+        self._auto_retried: set[str] = set()   # SH-GAP-04：已自动重试过的任务
 
     @classmethod
     def instance(cls) -> VideoTaskQueue:
@@ -212,6 +211,48 @@ class VideoTaskQueue:
         finally:
             self._cloud_busy_release(busy_token)
 
+    def _auto_retry_failed(self, task: dict, exc: BaseException) -> bool:
+        """本地普通视频任务失败后原样重入队一次（SH-GAP-04，2026-10-21）。
+
+        范围铁律：仅 kind='local' 且非云端——云端任务绝不自动重试（计费
+        代价），H3 链不整体重跑（段内已有韧性，整链代价分钟级×N）。
+        幂等：进程内每任务至多一次（_auto_retried）。门控：
+        config.video_auto_retry.enabled（默认开）。
+        返回 True=已重入队（调用方直接结束本 worker 轮次）。
+        """
+        task_id = str(task.get("task_id"))
+        if task.get("cloud") or task.get("kind") != "local":
+            return False
+        if task_id in self._auto_retried:
+            return False
+        enabled = True
+        try:
+            from ..config import get_config
+            enabled = bool((get_config().get("video_auto_retry") or {}).get(
+                "enabled", True))
+        except Exception:  # noqa: BLE001 - 配置不可读按默认开
+            pass
+        if not enabled:
+            return False
+        self._auto_retried.add(task_id)
+        log.warning("视频任务失败，自动原样重入队一次（同任务至多 1 次）: "
+                    "%s: %s", task_id, exc)
+        try:
+            update: Callable[[str, dict], None] = task["update_status"]
+            update(task_id, {"status": "pending", "progress": 0.0, "error": ""})
+        except Exception:  # noqa: BLE001 - 状态回写失败不阻断重入队
+            pass
+        self._core.submit(task)
+        try:
+            from .ws_hub import WsHub
+            WsHub.instance().broadcast({"type": "notification", "data": {
+                "level": "info", "title": "视频自动重试",
+                "message": "视频生成失败了一次，已自动重试（同一任务最多自动"
+                           "重试 1 次；云端任务不自动重试）"}})
+        except Exception:  # noqa: BLE001 - 广播失败不阻断
+            pass
+        return True
+
     def _run_one(self, task: dict) -> None:
         """单个任务全流程：准入协商 → 翻 generating → 跑 runner。
 
@@ -245,6 +286,10 @@ class VideoTaskQueue:
             log.warning("runner 以取消信号逃逸（兜底写终态）: %s", task_id, exc_info=True)
             update(task_id, {"status": "cancelled"})
         except Exception as exc:  # noqa: BLE001 - runner 未捕获的异常兜底
+            # SH-GAP-04（2026-10-21 拍板）：本地普通任务失败→自动原样重入队
+            # 一次；重入队后本 worker 轮次结束（任务回队列重新走准入）
+            if self._auto_retry_failed(task, exc):
+                return
             log.error("视频任务执行异常: %s: %s", task_id, exc, exc_info=True)
             update(task_id, {"status": "error",
                              "error": str(exc)[:500]})
@@ -367,28 +412,11 @@ class VideoTaskQueue:
         except Exception as exc:  # noqa: BLE001
             log.warning("绘画管线卸载失败（不阻断生成）: %s", exc, exc_info=True)
 
-    def _local_lane_idle(self) -> bool:
-        """本地道空闲：无在跑任务且无本地排队（仅剩云端任务不算忙，
-        云道不占 GPU）。判定委托 Core（队列态真源在 Core 侧）。"""
-        return self._core.local_lane_idle()
-
-    def _schedule_wake_if_idle(self) -> None:
-        """排空后去抖唤醒 vLLM（批3 2026-09-10，对齐 image 队列
-        V9-β 实测模式，判定经协调器单源——跨队列只认最新排空）。"""
-        from .inference.gpu_budget import get_yield_coordinator
-        get_yield_coordinator().schedule_wake_if_idle(
-            "video_queue", self._local_lane_idle,
-            debounce_s=self._wake_debounce_s,
-            wake=self._wake_vllm_after_generation)
-
-    def _wake_vllm_after_generation(self) -> None:
-        """队列排空收尾：唤醒 vLLM 恢复对话能力（best-effort；后台
-        线程重启装载，不阻塞 worker）。仅经去抖调度器调用（批3）。"""
-        try:
-            from ..engines.vllm_service import get_vllm_service
-            get_vllm_service().wake_from_paint()
-        except Exception as exc:  # noqa: BLE001
-            log.warning("vLLM 唤醒协商失败（不影响生成结果）: %s", exc, exc_info=True)
+    # 2026-10-02 用户拍板「按需真实加载」：V9-β 排空唤醒三件套
+    # （_local_lane_idle / _schedule_wake_if_idle /
+    #  _wake_vllm_after_generation）随 wake_hook 接线一并摘除（同
+    # image 队列，backend.log:67227 拉锯实弹）。生成期让渡（上方
+    # _sleep_vllm_for_generation）保留不动。
 
     # ── 孤儿任务回收 ────────────────────────────────────────────
 

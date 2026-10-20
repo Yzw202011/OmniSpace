@@ -1191,21 +1191,37 @@ def _make_cloud_video_runner(req: VideoGenerateRequest,
             except Exception as exc:  # noqa: BLE001
                 log.warning("行状态回写失败（不阻断）: %s", exc, exc_info=True)
 
+        # 批5 P2（2026-10-20 J-05 收口）：云端链此前零节点——轮询云端
+        # 数分钟无心跳必假 stalled；心跳经 on_progress 转发进节点。
+        _cnode: list = []
+
         def _prog(pct: int) -> None:
             _video_update_task(
                 task_id, {"progress": round(max(0.0, min(99.0, pct)) / 100, 3)},
                 guard_cancelled=True)
+            for _n in _cnode:
+                try:
+                    _n.progress(f"{int(pct)}%")
+                except Exception:  # noqa: BLE001 - 心跳失败不影响生成
+                    pass
 
         try:
             from ...services.inference.cloud_video_client import generate_video
             VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)
-            mp4 = generate_video(
-                ep, req.description or "", first_frame,
-                duration_seconds=float(req.duration_seconds or 5.0),
-                aspect=aspect, check_cancel=check_cancel,
-                on_progress=_prog, slot="manga.video")
-            out_path = VIDEO_OUT_DIR / f"{task_id}.mp4"
-            out_path.write_bytes(mp4)
+            with _flow.node("云端生成",
+                            input_summary=(f"{ep.provider_name}:"
+                                           f"{ep.model or '默认'} "
+                                           f"{req.duration_seconds or 5.0}s"),
+                            friendly="云端图生视频") as _n:
+                _cnode.append(_n)
+                mp4 = generate_video(
+                    ep, req.description or "", first_frame,
+                    duration_seconds=float(req.duration_seconds or 5.0),
+                    aspect=aspect, check_cancel=check_cancel,
+                    on_progress=_prog, slot="manga.video")
+                out_path = VIDEO_OUT_DIR / f"{task_id}.mp4"
+                out_path.write_bytes(mp4)
+                _cnode.clear()
             rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
             _video_update_task(task_id, {
                 "status": "done", "progress": 1.0,

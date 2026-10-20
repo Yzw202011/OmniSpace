@@ -1398,10 +1398,40 @@ class BootOrchestrator:
             (BOOT_DIR.parent / 'logs' / '.heartbeat').unlink(missing_ok=True)
         except Exception:  # noqa: BLE001 - 摘除失败按崩溃处理（保守）
             pass
+        # 计划内停机补事件账终笔（10-20 测试 GAP-12 实测定谳：backend
+        # lifespan 收尾在 terminate 强杀下不执行，main.py 里的终笔在主
+        # 退出路径永远不触发）——由启动链侧代写「已安全关闭」。异常崩
+        # 溃不走本函数，时间线无终笔即指向异常退出，语义恰好。
+        _append_shutdown_event()
         self.comfy.shutdown()
         if self._splash is not None:
             threading.Thread(target=self._splash.shutdown, daemon=True).start()
         self.state.log('已全部关闭')
+
+
+def _append_shutdown_event() -> None:
+    """计划内停机向事件账补写「已安全关闭」终笔（启动链侧代写）。
+
+    10-20 测试 GAP-12 实测：启动页 quit → backend.terminate() 强杀，
+    后端 lifespan（含 main.py 里已入库的 backend_stopped 终笔）不执行，
+    故由启动链在收尾时直写 events jsonl，格式与 services.event_log
+    log_event 对齐（异常崩溃不走此路径=时间线无终笔即异常退出）。
+    """
+    try:
+        events_dir = BOOT_DIR.parent / 'logs' / 'events'
+        events_dir.mkdir(parents=True, exist_ok=True)
+        f = events_dir / f"events-{datetime.now().strftime('%Y%m%d')}.jsonl"
+        entry = {
+            "ts": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+            "level": "info",
+            "module": "system",
+            "event": "backend_stopped",
+            "friendly": "OmniSpace 已安全关闭；下次启动将自动就绪",
+        }
+        with f.open('a', encoding='utf-8') as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 日志失败不拦停机
 
 
 def _append_boot_log(message: str) -> None:

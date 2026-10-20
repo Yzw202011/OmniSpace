@@ -747,7 +747,10 @@ app = create_app()
 def main() -> None:
     """启动 uvicorn 服务器。"""
     import uvicorn
-    uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="info", access_log=False)
+    # access_log=True（N-14 教训③，2026-10-21）：关闭访问日志曾致 33 条
+    # 知识删除无任何请求级痕迹（取证断路）。日志经既有轮转机制管理。
+    uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="info",
+                access_log=True)
 
 
 if __name__ == "__main__":

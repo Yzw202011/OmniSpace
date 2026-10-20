@@ -175,6 +175,18 @@ def cloud_provider_test(req: dict = Body(...)) -> dict[str, Any]:
         reachable, detail = probe_video_provider(ep)
     else:
         reachable, detail = probe_remote_health(base_url, api_key, timeout_s=6.0)
+    # 10-20 测试 GAP-14：连通失败时信封仍是 success:true（API 调用本身
+    # 成功），自动兜底中间件只能记「完成」——时间线看不出连不上。此处补
+    # 业务事件把失败顶到时间线；成功不记（防每次保存连接都刷屏）。
+    if not reachable:
+        try:
+            from ..services.event_log import log_event
+            log_event("cloud", "provider_test_failed",
+                      f"云端连接测试失败：{detail}",
+                      level="error",
+                      detail=f"base_url={base_url.rstrip('/')}")
+        except Exception:  # noqa: BLE001 - 观测失败不影响响应
+            pass
     return ok({"reachable": reachable, "detail": detail,
                "base_url": base_url.rstrip("/")})
 

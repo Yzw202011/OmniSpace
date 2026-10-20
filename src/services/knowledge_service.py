@@ -965,14 +965,19 @@ class KnowledgeProcessingService:
         filtered = self.filter_content(page_content)
         segments = self.segment_content(filtered)
         all_knowledge: list[Knowledge] = []
+        # H-8 可观测性（2026-10-19）：真实会话 685 页仅 2 条的现场缺分级
+        # 数据，逐源计数提取/评分/质检/去重四层，零入库但有候选时升 INFO
+        n_candidates = n_quality_passed = n_gate_passed = 0
         for seg in segments:
             for k in self.extract_knowledge(seg, topic):
+                n_candidates += 1
                 k.topic = topic
                 k.source_url = source_url or ""
                 score = self.evaluate_quality(k, topic)
                 k.quality_score = score.total
                 if not score.passed:
                     continue
+                n_quality_passed += 1
                 # 入库质检闸（升级批2）：导航残渣/无答案QA/超短拒收
                 gate_ok, gate_reason = knowledge_quality_gate.check(
                     k.content or "", k.type or "fact")
@@ -980,6 +985,7 @@ class KnowledgeProcessingService:
                     log.info("知识入库质检拒收(%s): %s",
                              gate_reason, (k.content or "")[:40])
                     continue
+                n_gate_passed += 1
                 decision = self.deduplicate(k)
                 if decision == "new":
                     self.vectorize_and_store(k)
@@ -987,6 +993,15 @@ class KnowledgeProcessingService:
                 elif decision == "merge":
                     self._apply_merge(k)
                 # skip: 重复，直接丢弃
+        if n_candidates:
+            stored = len(all_knowledge)
+            src = (source_url or "")[:60]
+            msg = (f"知识管线计数: 候选{n_candidates} 质量过{n_quality_passed}"
+                   f" 质检过{n_gate_passed} 新入库{stored} | {src}")
+            if stored == 0:
+                log.info("%s（零入库——相关性质疑时查 relevance 项）", msg)
+            else:
+                log.debug(msg)
         return all_knowledge
 
     def _apply_merge(self, knowledge: Knowledge) -> None:

@@ -1277,7 +1277,11 @@ class BrowserAgentService:
             log.debug("knowledge_service 不可用，跳过知识提取")
             return []
         try:
-            items = ks.process_page(text, session.goal, source_url=url)
+            # F-6 拍板 A（2026-10-20）：会话来源的知识豁免相关性闸——页面
+            # 是 agent 为该主题主动浏览的，主题字面覆盖率是糟糕的相关性
+            # 代理（G4 实测 12 候选全死于字面不命中）；密度/质检门照卡。
+            items = ks.process_page(text, session.goal, source_url=url,
+                                    from_session=True)
             items = list(items or [])
         except Exception as exc:  # noqa: BLE001
             log.warning("知识提取失败（不中断学习）: %s", exc, exc_info=True)

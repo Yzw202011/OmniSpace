@@ -987,8 +987,15 @@ class KnowledgeProcessingService:
     # ── 完整管线 ─────────────────────────────────────────────
 
     def process_page(self, page_content: str, topic: str,
-                     source_url: str | None = None) -> list[Knowledge]:
-        """完整管线: 过滤→分段→提取→评估→去重→入库，返回新入库的知识。"""
+                     source_url: str | None = None,
+                     from_session: bool = False) -> list[Knowledge]:
+        """完整管线: 过滤→分段→提取→评估→去重→入库，返回新入库的知识。
+
+        from_session（F-6 拍板 A，2026-10-20）：会话来源豁免相关性闸——
+        页面是 agent 为该主题主动浏览的，主题名字面覆盖率是糟糕的相关性
+        代理（G4 实测 12 候选全死于字面不命中）；密度/质检门照卡。非会话
+        路径（process-text/导入文档）维持严格相关性，金标行为零变化。
+        """
         filtered = self.filter_content(page_content)
         segments = self.segment_content(filtered)
         all_knowledge: list[Knowledge] = []
@@ -1000,7 +1007,9 @@ class KnowledgeProcessingService:
                 n_candidates += 1
                 k.topic = topic
                 k.source_url = source_url or ""
-                score = self.evaluate_quality(k, topic)
+                # F-6 拍板 A：会话来源豁免相关性闸（空主题=相关性记 1.0，
+                # 密度/时效/质检照评）；非会话路径维持字面覆盖率语义
+                score = self.evaluate_quality(k, "" if from_session else topic)
                 k.quality_score = score.total
                 if not score.passed:
                     continue

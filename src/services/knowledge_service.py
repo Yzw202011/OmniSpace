@@ -628,6 +628,36 @@ class KnowledgeProcessingService:
                     log.warning("LLM 提取失败，回退规则提取: %s", exc, exc_info=True)
         return self._extract_with_rules(segment, topic)
 
+    @staticmethod
+    def _parse_llm_items(raw: str) -> list[dict]:
+        """容错解析 LLM 输出的知识数组（N-13，2026-10-20）。
+
+        裸 json.loads 对「代码围栏包裹/前后有说明文字/对象包裹数组」全部
+        炸裂（Extra data），导致 LLM 提取永远回退规则——实测 G4 会话
+        「Extra data: line 1 column 7」。此处按候选跨度依次尝试：
+        整段 → 剥围栏 → 首尾方括号跨度 → 首尾花括号跨度（对象包裹）。
+        """
+        text = (raw or "").strip()
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"```\s*$", "", text).strip()
+        candidates: list[str] = [text]
+        i, j = text.find("["), text.rfind("]")
+        if 0 <= i < j:
+            candidates.append(text[i:j + 1])
+        i2, j2 = text.find("{"), text.rfind("}")
+        if 0 <= i2 < j2:
+            candidates.append(text[i2:j2 + 1])
+        for cand in candidates:
+            try:
+                data = json.loads(cand)
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                data = (data.get("items") or data.get("knowledge") or [])
+            if isinstance(data, list):
+                return [it for it in data if isinstance(it, dict)]
+        raise ValueError("LLM 输出未解析出 JSON 数组")
+
     def _extract_with_llm(self, segment: Segment,
                           topic: str) -> list[Knowledge]:
         prompt = (
@@ -636,10 +666,7 @@ class KnowledgeProcessingService:
             f"主题: {topic or '通用'}\n文本:\n{segment.text}\nJSON:"
         )
         raw = self._llm_extractor(prompt)  # type: ignore[misc]
-        m = re.search(r"\[.*\]", raw or "", re.S)
-        if not m:
-            raise ValueError("LLM 输出不含 JSON 数组")
-        data = json.loads(m.group(0))
+        data = self._parse_llm_items(raw)
         items: list[Knowledge] = []
         for it in data:
             if not isinstance(it, dict):

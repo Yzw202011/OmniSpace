@@ -210,17 +210,12 @@
 - SH-GAP-05（重连成功提示）、06（多消息补发）、07（无限重试）：产品层取舍，凑下一轮前端拍板。
 - SH-GAP-08：.upg 停用、只发整包口径不变，升级链测试全部标「窗口依赖」。
 
-### 批 4（F-14 审计实锤后的修复候选，**待拍板**，2026-10-20 新立）
-1. **改动清单**：recovery.py sweep_stale_tasks 词表扩齐（train_tasks/style_tasks 加 `'queued'`、新增 char_lora_tasks 全状态、learning_sessions `running→interrupted`）+ character_lora cancel 对 ghost 'training' 改为落库 + style_lora resume_task 加 worker 存活校验（进程内无该任务线程→拒绝/纠偏 DB）。
-2. **影响面**：启动期一次性，零热路径成本；副作用=重启后这些 ghost 全部转 error/interrupted 终态（用户可见「已中断」而非永挂）；自动微调锁与版本删除闸解除误锁。
-3. **验证方法**：单测=各表造 ghost 行→sweep 后终态断言；实弹=重启窗口后查四张表零 ghost+自动微调可发+版本可删。
-4. **风险与回退**：低（只动启动清扫词表+两处校验）；回退=还原 recovery.py 与两个 service。风险点=词表误伤合法 queued（重启瞬间刚入队的任务）——沿用 video 的 updated_at 新鲜度豁免口径。
+### 批 4（F-14 实锤后的修复）✅ 已落地入库 6193866c（2026-10-20）
+- recovery.py 启动清扫词表扩齐（train/style 补 queued、char_lora_tasks 全 ghost 态带 error、learning_sessions running→interrupted）+ char_lora cancel 存活判别（_training_task_id：真训练置旗标、幽灵行落库取消）+ style resume_task worker 存活校验（worker_gone 诚实拒绝指路断点续训）。单测 9 条绿（test_queue_orphan_sweep.py）+ruff+mypy 无新增；**实弹=下一次重启后查四张表零 ghost（待窗口）**。
 
-### 批 5（J-05 审计实锤后的埋点补齐候选，**待拍板**，2026-10-20 新立；纯观测层零逻辑改动）
-1. **改动清单**（按审计优先级）：P0=三个训练队列 worker 补 start_flow+node+三出口 end（进度回调现成：lora_training_service.py:761 / style_lora_service.py:603 / character_lora_service.py:349，转发 `node.progress()` 即心跳，模式照抄 80906a0c）+小说章节 run_chapter_job 把 LLM 推理段包进 node（diff 最小）；P1=关键帧单行/批量分格（image_queue submit 处 start、runner 内 node，`_map_step`:1857/`_wait_cb`:3116 现成可转心跳）+小说大纲/角色卡补 start+三出口 end（对齐 GAP-16 修法）；P2=云端视频补 node+心跳（`_prog`:1205）+漫剧资产 5 链补 node；P3=对话 SSE 断连 end 补 finally 兜底。
-2. **影响面**：纯观测层（flow_trace.db 多写行+心跳），生成逻辑零改动；flow_trace 独立库不连坐主库；30 天清理守护已有。
-3. **验证方法**：单测不适用（埋点），实弹=每链跑一次短任务→查 flow_trace 有 start+node+end 且 nodes≥1；批量章节跑 2 章验证零假 stalled。
-4. **风险与回退**：极低；回退=还原各文件。风险点=node 包装改动长任务代码缩进——逐文件小步走+每步实弹。
+### 批 5（J-05 实锤后的埋点补齐）——P0 ✅ 已落地入库 4fb9e251（2026-10-20）；P1/P2 待续
+- **P0 已落地**：三训练队列（lora/style/char_lora）start_flow+「训练执行」node+按终态 flow.end+进度回调转发 node 心跳；小说章节正文推理段包 node+尝试边界心跳（10-19 遗留假 stalled 收口）。闸=compileall/ruff/mypy+char_lora/api_training 15 条+novel 域 37 条全绿；**训练链真火实弹待 GPU 窗口**。
+- **P1/P2 未做**（关键帧单行/批量分格、大纲/角色卡 start+end、云端视频+资产 5 链 node、对话 SSE finally）：待窗口与并发会话错峰（keyframe/comic_asset 属漫剧线高频区）。
 
 ---
 
@@ -678,9 +673,10 @@
 | R1 单测闸批 | ✅ 2026-10-20 已执行（两批） | **86+45=131 条全绿零红**（vram_policy/gpu_budget/queue_b0/image+video_unified/error_code_registry/health_check/module_health/heartbeat_history/h3_workflow_guard 86 条；开工批后 health_check 扩展+喂点哨兵 20 条 + remote_engine/image_queue/video_queue 25 条） |
 | 批1 补缺码 | ✅ 2026-10-20 已落地（未 commit） | 四件全过闸：①ws.ts 补发溢出告警②喂点哨兵 test_module_health_feed.py+基线 160 锁定③④health_check 8→10 项（knowledge/cloud）。闸=ruff 绿+mypy 无新增+tsc+vite build 成品+单测 20 条绿+活体实弹（知识库组件就绪 store= data/vector_store；5 个云端连接全部可达）。**活体生效需后端重启窗口（现役进程仍是老码）** |
 | 活体探针批 | ✅ 2026-10-20 已执行（11 项 10✅1🔶） | ✅A-22 启动页 status（build_id 字段在，开发态空值=打包态才有，🔶）｜✅J-17 diagnose 27 项 shape（status=pass 枚举，GPU 检测过）｜✅G-04 restore/list（pre_restore_*.db.enc encrypted:true=BUG-10 活体实锤）｜✅V-01 穿越拒「非法备份文件名」+出路｜✅K-09 白名单外 400+allowed 清单｜✅K-09b kill_orphans 无孤儿安全空跑｜✅V-07 Host 伪造 400｜✅J-12 raw 白名单六选一拒外｜✅J-13 前端事件 recorded:true+落盘 jsonl 可查｜✅V-08 限流 310 连发=300×200+10×429 分毫不差 |
-| F-14 九套队列孤儿审计 | ✅ 2026-10-20 已执行 | **实锤 P1×4 + 新立 SH-GAP-13**（详见 §二 SH-GAP-03 行与批 4）：char_lora_tasks 全盲+cancel 不落库、train/style queued 永挂且锁死自动微调与版本删除、learning_sessions 僵尸 running+restore_checkpoint 死代码、style resume 造假 running；对话/行为/浏览器①/绘画页=内存态天然自愈 ✅；video=双保险标杆 |
-| J-05 长链埋点审计 | ✅ 2026-10-20 已执行 | **实锤 A 类盲区 7 链 + B 类假 stalled 8 链**（详见 §二 SH-GAP-11 行与批 5）：三训练队列/关键帧/批量分格/大纲/角色卡全盲；小说章节（10-19 遗留）/云端视频/资产 5 链缺 node 必假 stalled；对话 SSE 断连 end 无 finally；全仓仅 6 文件 import flow_trace、flow_node() 便捷接口零调用 |
-| R2~R12 | ⬜ 待窗口 | 按 §六轮次推进；A/B/S 组需停机/浸泡专窗，C/D/E 需 GPU 窗口；批1 活体复核（10 项体检）搭任意一次重启窗口 |
+| F-14 九套队列孤儿审计 | ✅ 2026-10-20 已执行 | **实锤 P1×4 + 新立 SH-GAP-13**（详见 §二 SH-GAP-03 行与批 4）：char_lora_tasks 全盲+cancel 不落库、train/style queued 永挂且锁死自动微调与版本删除、learning_sessions 僵尸 running+restore_checkpoint 死代码、style resume 造假 running；对话/行为/浏览器①/绘画页=内存态天然自愈 ✅；video=双保险标杆。**→ 批4 已落地 6193866c（单测 9 绿）** |
+| J-05 长链埋点审计 | ✅ 2026-10-20 已执行 | **实锤 A 类盲区 7 链 + B 类假 stalled 8 链**（详见 §二 SH-GAP-11 行）：三训练队列/关键帧/批量分格/大纲/角色卡全盲；小说章节/云端视频/资产 5 链缺 node 必假 stalled；对话 SSE 断连 end 无 finally。**→ 批5 P0 已落地 4fb9e251（三训练链+章节 node）**；P1/P2 待续 |
+| 修复批落地账 | ✅ 2026-10-20 四笔入库 | 615ca270 批1四件+UP009｜c9f1cf41 计划文档｜6193866c 批4 队列孤儿根治｜4fb9e251 批5 P0 埋点。批1 活体已验（health-check 10/10）；批4 实弹待重启、批5 实弹待 GPU 训练窗 |
+| R2~R12 | ⬜ 待窗口 | 按 §六轮次推进；A/B/S 组需停机/浸泡专窗，C/D/E 需 GPU 窗口 |
 
 ---
 

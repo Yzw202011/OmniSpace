@@ -276,13 +276,17 @@ async def comic_asset_batch_generate(req: AssetBatchGenerateRequest) -> dict[str
         "kind": "comic_asset", "runner": _batch_runner,
         "loop": asyncio.get_running_loop(),
         "cloud": _cloud_ep is not None})
+    # 10-20 测试：submit_and_wait 原样返回 runner 的 ok() 信封——收尾按裸
+    # 数据取 data["failed"] 曾 KeyError（资产生成实际完成、响应 500）。
+    _payload = data.get("data") if isinstance(data.get("data"), dict) else data
     _end_asset_flow(
-        flow, "success" if not data["failed"] else "error",
-        error_code="BATCH_PARTIAL_FAILED" if data["failed"] else "",
+        flow, "success" if not _payload.get("failed") else "error",
+        error_code="BATCH_PARTIAL_FAILED" if _payload.get("failed") else "",
         error_detail="; ".join(
-            f"{f['name']}: {f['message'][:80]}" for f in data["failed"][:5]),
-        output_summary=f"成功 {data['success_count']}/{len(req.items)}")
-    return ok(data)
+            f"{f['name']}: {f['message'][:80]}"
+            for f in _payload.get("failed", [])[:5]),
+        output_summary=f"成功 {_payload.get('success_count', 0)}/{len(req.items)}")
+    return ok(_payload)
 
 
 @router.get("/comic/asset/library")

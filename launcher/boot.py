@@ -717,21 +717,28 @@ class BootOrchestrator:
         # OMNISPACE_ALLOW_MULTI=1：双实例联调（异目录可移植性验收）时
         # 不让位给既有启动页，与后端互斥体的同名豁免语义一致
         if existing is not None and os.environ.get('OMNISPACE_ALLOW_MULTI') != '1':
-            url = f'http://127.0.0.1:{existing}'
-            print(f'检测到已在运行的启动页 {url}，复用并退出本实例（单实例守卫）')
-            self._deferred_to_existing = True
-            if not self.opts.no_browser:
-                # 就绪后来客直开主界面，不路过启动页（2026-09-14 实测定性）：
-                # 后端已就绪时 HUD 的 redirect.auto_in=0，页面一加载就
-                # location.replace 跳主界面，撞 WebView2 早期导航竞态——
-                # 壳窗永久白屏（shell.log 23:25 现场 + 直装/跳转 2×2 对照
-                # 矩阵实锤）；启动页是启动期临时 HUD，只有真的还在启动中
-                # 才值得带给用户看
-                backend_port = self._probe_existing()
-                if backend_port is not None:
+            # 死锁根修（2026-10-20 拍板 A）：让位前先体检后端。旧 boot 主
+            # 进程死亡后孤儿启动页仍占着端口区间，新 boot 一律让位退出=
+            # 没人拉后端，APP 瘫到人工介入（10-20 凌晨实弹复现两次）。
+            # 现语义：后端健在 → 原让位语义不变；后端不可达 → 接管完整
+            # 启动链（孤儿启动页占用端口则 splash 顺延下一端口，后端+
+            # 看门狗由本实例拉起）。
+            backend_port = self._probe_existing()
+            if backend_port is not None:
+                url = f'http://127.0.0.1:{existing}'
+                print(f'检测到已在运行的启动页 {url}，后端健在，复用并退出本实例（单实例守卫）')
+                self._deferred_to_existing = True
+                if not self.opts.no_browser:
+                    # 就绪后来客直开主界面，不路过启动页（2026-09-14 实测定性）：
+                    # 后端已就绪时 HUD 的 redirect.auto_in=0，页面一加载就
+                    # location.replace 跳主界面，撞 WebView2 早期导航竞态——
+                    # 壳窗永久白屏（shell.log 23:25 现场 + 直装/跳转 2×2 对照
+                    # 矩阵实锤）；启动页是启动期临时 HUD，只有真的还在启动中
+                    # 才值得带给用户看
                     url = f'http://{self.config.backend_host}:{backend_port}'
-            _open_ui(url, self.opts)
-            return False
+                _open_ui(url, self.opts)
+                return False
+            print('检测到孤儿启动页且后端不可达：接管启动链（死锁根修 2026-10-20）')
         self.state.set_phase('splash', 'running')
         handler = make_splash_handler(self)
         for port in range(SPLASH_PORT_RANGE[0], SPLASH_PORT_RANGE[1] + 1):

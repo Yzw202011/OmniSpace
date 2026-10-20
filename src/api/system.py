@@ -1813,15 +1813,31 @@ def _backup_config() -> dict:
 
 
 def _perform_backup() -> dict:
-    """执行一次备份（设置 JSON + SQLite 热备），供手动/自动共用。"""
+    """执行一次备份（设置 JSON + SQLite 热备），供手动/自动共用。
+
+    BUG-10 修复（2026-10-20 拍板 A）：本函数此前纯明文落盘——调度器
+    （每日自动备份）与端点版（POST /system/backup，GCM 加密）双实现
+    口径分裂，自动备份一直在裸奔整库。现对齐端点同款加密；密钥不可用
+    回退明文（可用性优先，绝不假加密），与 recovery.py 自动备份同语义。
+    """
     backup_id = uuid.uuid4().hex
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"app_version": APP_VERSION, "backup_id": backup_id,
                "created_at": time.time(),
                "settings": _redact_remote_key(_load_persisted_settings())}
     path = BACKUP_DIR / f"backup_{_now_ts()}.json"
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+    raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    try:
+        from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+        blob = encrypt_bytes_gcm(raw)
+        if is_encrypted_bytes(blob):
+            path = path.with_suffix(path.suffix + ".enc")
+            path.write_bytes(blob)
+        else:
+            path.write_bytes(raw)
+    except Exception:  # noqa: BLE001 - 加密失败保留明文（可用性优先）
+        log.warning("_perform_backup 设置快照加密失败，保留明文", exc_info=True)
+        path.write_bytes(raw)
     db_path = ""
     if DB_PATH.is_file():
         import sqlite3
@@ -1835,6 +1851,16 @@ def _perform_backup() -> dict:
                 dst.close()
         finally:
             src.close()
+        try:
+            from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+            blob = encrypt_bytes_gcm(dest.read_bytes())
+            if is_encrypted_bytes(blob):
+                enc = dest.with_suffix(dest.suffix + ".enc")
+                enc.write_bytes(blob)
+                dest.unlink(missing_ok=True)
+                dest = enc
+        except Exception:  # noqa: BLE001 - 加密失败保留明文（可用性优先）
+            log.warning("_perform_backup 库副本加密失败，保留明文", exc_info=True)
         db_path = str(dest)
     _prune_old_backups()
     return {"backup_id": backup_id, "path": str(path), "db_path": db_path}

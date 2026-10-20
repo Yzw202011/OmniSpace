@@ -201,6 +201,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 config.DATA_DIR.joinpath("backups").mkdir(parents=True,
                                                           exist_ok=True)
                 _shutil.copy2(config.DB_PATH, _safe_cur)
+                # BUG-10 修复（2026-10-20 拍板 A）：防呆件同款 GCM 加密
+                # （最重要的回滚保底不再明文裸奔）；密钥不可用回退明文
+                # （可用性优先），恢复链 _stage 已按 .enc 后缀分流兼容。
+                try:
+                    from .data.crypto import encrypt_bytes_gcm as _ebg
+                    from .data.crypto import is_encrypted_bytes as _ieb
+                    _blob = _ebg(_safe_cur.read_bytes())
+                    if _ieb(_blob):
+                        _enc = _safe_cur.with_suffix(
+                            _safe_cur.suffix + ".enc")
+                        _enc.write_bytes(_blob)
+                        _safe_cur.unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001 - 加密失败保留明文
+                    pass
             _src = _sq.connect(str(_restore_pending))
             try:
                 _dst = _sq.connect(str(config.DB_PATH))

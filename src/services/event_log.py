@@ -460,13 +460,19 @@ def cleanup_expired(now: datetime | None = None) -> dict[str, Any]:
     deleted: list[str] = []
     freed = 0
 
-    # 1) 事件日志：文件名日期 > 30 天即删
+    # 1) 事件日志：文件名日期 > 30 天即删；异名文件（解析不出日期）
+    #    回退按修改时间——否则体检（按 mtime 判过期）会永久挂账一个
+    #    「可修复」项而清理器永远清不掉（2026-10-20 浏览器实弹抓到，
+    #    SH-GAP-14：点修复永远「已清理 0 个」）
     if EVENTS_DIR.is_dir():
         for f in EVENTS_DIR.glob("events-*.jsonl"):
             try:
                 day = datetime.strptime(f.stem, "events-%Y%m%d")
             except ValueError:
-                continue
+                try:
+                    day = datetime.fromtimestamp(f.stat().st_mtime)
+                except OSError:
+                    continue
             if day < cutoff:
                 freed += f.stat().st_size
                 f.unlink(missing_ok=True)

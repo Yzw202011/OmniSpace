@@ -77,6 +77,20 @@ def test_logs_retention_warns_and_repair_turns_green(fake_log_dirs) -> None:
     assert hc._check_logs_retention()["level"] == "ok"
 
 
+def test_logs_cleanup_covers_odd_named_expired_file(fake_log_dirs) -> None:
+    """SH-GAP-14 回归（2026-10-20 浏览器实弹抓到）：异名过期文件按 mtime
+    体检可报 warn，修复必须真能清掉——清理器文件名日期解析失败须回退
+    mtime，否则「可修复」项永久挂账、点修复永远「已清理 0 个」。"""
+    ev, _lg = fake_log_dirs
+    odd = ev / "events-selfhealtest-expired.jsonl"
+    _make_old_file(odd, age_days=40)
+    assert hc._check_logs_retention()["level"] == "warn"
+    result = hc.repair("clean_logs")
+    assert "events-selfhealtest-expired.jsonl" in result["deleted"], \
+        "异名过期文件必须被清理（mtime 兜底口径）"
+    assert hc._check_logs_retention()["level"] == "ok"
+
+
 # ── 目录重建：固定清单，缺则建、齐则不动 ─────────────────────────
 
 def test_rebuild_dirs_creates_only_missing(tmp_path,

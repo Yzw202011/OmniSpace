@@ -180,13 +180,13 @@
 | SH-GAP-02 | 舱壁健康喂点**只挂统一错误信封**（error_handler.record_failure）；迭代新增端点若抛裸异常/不走信封 → 舱壁失明、self_heal 不触发 | error_handler.py:628-632 为唯一喂点；无「喂点覆盖率」哨兵 | 新功能故障不可见，自愈链空转 | J-19, K-10 |
 | SH-GAP-03 | **9 套队列孤儿回收覆盖不均（已实锤，F-14 审计收口 2026-10-20）**：全项目唯一启动期回收点=recovery.py:29-63 sweep_stale_tasks，词表窄——①char_lora_tasks（人物 LoRA，CLAUDE 清单漏计的第十套）**完全不在扫描**：ghost 'training' 连手动取消都救不回（cancel 只置内存旗标不写库 character_lora_service.py:277-280）、永久阻断版本删除；②train_tasks/style_tasks 的 **queued 行永挂**且有毒：_has_active_training 计 queued→自动微调永锁（behavior_service.py:438-439）、ghost queued 永久阻断版本删除（api/learn.py:478）；③learning_sessions 崩溃时 running 行无清扫→僵尸会话，restore_checkpoint 是零调用死代码；④style_lora resume_task 无 worker 存活校验→重启后 resume 造假 running。对话位次表/行为/浏览器①/绘画页任务=纯内存天然自愈 ✅；video=双保险标杆 ✅ | recovery.py / character_lora_service.py:277 / behavior_service.py:438 / api/learn.py:478 | 重启后任务静默悬挂 + 幽灵锁死业务（P1×4） | F-14 ✅已审，修复=批4 |
 | SH-GAP-13 | **（F-14 审计新立）队列孤儿统一回收应落 recovery.py 而非逐宿主复制 video 模式**：QueueSpec 无 orphan 字段，video 的 submit 期 reconcile 与 P20 功能重叠；更优落点=启动期单点 sweep_stale_tasks 一次扩齐（train/style 加 queued、char_lora_tasks 全量、learning_sessions running→interrupted）+ style resume 加 worker 存活校验 | recovery.py:29-63 | 修复路线选择 | 批4 方案 |
-| SH-GAP-04 | self_heal 只护 dialog/paint；**video（主力链）/training 无自动恢复入口**，只诚实转恢复指南 | self_heal.py:151-173 设计如此 | 视频生成失败仍要人点；是否补「自动重新入队」待拍板 | K-19 |
+| SH-GAP-04 | self_heal 只护 dialog/paint；**video（主力链）/training 无自动恢复入口**，只诚实转恢复指南 | self_heal.py:151-173 设计如此 | **✅已修（10-21 拍板「做」，fafe1e68）**：落点勘定=队列层（runner 闭包在握零重构）——local 任务失败自动重入队 1 次（幂等），云任务绝不重试、H3 链不整体重跑；门控 video_auto_retry.enabled 默认开；单测 4 条 | K-19 |
 | SH-GAP-05 | 前端 WS 重连成功**无提示**（只有底部灯变绿） | BottomStatusBar.tsx:177-181 | 体验缺口，用户不知已恢复 | I-25 |
 | SH-GAP-06 | 对话补发为**单条模块级变量**：断线期间连发多条，新发送取消旧补发 | useDialogStore.ts:113-118 cancelPendingResend | 断线窗口的多条消息可能只补最后一条 | I-09 |
 | SH-GAP-07 | WS 无限重试无上限（退避封顶 30s 但永不放弃） | ws.ts:171-186 | 设计取舍：后端真死时前端永续后台请求 | I-01 |
 | SH-GAP-08 | updater 硬编码 py310 → 发行包升级链死 | 09-20 审计实锤；现行口径=.upg 停用只发整包 | 升级链暂缓（口径下挂起） | H 组全组注记 |
 | SH-GAP-09 | health_check 8 项**不含 ChromaDB/云端连接/知识库**健康（迭代新增子系统未纳入） | health_check.py:274-283 清单 | 一键体检查不出向量库哑火 | K-01, SH-GAP 补缺批 1 |
-| SH-GAP-10 | 错误聚合噪声大户：learn 1678 次/style 786 次 api_failed（多为参数校验类）堆在 summary 里 | 2026-10-20 16:50 实测 /logs/errors/summary | 告警噪声淹没真故障 | J-11 |
+| SH-GAP-10 | 错误聚合噪声大户：learn 1678 次/style 786 次 api_failed（多为参数校验类）堆在 summary 里 | 2026-10-20 16:50 实测 /logs/errors/summary | **✅已修（10-21 拍板「做」，77dd5a05）**：分组键升级=参数校验类按条归入 api_param_invalid 桶分榜展示（数据不删）；单测 3 条 | J-11 |
 | SH-GAP-11 | **flow 节点埋点覆盖不均（已实锤，J-05 审计收口 2026-10-20）**：A 类完全盲区（stalled 检测零可见）=三个训练队列（learn/style/char_lora，全仓最长任务）+关键帧单行/批量分格+小说大纲+小说角色卡（连 DB 行都没有，卡住即无痕）+知识库导入；B 类半盲（有 start/end 无 node→超 120s 必出**假 stalled**）=小说章节（10-19 修复遗留：novel_service.py:1029-1031 注释明示不加 node，批量时每章一条假记录）+云端视频（轮询数分钟）+漫剧资产 5 链（四视图最易超时）；小尾巴=对话 SSE 断连路径 end 无 finally 兜底（dialog.py:1296-1301） | 全仓仅 6 个文件 import flow_trace；`flow_node()` 便捷接口零调用（哑节点机制闲置） | 假 stalled 淹没真卡住（与 SH-GAP-10 噪声问题共振，P1） | J-05 ✅已审，修复=批5 |
 | SH-GAP-12 | 独立脚本跑 SR/试验**必须记得 mark_busy**，否则空闲看门狗可能误杀（10-17 实锤过一次）；缺「外部占用探测」兜底哨兵 | comfy_proc.py:538 _generation_active 只认锁+登记簿 | 试验脚本被误杀→盲等 | D-05, D-20 |
 
@@ -682,6 +682,7 @@
 | R3.5 错峰件小说半边+quick-win 审计 | ✅ 2026-10-21 00:1x 已执行 | **批5 P1 小说半边入库**（大纲/角色卡 start+三出口 end，novel 域 37 绿；keyframe/资产链维持锁定——漫剧线 WIP 在飞且 keyframe.py 已 3463 行超自身容忍窗）+ **批5 P0 补遗**（章节链「引擎加载」段包节点 533ae6b1——活体观察到章节 flow 滞留 12min 零节点，正是该盲段标本；GPU 99% 属另一会话在跑）。quick-win：G-13 主库 WAL✅ G-18 flow 库 WAL✅ C-16 sleep_mode=false✅ E-15 阈值 config 单源✅ F-24 路由红线未碰✅ **G-19 撤案**（flow 表 2 条 running 系重启后新流程，recover_orphans 无恙） |
 | R5 故障注入专窗 | ✅ 2026-10-21 01:25 已执行（**9✅2🔶**） | **A-07 补位 33s/A-08 计数不清零/A-09 第 6 杀放弃/A-12 六份取证/B-02 crash_detected/A-10 防线自然实证/A-03 启动页顺延 5851 目击/A-16 互斥秒拒/A-20 契约三处对账阻断**；🔶A-02（未目击 5801，不误杀+退位路径两度实证）🔶A-05（后端死→新 boot 拉起✅；孤儿启动页在现行架构不可构造=根修形态确认）。**新 P3 改进项：超限放弃缺显式日志行**。证据=docs/测试记录/自愈-2026-10-21-R5/fault-injection.md。终态=干净健康链 |
 | R6 真火+浸泡起跑 | ✅ 2026-10-21 01:54 已执行 | **批5 真火双响✅**：大纲 flow success「4 卷 20 章」（start/end 全链）+ 章节 flow **success nodes=2**（引擎加载+正文生成 84975ms 两枚新节点真实打卡）——SELFHEALTEST 项目验后级联清零。**S-12 双开轰炸 100 连✅**（exit0=100/25s/主链无恙）。**S-01 24h 浸泡探针已起跑**（02:03 发射，独立运行，明早 ~02:03 自动收工复核）。证据=docs/测试记录/自愈-2026-10-21-R6/ |
+| R7 双拍板落地 | ✅ 2026-10-21 02:0x 已执行（fafe1e68+77dd5a05） | SH-GAP-04 视频自动重试（队列层落点+云/H3 排除+门控+单测 4）✅；SH-GAP-10 聚合分桶（参数类出真失败榜+单测 3）✅。**至此：14 项缺口已修 10、挂起（设计取舍）4、拍板项清零** |
 | 终局挂账（全部外部条件） | ⏳ | keyframe/资产链埋点=等漫剧线落库（本次复核仍 WIP）；I 组后端侧真断链=已被 ws.test.ts 单测+活体观察替代覆盖；S 组复核=明早探针收数；SH-GAP-04/10=待拍板 |
 
 ### ⭐ 下次重启窗口待办清单（用户拍板「稍后安静时再重启」，2026-10-20）

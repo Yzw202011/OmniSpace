@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """L-08 24h 浸泡监控探针（2026-10-19）：健康/RAM/GPU/版本单行追加 logs/soak_l08.jsonl。
 
 事件写 logs/soak_l08_events.log：

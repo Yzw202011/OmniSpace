@@ -1,11 +1,12 @@
 """自愈批4 一键体检与修复单测（2026-09-11，docs/自愈与横切内建方案 §批4）。
 
 不碰真实进程/真实日志：
-  - 体检报告形状（8 项、每项 key/level/friendly、汇总计数）
+  - 体检报告形状（10 项、每项 key/level/friendly、汇总计数）
   - 日志保留：过期文件→warn+可修；修复后复验转绿（验收主链）
   - 目录重建：只 mkdir 固定清单，缺则建、齐则不动
   - 孤儿清理守卫：口径匹配才 terminate，python 系进程绝不碰
   - 白名单外修复动作一律拒绝
+  - 知识库组件/云端连接体检（2026-10-20 自愈重建批1-③④）
 """
 from __future__ import annotations
 
@@ -202,3 +203,90 @@ def test_check_orphan_engines_green_and_warn(
     assert item2["level"] == "warn"
     assert item2["fixable"] is True
     assert item2["fix_action"] == "kill_orphans"
+
+
+# ── 知识库组件 / 云端连接体检（自愈重建批1-③④，2026-10-20）──────
+
+
+def test_health_check_includes_knowledge_and_cloud() -> None:
+    report = hc.run_health_check()
+    keys = {str(i["key"]) for i in report["items"]}
+    assert {"knowledge", "cloud"} <= keys
+    assert len(hc.CHECKS) == 10  # 批1 后 8→10，防体检项悄悄丢失
+
+
+def test_knowledge_check_warns_without_chroma(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.data import vector_db
+    monkeypatch.setattr(vector_db, "_CHROMA_AVAILABLE", False, raising=False)
+    item = hc._check_knowledge_base()
+    assert item["level"] == "warn"
+    assert "降级" in item["friendly"]
+
+
+def test_knowledge_check_ok_with_chroma_and_store(
+        monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from src.data import vector_db
+    monkeypatch.setattr(vector_db, "_CHROMA_AVAILABLE", True, raising=False)
+    store = tmp_path / "vector_store"
+    store.mkdir()
+    monkeypatch.setattr(vector_db, "VECTOR_DIR", store, raising=False)
+    item = hc._check_knowledge_base()
+    assert item["level"] == "ok"
+    assert item["detail"]["store"] == str(store)
+
+
+def test_knowledge_check_ok_before_store_created(
+        monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from src.data import vector_db
+    monkeypatch.setattr(vector_db, "_CHROMA_AVAILABLE", True, raising=False)
+    monkeypatch.setattr(vector_db, "VECTOR_DIR", tmp_path / "not_yet",
+                        raising=False)
+    assert hc._check_knowledge_base()["level"] == "ok"
+
+
+def test_cloud_check_ok_when_no_providers(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.services import cloud_provider_service as cps
+    monkeypatch.setattr(cps, "list_providers", lambda mask=True: [])
+    item = hc._check_cloud()
+    assert item["level"] == "ok"
+    assert "未配置" in item["friendly"]
+
+
+def test_cloud_check_warns_when_unreachable(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.services import cloud_provider_service as cps
+    monkeypatch.setattr(cps, "list_providers", lambda mask=True: [
+        {"id": "p1", "name": "死连接", "base_url": "http://127.0.0.1:1/v1"}])
+    item = hc._check_cloud()
+    assert item["level"] == "warn"
+    assert item["detail"]["unreachable"] == ["死连接"]
+
+
+def test_cloud_check_ok_when_reachable(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket as _socket
+    srv = _socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    try:
+        from src.services import cloud_provider_service as cps
+        monkeypatch.setattr(cps, "list_providers", lambda mask=True: [
+            {"id": "p1", "name": "本地活连接",
+             "base_url": f"http://127.0.0.1:{port}/v1"}])
+        assert hc._check_cloud()["level"] == "ok"
+    finally:
+        srv.close()
+
+
+def test_cloud_check_honest_unknown(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.services import cloud_provider_service as cps
+
+    def boom(mask: bool = True) -> list:
+        raise RuntimeError("kv unavailable")
+
+    monkeypatch.setattr(cps, "list_providers", boom)
+    assert hc._check_cloud()["level"] == "unknown"

@@ -196,6 +196,13 @@ export class WsConnection {
       this.socket.send(payload);
     } else if (this.pending.length < MAX_PENDING) {
       this.pending.push(payload);
+    } else {
+      // 补发队列已满（断线过久）：沿用原语义丢弃本条，但必须留痕告警——
+      // 静默丢弃 = 用户消息无感消失（自愈重建 SH-GAP-01，2026-10-20）。
+      reportBgError(
+        'ws.pending.overflow',
+        new Error(`断线补发队列已满（${MAX_PENDING}），已丢弃消息: ${type}`),
+      );
     }
   }
 

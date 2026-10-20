@@ -49,5 +49,9 @@
       "src/services/lora_converter.py"
     ],
     "note": "已知孤儿；新孤儿即红"
+  },
+  "api_silent_except": {
+    "current": 160,
+    "note": "src/api 层静默 except 存量（自愈重建批1 哨兵 2026-10-20 锁定：既不 raise 也不留痕=舱壁盲区，只减不增；哨兵=tests/unit/test_module_health_feed.py）"
   }
 }

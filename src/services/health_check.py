@@ -2,7 +2,8 @@
 
 只读体检 ``run_health_check()``：普通用户「不专业也不怕」——出问题先体检，
 大白话报告 + 每项给出路；与 POST /system/diagnose（环境级 26 项，startup_check）
-互补：本模块管**运行时**健康（显存余量/孤儿进程/模型对账/队列/日志保留/激活）。
+互补：本模块管**运行时**健康（显存余量/孤儿进程/模型对账/队列/日志保留/
+知识库组件/云端连接/激活）。
 
 修复 ``repair(action)``：**白名单制**，只做零数据风险动作——
   - clean_logs    清 30 天过期日志（复用 event_log.cleanup_expired）
@@ -15,10 +16,13 @@
 from __future__ import annotations
 
 import shutil
+import socket
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from ..config import DATA_DIR, LOGS_DIR, MODELS_DIR
 
@@ -36,6 +40,12 @@ _SYSTEM_DIRS: tuple[Path, ...] = (
 
 #: 磁盘余量注意线（GB）；低于即建议清理
 _DISK_WARN_GB = 20.0
+
+#: 云端连接可达性探测超时（秒）——TCP 层即可，不带密钥、不发业务请求
+_CLOUD_PROBE_TIMEOUT_S = 2.0
+
+#: 云端探测上限（个）——超出部分如实标注「未逐一探测」，防一键体检被拖慢
+_CLOUD_PROBE_MAX = 8
 
 #: 孤儿推理进程匹配口径（镜像 launcher/stop.py：宁可漏匹配不可误伤）
 _ORPHAN_SIGNS = ("llama-poc", "OmniSpace-LLM.exe")
@@ -270,6 +280,82 @@ def _check_license() -> dict[str, Any]:
                 "friendly": "激活状态暂时读不到", "detail": str(exc)[:200]}
 
 
+def _check_knowledge_base() -> dict[str, Any]:
+    """知识库组件体检（轻量：复用 vector_db 自身可用性旗标，不实例化服务、
+    不加载任何模型——体检永远不把用户的显存吃掉）。"""
+    try:
+        from ..data import vector_db
+        chroma_ok = bool(getattr(vector_db, "_CHROMA_AVAILABLE", False))
+        store_dir = Path(str(getattr(vector_db, "VECTOR_DIR",
+                                     DATA_DIR / "vector_store")))
+    except Exception as exc:  # noqa: BLE001
+        return {"key": "knowledge", "level": "unknown",
+                "friendly": "知识库组件状态暂时读不到", "detail": str(exc)[:200]}
+    if not chroma_ok:
+        return {"key": "knowledge", "level": "warn",
+                "friendly": "知识库向量组件未装好，知识检索已自动降级为轻量模式"
+                            "（能用，但语义理解力下降）；重新安装运行环境可恢复",
+                "fixable": False}
+    if not store_dir.is_dir():
+        return {"key": "knowledge", "level": "ok",
+                "friendly": "知识库组件就绪（还没建库，首次使用知识功能时自动创建）",
+                "fixable": False}
+    return {"key": "knowledge", "level": "ok",
+            "friendly": "知识库组件就绪", "fixable": False,
+            "detail": {"store": str(store_dir)}}
+
+
+def _probe_cloud_host(url: str) -> bool:
+    """TCP 可达性探测（DNS 失败/超时/拒连一律算不可达）。"""
+    try:
+        parts = urlparse(url)
+        host = parts.hostname
+        if not host:
+            return False
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        with socket.create_connection((host, port),
+                                      timeout=_CLOUD_PROBE_TIMEOUT_S):
+            return True
+    except Exception:  # noqa: BLE001 - 连不上=不可达（探测本身不抛出）
+        return False
+
+
+def _check_cloud() -> dict[str, Any]:
+    """云端 AI 连接体检：只测「连不连得上」（TCP 层），不测账号/余额/密钥。
+
+    并发探测（上限 _CLOUD_PROBE_MAX 个），防多连接时体检被逐个超时拖慢；
+    降级一律 warn 不 fail——云端连不上不影响本地功能。
+    """
+    try:
+        from .cloud_provider_service import list_providers
+        providers = list_providers(mask=True)
+    except Exception as exc:  # noqa: BLE001
+        return {"key": "cloud", "level": "unknown",
+                "friendly": "云端连接状态暂时读不到", "detail": str(exc)[:200]}
+    if not providers:
+        return {"key": "cloud", "level": "ok",
+                "friendly": "未配置云端 AI 连接（全部功能走本地，不影响使用）",
+                "fixable": False}
+    probe = providers[:_CLOUD_PROBE_MAX]
+    with ThreadPoolExecutor(max_workers=min(_CLOUD_PROBE_MAX, len(probe))) as pool:
+        reached = list(pool.map(
+            lambda p: _probe_cloud_host(str(p.get("base_url") or "")), probe))
+    bad = [str(p.get("name") or p.get("id") or "未命名连接")
+           for p, ok_ in zip(probe, reached, strict=True) if not ok_]
+    rest = len(providers) - len(probe)
+    probed_note = f"（其余 {rest} 个未逐一探测）" if rest > 0 else ""
+    if bad:
+        return {"key": "cloud", "level": "warn",
+                "friendly": f"{len(bad)} 个云端连接连不上"
+                            f"（{'、'.join(bad[:3])}）{probed_note}；"
+                            "云端功能暂不可用，本地功能不受影响；"
+                            "可到「模型管理」页测试连接，或检查网络/代理",
+                "fixable": False, "detail": {"unreachable": bad}}
+    return {"key": "cloud", "level": "ok",
+            "friendly": f"{len(probe)} 个云端连接全部可达{probed_note}",
+            "fixable": False}
+
+
 #: 体检项注册表（顺序即报告顺序）
 CHECKS: tuple[Callable[[], dict[str, Any]], ...] = (
     _check_gpu_vram_free,
@@ -279,6 +365,8 @@ CHECKS: tuple[Callable[[], dict[str, Any]], ...] = (
     _check_models_manifest,
     _check_queues,
     _check_logs_retention,
+    _check_knowledge_base,
+    _check_cloud,
     _check_license,
 )
 

@@ -1781,6 +1781,22 @@ class BrowserAgentService:
     def start_session(self, session: LearningSession) -> None:
         """在后台守护线程中运行会话主循环（不阻塞调用方）。"""
         _ensure_llm_extractor()
+        # H-8①（2026-10-20 拍板）：会话起时预热对话引擎——用户显式开始
+        # 学习即真实使用提取功能，符合「按需加载」精神。后台线程加载不
+        # 阻塞浏览启动：前几页规则回退，引擎就绪后提取自动升 LLM 主链；
+        # 显存代价（~9G）为拍板接受项。
+        def _warm_dialog_engine() -> None:
+            try:
+                from .inference.dialog_engine import get_dialog_engine
+                ok = get_dialog_engine().ensure_loaded()
+                if ok:
+                    log.info("学习会话：对话引擎已就绪，知识提取升级 LLM 主链")
+                else:
+                    log.warning("学习会话：对话引擎预热未成功（规则提取兜底）")
+            except Exception as exc:  # noqa: BLE001 - 预热失败不阻断会话
+                log.warning("学习会话：对话引擎预热异常（规则提取兜底）: %s", exc)
+        threading.Thread(target=_warm_dialog_engine, daemon=True,
+                         name="LearnSession-EngineWarm").start()
         with self._lock:
             old = self._threads.get(session.session_id)
             if old is not None and old.is_alive():

@@ -54,12 +54,34 @@ def _ports_listening(lo: int, hi: int) -> set[int]:
         return set()
 
 
-def _splash_port() -> int | None:
-    """在启动页端口区间内找 boot 的 splash 服务。
+def _pid_under_project(pid: int | None) -> bool:
+    """N-17（2026-10-20）：进程 exe 是否位于本仓根目录之下。
 
-    先经 psutil 筛真实 LISTEN 端口再做 HTTP 校验（本机存在过滤驱动时，
-    向未监听回环端口的请求会各烧满超时）；Server 头前缀匹配确保
-    /api/quit 只发给 OmniSpace boot，不会误伤同区间的陌生服务。
+    跨副本（D:/ccd 发行包 / E:/_g4_drill 演练件）与本仓共用品牌名与
+    固定端口——按端口/品牌名匹配会误杀副本（10-20 双杀实锤）。
+    exe 不可得（权限/已退出）时按「不是我们的」处理（fail-closed，
+    宁可不杀也不错杀——副本误杀不可逆）。
+    """
+    if pid is None:
+        return False
+    try:
+        proc = psutil.Process(pid)
+        exe = (proc.info.get('exe')
+               if hasattr(proc, 'info') else proc.exe()) or ''
+        if not exe:
+            return False
+        return str(PROJECT_ROOT).lower() in exe.lower()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
+
+
+def _splash_port() -> int | None:
+    """在启动页端口区间内找 **本仓** boot 的 splash 服务。
+
+    两级校验：①HTTP Server 头前缀（挡同区间陌生服务）；②监听进程
+    exe 路径在本仓根下（N-17：跨副本共用品牌名与 5850 端口——副本
+    splash 曾被误发 /api/quit 致其全链退出，10-20 双杀实锤）。
+    exe 不可证为本仓时按不是处理（fail-closed）。
     """
     for port in sorted(_ports_listening(*SPLASH_PORT_RANGE)):
         conn: http.client.HTTPConnection | None = None
@@ -69,6 +91,15 @@ def _splash_port() -> int | None:
             resp = conn.getresponse()
             if (resp.status == 200
                     and resp.getheader('Server', '').startswith('OmniSpaceBoot')):
+                owner = None
+                for c in psutil.net_connections(kind='inet'):
+                    if (c.status == 'LISTEN' and c.laddr
+                            and c.laddr.port == port):
+                        owner = c.pid
+                        break
+                if not _pid_under_project(owner):
+                    print(f'  跳过 :{port}——启动页属主不在本仓（跨副本护栏）')
+                    continue
                 return port
         except Exception:
             continue
@@ -155,6 +186,10 @@ def _llama_leftovers() -> list[psutil.Process]:
             name = proc.info['name'] or ''
             cmd = ' '.join(proc.info['cmdline'] or [])
             if 'llama-poc' in f'{exe} {name} {cmd}' or name == 'OmniSpace-LLM.exe':
+                # N-17：跨副本护栏——exe 不在本仓根下的同品牌进程不碰
+                # （副本 OmniSpace-LLM.exe 与本仓同名，10-20 跨副本误杀实锤）
+                if not _pid_under_project(proc.info['pid']):
+                    continue
                 found.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
@@ -168,11 +203,14 @@ def _shell_leftovers() -> list[psutil.Process]:
     品牌名，命名唯一不误伤）。"""
     found: list[psutil.Process] = []
     me = psutil.Process().pid
-    for proc in psutil.process_iter(['pid', 'name']):
+    for proc in psutil.process_iter(['pid', 'name', 'exe']):
         try:
             if proc.info['pid'] == me:
                 continue
             if (proc.info['name'] or '') == 'OmniSpace-Shell.exe':
+                # N-17：跨副本护栏——副本桌面壳与本仓同名，不碰
+                if not _pid_under_project(proc.info['pid']):
+                    continue
                 found.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue

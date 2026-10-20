@@ -345,6 +345,9 @@ class LearningSession:
     last_search_url: str = ""
     learned_summary: list[str] = field(default_factory=list)
     last_traffic_bytes: int = 0       # 流量增量同步游标（TC-S-009）
+    traffic_initialized: bool = False  # N-5 翻案（2026-10-20）：游标需基线化——
+    # 温热浏览器上新会话游标从 0 起步，首同步 delta=浏览器累计总量被整段
+    # 重复计入当日账本（实测复现 3.9GB/日，历史 0903/1003 双 4.1GB 同因）
     # TASK-052 分级决策统计：{"fast": n, "slow": n}（观测快速路径占比）
     path_stats: dict = field(default_factory=lambda: {"fast": 0, "slow": 0})
 
@@ -1669,11 +1672,21 @@ class BrowserAgentService:
 
     @staticmethod
     def _sync_traffic(session: LearningSession) -> None:
-        """把浏览器拦截层统计的流量增量同步到每日流量计数（TC-S-009）。"""
+        """把浏览器拦截层统计的流量增量同步到每日流量计数（TC-S-009）。
+
+        N-5 翻案（2026-10-20）：total_bytes 是浏览器进程存活期累计值，
+        会话游标必须先基线化——否则温热浏览器上新会话把累计总量整段
+        重复计入当日账本（3.9GB/日 + 历史 0903/1003 双 4.1GB 同因）。
+        基线化前的少量字节宁可少计不多计（诚实方向：宁可低估不高估）。
+        """
         try:
             total = int(get_browser_service()
                         .get_traffic_stats().get("total_bytes", 0))
         except Exception:  # noqa: BLE001
+            return
+        if not session.traffic_initialized:
+            session.traffic_initialized = True
+            session.last_traffic_bytes = total
             return
         delta = total - session.last_traffic_bytes
         if delta > 0:

@@ -81,13 +81,15 @@ class RequestContextMiddleware:
         try:
             await self.app(scope, receive, _send_capture)
         finally:
-            # 访问留痕（降噪两档）：非 2xx 或慢请求（≥500ms）上 INFO——
-            # 排障时可按 rid 与异常 WARNING 行对账；正常快请求只 DEBUG，
-            # 避免状态栏 2s 级轮询把日志灌成噪声。
+            # 访问留痕（降噪三档）：变更类方法（POST/PUT/DELETE/PATCH）与
+            # 非 2xx、慢请求一律 INFO——删除类操作必须留请求级痕迹
+            # （N-14 教训③：33 条知识删除曾因两档降噪无任何痕迹可查）；
+            # 正常快 GET（状态栏 2s 级轮询）只 DEBUG 防灌噪声。
             duration_ms = max(0, int((time.perf_counter() - start) * 1000))
             code = status_box["code"]
             line = f"{method} {path} -> {code} {duration_ms}ms rid={rid}"
-            if code >= 400 or duration_ms >= 500:
+            if (method in _ACTIVITY_METHODS or code >= 400
+                    or duration_ms >= 500):
                 log.info(line)
             else:
                 log.debug(line)

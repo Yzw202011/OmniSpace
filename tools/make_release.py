@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -103,6 +104,22 @@ def main() -> int:
             return 1
         print(f"✅ 渠道水印已签发并回读确认：serial={args.serial} "
               f"customer={args.customer!r} files={info.get('signed_files')}")
+
+    # ⑤ 源码包归档（2026-10-21 拍板）：正式发行交付物只有加壳包，源码
+    # 包=加壳原材料，挪归档盘留存（E:/ccd_archive，200G+）——工作盘只留
+    # 加壳包省 23GB。挪失败=保留原地并告警，绝不影响已完成的加壳包。
+    archive_root = Path("E:/ccd_archive")
+    try:
+        archive_root.mkdir(parents=True, exist_ok=True)
+        dst_arc = archive_root / src.name
+        if dst_arc.exists():
+            print(f"⚠️ 归档位已有同名源码包，跳过归档（保留原地）: {dst_arc}")
+        else:
+            shutil.move(str(src), str(dst_arc))
+            src = dst_arc
+            print(f"== ⑤ 源码包已归档 -> {dst_arc} ==")
+    except Exception as exc:  # noqa: BLE001 - 归档失败不毁发行结果
+        print(f"⚠️ 源码包归档失败（保留原地 {src}）: {exc}")
 
     print(f"\n发行完成：\n  源码包 {src}\n  加壳包 {dest}")
     return 0

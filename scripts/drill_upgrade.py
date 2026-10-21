@@ -31,8 +31,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 BASE = Path(r"D:\ccd\OmniSpace-2.5.0-gc5ddaac-protected")
 NEW_BUILD_GLOB = r"D:\ccd\OmniSpace-2.5.1-g*-protected"
-DRILL = Path(r"D:\ccd\selfheal_drill")
-OUT_UPG = Path(r"D:\ccd\selfheal_drill_upg")
+DRILL = Path(r"E:\ccd_archive\selfheal_drill")
+OUT_UPG = Path(r"E:\ccd_archive\selfheal_drill_upg")
 KEY = REPO / "keys" / "upgrade_signing.key"
 
 # 写死的目标（离线演练：仅本机回环，端口=产品契约端口）

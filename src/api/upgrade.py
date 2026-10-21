@@ -177,6 +177,19 @@ def upgrade_start(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str
     if not updater_py.is_file():
         raise ApiError("UPGRADE_UPDATER_MISSING", "updater 组件缺失，无法执行升级",
                        detail={"expect": str(updater_py)})
+    # R17 P2 修复（2026-10-21）：在途升级闸——updater 是独立进程，本 API
+    # 无法从内存判断，只能对账 state.json 相位；相位清单单一真源在
+    # updater/core.py，经 usvc.core() 同源加载防两处漂移
+    try:
+        state = usvc.core().read_state(ROOT_DIR)
+        phase = str(state.get("phase") or "")
+    except Exception:  # noqa: BLE001 - state 读不到=无在途升级
+        phase = ""
+    if phase in usvc.core().ACTIVE_PHASES:
+        raise ApiError(
+            "UPGRADE_IN_PROGRESS",
+            f"已有升级正在执行（阶段: {phase}），请等待其完成",
+            suggestion="升级状态见设置页；若长时间卡死可重启后端后重试")
     try:
         # 预检①：清单+签名（快）
         manifest, sig = usvc.read_package(pkg)

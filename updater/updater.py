@@ -342,6 +342,10 @@ def main(argv: list[str]) -> int:
         _log(install_root, f"包复核失败，零改动: {exc}")
         _set_state(install_root, phase="failed", reason=f"包复核失败: {exc}")
         shutil.rmtree(work_dir, ignore_errors=True)
+        # R17 P2 修复（2026-10-21）：wait_chain_quiet 已把运行链全停，
+        # 复核失败虽零改动也必须把用户软件拉回来——否则升级失败=软件
+        # 躺平（对齐落位/验证失败分支的 respawn 姿态）
+        _spawn_boot(install_root)
         _stop_status_server(status_server)
         return 1
 

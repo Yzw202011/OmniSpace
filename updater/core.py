@@ -44,6 +44,12 @@ STATE_FILENAME = "state.json"
 # 中断态=boot 启动时看到这几个 phase 要先从备份还原再启动
 INTERRUPTED_PHASES = ("backing_up", "applying", "verifying_start")
 
+# 活动态=升级正在执行中（R17 P2：upgrade_start 在途闸判据，2026-10-21）。
+# 与 INTERRUPTED_PHASES 的差异=handover_wait 尚未动文件，断电无需还原，
+# 但此时再起一次升级就是双 updater 竞态。
+ACTIVE_PHASES = ("handover_wait", "backing_up", "applying",
+                 "verifying_start")
+
 _WIN_RESERVED = {
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
     "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4",

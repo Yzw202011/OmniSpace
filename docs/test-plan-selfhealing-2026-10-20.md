@@ -184,7 +184,7 @@
 | SH-GAP-05 | 前端 WS 重连成功**无提示**（只有底部灯变绿） | BottomStatusBar.tsx:177-181 | **✅已修（10-21，768debad）**：App.tsx onStatus 守卫 reconnecting→open 转→toast「实时通道已恢复」（首连不弹） | I-25 |
 | SH-GAP-06 | 对话补发为**单条模块级变量**：断线期间连发多条，新发送取消旧补发 | useDialogStore.ts:113-118 cancelPendingResend | **✅已修（10-21，768debad）**：补发队列制（_pendingResends 数组互不误杀，各条独立轮询原样补发），移除 sendMessage 顶部误杀行 | I-09 |
 | SH-GAP-07 | WS 无限重试无上限（退避封顶 30s 但永不放弃） | ws.ts:171-186 | 设计取舍：后端真死时前端永续后台请求 | I-01 |
-| SH-GAP-08 | updater 硬编码 py310 → 发行包升级链死 | 09-20 审计实锤；现行口径=.upg 停用只发整包 | 升级链暂缓（口径下挂起） | H 组全组注记 |
+| SH-GAP-08 | updater 硬编码 py310 → 发行包升级链死 | 09-20 审计实锤 | **【10-21 勘误+口径反转】py310 硬编码已修（F10/b6728caf，updater.py 与 exe 桩均改 py312），非"挂起"实为"已修未验"；且用户 10-21 新拍板恢复 .upg 通道（推翻 10-20 退役口径）——随重建升级链首次实弹验证** | H 组全组注记 |
 | SH-GAP-09 | health_check 8 项**不含 ChromaDB/云端连接/知识库**健康（迭代新增子系统未纳入） | health_check.py:274-283 清单 | 一键体检查不出向量库哑火 | K-01, SH-GAP 补缺批 1 |
 | SH-GAP-10 | 错误聚合噪声大户：learn 1678 次/style 786 次 api_failed（多为参数校验类）堆在 summary 里 | 2026-10-20 16:50 实测 /logs/errors/summary | **✅已修（10-21 拍板「做」，77dd5a05）**：分组键升级=参数校验类按条归入 api_param_invalid 桶分榜展示（数据不删）；单测 3 条 | J-11 |
 | SH-GAP-11 | **flow 节点埋点覆盖不均（已实锤，J-05 审计收口 2026-10-20）**：A 类完全盲区（stalled 检测零可见）=三个训练队列（learn/style/char_lora，全仓最长任务）+关键帧单行/批量分格+小说大纲+小说角色卡（连 DB 行都没有，卡住即无痕）+知识库导入；B 类半盲（有 start/end 无 node→超 120s 必出**假 stalled**）=小说章节（10-19 修复遗留：novel_service.py:1029-1031 注释明示不加 node，批量时每章一条假记录）+云端视频（轮询数分钟）+漫剧资产 5 链（四视图最易超时）；小尾巴=对话 SSE 断连路径 end 无 finally 兜底（dialog.py:1296-1301） | 全仓仅 6 个文件 import flow_trace；`flow_node()` 便捷接口零调用（哑节点机制闲置） | 假 stalled 淹没真卡住（与 SH-GAP-10 噪声问题共振，P1） | J-05 ✅已审，修复=批5 |

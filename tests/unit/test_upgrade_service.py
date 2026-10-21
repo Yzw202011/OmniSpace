@@ -277,3 +277,29 @@ def test_state_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     # 损坏状态文件按空闲处理（绝不抛）
     core.state_path(tmp_path).write_text("{broken json", encoding="utf-8")
     assert svc.read_state() == {}
+
+
+# ── R17 P2 修复（2026-10-21）：在途升级闸的相位契约 ────────────────
+
+
+def test_active_phases_contract() -> None:
+    """ACTIVE_PHASES 单一真源契约：含全部中断态 + handover_wait；
+    upgrade_start 在途闸与 boot 断电自愈共用同源清单，漂移即红。"""
+    assert set(core.INTERRUPTED_PHASES) <= set(core.ACTIVE_PHASES)
+    assert "handover_wait" in core.ACTIVE_PHASES
+    assert "success" not in core.ACTIVE_PHASES
+    assert "failed" not in core.ACTIVE_PHASES
+    assert "rolled_back" not in core.ACTIVE_PHASES
+
+
+def test_read_state_sees_active_phase(tmp_path: Path,
+                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    """在途闸的对账原语：state.json 相位=applying 时 read_state 必须读到。"""
+    monkeypatch.setattr(svc, "install_root", lambda: tmp_path)
+    state_path = core.state_path(tmp_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({"phase": "applying", "package": "x.upg"}),
+        encoding="utf-8")
+    assert svc.read_state().get("phase") == "applying"
+    assert svc.read_state().get("phase") in core.ACTIVE_PHASES

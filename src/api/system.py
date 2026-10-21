@@ -1071,6 +1071,37 @@ def _probe_cloud_api() -> tuple[str, str]:
         return ("warn", f"云端配置读取异常: {exc}")
 
 
+def _probe_activation_state() -> tuple[str, str]:
+    """激活子系统真实状态（BUG-11 修复：陈旧探针曾谎报「未实现」）。"""
+    try:
+        from .. import license_gate as _gate
+        st = _gate.status()
+        if not st.get("gate_enabled"):
+            return ("warn", "激活体系已实现未启用（开发版未注入公钥，门禁"
+                            "关闭；发码台/激活链随发行包接入）")
+        if st.get("activated"):
+            return ("pass", "激活体系已启用且授权有效")
+        return ("warn", f"激活体系已启用但授权异常：{st.get('reason') or '未激活'}")
+    except Exception as exc:  # noqa: BLE001 - 探测异常如实上报
+        return ("warn", f"激活状态探测失败: {exc}")
+
+
+def _probe_fingerprint_state() -> tuple[str, str]:
+    """机器指纹子系统真实状态（BUG-11 修复同批）。"""
+    try:
+        from .. import license_gate as _gate
+        fps = _gate.collect_fingerprints()
+        n = len(fps)
+        if n >= 2:
+            return ("pass", f"机器指纹采集正常（{n} 路指纹参与交叉校验）")
+        if n == 1:
+            return ("warn", "仅 1 路指纹可采集（发行机要求多路交叉锚，"
+                            "单路指纹强度不足）")
+        return ("warn", "机器指纹采集为空（当前环境探测受限）")
+    except Exception as exc:  # noqa: BLE001 - 探测异常如实上报
+        return ("warn", f"机器指纹探测失败: {exc}")
+
+
 _DIAG_PROBES = [
     ("GPU 可用性", lambda: _from_startup(startup_check._check_gpu_detection)),
     ("GPU 驱动版本", lambda: _from_startup(startup_check._check_gpu_driver)),
@@ -1091,9 +1122,11 @@ _DIAG_PROBES = [
     ("训练数据目录", lambda: _probe_dir_writable(DATA_DIR / "training", "训练数据目录")),
     ("导出目录可写", lambda: _probe_dir_writable(EXPORT_DIR, "导出目录")),
     ("日志目录可写", lambda: _probe_dir_writable(LOGS_DIR, "日志目录")),
-    # 诚实标注（审计 BK-018）：激活/机器指纹子系统 v2.5.0 未实现，如实告知
-    ("激活状态", lambda: ("warn", "v2.5.0 未实现激活体系（无 license 子系统），本项如实标记")),
-    ("机器指纹一致性", lambda: ("warn", "v2.5.0 未实现机器指纹体系，本项如实标记")),
+    # BUG-11 修复（2026-10-21）：激活/机器指纹子系统早已实现（license_gate.py
+    # 门面 + license_gate_impl.py 锁芯 + main.py 启动预热），陈旧探针却硬编码
+    # 「未实现」——把「未启用」谎报成「未实现」。改为读取真实门禁状态。
+    ("激活状态", _probe_activation_state),
+    ("机器指纹一致性", _probe_fingerprint_state),
     ("任务队列运行", _probe_task_queue),
     ("WS Hub 运行", _probe_ws_hub),
     ("调度引擎运行", _probe_scheduler),

@@ -104,7 +104,26 @@ EVENT_LABELS: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/models/unload"): "模型卸载",
     ("POST", "/api/v1/manga/video/generate"): "视频生成",
     ("POST", "/api/v1/video/generate"): "视频生成",
+    # 10-21 测试 GAP-17 治理首批：带 task_id 的参数化路由与新开关
+    ("PUT", "/api/v1/manga/video/sr-model"): "超分模型切换",
 }
+
+#: 参数化路由标签（10-21 测试 GAP-17：exact 未命中后按前后缀匹配——
+#: 路径含 task_id 等动态段，exact 表接不住）。method+前后缀双夹逼防误伤。
+_EVENT_LABEL_PARAM: tuple[tuple[str, str, str, str], ...] = (
+    ("POST", "/api/v1/manga/video/", "/super-resolution", "视频超分"),
+)
+
+
+def _label_for(method: str, path: str) -> str:
+    """(method, path) → 中文动作名；exact → 参数化前后缀 → 空串（通用模板）。"""
+    label = EVENT_LABELS.get((method, path), "")
+    if label:
+        return label
+    for m, pre, suf, lbl in _EVENT_LABEL_PARAM:
+        if method == m and path.startswith(pre) and path.endswith(suf):
+            return lbl
+    return ""
 
 
 #: 兜底白名单（10-19 测试 GAP-10）：只有真实存在的 API 首段才允许成为模块
@@ -126,11 +145,6 @@ def _module_for(path: str) -> str:
     rest = path[len("/api/v1/"):] if path.startswith("/api/v1/") else path.lstrip("/")
     mod = rest.split("/", 1)[0] or "system"
     return mod if mod in _KNOWN_FIRST_SEGMENTS else "system"
-
-
-def _label_for(method: str, path: str) -> str:
-    """已登记端点的中文动作名；未登记返回空串（走通用模板）。"""
-    return EVENT_LABELS.get((method, path), "")
 
 
 def _fmt_seconds(duration_ms: float) -> str:

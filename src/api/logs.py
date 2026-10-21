@@ -241,15 +241,35 @@ def logs_cleanup() -> dict[str, Any]:
 #  错误聚合 / 前端采集 / 导出诊断包（2026-09-01 日志机制方案 C）
 # ═══════════════════════════════════════════════════════════════════
 
+#: 客户端性质错误（4xx 类：参数/频控/防闸拒绝）判据——语义码 + 人话标记
+#: 双轨。多数防护码未登记 error_handler._SEMANTIC_HTTP 的 4xx 档位
+#: （缺省 200），故靠此策展清单；新增校验/防护拒绝时在此登记。
+_CLIENT_ERROR_CODES = frozenset({
+    "SYSTEM_PARAM_INVALID", "SYSTEM_RATE_LIMITED", "SYSTEM_RESOURCE_NOT_FOUND",
+    "UPLOAD_TYPE_NOT_ALLOWED", "BROWSER_URL_NOT_ALLOWED",
+})
+_CLIENT_ERROR_MARKERS = ("参数校验失败", "请求体无法解析", "请求过于频繁",
+                         "不支持的文件类型", "仅允许访问", "名称过长",
+                         "时长超出上限", "超出生成上限")
+
+
 def _error_group_key(item: dict) -> tuple[str, str]:
-    """错误聚合分组键（SH-GAP-10，2026-10-21 拍板）：参数校验类 api_failed
-    （客户端 4xx 性质，learn/style 两域累计数千次的噪声大户）单独归入
-    api_param_invalid 桶——与真失败分榜，防「按 count 排序」时噪声把
-    真故障挤出视野；数据不删，只是分开展示。"""
+    """错误聚合分组键（SH-GAP-10，2026-10-21 拍板）：客户端性质 api_failed
+    （4xx 类——参数/频控/防闸拒绝，learn/style 两域数千次的噪声大户）
+    单独归入 api_client_error 桶——与真失败（5xx 类/引擎级故障）分榜，
+    防「按 count 排序」时噪声把真故障挤出视野；数据不删，只分榜。"""
     module = str(item.get("module") or "?")
     event = str(item.get("event") or "?")
-    if event == "api_failed" and "参数校验失败" in str(item.get("friendly") or ""):
-        event = "api_param_invalid"
+    if event == "api_failed":
+        friendly = str(item.get("friendly") or "")
+        detail = str(item.get("detail") or "")
+        code = ""
+        if "code=" in detail:
+            seg = detail.split("code=", 1)[1]
+            code = seg.split()[0].rstrip(";,") if seg.split() else ""
+        if (code in _CLIENT_ERROR_CODES
+                or any(m in friendly for m in _CLIENT_ERROR_MARKERS)):
+            event = "api_client_error"
     return module, event
 
 

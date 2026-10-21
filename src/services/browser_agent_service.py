@@ -1671,12 +1671,15 @@ class BrowserAgentService:
                             friendly="AI 执行页面操作") as n:
                         self.execute_action(session, action)
                         n.output(f"已访问 {session.pages_visited} 页")
-                    # 6. 知识提取（内容页才提取）
+                    # 6. 知识提取（F-6A 拍板 B，2026-10-21：会话来源跳过
+                    # 分类器判定——页面已由选页闸（主题关键词）把过关；
+                    # 分类器对 zhihu 类 JS 站误判非内容致提取未调用
+                    # （G4 终验 8 页 0 条第 4 层）。密度/质检/主题闸照卡，
+                    # 导航页由 <100 字最短门槛挡住）
                     new_knowledge: list = []
-                    if understanding.get("is_content_page"):
-                        new_knowledge = self.extract_knowledge(
-                            session, page_data)
-                        self._mark_subgoals(session, page_data)
+                    new_knowledge = self.extract_knowledge(
+                        session, page_data)
+                    self._mark_subgoals(session, page_data)
                     # 7. 评估
                     self.evaluate_progress(session, new_knowledge)
                     # 8. 检查点（每 5 分钟）

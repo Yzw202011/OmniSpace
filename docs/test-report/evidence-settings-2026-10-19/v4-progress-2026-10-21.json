@@ -1,0 +1,55 @@
+{
+ "date": "2026-10-21T00:45+08:00",
+ "bug11": {
+  "fix_commit": "da948b3",
+  "verify": "diagnose 激活=已实现未启用(warn)/指纹=pass 3路"
+ },
+ "v4_executed": [
+  "R-02",
+  "R-03",
+  "R-04",
+  "R-05",
+  "R-06",
+  "R-10",
+  "R-12",
+  "R-15",
+  "R-16",
+  "R-17",
+  "V-01",
+  "V-02",
+  "V-07",
+  "V-08",
+  "V-09",
+  "V-10",
+  "V-11",
+  "V-12",
+  "V-19",
+  "V-22",
+  "V-23",
+  "V-24"
+ ],
+ "v4_findings": [
+  "V-09 billing 现为优雅降级(success=true+supported=false+404文案)",
+  "两测红先于本笔存在(并发WIP静默except+5/cloud_slots真机泄漏,stash对照实证)"
+ ],
+ "fourpages_executed": [
+  "数据真源确认:chat/sessions 6会话",
+  "novel data.items+五表(novel_projects/outlines/chapters/characters/foreshadows)",
+  "comic /comic/project/list 路由在",
+  "manga /manga/storyboard/list 通"
+ ],
+ "fourpages_findings": [
+  "AB-05 定谳:consistency 列现 schema 已不存在=历史恒空列连列移除",
+  "AB-01 部分证据:倾城实体列 characters/props 已回填、scene 空——定谳需新切分项目(💰批)",
+  "CH 测试会话残留:probe-r22-smoke/搜索今天星期几(A-10 清场对象)"
+ ],
+ "pre_existing_reds": [
+  "test_module_health_feed::test_api_silent_except_not_worsening(并发WIP+5)",
+  "test_cloud_slots::test_probe_cloud_api_states(真机providers泄漏,stash对照实证)"
+ ],
+ "remaining": {
+  "v4": "A~U 各组零成本未扫项+窗口/烧钱批",
+  "fourpages": "394 条零成本批主体未动(生命周期/面板/颗粒/残缺审计)",
+  "money_window": "Q-04/05/06、I-01、X-01、Y-02 等💰单+窗口批"
+ }
+}

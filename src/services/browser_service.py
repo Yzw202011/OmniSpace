@@ -604,6 +604,15 @@ def _w_close_context(w: _BrowserWorker) -> str:
 
 def _w_current_page(w: _BrowserWorker) -> Any:
     if not w.current_tab or w.current_tab not in w.pages:
+        # N-20（2026-10-21）：current_tab 楔死自愈——标签崩溃后引用残留
+        # （current_tab 有值但 pages 无此页）时清残引用并走标准无标签
+        # 路径（navigate 会自动新建标签）。原实现直接抛错致会话 0 页
+        # 跛行（「没有活动标签页」×N 直至预算耗尽，10-21 凌晨实录）。
+        if w.current_tab:
+            log.warning("活动标签引用失效（标签崩溃残留），自愈重建标签")
+            w.current_tab = None
+            w.pages.clear()
+    if not w.current_tab or w.current_tab not in w.pages:
         raise PageOperationError(ERR_PAGE_OPERATION,
                                  "没有活动标签页，请先新建标签页或导航")
     return w.pages[w.current_tab]

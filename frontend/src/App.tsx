@@ -588,7 +588,19 @@ export default function App() {
       lastWarn.set(key, now);
       useAppStore.getState().showToast(msg, 'warning');
     };
+    // SH-GAP-05（2026-10-21）：断线自动重连成功后的轻提示——只在确实
+    // 经历过重连（reconnecting→open）时提示，首次连接不弹
+    let sawReconnecting = false;
+    const offStatus = conn.onStatus((st) => {
+      if (st === 'reconnecting') {
+        sawReconnecting = true;
+      } else if (st === 'open' && sawReconnecting) {
+        sawReconnecting = false;
+        useAppStore.getState().showToast('实时通道已恢复 ✓', 'success');
+      }
+    });
     const offs = [
+      offStatus,
       conn.on<{ level?: string; message?: string }>('notification', (d) => {
         if (!d?.message) return;
         useAppStore.getState().showToast(

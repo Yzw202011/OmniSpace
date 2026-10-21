@@ -103,17 +103,17 @@ interface PendingResend {
   timer: number | null;
   pollsLeft: number;
 }
-let _pendingResend: PendingResend | null = null;
+let _pendingResends: PendingResend[] = [];
 const _RESEND_POLL_MS = 3000;
 const _RESEND_MAX_POLLS = 120; // 6 分钟：覆盖 vLLM 冷启动 2-3 分钟+裕量
 const _RESEND_WAITING_HINT = '[等待模型就绪后自动补发…]';
 
-/** 取消待补发（新发送/补发超时时调用） */
-function cancelPendingResend(): void {
-  if (_pendingResend?.timer != null) {
-    clearInterval(_pendingResend.timer);
+/** 撤销一条待补发（补发完成/超时时调用；SH-GAP-06 队列制后互不误杀） */
+function _removePendingResend(pending: PendingResend): void {
+  if (pending.timer != null) {
+    clearInterval(pending.timer);
   }
-  _pendingResend = null;
+  _pendingResends = _pendingResends.filter((p) => p !== pending);
 }
 
 /** 旧档位标签 → 缺省完整 model_id（localStorage 兼容迁移） */
@@ -466,8 +466,9 @@ export const useDialogStore = create<DialogState>((set, get) => ({
 
     const sessionId = currentSession.id;
 
-    // 新发送取代旧的待补发（同一时刻至多一条在等待）
-    cancelPendingResend();
+    // 待补发为队列制（SH-GAP-06，2026-10-21）：新发送不再取消旧的
+    // 待补发——此前单条变量下「连发第二条会误杀第一条」，导致旧消息
+    // 占位气泡永挂+内容丢失。各补发独立轮询引擎就绪并原样补发。
 
     // 1. 追加用户消息（plugin_skill=本地气泡标注，随 plugin_context 即焚）
     const userMsg: DialogMessage = {
@@ -1006,17 +1007,17 @@ export const useDialogStore = create<DialogState>((set, get) => ({
   },
 }));
 
-/** 武装待补发轮询：引擎就绪即撤占位并原样补发一次；超时诚实报错。
- *  已切到其他会话则放弃补发（气泡占位随服务端真值回放自然消失）。 */
+/** 武装待补发轮询（SH-GAP-06 队列制）：每条独立轮询引擎就绪，就绪即撤
+ *  占位原样补发一次；超时诚实报错。多条并存互不干扰（此前单条变量下
+ *  新补发会取消旧补发=丢消息）。已切到其他会话则暂缓补发（占位气泡随
+ *  服务端真值回放自然消失，切回后继续轮询补发）。 */
 function _armResendPoll(pending: PendingResend): void {
-  cancelPendingResend();
-  _pendingResend = pending;
+  _pendingResends.push(pending);
   const tick = async (): Promise<void> => {
-    const cur = _pendingResend;
-    if (cur !== pending) return;
-    cur.pollsLeft -= 1;
-    if (cur.pollsLeft <= 0) {
-      cancelPendingResend();
+    if (!_pendingResends.includes(pending)) return;
+    pending.pollsLeft -= 1;
+    if (pending.pollsLeft <= 0) {
+      _removePendingResend(pending);
       useDialogStore.setState((state) => ({
         messages: state.messages.map((m) =>
           m.id === pending.assistantMsgId
@@ -1028,11 +1029,11 @@ function _armResendPoll(pending: PendingResend): void {
     }
     try {
       const st = await dialogApi.getDialogEngineStatus();
-      if (_pendingResend !== pending || st.state !== 'ready') return;
+      if (!_pendingResends.includes(pending) || st.state !== 'ready') return;
     } catch {
       return; // 状态查询失败：下个周期再试
     }
-    cancelPendingResend();
+    _removePendingResend(pending);
     const snap = useDialogStore.getState();
     if (snap.currentSession?.id !== pending.sessionId) return;
     // 用户消息尚未落库（失败发生在后端落库前）：撤本地占位后原样补发

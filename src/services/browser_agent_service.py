@@ -1623,9 +1623,23 @@ class BrowserAgentService:
                         continue
                     # 3. 理解
                     understanding = self.understand_page(page_data)
-                    # 4. 分级决策（TASK-052：classify_page → 快速/慢速路径）
-                    action = self.decide_action_graded(
-                        session, understanding, page_data)
+                    # 3.5 F-6A 治理拍板 A（2026-10-21）：选页智能——离题页
+                    # （零关键词命中）快进：跳过滚动阅读，直接换关键词回搜索
+                    # （浏览时间花在主题页；提取入口闸已挡离题入库）
+                    _gate_kws = sorted({kw for sg in (session.sub_goals or [])
+                                        for kw in (sg.keywords or []) if kw})
+                    _text_low = (page_data.get("text") or "").lower()
+                    if _gate_kws and not any(kw.lower() in _text_low
+                                             for kw in _gate_kws):
+                        session.log_entry("topic_gate", "页面零关键词命中",
+                                          "快进翻页")
+                        action = {"choice": "D",
+                                  "keyword": _next_keyword(session),
+                                  "reason": "主题闸：离题页快进回搜索"}
+                    else:
+                        # 4. 分级决策（TASK-052：classify_page → 快速/慢速路径）
+                        action = self.decide_action_graded(
+                            session, understanding, page_data)
                     # 5. 执行（追踪节点：轮次动作即心跳）
                     self.record_action(
                         session, f"{action.get('choice', '?')}"

@@ -1275,8 +1275,26 @@ class BrowserAgentService:
         # F-6A 拍板 A（2026-10-21）：提取入口主题闸——页面文本与主题关键
         # 词零命中则跳过提取（页面仍浏览；离题页不消耗提取算力不入库，
         # G4 实测 T 恤/厂商页脚随豁免混入的治理）。无关键词主题不设闸。
-        kws = sorted({kw for sg in (session.sub_goals or [])
-                      for kw in (sg.keywords or []) if kw})
+        # N-18（同日）：关键词集 = 子目标关键词（AI 生成，主题名变体）
+        # ∪ 主题自有关键词（用户设定语义源）——G4 实测子目标关键词全是
+        # 主题名变体（「摄影构图技巧 入门教程」），摄影站页面含「构图」
+        # 却不含完整短语 → 零命中误跳过。
+        kws = {kw for sg in (session.sub_goals or [])
+               for kw in (sg.keywords or []) if kw}
+        try:
+            from ..data.database import get_db_safe
+            _db = get_db_safe()
+            if _db is not None and session.topic_id:
+                row = _db.query_one(
+                    "SELECT keywords FROM learning_topics WHERE id=?",
+                    (session.topic_id,))
+                if row and row.get("keywords"):
+                    for kw in json.loads(row["keywords"] or "[]"):
+                        if kw:
+                            kws.add(kw)
+        except Exception:  # noqa: BLE001 - 关键词补源失败不阻断
+            log.debug("主题自有关键词读取失败: %s", exc_info=True)
+        kws = sorted(kws)
         if kws:
             hits = sum(1 for kw in kws if kw.lower() in text.lower())
             if hits == 0:

@@ -155,10 +155,20 @@ def main() -> int:
     subprocess.Popen([str(boot), "launcher/boot.py"], cwd=str(DRILL),
                      creationflags=0x08000000, shell=False)  # CREATE_NO_WINDOW
     port = discover_drill_port(base_build, 300)
-    check("基座启动+端口发现", port is not None,
-          f"未发现 build={base_build} 的实例" if port is None else f":{port}")
     if port is None:
+        # 死因速报：基座 boot 日志里找拒绝启动的措辞（版本隔离守卫等）
+        bootlog = DRILL / "logs" / "boot.log"
+        reason = ""
+        if bootlog.is_file():
+            for line in reversed(bootlog.read_text(
+                    encoding="utf-8", errors="replace").splitlines()):
+                if "不接管" in line or "拒绝启动" in line or "退位" in line:
+                    reason = line.strip()[:150]
+                    break
+        check("基座启动+端口发现", False,
+              reason or f"300s 未发现 build={base_build} 的实例")
         return 4
+    check("基座启动+端口发现", True, f":{port}")
 
     # ── ② 导入+验签 ──────────────────────────────────────────────
     boundary, body = multipart(upg.name, upg.read_bytes())

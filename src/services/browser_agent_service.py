@@ -1272,6 +1272,17 @@ class BrowserAgentService:
         url = page_data.get("url", "") or session.current_url
         if len(text.strip()) < 100:
             return []
+        # F-6A 拍板 A（2026-10-21）：提取入口主题闸——页面文本与主题关键
+        # 词零命中则跳过提取（页面仍浏览；离题页不消耗提取算力不入库，
+        # G4 实测 T 恤/厂商页脚随豁免混入的治理）。无关键词主题不设闸。
+        kws = sorted({kw for sg in (session.sub_goals or [])
+                      for kw in (sg.keywords or []) if kw})
+        if kws:
+            hits = sum(1 for kw in kws if kw.lower() in text.lower())
+            if hits == 0:
+                log.info("提取入口主题闸: 页面零关键词命中，跳过提取 | "
+                         f"关键词={kws[:5]} url={url[:60]}")
+                return []
         ks = _resolve_knowledge_service()
         if ks is None:
             log.debug("knowledge_service 不可用，跳过知识提取")

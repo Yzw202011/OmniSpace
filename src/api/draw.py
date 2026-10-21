@@ -12,8 +12,10 @@
 - GET  /paint/queue              任务队列快照（pending 按调度序 + running）
 - GET  /draw/history             生成历史（favorite/start/end/width/height/keyword 筛选）
 - POST /paint/history/{id}/favorite  收藏切换/设置
-- DELETE /paint/history/{id}     删除单条历史（含图文件）
-- POST /paint/history/batch-delete   批量删除历史（ids 数组）
+- POST /paint/history/batch-delete   批量删除历史（ids 数组，含图文件；
+  单条删除=ids 传一个。此前头部虚标 DELETE /paint/history/{id} 单条
+  路由——本文件实无任何 DELETE 装饰器（2026-10-21 训练中心战役清理
+  探针图时实测 404 定谳）
 - GET  /draw/models              绘画模型路由表 + 实际可用状态
 - POST /draw/controlnet/preview  ControlNet 预览（无模型时 degraded 如实告知）
 - GET  /draw/status              绘画引擎状态

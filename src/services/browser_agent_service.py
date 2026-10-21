@@ -672,8 +672,24 @@ def rule_based_decision(session: LearningSession,
 
 
 def _next_keyword(session: LearningSession) -> str:
-    """按子目标顺序取下一个搜索关键词（TC-S-012：仅通用关键词）。"""
+    """按子目标顺序取下一个搜索关键词（TC-S-012：仅通用关键词）。
+
+    N-21（2026-10-21）：关键词轮换优先用户设定语义关键词（主题卡
+    keywords 字段），子目标名变体仅作补充——主题名作搜索词是无意义
+    查询（G4 终验实证：搜索结果全离题 → 主题闸快进死循环）。
+    """
     keywords: list[str] = []
+    try:
+        from ..data.database import get_db_safe
+        _db = get_db_safe()
+        if _db is not None and session.topic_id:
+            row = _db.query_one(
+                "SELECT keywords FROM learning_topics WHERE id=?",
+                (session.topic_id,))
+            if row and row.get("keywords"):
+                keywords.extend(json.loads(row["keywords"] or "[]"))
+    except Exception:  # noqa: BLE001 - 关键词补源失败降级子目标集
+        log.debug("_next_keyword: 主题关键词读取失败", exc_info=True)
     for g in session.sub_goals:
         keywords.extend(g.keywords)
     if not keywords:
@@ -1623,19 +1639,22 @@ class BrowserAgentService:
                         continue
                     # 3. 理解
                     understanding = self.understand_page(page_data)
-                    # 3.5 F-6A 治理拍板 A（2026-10-21）：选页智能——离题页
-                    # （零关键词命中）快进：跳过滚动阅读，直接换关键词回搜索
-                    # （浏览时间花在主题页；提取入口闸已挡离题入库）
+                    # 3.5 F-6A 治理拍板 A（2026-10-21）：选页智能——离题
+                    # 内容页（零关键词命中的非搜索页）快进：跳过滚动阅读，
+                    # 直接换关键词回搜索（N-21：搜索结果页豁免——结果页
+                    # 文本本可不含关键词，交给正常决策点结果）
                     _gate_kws = sorted({kw for sg in (session.sub_goals or [])
                                         for kw in (sg.keywords or []) if kw})
                     _text_low = (page_data.get("text") or "").lower()
-                    if _gate_kws and not any(kw.lower() in _text_low
-                                             for kw in _gate_kws):
-                        session.log_entry("topic_gate", "页面零关键词命中",
-                                          "快进翻页")
+                    if (_gate_kws
+                            and not understanding.get("is_search_result")
+                            and not any(kw.lower() in _text_low
+                                        for kw in _gate_kws)):
+                        session.log_entry("topic_gate", "离题内容页快进",
+                                          "换关键词回搜索")
                         action = {"choice": "D",
                                   "keyword": _next_keyword(session),
-                                  "reason": "主题闸：离题页快进回搜索"}
+                                  "reason": "主题闸：离题内容页快进回搜索"}
                     else:
                         # 4. 分级决策（TASK-052：classify_page → 快速/慢速路径）
                         action = self.decide_action_graded(

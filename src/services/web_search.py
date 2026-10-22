@@ -305,9 +305,11 @@ def run_web_search(question: str, settings: dict | None = None) -> list[SearchRe
         return _browser_search(query, top_k, timeout_s)
 
     # 级联：选定的主力优先，失败（异常/空结果）回退浏览器兜底；
-    # 主力本就是 browser 时不重复尝试
+    # M8 根修（2026-10-21）：browser 为主力时追加 searxng/bocha 作为
+    # 回退通道（此前 order 去重后仅剩 [browser] 零回退——R15 日志
+    # 反爬全灭实锤）。回退顺序：browser→searxng→bocha→(空)。
     order: list[str] = []
-    for name in (provider, "browser"):
+    for name in (provider, "browser", "searxng", "bocha"):
         if name not in order:
             order.append(name)
     results: list[SearchResult] = []

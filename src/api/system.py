@@ -284,7 +284,9 @@ async def system_backup() -> dict[str, Any]:
         "app_version": APP_VERSION,
         "backup_id": backup_id,
         "created_at": time.time(),
-        "settings": _redact_remote_key(_settings),
+        # M10 根修（2026-10-21 审计）：_settings 是内存态，重启后未被
+        # KV 回填——改用 _load_persisted_settings()（与自动链一致）
+        "settings": _redact_remote_key(_load_persisted_settings()),
     }
 
     def _write_settings_backup() -> str:

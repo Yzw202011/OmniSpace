@@ -22,6 +22,7 @@ from ..services import novel_service as svc
 from ..services.novel_service import (
     NovelJob,
     build_export_text,
+    build_summary_prompt,
     check_foreshadows,
     get_job_queue,
 )
@@ -446,6 +447,34 @@ def novel_chapter_update(chapter_id: str,
         data["summary"] = str(body.get("summary") or "").strip()[:300]
     db.update("novel_chapters", data, "id=?", (chapter_id,))
     return ok({"id": chapter_id})
+
+
+@router.post("/novel/chapter/{chapter_id}/summary")
+async def novel_chapter_summary_regen(chapter_id: str) -> dict[str, Any]:
+    """重生成章节摘要（2026-10-22 拍板 A：替代置空/污染的历史遗留）。
+
+    复用章节生成同款管道：build_summary_prompt + _llm_sync（对话引擎
+    同步核，未就绪自动装载）。正文为空时拒绝（无可概括）。
+    """
+    db = _db()
+    ch = await run_blocking(lambda: db.query_one(
+        "SELECT * FROM novel_chapters WHERE id=?", (chapter_id,)))
+    if ch is None:
+        raise ApiError("NOVEL_CHAPTER_NOT_FOUND", detail={"id": chapter_id})
+    if ch.get("status") == "generating":
+        raise ApiError("NOVEL_CHAPTER_BUSY", "本章正在生成中，稍后再试")
+    content = ch.get("content") or ""
+    if not content.strip():
+        raise ApiError("NOVEL_CHAPTER_EMPTY",
+                       "本章正文为空，无可概括的内容",
+                       suggestion="先「生成本章」或粘贴正文后再重生成摘要")
+    prompt = build_summary_prompt(ch.get("title") or "", content)
+    summary = await run_blocking(
+        svc._llm_sync, prompt, temperature=0.2, max_new_tokens=256)
+    summary = summary.strip().splitlines()[0][:300] if summary.strip() else ""
+    db.update("novel_chapters", {"summary": summary, "updated_at": _now()},
+              "id=?", (chapter_id,))
+    return ok({"id": chapter_id, "summary": summary})
 
 
 @router.delete("/novel/chapter/{chapter_id}")

@@ -359,5 +359,13 @@
    "错字即盲区:道标≠追标,一个字错=三轮误判"
   ],
   "cumulative_total": "累计实弹 ~97 项；定谳 30(+H-05 翻正)；折叠功能确认存在(非挂账项)"
+ },
+ "batch2": {
+  "date": "2026-10-22T08:10+08:00",
+  "done": [
+   "summary 端点 ✅ 新功能:POST /novel/chapter/{id}/summary(复用 build_summary_prompt+_llm_sync,空正文拒/生成中拒),实弹重生成第1章真摘要(林川穿越/黑炉/JAVA代码)落库无污染——比置空方案更进一步(拍板 A 重生成语义完整达成)",
+   "37 novel 单测绿/ruff 过/正规链重启"
+  ],
+  "cumulative_total": "累计实弹 ~97 项；定谳 31；缺陷修复 12(BUG-11+L-03 改判+summary 清洗+端点新功能)"
  }
 }

@@ -247,5 +247,13 @@
    "AC-12 ✅ 定谳:主题四页跟随(tech 切后 /chat /novel /paint /storyboard 四页 data-family=tech 全跟,还原 dali-light)"
   ],
   "cumulative_total": "累计实弹 ~84 项；定谳 24(+AC-12)；BUG-11 已修；真残缺 2+残缺候选 2 挂拍板"
+ },
+ "wave20": {
+  "date": "2026-10-22T05:20+08:00",
+  "done": [
+   "AE-05 ✅ 四页快切 20 次无崩(main 存活)",
+   "R-01 🔶 预览点击后 12 img 渲染(overlay 时序未捕捉,转 snapshot 细项)"
+  ],
+  "cumulative_total": "累计实弹 ~86 项；定谳 25(+AE-05)；BUG-11 已修；真残缺 2+残缺候选 2 挂拍板；🔶 2(R-01/Z-03)+A-01旧"
  }
 }

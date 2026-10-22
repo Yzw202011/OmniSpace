@@ -391,6 +391,9 @@ CREATE TABLE IF NOT EXISTS novel_foreshadows (
     updated_at          REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_novel_foreshadows_project ON novel_foreshadows(project_id);
+CREATE INDEX IF NOT EXISTS idx_comic_assets_scope_face ON comic_assets(scope, face);
+CREATE INDEX IF NOT EXISTS idx_dialog_sessions_updated ON dialog_sessions(updated_at);
+CREATE INDEX IF NOT EXISTS idx_keyframes_project ON keyframes(project_id);
 """
 
 

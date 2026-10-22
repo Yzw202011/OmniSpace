@@ -1092,6 +1092,16 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
                 None)
             if last_done is not None:
                 prev_tail = (last_done.get("content") or "")[-PREV_TAIL_CHARS:]
+        # H9 补提示（2026-10-21 审计）：紧邻前章未完成时写入警告
+        if prev_rows:
+            _last_prev = prev_rows[-1]
+            if _last_prev.get("status") not in ("done",):
+                log.warning(
+                    "H9 前章断链: 章 %s 的前章 %s 状态=%s（非 done），"
+                    "衔接可能不连贯",
+                    job.chapter_id, _last_prev.get("chapter_index"),
+                    _last_prev.get("status"))
+
         characters = await run_blocking(lambda: db.query(
             "SELECT name, role, summary FROM novel_characters "
             "WHERE project_id=? ORDER BY created_at", (job.project_id,)))

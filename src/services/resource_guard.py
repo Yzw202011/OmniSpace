@@ -91,6 +91,9 @@ class ResourceGuard:
         self._last_event = "normal"       # normal/ram_soft/ram_shed/vram_shed
         self._last_event_at = 0.0
         self._last_detail: str = ""
+        # M3 迟滞带（2026-10-21 审计）：卸载后 RAM 回落到触发线-7%才
+        # 解除卸载活跃态——防"卸→任务重载→回高→再卸"振荡。
+        self._ram_shed_active = False
 
     @classmethod
     def instance(cls) -> ResourceGuard:
@@ -115,7 +118,14 @@ class ResourceGuard:
             self._soft_collect()
 
         # RAM 动作线（≥85%）：强制降载空闲模型
-        if mem_used_percent >= RAM_HARD_RATIO * 100:
+        # M3 迟滞带（2026-10-21 审计）：触发后需回落到触发线-7%才解除
+        # 卸载活跃态——防"卸→重载→回高→再卸"振荡（4131 行实测日均 64 次）
+        _ram_recovery = RAM_HARD_RATIO * 100 - 7.0
+        if self._ram_shed_active:
+            if mem_used_percent < _ram_recovery:
+                self._ram_shed_active = False
+        elif mem_used_percent >= RAM_HARD_RATIO * 100:
+            self._ram_shed_active = True
             self._shed_ram(mem_used_percent)
 
         # VRAM 动作线（≥90%）：卸载空闲模型直到回到线下

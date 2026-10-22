@@ -222,6 +222,22 @@ STREAM_READ_TIMEOUT_S = 180.0
 WARMUP_TIMEOUT_S = 240.0
 
 
+# R7 P1 根修（2026-10-21）：TCP 连接复用——暖态每请求 /health 探测+
+# chat_stream 均新建 TCP（三次握手），Session 单例消除延迟税
+_http_session = None
+_http_lock = __import__("threading").Lock()
+
+
+def _get_http():
+    global _http_session
+    if _http_session is None:
+        with _http_lock:
+            if _http_session is None:
+                import requests
+                _http_session = requests.Session()
+    return _http_session
+
+
 class VLLMService:
     """vLLM OpenAI 兼容服务子进程生命周期管理（进程内单例）。
 
@@ -278,7 +294,7 @@ class VLLMService:
             return False
         try:
             import requests
-            resp = requests.get(HEALTH_URL, timeout=3.0)
+            resp = _get_http().get(HEALTH_URL, timeout=3.0)
             return resp.status_code == 200
         except Exception:  # noqa: BLE001 - 健康探测失败按未就绪
             return False
@@ -508,6 +524,53 @@ class VLLMService:
         except Exception:  # noqa: BLE001 - 探测失败保持旧行为
             log.debug("_vram_admission_wait: 降级忽略", exc_info=True)
         return True
+
+    def boot_feasible_now(
+        self, model_dir: str | Path | None = None,
+    ) -> tuple[bool, str]:
+        """启动可行性快检（2026-09-30 一致性守卫排队卡顿根修）。
+
+        点火前 1s 出结论：空闲显存 vs 可行下限（盘上权重实值 + 运行
+        地板 4.2GB + MTP 1.3GB，口径与 vllm_backend 让档判定同源）。
+        旧路径（2026-09-30 01:17 实录）：守卫每图点火 vLLM → 准入按
+        预分配 13.6G 放行 → 子进程 92s 后 OOM 死（code=1）→ 重试被
+        拒 → 再回落 vl-4b，每张图白烧 ~3.5 分钟且与下一绘画任务抢
+        显存。探测失败按可行（True）——由 start() 内 60s 准入闸兜底，
+        快检只做「恒不可行」的短路，不改变可装机器的行为。
+        """
+        try:
+            mdir = Path(model_dir) if model_dir \
+                else MODELS_DIR / DEFAULT_MODEL_REL
+            weight_b = sum(
+                f.stat().st_size
+                for f in mdir.glob("*.safetensors") if f.is_file())
+            if weight_b == 0:
+                return True, "probe-no-weights-on-disk"
+            try:
+                from ..services.inference.gpu_budget import (
+                    read_physical_bytes,
+                )
+                from .gpu_domains import resolve_feature_device
+                dev = resolve_feature_device("dialog")
+            except Exception:  # noqa: BLE001 - 单卡/探测失败回落主卡
+                dev = 0
+            ok, free_b, _total_b = read_physical_bytes(dev, torch_only=True)
+            if not ok:
+                return True, "probe-read-blind"
+            from ..services.vram_policy import (
+                VLLM_FLOOR_OVERHEAD_GB,
+                VLLM_MTP_EXTRA_GB,
+            )
+            floor_gb = weight_b / 2 ** 30 + VLLM_FLOOR_OVERHEAD_GB
+            if mtp_spec_enabled(mdir):
+                floor_gb += VLLM_MTP_EXTRA_GB
+            free_gb = free_b / 2 ** 30
+            if free_gb < floor_gb:
+                return False, (f"空闲 {free_gb:.1f}GB < "
+                               f"可行下限 ~{floor_gb:.1f}GB")
+            return True, f"free {free_gb:.1f}GB ≥ floor {floor_gb:.1f}GB"
+        except Exception as exc:  # noqa: BLE001 - 快检失败不拦点火
+            return True, f"probe-failed: {exc}"
 
     def start(
         self,
@@ -959,6 +1022,19 @@ class VLLMService:
                 return True  # 已有后台启动或进程常驻：复用，不叠加线程
             self._booting = True
         mdir = Path(model_dir) if model_dir else MODELS_DIR / DEFAULT_MODEL_REL
+        # 可行性快检单点收口（2026-09-30）：start_async 是守卫点火/队列
+        # 排空去抖/常驻预热三条路径的唯一汇聚点——恒不可行（空闲 < 权重
+        # +地板）直接跳过，免得子进程起来 92s OOM 死还抢下一绘画任务
+        # 的显存。直连 start() 的对话装载路径不走此口（自带让档判定）。
+        try:
+            _ok, _why = self.boot_feasible_now(mdir)
+            if not _ok:
+                log.info("vLLM 预热点火跳过（可行性快检不可行：%s）", _why)
+                with self._booting_lock:
+                    self._booting = False
+                return False
+        except Exception:  # noqa: BLE001 - 快检异常不拦点火（旧行为兜底）
+            log.debug("start_async 可行性快检异常（放行）", exc_info=True)
 
         def _bg_run() -> None:
             try:

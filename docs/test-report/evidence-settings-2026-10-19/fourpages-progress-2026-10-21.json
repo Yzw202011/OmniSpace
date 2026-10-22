@@ -311,5 +311,25 @@
    "F-04 ✅ TXT/MD 下载双 fired(SessionList 行内导出钮+选择态)",
    "summary 清洗✅ 第1章置空(重生成端点不存在,挂 P3)"
   ]
+ },
+ "wave26_final": {
+  "date": "2026-10-22T07:40+08:00",
+  "resolved": [
+   "今日防呆件实为 pre_restore_1792660504.db.enc(BUG-10 加密生效,glob *.db 失明)——恢复链全链无缺陷",
+   "summary 污染被 H-12 忠实回滚(证明 H-12 忠实性),已重新清洗置空"
+  ],
+  "lessons": [
+   "glob .db 漏 .db.enc(BUG-10 加密副作用)",
+   "copy2 保留 mtime→mtime 排序不可用于防呆件选新",
+   "文件名 epoch 排序才可靠"
+  ],
+  "final_state": {
+   "settings": "font=14/theme=dali-light/browser/full 全基线",
+   "bindings": "7 槽,manga.video=用户自改(非测试)",
+   "projects": "5 全在",
+   "novel": "逆天邪神+summary 已清洗",
+   "sessions": "3(含重命名实测)",
+   "pre_restore_today": ".enc 在档"
+  }
  }
 }

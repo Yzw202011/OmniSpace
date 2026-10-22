@@ -297,5 +297,19 @@
  "soak30min": {
   "date": "2026-10-22T07:20+08:00",
   "result": "✅ 30 分钟挂机 0 崩溃，RAM 稳定 19.3~20.3GB，health 全 200——稳定性长跑通过（soak30min.log 全记录）"
+ },
+ "batch_paiBan": {
+  "date": "2026-10-22T07:30+08:00",
+  "approved": [
+   "💰B 全量10单",
+   "⚠️A 恢复+审计+断链",
+   "summary A 清洗(置空)",
+   "F-03/04 A 都补"
+  ],
+  "done": [
+   "F-03 翻案✅ 重命名全链(TESTAUTO-重命名实测-会话落库)",
+   "F-04 ✅ TXT/MD 下载双 fired(SessionList 行内导出钮+选择态)",
+   "summary 清洗✅ 第1章置空(重生成端点不存在,挂 P3)"
+  ]
  }
 }

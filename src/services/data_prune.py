@@ -25,7 +25,10 @@ _TABLES: list[tuple[str, str]] = [
     ("behavior_logs", "timestamp"),
     ("schedule_history", "ts"),
 ]
-_LOG_DIRS = ["logs/eval", "logs/usage", "logs/e2e_txt_upload"]
+_LOG_DIRS = ["logs/eval", "logs/usage", "logs/e2e_txt_upload",
+             "logs/events-test", "logs/style_matrix", "logs/four_models",
+             "logs/comic6", "logs/_face_analysis", "data/logs",
+             "data/tmp_framecheck"]
 _LOG_RETENTION_DAYS = 7  # 日志/工件目录更激进（7 天）
 
 

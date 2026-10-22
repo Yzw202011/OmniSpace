@@ -197,7 +197,9 @@ async def voices_preview(req: VoicePreviewRequest) -> dict[str, Any]:
         import base64
         audio_b64 = base64.b64encode(raw).decode("ascii")
         # is_ready=False（fallback/未加载）时 synthesize 走回退管线
-        degraded = not engine.is_ready
+        # H27 补充（2026-10-21 审计）：合成成功但走了 mock/SAPI5 回退时
+        # is_ready 仍 True——追加 fallback_backend 检查（R22 P1 实锤）
+        degraded = not engine.is_ready or bool(engine.fallback_backend)
         fallback_backend = engine.fallback_backend
     except Exception as exc:  # noqa: BLE001
         log.warning("试听合成失败，使用占位音频: %s", exc, exc_info=True)

@@ -720,6 +720,9 @@ class VoiceEngine(BaseEngine):
 
         except Exception as e:
             log.error("语音合成失败: %s", e)
+            # H27 修复（2026-10-21）：失败回退时标记——API 层据此判
+            # degraded=True（此前 is_ready 恒 True=伪 AI 音色不打标）
+            self._last_fallback_backend = "mock"
             return self._mock_synthesize(voice_id, text, emotion)
 
     def _synthesize_cosyvoice(

@@ -8,7 +8,8 @@
  */
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Pin, Pencil, Trash2, Flower2, ListChecks, X } from 'lucide-react';
+import { Pin, Pencil, Trash2, Flower2, ListChecks, X, Download } from 'lucide-react';
+import { getSession } from '@/services/dialogApi';
 
 /** 会话项 */
 export interface ChatSession {
@@ -70,6 +71,9 @@ export function SessionList({
   /** 行内重命名编辑态 */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  /** 行内导出格式选择态（F-04：导出单会话 TXT/MD） */
+  const [exportId, setExportId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   /** 会话搜索关键词（受控于父级搜索回调） */
   const [keyword, setKeyword] = useState('');
   /** 批量管理模式：勾选集 / 删除中 / 批量删除二次确认 */
@@ -121,6 +125,38 @@ export function SessionList({
     }
     setEditingId(null);
     setEditingTitle('');
+  }
+
+  /** F-04（2026-10-22 拍板 A）：导出单会话 TXT/MD——拉全量消息组装后 blob 下载 */
+  async function doExportSession(id: string, title: string, format: 'txt' | 'md') {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const d = await getSession(id);
+      const msgs = d.messages || [];
+      const safeName = (title || '未命名对话').replace(/[\\/:*?"<>|]/g, '_');
+      const head = format === 'md' ? `# ${title}\n\n` : `${title}\n${'='.repeat(Math.min(title.length, 40))}\n\n`;
+      const body = msgs.map((m) => {
+        const who = m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : m.role || '系统';
+        const stamp = m.created_at ? new Date(m.created_at > 1e12 ? m.created_at : m.created_at * 1000).toLocaleString() : '';
+        return format === 'md'
+          ? `**${who}**${stamp ? ` _${stamp}_` : ''}：\n\n${m.content || ''}\n\n---\n`
+          : `[${stamp}] ${who}：\n${m.content || ''}\n`;
+      }).join(format === 'md' ? '\n' : '\n');
+      const text = head + body;
+      const blob = new Blob([text], { type: format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeName}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // 导出失败静默回退格式选择态，用户可重试
+    } finally {
+      setExporting(false);
+      setExportId(null);
+    }
   }
 
   // 置顶优先，再按更新时间倒序
@@ -402,6 +438,50 @@ export function SessionList({
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                         ) : null}
+                        {/* F-04：导出单会话（点击后行内选 TXT/MD） */}
+                        {exportId === s.id ? (
+                          <span className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              disabled={exporting}
+                              onClick={() => void doExportSession(s.id, s.title, 'txt')}
+                              title="导出 TXT"
+                              className="h-7 px-1.5 rounded-md text-[11px] text-[var(--color-text-secondary)] hover:text-sakura-600 hover:bg-sakura-50 disabled:opacity-50"
+                            >
+                              TXT
+                            </button>
+                            <button
+                              type="button"
+                              disabled={exporting}
+                              onClick={() => void doExportSession(s.id, s.title, 'md')}
+                              title="导出 Markdown"
+                              className="h-7 px-1.5 rounded-md text-[11px] text-[var(--color-text-secondary)] hover:text-sakura-600 hover:bg-sakura-50 disabled:opacity-50"
+                            >
+                              MD
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setExportId(null)}
+                              aria-label="取消导出"
+                              className="w-6 h-7 rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-divider)]"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExportId(s.id);
+                            }}
+                            aria-label={`导出对话 ${s.title}`}
+                            title="导出"
+                            className="w-7 h-7 rounded-md text-[var(--color-text-tertiary)] hover:text-sakura-600 hover:bg-sakura-50 flex items-center justify-center"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {

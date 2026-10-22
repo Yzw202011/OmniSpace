@@ -35,7 +35,7 @@ TEXT_EXT = {".py", ".bat", ".ps1", ".cmd", ".yaml", ".yml", ".toml",
 # 发行白名单（CRITICAL 区）：目录、(扩展名集合, 跳过的子目录名)
 # 注：tools/ 降到 WARN——它是开发工具箱，发行只挑个别文件（P1 make_dist 自带文件级白名单）
 CRITICAL_DIRS = [
-    ("backend", TEXT_EXT, set()),
+    ("src", TEXT_EXT, set()),
     ("frontend/src", TEXT_EXT, set()),
     ("frontend/vite.config.ts", TEXT_EXT, set()),
     ("launcher", TEXT_EXT, set()),

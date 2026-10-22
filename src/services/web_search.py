@@ -37,7 +37,7 @@ _TIMELY_RE = re.compile(
     r"今天|今日| latest|最新|最近|近来|现在|目前|当前|新闻|热搜|价格|多少钱|"
     r"报价|发布|上线|更新|版本|比分|天气|汇率|股价|排行|榜单|下载|"
     r"202[4-9]|20[3-9][0-9]", re.I)
-_FORCE_PREFIX = ("搜索:", "搜索：", "search:", "联网")
+_FORCE_PREFIX = ("搜索：", "搜索:", "联网：", "联网:", "search:", "联网")
 
 
 def get_web_search_settings() -> dict:
@@ -279,7 +279,7 @@ def run_web_search(question: str, settings: dict | None = None) -> list[SearchRe
     cfg = settings or get_web_search_settings()
     query = " ".join((question or "").strip().split())
     # "搜索:" 前缀剥离（意图判定的 force 标记不进查询词）
-    query = re.sub(rf"^{'|'.join(_FORCE_PREFIX)}\s*", "", query).strip()
+    query = re.sub(rf"^(?:{'|'.join(_FORCE_PREFIX)})\s*", "", query, flags=re.I).strip()
     if not query:
         return []
 

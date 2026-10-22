@@ -1542,6 +1542,17 @@ class BrowserAgentService:
         session.status = "running"
         session.started_at = time.time()
         session.last_checkpoint_at = time.time()
+        # 流量游标预置（R20 P2 根修 2026-10-21）：游标默认 0 会让同
+        # worker 的第二个会话起算时把浏览器启动以来的全部流量重复计入
+        # （41% 会话冤死 traffic_limit 的根因）——领取浏览器后立刻
+        # 对齐当前累计值，只记本会话的增量。
+        try:
+            session.last_traffic_bytes = int(
+                get_browser_service().get_traffic_stats()
+                .get("total_bytes", 0))
+        except Exception:  # noqa: BLE001 - 预置失败不阻断（退回旧口径）
+            log.debug("run_learning_session: 流量游标预置失败（降级忽略）",
+                      exc_info=True)
         # 新会话=用户明确要看 AI 操作：清除上一会话遗留的用户接管标志
         # （否则循环 L1477 判定 is_user_takeover 会话永久挂起 paused、0 操作）
         try:

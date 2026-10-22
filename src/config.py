@@ -144,8 +144,11 @@ DIALOG_MAX_PREFILL_TOKENS = int(_cfg["dialog"].get("max_prefill_tokens", 3072))
 
 # ── 漫剧 ─────────────────────────────────────────────────────────
 STORYBOARD_MAX_ROWS = _cfg["manga"]["max_storyboard_rows"]
+# [废] 审计 R24：零消费方死键，保留仅防 ImportError——待下版删除
 PANORAMA_RESOLUTIONS = _cfg["manga"]["panorama_resolutions"]
+# [废] 同上
 CAMERA_PRESETS = _cfg["manga"]["camera_presets"]
+# [废] 同上
 POSE_PRESETS_COUNT = _cfg["manga"]["pose_presets_count"]
 VOICE_PRESET_EMOTIONS = _cfg["manga"]["voice_preset_emotions"]
 

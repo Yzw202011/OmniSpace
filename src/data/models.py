@@ -577,6 +577,10 @@ class BubbleLine(BaseModel):
     w: float | None = Field(default=None, ge=0.1, le=1.0)
     # 关联角色资产（空=旁白）；名字由前端按资产解析展示
     asset_id: str | None = Field(default=None, max_length=64)
+    # 前端气泡唯一标识（R1→R23 元老 P1 根修：此前被 pydantic 剥离）
+    bid: str | None = Field(default=None, max_length=64)
+    # 镜反状态（前端左右翻转）；此前同样被剥离导致刷新即丢
+    flipped: bool | None = None
 
 
 class StoryboardRowUpdate(BaseModel):

@@ -336,12 +336,24 @@ class VideoTaskQueue:
         self._budget_admit(task)
 
     def _budget_admit(self, task: dict) -> None:
-        """gpu_budget 顾问判定+登记（批2）：need_gb=0 登记式调用，
-        任务级显存需求估计批4 接档位表；任何异常不阻断任务。"""
+        """gpu_budget 顾问判定+登记（批2）。
+
+        R17 P1 根修（2026-10-21）：need_gb 从恒 0 改为取 model_manager
+        的 H3 显存覆盖表值（minimax-h3=13.0GB），使预算账本至少知道
+        视频的真实需求量级；advisory=True 仍不拦截（准入强度暂维持
+        顾问式，待与 dialog/paint 准入统一后升级为 blocking）。"""
+        need = 0.0
+        try:
+            from ..data.models import _VRAM_OVERRIDES
+            mid = str(task.get("model_override") or "minimax-h3")
+            need = float(_VRAM_OVERRIDES.get(mid, 0.0))
+        except Exception:  # noqa: BLE001
+            pass
         try:
             from .inference.gpu_budget import get_gpu_budget
             r = get_gpu_budget().request(
-                "video_gen", note=str(task.get("task_id")), advisory=True)
+                "video_gen", need_gb=need,
+                note=str(task.get("task_id")), advisory=True)
             task["_budget_token"] = r.busy_token
         except Exception as exc:  # noqa: BLE001 - 顾问失败不影响任务
             log.debug("gpu_budget 顾问判定跳过: %s", exc)

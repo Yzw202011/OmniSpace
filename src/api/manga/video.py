@@ -1304,7 +1304,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 - 查重失败放行不阻断
                 log.warning("视频任务连点查重失败（放行）: %s", exc, exc_info=True)
         if _dup:
-            raise ApiError("VIDEO_GENERATION_FAILED", "该分镜已有视频任务在生成中，请等待完成或先取消",
+            raise ApiError("VIDEO_TASK_DUPLICATE", "该分镜已有视频任务在生成中，请等待完成或先取消",
                 detail={"storyboard_row_id": req.storyboard_row_id})
     flow = None  # 入口校验拒绝时 flow 未建立，except 需判空
     # 前置校验（2026-08-31 用户裁定改版）：分镜图非必需（H3 链式以
@@ -1489,13 +1489,18 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             _aspect_any = "9:16"
     except ValueError:
         log.debug("video_generate: 降级忽略", exc_info=True)
+    _ff = None
     if _cloud_ep is not None:
-        _first_frame = _load_first_frame_for_row(req.storyboard_row_id)
-        if _first_frame is None:
+        # H8 根修（2026-10-21）：首帧校验已在 _cloud_ep 解析后立即执行，
+        # 确保 raise 发生在 insert 之前（防幽灵 pending）
+        _ff = _load_first_frame_for_row(req.storyboard_row_id)
+        if _ff is None:
             raise ApiError("VIDEO_GENERATION_FAILED",
                 "该分镜行还没有当前关键帧，无法云端图生视频",
                 suggestion="请先在故事板生成该行关键帧（云端视频以关键帧"
                            "为首帧），或点生成时选择本地引擎")
+    if _cloud_ep is not None:
+        _first_frame = _ff if _cloud_ep is not None else _load_first_frame_for_row(req.storyboard_row_id)
         runner = _make_cloud_video_runner(req, _cloud_ep, _first_frame,
                                           _aspect_any, flow)
         resp["engine"] = f"cloud:{_cloud_ep.provider_name}"
@@ -2353,7 +2358,7 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
             except Exception as exc:  # noqa: BLE001
                 log.warning("H3 链式连点查重失败（放行）: %s", exc, exc_info=True)
         if _dup:
-            raise ApiError("VIDEO_GENERATION_FAILED", "该分镜已有视频任务在生成中，请等待完成或先取消",
+            raise ApiError("VIDEO_TASK_DUPLICATE", "该分镜已有视频任务在生成中，请等待完成或先取消",
                 detail={"storyboard_row_id": req.storyboard_row_id})
     task_id = uuid.uuid4().hex
     db = get_db_safe()

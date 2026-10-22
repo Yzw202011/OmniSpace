@@ -460,6 +460,13 @@ def main() -> int:
         print(f"已注入发行公钥（激活门禁生效）：{args.pubkey[:16]}…")
         # 激活二期（2026-09-19）：公钥双藏副本（A6b 交叉验证第二份）
         from license_console.crypto_core import pubkey_xor_hex
+
+        # H5 哨兵（2026-10-21 审计）：无 --pubkey 的发行包=零激活门，
+        # 商业化出厂前必须补传。此警告确保漏传不可静默。
+        print("=" * 60)
+        print("⚠️ 警告：本次出包未注入发行公钥——激活门禁不会生效！")
+        print("⚠️ 商业发行必须加 --pubkey <hex> 参数重新打包")
+        print("=" * 60)
         x_val = pubkey_xor_hex(args.pubkey)
         patched_x = patched.replace('PUBKEY_HEX_X = ""',
                                     f'PUBKEY_HEX_X = "{x_val}"')

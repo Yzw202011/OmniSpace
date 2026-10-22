@@ -1552,7 +1552,7 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
                 # （直跑可与队列任务并发抢 ComfyUI）。镜像 comic_asset 的
                 # submit_and_wait 模式；paint 锁仍由本端点持有（与 draw
                 # 同款"先持锁再入队"，队列只管顺序不重复加锁）
-                from ..services.task_queue import get_image_queue
+                from ...services.image_queue import get_image_queue
                 result = await get_image_queue().submit_and_wait({
                     "task_id": f"preview:{(row_id or 'x')[:12]}:"
                                f"{time.time_ns():x}",

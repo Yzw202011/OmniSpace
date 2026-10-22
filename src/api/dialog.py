@@ -2211,6 +2211,7 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                 loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
         producer = loop.run_in_executor(None, _produce)
+        _ws_alive = True
         try:
             if web_refs:
                 await websocket.send_json(
@@ -2228,8 +2229,14 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                 elif kind == "done":
                     break
             await producer
+        except Exception:
+            # H7 修复（2026-10-21）：WS 断开=客户端消失——停止推理+保存
+            # 半截回复，防 GPU 空转+回复黑洞
+            _ws_alive = False
+            _stop_flags.add(sid)
         finally:
-            _stop_flags.discard(sid)
+            if not _ws_alive:
+                _stop_flags.discard(sid)
 
         reply = "".join(collected)
         reasoning_full = "".join(reasoning_parts)

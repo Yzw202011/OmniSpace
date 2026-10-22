@@ -1179,7 +1179,7 @@ async def _stream_response(engine: DialogEngine, lock: FeatureLockManager,
                         if not text:
                             continue
                         produced += 1
-                        if produced % 16 == 0:  # 心跳节流：16 片段一次
+                        if produced % 64 == 0:  # 心跳节流：64 片段一次（R15 P1：原 16→每千 token 约 180 条 SQL，64→约 45 条降低 75% 写放大）
                             gen_node.progress(f"已生成 {produced} 片段")
                         if kind == "reasoning":
                             reasoning_parts.append(text)

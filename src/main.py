@@ -426,6 +426,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # noqa: BLE001 - 修剪失败不阻断启动
         log.warning("数据修剪启动失败（忽略）", exc_info=True)
 
+    # X5 冻结探针（2026-10-22 拍板：30s 心跳+日志停写 5min 抓 WER）
+    try:
+        from .services.freeze_probe import start_freeze_probe
+        start_freeze_probe()
+    except Exception:  # noqa: BLE001 - 探针失败不阻断启动
+        log.warning("冻结探针启动失败（忽略）", exc_info=True)
+
     yield
 
     # 关闭

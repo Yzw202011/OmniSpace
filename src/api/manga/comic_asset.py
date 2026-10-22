@@ -96,13 +96,19 @@ def _end_asset_flow(flow: Flow | None, status: str, *, error_code: str = "",
 
 
 def _asset_row_to_dict(r: dict) -> dict:
-    return {"asset_id": r["id"], "project_id": r.get("project_id", ""),
-            "kind": r.get("kind", "character"), "name": r.get("name", ""),
-            "file_path": r.get("file_path", ""), "prompt": r.get("prompt", ""),
-            "meta": parse_json(r.get("meta"), {}),
-            "created_at": r.get("created_at", 0),
-            "scope": r.get("scope") or "project",
-            "face": r.get("face") or "manga"}
+    d = {"asset_id": r["id"], "project_id": r.get("project_id", ""),
+         "kind": r.get("kind", "character"), "name": r.get("name", ""),
+         "file_path": r.get("file_path", ""), "prompt": r.get("prompt", ""),
+         "meta": parse_json(r.get("meta"), {}),
+         "created_at": r.get("created_at", 0),
+         "scope": r.get("scope") or "project",
+         "face": r.get("face") or "manga"}
+    # H11 防护（2026-10-22 拍板"只修代码"）：标记文件断链——前端据
+    # 此提示"文件丢失"而非静默 404；DB 行保留不删（等你确认再清）
+    fp = str(d.get("file_path") or "").strip()
+    if fp and not (DATA_DIR / fp).is_file():
+        d["file_missing"] = True
+    return d
 
 
 def _asset_kind_endpoint(kind: str) -> Callable[[AssetGenerateRequest], Awaitable[dict[str, Any]]]:

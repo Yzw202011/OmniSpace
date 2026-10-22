@@ -43,12 +43,23 @@ except Exception:  # pragma: no cover - 降级路径
     log.info("ChromaDB 不可用，向量数据库降级为内存关键词检索")
 
 # ── 嵌入模型可用性探测 ───────────────────────────────────────
-_EMBED_AVAILABLE = False
-try:
-    from sentence_transformers import SentenceTransformer  # type: ignore
-    _EMBED_AVAILABLE = True
-except Exception:  # pragma: no cover - 降级路径
-    log.debug("<module>: 降级忽略", exc_info=True)
+# M14 根修（2026-10-22 审计）：顶层 import sentence_transformers 占
+# import src.main ~4.5s（含 torch 链）——改函数内懒加载（bge 只在
+# warmup/encode 时才真正需要），_EMBED_AVAILABLE 探测延迟到首次使用。
+_EMBED_AVAILABLE: bool | None = None  # None=未探测
+
+
+def _embed_available() -> bool:
+    """嵌入模型可用性（惰性探测——首次调用才 import）。"""
+    global _EMBED_AVAILABLE
+    if _EMBED_AVAILABLE is None:
+        try:
+            from sentence_transformers import SentenceTransformer  # noqa: F401
+            _EMBED_AVAILABLE = True
+        except Exception:  # pragma: no cover - 降级路径
+            _EMBED_AVAILABLE = False
+            log.debug("嵌入模型不可用，向量库降级为关键词检索")
+    return _EMBED_AVAILABLE
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -192,7 +203,7 @@ class VectorDB:
         TASK-033：加载本地 BGE-large-zh（models/embed/bge-large-zh，1024 维）。
         优先使用 CUDA（可用时），加载失败返回 None 由调用方走哈希回退。
         """
-        if not _EMBED_AVAILABLE:
+        if not _embed_available():
             return None
         if self._embed_model is None:
             if not EMBED_MODEL_PATH.exists():

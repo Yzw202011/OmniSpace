@@ -116,6 +116,16 @@ def setup_logging(level: str | None = None,
         return logging.getLogger("omnispace")
 
     log_level = level or LOG_LEVEL
+    # M21 根修（2026-10-22 审计）：启动回放 KV 日志级别——设置页改级别
+    # 写 KV 即时生效但重启静默回退 yaml 值（KV 零读取点）。yaml 是缺省，
+    # KV 是用户态——用户态优先。
+    try:
+        from ..data.settings_kv import kv_get
+        _kv_level = kv_get("system.log_level", "")
+        if _kv_level:
+            log_level = _kv_level
+    except Exception:  # noqa: BLE001 - KV 不可用时用 yaml 缺省
+        pass
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
 
     # 确保日志目录存在

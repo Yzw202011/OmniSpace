@@ -162,5 +162,23 @@ async def list_available_models(task_type: str = Query("dialog")) -> dict[str, A
         from .video_caps import tiers_for
         for it in items:
             it["tiers"] = tiers_for(str(it.get("id") or ""))
+    # M24 修复（2026-10-23 审计，二轮重写）：default_model 为 cloud::
+    # 但不在 items 中——默认指向的云端工位已解绑/换绑，前端无匹配项
+    # 会误显本地模型。追加降级可见项让默认选择可感知；此处不做端点
+    # 解析：端点若可解析，上方云端追加块必已放入同 id 项，走不进本
+    # 分支（上轮实现因传错槽位名 manga-paint/manga-video/manga-dialog
+    # 恒返 None，属死代码已废）。
+    _effective_default = default_model or ""
+    if _effective_default.startswith("cloud::") and \
+            not any(m.get("id") == _effective_default for m in items):
+        items.append({
+            "id": _effective_default,
+            "name": "云端模型（当前未绑定）",
+            "status": "cloud",
+            "vram_gb": 0,
+            "speed_label": "",
+            "notes": "默认指向的云端工位未绑定或已变更，请重新选择",
+        })
+
     return ok({"items": items, "total": len(items),
-               "default_model": default_model or ""})
+               "default_model": _effective_default})

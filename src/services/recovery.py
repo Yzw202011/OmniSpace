@@ -73,8 +73,10 @@ def sweep_stale_tasks() -> dict[str, int]:
     # 学习会话 running→interrupted（既有状态词，browser_agent_service
     # 自身即用 interrupted；崩溃遗留 running 行=僵尸会话，F-14 实锤）
     try:
+        # R2-H5（2026-10-24）：中断也是终态，ended_at 一并落（此前恒 0）
         n = db.sql("UPDATE learning_sessions SET status='interrupted',"
-                   " stop_reason=? WHERE status='running'", ("应用退出中断",))
+                   " stop_reason=?, ended_at=? WHERE status='running'",
+                   ("应用退出中断", time.time()))
         if n:
             swept["learning_sessions"] = n
     except Exception:  # noqa: BLE001 - 表不存在跳过

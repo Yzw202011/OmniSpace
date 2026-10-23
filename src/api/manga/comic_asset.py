@@ -28,6 +28,7 @@ from ...data.models import (
     AssetBindRequest,
     AssetGenerateRequest,
     AssetInferRequest,
+    AssetPromoteProjectRequest,
     AssetRegenerateViewRequest,
     AssetTurnaroundRequest,
     AssetUpdateRequest,
@@ -599,6 +600,24 @@ def comic_asset_to_global(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     return ok({"asset": _asset_row_to_dict(row), "already_global": False})
+
+
+@router.post("/comic/asset/promote-project")
+def comic_asset_promote_project(req: AssetPromoteProjectRequest) -> dict[str, Any]:
+    """项目资产整体转全局（R2-H1 修复 2026-10-24）。
+
+    2026-09-30 用户令「资产只分作品/全部」：离开项目页时前端
+    （MangaWorkspace/ComicWorkspace 离开钩子）调用本端点把项目名下资产
+    整体转全局域——但该端点从未在后端落地，前端每次离开页面静默 404，
+    资产作用域迁移从未生效（R2 实锤双端从未对齐）。复用删除链同款
+    assets_to_global（磁盘目录同步迁移+scope 翻转）。幂等：项目无
+    project 态资产返回 promoted=0；项目不存在同幂等语义（空清单）。
+    """
+    db = get_db_safe()
+    if db is None:
+        raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法转换资产")
+    promoted = assets_to_global(db, req.project_id)
+    return ok({"promoted": promoted})
 
 
 @router.put("/comic/asset/unbind")

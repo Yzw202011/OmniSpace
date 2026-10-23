@@ -323,6 +323,8 @@ class LearningSession:
     logs: list[dict] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     started_at: float = 0.0
+    # R2-H5 修复（2026-10-24）：会话结束时间此前从未落库（129 行实测全 0）
+    ended_at: float = 0.0
     last_checkpoint_at: float = 0.0
     # 运行态（不入检查点的控制标志）
     stop_requested: bool = False
@@ -1310,12 +1312,12 @@ class BrowserAgentService:
                             kws.add(kw)
         except Exception:  # noqa: BLE001 - 关键词补源失败不阻断
             log.debug("主题自有关键词读取失败: %s", exc_info=True)
-        kws = sorted(kws)
-        if kws:
-            hits = sum(1 for kw in kws if kw.lower() in text.lower())
+        kw_list = sorted(kws)
+        if kw_list:
+            hits = sum(1 for kw in kw_list if kw.lower() in text.lower())
             if hits == 0:
                 log.info("提取入口主题闸: 页面零关键词命中，跳过提取 | "
-                         f"关键词={kws[:5]} url={url[:60]}")
+                         f"关键词={kw_list[:5]} url={url[:60]}")
                 return []
         ks = _resolve_knowledge_service()
         if ks is None:
@@ -1797,6 +1799,9 @@ class BrowserAgentService:
                 "hard_time_cap", "traffic_limit", "all_login_walls",
                 "op_limit", "user_stop")
                 else "interrupted")
+        # R2-H5（2026-10-24）：结束时间随终态一并落库（此前恒 0）
+        if not session.ended_at:
+            session.ended_at = time.time()
         session.log_entry("session_end", f"会话结束: {reason}",
                           f"页数={session.pages_visited} "
                           f"知识={session.knowledge_extracted} "

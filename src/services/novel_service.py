@@ -943,29 +943,33 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
         # 落库：旧大纲树与待写章清掉重建（人在回路 = 生成后逐节点可改）
         pid = job.project_id
         now = _now()
-        # 2026-09-26 修复：此前只清 status='pending' 旧章——done/error 章
-        # 保留导致「重新生成大纲」后同名章节 x2 并存（用户实测重复章）。
-        # 大纲已整树重建，旧章的 outline_id 全部孤儿化，必须全清。
-        await run_blocking(lambda: db.delete("novel_chapters", "project_id=?", (pid,)))
-        await run_blocking(lambda: db.delete("novel_outlines", "project_id=?", (pid,)))
+        # R2-H3 真修（2026-10-24）：删旧+插新全程单事务。此前逐语句
+        # autocommit——中途失败=旧章（含 done 正文章）已删而新树未建，
+        # 用户数据真丢失窗口（R2 实锤「大纲重建非事务丢正文章」）。
+        # payload 先在纯 Python 侧构建（2026-09-26 两闸一并保留），
+        # 再一把提交（execute_in_transaction=storyboard 全量保存同款，
+        # 审计 R3-P2 模式；fn 内用裸连接，禁止回调 db.insert——写锁
+        # 不可重入）。
+        # 闸 1（2026-09-26）：done/error 旧章一并清——只清 pending 会
+        # 导致重建后同名章节 x2 并存（用户实测重复章）。
+        # 闸 2（2026-09-26 去重）：LLM 偶发跨卷重复章（实测「逆命之战」
+        # 与「万界之巅」各插同名章）——保首个，重复丢弃并记日志。
         book_id = uuid.uuid4().hex
-        await run_blocking(lambda: db.insert("novel_outlines", {
-            "id": book_id, "project_id": pid, "parent_id": "", "level": "book",
-            "sort_index": 0, "title": data["title"],
-            "content": data["logline"], "created_at": now, "updated_at": now}))
-        ch_no = 0
-        # 2026-09-26 去重闸：LLM 大纲偶发跨卷重复章节（实测「逆命之战」卷
-        # 与「万界之巅」卷各插同名章）——prompt 已加禁令，落库侧兜底跳过
-        # 与已插章节同名的章（保首个，重复的丢弃并记日志）。
+        outline_rows: list[dict] = [{
+            "id": book_id, "project_id": pid, "parent_id": "",
+            "level": "book", "sort_index": 0, "title": data["title"],
+            "content": data["logline"], "created_at": now, "updated_at": now}]
+        chapter_rows: list[dict] = []
         seen_titles: set[str] = set()
         dropped_dups = 0
+        ch_no = 0
         for vi, vol in enumerate(data["volumes"]):
             vol_id = uuid.uuid4().hex
-            await run_blocking(lambda vi=vi, vol=vol, vol_id=vol_id: db.insert("novel_outlines", {
+            outline_rows.append({
                 "id": vol_id, "project_id": pid, "parent_id": book_id,
                 "level": "volume", "sort_index": vi, "title": vol["title"],
                 "content": vol["summary"], "created_at": now,
-                "updated_at": now}))
+                "updated_at": now})
             for ci, ch in enumerate(vol.get("chapters") or []):
                 title_key = str(ch.get("title") or "").strip()
                 if title_key in seen_titles:
@@ -975,16 +979,33 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
                 seen_titles.add(title_key)
                 ch_no += 1
                 node_id = uuid.uuid4().hex
-                await run_blocking(lambda ch=ch, ci=ci, node_id=node_id, vol_id=vol_id: db.insert("novel_outlines", {
+                outline_rows.append({
                     "id": node_id, "project_id": pid, "parent_id": vol_id,
                     "level": "chapter_outline", "sort_index": ci,
                     "title": ch["title"], "content": ch["outline"],
-                    "created_at": now, "updated_at": now}))
-                await run_blocking(lambda ch=ch, ch_no=ch_no, node_id=node_id: db.insert("novel_chapters", {
+                    "created_at": now, "updated_at": now})
+                chapter_rows.append({
                     "id": uuid.uuid4().hex, "project_id": pid,
                     "outline_id": node_id, "chapter_index": ch_no,
                     "title": ch["title"], "status": "pending",
-                    "created_at": now, "updated_at": now}))
+                    "created_at": now, "updated_at": now})
+        _serialize = db._serialize
+
+        def _rebuild_txn(conn) -> None:
+            conn.execute("DELETE FROM novel_chapters WHERE project_id=?",
+                         (pid,))
+            conn.execute("DELETE FROM novel_outlines WHERE project_id=?",
+                         (pid,))
+            for tbl, rows in (("novel_outlines", outline_rows),
+                              ("novel_chapters", chapter_rows)):
+                for p in rows:
+                    cols = list(p.keys())
+                    vals = [_serialize(p[c]) for c in cols]
+                    conn.execute(
+                        f"INSERT INTO {tbl} ({', '.join(cols)}) "
+                        f"VALUES ({', '.join('?' * len(cols))})", vals)
+
+        await run_blocking(lambda: db.execute_in_transaction(_rebuild_txn))
         req["stage"] = "done"
         req["detail"] = f"完成：{len(data['volumes'])} 卷 {ch_no} 章"
         from ..services.event_log import log_event

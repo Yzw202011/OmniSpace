@@ -486,18 +486,20 @@ def _persist_session_row(session: LearningSession) -> None:
         db.sql(
             "INSERT INTO learning_sessions (id, topic_id, goal, budget, "
             "status, pages_visited, knowledge_extracted, coverage, "
-            "stop_reason, started_at, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "stop_reason, started_at, ended_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
             "pages_visited=excluded.pages_visited, "
             "knowledge_extracted=excluded.knowledge_extracted, "
             "coverage=excluded.coverage, "
-            "stop_reason=excluded.stop_reason, updated_at=excluded.updated_at",
+            "stop_reason=excluded.stop_reason, "
+            "ended_at=excluded.ended_at, updated_at=excluded.updated_at",
             (session.session_id, session.topic_id, session.goal,
              json.dumps(session.budget.to_dict(), ensure_ascii=False),
              session.status,
              session.pages_visited, session.knowledge_extracted,
              session.coverage, session.stop_reason, session.started_at,
+             session.ended_at,  # R2-H5：终态时由 _finalize_session 写入
              session.created_at, now))
     except Exception as exc:  # noqa: BLE001
         log.debug("会话落库失败（忽略）: %s", exc)

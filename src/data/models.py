@@ -791,6 +791,20 @@ class AssetAdoptRequest(BaseModel):
         return _check_safe_name(v)
 
 
+class AssetPromoteProjectRequest(BaseModel):
+    """项目资产整体转全局（R2-H1 修复 2026-10-24：离开项目页钩子调用）。
+
+    project_id 与 adopt 同规矩过路径安全校验——下游 assets_to_global
+    会 rmtree 项目资产目录。
+    """
+    project_id: str
+
+    @field_validator("project_id")
+    @classmethod
+    def _safe_pid(cls, v: str) -> str:
+        return _check_safe_name(v)
+
+
 class AssetUpdateRequest(BaseModel):
     """资产元信息更新（竞品对齐）：仅更新非 None 字段。"""
     name: str | None = Field(default=None, max_length=100)

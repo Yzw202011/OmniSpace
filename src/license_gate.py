@@ -24,6 +24,10 @@ except ImportError:  # 公开仓库克隆者：无真身，走占位
 if _impl is not None:  # 开发/出包机：真身全量接管（显式逐名转发）
     GateError: type[Exception] = _impl.GateError
     PUBKEY_HEX = _impl.PUBKEY_HEX
+    # H6 v2 资产密钥（2026-10-24 拍板方案 A）：独立随机密钥，make_dist
+    # --asset-key 注入（与公钥同藏法但不再是公开值的哈希）；空=v2 关闭
+    ASSET_KEY_HEX = getattr(_impl, "ASSET_KEY_HEX", "")
+    ASSET_KEY_ID = getattr(_impl, "ASSET_KEY_ID", "")
     gate_enabled = _impl.gate_enabled
     collect_fingerprints = _impl.collect_fingerprints
     is_activated = _impl.is_activated
@@ -35,6 +39,8 @@ if _impl is not None:  # 开发/出包机：真身全量接管（显式逐名转
 else:
     PUBKEY_HEX = ""
     PUBKEY_HEX_X = ""
+    ASSET_KEY_HEX = ""
+    ASSET_KEY_ID = ""
 
     class _StubGateError(Exception):
         """激活失败（占位实现：本构建未启用门禁）。"""

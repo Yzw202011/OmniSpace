@@ -1244,7 +1244,7 @@ async def system_diagnose() -> dict[str, Any]:
 #   manifest.json    格式标识/版本/导出时间
 #   project.json     projects 行
 #   storyboard.json  storyboards 行 + storyboard_rows 全量
-#   director.json    director_stages / cameras / characters（分镜关联）
+#   director.json    恒空数组（3D 导演台 2026-08-29 剔除；保留成员仅为归档格式兼容）
 #   assets.json      资产清单（视频任务/音色 + 引用文件存在性快照）
 
 _ARCHIVE_FORMAT = "omnispace-project"
@@ -1272,23 +1272,13 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
         rows = db.query(
             "SELECT id, storyboard_id, shot_number, original_dialogue,"
             " description, characters, scene, props, voice_id,"
-            " voice_emotion, director_stage_done, generation_status,"
+            " voice_emotion, generation_status,"
             " is_ai_generated, sort_index"
             " FROM storyboard_rows WHERE storyboard_id=?"
             " ORDER BY sort_index ASC, shot_number ASC",
             (storyboard["id"],))
-        stages = db.query(
-            "SELECT id, storyboard_id, scene_id, name, panorama_path,"
-            " created_at FROM director_stages WHERE storyboard_id=?",
-            (storyboard["id"],))
-        for st in stages:
-            cameras += db.query(
-                "SELECT id, stage_id, name, position, rotation, fov"
-                " FROM director_cameras WHERE stage_id=?", (st["id"],))
-            characters += db.query(
-                "SELECT id, stage_id, character_id, name, position,"
-                " rotation, scale, locked"
-                " FROM director_characters WHERE stage_id=?", (st["id"],))
+        # 3D 导演台残留清除（2026-10-23）：director_* 三表已 DROP，
+        # 导出链不再读它们——stages/cameras/characters 恒空数组
         row_ids = [r["id"] for r in rows]
         for rid in row_ids:
             video_tasks += db.query(
@@ -1309,9 +1299,6 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
             fp = vt.get(key) or ""
             if fp:
                 referenced.append(fp)
-    for st in stages:
-        if st.get("panorama_path"):
-            referenced.append(st["panorama_path"])
     files_manifest = []
     for fp in sorted(set(referenced)):
         p = Path(fp)
@@ -1435,7 +1422,7 @@ async def system_project_import(req: ProjectImport) -> dict[str, Any]:
     """导入项目（规格 §4.7，审计 BK-042 真实恢复版）。
 
     路径经白名单校验（BK-028）→ 解析 .omnispace 归档 → 恢复
-    projects/storyboards/storyboard_rows/director_* 数据库记录。
+    projects/storyboards/storyboard_rows 数据库记录。
     任何一步失败均返回错误码，绝不谎报 imported:true。
     """
     path = _resolve_safe_path(req.file_path)  # BK-028 白名单 + 穿越校验
@@ -1449,21 +1436,22 @@ async def system_project_import(req: ProjectImport) -> dict[str, Any]:
 
     # 审计 R1-10：归档解析与多轮 SQLite 恢复均为阻塞 IO，
     # 经 run_blocking 卸载避免卡住事件循环
-    project, sb_pack, director = await run_blocking(
+    project, sb_pack = await run_blocking(
         _parse_project_archive, path)
     project_id, restored = await run_blocking(
-        _restore_project_records, db, project, sb_pack, director)
+        _restore_project_records, db, project, sb_pack)
 
     return ok({"project_id": project_id, "imported": True,
                "source": str(path), "restored": restored},
               message="项目导入完成")
 
 
-def _parse_project_archive(path: Path) -> tuple[dict, dict, dict]:
+def _parse_project_archive(path: Path) -> tuple[dict, dict]:
     """同步解析 .omnispace 归档（经 run_blocking 卸载的同步核心）。
 
-    返回 (project, storyboard_pack, director_pack)；容器/成员损坏时
-    抛 ApiError PROJECT_FILE_CORRUPTED。
+    返回 (project, storyboard_pack)；容器/成员损坏时
+    抛 ApiError PROJECT_FILE_CORRUPTED。旧归档的 director.json
+    （3D 导演台残留，2026-10-23 剔除）如存在则忽略。
     """
     try:
         zf = zipfile.ZipFile(path)
@@ -1478,15 +1466,15 @@ def _parse_project_archive(path: Path) -> tuple[dict, dict, dict]:
                            "归档格式标识无效（非 OmniSpace 项目归档）")
         project = _read_archive_json(zf, "project.json")
         sb_pack = _read_archive_json(zf, "storyboard.json") or {}
-        director = _read_archive_json(zf, "director.json", required=False) or {}
+        # director.json（3D 导演台残留）不再读取——旧归档如有该成员直接忽略
 
     if not isinstance(project, dict) or not project.get("id"):
         raise ApiError("PROJECT_FILE_CORRUPTED", "project.json 缺少项目记录")
-    return project, sb_pack, director
+    return project, sb_pack
 
 
-def _restore_project_records(db: Database, project: dict, sb_pack: dict,
-                             director: dict) -> tuple[str, dict]:
+def _restore_project_records(db: Database, project: dict,
+                             sb_pack: dict) -> tuple[str, dict]:
     """同步恢复项目数据库记录（经 run_blocking 卸载的同步核心）。
 
     id 冲突时重映射；任何失败级联删除已建项目（回滚）并抛
@@ -1528,59 +1516,13 @@ def _restore_project_records(db: Database, project: dict, sb_pack: dict,
                     "props": r.get("props", []),
                     "voice_id": r.get("voice_id", ""),
                     "voice_emotion": r.get("voice_emotion", "默认"),
-                    "director_stage_done": int(bool(r.get("director_stage_done", 0))),
                     "generation_status": r.get("generation_status", "pending"),
                     "is_ai_generated": int(bool(r.get("is_ai_generated", 0))),
                     "sort_index": int(r.get("sort_index", 0)),
                 })
                 restored["storyboard_rows"] += 1
-
-            stage_id_map: dict[str, str] = {}
-            for st in director.get("stages") or []:
-                if not isinstance(st, dict):
-                    continue
-                new_sid = _fresh_id(db, "director_stages", str(st.get("id", "")))
-                stage_id_map[str(st.get("id", ""))] = new_sid
-                db.insert("director_stages", {
-                    "id": new_sid, "storyboard_id": sb_id,
-                    "scene_id": st.get("scene_id", ""),
-                    "name": st.get("name", ""),
-                    "panorama_path": st.get("panorama_path", ""),
-                    "created_at": now,
-                })
-                restored["stages"] += 1
-            for cam in director.get("cameras") or []:
-                if not isinstance(cam, dict):
-                    continue
-                target_stage = stage_id_map.get(str(cam.get("stage_id", "")))
-                if not target_stage:
-                    continue
-                db.insert("director_cameras", {
-                    "id": _fresh_id(db, "director_cameras", str(cam.get("id", ""))),
-                    "stage_id": target_stage,
-                    "name": cam.get("name", ""),
-                    "position": cam.get("position", {}),
-                    "rotation": cam.get("rotation", {}),
-                    "fov": int(cam.get("fov", 60)),
-                })
-                restored["cameras"] += 1
-            for ch in director.get("characters") or []:
-                if not isinstance(ch, dict):
-                    continue
-                target_stage = stage_id_map.get(str(ch.get("stage_id", "")))
-                if not target_stage:
-                    continue
-                db.insert("director_characters", {
-                    "id": _fresh_id(db, "director_characters", str(ch.get("id", ""))),
-                    "stage_id": target_stage,
-                    "character_id": ch.get("character_id", ""),
-                    "name": ch.get("name", ""),
-                    "position": ch.get("position", {}),
-                    "rotation": ch.get("rotation", {}),
-                    "scale": float(ch.get("scale", 1.0)),
-                    "locked": int(bool(ch.get("locked", 0))),
-                })
-                restored["characters"] += 1
+            # 3D 导演台残留清除（2026-10-23）：director_* 三表已 DROP，
+            # 旧归档中的 director 数据不再恢复（stages/cameras/characters 恒 0）
     except ApiError:
         raise
     except Exception as exc:  # noqa: BLE001

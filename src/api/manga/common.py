@@ -189,10 +189,12 @@ _PLACEHOLDER_AUDIO = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAA
 _SB_COLS = "id, project_id, name, created_at, updated_at"
 _SB_ROW_COLS = ("id, storyboard_id, shot_number, original_dialogue, description,"
                 " characters, scene, props, voice_id, voice_emotion,"
-                " director_stage_done, generation_status, is_ai_generated,"
+                " generation_status, is_ai_generated,"
                 " sort_index, camera_type, camera_angle, camera_movement,"
                 " duration, transition, speed, volume, music_path, asset_id,"
                 " asset_ids, is_locked, bubble_x, bubble_y, bubble_w, bubbles")
+# director_stage_done 列已 DROP（3D 导演台 2026-08-29 剔除，2026-10-23 死列清理）
+# ——API 响应字段保留恒 False 兼容前端 schema（services/schema.ts 有 default）
 
 # 批 1.3 导演字段枚举（非法值 → SYSTEM_PARAM_INVALID）
 CAMERA_TYPES = ("特写", "近景", "中景", "全景", "远景", "俯拍", "仰拍", "主观镜头")
@@ -253,7 +255,6 @@ def _make_row(shot_number: int, **kw: Any) -> dict:
         "props": kw.get("props", []),
         "voice_id": kw.get("voice_id", ""),
         "voice_emotion": kw.get("voice_emotion", "默认"),
-        "director_stage_done": kw.get("director_stage_done", False),
         "generation_status": kw.get("generation_status", "pending"),
         "is_ai_generated": kw.get("is_ai_generated", False),
         "sort_index": kw.get("sort_index", 0),
@@ -302,7 +303,8 @@ def _row_to_storyboard_row(r: dict) -> dict:
         "props": parse_json(r.get("props"), []),
         "voice_id": r.get("voice_id", ""),
         "voice_emotion": r.get("voice_emotion", "默认"),
-        "director_stage_done": bool(r.get("director_stage_done", 0)),
+        # 3D 导演台已剔除：列已 DROP，字段保留恒 False（前端 schema 兼容）
+        "director_stage_done": False,
         "generation_status": r.get("generation_status", "pending"),
         "is_ai_generated": bool(r.get("is_ai_generated", 0)),
         "sort_index": int(r.get("sort_index", 0) or 0),
@@ -1149,7 +1151,6 @@ def _public_row_to_db(row: dict, storyboard_id: str, sort_index: int) -> dict:
         "props": row.get("props", []),
         "voice_id": row.get("voice_id", ""),
         "voice_emotion": row.get("voice_emotion", "默认"),
-        "director_stage_done": int(bool(row.get("director_stage_done", False))),
         "generation_status": row.get("generation_status", "pending"),
         "is_ai_generated": int(bool(row.get("is_ai_generated", False))),
         "sort_index": sort_index,

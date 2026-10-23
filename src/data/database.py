@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS storyboard_rows (
     props               TEXT DEFAULT '[]',   -- JSON 数组
     voice_id            TEXT DEFAULT '',
     voice_emotion       TEXT DEFAULT '默认',
-    director_stage_done INTEGER NOT NULL DEFAULT 0,
     generation_status   TEXT DEFAULT 'pending',
     is_ai_generated     INTEGER NOT NULL DEFAULT 0,
     sort_index          INTEGER NOT NULL DEFAULT 0,
@@ -199,43 +198,8 @@ CREATE TABLE IF NOT EXISTS scene_objects (
 );
 CREATE INDEX IF NOT EXISTS idx_scene_objects_project ON scene_objects(project_id);
 
--- 导演台场景
-CREATE TABLE IF NOT EXISTS director_stages (
-    id              TEXT PRIMARY KEY,
-    storyboard_id   TEXT NOT NULL,
-    scene_id        TEXT DEFAULT '',
-    name            TEXT DEFAULT '',
-    panorama_path   TEXT DEFAULT '',
-    created_at      REAL NOT NULL DEFAULT 0,
-    FOREIGN KEY (storyboard_id) REFERENCES storyboards(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_director_stages_sb ON director_stages(storyboard_id);
-
--- 导演台机位（规格 §3.2 CameraAdd / 4合1截图需恰好4个）
-CREATE TABLE IF NOT EXISTS director_cameras (
-    id          TEXT PRIMARY KEY,
-    stage_id    TEXT NOT NULL,
-    name        TEXT DEFAULT '',
-    position    TEXT DEFAULT '{}',   -- JSON {x,y,z}
-    rotation    TEXT DEFAULT '{}',   -- JSON {x,y,z}
-    fov         INTEGER DEFAULT 60,
-    FOREIGN KEY (stage_id) REFERENCES director_stages(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_director_cameras_stage ON director_cameras(stage_id);
-
--- 导演台角色（规格 §3.2 CharacterPositionUpdate / CharacterLock）
-CREATE TABLE IF NOT EXISTS director_characters (
-    id              TEXT PRIMARY KEY,
-    stage_id        TEXT NOT NULL,
-    character_id    TEXT DEFAULT '',
-    name            TEXT DEFAULT '',
-    position        TEXT DEFAULT '{}',
-    rotation        TEXT DEFAULT '{}',
-    scale           REAL DEFAULT 1.0,
-    locked          INTEGER NOT NULL DEFAULT 0,
-    FOREIGN KEY (stage_id) REFERENCES director_stages(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_director_chars_stage ON director_characters(stage_id);
+-- 3D 导演台三表（director_stages / director_cameras / director_characters）
+-- 已随导演台整链剔除（2026-08-29 裁定）删除建表语句与索引（2026-10-23 死表清理）
 
 -- 音色配置（规格 §3.2 VoiceProfile）
 CREATE TABLE IF NOT EXISTS voice_profiles (

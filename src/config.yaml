@@ -290,3 +290,10 @@ vllm:
 # 整链重跑代价分钟级×N）绝不自动重试。false=关闭自动重试回手动。
 video_auto_retry:
   enabled: true
+
+# ── 视频显存准入硬闸（H3 blocking，2026-10-23 用户拍板「开工」）──────
+# ComfyUI 不在时按 gpu_budget 硬闸判定：不足则让渡重试（默认 3×20s）
+# 后诚实拒单；ComfyUI 存活时 WDDM 按进程显存不可见，按顾问放行
+# （等价此前行为）。false=整链回退批2 顾问模式（误杀回滚杠杆）。
+video_admission_blocking:
+  enabled: true

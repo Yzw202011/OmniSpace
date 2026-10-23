@@ -53,10 +53,19 @@ log = logging.getLogger("omnispace.services.video_queue")
 _WAIT_POLL_S = 1.0
 # 热保护等待检查周期（秒）
 _THERMAL_POLL_S = 2.0
+# 显存硬闸（H3 准入 blocking，2026-10-23 用户拍板）：WAIT 判定的
+# 重试次数与间隔——期间反复让渡（vLLM 睡眠/绘画卸载）后再判，
+# 耗尽后转 DENY 诚实拒单。分钟级视频任务下 3×20s 总等待可接受
+_ADMISSION_RETRY_MAX = 3
+_ADMISSION_RETRY_WAIT_S = 20.0
 
 
 class VideoTaskCancelled(Exception):
     """视频任务取消信号（排队出队与运行中检查点共用）。"""
+
+
+class VideoAdmissionDenied(Exception):
+    """显存准入终局拒绝（H3 blocking）：重试让渡后仍不足，任务诚实失败。"""
 
 
 class VideoTaskQueue:
@@ -331,41 +340,131 @@ class VideoTaskQueue:
         # ③ 显存让渡：持锁后执行，保证与对话/绘画无并发装载
         self._sleep_vllm_for_generation()
         self._unload_paint_pipeline()
-        # 批2 顾问接入（D3=A）：准入通过后记一帧供需判定 + 忙碌登记，
-        # 不拦截不让位（硬闸翻转=批3 实弹验证后）
+        # ④ 显存硬闸（H3 准入 blocking，2026-10-23 用户拍板，批3 翻闸）：
+        # 判定+登记+逻辑预留；ComfyUI 存活时按现状放行（见 _budget_admit）
         self._budget_admit(task)
 
+    def _comfy_alive(self) -> bool:
+        """ComfyUI 子进程是否存活（判定失败按存活=放行，看不见不猜）。
+
+        WDDM 下 NVML 按进程显存全盲（2026-10-23 本机实测 19/19 进程
+        usedGpuMemory=None）——ComfyUI 活着时它持有的权重对账本不可见，
+        硬闸数学失真；此时退回批2 顾问行为（放行+登记），ComfyUI 不在
+        时 free 读数精确才执法。
+        """
+        try:
+            from .inference.comfy_proc import get_comfy_proc
+            proc = get_comfy_proc()
+            # 注意 pid/poll 均为普通方法非 @property——不带括号比较
+            # bound method 恒非 None，会把「从未启动」误判为存活
+            return proc.pid() is not None and proc.poll() is None
+        except Exception as exc:  # noqa: BLE001 - 判定异常按存活放行
+            log.warning("ComfyUI 存活判定异常（准入按放行处理）: %s", exc)
+            return True
+
     def _budget_admit(self, task: dict) -> None:
-        """gpu_budget 顾问判定+登记（批2）。
+        """gpu_budget 准入判定+登记（批3 翻闸：advisory→blocking）。
 
         R17 P1 根修（2026-10-21）：need_gb 从恒 0 改为取 model_manager
-        的 H3 显存覆盖表值（minimax-h3=13.0GB），使预算账本至少知道
-        视频的真实需求量级；advisory=True 仍不拦截（准入强度暂维持
-        顾问式，待与 dialog/paint 准入统一后升级为 blocking）。"""
+        的 H3 显存覆盖表值（minimax-h3=13.0GB）。
+        H3 blocking 升级（2026-10-23 用户拍板）：ComfyUI 不在时执行
+        硬闸——GRANTED 记逻辑预留（_budget_release 归还）；WAIT 以
+        _ADMISSION_RETRY_MAX × _ADMISSION_RETRY_WAIT_S 为限反复让渡
+        重判；耗尽转 DENY 抛 VideoAdmissionDenied（_run_one 收敛为
+        任务错误，出路随错误文案）。ComfyUI 存活=占用不可见，按现状
+        放行（顾问登记保留账本可见性）。账本失明（available=False）
+        由 gpu_budget 按 GRANTED 放行——等价现状行为。
+        config.video_admission_blocking.enabled=false 整链回退批2
+        顾问行为（误杀观察期回滚杠杆，默认开）。
+        """
+        task_id = str(task.get("task_id"))
         need = 0.0
         try:
-            from ..data.models import _VRAM_OVERRIDES
+            # 2026-10-23 勘误：_VRAM_OVERRIDES 真身在 model_manager
+            # （10-21 修复误写 ..data.models——ImportError 被吞，
+            # need 恒 0，账本从未见过视频真实需求，本修一并纠正）
+            from .model_manager import _VRAM_OVERRIDES
             mid = str(task.get("model_override") or "minimax-h3")
             need = float(_VRAM_OVERRIDES.get(mid, 0.0))
         except Exception:  # noqa: BLE001
             pass
+        blocking = True
+        try:
+            from ..config import get_config
+            blocking = bool((get_config().get("video_admission_blocking")
+                             or {}).get("enabled", True))
+        except Exception:  # noqa: BLE001 - 配置不可读按默认开
+            pass
         try:
             from .inference.gpu_budget import get_gpu_budget
-            r = get_gpu_budget().request(
-                "video_gen", need_gb=need,
-                note=str(task.get("task_id")), advisory=True)
-            task["_budget_token"] = r.busy_token
-        except Exception as exc:  # noqa: BLE001 - 顾问失败不影响任务
-            log.debug("gpu_budget 顾问判定跳过: %s", exc)
+            budget = get_gpu_budget()
+            if (not blocking) or self._comfy_alive():
+                r = budget.request(
+                    "video_gen", need_gb=need,
+                    note=task_id, advisory=True)
+                task["_budget_token"] = r.busy_token
+                task["_budget_reserve"] = None
+                log.info(
+                    "[video-admission] ComfyUI 存活（占用不可见），顾问放行 "
+                    "need=%.1fG free=%.1fG note=%s",
+                    need, r.snapshot.free_gb, task_id)
+                return
+            # blocking：前 N 轮 allow_yield=True（WAIT→让渡重试），
+            # 末轮 allow_yield=False（终局 DENY 理由带出路）
+            for attempt in range(_ADMISSION_RETRY_MAX + 1):
+                self._make_check_cancel(task_id)()
+                r = budget.request(
+                    "video_gen", need_gb=need, note=task_id,
+                    advisory=False,
+                    allow_yield=(attempt < _ADMISSION_RETRY_MAX))
+                if str(r.verdict.value) == "granted":
+                    task["_budget_token"] = r.busy_token
+                    task["_budget_reserve"] = (r.device, float(need))
+                    return
+                if str(r.verdict.value) != "wait":
+                    break  # DENY（末轮）→ 终局拒绝
+                log.warning(
+                    "[video-admission] WAIT（第 %d/%d 次）: %s note=%s",
+                    attempt + 1, _ADMISSION_RETRY_MAX, r.reason, task_id)
+                # 等待期间分片睡（响应取消），到点重让渡再判
+                slept = 0.0
+                while slept < _ADMISSION_RETRY_WAIT_S:
+                    self._make_check_cancel(task_id)()
+                    time.sleep(_THERMAL_POLL_S)
+                    slept += _THERMAL_POLL_S
+                self._sleep_vllm_for_generation()
+                self._unload_paint_pipeline()
+            raise VideoAdmissionDenied(
+                f"显存不足：视频链需要 {need:.1f}GB，当前可用 "
+                f"{r.snapshot.budget_gb:.1f}GB（已让渡重试 "
+                f"{_ADMISSION_RETRY_MAX} 次）；{r.reason}")
+        except VideoAdmissionDenied:
+            raise
+        except VideoTaskCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 硬闸异常降级回顾问（等价现状）
+            log.error("gpu_budget 硬闸判定异常（按放行降级）: %s",
+                      exc, exc_info=True)
+            try:
+                from .inference.gpu_budget import get_gpu_budget
+                r = get_gpu_budget().request(
+                    "video_gen", need_gb=need, note=task_id, advisory=True)
+                task["_budget_token"] = r.busy_token
+                task["_budget_reserve"] = None
+            except Exception:  # noqa: BLE001 - 账本完全不可用：无登记放行
+                pass
 
     def _budget_release(self, task: dict) -> None:
-        """gpu_budget 收尾（批2）：注销忙碌 + 结束帧日志（no-op 安全）。"""
+        """gpu_budget 收尾（批3）：注销 busy + 归还逻辑预留 + 结束帧日志。"""
         try:
             from .inference.gpu_budget import get_gpu_budget
             get_gpu_budget().release(
                 token=str(task.get("_budget_token") or ""),
                 feature="video_gen",
                 note=str(task.get("task_id")))
+            reserve = task.get("_budget_reserve")
+            if reserve:
+                get_gpu_budget().release_reservation(reserve[0], reserve[1])
         except Exception as exc:  # noqa: BLE001 - 收尾失败不影响任务
             log.debug("gpu_budget 收尾跳过: %s", exc)
 

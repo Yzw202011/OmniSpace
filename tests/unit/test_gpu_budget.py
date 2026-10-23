@@ -324,13 +324,52 @@ class TestQueueBudgetAdmit:
         assert get_busy_registry().is_busy("paint") is False
 
     def test_video_queue_admit_release(self, monkeypatch: MonkeyPatch) -> None:
-        from src.services.video_queue import VideoTaskQueue
+        """批3 blocking（2026-10-23 H3 翻闸）后契约改写：
 
-        monkeypatch.setattr(gpu_budget, "read_physical_bytes", _mock_read(10.0, 16.0))
+        - ComfyUI 不在 + 额度足（15G≥13G）→ 登记 busy + 逻辑预留，
+          release 两者归还；
+        - 额度不足（10G<13G）→ 重试耗尽后 VideoAdmissionDenied 诚实
+          拒单，零登记零预留。
+        （原未绑定 self=None 形态已随 blocking 重写失效——新实现用
+        self._comfy_alive；且旧用例能过全靠 need 恒 0 的坏导入，
+        2026-10-23 一并勘误为 model_manager 真源。）
+        """
+        import pytest as _pytest
+
+        import src.services.video_queue as _vq
+        from src.services.video_queue import (
+            VideoAdmissionDenied,
+            VideoTaskQueue,
+        )
+
+        q = VideoTaskQueue()
+        monkeypatch.setattr(_vq, "_ADMISSION_RETRY_WAIT_S", 0.0)
+        monkeypatch.setattr(q, "_comfy_alive", lambda: False)
+        monkeypatch.setattr(q, "_sleep_vllm_for_generation", lambda: None)
+        monkeypatch.setattr(q, "_unload_paint_pipeline", lambda: None)
+        monkeypatch.setattr("src.config.get_config", lambda: {
+            "video_admission_blocking": {"enabled": True}})
+        budget = gpu_budget.get_gpu_budget()
+
+        monkeypatch.setattr(gpu_budget, "read_physical_bytes",
+                            _mock_read(15.0, 16.0))
         task: dict = {"task_id": "t-vid"}
-        VideoTaskQueue._budget_admit(None, task)  # type: ignore[arg-type]
+        reserved_before = budget.snapshot().reserved_gb
+        q._budget_admit(task)
         assert get_busy_registry().is_busy("video_gen") is True
-        VideoTaskQueue._budget_release(None, task)  # type: ignore[arg-type]
+        assert budget.snapshot().reserved_gb == _pytest.approx(
+            reserved_before + 13.0, abs=0.01)  # blocking 授予记逻辑预留
+        q._budget_release(task)
+        assert get_busy_registry().is_busy("video_gen") is False
+        assert budget.snapshot().reserved_gb == _pytest.approx(
+            reserved_before, abs=0.01)  # 预留归还
+
+        monkeypatch.setattr(gpu_budget, "read_physical_bytes",
+                            _mock_read(10.0, 16.0))
+        task2: dict = {"task_id": "t-vid2"}
+        with _pytest.raises(VideoAdmissionDenied):
+            q._budget_admit(task2)
+        assert not task2.get("_budget_token")
         assert get_busy_registry().is_busy("video_gen") is False
 
     def test_admit_survives_budget_failure(

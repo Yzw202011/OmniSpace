@@ -407,6 +407,15 @@
    ],
    "verify": "ruff 3 文件绿;test_abc_format_v2+delimiter_sanitizer 14 单测绿;直测:英文思考体→清洗空(新分支必触发)/中文正文→A段拼装完好;后端正规链重启+本地 4B 实弹回归 51s 884 字 v2 结构完整+资产锚生效+行只读未动✅;云端路径待中转站恢复后一次重试即定(成=标记纪律奏效,败=诚实错误带样本一眼定谳)",
    "files": "src/api/manga/common.py / storyboard.py / video.py(三文件均不在并发 WIP 集)"
+  },
+  "s05_fix_2026_10_24": {
+   "user_decision": "「修」——不等 ComicWorkspace 合流,在对方 WIP 之上直接修(监听已撤)",
+   "changes": [
+    "ComicWorkspace.tsx:styleKey 按 label 反查 key 归一(旧标签值→预置 key)+非预置值动态补 option(custom:* 显「自定义画风(当前)」,其余未知值原样显示诊断可见);只归显示不回写,数据在用户下次主动切画风时自愈",
+    "ComicLibrary.tsx:STYLE_LABEL 同款 label 反查兜底——旧标签值徽章显真名而非「自定义」"
+   ],
+   "verify": "构建绿;实弹三态:①标签值「日系动漫」→下拉 value=anime+选中显「日系动漫」+徽章显真名(旧码=空白+自定义)②custom:test123→动态选项「自定义画风(当前)」被选中(optionCount 30)③恢复 anime 终态;坑=漫画页卡片 accessible name 走 aria 属性,evaluate textContent 搜不到,须 Playwright locator 体系",
+   "commit_state": "ComicLibrary.tsx 纯我改可独立提交;ComicWorkspace.tsx 我的 ~20 行叠在对方 250 行 WIP 之上,随对方下次提交入库(或后补)"
   }
  }
 }

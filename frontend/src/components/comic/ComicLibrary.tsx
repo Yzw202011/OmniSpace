@@ -22,7 +22,11 @@ function formatTs(ts?: number) {
 }
 
 const STYLE_LABEL = (key?: string): string =>
-  ART_STYLES.find((s) => s.key === key)?.label ?? (key ? '自定义' : '未选择');
+  // S-05（2026-10-24）：key 查不到时按 label 反查一次——旧数据存的是
+  // 中文标签（如「日系动漫」）而非 key，此前被误显为「自定义」
+  ART_STYLES.find((s) => s.key === key)?.label
+  ?? ART_STYLES.find((s) => s.label === key)?.label
+  ?? (key ? '自定义' : '未选择');
 
 interface Props {
   onOpen: (project: ComicProject) => void;

@@ -218,6 +218,7 @@ class VectorDB:
             except Exception:  # noqa: BLE001 - torch 缺失时用 CPU
                 log.debug("_get_embed_model: 降级忽略", exc_info=True)
             try:
+                from sentence_transformers import SentenceTransformer
                 self._embed_model = SentenceTransformer(
                     str(EMBED_MODEL_PATH), device=device
                 )

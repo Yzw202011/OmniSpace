@@ -22,14 +22,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
-# M14 根修（2026-10-22 审计）：cv2 顶层 import 占 import src.main ~14s
-# ——改函数内懒加载（唯一消费点是 _ensure_loaded 的 FaceDetectorYN）
-_cv2: Any = None
-
 import numpy as np
 from PIL import Image
 
 from ...config import MODELS_DIR
+
+# M14 根修（2026-10-22 审计）：cv2 顶层 import 占 import src.main ~14s
+# ——改函数内懒加载（唯一消费点是 _ensure_loaded 的 FaceDetectorYN）
+_cv2: Any = None
 
 log = logging.getLogger("omnispace.inference.face_sim")
 
@@ -58,7 +58,7 @@ def _ensure_loaded() -> None:
             import cv2 as _cv2_mod
             _cv2 = _cv2_mod
         if _detector is None:
-            _detector = __cv2.FaceDetectorYN_create(
+            _detector = _cv2.FaceDetectorYN_create(
                 str(_YUNET_PATH), "", (320, 320), _YUNET_SCORE)
         if _model is None:
             from transformers import AutoImageProcessor, AutoModel
@@ -73,7 +73,7 @@ def _ensure_loaded() -> None:
 def _detect_face_crop(img: Image.Image) -> Image.Image | None:
     """最大人脸框外扩裁剪；无检测返回 None。"""
     _ensure_loaded()
-    bgr = _cv2.cvtColor(np.asarray(img.convert("RGB")), cv2.COLOR_RGB2BGR)
+    bgr = _cv2.cvtColor(np.asarray(img.convert("RGB")), _cv2.COLOR_RGB2BGR)
     h, w = bgr.shape[:2]
     _detector.setInputSize((w, h))
     _, faces = _detector.detect(bgr)
@@ -187,7 +187,7 @@ def _detect_faces(img: Image.Image) -> list[np.ndarray]:
     不再像 embed_face 只取最大脸。
     """
     _ensure_loaded()
-    bgr = _cv2.cvtColor(np.asarray(img.convert("RGB")), cv2.COLOR_RGB2BGR)
+    bgr = _cv2.cvtColor(np.asarray(img.convert("RGB")), _cv2.COLOR_RGB2BGR)
     h, w = bgr.shape[:2]
     _detector.setInputSize((w, h))
     _, faces = _detector.detect(bgr)
@@ -221,7 +221,7 @@ def _arc_embed(img: Image.Image) -> np.ndarray:
     sess = _ensure_arc_loaded()
     inp = sess.get_inputs()[0]
     x = np.asarray(img.convert("RGB").resize(_ARC_SIZE, Image.LANCZOS))
-    blob = _cv2.cvtColor(x, cv2.COLOR_RGB2BGR).transpose(2, 0, 1)[None]
+    blob = _cv2.cvtColor(x, _cv2.COLOR_RGB2BGR).transpose(2, 0, 1)[None]
     blob = (blob.astype(np.float32) - 127.5) / 127.5
     out = sess.run(None, {inp.name: blob})[0][0]
     return out / (np.linalg.norm(out) + 1e-8)

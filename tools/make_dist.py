@@ -388,6 +388,25 @@ def self_check(dest: Path, skip_gate_check: bool = False) -> list[str]:
                 encoding="utf-8", errors="ignore"):
             alerts.append("[门禁] 锁芯公钥为空——无门禁包禁止出厂"
                           "（正式包须 --pubkey 注入）")
+        # H6 哨兵（2026-10-24 方案 A）：v2 资产在包而锁芯未注入 v2 密钥
+        # = 该包 v2 资产全部解不开（read_asset 降级 None→功能回退）；
+        # 反向：有资产但走 v1（可推导）只对正式包告警（开发包可 v1）
+        if gate.is_file():
+            gate_txt = gate.read_text(encoding="utf-8", errors="ignore")
+            enc_dir = dest / "src" / "assets_enc"
+            has_v2 = enc_dir.is_dir() and any(
+                p.read_bytes().startswith(b"OMNIENC2")
+                for p in enc_dir.glob("*.enc") if p.is_file())
+            has_enc = enc_dir.is_dir() and any(enc_dir.glob("*.enc"))
+            if has_v2 and 'ASSET_KEY_HEX = ""' in gate_txt:
+                alerts.append("[资产金库] 包含 v2 资产但锁芯未注入 v2 密钥"
+                              "——该包资产全部不可解，禁止出厂")
+            if has_enc and not has_v2 \
+                    and 'PUBKEY_HEX = ""' not in gate_txt \
+                    and 'ASSET_KEY_HEX = ""' in gate_txt:
+                alerts.append("[资产金库] 正式包资产仍走 v1 公钥派生"
+                              "（SHA256(公开公钥) 可推导）——应传 "
+                              "--asset-key/--asset-key-id 升 v2")
     print(f"自检扫描：{scanned} 个文本文件（自有区）+ 全包黑名单/必备件")
     return alerts
 
@@ -398,6 +417,11 @@ def main() -> int:
                     "发行产物不进开发目录；dist_out 会被目录审计报红）")
     ap.add_argument("--pubkey", default="",
                     help="发行公钥 hex（来自授权管理台；注入后激活门禁生效）")
+    ap.add_argument("--asset-key", default="",
+                    help="H6 v2 资产密钥 hex（发码台 /api/asset-key 取；"
+                    "注入后 assets_enc 走独立随机密钥 v2 格式）")
+    ap.add_argument("--asset-key-id", default="",
+                    help="v2 资产密钥 id hex（与 --asset-key 同源成对）")
     ap.add_argument("--allow-unlocked", action="store_true",
                     help="显式出无门禁包（开发/测试自担；正式发行禁止）")
     ap.add_argument("--check-only", metavar="包目录",
@@ -474,6 +498,35 @@ def main() -> int:
             raise SystemExit("公钥双藏注入失败：找不到 PUBKEY_HEX_X 占位符")
         gate.write_text(patched_x, encoding="utf-8")
         print(f"已注入公钥双藏副本（XOR 交叉验证）：{x_val[:16]}…")
+        # H6 方案 A 批 3（2026-10-24 拍板）：v2 资产密钥注入（独立随机
+        # 密钥，与公钥无关——v1 的 SHA256(公钥) 可从公开材料推导已定谳）
+        if args.asset_key and args.asset_key_id:
+            import re as _re
+            _bad = _re.fullmatch(r"[0-9a-fA-F]{64}", args.asset_key) is None \
+                or _re.fullmatch(r"[0-9a-fA-F]{1,16}", args.asset_key_id) is None
+            if _bad:
+                raise SystemExit("资产密钥形态错误：--asset-key 须 64 位 hex"
+                                 "（32B）、--asset-key-id 须 ≤16 位 hex（8B）")
+            patched_a = patched_x.replace(
+                'ASSET_KEY_HEX = ""',
+                f'ASSET_KEY_HEX = "{args.asset_key}"')
+            patched_a = patched_a.replace(
+                'ASSET_KEY_ID = ""',
+                f'ASSET_KEY_ID = "{args.asset_key_id}"')
+            if 'ASSET_KEY_HEX = ""' in patched_a \
+                    or 'ASSET_KEY_ID = ""' in patched_a:
+                raise SystemExit("资产密钥注入失败：找不到 ASSET_KEY 占位符"
+                                 "（锁芯版本过旧？）")
+            gate.write_text(patched_a, encoding="utf-8")
+            print(f"已注入 v2 资产密钥（id={args.asset_key_id[:8]}…）"
+                  "——assets_enc 将用独立随机密钥加密")
+        else:
+            print("=" * 60)
+            print("⚠️ 未注入 v2 资产密钥——assets_enc 将走 v1 公钥派生"
+                  "（SHA256(公开公钥)，防护=仅混淆）。")
+            print("⚠️ 正式发行请从发码台 /api/asset-key 取密钥并传 "
+                  "--asset-key/--asset-key-id。")
+            print("=" * 60)
         # 吊销名单随包：发码台台账 → revocations.json（差分升级包自动下发）
         rev = _extract_revocations(
             REPO / "license_console" / "vault" / "ledger.db")
@@ -484,22 +537,36 @@ def main() -> int:
             encoding="utf-8")
         print(f"吊销名单已随包：{len(rev)} 个序列号"
               + ("" if rev else "（台账空/缺失=空名单，不阻断）"))
-        # 资产加密（P6 锁4）：工作流明文出包即灭；风格种子入金库
-        from src.asset_vault import encrypt_bytes
+        # 资产加密（P6 锁4 / H6 方案 A）：工作流明文出包即灭；风格种子入金库
+        # 有 v2 密钥→独立随机密钥 OMNIENC2；无→v1 公钥派生（上方已响亮警告）
+        if args.asset_key and args.asset_key_id:
+            from src.asset_vault import encrypt_bytes_v2
+            _ak = bytes.fromhex(args.asset_key)
+            _akid = bytes.fromhex(args.asset_key_id)
+
+            def _enc(data: bytes) -> bytes:
+                return encrypt_bytes_v2(data, _ak, _akid)
+            _enc_note = "v2 独立随机密钥"
+        else:
+            from src.asset_vault import encrypt_bytes
+
+            def _enc(data: bytes) -> bytes:
+                return encrypt_bytes(data, args.pubkey)
+            _enc_note = "v1 公钥派生（可推导，仅混淆级）"
         enc_dir = dest / "src" / "assets_enc"
         enc_dir.mkdir(parents=True, exist_ok=True)
         wf = (dest / "src" / "services" / "inference"
               / "h3_chain_workflow_api.json")
         if wf.is_file():
             (enc_dir / "h3_chain_workflow_api.json.enc").write_bytes(
-                encrypt_bytes(wf.read_bytes(), args.pubkey))
+                _enc(wf.read_bytes()))
             wf.unlink()
-            print("已加密：h3_chain 工作流模板（包内明文已移除）")
+            print(f"已加密：h3_chain 工作流模板（包内明文已移除，{_enc_note}）")
         seed = REPO / "data" / "art_styles_seed_final.json"
         if seed.is_file():
             (enc_dir / "art_styles_seed.json.enc").write_bytes(
-                encrypt_bytes(seed.read_bytes(), args.pubkey))
-            print("已加密：风格库种子（1117 条）")
+                _enc(seed.read_bytes()))
+            print(f"已加密：风格库种子（1117 条，{_enc_note}）")
     print(f"复制 {n} 个文件 / {total / (1 << 30):.2f} GiB / {time.time() - t0:.0f}s")
 
     t1 = time.time()

@@ -67,6 +67,9 @@ export interface NovelChapter {
   status: 'pending' | 'generating' | 'done' | 'error';
   progress: number;
   error: string;
+  /** H9 断链警示（2026-10-23）：上一章未完成时生成，衔接上下文回退
+   *  更早完成章——空串/缺省=无警示 */
+  context_warning?: string;
   updated_at?: number;
 }
 

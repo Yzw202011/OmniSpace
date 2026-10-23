@@ -768,6 +768,9 @@ export interface ComicAsset {
   code?: string;
   /** project=项目资产 / global=全局资产（跨项目复用，删除项目时保留） */
   scope?: 'project' | 'global';
+  /** H11 文件断链标记（2026-10-22 后端打标）：DB 行在但文件不存在，
+   *  前端据 此显示「文件丢失」而非静默 404 破图 */
+  file_missing?: boolean;
 }
 
 /** 关键帧版本（/manga/keyframe/list item） */

@@ -78,6 +78,11 @@ def _chapter_row(r: dict, with_content: bool = False) -> dict:
         "status": r.get("status", "pending"),
         "progress": r.get("progress", 0.0),
         "error": r.get("error", ""),
+        # H9 断链警示（2026-10-23）：novel_service 生成时写入
+        # meta.context_warning，此处提取下发（空串=无警示）
+        "context_warning": str(
+            (parse_json(r.get("meta"), {}) or {}).get(
+                "context_warning") or ""),
         "updated_at": r.get("updated_at", 0),
     }
     if with_content:

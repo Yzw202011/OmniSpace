@@ -164,6 +164,10 @@ export interface AppState {
 
 /** Toast 自增 ID */
 let toastSeq = 0;
+// 四页 P3（2026-10-23）：同文案短窗去重——断网等场景下多个调用方各自
+// catch 弹同一条「无法连接后端服务」造成视觉冗余（C-13 附带观察）
+let lastToastAt = 0;
+let lastToastKey = '';
 
 export const useAppStore = create<AppState>((set, get) => ({
   /* ------------------------------ 初始状态 ------------------------------ */
@@ -319,6 +323,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   /* ------------------------------ Toast ------------------------------ */
   showToast: (text, level = 'info') => {
+    // 四页 P3：同文本+同级别 2.5s 内只弹一条（双 toast 冗余根修）
+    const key = `${level}:${text}`;
+    const now = Date.now();
+    if (key === lastToastKey && now - lastToastAt < 2500) return;
+    lastToastKey = key;
+    lastToastAt = now;
     const id = ++toastSeq;
     set((state) => ({
       toasts: [...state.toasts, { id, text, level }].slice(-5),

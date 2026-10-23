@@ -710,10 +710,11 @@ const ChapterPanel: React.FC = () => {
             <button
               key={c.id}
               className={`btn btn-sm ${chapter?.id === c.id ? 'btn-primary' : 'btn-ghost'} border ${meta.cls} leading-none`}
-              title={`${meta.label}${c.error ? `：${c.error}` : ''}`}
+              title={`${meta.label}${c.error ? `：${c.error}` : ''}${c.context_warning ? `；⚠ ${c.context_warning}` : ''}`}
               onClick={() => void selectChapter(c.id)}
             >
               {meta.icon} 第{c.chapter_index}章 {c.title || '（未命名）'}
+              {c.context_warning ? ' ⚠' : ''}
             </button>
           );
         })}
@@ -752,6 +753,12 @@ const ChapterPanel: React.FC = () => {
               >
                 载入新正文（放弃当前修改）
               </button>
+            </div>
+          )}
+          {chapter.context_warning && (
+            <div className="flex items-center gap-2 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs text-amber-200">
+              <AlertCircle size={12} aria-hidden="true" />
+              <span className="flex-1">{chapter.context_warning}</span>
             </div>
           )}
           <textarea

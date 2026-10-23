@@ -436,6 +436,9 @@ export const NovelChapterSchema = z
     status: z.enum(['pending', 'generating', 'done', 'error']).default('pending'),
     progress: z.number().default(0),
     error: z.string().default(''),
+    // H9 断链警示（2026-10-23）：上一章未完成时生成，衔接回退更早
+    // 完成章；空串=无警示
+    context_warning: z.string().default(''),
     updated_at: z.number().optional(),
   })
   .passthrough();

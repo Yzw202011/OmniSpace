@@ -1036,6 +1036,23 @@ async def run_outline_job(job: NovelJob, queue: NovelJobQueue) -> None:
         raise
 
 
+def _context_warning_text(prev_rows: list[dict]) -> str:
+    """H9 断链警示文案：紧邻前章未完成时非空，其余空串（含无前章）。
+
+    纯函数（novel_service 生成链 + 单测共用）：紧邻前章非 done 时，
+    衔接锚回退到更早完成章（R16 根修行为），本章前后文可能不连贯。
+    """
+    if not prev_rows:
+        return ""
+    last = prev_rows[-1]
+    if last.get("status") in ("done",):
+        return ""
+    return (f"上一章（第 {last.get('chapter_index')} 章）"
+            f"状态为「{last.get('status') or '未知'}」，"
+            "本章生成时衔接上下文回退到了更早的完成章，"
+            "前后文可能不连贯")
+
+
 async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
     """章节正文生成：四件套注入 → 正文 → 摘要链回写。"""
     db = _db()
@@ -1092,15 +1109,28 @@ async def run_chapter_job(job: NovelJob, queue: NovelJobQueue) -> None:
                 None)
             if last_done is not None:
                 prev_tail = (last_done.get("content") or "")[-PREV_TAIL_CHARS:]
-        # H9 补提示（2026-10-21 审计）：紧邻前章未完成时写入警告
+        # H9 断链警示（2026-10-23 用户拍板「前端展示」）：紧邻前章未完成
+        # 时把警示写入本章 meta.context_warning（API 经 novel.py
+        # _chapter_row 下发，前端章节列表/编辑器展示）；前章恢复 done
+        # 则自愈清除。只写 meta 不碰 updated_at——防触发前端「服务器
+        # 有新稿」防洗稿机制的误判。
         if prev_rows:
-            _last_prev = prev_rows[-1]
-            if _last_prev.get("status") not in ("done",):
+            _warning = _context_warning_text(prev_rows)
+            if _warning:
                 log.warning(
                     "H9 前章断链: 章 %s 的前章 %s 状态=%s（非 done），"
                     "衔接可能不连贯",
-                    job.chapter_id, _last_prev.get("chapter_index"),
-                    _last_prev.get("status"))
+                    job.chapter_id, prev_rows[-1].get("chapter_index"),
+                    prev_rows[-1].get("status"))
+            _ch_meta = parse_json_field(ch.get("meta"))
+            if not isinstance(_ch_meta, dict):
+                _ch_meta = {}
+            if _ch_meta.get("context_warning") != _warning:
+                _ch_meta["context_warning"] = _warning
+                _meta_json = json.dumps(_ch_meta, ensure_ascii=False)
+                await run_blocking(lambda: db.update(
+                    "novel_chapters", {"meta": _meta_json},
+                    "id=?", (job.chapter_id,)))
 
         characters = await run_blocking(lambda: db.query(
             "SELECT name, role, summary FROM novel_characters "

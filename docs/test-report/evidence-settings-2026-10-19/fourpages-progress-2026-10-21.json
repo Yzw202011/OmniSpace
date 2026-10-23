@@ -367,5 +367,46 @@
    "37 novel 单测绿/ruff 过/正规链重启"
   ],
   "cumulative_total": "累计实弹 ~97 项；定谳 31；缺陷修复 12(BUG-11+L-03 改判+summary 清洗+端点新功能)"
+ },
+ "wave27_p3_and_batchB": {
+  "date": "2026-10-23T20:35+08:00",
+  "session": "sess 移交续作（新会话接手 P3 三项+烧钱批 B）",
+  "p3_fixes": [
+   "P3-1 双 toast 去重 ✅ useAppStore.showToast 同文本+同级别 2.5s 短窗去重；实弹:窗内重复触发 1 条/窗过期新弹",
+   "P3-2 aria-busy ✅ 任务横幅 role=status+aria-busy(生成中 live 实证 aria-busy=true「正在执行:章节生成」)+技能钮 aria-busy={skillBusy||undefined}(空闲缺席✅,busy 瞬态<100ms 未捕获🔶)",
+   "P3-3 钳位提示 ✅ 新建作品三数字框 onBlur 钳位(6~200/800~6000/0~10)+toast 明示;实弹 -5→800+文案完整;IAB 程序化 blur 不派发 focusout 系环境怪癖(合成 FocusEvent 等价验证)"
+  ],
+  "batchB_results": {
+   "I-01": "✅ TESTAUTO-B 书第1章生成:677字落库,云端署名铁证 cloud::prov_1ef6d12f0d::gpt-6-astra(MagicAI 端点就绪+流式602片段/23s),字数≈设定(800 档,质检闸裁剪)",
+   "T-03": "✅ engine=ai 9行落库+景别/秒全填(astra 承载,gpt-5.2 上游502/503 换 astra 绕行);E125 回归确认仍在=AI 行实体列全空(设计由 infer-entities 补偿,实证回填+自动绑 6 行)",
+   "W-02": "🔶双定谳:本地 4B 管线健康(24s 出 A/B/C v2 结构 551字+资产锚生效+落库);云端 astra/gpt-5.5 双模型同症状「模型返回为空」=describe×云端兼容缺陷挂账上报",
+   "U-02": "✅ 实体推理 94s:林澈(角)/写字楼天台(景)/老式收音机(道)三卡+auto_bind 6行7资产;坑=infer 走 ensure_loaded(None)=dialog.text 绑定(非 manga-dialog 槽),glm-5.3 思考泄漏空回(㉚族)需临时切 astra",
+   "X-01": "✅ 漫剧行关键帧 v1.png 11.7MB/729s/done(qwen-image-2.1 本地,4K 5136×2896 25步)",
+   "V-01": "✅ 林澈资产 regenerate portrait.png 2.2MB/136s 落盘+file_path 落库(本地)",
+   "Q-01": "✅ TESTAUTO-COMIC 模板项目首格 v1.png 27.2MB/683s/done(含 ComfyUI 冷启,qwen-image-2.1 署名日志行);客户端 600s 超时=假死,服务端完成",
+   "Q-02": "🔴受阻:grok-imagine-image-2.0 两试皆 HTTP 502 upstream_error=MagicAI 中转站整体故障(文本+图像上游同挂);槽/绑定已全还原",
+   "Y-02": "✅ 34.7min done(generation_time_ms=2083208):1344×768×8s/h264/24fps/has_audio_sync=1;model_used=h3_chain_v10_s10_2s 动态署名;成片 _fr.mp4 5.17MB 落盘;⚠️运行中提交内存一度 96% 越线(WER 同源口径)守卫收缩后任务存活——a23008a 缓解+M3 迟滞实证有效;AC-08 done→删✅(DB 行清零+文件删除)"
+  },
+  "batchB_cleanup": "TESTAUTO-B(novel)/TESTAUTO-剧(manga)/TESTAUTO-COMIC(comic) 三夹具全删,真实项目 5(comic/manga)+1(novel 逆天邪神)完好,keyframes/comic_assets/video 残留=0",
+  "incidents": [
+   "⚠️并发会话 18:54-19:30 在飞(DROP director_stage_done 死列 6dcfbb1),我 18:41 后端旧码 SELECT 已删列→auto-split 静默降级内存存储(回执 added=5 但 DB 0 行)——正规链重启加载新码后修复;此为「降级不诚实」新证据:persist 失败仅 warning 回执仍报成功",
+   "MagicAI 中转站 19:42 起整体故障:gpt-5.2 上游 502/503、grok 图像 502;astra 例外可用(I-01/T-03/U-02 皆其承载)"
+  ],
+  "restores": "manga.text→gpt-5.2 / dialog.text→glm-5.3 / paint→qwen-image-2.1 / manga-dialog→qwen3-vl-4b 全还原并终态核验✅",
+  "rootcause_2026_10_23": {
+   "Q-02_grok_502": "定谳=MagicAI 渠道级故障,非本地代码。sub2api 架构按模型走不同上游渠道账号:grok-image 渠道两试报文「Upstream access forbidden」/「Upstream request failed」与 gpt-5.2 文本渠道同款(=上游账号被封/限额/限流),astra 渠道同期健康(I-01/T-03/U-02 全过)。历史前科=i2v 全线 502 窗。本地侧行为正确(诚实报错+出路提示,无伪造)",
+   "W-02_cloud_empty": "定谳=三层链,证据闭环:①云端调用日志三次全 call_text_ok(模型确有返回,非空流)②_build_abc_prompt 无中文输出硬锁(common.py 实证零语言约束词)——astra 深度思考 44~166s 后疑似英文/脚手架式作答③_finalize_abc_body 反思考过滤层(10-05/10-07 为 glm-5.3 英文思考残留而加:行级 COT 词剥离+段级「连续≥2 行纯英文成段删除」)把整篇英文答案当思考残渣全删→「模型返回为空」(报错文案误导:模型返回了,是我们丢弃的)。gpt-5.5 3.9s 单片段疑软故障渠道近空内容(与 5.2 同渠道族,次要机制)。本地 4B 过=跟随中文模板。修复候选:A 提示词加中文硬锁 B 清洗后空但原始非空→取原文或带样本诚实报错(防误诊) C=A+B(推荐) D 云端 describe 默认走本地(现状即默认)"
+  },
+  "w02_fix_2026_10_23": {
+   "user_decision": "C（A+B）",
+   "correction": "分析勘误:中文硬锁其实早已在模板尾部(「输出纪律:全文只写中文正文…」)——首查只扫了函数体前 2600 字漏了模板段;astra 系无视硬锁交卷",
+   "changes": [
+    "common.py 模板:新增「段标纪律」行——B/C 必须原样以「B. 」「C. 」半角标记开头(系统按标记截取),标记不匹配=全文作废(治标记变体导致的截取失败)",
+    "storyboard.py ai-describe:诚实报错分支——raw 非空但过滤后空→报「输出经反思考过滤层后为空(原始 N 字…样本已记入日志)」+detail 带 raw_head 120 字+WARNING 日志留痕;真空才报「模型返回为空」",
+    "video.py 批量描述词:①max_new_tokens 1536→3072(10-07 提额漏改的第二处,同病)②静默 skip→带 raw_head 的 WARNING 留痕"
+   ],
+   "verify": "ruff 3 文件绿;test_abc_format_v2+delimiter_sanitizer 14 单测绿;直测:英文思考体→清洗空(新分支必触发)/中文正文→A段拼装完好;后端正规链重启+本地 4B 实弹回归 51s 884 字 v2 结构完整+资产锚生效+行只读未动✅;云端路径待中转站恢复后一次重试即定(成=标记纪律奏效,败=诚实错误带样本一眼定谳)",
+   "files": "src/api/manga/common.py / storyboard.py / video.py(三文件均不在并发 WIP 集)"
+  }
  }
 }

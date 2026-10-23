@@ -97,7 +97,16 @@ function AssetCard({
         }
         onClick={() => onClickCard(asset)}
       >
-        {asset.file_path ? (
+        {/* H11 文件断链（2026-10-23 前端消费）：后端 file_missing 打标
+            （DB 行在但文件被移动/删除）→ 显示「文件丢失」占位而非破图 */}
+        {asset.file_missing ? (
+          <span
+            className="manga-asset-ph"
+            title={`文件丢失：「${asset.name}」的记录还在，但图像文件已被移动或删除；生成引用它的内容会失败`}
+          >
+            文件丢失
+          </span>
+        ) : asset.file_path ? (
           <img src={getMediaUrl(asset.file_path, assetMediaVersion(asset))} alt={asset.name} loading="lazy" />
         ) : (
           <span className="manga-asset-ph">无图像</span>

@@ -123,6 +123,47 @@ def test_rollback_restores_old_files(fake_install: Path, work_dir: Path,
     assert (fake_install / "old_extra.txt").read_text("utf-8") == "DELETE_ME"
 
 
+def test_migration_rollback_restores_db_snapshot_to_data(
+        fake_install: Path, tmp_path: Path) -> None:
+    """H2 收口（2026-10-24 终结书移交）：带迁移升级失败的 DB 快照回滚。
+
+    f763db4（10-19 G4 演练）把 DB 快照改存 backup/data/ 镜像位；本测试
+    钉住该路径不回退到「平铺 backup 根→还原错位到安装根」——那是 R17
+    「升级回滚变砖三环」的本尊（新库残留+旧代码，user_version 守卫
+    正确拒启，需手工救 data）。R23 挂账时该路径零测试。
+    """
+    manifest = _manifest()
+    manifest["contains_migration"] = True
+    db_dir = fake_install / "data"
+    (db_dir / "omnispace.db").write_text("OLD_DB_V15", encoding="utf-8")
+    (db_dir / "omnispace.db-wal").write_text("OLD_WAL", encoding="utf-8")
+    backup_dir = tmp_path / "backup" / "20260101_000000"
+    backup_dir.mkdir(parents=True)
+
+    # ① 备份：DB 快照必须落 backup/data/ 镜像位
+    backup_files(fake_install, manifest, backup_dir)
+    assert (backup_dir / "data" / "omnispace.db").read_text("utf-8") \
+        == "OLD_DB_V15"
+    assert (backup_dir / "data" / "omnispace.db-wal").read_text("utf-8") \
+        == "OLD_WAL"
+    assert not (backup_dir / "omnispace.db").exists(), \
+        "DB 快照平铺 backup 根=R17 错位本尊回退"
+
+    # ② 模拟升级失败现场：新代码已把 DB 迁移到更高版本
+    (db_dir / "omnispace.db").write_text("NEW_DB_V16_MIGRATED",
+                                         encoding="utf-8")
+    (db_dir / "omnispace.db-wal").write_text("NEW_WAL", encoding="utf-8")
+
+    # ③ 回滚：旧库必须镜像还原回 install_root/data/（旧代码+旧库一致）
+    restored, errs = restore.restore_backup(fake_install, backup_dir)
+    assert errs == []
+    assert (db_dir / "omnispace.db").read_text("utf-8") == "OLD_DB_V15"
+    assert (db_dir / "omnispace.db-wal").read_text("utf-8") == "OLD_WAL"
+
+    # ④ 反向钉：还原绝不把 DB 落到安装根（错位形态）
+    assert not (fake_install / "omnispace.db").exists()
+
+
 def test_boot_hook_recovers_interrupted_upgrade(
         fake_install: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """中断态 state.json → 钩子从备份还原 + 状态落 rolled_back。"""

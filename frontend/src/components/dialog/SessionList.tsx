@@ -138,7 +138,10 @@ export function SessionList({
       const head = format === 'md' ? `# ${title}\n\n` : `${title}\n${'='.repeat(Math.min(title.length, 40))}\n\n`;
       const body = msgs.map((m) => {
         const who = m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : m.role || '系统';
-        const stamp = m.created_at ? new Date(m.created_at > 1e12 ? m.created_at : m.created_at * 1000).toLocaleString() : '';
+        // created_at 契约是 string|number（schema union）——先收窄再做
+        // 比较/乘法，修 86026fb 落库即红的 tsc 闸（预存错，非本次引入）
+        const tsRaw = typeof m.created_at === 'number' ? m.created_at : Number(m.created_at) || 0;
+        const stamp = tsRaw ? new Date(tsRaw > 1e12 ? tsRaw : tsRaw * 1000).toLocaleString() : '';
         return format === 'md'
           ? `**${who}**${stamp ? ` _${stamp}_` : ''}：\n\n${m.content || ''}\n\n---\n`
           : `[${stamp}] ${who}：\n${m.content || ''}\n`;

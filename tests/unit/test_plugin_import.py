@@ -201,6 +201,59 @@ def test_import_source_no_plugin_class_rejected(api_client):
     assert body["error"]["code"] == "PLUGIN_SOURCE_INVALID"
 
 
+def test_import_source_os_import_rejected(api_client):
+    """R3-H6（2026-10-24）：os/io/winreg 补入禁用清单——环境变量/
+    注册表属模块级恶意代码高频面。"""
+    bad = "import os\n" + ECHO_SRC
+    r = _post_import(api_client, _make_pkg("bad-os", base_model="echo.demo"),
+                     "bad.CuteMamen", source=("bad.py", bad.encode()),
+                     confirm=True)
+    body = r.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "PLUGIN_SOURCE_FORBIDDEN"
+    assert "os" in body["error"]["suggestion"]
+
+
+def test_import_source_chained_subclass_accepted(api_client):
+    """R3-H6 纯 AST 预检的判定面保真：文件内继承链（B(A)，
+    A(ExpertPlugin)）必须放行——AST 版对齐宿主 exec 试装载的
+    find_plugin_classes 语义，链式继承插件不得误拒。"""
+    src = (
+        "from typing import Any\n"
+        "try:\n"
+        "    from .plugin import ExpertPlugin, PluginContext\n"
+        "except ImportError:\n"
+        "    from omnispace.plugin import ExpertPlugin, PluginContext\n"
+        "\n"
+        "class _Base(ExpertPlugin):\n"
+        "    BASE_MODEL = 'echo.demo'\n"
+        "\n"
+        "class EchoChained(_Base):\n"
+        "    CAPABILITY = '链式继承测试'\n"
+        "    def on_think(self, event, ctx):\n"
+        "        return {'echo': event.get('data')}\n"
+    )
+    r = _post_import(api_client,
+                     _make_pkg("demo-chain", base_model="echo.demo"),
+                     "chain.CuteMamen", source=("chain.py", src.encode()),
+                     confirm=True)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["trust"] == "user_source"
+
+
+def test_import_source_qualified_base_accepted(api_client):
+    """限定名基类（cutemamen.ExpertPlugin 形态）同样识别。"""
+    src = ECHO_SRC.replace(
+        "class EchoPlugin(ExpertPlugin):",
+        "class EchoPlugin(omnispace.plugin.ExpertPlugin):")
+    src = "import omnispace.plugin\n" + src
+    r = _post_import(api_client, _make_pkg("demo-qual", base_model="echo.demo"),
+                     "qual.CuteMamen", source=("qual.py", src.encode()),
+                     confirm=True)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["trust"] == "user_source"
+
+
 def test_import_source_and_invoke_roundtrip(api_client):
     r = _post_import(api_client, _make_pkg("demo-echo", base_model="echo.demo"),
                      "echo.CuteMamen", source=("echo.py", ECHO_SRC.encode()),

@@ -38,8 +38,6 @@ from ..services.plugin_runtime.kernel_gateway import (
 )
 from ..services.plugin_runtime.loader import (
     PluginLoadError,
-    find_plugin_classes,
-    load_plugin_module,
     read_cutemamen_pkg,
 )
 from ..services.plugin_runtime.registry import (
@@ -183,6 +181,9 @@ _FORBIDDEN_MODULES = {
     # 2026-09-17 终态=A 补口（审计实证的绕过向量；黑名单仍属防呆层，
     # 真正的隔离墙=含源码档子进程沙箱 sandbox.py）：
     "builtins", "shutil", "runpy", "codeop", "code",
+    # R3-H6 补口（2026-10-24 用户拍板纯 AST 预检）：环境变量/注册表/
+    # 底层 IO 是模块级恶意代码的高频面（此前 import os 直接放行）
+    "os", "io", "winreg",
 }
 _BARE_FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "open"}
 # 属性调用黑名单：名字本身几乎不可能是良性方法（防 os.system/Path.unlink 等）
@@ -195,6 +196,35 @@ _STRICT_ATTR_FORBIDDEN = {
     # 2026-09-17 补口：io.open / os.remove / os.posix_spawn 系
     "remove", "posix_spawn", "posix_spawnp", "spawn", "terminate",
 }
+
+
+def _ast_has_expert_subclass(tree: ast.Module) -> bool:
+    """AST 扫描：是否存在 ExpertPlugin 子类（R3-H6 纯预检）。
+
+    支持文件内继承链（class A(ExpertPlugin) / class B(A)）与限定名
+    基类（cutemamen.ExpertPlugin）——对齐原宿主 exec 试装载的
+    find_plugin_classes 判定面，避免链式继承的合法插件被误拒。
+    """
+    classes: dict[str, list[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            bases: list[str] = []
+            for base in node.bases:
+                if isinstance(base, ast.Name):
+                    bases.append(base.id)
+                elif isinstance(base, ast.Attribute):
+                    bases.append(base.attr)
+            classes[node.name] = bases
+
+    def _derives(name: str, seen: set[str]) -> bool:
+        if name == "ExpertPlugin":
+            return True
+        if name in seen or name not in classes:
+            return False
+        seen.add(name)
+        return any(_derives(b, seen) for b in classes[name])
+
+    return any(_derives(n, set()) for n in classes)
 
 
 def _scan_source_violations(code_text: str) -> list[str]:
@@ -322,20 +352,19 @@ def _import_plugin_core(package_bytes: bytes, package_filename: str,
                 "含源码插件需用户显式确认后才能导入",
                 suggestion="此插件将在软件内部直接运行，请只安装信任来源；"
                            "确认信任请带 confirm_source=true 重试")
-        tmp_src = tempfile.NamedTemporaryFile(suffix=".py", delete=False)
-        try:
-            tmp_src.write(source_bytes)
-            tmp_src.close()
-            module = load_plugin_module(Path(tmp_src.name))
-            if not find_plugin_classes(module):
-                raise ApiError("PLUGIN_SOURCE_INVALID",
-                               "源码内没有 ExpertPlugin 子类",
-                               suggestion="参照 src/cutemamen/rust_coding.py 的写法")
-        except PluginLoadError as exc:
+        # R3-H6 真修（2026-10-24 用户拍板「纯 AST 预检」）：此前试装载经
+        # load_plugin_module 在宿主进程 exec 源码——模块级代码在沙箱
+        # 承诺生效前已运行（AST 黑名单可被动态手法绕过，exec 是真执行）。
+        # 改纯 AST 验证同两件事：语法（_scan_source_violations 已解析并
+        # 对坏语法抛语义错，此处必过）+ ExpertPlugin 子类存在性（AST 扫
+        # 描）。首次真实执行移入沙箱子进程（运行期 _invoke_sandboxed
+        # 本就如此）。代价=依赖缺失类错误从导入期移到首次激活期（沙箱
+        # 内报错，可重试）。
+        tree = ast.parse(source_text)
+        if not _ast_has_expert_subclass(tree):
             raise ApiError("PLUGIN_SOURCE_INVALID",
-                           f"源码试装载失败: {exc}") from exc
-        finally:
-            Path(tmp_src.name).unlink(missing_ok=True)
+                           "源码内没有 ExpertPlugin 子类",
+                           suggestion="参照 src/cutemamen/rust_coding.py 的写法")
         trust = "user_source"
 
     # 落盘 + 登记（登记失败清场）

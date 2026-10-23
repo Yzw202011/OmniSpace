@@ -149,6 +149,24 @@ const ProjectLibrary: React.FC = () => {
     style_preset: 'standard',
   });
 
+  // 四页 P3（2026-10-23）：篇幅三参数失焦钳位+提示——此前 -5 等越界值原样
+  // 送出、后端 _parse_plan_meta 静默钳（L-03 改判后的改进项）；现按
+  // novelApi.ts 契约档位（6~200 / 800~6000 / 0~10）就地钳并明示调整结果
+  const clampField = (
+    key: 'plan_chapters' | 'words_per_chapter' | 'volume_count',
+    min: number, max: number,
+  ) => {
+    const raw = form[key];
+    if (raw >= min && raw <= max) return;
+    const v = Math.min(max, Math.max(min, raw));
+    setForm((f) => ({ ...f, [key]: v }));
+    const labels: Record<typeof key, string> = {
+      plan_chapters: '计划章数', words_per_chapter: '每章字数', volume_count: '卷数',
+    };
+    useAppStore.getState().showToast(
+      `${labels[key]}超出支持范围（${min}~${max}），已调整为 ${v}`, 'warning');
+  };
+
   const submit = async () => {
     if (!form.name.trim()) return;
     if (await createProject(form)) {
@@ -243,6 +261,7 @@ const ProjectLibrary: React.FC = () => {
               value={form.plan_chapters}
               title="全书计划约多少章（AI 出纲贴近此数，允许±2章浮动）"
               onChange={(e) => setForm({ ...form, plan_chapters: Number(e.target.value) || 20 })}
+              onBlur={() => clampField('plan_chapters', 6, 200)}
             />
           </label>
           <label className="text-xs text-white/50 flex flex-col gap-1">
@@ -252,6 +271,7 @@ const ProjectLibrary: React.FC = () => {
               value={form.words_per_chapter}
               title="每章正文目标字数（可短不可注水）"
               onChange={(e) => setForm({ ...form, words_per_chapter: Number(e.target.value) || 2000 })}
+              onBlur={() => clampField('words_per_chapter', 800, 6000)}
             />
           </label>
           <label className="text-xs text-white/50 flex flex-col gap-1">
@@ -260,6 +280,7 @@ const ProjectLibrary: React.FC = () => {
               className="input" type="number" min={0} max={10}
               value={form.volume_count}
               onChange={(e) => setForm({ ...form, volume_count: Number(e.target.value) || 0 })}
+              onBlur={() => clampField('volume_count', 0, 10)}
             />
           </label>
         </div>
@@ -410,7 +431,11 @@ const NovelWorkspace: React.FC = () => {
       </div>
 
       {currentTask && (
-        <div className="card border border-sky-400/40 text-sky-200 text-sm flex items-center gap-2">
+        <div
+          className="card border border-sky-400/40 text-sky-200 text-sm flex items-center gap-2"
+          role="status"
+          aria-busy="true"
+        >
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           正在执行：{currentTask.kind === 'chapter' ? '章节生成' : currentTask.kind === 'outline' ? '大纲生成' : '角色设计'}
           {progress && progress.queue.length > 0 && `（后面还排着 ${progress.queue.length} 个任务）`}
@@ -848,6 +873,7 @@ const ChapterPanel: React.FC = () => {
                   key={`${s.plugin}/${s.id}`}
                   className="btn btn-ghost btn-sm border border-white/15"
                   disabled={skillBusy}
+                  aria-busy={skillBusy || undefined}
                   onClick={() => void runSkill(s)}
                   title={`${s.description}（${s.trust_label}）`}
                 >

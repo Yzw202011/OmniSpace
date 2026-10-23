@@ -49,8 +49,28 @@ def _try_import(name: str) -> Any:
         return None
 
 
-_torch = _try_import("torch")
-_diffusers = _try_import("diffusers")
+# M14 延续（2026-10-23）：torch+diffusers 顶层加载占 import src.main
+# ~2.5s（R8 已证此两条链为 B3 冻结区/AnimateLCM/KenBurns 兜底——冷启动
+# 不需要）——改函数内懒加载，冻结区复活时零改码（消费函数已全部有
+# _torch/_diffusers None 判定）。import src.main 4.6s→~1.5s 预期。
+_torch = None
+_diffusers = None
+
+
+def _ensure_torch():
+    """惰性加载 torch（首次消费时才 import，冷启动省 ~1s）。"""
+    global _torch
+    if _torch is None:
+        _torch = _try_import("torch")
+    return _torch
+
+
+def _ensure_diffusers():
+    """惰性加载 diffusers（首次消费时才 import，冷启动省 ~1.5s）。"""
+    global _diffusers
+    if _diffusers is None:
+        _diffusers = _try_import("diffusers")
+    return _diffusers
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -333,6 +353,7 @@ def discover_video_models() -> dict[str, dict]:
         return found
 
     def _probe(d: Path) -> None:
+        _ensure_torch()
         idx = d / "model_index.json"
         if not idx.is_file():
             return
@@ -1002,6 +1023,8 @@ class VideoEngine(BaseEngine):
         model: VideoModel = VideoModel.COGVIDEOX_2B,
         device: str = "auto",
     ) -> bool:
+        _ensure_torch()
+        _ensure_diffusers()
         """加载视频生成模型管线。
 
         尝试按以下顺序加载:
@@ -1086,6 +1109,8 @@ class VideoEngine(BaseEngine):
         return False
 
     def load_animatelcm(self, device: str = "auto") -> bool:
+        _ensure_torch()
+        _ensure_diffusers()
         """AnimateLCM 图生视频分支（F-07）加载。
 
         探测链位置：LTX-2/Wan2.1/CogVideoX 之后、Ken Burns 之前。
@@ -1279,6 +1304,8 @@ class VideoEngine(BaseEngine):
             self._pipeline_registered_id = ""
 
     def _ensure_video_loaded(self, prefer_i2v: bool = False) -> None:
+        _ensure_torch()
+        _ensure_diffusers()
         """视频模型自动装载（导入 models/ 即可用）。
 
         扫描 models/ 下 diffusers 布局的视频模型（Wan/CogVideoX/LTX/

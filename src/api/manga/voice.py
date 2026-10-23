@@ -319,14 +319,39 @@ async def voices_clone(name: str = Query("克隆音色"),
             suggestion="执行 pip install f5-tts 并重启 OmniSpace；"
                        "或使用预置音色 / voices/upload 通道")
 
-    # 保存上传的参考音频
-    raw = await file.read()
+    # 保存上传的参考音频（R3-H7 修复 2026-10-24：对齐 voices/upload 的
+    # 有界读+扩展名白名单——此前全量 read 无上限（超大文件整包进内存）、
+    # suffix 任意类型可落盘）
+    filename = (file.filename or "").lower()
+    if not filename.endswith(_VOICE_UPLOAD_EXTS):
+        raise ApiError("UNSUPPORTED_FORMAT",
+                       "参考音频仅支持 wav/mp3/flac/m4a",
+                       detail={"filename": file.filename})
+    raw = await file.read(_VOICE_MAX_BYTES + 1)
+    if len(raw) > _VOICE_MAX_BYTES:
+        raise ApiError("OPERATION_LIMIT_EXCEEDED",
+                       f"参考音频超过 {_VOICE_MAX_BYTES // 1024 // 1024}MB 上限",
+                       detail={"max_bytes": _VOICE_MAX_BYTES,
+                               "given": len(raw)})
     if len(raw) < 1024:
         raise ApiError("VOICE_CLONE_REF_TOO_SHORT",
                        "参考音频过短（<1KB），请上传 5-10 秒清晰人声")
-    suffix = Path(file.filename or "ref.wav").suffix or ".wav"
+    suffix = Path(filename).suffix
     ref_dir = DATA_DIR / "voice_clones"
     ref_dir.mkdir(parents=True, exist_ok=True)
+    # 参考音频清理（R3-H7 尾项）：克隆是即抛即用的临时件，顺带清掉
+    # 24h 前的陈旧 ref_*（克隆推理秒级完成，24h 前的文件不可能在用；
+    # 失败不阻断）
+    try:
+        import time as _time
+        for _old in ref_dir.glob("ref_*"):
+            try:
+                if _time.time() - _old.stat().st_mtime > 86400:
+                    _old.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except Exception:  # noqa: BLE001 - 清理失败不阻断克隆
+        pass
     ref_path = ref_dir / f"ref_{uuid.uuid4().hex[:8]}{suffix}"
     ref_path.write_bytes(raw)
 

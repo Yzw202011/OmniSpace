@@ -24,11 +24,21 @@ import { rateMessage } from '@/services/dialogApi';
 import { VISION_MODEL_RE } from '@/services/cloudApi';
 import type { DialogSession, DialogMessage } from '@/types';
 
-/** 时间戳统一转毫秒 */
+/** 时间戳统一转毫秒
+ * R3-H4 修复（2026-10-24）：后端 created_at/updated_at 是 unix 秒、
+ * 本地新建消息是 Date.now() 毫秒——同字段双单位。原样透传数字会把
+ * 历史消息渲染成 1970 年（新发消息正常，症状时好时坏更难排查）。
+ * 按 1e12 分界防御（秒 ~1.7e9 恒小于、毫秒 ~1.7e12 恒大于），
+ * 与仓内 7 处组件同款。 */
 function toMs(ts: string | number): number {
-  if (typeof ts === 'number') return ts;
+  if (typeof ts === 'number') {
+    return ts > 1e12 ? ts : ts * 1000;
+  }
   const n = Number(ts);
-  return isNaN(n) ? new Date(ts).getTime() : n;
+  if (!Number.isNaN(n)) {
+    return n > 1e12 ? n : n * 1000;
+  }
+  return new Date(ts).getTime();
 }
 
 /** DialogSession → ChatSession */

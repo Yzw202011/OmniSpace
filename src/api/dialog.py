@@ -2230,10 +2230,24 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                     break
             await producer
         except Exception:
-            # H7 修复（2026-10-21）：WS 断开=客户端消失——停止推理+保存
-            # 半截回复，防 GPU 空转+回复黑洞
+            # H7 真修（2026-10-24 终结书 P0）：WS 断开=客户端消失。
+            # ⚠️ 2026-10-22 旧修系微秒级空操作——add 后 finally 立即
+            # discard（try/except/finally 结构决定 finally 紧跟 except
+            # 执行），生产者 stop_check 根本看不到旗标，GPU 照旧跑满。
+            # 正确顺序：置停 → 等生产者真正停下 → 才清旗标。等待设
+            # 上限（引擎停旗标失效/挂死时不得无限占住 dialog 功能锁——
+            # 那会让全体后续对话请求陪葬；超时弃管，孤儿线程随生成
+            # 自然结束，半截回复照常保存）。producer 异常不再上抛
+            # （客户端已断，下方保存路径必须能走到）。
             _ws_alive = False
             _stop_flags.add(sid)
+            try:
+                await asyncio.wait_for(producer, timeout=120.0)
+            except asyncio.TimeoutError:
+                log.error("WS 断开后生产者 %s 120s 未响应停旗标（弃管，"
+                          "孤儿推理随生成自然结束）", sid)
+            except Exception:  # noqa: BLE001
+                log.debug("WS 断开后生产者收尾异常（忽略）", exc_info=True)
         finally:
             if not _ws_alive:
                 _stop_flags.discard(sid)
@@ -2243,13 +2257,17 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
         # 被动补全（R2-B01）：首轮回复含不确定性标记时，快速搜索重推理
         # 一次，改进回复作为追加 token 推送后再落库（meta 如实标注）。
         # 检测只作用于 content 段（思考文本天然含"不确定/可能"会误触发）
+        # H7 真修（2026-10-24）：断开后跳过被动补全——给已离开的用户
+        # 跑第二次推理纯属烧 GPU，且其内部 send 在保存之前炸出会把
+        # 半截回复一并带走（保存永远走不到）
         passive = None
-        if reply and not error_holder:
+        if reply and not error_holder and _ws_alive:
             new_reply, passive = await _maybe_passive_completion(
                 engine, content, reply, history, knowledge_text, sid,
                 images, 0.7, 1024, 8192)
             if passive and passive.get("supplemented") \
-                    and new_reply.strip() and new_reply != reply:
+                    and new_reply.strip() and new_reply != reply \
+                    and _ws_alive:
                 await websocket.send_json(
                     {"type": "token",
                      "data": {"token": "\n\n" + new_reply}})
@@ -2286,7 +2304,12 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
             # B 案复读截断旗标（正文内已有提示，meta 供诊断）
             if getattr(engine, "last_repeat_cut", False):
                 meta["repeat_cut"] = True
-            await websocket.send_json({"type": "meta", "data": meta})
-        await websocket.send_json({"type": "done", "data": {}})
+            # H7 真修（2026-10-24）：断开路径只保「保存+放锁」，发送
+            # 全部 _ws_alive 守卫——死 socket 上的 send 异常不得越过
+            # 保存/收尾（保存已在上方无条件完成）
+            if _ws_alive:
+                await websocket.send_json({"type": "meta", "data": meta})
+        if _ws_alive:
+            await websocket.send_json({"type": "done", "data": {}})
     finally:
         await lock.release("dialog")

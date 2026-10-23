@@ -1383,6 +1383,36 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
                         log.info("重新生成清理旧超分产物: %s", _sr.name)
         except Exception as exc:  # noqa: BLE001 - 清理失败不阻断提交
             log.warning("旧超分产物清理失败（忽略）: %s", exc)
+    # 云端路由解析+首帧校验（H8 真修，2026-10-24 终结书 P0）：前置于
+    # flow 建立与任务落库——此前校验在 insert 之后（R3-H3 实锤，旧注释
+    # 自称「确保 raise 在 insert 之前」与代码相反），云端无首帧拒绝后
+    # pending 幽灵行永久卡死该行（连点查重只认 pending/generating，
+    # 孤儿回收只在进程首笔 submit 跑一次，重启也不清）。
+    # 2026-10-04 用户二定路由：视频模型显式选 cloud:: 才走云（确认弹窗
+    # 透传选择；工位绑定只供端点解析）；本地选择/系统默认=本地引擎。
+    # K-02 真消费（2026-10-21 用户拍板）：单镜未显式选择时读「模型设置·
+    # 视频模型」槽默认——云端项真走云、本地项/默认仍 H3 主力链（主力
+    # 锁定令不变）；显式 model_override 恒优先于槽默认。
+    _effective_override = str(req.model_override or "").strip()
+    if not _effective_override:
+        _effective_override = _manga_video_slot_default()
+    _cloud_ep = _resolve_video_cloud_endpoint() \
+        if _effective_override.startswith("cloud::") else None
+    _aspect_any = "16:9"
+    try:
+        _w, _, _h = str(req.resolution or "").partition("x")
+        if _w and _h and int(_h) > int(_w):
+            _aspect_any = "9:16"
+    except ValueError:
+        log.debug("video_generate: 降级忽略", exc_info=True)
+    _ff = None
+    if _cloud_ep is not None:
+        _ff = _load_first_frame_for_row(req.storyboard_row_id)
+        if _ff is None:
+            raise ApiError("VIDEO_GENERATION_FAILED",
+                "该分镜行还没有当前关键帧，无法云端图生视频",
+                suggestion="请先在故事板生成该行关键帧（云端视频以关键帧"
+                           "为首帧），或点生成时选择本地引擎")
     # 执行流程追踪（2026-08-23）：触发=用户提交视频生成
     from ...services.flow_trace import start_flow
     flow = start_flow(
@@ -1472,36 +1502,9 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
     # 优先走云端图生视频（本地显卡零占用，与本地生成天然并行）；
     # model_override="local" 恒尊重（回归口）。
     resp = {"task_id": task_id, "status": "pending"}
-    # 2026-10-04 用户二定路由：视频模型显式选 cloud:: 才走云（确认弹窗
-    # 透传选择；工位绑定只供端点解析）；本地选择/系统默认=本地引擎
-    # K-02 真消费（2026-10-21 用户拍板）：单镜未显式选择时读「模型设置·
-    # 视频模型」槽默认——云端项真走云、本地项/默认仍 H3 主力链（主力
-    # 锁定令不变）；显式 model_override 恒优先于槽默认。
-    _effective_override = str(req.model_override or "").strip()
-    if not _effective_override:
-        _effective_override = _manga_video_slot_default()
-    _cloud_ep = _resolve_video_cloud_endpoint() \
-        if _effective_override.startswith("cloud::") else None
-    _aspect_any = "16:9"
-    try:
-        _w, _, _h = str(req.resolution or "").partition("x")
-        if _w and _h and int(_h) > int(_w):
-            _aspect_any = "9:16"
-    except ValueError:
-        log.debug("video_generate: 降级忽略", exc_info=True)
-    _ff = None
+    # 云端路由解析+首帧校验已前置于落库（H8 真修 2026-10-24），此处仅接线
     if _cloud_ep is not None:
-        # H8 根修（2026-10-21）：首帧校验已在 _cloud_ep 解析后立即执行，
-        # 确保 raise 发生在 insert 之前（防幽灵 pending）
-        _ff = _load_first_frame_for_row(req.storyboard_row_id)
-        if _ff is None:
-            raise ApiError("VIDEO_GENERATION_FAILED",
-                "该分镜行还没有当前关键帧，无法云端图生视频",
-                suggestion="请先在故事板生成该行关键帧（云端视频以关键帧"
-                           "为首帧），或点生成时选择本地引擎")
-    if _cloud_ep is not None:
-        _first_frame = _ff if _cloud_ep is not None else _load_first_frame_for_row(req.storyboard_row_id)
-        runner = _make_cloud_video_runner(req, _cloud_ep, _first_frame,
+        runner = _make_cloud_video_runner(req, _cloud_ep, _ff,
                                           _aspect_any, flow)
         resp["engine"] = f"cloud:{_cloud_ep.provider_name}"
     elif use_h3_chain:

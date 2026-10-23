@@ -53,8 +53,15 @@ class Harness:
             self._unload_spy.append(1)
             self._mark("unload")
         m.setattr(q, "_unload_paint_pipeline", _spy_unload)
-        m.setattr(q, "_schedule_wake_if_idle",
-                  lambda: self._mark("wake"))
+        # 2026-10-02 用户拍板「按需真实加载」：排空唤醒已摘除（原
+        # _schedule_wake_if_idle patch 行删除，钉在
+        # test_v9_alpha_beta::test_beta_wake_wiring_removed）
+        # H3 blocking（2026-10-23）后队列测试须封闭：_budget_admit 真身
+        # 会读宿主 NVML，显存被占时正确 WAIT→测试排空超时挂死。本文件
+        # 测队列语义（FIFO/取消/排空/next_kind）非准入——准入硬闸由
+        # test_video_admission_blocking.py 专项覆盖，此处整体旁路。
+        m.setattr(q, "_budget_admit", lambda task: None)
+        m.setattr(q, "_comfy_alive", lambda: False)
 
     def undo(self) -> None:
         self._monkey.undo()
@@ -124,14 +131,15 @@ def test_unified_cancel_states(unified_queue: VideoTaskQueue) -> None:
 
 def test_unified_drain_releases_without_unload(
         unified_queue: VideoTaskQueue) -> None:
-    """video 特有契约：排空收尾放锁+唤醒，但**不卸载**绘画管线。"""
+    """video 特有契约：排空收尾放锁（不卸载绘画管线；2026-10-02 起
+    也不再唤醒 vLLM——按需真实加载）。"""
     h = Harness(unified_queue)
     spy: list[int] = []
     h._unload_spy = spy
     h.q.submit(h.task("v1", _ok("v1")))
     _wait_until(lambda: "release" in h.events, timeout=5.0,
                 what="排空放锁")
-    assert "wake" in h.events
+    assert "wake" not in h.events
     # 精确契约：准入时卸载合法（让显存给视频）；**release 之后的排空段
     # 不得再卸载**（排空卸载=行为漂移）
     release_idx = h.events.index("release")

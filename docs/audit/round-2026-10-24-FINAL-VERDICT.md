@@ -112,7 +112,7 @@
 
 **P2（结构性，随触碰收敛）**
 9. M 家族未修 16 条（家族 A-E）+ 巨石拆解（已基准化恢复执法，mypy/module_health 已被清理批修绿）
-10. R1/R2 根因系存量（P1-01~12 + R2-H1~H11 大部仍开：promote 死端点/train_tasks version/大纲重建无事务/RAG 僵尸向量/ended_at 恒 0 等——清单见 r1/r2）
+10. R1/R2 根因系存量（P1-01~12 + R2-H1~H11 大部仍开：promote 死端点/train_tasks version/大纲重建无事务/RAG 僵尸向量/ended_at 恒 0 等——清单见 r1/r2）。**10-24 追记：R2-H1（promote 死端点）/R2-H3（大纲重建事务化）/R2-H5（ended_at）三件已修（ce8d32b）**
 11. 磁盘余项 ~7G（py310 3.5G=B1 拍板身份在用/py313 4.6G=vLLM 在用——**两项均非可直接删**）+ 生产 DB 测试项目清理（用户 10-24 拍板：都不动）
 
 ---

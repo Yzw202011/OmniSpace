@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import tarfile
 import threading
@@ -202,6 +203,14 @@ def system_settings_update(req: SystemSettings) -> dict[str, Any]:
 # 桌面壳 WebView 配置、清缓存丢失时，选型不再打回默认。
 _UI_PREFS_KEY = "ui.prefs"
 
+# P-19 收口（2026-10-24）：宽松 KV 加形状门槛。不做业务白名单——
+# 白名单须前后端两处同步维护，前端新增偏好后端漏更=设置静默丢失；
+# 命名空间+大小+数量门槛达到同等防护且免维护。超限键「拒键不拒包」
+# （部分成功）：前端是读合并写整包，整包 400 会把全部合法设置一并打回。
+_UI_PREFS_KEY_RE = re.compile(r"^omnispace\.[\w.]{1,64}$")
+_UI_PREFS_VALUE_MAX_BYTES = 8 * 1024
+_UI_PREFS_MAX_KEYS = 64
+
 
 @router.get("/system/ui_prefs")
 def ui_prefs_get() -> dict[str, Any]:
@@ -212,11 +221,36 @@ def ui_prefs_get() -> dict[str, Any]:
 
 @router.put("/system/ui_prefs")
 def ui_prefs_update(req: dict = Body(...)) -> dict[str, Any]:
-    """写入界面偏好镜像（前端读合并写整包提交；单用户桌面场景无并发竞争）。"""
+    """写入界面偏好镜像（前端读合并写整包提交；单用户桌面场景无并发竞争）。
+
+    P-19（2026-10-24）：键须匹配 ``omnispace.<名>``（≤64 段内字符）、
+    单键 JSON 值 ≤8KB、总键数 ≤64；超限键丢弃并如实返回 dropped，
+    其余合法键照常保存（部分成功语义，防脏键连坐）。
+    """
     if not isinstance(req, dict):
         return ok({}, message="空偏好已忽略")
-    _kv_set(_UI_PREFS_KEY, req)
-    return ok(req, message="界面偏好已保存")
+    accepted: dict[str, Any] = {}
+    dropped: list[str] = []
+    for key, value in req.items():
+        if len(accepted) >= _UI_PREFS_MAX_KEYS:
+            dropped.append(str(key))
+            continue
+        if not isinstance(key, str) or not _UI_PREFS_KEY_RE.match(key):
+            dropped.append(str(key))
+            continue
+        try:
+            if len(json.dumps(value, ensure_ascii=False)) > _UI_PREFS_VALUE_MAX_BYTES:
+                dropped.append(key)
+                continue
+        except (TypeError, ValueError):
+            dropped.append(key)
+            continue
+        accepted[key] = value
+    _kv_set(_UI_PREFS_KEY, accepted)
+    if dropped:
+        return ok({"saved": accepted, "dropped": dropped},
+                  message=f"界面偏好已保存（{len(dropped)} 个键不合规被忽略）")
+    return ok(accepted, message="界面偏好已保存")
 
 
 @router.get("/system/web_search")

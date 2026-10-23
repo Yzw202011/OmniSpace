@@ -39,8 +39,13 @@ from pathlib import Path
 from typing import Any
 
 from ...config import ROOT_DIR
+from .comfy_proc import COMFY_PORT
 
 log = logging.getLogger("omnispace.inference.h3_frame_upscale")
+
+# R3-M19 修复（2026-10-24）：端口随 OMNISPACE_COMFYUI_PORT（真源=
+# comfy_proc.COMFY_PORT，消除改 env 即模块脑裂）；宿主恒回环字面量
+_COMFY_BASE = f"http://127.0.0.1:{COMFY_PORT}"
 
 _COMFY_DIR = ROOT_DIR / "tools" / "ComfyUI_windows_portable"
 _ESRGAN_WEIGHT = (_COMFY_DIR / "ComfyUI" / "models" / "upscale_models"
@@ -83,7 +88,7 @@ def _soft_mix() -> float:
     return 0.55
 
 
-def frame_upscale_ready(comfy_base: str = "http://127.0.0.1:8189") -> bool:
+def frame_upscale_ready(comfy_base: str = _COMFY_BASE) -> bool:
     """链路就绪预检（权重结论缓存；ComfyUI 探活失败=暂态不缓存，
     同 h3_face_refine.facerefine_ready 的分级约定）。"""
     global _READY_CACHE
@@ -119,7 +124,7 @@ def _api(base: str, method: str, path: str,
 
 
 def upscale_video(src: Path, *,
-                  comfy_base: str = "http://127.0.0.1:8189",
+                  comfy_base: str = _COMFY_BASE,
                   comfy_input: Path | None = None,
                   comfy_output: Path | None = None,
                   progress_cb: Any = None,

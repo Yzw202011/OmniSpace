@@ -462,6 +462,21 @@ def logs_export(
                 zf.writestr("hardware.json", json.dumps(
                     hardware, ensure_ascii=False, indent=1, default=str))
                 counts["hardware"] = 1
+            # R3-H5 修复（2026-10-24）：manifest 脱敏行如实反映 raw 状态。
+            # 此前只要勾「脱敏」就写「是（已打码）」，但 raw/ 分支整文件
+            # 原样入包（R3 实测 66325 行中 214 行含提示词片段/章节标题/
+            # 云端地址/内部路径）——用户以为安全转发实则整包外泄。
+            # 键级打码只覆盖结构化面（events/failed_flows），raw 自由
+            # 文本无键可循；诚实化优于半吊子正则打码装安全。
+            if sanitize and "raw" in parts:
+                sanitize_note = ("部分——events/failed_flows 已打码，但 "
+                                 "raw/ 原始日志未脱敏（含提示词片段/内部"
+                                 "路径/云端地址）；对外转发请去掉 raw 项"
+                                 "重新导出")
+            elif sanitize:
+                sanitize_note = "是（提示词/描述词已打码）"
+            else:
+                sanitize_note = "否（含用户内容）"
             manifest = "\n".join([
                 "OmniSpace 诊断包",
                 f"生成时间: {generated_at}",
@@ -469,7 +484,7 @@ def logs_export(
                 f"时间范围: 最近 {hours} 小时（{cutoff} 起）",
                 f"包含项: {', '.join(sorted(parts))}",
                 f"失败流程明细: {len(failed_details)} 条",
-                f"脱敏: {'是（提示词/描述词已打码）' if sanitize else '否（含用户内容）'}",
+                f"脱敏: {sanitize_note}",
                 f"事件数: {len(events)}",
                 crash_note,
                 "文件说明: events.json/csv=事件库导出；failed_flows.json=失败"

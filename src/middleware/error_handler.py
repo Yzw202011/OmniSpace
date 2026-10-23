@@ -347,7 +347,10 @@ _LEGACY_CODE_MAP退休档案 = {
 # ═══════════════════════════════════════════════════════════════════
 
 #: 未登记码/未知码统一兜底出路（与方案书批1文案一致）
-SUGGESTION_FALLBACK: str = "请稍后重试；若反复出现，请到设置页导出诊断包"
+# R3-M17 修复（2026-10-24）：诊断包导出入口在「系统日志」页
+# （LogSupportWidgets.ExportDiagnosticsDialog，/logs 路由）——原指路
+# 「设置页」不存在该入口，全部未登记码的错误出路都指错方向
+SUGGESTION_FALLBACK: str = "请稍后重试；若反复出现，请到系统日志页导出诊断包"
 
 #: 语义码 -> 默认出路文案（覆盖 SEMANTIC_CODES 全量，含前端构造码）
 SUGGESTION_DEFAULTS: dict[str, str] = {
@@ -356,7 +359,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "MODEL_LOAD_FAILED": "请先关闭其他正在运行的功能释放显存，再到「模型管理」页重试加载",
     "MODEL_NOT_ALLOWED": "请在「模型设置」或「模型管理」中改选可用模型，或清空选择改用智能路由",
     "VRAM_INSUFFICIENT": "请关闭其他 AI 功能（对话/绘画/视频同一时间只能跑一个）后重试；也可在「模型管理」页卸载暂不用的模型",
-    "MODEL_INFERENCE_FAILED": "请重试一次；反复失败请到「日志」页查看原因，并在设置页导出诊断包",
+    "MODEL_INFERENCE_FAILED": "请重试一次；反复失败请到「日志」页查看原因，并在系统日志页导出诊断包",
     "MODEL_NOT_DOWNLOADED": "本软件为离线单机版，请把模型文件放入 models/ 目录后经「模型管理」页导入",
     "MODEL_FILE_NOT_FOUND": "模型文件可能被移动或删除，请到「模型管理」页确认，必要时重新导入",
     "MODEL_FILE_CORRUPTED": "该模型文件已损坏，请删除后重新获取并导入",
@@ -415,14 +418,14 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "SYSTEM_PARAM_INVALID": "请按页面提示检查填写的内容后重试",
     "SYSTEM_UNAUTHORIZED": "请确认您有该操作的权限后重试",
     "SYSTEM_RESOURCE_NOT_FOUND": "该内容可能已被删除，请刷新后重试",
-    "SYSTEM_INTERNAL_ERROR": "请稍后重试；若反复出现，请到设置页导出诊断包",
+    "SYSTEM_INTERNAL_ERROR": "请稍后重试；若反复出现，请到系统日志页导出诊断包",
     "SYSTEM_DISK_FULL": "请清理磁盘空间（可删旧生成结果）后重试",
     "SYSTEM_RATE_LIMITED": "操作太频繁了，请歇几秒再试",
     "SYSTEM_DB_UNAVAILABLE": "数据库未响应，请重启软件；反复出现请导出诊断包",
     "SYSTEM_DB_BUSY": "系统正忙，请等几秒重试；反复出现请导出诊断包",
     "SYSTEM_DB_DEGRADED": "数据库暂时不可用，数据暂存内存；请先导出重要内容再重启软件",
     "SYSTEM_BACKUP_FAILED": "请检查磁盘剩余空间后重试备份",
-    "SYSTEM_DEPENDENCY_MISSING": "该功能依赖的组件缺失，请到设置页导出诊断包反馈",
+    "SYSTEM_DEPENDENCY_MISSING": "该功能依赖的组件缺失，请到系统日志页导出诊断包反馈",
     "SYSTEM_NOT_FOUND": "该内容可能已被删除，请刷新后重试",
     "HARDWARE_NO_GPU": "未检测到独立显卡，AI 生成类功能受限；请确认显卡驱动安装正常",
     "HARDWARE_DRIVER_OUTDATED": "请到显卡官网更新驱动，更新后重启电脑",
@@ -526,6 +529,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "UNBIND_FAILED": "请稍后重试解绑；反复失败请导出诊断包",
     "UNBIND_NOT_CONFIRMED": "请在确认弹窗中完成解绑确认",
     "UPGRADE_UPDATER_MISSING": "升级器缺失，请重新安装完整版本",
+    "UPGRADE_IN_PROGRESS": "升级正在进行中，请等它完成后再操作（可稍后刷新查看进度）",
     "VLLM_NOT_READY": "对话引擎正在启动，请稍候重试",
     "VLLM_TERMINATE_FAILED": "请运行 停止OmniSpace.bat 完整退出后重试",
     "VOICE_CLONE_FAILED": "请更换更清晰的 5-10 秒人声参考后重试",

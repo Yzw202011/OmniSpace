@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config import ROOT_DIR
+from .comfy_proc import COMFY_PORT
 
 log = logging.getLogger("omnispace.inference.h3_face_refine")
 
@@ -45,8 +46,10 @@ _COMFY_DIR = ROOT_DIR / "tools" / "ComfyUI_windows_portable"
 _COMFY_MODELS = _COMFY_DIR / "ComfyUI" / "models"
 _WORKFLOW_TEMPLATE = Path(__file__).with_name("h3_face_refine_workflow.json")
 
-# SSRF 边界：本模块只服务本机 ComfyUI，基址为回环字面量常量
-_COMFY_BASE = "http://127.0.0.1:8189"
+# SSRF 边界：本模块只服务本机 ComfyUI，宿主恒为回环字面量；端口随
+# OMNISPACE_COMFYUI_PORT（R3-M19 修复 2026-10-24，真源=comfy_proc，
+# 消除改 env 即模块脑裂；与 h3_engine/comfy_paint_engine 同源）
+_COMFY_BASE = f"http://127.0.0.1:{COMFY_PORT}"
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
 # FaceRefine 链三关键节点（缺失任一即预检不过）

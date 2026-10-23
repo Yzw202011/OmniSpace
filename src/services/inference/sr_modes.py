@@ -26,10 +26,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .comfy_proc import COMFY_PORT
+
 log = logging.getLogger("omnispace.inference.sr_modes")
 
-# SSRF 边界：基址 = 模块级回环字面量；拼接后解析校验 scheme/host 白名单
-_COMFY_BASE = "http://127.0.0.1:8189"
+# SSRF 边界：宿主恒为回环字面量，拼接后解析校验 scheme/host 白名单；
+# 端口随 OMNISPACE_COMFYUI_PORT（R3-M19 修复 2026-10-24：真源=
+# comfy_proc.COMFY_PORT——进程在哪个口起消费方就打哪个口，消除改
+# env 即模块脑裂；与 h3_engine/comfy_paint_engine 同源）
+_COMFY_BASE = f"http://127.0.0.1:{COMFY_PORT}"
 _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 ProgressCB = Callable[[float, str], None]

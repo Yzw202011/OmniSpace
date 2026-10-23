@@ -1488,6 +1488,20 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
             raw, _project_style_line(db, project_id),
             required_shots=req_shots, duration=eff_duration)
         if not description:
+            # W-02 根因修正（2026-10-23）：云端调用日志实证模型多有返回、
+            # 是反思考过滤层把整篇答案洗空——旧文案「模型返回为空」误导
+            # 排查方向。区分真空/被过滤，并带原文头样本供一眼定谳
+            if raw:
+                log.warning(
+                    "描述词被过滤层清空: model=%s raw_len=%d raw_head=%r",
+                    engine.model_name, len(raw), raw[:120])
+                raise ApiError(
+                    "MODEL_INFERENCE_FAILED",
+                    "分镜描述词生成失败：模型输出经反思考过滤层后为空"
+                    f"（原始 {len(raw)} 字，疑似英文/思考体或 B/C 段标记"
+                    "不合规，样本已记入日志），请重试或换本地模型",
+                    detail={"raw_head": raw[:120],
+                            "model": engine.model_name})
             raise ApiError("MODEL_INFERENCE_FAILED",
                            "分镜描述词生成失败：模型返回为空")
         # REFINE-INTEGRATION-1/3：二遍精修（默认关；开关在 system_settings

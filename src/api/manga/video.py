@@ -2281,16 +2281,24 @@ async def video_narrative_generate(req: VideoNarrativeRequest) -> dict[str, Any]
             base_prompt = _build_abc_prompt(r, assets)
             prompt = f"{prefix}\n{base_prompt}" if prefix else base_prompt
             try:
-                # max_new_tokens=1536：氛围行 + B/C 正文 ~450 字 + R1 系思考段预算
+                # max_new_tokens=3072（W-02 修正 2026-10-23 对齐 storyboard
+                # ai-describe 的 10-07 提额：思考型云端模型思考段可吞 1500+
+                # token，1536 预算下正文被挤到 0 字——此处此前漏提）
                 body = (await run_blocking(
                     engine.chat, [{"role": "user", "content": prompt}],
-                    temperature=0.7, max_new_tokens=1536)).strip()
+                    temperature=0.7, max_new_tokens=3072)).strip()
                 # 氛围提取 / 净化 / 镜头数兜底 / 首帧保持段 / A 段拼装（common.py 共享管线）
                 req_shots, eff_duration = _derive_shot_plan(r)
                 new_desc = _finalize_abc_body(body, style_line,
                                               required_shots=req_shots,
                                               duration=eff_duration)
                 if not new_desc:
+                    # W-02（2026-10-23）：静默 skip 掩盖了「过滤层洗空」与
+                    # 「模型真空」的区分——带原文头样本留痕供定谳
+                    log.warning(
+                        "A/B/C 视频描述词被过滤层清空: row=%s model=%s "
+                        "raw_len=%d raw_head=%r",
+                        r["id"], engine.model_name, len(body), body[:120])
                     skipped += 1
                     continue
                 if db is not None:

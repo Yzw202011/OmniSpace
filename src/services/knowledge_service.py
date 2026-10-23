@@ -77,6 +77,15 @@ def get_knowledge_capacity() -> int:
 CLEANUP_BATCH = 100                # 超出上限时每次清理的最旧条数
 SEGMENT_MAX_CHARS = 500            # 长段切分阈值（TASK-033：~500字/段）
 DENSITY_THRESHOLD = 0.3            # 信息密度阈值（>0.3 保留）
+
+
+class KnowledgeDeleteError(RuntimeError):
+    """级联删除中途失败（向量库不可用等，R2-H7 止血 2026-10-24）。
+
+    知识与其向量保持一致（均未删除），调用方如实报错引导重试——
+    此前向量删除失败仅 warning 后继续删元数据，向量成僵尸继续
+    注入对话（R2 实测 106 条固化三月）。
+    """
 RELEVANCE_THRESHOLD = 0.25         # 相关性阈值（≥0.25 保留；主题字/词覆盖率均值）
 SIM_SKIP = 0.9                     # SimHash 相似度 > 0.9 → 跳过
 SIM_MERGE = 0.7                    # 0.7~0.9 → 合并
@@ -1304,12 +1313,20 @@ class KnowledgeProcessingService:
         return new_score
 
     def delete_knowledge(self, kid: str) -> bool:
-        """级联删除：向量 + 元数据 + 全文索引 + 图谱边。返回是否删除成功。"""
+        """级联删除：向量 + 元数据 + 全文索引 + 图谱边。返回是否删除成功。
+
+        R2-H7 止血（2026-10-24）：向量删除失败→抛 KnowledgeDeleteError
+        早退（元数据不删）——账实一致优先：两者都在或两者都无，绝不
+        留「元数据已删、向量残留」的僵尸（其文本仍会被检索注入）。
+        """
         existed = self.get_knowledge(kid) is not None
         try:
             self._vdb.delete([kid])
         except Exception as exc:  # noqa: BLE001
-            log.warning("向量删除失败: %s", exc, exc_info=True)
+            log.error("向量删除失败（知识保留待重试）: %s", exc,
+                      exc_info=True)
+            raise KnowledgeDeleteError(
+                f"向量库删除失败，知识已保留未删除: {exc}") from exc
         try:
             get_fts_store().delete(kid)
         except Exception as exc:  # noqa: BLE001
@@ -1331,6 +1348,34 @@ class KnowledgeProcessingService:
         existed = existed or (kid in self._mem_meta)
         self._mem_meta.pop(kid, None)
         return existed
+
+    def purge_orphan_vectors(self) -> int:
+        """清僵尸向量（R2-H7 清存，2026-10-24）：向量库中已无元数据的
+        孤儿条目——删除失败残留的已删知识，其文本仍会被检索注入对话
+        （R2 实测 106 条固化三月）。返回清除数。
+
+        安全极性：元数据读取失败→返回 0 中止（宁不清勿误清）；
+        须在 Chroma 健康的进程调用（降级态只看得到内存侧清单）。
+        """
+        live: set[str] = set(self._mem_meta.keys())
+        if self._db is not None:
+            try:
+                live.update(r["id"] for r in self._db.query(
+                    "SELECT id FROM knowledge_meta"))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("清存读元数据失败（中止防误清）: %s", exc,
+                            exc_info=True)
+                return 0
+        try:
+            orphans = [i for i in self._vdb.all_ids() if i not in live]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("清存读向量清单失败: %s", exc, exc_info=True)
+            return 0
+        if not orphans:
+            return 0
+        self._vdb.delete(orphans)
+        log.info("僵尸向量清存: %d 条", len(orphans))
+        return len(orphans)
 
     # ── 知识图谱（TASK-055）───────────────────────────────────
 

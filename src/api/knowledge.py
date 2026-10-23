@@ -49,7 +49,11 @@ from ..middleware.error_handler import ApiError, ok
 from ..services import knowledge_quality_gate
 from ..services.behavior_service import get_behavior_service
 from ..services.injection_service import get_injection_service
-from ..services.knowledge_service import Knowledge, get_knowledge_service
+from ..services.knowledge_service import (
+    Knowledge,
+    KnowledgeDeleteError,
+    get_knowledge_service,
+)
 
 router = APIRouter()
 log = logging.getLogger("omnispace.api.knowledge")
@@ -226,9 +230,19 @@ def knowledge_detail(kid: str) -> dict[str, Any]:
 
 @router.delete("/knowledge/{kid}")
 def knowledge_delete(kid: str) -> dict[str, Any]:
-    """删除知识：级联删向量与元数据。"""
+    """删除知识：级联删向量与元数据。
+
+    R2-H7（2026-10-24）：向量库删除失败→知识保留+语义错误（账实
+    一致优先）——此前失败被吞、元数据照删，残留僵尸向量继续注入。
+    """
     svc = get_knowledge_service()
-    if not svc.delete_knowledge(kid):
+    try:
+        deleted = svc.delete_knowledge(kid)
+    except KnowledgeDeleteError as exc:
+        raise ApiError("KNOWLEDGE_DELETE_FAILED", str(exc),
+                       suggestion="向量库暂时不可用，知识已保留（与向量"
+                                  "一致未删）；请稍后重试删除") from exc
+    if not deleted:
         raise ApiError("KNOWLEDGE_NOT_FOUND", "知识不存在",
                        detail={"id": kid})
     return ok({"id": kid}, message="知识已删除")
@@ -536,14 +550,21 @@ def learn_knowledge_delete(body: dict = Body(default_factory=dict)) -> dict[str,
         raise ApiError("SYSTEM_PARAM_INVALID", "单次批量删除上限 500 条",
                        detail={"count": len(ids)})
     svc = get_knowledge_service()
-    deleted, missing = 0, []
+    deleted, missing, failed = 0, [], []
     for k in ids:
-        if svc.delete_knowledge(k):
-            deleted += 1
-        else:
-            missing.append(k)
-    return ok({"deleted": deleted, "missing": missing},
-              message=f"已删除 {deleted} 条知识")
+        # R2-H7（2026-10-24）：向量删除失败不吞——知识保留计入 failed
+        # （此前元数据照删=僵尸向量固化），响应如实区分三态
+        try:
+            if svc.delete_knowledge(k):
+                deleted += 1
+            else:
+                missing.append(k)
+        except KnowledgeDeleteError:
+            failed.append(k)
+    return ok({"deleted": deleted, "missing": missing, "failed": failed},
+              message=f"已删除 {deleted} 条知识"
+                      + (f"，{len(failed)} 条因向量库失败保留待重试"
+                         if failed else ""))
 
 
 @router.get("/learn/knowledge/export")

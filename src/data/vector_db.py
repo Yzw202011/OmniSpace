@@ -139,6 +139,11 @@ class _InMemoryVectorStore:
             id_set = set(ids)
             self._docs = [d for d in self._docs if d["id"] not in id_set]
 
+    def all_ids(self) -> list[str]:
+        """全量 id 清单（R2-H7 僵尸向量清存用；与 VectorDB 同接口）。"""
+        with self._lock:
+            return [d["id"] for d in self._docs]
+
     def count(self) -> int:
         with self._lock:
             return len(self._docs)
@@ -432,6 +437,19 @@ class VectorDB:
             except Exception as exc:
                 log.warning("ChromaDB 删除失败: %s", exc, exc_info=True)
         self._fallback.delete(ids)
+
+    def all_ids(self) -> list[str]:
+        """全量 id 清单（R2-H7 僵尸向量清存用）。
+
+        注意：Chroma 通道异常时回落内存库——降级态返回的是内存侧
+        清单（进程内），调用方据此清存时须在 Chroma 健康的进程里跑。
+        """
+        if self._use_chroma and self._collection is not None:
+            try:
+                return list(self._collection.get(include=[])["ids"])
+            except Exception:
+                log.debug("all_ids: 降级忽略", exc_info=True)
+        return self._fallback.all_ids()
 
     def count(self) -> int:
         """返回当前集合的文档总数。"""

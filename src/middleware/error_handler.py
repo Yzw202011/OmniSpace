@@ -64,6 +64,7 @@ SEMANTIC_CODES: dict[str, str] = {
     "KNOWLEDGE_TRAINING_EMPTY": "训练数据为空",                # [文档]
     "KNOWLEDGE_RAG_FAILED": "知识检索失败",                    # [文档]
     "KNOWLEDGE_NOT_FOUND": "知识不存在",
+    "KNOWLEDGE_DELETE_FAILED": "知识删除失败（向量库不可用，知识已保留）",  # R2-H7
     "KNOWLEDGE_PROCESS_FAILED": "知识处理失败",
     "LEARN_TOPIC_NOT_FOUND": "学习主题不存在",
     "LEARN_SESSION_NOT_FOUND": "学习会话不存在",
@@ -375,6 +376,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "KNOWLEDGE_TRAINING_EMPTY": "请先导入知识资料，或放宽筛选条件后重试",
     "KNOWLEDGE_RAG_FAILED": "请重试；反复失败请到「日志」页查看原因",
     "KNOWLEDGE_NOT_FOUND": "该条目可能已被删除，请刷新列表后重试",
+    "KNOWLEDGE_DELETE_FAILED": "向量库暂时不可用，知识已保留（与向量一致未删）；请稍后重试删除",
     "KNOWLEDGE_PROCESS_FAILED": "请重试一次；反复失败请换更小或更常见的文件",
     "LEARN_TOPIC_NOT_FOUND": "该主题可能已被删除，请刷新学习页列表",
     "LEARN_SESSION_NOT_FOUND": "该会话可能已结束或被清理，请重新发起学习",

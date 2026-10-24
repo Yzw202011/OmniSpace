@@ -15,7 +15,7 @@
     ],
     "recorded_lines": {
       "src/api/dialog.py": 2315,
-      "src/api/manga/comic_asset.py": 2648,
+      "src/api/manga/comic_asset.py": 2754,
       "src/api/manga/comic_gen.py": 2384,
       "src/api/manga/keyframe.py": 3502,
       "src/api/manga/video.py": 2460,

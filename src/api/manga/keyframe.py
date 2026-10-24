@@ -1983,15 +1983,29 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     rel_path = str(out_path.relative_to(DATA_DIR)).replace("\\", "/")
     kf_id = uuid.uuid4().hex
     _ensure_source_mode_column(db)
-    db.update("keyframes", {"is_current": 0}, "row_id=?", (row_id,))
-    db.insert("keyframes", {
+    # R3-M6 修复（2026-10-24）：is_current 翻转+新版本插入走单事务
+    # ——此前两段 autocommit（先 update 置 0 再 insert 置 1），中途
+    # 崩 → 该行所有版本 is_current=0（当前位丢失）；delete 路径已
+    # 事务化（:3395），生成路径漏修
+    _kf_row = {
         "id": kf_id, "row_id": row_id, "project_id": project_id,
         "version": version, "file_path": rel_path, "prompt": prompt,
         "status": "done", "error": "", "is_current": 1,
         "created_at": _now(),
         "shot_seeds": json.dumps(actual_seeds), "consistency": "",
         "source_mode": "fallback" if used_fallback else "describe",
-        "elapsed_ms": round((time.time() - t0) * 1000, 1)})
+        "elapsed_ms": round((time.time() - t0) * 1000, 1)}
+
+    def _insert_txn(conn) -> None:
+        conn.execute("UPDATE keyframes SET is_current=0 WHERE row_id=?",
+                     (row_id,))
+        cols = list(_kf_row.keys())
+        vals = [db.serialize(_kf_row[c]) for c in cols]
+        conn.execute(
+            f"INSERT INTO keyframes ({', '.join(cols)})"
+            f" VALUES ({', '.join('?' * len(cols))})", vals)
+
+    db.execute_in_transaction(_insert_txn)
     try:  # 批2 P31：成功喂舱壁账本
         from ...services.module_health import record_success
         record_success("paint")

@@ -82,13 +82,22 @@ class MemoryManager:
             log.debug("内存注册: %s (%.1fMB)", key, size_mb)
 
     def access(self, key: str) -> Any:
-        """访问内存块（更新访问时间）。"""
+        """访问内存块（更新访问时间；R3-L18 修复：压缩块先解压）。"""
         with self._lock:
             block = self._blocks.get(key)
             if block is None:
                 return None
             block.last_access = time.time()
             self._blocks.move_to_end(key)
+            # R3-L18（2026-10-24）：压缩块返回前解压——此前直接返回
+            # 压缩 bytes=调用方拿到死数据（pickle 字节流非原对象）
+            if block.compressed:
+                try:
+                    import pickle
+                    raw = _lz4_block.decompress(block.data)
+                    return pickle.loads(raw)
+                except Exception:  # noqa: BLE001 - 解压失败按 None（死数据）
+                    return None
             return block.data
 
     def unregister(self, key: str) -> bool:

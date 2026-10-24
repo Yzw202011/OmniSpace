@@ -19,11 +19,14 @@ from pathlib import Path
 log = logging.getLogger("omnispace.services.data_prune")
 
 RETENTION_DAYS = 30
-_TABLES: list[tuple[str, str]] = [
-    # (表名, 时间列名——Unix 秒)
-    ("learning_logs", "ts"),
-    ("behavior_logs", "timestamp"),
-    ("schedule_history", "ts"),
+_TABLES: list[tuple[str, str, str]] = [
+    # (表名, 时间列名, 时间格式——unix=REAL Unix 秒 / iso=TEXT ISO8601)
+    ("learning_logs", "ts", "unix"),
+    ("behavior_logs", "timestamp", "unix"),
+    # P1-09 修复（2026-10-24）：ts 列是 TEXT ISO8601——此前按 Unix 秒
+    # float 比较，SQLite 跨存储类中 TEXT 恒大于数值=谓词永假（实测
+    # 4550 行零删）。改为 julianday() 归一比较。
+    ("schedule_history", "ts", "iso"),
 ]
 _LOG_DIRS = ["logs/eval", "logs/usage", "logs/e2e_txt_upload",
              "logs/events-test", "logs/style_matrix", "logs/four_models",
@@ -38,13 +41,24 @@ def prune_once(root: Path) -> dict[str, int]:
     db_path = root / "data" / "omnispace.db"
     if db_path.is_file():
         cutoff = time.time() - RETENTION_DAYS * 86400
+        # P1-09：ISO8601 列的等价 cutoff（与 Unix cutoff 同时刻）
+        import datetime as _dt
+        cutoff_iso = _dt.datetime.fromtimestamp(
+            cutoff, tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         try:
             db = sqlite3.connect(str(db_path))
-            for table, col in _TABLES:
+            for table, col, fmt in _TABLES:
                 try:
-                    cur = db.execute(
-                        f"DELETE FROM {table} WHERE {col} < ?",
-                        (cutoff,))
+                    if fmt == "iso":
+                        # TEXT ISO8601 → julianday 归一到天比较
+                        cur = db.execute(
+                            f"DELETE FROM {table} WHERE "
+                            f"julianday({col}) < julianday(?)",
+                            (cutoff_iso,))
+                    else:
+                        cur = db.execute(
+                            f"DELETE FROM {table} WHERE {col} < ?",
+                            (cutoff,))
                     stats[table] = cur.rowcount
                     db.commit()
                 except sqlite3.OperationalError as exc:

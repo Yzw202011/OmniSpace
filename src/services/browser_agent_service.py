@@ -202,15 +202,20 @@ DEFAULT_LEARNING_SETTINGS: dict[str, Any] = {
     "bandwidth_mbps_limit": 4.0,        # 学习期带宽上限 Mbps
 }
 
-# 学习域错误码（6xxxx 段：61001-61008）
-ERR_TOPIC_NOT_FOUND = 61001
-ERR_SESSION_NOT_FOUND = 61002
-ERR_SESSION_STATE = 61003
-ERR_LEARN_UNAVAILABLE = 61004
-ERR_QUOTA_DENIED = 61005
-ERR_TRAFFIC_LIMIT = 61006
-ERR_TOPIC_LIMIT = 61007
-ERR_SESSION_RUNNING = 61008
+# 学习域错误码（P1-08 修复 2026-10-24：int 61001-61008 → 语义串。
+# 此前 _to_semantic 对 int 恒返 SYSTEM_INTERNAL_ERROR（批3清偿后设计），
+# 但 learning.py 8 处引用这些 int 常量 → 用户看到「内部错误+查日志」
+# 而非「主题达上限/已有会话在跑」。改为语义串后 ApiError 直接携带
+# 正确码；历史映射表保留做旧数据兜底。LearningError.code 同步放宽
+# 为 int | str 兼容存量调用方）
+ERR_TOPIC_NOT_FOUND = "LEARN_TOPIC_NOT_FOUND"
+ERR_SESSION_NOT_FOUND = "LEARN_SESSION_NOT_FOUND"
+ERR_SESSION_STATE = "LEARN_SESSION_STATE_INVALID"
+ERR_LEARN_UNAVAILABLE = "LEARN_BROWSER_UNAVAILABLE"
+ERR_QUOTA_DENIED = "LEARN_RESOURCE_FORBIDDEN"
+ERR_TRAFFIC_LIMIT = "LEARN_TRAFFIC_LIMIT"
+ERR_TOPIC_LIMIT = "LEARN_TOPIC_LIMIT"
+ERR_SESSION_RUNNING = "LEARN_SESSION_CONFLICT"
 
 # Agent 决策枚举 → 前端「当前操作」中文描述（to_status_dict 透出）
 _ACTION_LABELS = {
@@ -225,9 +230,10 @@ _ACTION_LABELS = {
 
 
 class LearningError(Exception):
-    """学习域业务异常，携带统一错误码。"""
+    """学习域业务异常，携带统一错误码（P1-08：int→str 语义码兼容）。"""
 
-    def __init__(self, code: int, message: str, detail: Any = None) -> None:
+    def __init__(self, code: int | str, message: str,
+                 detail: Any = None) -> None:
         self.code = code
         self.message = message
         self.detail = detail if detail is not None else {}

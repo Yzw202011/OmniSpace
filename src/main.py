@@ -200,6 +200,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                              f"omnispace_pre_restore_{int(time.time())}.db")
                 config.DATA_DIR.joinpath("backups").mkdir(parents=True,
                                                           exist_ok=True)
+                # P1-11 修复（2026-10-24）：WAL checkpoint 后再拷——
+                # 此前 copy2 只拷 .db 主文件，-wal 未 checkpoint 的
+                # 已提交事务丢失（磁盘实据：防呆件旁残留 .db-wal）。
+                # TRUNCATE 模式=归入主文件+清空 WAL，copy2 即完整。
+                try:
+                    _ckpt = _sq.connect(str(config.DB_PATH))
+                    _ckpt.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    _ckpt.close()
+                except Exception:  # noqa: BLE001 - checkpoint 失败仍拷（尽力）
+                    pass
                 _shutil.copy2(config.DB_PATH, _safe_cur)
                 # BUG-10 修复（2026-10-20 拍板 A）：防呆件同款 GCM 加密
                 # （最重要的回滚保底不再明文裸奔）；密钥不可用回退明文

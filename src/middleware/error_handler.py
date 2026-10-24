@@ -73,6 +73,8 @@ SEMANTIC_CODES: dict[str, str] = {
     "LEARN_DAILY_QUOTA_EXCEEDED": "今日学习流量已达上限",
     "LEARN_TOPIC_LIMIT": "学习主题数量已达上限",
     "LEARN_SESSION_CONFLICT": "已有学习会话进行中",
+    "LEARN_BROWSER_UNAVAILABLE": "浏览器学习组件不可用",        # P1-08
+    "LEARN_TRAFFIC_LIMIT": "学习流量预算耗尽",                  # P1-08
     # ── 浏览器类（3xxx）──────────────────────────────────────────
     "BROWSER_CRASHED": "浏览器进程崩溃",                       # [文档]
     "BROWSER_POOL_EXHAUSTED": "无可用浏览器实例",              # [文档]
@@ -385,6 +387,8 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "LEARN_DAILY_QUOTA_EXCEEDED": "今日学习流量已用完，请明天再试，或改用本地资料",
     "LEARN_TOPIC_LIMIT": "请先删除不再需要的学习主题，再新建",
     "LEARN_SESSION_CONFLICT": "已有学习任务在进行，请等它完成或先停止它",
+    "LEARN_BROWSER_UNAVAILABLE": "浏览器学习组件不可用，请重启软件；反复出现请导出诊断包",
+    "LEARN_TRAFFIC_LIMIT": "学习流量预算已用完，请等当前会话结束或调整预算",
     "LEARN_BEHAVIOR_RECORD_FAILED": "行为记录暂未写入（不影响使用）；反复出现请导出诊断包",
     "LEARN_BEHAVIOR_CLEAR_FAILED": "清理未完成，请重试；反复失败请导出诊断包",
     "LEARN_TOPIC_NAME_DUPLICATED": "请换一个主题名称（同名主题已存在）",

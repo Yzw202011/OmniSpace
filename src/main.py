@@ -578,6 +578,39 @@ def create_app() -> FastAPI:
                         suggestion="请把收到的激活码粘贴到激活窗口完成激活")
         return await call_next(request)
 
+    # P1-05 修复（2026-10-24）：激活门 WS 侧补拦——此前仅挂 HTTP 中间件，
+    # 4 个 WS 端点（/dialog/stream、/ws、/hardware/realtime、
+    # /learn/session/progress）全部绕过。纯 ASGI 双拦对齐 lan_auth 手法。
+    # 保留既有 HTTP 中间件不动（零改动面），仅补 WS 缺口。
+    class _LicenseGateWS:
+        """WS 激活门（纯 ASGI）：未激活时 WS 连接直接 1008 拒绝。"""
+
+        def __init__(self, inner: Any) -> None:
+            self.inner = inner
+
+        async def __call__(self, scope: dict[str, Any],
+                           receive: Any, send: Any) -> None:
+            if scope.get("type") != "websocket" \
+                    or not license_gate.gate_enabled():
+                await self.inner(scope, receive, send)
+                return
+            path = scope.get("path", "")
+            if not path.startswith("/api/") \
+                    or path.startswith("/api/v1/license"):
+                await self.inner(scope, receive, send)
+                return
+            activated, _ = license_gate.is_activated()
+            if activated:
+                await self.inner(scope, receive, send)
+                return
+            import logging as _lg
+            _lg.getLogger("omnispace.main").warning(
+                "WS 激活门拒绝: %s（产品未激活）", path)
+            await send({"type": "websocket.close", "code": 1008,
+                        "reason": "产品尚未激活"})
+
+    app.add_middleware(_LicenseGateWS)
+
     # 请求上下文（文档D meta.request_id/duration_ms 支撑）
     # 审计 R3-BE6：最后注册 = 最外层用户中间件（Starlette insert(0) 语义），
     # 使限流/CORS 拒绝的响应也带 X-Request-ID

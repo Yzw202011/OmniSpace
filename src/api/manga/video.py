@@ -2390,9 +2390,22 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
         except Exception as exc:  # noqa: BLE001
             log.warning("H3 链式任务落库失败: %s", exc, exc_info=True)
 
+    # BUG-04 全量三链埋点（2026-10-24 拍板）：H3 直连端点此前不建 flow
+    # → runner 拿 NULL_FLOW，执行流程 0 节点（执行流程账 98.3% 零节点
+    # 的主成分）。对齐 /video/generate 的 1418 模式：入口建 flow 传入
+    # runner（runner 内部三出口 end + H3 节点心跳均已就绪）。
+    from ...services.flow_trace import start_flow
+    flow = start_flow(
+        "video", "h3_chain_generate",
+        f"H3 链式视频：{len(row_ids)} 镜 {req.seconds_per_shot:g}s"
+        f" {req.quality}",
+        trigger="用户提交 H3 链式生成",
+        input_summary=f"rows={[r[:12] for r in row_ids]}",
+        detail=f"task_id={task_id} start_clip={req.start_clip}")
+
     runner = _make_h3_chain_runner(
         row_ids=row_ids, seconds=req.seconds_per_shot, quality=req.quality,
-        start_clip=req.start_clip, run_name=req.run_name)
+        start_clip=req.start_clip, run_name=req.run_name, flow=flow)
     position = get_video_queue().submit({
         "task_id": task_id, "kind": "h3_chain", "runner": runner,
         "loop": asyncio.get_running_loop(),

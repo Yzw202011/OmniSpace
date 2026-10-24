@@ -1012,11 +1012,27 @@ async def storyboard_auto_split(project_id: str,
     # 持 dialog 功能锁贯穿全程推理：2026-08-24 实测无锁推理时
     # scheduler 深层回收（空闲 300s 阈值只看 feature_lock）把推理
     # 中的 qwen3-vl-4b 当"空闲驻留"卸载，导致 865s 推理报废重来
+    # BUG-04 全量三链埋点（2026-10-24 拍板）：切分链此前零 flow。
+    from ...services.flow_trace import start_flow
+    flow = start_flow(
+        "manga", "auto_split",
+        f"AI 自动分镜：{min(len(script), 24)}{'…' if len(script) > 24 else ''}",
+        trigger="用户提交剧本切分",
+        input_summary=f"project={project_id[:12]} dry_run={dry_run}"
+                      f" script_len={len(script)}")
     lock = await acquire_or_raise("dialog", task_id=f"autosplit-{project_id}")
     try:
         shots, engine = await _ai_split_script(script, project_id)
+    except ApiError as exc:
+        flow.end("error", error_code=exc.code, error_detail=exc.message[:200])
+        raise
+    except Exception as exc:
+        flow.end("error", error_code="AUTO_SPLIT_FAILED",
+                 error_detail=str(exc)[:200])
+        raise
     finally:
         await lock.release("dialog")
+    flow.end("success", output_summary=f"engine={engine} shots={len(shots)}")
     if not shots:
         raise ApiError("SCRIPT_FORMAT_UNSUPPORTED", "剧本无有效内容")
 

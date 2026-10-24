@@ -44,6 +44,7 @@ from ...services.inference.comfy_paint_engine import (
 from ...services.inference.gen_router import detect_style, explain_style, resolve_route
 from ...services.inference.paint_engine import get_paint_engine
 from ...services.offload import run_blocking
+from ...services.video_queue import VideoTaskCancelled
 from .common import (
     _ABC_MARK,
     _IMG_GEN_MAX,
@@ -3106,12 +3107,35 @@ async def keyframe_generate(req: KeyframeGenerateRequest) -> dict[str, Any]:
         _cloud_ep = None
 
     def _kf_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
-        return _generate_keyframe_sync(
-            req.row_id, req.project_id or "",
-            (req.prompt or "").strip(), req.width, req.height,
-            req.seed, req.force_new_seed, engine_backend,
-            req.only_shots, src_ver, req.text_priority,
-            cloud_endpoint=_cloud_ep, check_cancel=check_cancel)
+        # BUG-04 全量三链埋点（2026-10-24 拍板）：关键帧链此前零 flow——
+        # 队列线程无上下文，此处新建（_exec 写库永不抛错，零行为风险）。
+        from ...services.flow_trace import start_flow
+        flow = start_flow(
+            "manga", "keyframe_generate",
+            f"关键帧生成：{(req.prompt or '').strip()[:20] or req.row_id[:12]}",
+            trigger="用户提交分镜生图",
+            input_summary=f"row={req.row_id[:12]} {req.width}x{req.height}"
+                          f" engine={engine_backend}",
+            detail=f"cloud={_cloud_ep is not None}")
+        try:
+            with flow.node("生图推理", friendly="关键帧采样与落盘"):
+                data = _generate_keyframe_sync(
+                    req.row_id, req.project_id or "",
+                    (req.prompt or "").strip(), req.width, req.height,
+                    req.seed, req.force_new_seed, engine_backend,
+                    req.only_shots, src_ver, req.text_priority,
+                    cloud_endpoint=_cloud_ep, check_cancel=check_cancel)
+            flow.end("success",
+                     output_summary=f"v{data.get('version')}"
+                                    f" {str(data.get('file_path') or '')[:60]}")
+            return data
+        except VideoTaskCancelled:
+            flow.end("cancelled", error_detail="用户取消")
+            raise
+        except Exception as exc:
+            flow.end("error", error_code="KEYFRAME_GENERATE_FAILED",
+                     error_detail=str(exc)[:200])
+            raise
 
     def _wait_cb(_task_id: str, pos: int) -> None:
         broadcast_gen_progress(

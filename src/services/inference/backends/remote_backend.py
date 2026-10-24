@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -313,6 +314,22 @@ class RemoteDialogBackend(DialogBackend):
         self._ready = False
         return had
 
+    def chat_nostream(
+        self,
+        messages: list[dict],
+        images: list | None = None,
+        temperature: float = 0.7,
+        max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
+    ) -> str:
+        """非流式对话：一次取回 message.content（2026-10-10 翻译专用——
+        网关 SSE 层每块双发致口吃，非流式路径实测干净）。"""
+        texts = list(self.chat_stream(
+            messages, images=images, temperature=temperature,
+            max_new_tokens=max_new_tokens, extra_params=extra_params,
+            stream=False))
+        return "".join(texts)
+
     def chat_stream(
         self,
         messages: list[dict],
@@ -320,8 +337,13 @@ class RemoteDialogBackend(DialogBackend):
         temperature: float = 0.7,
         max_new_tokens: int = 1024,
         extra_params: dict | None = None,
+        stream: bool = True,
     ):
         """SSE 流式对话（OpenAI 兼容 /v1/chat/completions）。
+
+        stream=False：非流式一次取回（2026-10-10 翻译专用——MagicAI
+        网关的 SSE 层每块双发，非流式路径实测干净；生成器语义不变，
+        非流式时只 yield 一个完整块）。
 
         连接参数用 load() 时缓存的生效端点（与就绪态自洽；绑定切换由
         ensure_loaded 的 matches_target 检测并触发重载）。失败一律抛
@@ -342,7 +364,7 @@ class RemoteDialogBackend(DialogBackend):
             "messages": messages,
             "temperature": temperature if temperature > 0 else 0.0,
             "max_tokens": max_new_tokens,
-            "stream": True,
+            "stream": stream,
         }
         if extra_params:
             payload.update(extra_params)
@@ -377,11 +399,18 @@ class RemoteDialogBackend(DialogBackend):
             try:
                 resp = requests.post(
                     self._base_url + "/v1/chat/completions", json=payload,
-                    headers=headers, stream=True,
+                    headers=headers, stream=stream,
                     timeout=(10, _STREAM_READ_TIMEOUT_S))
+                break
+            except requests.exceptions.ReadTimeout as exc:
+                # P1-03 修复（2026-10-24）：读超时=服务端已受理并在
+                # 处理（首字节>180s 的深度推理/网关缓冲），重试=同
+                # prompt 二发/三发→双/三倍计费。绝不重试。
+                _fatal = exc
                 break
             except (requests.exceptions.ConnectionError,
                     requests.exceptions.Timeout) as exc:
+                # 连接级失败/连接超时=服务端未收到请求，重试无风险
                 _fatal = exc
                 if _attempt < 2:
                     time.sleep(2.0 * (_attempt + 1))
@@ -413,8 +442,31 @@ class RemoteDialogBackend(DialogBackend):
             raise RuntimeError(
                 f"云端 API 返回 HTTP {resp.status_code}：{body}。"
                 + http_error_hint(resp.status_code))
+        # 非流式分支（2026-10-10 翻译专用）：MagicAI 网关的 SSE 层每块
+        # 双发（翻译口吃实锤），非流式路径实测干净——一次取回 message。
+        if not stream:
+            obj = resp.json()
+            choices = obj.get("choices") or []
+            content = ((choices[0].get("message") or {}) if choices
+                       else {}).get("content") or ""
+            self.last_finish_reason = str(
+                (choices[0].get("finish_reason") if choices else "") or "")
+            _log_call(bool(content))
+            if content:
+                yield content
+            else:
+                raise RuntimeError("云端模型未返回正文（非流式空回复）")
+            return
         content_yielded = False
         reasoning_parts: list[str] = []
+        # SSE 相邻重复块丢弃（2026-10-10 用户实报翻译口吃）：MagicAI
+        # 网关实测把每个 content 块原样双发（14 块=7 组逐对重复，
+        # [i]==[i+1] 完全周期）——拼接后全文翻倍（翻译口吃/对话双份
+        # 实锤）。一次延迟语义：块先缓冲，与后块相同即丢弃；正常流仅
+        # 多一块延迟，代价=相邻完全同文块会少一块（多为标点重复，可
+        # 接受）。OMNISPACE_SSE_CHUNK_DEDUP=0 可关。
+        _sse_dedup = os.environ.get("OMNISPACE_SSE_CHUNK_DEDUP", "1") != "0"
+        _pending: str | None = None
         try:
             for raw in resp.iter_lines():
                 if not raw:
@@ -440,10 +492,20 @@ class RemoteDialogBackend(DialogBackend):
                 text = delta.get("content")
                 if text:
                     content_yielded = True
+                    if _sse_dedup:
+                        if text == _pending:
+                            _pending = text  # 重复块：丢弃（保留基线）
+                            continue
+                        if _pending is not None:
+                            yield _pending
+                        _pending = text
+                        continue
                     yield text
                 fr = choices[0].get("finish_reason") if choices else None
                 if fr:
                     self.last_finish_reason = str(fr)
+            if _sse_dedup and _pending is not None:
+                yield _pending
         except requests.exceptions.Timeout as exc:
             _log_call(False, f"read timeout: {exc}")
             raise RuntimeError(

@@ -1912,6 +1912,92 @@ class DialogEngine(BaseEngine):
             extra_params=extra_params,
         ))
 
+    def chat_nostream(
+        self,
+        messages: list[dict],
+        temperature: float = 0.3,
+        max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
+    ) -> str:
+        """非流式一次性取回（2026-10-10 翻译专用）。
+
+        远端后端走 stream=False 的非流式请求——MagicAI 网关的 SSE 层
+        每块双发（翻译口吃实锤），非流式路径实测干净。本地后端等价于
+        chat（本地链路无双发缺陷）。任何失败向上抛（调用方自行降级）。
+        """
+        self._last_activity_ts = time.monotonic()
+        backend = self._backend
+        if self._state != "ready" or backend is None:
+            raise RuntimeError(self._last_error or "对话模型未就绪")
+        fn = getattr(backend, "chat_nostream", None)
+        if callable(fn):
+            return fn(messages, temperature=temperature,
+                      max_new_tokens=max_new_tokens, extra_params=extra_params)
+        return self.chat(messages, temperature=temperature,
+                         max_new_tokens=max_new_tokens,
+                         extra_params=extra_params)
+
+    def chat_local_first(
+        self,
+        messages: list[dict],
+        *,
+        prefer_models: list[str] | None = None,
+        temperature: float = 0.3,
+        max_new_tokens: int = 1024,
+        extra_params: dict | None = None,
+    ) -> str:
+        """本地优先链式非流式推理（2026-10-10 转义层本地化）。
+
+        模型链（按序尝试，逐个 ensure_loaded+chat，全失败抛最后异常）：
+        1. prefer_models：调用方的业务偏好（如漫剧文字槽显式选择，
+           cloud:: 开头=走对应云端）；
+        2. 其余**本地已就绪**候选（available_models，机械预处理本地化
+           ——用户没装首选模型时自动落到其他本地模型）；
+        3. None：槽位默认（对话槽绑定=云；纯云用户无本地时的兜底）。
+
+        为机械预处理（翻译）设计：非流式（远端走 stream=False，避开
+        网关 SSE 双发）。任何失败向上抛，调用方诚实降级（保留中文）。
+        """
+        self._last_activity_ts = time.monotonic()
+        backend = self._backend
+        # P1-01 修复（2026-10-24）：入口守卫只拒结构性不可用（backend
+        # None=无推理后端设施），不再拒「state != ready」瞬态——此前
+        # 冷态（vLLM 让渡被杀/看门狗卸载/冷启动）直接 raise，下方循环
+        # 的 ensure_loaded(target) 永不可达，全部翻译调用点静默回退
+        # 中文→SDXL 英文编码器吃中文=出图质量退化。chat/chat_nostream
+        # 的同型守卫不受影响（直驱后端调用，不经装载链）。
+        if backend is None:
+            raise RuntimeError(self._last_error or "对话引擎后端不可用")
+        chain: list = []
+        for m in (prefer_models or []):
+            if m and m not in chain:
+                chain.append(m)
+        for m in self.available_models():
+            if m not in chain:
+                chain.append(m)
+        if None not in chain:
+            chain.append(None)
+        last_err: Exception | None = None
+        for target in chain:
+            try:
+                if target is not None and not self.ensure_loaded(target):
+                    raise RuntimeError(self._last_error
+                                       or f"{target} 装载失败")
+                fn = getattr(backend, "chat_nostream", None) \
+                    if getattr(self._backend, "name", "") == "remote" else None
+                if callable(fn):
+                    return fn(messages, temperature=temperature,
+                              max_new_tokens=max_new_tokens,
+                              extra_params=extra_params)
+                return self.chat(messages, temperature=temperature,
+                                 max_new_tokens=max_new_tokens,
+                                 extra_params=extra_params)
+            except Exception as exc:  # noqa: BLE001 - 逐候选降级
+                last_err = exc
+                log.warning("chat_local_first: 候选 %s 失败（%s），降下一档",
+                            target, exc)
+        raise last_err or RuntimeError("无可用推理候选")
+
     # ── 状态 ──────────────────────────────────────────────────────
 
     @property

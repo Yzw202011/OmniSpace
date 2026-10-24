@@ -492,6 +492,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_browser_pool().shutdown()
     except Exception:
         log.warning("浏览器池关停失败", exc_info=True)
+    # P1-12 批 3（2026-10-24 用户批准）：ComfyUI 优雅关停（清理输出
+    # 目录+释放显存；Job Object 在硬杀时兜底，优雅路径显式走）
+    try:
+        from .services.inference.comfy_proc import get_comfy_proc
+        get_comfy_proc().shutdown()
+    except Exception:
+        log.warning("ComfyUI 关停失败", exc_info=True)
+    # P1-12 批 3：vLLM 睡眠/终止（释放 ~12GB 显存；下次启动重新装载）
+    try:
+        from .engines.vllm_service import get_vllm_service
+        _vllm = get_vllm_service()
+        if hasattr(_vllm, "stop"):
+            _vllm.stop()
+    except Exception:
+        log.warning("vLLM 关停失败", exc_info=True)
     try:
         from .services.ws_hub import get_ws_hub
         await get_ws_hub().stop_telemetry()

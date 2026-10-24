@@ -477,8 +477,11 @@ async def novel_chapter_summary_regen(chapter_id: str) -> dict[str, Any]:
     summary = await run_blocking(
         svc._llm_sync, prompt, temperature=0.2, max_new_tokens=256)
     summary = summary.strip().splitlines()[0][:300] if summary.strip() else ""
-    db.update("novel_chapters", {"summary": summary, "updated_at": _now()},
-              "id=?", (chapter_id,))
+    # R2-H9 修复（2026-10-24）：async 端点内裸调同步 db.update 阻塞
+    # 事件循环（摘要 LLM 已正确走 run_blocking，落库漏了）
+    await run_blocking(lambda: db.update(
+        "novel_chapters", {"summary": summary, "updated_at": _now()},
+        "id=?", (chapter_id,)))
     return ok({"id": chapter_id, "summary": summary})
 
 

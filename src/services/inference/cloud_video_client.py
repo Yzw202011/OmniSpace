@@ -423,14 +423,16 @@ def generate_video(
         log.info("云端视频完成: %s task=%s %.1fMB 耗时=%.0fs",
                     ep.provider_name, task_id, len(resp.content) / 1e6,
                     time.time() - t0)
+        # P2-12 修复（2026-10-25）：成功事件移到 return 前——此前在
+        # return 之后=死代码，时间线只见失败不见成功
+        record_cloud_call("video", ep.provider_name, ep.model, True,
+                          int((time.time() - t0) * 1000), slot=slot)
         return resp.content
     except Exception as exc:
         record_cloud_call("video", ep.provider_name, ep.model,
                           False, int((time.time() - t0) * 1000),
                           slot=slot, detail=str(exc)[:300])
         raise
-    record_cloud_call("video", ep.provider_name, ep.model, True,
-                      int((time.time() - t0) * 1000), slot=slot)
 
 
 def probe_video_provider(ep: CloudEndpoint,

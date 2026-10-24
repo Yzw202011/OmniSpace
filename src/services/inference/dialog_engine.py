@@ -1077,7 +1077,16 @@ class DialogEngine(BaseEngine):
                             detail=f"backend={kind}")
                     except Exception:  # noqa: BLE001
                         log.debug("load_model: 降级忽略", exc_info=True)
+                    # P2-10 修复（2026-10-25）：失败路径补 empty_cache——
+                    # 此前只 gc.collect()，半初始化 torch reserved 块
+                    # 不归还驱动，后续准入被误拒（对照成功路径 :1114 完整释放）
                     gc.collect()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:  # noqa: BLE001
+                        pass
                     return False
 
                 self._backend = backend

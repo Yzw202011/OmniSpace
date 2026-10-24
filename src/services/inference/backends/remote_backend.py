@@ -447,8 +447,15 @@ class RemoteDialogBackend(DialogBackend):
         if not stream:
             obj = resp.json()
             choices = obj.get("choices") or []
-            content = ((choices[0].get("message") or {}) if choices
-                       else {}).get("content") or ""
+            msg = (choices[0].get("message") or {}) if choices else {}
+            content = msg.get("content") or ""
+            # P2-13 修复（2026-10-25）：非流式分支补 reasoning_content
+            # 回退——流式分支 :519-528 有完整兜底，此分支缺失=思考型
+            # 模型（R1 系绑 manga.text）翻译/机械预处理必报空回复
+            if not content:
+                reasoning = str(msg.get("reasoning_content") or "")
+                if reasoning.strip():
+                    content = reasoning.strip()
             self.last_finish_reason = str(
                 (choices[0].get("finish_reason") if choices else "") or "")
             _log_call(bool(content))

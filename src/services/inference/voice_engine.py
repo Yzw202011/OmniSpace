@@ -332,7 +332,11 @@ class VoiceEngine(BaseEngine):
             True 如果加载成功
         """
         if self._fallback_mode:
-            return False
+            # P2-07 修复（2026-10-25）：降级态允许显式重试（unload 已
+            # 复位 _fallback_mode，此处到=未被 unload 的调用方直调）
+            # 此前一次失败永久回退（仅进程重启可解）
+            log.info("TTS 降级态收到 load 请求——允许重试（P2-07）")
+            self._fallback_mode = False
 
         if device == "auto":
             self._device = "cuda" if _torch.cuda.is_available() else "cpu"

@@ -109,6 +109,7 @@ SEMANTIC_CODES: dict[str, str] = {
     "SYSTEM_INTERNAL_ERROR": "内部错误，请查看服务端日志",      # [文档]
     "SYSTEM_DISK_FULL": "磁盘空间不足，请清理后重试",           # [文档]
     "SYSTEM_RATE_LIMITED": "请求过于频繁，请稍后再试",
+    "LICENSE_REQUIRED": "产品尚未激活",  # P2-03（2026-10-25）：补注册
     "SYSTEM_DB_UNAVAILABLE": "数据库连接失败",
     "SYSTEM_DB_BUSY": "数据库忙，请稍后重试",
     "SYSTEM_DB_DEGRADED": "数据库不可用，已降级到内存模式",
@@ -428,6 +429,7 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "SYSTEM_INTERNAL_ERROR": "请稍后重试；若反复出现，请到系统日志页导出诊断包",
     "SYSTEM_DISK_FULL": "请清理磁盘空间（可删旧生成结果）后重试",
     "SYSTEM_RATE_LIMITED": "操作太频繁了，请歇几秒再试",
+    "LICENSE_REQUIRED": "请把收到的激活码粘贴到激活窗口完成激活",  # P2-03
     "SYSTEM_DB_UNAVAILABLE": "数据库未响应，请重启软件；反复出现请导出诊断包",
     "SYSTEM_DB_BUSY": "系统正忙，请等几秒重试；反复出现请导出诊断包",
     "SYSTEM_DB_DEGRADED": "数据库暂时不可用，数据暂存内存；请先导出重要内容再重启软件",
@@ -567,7 +569,8 @@ _SEMANTIC_HTTP: dict[str, int] = {
     "SYSTEM_PARAM_INVALID": 400,
     "SYSTEM_RESOURCE_NOT_FOUND": 404,
     "LICENSE_LOCKED": 429,
-    "RATE_LIMITED": 429,
+    "SYSTEM_RATE_LIMITED": 429,  # P2-03 修复（2026-10-25）：死键
+    # RATE_LIMITED→SYSTEM_RATE_LIMITED（前者零使用）
     "FEATURE_MUTEX_LOCKED": 409,
     "TRAINING_MAINTENANCE": 503,
     "LICENSE_REQUIRED": 403,

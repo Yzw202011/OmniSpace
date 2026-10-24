@@ -115,7 +115,7 @@ export const LearningDashboard: React.FC = () => {
         </div>
       ) : (
         <div className="text-secondary text-sm">
-          当前没有进行中的学习会话。可在下方「学习主题管理」中选择主题开始学习，或让 AI 自主决定学习内容。
+          当前没有进行中的学习会话。可在下方「学习主题管理」中选择主题开始学习，或一键探索新主题。
         </div>
       )}
 

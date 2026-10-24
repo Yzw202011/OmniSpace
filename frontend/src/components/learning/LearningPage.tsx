@@ -34,7 +34,7 @@ export const LearningPage: React.FC = () => {
     <div className="page">
       <ModuleGuide moduleKey="learning" />
       <h1 className="page-title"><BookOpen size={20} aria-hidden="true" /> 知识学习</h1>
-      <p className="page-subtitle">AI 自主学习：主题管理 · 实时浏览 · 行为偏好 · 知识库（训练已迁入训练中心）</p>
+      <p className="page-subtitle">自主学习：主题管理 · 实时浏览 · 行为偏好 · 知识库（当前为规则驱动引擎，AI 决策即将上线）</p>
 
       <div className="flex flex-col gap-4 mt-5">
         <LearningDashboard />

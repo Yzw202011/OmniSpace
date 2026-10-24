@@ -1217,6 +1217,16 @@ class ModelManager:
             except Exception:  # noqa: BLE001
                 log.debug("unload_model: 降级忽略", exc_info=True)
 
+            # M19 修复（2026-10-24 用户批准）：模型卸载后归还物理页
+            # ——torch/pymalloc 分配后不主动归还 OS，历史三进程并存
+            # 顶爆 32GB（08-29 蓝屏同源）。resource_guard 已有正确的
+            # 64 位伪句柄实现，此处复用（60s 冷却由 resource_guard 管）
+            try:
+                from ..resource_guard import get_resource_guard
+                get_resource_guard()._shrink_working_set()
+            except Exception:  # noqa: BLE001 - 非 Windows/权限不足跳过
+                pass
+
         # 审计 P0-5：预留量扣减持锁；只扣 register_external_load 登记
         # 型条目（autoload，其预留是 H3 惰性权重等 NVML 盲区占用的逻辑
         # 预留、需驻留期持续）——ensure_loaded 装载型成功时已回落，

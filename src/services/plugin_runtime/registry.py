@@ -486,12 +486,51 @@ class PluginRuntime:
         return out
 
     # ── 生命周期 ────────────────────────────────────────────
-    def ensure_loaded(self, name: str) -> ExpertPlugin:
-        """加载并返回插件实例（幂等；未加载→自动加载，产品铁律）。"""
+    def ensure_loaded(self, name: str) -> ExpertPlugin | None:
+        """加载并返回插件实例（幂等；未加载→自动加载，产品铁律）。
+
+        R3-H6 姊妹修复（2026-10-24 用户拍板「子进程隔离」）：
+        user_source + sandbox_enabled 时不在宿主 exec 源码——标记
+        加载态+从包清单取技能/能力，返回 None（真正加载发生在
+        _invoke_sandboxed 的沙箱子进程内，与调用面一致）。此前的
+        暴露面：POST /plugins/{name}/load 和 /reload 直接调本方法
+        → 模块级代码+on_load 在宿主运行（比调用面更早）。
+        """
         entry = self._entry(name)
         with entry.lock:
-            if entry.state == STATE_LOADED and entry.instance is not None:
-                return entry.instance
+            if entry.state == STATE_LOADED:
+                return entry.instance  # user_source+sandbox 时为 None
+            # 分级隔离：含源码档+沙箱开→宿主不 exec，只标记+取包清单
+            if entry.trust == "user_source" and sandbox_enabled():
+                if not entry.skills and entry.pkg_path is not None:
+                    try:
+                        pkg = read_cutemamen_pkg(entry.pkg_path)
+                        try:
+                            adopted = validate_skills(
+                                pkg.manifest.get("skills"))
+                        except PluginRuntimeError:
+                            adopted = []
+                        if adopted:
+                            entry.skills = adopted
+                            with self._global:
+                                self._save_user_registry()
+                        if not entry.manifest:
+                            entry.manifest = {
+                                "capability": str(
+                                    pkg.manifest.get("capability") or ""),
+                                "source": _display_path(entry.source_py),
+                                "trust": entry.trust,
+                                "osp_version": "1.0",
+                            }
+                    except Exception:  # noqa: BLE001 - 包读取失败不阻断
+                        log.debug("沙箱标记加载：包清单读取跳过 %s",
+                                  name, exc_info=True)
+                entry.instance = None
+                entry.state = STATE_LOADED
+                entry.last_error = ""
+                log.info("插件沙箱标记加载: %s (user_source+沙箱，宿主不"
+                         " exec；真正加载在调用时走子进程)", name)
+                return None
             log.info("插件加载开始: %s (%s)", name, entry.trust)
             try:
                 module = load_plugin_module(entry.source_py)

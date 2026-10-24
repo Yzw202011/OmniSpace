@@ -91,14 +91,23 @@ async def list_plugin_skills(
 
 @router.post("/plugins/{name}/load")
 async def load_plugin(name: str) -> dict[str, Any]:
-    """加载插件（幂等；产品铁律=未加载自动加载，不要求用户点两次）。"""
+    """加载插件（幂等；产品铁律=未加载自动加载，不要求用户点两次）。
+
+    R3-H6 姊妹（2026-10-24）：user_source+沙箱时返回 None（宿主不
+    exec），capability 从登记面 manifest 取。
+    """
     rt = get_plugin_runtime()
     try:
         instance = await run_blocking(rt.ensure_loaded, name)
     except PluginRuntimeError as exc:
         raise _translate(exc) from exc
+    if instance is not None:
+        capability = instance.CAPABILITY
+    else:
+        entry = rt._entry(name)
+        capability = str((entry.manifest or {}).get("capability") or "")
     return ok({"name": name, "state": "loaded",
-               "capability": instance.CAPABILITY})
+               "capability": capability})
 
 
 @router.post("/plugins/{name}/unload")
@@ -451,8 +460,13 @@ async def plugins_reload(name: str) -> dict[str, Any]:
         instance = await run_blocking(rt.ensure_loaded, name)
     except PluginRuntimeError as exc:
         raise _translate(exc) from exc
+    if instance is not None:
+        capability = instance.CAPABILITY
+    else:
+        entry = rt._entry(name)
+        capability = str((entry.manifest or {}).get("capability") or "")
     return ok({"name": name, "state": "loaded",
-               "capability": instance.CAPABILITY})
+               "capability": capability})
 
 
 @router.delete("/plugins/{name}")

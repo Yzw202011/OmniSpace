@@ -227,8 +227,8 @@ disk:
   start_min_gb: 20
   models_min_gb: 50
 
-installer:
-  # 磁盘门槛已统一收敛到 disk.installer_min_gb（P2 统一口径），不再在 installer 下重复定义
+# R3-L20（2026-10-24）：installer 空节已删——磁盘门槛统一在
+# disk.installer_min_gb（P2 统一口径），此处零子键无消费方
 
 # 多卡与设备策略（P3 §5.3）：默认单卡；双卡辅助卸载仅显式开启并做可用性校验，
 # 避免错误路由变慢（方案风险控制）。enumerate_gpus 枚举全部 NVIDIA 设备；

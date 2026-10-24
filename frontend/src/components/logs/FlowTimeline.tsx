@@ -41,12 +41,14 @@ function tsOffsetMs(flow: ExecutionFlow, ts: string): number {
 export const FlowTimeline: React.FC<FlowTimelineProps> = ({ flow, selectedIdx, onSelect }) => {
   const span = Math.max(1, flow.span_ms || 1);
   // 时间刻度：起点 / 25% / 50% / 75% / 终点
+  // R3-L11 修复（2026-10-24）：本地时间替代 UTC（此前 toISOString
+  // 输出 UTC 但无标记，用户看到的时刻与本地时钟差 N 小时）
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((r) => ({
     ratio: r,
     label: fmtClock(
       new Date(
         new Date(flow.start_ts.replace(' ', 'T')).getTime() + span * r,
-      ).toISOString().replace('Z', '').slice(11, 19),
+      ).toLocaleTimeString('zh-CN', { hour12: false }),
     ),
   }));
 

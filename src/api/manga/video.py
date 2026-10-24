@@ -2371,6 +2371,50 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
         if _dup:
             raise ApiError("VIDEO_TASK_DUPLICATE", "该分镜已有视频任务在生成中，请等待完成或先取消",
                 detail={"storyboard_row_id": req.storyboard_row_id})
+    # X-02 门槛补齐（2026-10-24 实弹）：直连端点此前漏抄 /video/generate
+    # 的 1332 前置校验——绑空图资产（file_path=''）的行成功入队，任务
+    # 跑到引擎素材装配才炸（711 行），幽灵 pending 白占队列。对齐同款
+    # 门槛：描述词非空 + 绑定资产须带图（_n_img==0 拒），先于落库。
+    _h3db = get_db_safe()
+    _h3row = None
+    if _h3db is not None:
+        try:
+            _h3row = await run_blocking(lambda: _h3db.query_one(
+                "SELECT description, asset_ids FROM storyboard_rows "
+                "WHERE id=?", (req.storyboard_row_id,)))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("H3 直连前置校验查询失败: %s", exc, exc_info=True)
+    if _h3row is None:
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
+            detail={"storyboard_row_id": req.storyboard_row_id})
+    if not (_h3row.get("description") or "").strip():
+        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行描述词为空，无法生成视频，"
+            "请先填写或用 AI 生成分镜描述词",
+            detail={"storyboard_row_id": req.storyboard_row_id,
+                    "suggestion": "在分镜表格编辑描述词，或执行「分镜生词」"})
+    import json as _h3json
+    try:
+        _h3ids = _h3json.loads(_h3row.get("asset_ids") or "[]")
+        if not isinstance(_h3ids, list):
+            _h3ids = []
+    except Exception:  # noqa: BLE001 - 非法 JSON 按空绑定处理
+        _h3ids = []
+    if _h3db is not None and _h3ids:
+        _h3ph = ",".join("?" * len(_h3ids))
+        try:
+            _h3n_img = int((await run_blocking(lambda: _h3db.query_one(
+                f"SELECT COUNT(*) AS n FROM comic_assets "
+                f"WHERE id IN ({_h3ph}) AND file_path!=''",
+                _h3ids)) or {}).get("n") or 0)
+        except Exception as exc:  # noqa: BLE001 - 计数失败交引擎再校验
+            log.warning("H3 直连绑定资产计数失败（交引擎校验）: %s", exc, exc_info=True)
+            _h3n_img = -1
+        if _h3n_img == 0:
+            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行未绑定带图资产（人物/场景/道具），"
+                "无法生成视频，请先在资产面板绑定",
+                detail={"storyboard_row_id": req.storyboard_row_id,
+                        "suggestion": "右侧资产面板把角色/场景/道具拖入绑定"})
+
     task_id = uuid.uuid4().hex
     db = get_db_safe()
     now = _now()

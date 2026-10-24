@@ -34,6 +34,15 @@ _LOG_DIRS = ["logs/eval", "logs/usage", "logs/e2e_txt_upload",
              "data/tmp_framecheck"]
 _LOG_RETENTION_DAYS = 7  # 日志/工件目录更激进（7 天）
 
+# M18 修复（2026-10-24）：ComfyUI output 段产物目录——h3_chains 7.2G
+# 实测（每次链跑留一目录，永不清理）；成片已在 video_tasks 具名保存，
+# 段产物=中间件（uuid 版本化目录），保留 3 天供排障后即清
+_OUTPUT_DIRS = ["data/comfyui/output/h3_chains",
+                "data/comfyui/output/face_refine",
+                "data/comfyui/output/paint",
+                "data/comfyui/output/dlssnr"]
+_OUTPUT_RETENTION_DAYS = 3  # 段产物比日志更激进（3 天）
+
 
 def prune_once(root: Path) -> dict[str, int]:
     """跑一轮修剪，返回 {位置: 删行数/文件数}。"""
@@ -81,6 +90,26 @@ def prune_once(root: Path) -> dict[str, int]:
             if f.is_file() and f.stat().st_mtime < log_cutoff:
                 try:
                     f.unlink()
+                    n += 1
+                except OSError:
+                    pass
+        if n:
+            stats[d] = n
+
+    # M18（2026-10-24）：ComfyUI output 段产物目录级清理（3 天保留）
+    # h3_chains 每次链跑留一个 uuid 目录（实测 34 目录 7.2G 永不清理）
+    # 成片已在 video_tasks 具名保存，段产物=纯中间件
+    import shutil
+    output_cutoff = time.time() - _OUTPUT_RETENTION_DAYS * 86400
+    for d in _OUTPUT_DIRS:
+        dir_path = root / d
+        if not dir_path.is_dir():
+            continue
+        n = 0
+        for sub in dir_path.iterdir():
+            if sub.is_dir() and sub.stat().st_mtime < output_cutoff:
+                try:
+                    shutil.rmtree(sub, ignore_errors=True)
                     n += 1
                 except OSError:
                     pass

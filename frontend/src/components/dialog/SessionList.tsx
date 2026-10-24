@@ -155,7 +155,7 @@ export function SessionList({
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      // 导出失败静默回退格式选择态，用户可重试
+      // silent-intent: 导出失败静默回退格式选择态，用户可重试
     } finally {
       setExporting(false);
       setExportId(null);

@@ -46,8 +46,12 @@ export async function replayUiPrefs(): Promise<void> {
  */
 export function mirrorPref(key: string, value: unknown): void {
   if (!cache) {
-    // 回放前就有写入（罕见）：以本地现值为初始缓存，避免丢其他键
-    cache = {};
+    // R3-M16 修复（2026-10-24）：回放前不 PUT 整包——此前 cache={}
+    // 作为初始值，首个 mirrorPref 的 400ms 防抖 PUT 会把只含当前
+    // 一键的对象整包发到服务端，灭掉其余镜像键（fontSize 有了但
+    // sidebarCollapsed 丢了）。本地 localStorage 已由调用方写入，
+    // 下次 replayUiPrefs 时服务端值会覆盖回 localStorage（无丢失）。
+    return;
   }
   cache[key] = value;
   if (putTimer !== null) {

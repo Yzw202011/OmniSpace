@@ -441,6 +441,45 @@ async def system_backup() -> dict[str, Any]:
             log.warning("向量库备份失败: %s", exc)
             return ""
 
+    def _backup_media() -> str:
+        """M11 修复（2026-10-24 用户批准）：媒体目录纳入备份。
+
+        comic_assets/keyframes/uploads 三个目录 tar.gz 一包——此前
+        备份只保数据库（恢复旧库后图片丢失但 DB 记录在=用户以为有
+        备份实则媒体无护）。GCM 加密同主库。
+        """
+        import tarfile
+        import tempfile
+
+        from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+        media_dirs = [d for d in (
+            DATA_DIR / "comic_assets",
+            DATA_DIR / "keyframes",
+            DATA_DIR / "uploads",
+        ) if d.is_dir() and any(d.iterdir())]
+        if not media_dirs:
+            return ""
+        try:
+            tmp = tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False)
+            tmp.close()
+            with tarfile.open(tmp.name, "w:gz") as tar:
+                for d in media_dirs:
+                    tar.add(str(d), arcname=d.name)
+            raw = Path(tmp.name).read_bytes()
+            blob = encrypt_bytes_gcm(raw)
+            if is_encrypted_bytes(blob):
+                dest = BACKUP_DIR / f"media_{_now_ts()}.tar.gz.enc"
+                dest.write_bytes(blob)
+                Path(tmp.name).unlink(missing_ok=True)
+                return str(dest)
+            dest = BACKUP_DIR / f"media_{_now_ts()}.tar.gz"
+            dest.write_bytes(raw)
+            Path(tmp.name).unlink(missing_ok=True)
+            return str(dest)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("媒体目录备份失败: %s", exc)
+            return ""
+
     # 写盘/热备属磁盘 IO，经 run_blocking 卸载（审计 09-10 P2-3）
     file_path = ""
     db_path = ""
@@ -468,11 +507,18 @@ async def system_backup() -> dict[str, Any]:
         vector_path = await run_blocking(_backup_vector_store)
     except Exception as exc:  # noqa: BLE001
         log.warning("向量库备份失败：%s", exc, exc_info=True)
+    # M11（2026-10-24 用户批准）：媒体目录纳入备份
+    media_path = ""
+    try:
+        media_path = await run_blocking(_backup_media)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("媒体目录备份失败：%s", exc, exc_info=True)
 
     return ok({"backup_id": backup_id, "path": file_path,
                "db_path": db_path,
                "aux_paths": aux_paths,
                "vector_store_path": vector_path,
+               "media_path": media_path,
                "size_bytes": len(json.dumps(payload)),
                # BUG-07 修复（2026-10-19）：库副本真实体积（此前前端 toast
                # 只拿 settings 快照的 size_bytes，12MB 库显示成「0KB」）

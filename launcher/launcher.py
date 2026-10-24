@@ -717,16 +717,31 @@ class BackendProcess:
             return False
 
     def stop(self, timeout: float = 10.0) -> None:
-        """停止后端进程（2026-09-15 竞态根修：先递增代际号让在飞心跳
-        循环立即失配退出，再与 _handle_crash 互斥串行——否则「stop 进
-        行中、心跳恰好判定崩溃→锁内重启」会把后端复活成孤儿（无人
-        监管、持单实例互斥体占端口）。锁内最多等一轮在飞重启收尾后
-        正常终止。_running=False 双保险：即使代际递增与 start() 竞争
-        丢失，循环也在下个检查点退出。）"""
+        """停止后端进程。P1-12 批 1（2026-10-24 用户批准）：优雅优先
+        —POST /system/shutdown 触发 lifespan 清理→等自然退出；超时
+        回退 terminate 硬杀（兜底永在）。竞态根修同前（代际号+互斥）。
+        """
         self._running = False
         self._hb_gen += 1  # 在飞心跳线程代际失配，立即退出不再触发重启
         with self._crash_lock:
             if self.process:
+                # P1-12：http.client 直连回环（不走 URL 拼接）
+                try:
+                    import http.client as _hc
+                    _port = int(getattr(
+                        self.config, 'backend_port', 5800))
+                    if not (1 <= _port <= 65535):
+                        raise ValueError("port range")
+                    _conn = _hc.HTTPConnection(
+                        "127.0.0.1", _port, timeout=3)
+                    _conn.request("POST", "/api/v1/system/shutdown")
+                    _conn.getresponse().read()
+                    _conn.close()
+                    self.process.wait(timeout=timeout)
+                    self.process = None
+                    return  # 优雅退出成功
+                except Exception:
+                    pass  # 优雅失败→回退硬杀
                 try:
                     self.process.terminate()
                     self.process.wait(timeout=timeout)

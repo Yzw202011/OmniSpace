@@ -1682,6 +1682,27 @@ def system_version() -> dict[str, Any]:
     })
 
 
+@router.post("/system/shutdown")
+async def system_shutdown() -> dict[str, Any]:
+    """触发后端优雅关停（P1-12 批 2，用户批准 2026-10-24）。
+
+    供 boot.py 看门狗从硬杀改优雅优先：SIGTERM → uvicorn 优雅退出
+    → lifespan 清理（引擎卸载/队列排空/ComfyUI 清理/浏览器池关停）。
+    仅本机回环可调（非回环由 TrustedHost 中间件拦）。
+    """
+    import os
+    import signal
+    import threading
+
+    def _send_sigterm() -> None:
+        time.sleep(0.5)  # 先返回响应再杀
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    threading.Thread(target=_send_sigterm, daemon=True).start()
+    return ok({"shutting_down": True},
+              message="优雅关停已触发（lifespan 清理后退出）")
+
+
 @router.get("/system/update")
 def system_update() -> dict[str, Any]:
     """软件更新状态（升级机制批2 语义激活：原 supported:false 占位退役）。

@@ -271,6 +271,7 @@ async def storyboard_save(project_id: str,
                        detail={"max": STORYBOARD_MAX_ROWS})
 
     db = get_db_safe()
+    _db_save_failed = False  # R3-M4：降级标记（True=回内存存储）
     if db is not None:
         try:
             sb = _ensure_storyboard(db, project_id)
@@ -341,14 +342,24 @@ async def storyboard_save(project_id: str,
             saved = _load_rows(db, sid)
             return ok({"project_id": project_id, "rows": saved, "total": len(saved)})
         except Exception as exc:  # noqa: BLE001
-            log.warning("数据库全量保存失败，降级内存存储: %s", exc, exc_info=True)
+            log.warning("数据库全量保存失败，降级内存存储: %s", exc,
+                        exc_info=True)
+            _db_save_failed = True
 
     mem = _storyboards.setdefault(project_id, [])
     mem.clear()
     for i, row in enumerate(rows):
         mem.append({**_make_row(i + 1), **row, "shot_number": i + 1,
                     "sort_index": i})
-    return ok({"project_id": project_id, "rows": list(mem), "total": len(mem)})
+    # R3-M4 修复（2026-10-24）：降级诚实——DB 保存失败时响应带
+    # degraded 标记，前端可告知用户「已暂存内存，重启丢失」
+    result = {"project_id": project_id, "rows": list(mem),
+              "total": len(mem)}
+    if _db_save_failed:
+        result["degraded"] = True
+        result["degrade_reason"] = ("数据库保存失败，已暂存内存"
+                                    "（重启后丢失），请检查磁盘空间")
+    return ok(result)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1357,13 +1368,25 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
             order = {rid: i for i, rid in enumerate(row_ids)}
             now = _now()
             sb_ids: set[str] = set()
-            for r in found:
-                db.update("storyboard_rows",
-                          {"sort_index": order[r["id"]]},
-                          "id=?", (r["id"],))
-                sb_ids.add(r["storyboard_id"])
-            for sid in sb_ids:
-                db.update("storyboards", {"updated_at": now}, "id=?", (sid,))
+
+            # R3-M5 修复（2026-10-24）：重排的 sort_index 改写走单事务
+            # ——此前逐行 autocommit，中途失败=部分行新序部分行旧序=
+            # 交错混写（两客户端同时拖排序尤甚）。execute_in_transaction
+            # 同 outline 重建模式（R2-H3）。
+            _serialize = db._serialize
+
+            def _reorder_txn(conn) -> None:
+                for r in found:
+                    conn.execute(
+                        "UPDATE storyboard_rows SET sort_index=? WHERE id=?",
+                        (order[r["id"]], r["id"]))
+                    sb_ids.add(r["storyboard_id"])
+                for sid in sb_ids:
+                    conn.execute(
+                        "UPDATE storyboards SET updated_at=? WHERE id=?",
+                        (now, sid))
+
+            db.execute_in_transaction(_reorder_txn)
             rows = db.query(
                 f"SELECT {_SB_ROW_COLS} FROM storyboard_rows"
                 f" WHERE id IN ({placeholders})"
@@ -1421,6 +1444,46 @@ def _load_storyboard_row(row_id: str, project_id: str = "") -> dict | None:
             if r["id"] == row_id:
                 return r
     return None
+
+
+def _load_prev_shot_context(db: Any, row_id: str) -> str:
+    """上一分镜行 C 段最后一个镜头行（行级承接的连续性参考）。
+
+    行级尾帧续接（2026-10-24 用户拍板）的生词侧配套：把上一镜结尾
+    画面喂给描述词生成，画面连续时 LLM 在首镜画面行写「承接上一镜头，」
+    前缀，视频侧（h3_chain_engine.detect_carry_marker）据此锚定上一行
+    尾帧。首行/无上行/任何查询异常 → 返回 ""（best-effort 不阻断）。
+    """
+    if db is None:
+        return ""
+    try:
+        cur = db.query_one(
+            "SELECT storyboard_id, sort_index FROM storyboard_rows WHERE id=?",
+            (row_id,))
+        if not cur or not (cur.get("storyboard_id") or "").strip():
+            return ""
+        prev = db.query_one(
+            "SELECT description FROM storyboard_rows "
+            "WHERE storyboard_id=? AND sort_index<? "
+            "ORDER BY sort_index DESC LIMIT 1",
+            (cur["storyboard_id"], cur.get("sort_index") or 0))
+        desc = (prev or {}).get("description") or ""
+        if not desc.strip():
+            return ""
+        # C 段内最后一个镜头行（单行协议 [起s-止s] 画面：…）——按行
+        # 切（C 标记行之后、下一个 A/B 标记行之前），无标记回退全文
+        lines = desc.splitlines()
+        start = next((i for i, ln in enumerate(lines)
+                      if re.match(r"^\s*C\s*[.、．]", ln)), -1)
+        c_lines = lines[start + 1:] if start >= 0 else lines
+        stop = next((j for j, ln in enumerate(c_lines)
+                     if re.match(r"^\s*[AB]\s*[.、．]", ln)), len(c_lines))
+        shots = [ln.strip() for ln in c_lines[:stop]
+                 if re.match(r"^[\[【]?\d", ln.strip())]
+        return shots[-1][:160] if shots else ""
+    except Exception:  # noqa: BLE001 - 参考缺失不阻断描述词生成
+        log.debug("_load_prev_shot_context: 降级忽略", exc_info=True)
+        return ""
 
 
 @router.post("/manga/storyboard/ai-describe")
@@ -1485,7 +1548,10 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
                 detail={"engine_state": status["state"],
                         "last_error": status["last_error"]})
         prefix = (req.prompt_prefix or "").strip()
-        base_prompt = _build_abc_prompt(row, assets)
+        base_prompt = _build_abc_prompt(
+            row, assets,
+            prev_context=(_load_prev_shot_context(db, row_id)
+                          if row_id else ""))
         prompt = f"{prefix}\n{base_prompt}" if prefix else base_prompt
         try:
             # max_new_tokens 1536→3072（2026-10-07 用户实报）：思考型云

@@ -973,7 +973,12 @@ async def dialog_send(request: Request,
                     engine.chat, messages, images or None,
                     temperature, max_new_tokens)
             except RuntimeError as exc:
-                raise ApiError("MODEL_LOAD_FAILED", str(exc) or "对话推理失败") from exc
+                # R3-M18 修复（2026-10-24）：推理期 RuntimeError 不应一律
+                # 标 MODEL_LOAD_FAILED（码义失真+suggestion「释放显存重试
+                # 加载」方向错误）；改 MODEL_INFERENCE_FAILED（既有码，
+                # suggestion「请重试一次」方向正确）
+                raise ApiError("MODEL_INFERENCE_FAILED",
+                               str(exc) or "对话推理失败") from exc
             n.output(f"首字 {engine.last_first_token_ms:.0f}ms "
                      f"总 {engine.last_total_ms:.0f}ms")
         # 深度思考：整段产出切分 reasoning/content（与流式同语义）

@@ -916,6 +916,13 @@ def comic_asset_delete(
             cascade_removed += 1
 
     payload = _purge_asset_row(db, asset_id, asset)
+    # R3-L7 修复（2026-10-24）：删除资产也标关键帧过期——重生成路径
+    # 有标（:1252 asset_changed），删除路径漏标（标尺不一：删了资产
+    # 但旧关键帧仍标 valid，下次视频生成用已删参考图）
+    try:
+        mark_keyframes_stale(db, asset_id=asset_id, reason="asset_deleted")
+    except Exception:  # noqa: BLE001 - 标记失败不阻断删除
+        pass
     if cascade_removed:
         log.info("全局资产硬删级联：本作品移除 %d 个同名副本", cascade_removed)
     return ok({**payload, "cascade_removed": cascade_removed})

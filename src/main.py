@@ -757,12 +757,15 @@ def create_app() -> FastAPI:
     async def unhandled_handler(_: Request, exc: Exception) -> JSONResponse:
         log.exception("未捕获异常: %s", exc)
         try:  # 大白话事件：系统异常（用户可见）
+            # R3-L14（2026-10-24）：detail 路径脱敏（与 ApiError 同款
+            # _sanitize_msg）——str(exc) 可含内部路径直达用户时间线
+            from .middleware.error_handler import _sanitize_msg
             from .services.event_log import log_event
             log_event(
                 "system", "unexpected_error",
                 f"系统遇到了一个意外错误（{type(exc).__name__}），"
                 "相关功能可能暂时不可用，其他功能不受影响",
-                level="error", detail=str(exc)[:300])
+                level="error", detail=_sanitize_msg(str(exc)))
         except Exception:  # noqa: BLE001
             log.debug("unhandled_handler: 降级忽略", exc_info=True)
         return error("SYSTEM_INTERNAL_ERROR", "内部错误，请查看服务端日志",

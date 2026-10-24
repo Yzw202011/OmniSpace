@@ -164,6 +164,13 @@ class RustCodingPlugin(ExpertPlugin):
             inputs = {"numeric": self._dataset._normalize_static(raw),
                       "text": code}
             self._feat_cache[code] = self._extractor.features(inputs)
+            # R3-M15 修复（2026-10-24）：cap 1000 防无界增长（按代码
+            # 文本 key，大仓库多文件场景可累积 GB 级 ndarray）
+            if len(self._feat_cache) > 1000:
+                # 保留最近的一半（简单截断，不做 LRU）
+                _keys = list(self._feat_cache.keys())
+                for _k in _keys[:len(_keys) - 500]:
+                    del self._feat_cache[_k]
         return self._feat_cache[code]
 
     def _classify_readout(self, code: str) -> tuple[str, float]:

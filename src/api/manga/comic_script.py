@@ -138,18 +138,31 @@ def _persist_rows(project_id: str, descriptions: list[str],
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法写入分格")
     sb = _ensure_storyboard(db, project_id)
     sid = sb["id"]
-    if replace:
-        db.delete("storyboard_rows", "storyboard_id=?", (sid,))
-    count_row = db.query_one(
-        "SELECT COUNT(*) AS n FROM storyboard_rows WHERE storyboard_id=?",
-        (sid,))
-    existing = int(count_row["n"]) if count_row else 0
-    for i, desc in enumerate(descriptions):
-        row = _make_row(existing + i + 1, description=desc)
-        db.insert("storyboard_rows",
-                  _public_row_to_db(row, sid, sort_index=existing + i))
-    db.update("storyboards", {"updated_at": _now()}, "id=?", (sid,))
-    db.update("projects", {"updated_at": _now()}, "id=?", (project_id,))
+    # R3-L9 修复（2026-10-24）：计数+插入走单事务——此前读改写无锁，
+    # 并发 script-generate 读同一 existing→写重复 shot_number
+    _serialize = db.serialize  # 公开别名（R3-L10）
+
+    def _append_txn(conn) -> None:
+        if replace:
+            conn.execute("DELETE FROM storyboard_rows WHERE storyboard_id=?",
+                         (sid,))
+        row_cnt = conn.execute(
+            "SELECT COUNT(*) FROM storyboard_rows WHERE storyboard_id=?",
+            (sid,)).fetchone()[0]
+        for i, desc in enumerate(descriptions):
+            row = _make_row(row_cnt + i + 1, description=desc)
+            p = _public_row_to_db(row, sid, sort_index=row_cnt + i)
+            cols = list(p.keys())
+            vals = [_serialize(p[c]) for c in cols]
+            conn.execute(
+                f"INSERT INTO storyboard_rows ({', '.join(cols)})"
+                f" VALUES ({', '.join('?' * len(cols))})", vals)
+        conn.execute("UPDATE storyboards SET updated_at=? WHERE id=?",
+                     (_now(), sid))
+        conn.execute("UPDATE projects SET updated_at=? WHERE id=?",
+                     (_now(), project_id))
+
+    db.execute_in_transaction(_append_txn)
     rows = db.query(
         "SELECT * FROM storyboard_rows WHERE storyboard_id=?"
         " ORDER BY sort_index ASC, shot_number ASC", (sid,))

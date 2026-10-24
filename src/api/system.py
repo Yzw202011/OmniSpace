@@ -928,9 +928,51 @@ async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> di
                 decrypt_bytes_gcm(src.read_bytes()))
         else:
             shutil.copy2(src, _RESTORE_PENDING_DB)
+        # P1-10 批 3（2026-10-24）：同时间戳辅助库+向量库一并暂存
+        # （best-effort：缺失/失败不阻断主库恢复）
+        import re as _re
+        _ts_match = _re.search(r"(\d{8}_\d{6})", safe)
+        _ts = _ts_match.group(1) if _ts_match else ""
+        _aux_staged: list[str] = []
+        if _ts:
+            for _prefix, _target in (
+                    ("flow_trace", "flow_trace.restore-pending.db"),
+                    ("model_usage", "model_usage.restore-pending.db")):
+                for _ext in (".db.enc", ".db"):
+                    _aux_src = BACKUP_DIR / f"{_prefix}_{_ts}{_ext}"
+                    if _aux_src.is_file():
+                        try:
+                            _aux_dst = DATA_DIR / _target
+                            if _ext == ".enc":
+                                from ..data.crypto import decrypt_bytes_gcm
+                                _aux_dst.write_bytes(
+                                    decrypt_bytes_gcm(_aux_src.read_bytes()))
+                            else:
+                                shutil.copy2(_aux_src, _aux_dst)
+                            _aux_staged.append(_prefix)
+                        except Exception:
+                            pass
+                        break
+            # 向量库 tar.gz
+            for _ext in (".tar.gz.enc", ".tar.gz"):
+                _vs_src = BACKUP_DIR / f"vector_store_{_ts}{_ext}"
+                if _vs_src.is_file():
+                    try:
+                        _vs_dst = DATA_DIR / "vector_store.restore-pending.tar.gz"
+                        if _ext == ".tar.gz.enc":
+                            from ..data.crypto import decrypt_bytes_gcm
+                            _vs_dst.write_bytes(
+                                decrypt_bytes_gcm(_vs_src.read_bytes()))
+                        else:
+                            shutil.copy2(_vs_src, _vs_dst)
+                        _aux_staged.append("vector_store")
+                    except Exception:
+                        pass
+                    break
         _RESTORE_PENDING_MARK.write_text(
             json.dumps({"source": safe, "staged_at": time.time(),
-                        "size": size}, ensure_ascii=False),
+                        "size": size, "aux_staged": _aux_staged},
+                       ensure_ascii=False),
             encoding="utf-8")
 
     await run_blocking(_stage)

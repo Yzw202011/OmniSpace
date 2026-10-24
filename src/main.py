@@ -236,6 +236,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 _src.close()
             _restore_pending.unlink(missing_ok=True)
             _restore_mark.unlink(missing_ok=True)
+            # P1-10 批 3（2026-10-24）：辅助库+向量库恢复（best-effort，
+            # 失败不阻断启动——主库已恢复成功即核心目标达成）
+            try:
+                import shutil as _sh
+                for _name, _target in (
+                        ("flow_trace",
+                         config.ROOT_DIR / "logs" / "flow_trace.db"),
+                        ("model_usage",
+                         config.DATA_DIR / "model_usage.db")):
+                    _aux = config.DATA_DIR / f"{_name}.restore-pending.db"
+                    if _aux.is_file():
+                        _sh.copy2(_aux, _target)
+                        _aux.unlink(missing_ok=True)
+                        log.info("辅助库恢复完成: %s", _name)
+                _vs = config.DATA_DIR / "vector_store.restore-pending.tar.gz"
+                if _vs.is_file():
+                    import tarfile as _tf
+                    _vs_dir = config.DATA_DIR / "vector_store"
+                    if _vs_dir.is_dir():
+                        _sh.rmtree(_vs_dir, ignore_errors=True)
+                    with _tf.open(_vs, "r:gz") as _tar:
+                        # filter=data：防路径穿越（Python 3.12+ 安全模式）
+                        _tar.extractall(config.DATA_DIR, filter="data")
+                    _vs.unlink(missing_ok=True)
+                    log.info("向量库恢复完成")
+            except Exception as _aux_exc:  # noqa: BLE001
+                log.warning("辅助/向量库恢复失败（不阻断启动）: %s",
+                            _aux_exc)
             log.warning("备份恢复已生效（来源 %s）；替换前的当前库已备份",
                         _info.get("source"))
             from .services.event_log import log_event as _le_restore

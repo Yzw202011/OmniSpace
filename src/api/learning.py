@@ -843,11 +843,14 @@ def learn_settings_put(body: dict = Body(default_factory=dict)) -> dict[str, Any
     # 实际变更（旧≠新且新非 off）时清除质量下降暂停旗标——原实现对任何
     # 全量保存（含未触碰 frequency 的表单回显/快照还原）都清旗标，
     # 「维护中」状态会被任意设置编辑解除（H-6 直接相关）。
+    # N-16 补充（同日实测 B-030d）：同请求显式 auto_train_paused 优先于
+    # §4.3 隐式清旗标（用户显式值不被隐式规则覆盖）。
     if "auto_finetune_frequency" in body:
         new_freq = str(body["auto_finetune_frequency"])
         old_freq = str(get_learning_settings().get(
             "auto_finetune_frequency", "off"))
-        if new_freq != "off" and new_freq != old_freq:
+        if (new_freq != "off" and new_freq != old_freq
+                and "auto_train_paused" not in body):
             body["auto_train_paused"] = False
     merged = update_learning_settings(body)
     log.info("学习设置已更新: %s", sorted(body.keys()))

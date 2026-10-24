@@ -90,9 +90,30 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const showToast = useAppStore((s) => s.showToast);
   const pid = project.project_id;
 
+  // 离开项目页：项目名下资产整体转全局（2026-09-30 用户令「资产只分
+  // 作品/全部，离开项目页自动转全部」）。换项目/退出工作台均触发；
+  // fire-and-forget 失败静默（下次离开再试）
+  const prevProjectRef = useRef(pid);
+  useEffect(() => {
+    const prev = prevProjectRef.current;
+    prevProjectRef.current = pid;
+    return () => {
+      // 离开项目页资产转全局：fire-and-forget，失败仅控制台留痕
+      // （下次离开自动重试；三分法第 2 条 CONSOLE 级）
+      if (prev) {
+        mangaApi.promoteProjectAssets(prev)
+          .catch((err) => reportBgError('comic.promoteProjectAssets', err));
+      }
+    };
+  }, [pid]);
+
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<StoryboardRow[]>([]);
   const [assets, setAssets] = useState<ComicAsset[]>([]);
+  /** 该面全局资产（comic face）：绑定引用可能指向已转全局的资产
+   *  （离开项目页自动转全局后项目清单查不到——2026-10-03 绑定显示丢失
+   *  根修，与漫剧面 MangaWorkspace 同款） */
+  const [globalAssets, setGlobalAssets] = useState<ComicAsset[]>([]);
   const [kfByRow, setKfByRow] = useState<Record<string, KeyframeItem>>({});
   const [genRows, setGenRows] = useState<Set<string>>(new Set());
   const [promptDraft, setPromptDraft] = useState<Record<string, string>>({});
@@ -170,6 +191,10 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   // 阅读预览（完整显示 contain + 预览中重新生成）
   const [previewOpen, setPreviewOpen] = useState(false);
+  // 预览气泡行内编辑（2026-09-29 用户令「预览能编辑文字/改形状/拉伸」）：
+  // 双击气泡 → 原位输入框+形状下拉（透明无框继承气泡底色），失焦/回车落库；
+  // 拖拽/拉伸/镜反复用既有把手。null=非编辑态
+  const [previewEdit, setPreviewEdit] = useState<{ rowId: string; idx: number } | null>(null);
   // 气泡拖拽/拉伸目标（rowId+bubbles 数组下标；拖拽中不落库，抬手才存）
   const bubbleDragRef = useRef<{ rowId: string; idx: number } | null>(null);
   const bubbleResizeRef = useRef<{ rowId: string; idx: number } | null>(null);
@@ -183,12 +208,14 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     setLoading(true);
     void (async () => {
       try {
-        const [rs, allAssets] = await Promise.all([
+        const [rs, allAssets, globalList] = await Promise.all([
           mangaApi.getStoryboardRows(pid),
           mangaApi.listAssets(pid),
+          mangaApi.listAssets('', undefined, 'global', 'comic'),
         ]);
         setRows(rs);
         setAssets(allAssets);
+        setGlobalAssets(globalList);
         const drafts: Record<string, string> = {};
         const kfMap: Record<string, KeyframeItem> = {};
         await Promise.all(rs.map(async (r) => {
@@ -231,7 +258,14 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
 
-  const styleKey = project.art_style ?? '';
+  // S-05（2026-10-24）：画风值归一——旧数据/外部 API 可能存中文标签
+  // （如「日系动漫」）而非 key，此前下拉无匹配值时显示成「未选择画风」
+  // 假象（DB/卡片/下拉三方三值根因）。按 label 反查 key 归一显示；
+  // custom:* 等非预置值为合法自定义画风，下拉动态补 option 显真值。
+  // 只归显示不回写：数据在用户下次主动切换画风时自愈
+  const rawStyle = project.art_style ?? '';
+  const styleKey = ART_STYLES.find((s) => s.label === rawStyle)?.key ?? rawStyle;
+  const styleIsPreset = ART_STYLES.some((s) => s.key === styleKey);
 
   /* ---------------- 分格操作 ---------------- */
 
@@ -284,7 +318,23 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
   const bindChar = async (assetId: string, rowId: string) => {
     try {
       const resp = await mangaApi.bindAsset(assetId, rowId);
-      setRows((rs) => rs.map((r) => (r.id === rowId ? { ...r, asset_ids: resp.asset_ids } : r)));
+      // 气泡真源化同步（2026-09-29）：新绑定角色补一条台词行（等价旧派生
+      // 行为迁移到真源数组；该角色已有台词行则不重复加）
+      const row = rows.find((r) => r.id === rowId);
+      let bubbles: PanelBubble[] | null = null;
+      if (row) {
+        const base = ensureBubbles({ ...row, asset_ids: resp.asset_ids });
+        if (!base.some((b) => b.asset_id === assetId)) {
+          bubbles = [...base, newBubble(base.length, assetId)];
+        }
+      }
+      setRows((rs) => rs.map((r) => (r.id === rowId
+        ? { ...r, asset_ids: resp.asset_ids, ...(bubbles ? { bubbles } : {}) }
+        : r)));
+      if (bubbles) {
+        void mangaApi.updateStoryboardRow(pid, rowId, { bubbles })
+          .catch((err) => showToast(getErrorMessage(err, '台词行同步失败'), 'error'));
+      }
     } catch (err) {
       showToast(getErrorMessage(err, '角色引用失败'), 'error');
     }
@@ -402,7 +452,12 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     setCharCreating(true);
     try {
       await mangaApi.generateTurnaround({ project_id: pid, name, prompt });
-      setAssets(await mangaApi.listAssets(pid));
+      const [projectAssets, globalList] = await Promise.all([
+        mangaApi.listAssets(pid),
+        mangaApi.listAssets('', undefined, 'global', 'comic'),
+      ]);
+      setAssets(projectAssets);
+      setGlobalAssets(globalList);
       setCharCreating(false);
       setCharFormOpen(false);
       setCharName('');
@@ -443,7 +498,12 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   const refreshAssets = async () => {
     try {
-      setAssets(await mangaApi.listAssets(pid));
+      const [projectAssets, globalList] = await Promise.all([
+        mangaApi.listAssets(pid),
+        mangaApi.listAssets('', undefined, 'global', 'comic'),
+      ]);
+      setAssets(projectAssets);
+      setGlobalAssets(globalList);
     } catch {
       /* silent-intent: 刷新失败静默，下次加载恢复 */
     }
@@ -520,24 +580,33 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
 
   /* ---------------- 多角色台词气泡（拖动+拉伸，逐条独立） ---------------- */
 
+  /** 合并查找表：项目角色 + 全局角色（绑定引用可能指向已转全局资产） */
+  const allChars = useMemo(
+    () => [...chars, ...globalAssets.filter((a) => a.kind === 'character')],
+    [chars, globalAssets],
+  );
   const charById = useMemo(
-    () => new Map(chars.map((c) => [c.asset_id, c])),
-    [chars],
+    () => new Map(allChars.map((c) => [c.asset_id, c])),
+    [allChars],
   );
 
   /** 行气泡就位：旁白一条 + 每个绑定角色一条（保已有文本/位置，缺的补位） */
+  // 气泡真源化（2026-09-29 用户令「不限数量+手动添加」）：row.bubbles 一旦
+  // 存在即唯一真源（可含任意条旁白/同角色多条）；仅在从未初始化时按旧规则
+  // 种子（旁白首条+逐绑定角色），绑定新角色的台词行同步见 bindChar。
   const ensureBubbles = (row: StoryboardRow): PanelBubble[] => {
-    const existing = (row.bubbles ?? []).filter((b) => b && typeof b.text === 'string');
-    const byAsset = new Map(existing.map((b) => [b.asset_id ?? '', b]));
+    if (Array.isArray(row.bubbles)) {
+      return row.bubbles.filter((b) => b && typeof b.text === 'string');
+    }
     const out: PanelBubble[] = [];
     // 旁白（asset_id 空）恒在首位
-    out.push(byAsset.get('') ?? { text: '', x: null, y: null, w: null, asset_id: null });
+    out.push({ text: '', x: null, y: null, w: null, asset_id: null });
     (row.asset_ids ?? []).forEach((aid, i) => {
-      out.push(byAsset.get(aid) ?? {
+      out.push({
         text: '',
-        // 新气泡错位排布防重叠：横 5%起每条 +28%，纵 6%/45% 交替
-        x: Math.min(0.6, 0.05 + i * 0.28),
-        y: i % 2 === 0 ? 0.06 : 0.45,
+        // 新气泡错位排布防重叠：横 4%起每列 +24%，行距 42% 交替
+        x: 0.04 + (i % 4) * 0.24,
+        y: 0.06 + Math.floor(i / 4) * 0.42,
         w: null,
         asset_id: aid,
       });
@@ -559,6 +628,46 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     const bubbles = override ?? ensureBubbles(row);
     mangaApi.updateStoryboardRow(pid, row.id, { bubbles })
       .catch((err) => showToast(getErrorMessage(err, '台词保存失败'), 'error'));
+  };
+
+  /* ---- 气泡真源化操作（2026-09-29 用户令「不限数量+手动添加」）---- */
+
+  const newBubble = (index: number, assetId: string | null = null): PanelBubble => ({
+    text: '',
+    // 错位排布防重叠：4 列 × 2 行循环，超出由用户拖拽就位
+    x: 0.04 + (index % 4) * 0.24,
+    y: 0.06 + ((Math.floor(index / 4) % 2) * 0.42),
+    w: null,
+    asset_id: assetId,
+    shape: assetId ? 'dialogue' : 'narration',
+    bid: `b${Date.now()}_${index}_${Math.floor(Math.random() * 1e4)}`,
+  });
+
+  const addBubble = (row: StoryboardRow) => {
+    const base = ensureBubbles(row);
+    const bubbles = [...base, newBubble(base.length)];
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, bubbles } : r)));
+    saveBubbles(row, bubbles);
+  };
+
+  const removeBubble = (row: StoryboardRow, idx: number) => {
+    const bubbles = ensureBubbles(row).filter((_, i) => i !== idx);
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, bubbles } : r)));
+    saveBubbles(row, bubbles);
+  };
+
+  // 说话人改绑（旁⇄角色）：同角色可多条（不限量核心）；无 bid 旧数据补齐
+  const reassignBubble = (row: StoryboardRow, idx: number, assetId: string | null) => {
+    const bubbles = ensureBubbles(row).map((b, i) => (i === idx
+      ? {
+        ...b,
+        asset_id: assetId,
+        shape: b.shape ?? (assetId ? 'dialogue' : 'narration'),
+        bid: b.bid ?? `b${Date.now()}_${idx}`,
+      }
+      : b));
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, bubbles } : r)));
+    saveBubbles(row, bubbles);
   };
 
   const onBubblePointerDown = (e: React.PointerEvent, rowId: string, idx: number) => {
@@ -626,6 +735,18 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     bubbleResizeRef.current = { rowId, idx };
   };
 
+  // 气泡镜反（2026-09-29 用户令「泡泡也要能镜反，但是文字不镜反」）：只翻
+  // 装饰件（思考尾…/⚡/💗 角标）到对侧指向说话人，正文与拖拽坐标全不动
+  //（免 transform 镜像把把手位置和指针手感搞反）；点击 ⇄ 切换并落库
+  const onBubbleFlip = (e: React.MouseEvent, rowId: string, idx: number) => {
+    e.stopPropagation();
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+    const bubbles = ensureBubbles(row).map((b, i) => (i === idx ? { ...b, flipped: !b.flipped } : b));
+    setRows((rs) => rs.map((r) => (r.id === rowId ? { ...r, bubbles } : r)));
+    saveBubbles(row, bubbles);
+  };
+
   /* ---------------- 画风切换 ---------------- */
 
   const changeStyle = async (key: string) => {
@@ -662,6 +783,13 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
             {ART_STYLES.map((s) => (
               <option key={s.key} value={s.key}>{s.label}</option>
             ))}
+            {/* S-05：非预置值动态补 option——custom:* 显示为自定义画风，
+                其余未知值原样显示（诊断可见），杜绝有值却显示未选中 */}
+            {!styleIsPreset && styleKey && (
+              <option value={styleKey}>
+                {styleKey.startsWith('custom:') ? '自定义画风（当前）' : `自定义：${styleKey}`}
+              </option>
+            )}
           </select>
         </div>
         <div className="comic-ws-ops">
@@ -800,8 +928,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       const speaker = b.asset_id ? charById.get(b.asset_id)?.name : null;
                       return (
                         <div
-                          key={b.asset_id ?? `nar-${bi}`}
-                          className={`comic-bubble shape-${b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}`}
+                          key={b.bid ?? b.asset_id ?? `nar-${bi}`}
+                          className={`comic-bubble shape-${b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}${b.flipped ? ' flipped' : ''}`}
                           style={{
                             left: `${(b.x ?? 0.05) * 100}%`,
                             top: `${(b.y ?? 0.06) * 100}%`,
@@ -814,6 +942,16 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                         >
                           {speaker && <i className="comic-bubble-name">{speaker}</i>}
                           {b.text}
+                          <span
+                            className="comic-bubble-flip"
+                            role="button"
+                            aria-label="镜反气泡（装饰件翻到对侧，文字不动）"
+                            title="镜反：思考尾/⚡/💗 翻到对侧指向说话人，文字不翻"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => onBubbleFlip(e, row.id, bi)}
+                          >
+                            ⇄
+                          </span>
                           <span
                             className="comic-bubble-resize"
                             aria-label="拉伸气泡宽度"
@@ -839,7 +977,20 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                       {ensureBubbles(row).map((b, bi) => {
                         const speaker = b.asset_id ? charById.get(b.asset_id)?.name : '旁白';
                         return (
-                          <div key={b.asset_id ?? `nar-${bi}`} className="flex items-center gap-1">
+                          <div key={b.bid ?? b.asset_id ?? `b-${bi}`} className="comic-panel-line">
+                          {(row.asset_ids ?? []).length > 0 && (
+                            <select
+                              className="input comic-line-speaker"
+                              title="说话人（旁白或绑定角色；同角色可加多条）"
+                              value={b.asset_id ?? ''}
+                              onChange={(e) => reassignBubble(row, bi, e.target.value || null)}
+                            >
+                              <option value="">旁白</option>
+                              {(row.asset_ids ?? []).map((aid) => (
+                                <option key={aid} value={aid}>{charById.get(aid)?.name ?? '未知资产'}</option>
+                              ))}
+                            </select>
+                          )}
                           <input
                             className={`input comic-panel-dialogue${b.asset_id ? '' : ' narration-line'}`}
                             maxLength={200}
@@ -851,7 +1002,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                           <select
                             className="input"
                             style={{ width: 72, padding: '2px 4px', fontSize: 10, flexShrink: 0 }}
-                            title="气泡形状（批6 P3：五种常用形）"
+                            title="气泡形状（2026-09-29 用户令：十款可选）"
                             value={b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}
                             onChange={(e) => {
                               const shape = e.target.value as typeof b.shape;
@@ -864,10 +1015,32 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                             <option value="thought">💭思考</option>
                             <option value="shout">💥喊叫</option>
                             <option value="whisper">🤫低语</option>
+                            <option value="electric">⚡电波</option>
+                            <option value="cloud">☁️云朵</option>
+                            <option value="heart">💗心声</option>
+                            <option value="screen">📺屏幕</option>
+                            <option value="caption">📌标题</option>
                           </select>
+                          <button
+                            type="button"
+                            className="comic-bubble-del"
+                            aria-label={`删除${speaker}的这条气泡`}
+                            title="删除本条气泡"
+                            onClick={() => removeBubble(row, bi)}
+                          >
+                            <X size={12} />
+                          </button>
                           </div>
                         );
                       })}
+                      <button
+                        type="button"
+                        className="comic-bubble-add"
+                        onClick={() => addBubble(row)}
+                        title="添加气泡（不限数量；说话人可在行首切换）"
+                      >
+                        ＋ 添加气泡
+                      </button>
                     </div>
                     <div className="comic-panel-chars">
                       {boundIds.map((aid) => {
@@ -1149,34 +1322,91 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                 <div className="comic-preview-panel" key={row.id}>
                   <div className="comic-preview-imgwrap">
                     {kf ? (
-                      <img
-                        src={mangaApi.getMediaUrl(kf.file_path, kf.version)}
-                        alt={`第${idx + 1}格`}
-                      />
+                      /* 气泡锚定盒（2026-09-29 修复）：收缩包裹 img，气泡百分比
+                         相对图片实际区域而非 imgwrap（contain 留白会漂移），
+                         与分格页 .comic-panel-img 口径一致；并开放拖拽/拉伸 */
+                      <div className="comic-preview-imgbox">
+                        <img
+                          src={mangaApi.getMediaUrl(kf.file_path, kf.version)}
+                          alt={`第${idx + 1}格`}
+                        />
+                        {ensureBubbles(row).map((b, bi) => {
+                          if (!(b.text ?? '').trim()) return null;
+                          const speaker = b.asset_id ? charById.get(b.asset_id)?.name : null;
+                          return (
+                            <div
+                              key={b.bid ?? b.asset_id ?? `nar-${bi}`}
+                              className={`comic-bubble shape-${b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}${b.flipped ? ' flipped' : ''}`}
+                              style={{
+                                left: `${(b.x ?? 0.05) * 100}%`,
+                                top: `${(b.y ?? 0.06) * 100}%`,
+                                ...(b.w != null ? { width: `${Math.round(b.w * 100)}%` } : null),
+                              }}
+                              title="拖动移动位置；右下角把手拉伸宽度"
+                              onPointerDown={(e) => onBubblePointerDown(e, row.id, bi)}
+                              onPointerMove={onBubblePointerMove}
+                              onPointerUp={onBubblePointerUp}
+                              onDoubleClick={() => setPreviewEdit({ rowId: row.id, idx: bi })}
+                            >
+                              {speaker && <i className="comic-bubble-name">{speaker}</i>}
+                              {previewEdit && previewEdit.rowId === row.id && previewEdit.idx === bi ? (
+                                <>
+                                  <input
+                                    className="comic-bubble-edit"
+                                    autoFocus
+                                    maxLength={200}
+                                    value={b.text ?? ''}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onChange={(e) => patchBubble(row.id, bi, { text: e.target.value })}
+                                    onBlur={() => { saveBubbles(row); setPreviewEdit(null); }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur();
+                                    }}
+                                  />
+                                  <select
+                                    className="comic-bubble-edit comic-bubble-shape-edit"
+                                    value={b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      const shape = e.target.value as typeof b.shape;
+                                      patchBubble(row.id, bi, { shape });
+                                      saveBubbles(row, ensureBubbles(row).map((bb, i) => (i === bi ? { ...bb, shape } : bb)));
+                                      setPreviewEdit(null);
+                                    }}
+                                  >
+                                    <option value="dialogue">💬对话</option>
+                                    <option value="narration">🎬旁白</option>
+                                    <option value="thought">💭思考</option>
+                                    <option value="shout">💥喊叫</option>
+                                    <option value="whisper">🤫低语</option>
+                                    <option value="electric">⚡电波</option>
+                                    <option value="cloud">☁️云朵</option>
+                                    <option value="heart">💗心声</option>
+                                    <option value="screen">📺屏幕</option>
+                                    <option value="caption">📌标题</option>
+                                  </select>
+                                </>
+                              ) : (
+                                <>
+                                  {b.text}
+                                  <span
+                                    className="comic-bubble-resize"
+                                    aria-label="拉伸气泡宽度"
+                                    title="拖动拉伸宽度"
+                                    onPointerDown={(e) => onResizePointerDown(e, row.id, bi)}
+                                  />
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <div className="comic-panel-placeholder">
                         <Wand2 size={26} style={{ opacity: 0.35 }} />
                         <span>{(row.description ?? '').trim() ? '待生成' : '填写描述后生成'}</span>
                       </div>
                     )}
-                    {ensureBubbles(row).map((b, bi) => {
-                      if (!(b.text ?? '').trim()) return null;
-                      const speaker = b.asset_id ? charById.get(b.asset_id)?.name : null;
-                      return (
-                        <div
-                          key={b.asset_id ?? `nar-${bi}`}
-                          className={`comic-bubble shape-${b.shape ?? (b.asset_id ? 'dialogue' : 'narration')}`}
-                          style={{
-                            left: `${(b.x ?? 0.05) * 100}%`,
-                            top: `${(b.y ?? 0.06) * 100}%`,
-                            ...(b.w != null ? { width: `${Math.round(b.w * 100)}%` } : null),
-                          }}
-                        >
-                          {speaker && <i className="comic-bubble-name">{speaker}</i>}
-                          {b.text}
-                        </div>
-                      );
-                    })}
                     {generating && <PanelGenProgress rowId={row.id} active={generating} />}
                   </div>
                   <div className="comic-preview-ops">

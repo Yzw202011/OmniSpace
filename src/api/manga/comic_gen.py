@@ -177,11 +177,12 @@ _ONEPASS_VIEW_LABELS = {
     "closeup": "上半身特写",
 }
 
-# 中文字体候选（Windows 系统字体，按优先级回退）
+# 中文字体候选（Windows 系统字体，按优先级回退；2026-09-30 用户令改
+# 「文字背景透明，黑色文字，不加粗」——常规雅黑置首，撤 Bold 变体）
 _ZH_FONT_CANDIDATES = (
     r"C:\Windows\Fonts\msyh.ttc",      # 微软雅黑
     r"C:\Windows\Fonts\simhei.ttf",    # 黑体
-    r"C:\Windows\Fonts\simsun.ttc",    # 宋体
+    r"C:\Windows\Fonts\simsun.ttf",    # 宋体
 )
 
 
@@ -512,22 +513,18 @@ def _repair_view_cell(engine: PaintEngine, image: Image, idx: int,
     # 逐格正度约束（2026-08-24 用户实测：整图修复后仍有斜背身/
     # 3/4 侧身混入——修复格同样需要量化锚点）
     precision = {
-        "front": "身体完全正对镜头呈0度，双肩左右对称，"
-                 "两只眼睛、完整面部清晰可见，从头到脚完整",
-        "side": "身体正侧对镜头呈90度，双肩重叠成一条线，"
-                "只见单侧脸部轮廓与单只眼睛，从头到脚完整",
-        "back": "身体完全背对镜头呈180度，双肩左右对称，"
-                "看不到任何面部五官，只见后脑勺与背影，"
-                "从头到脚完整",
-        "closeup": "胸部以上近景构图，头部占画面高度约三分之"
-                   "一，面部大而清晰",
+        "front": "严格正面正对镜头，双臂自然下垂，"
+                 "头顶到脚底全身入画",
+        "side": "严格正侧面90度朝向，头顶到脚底全身入画",
+        "back": "严格180度背对镜头，仅见正背影，"
+                "双臂自然下垂，头顶到脚底全身入画",
+        "closeup": "严格胸部以上构图，正视镜头，平静表情，"
+                   "胸部以上入画",
     }[view]
     prompt = (
         f"角色设定图。角色：{prompt_zh_clean}。"
         f"画面：同一角色的{label}视图，单人。构图要求：{precision}。"
         "背景：纯白色，均匀干净。"
-        "美术风格：韩国网漫风，干净线稿，清晰上色，"
-        "表情表现力强，色彩干净明快。"
         "姿态：常态平静表情，眼睛平视，空手，画面干净无文字。"
     )
     try:
@@ -603,24 +600,22 @@ def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
     事故）。生成前按场景信号词剥整句。
     """
     prompt_zh_clean = _strip_scene_state_clauses(prompt_zh_clean)
+    # 2026-09-30 用户令逐格对齐（_ZVIEW_DIRECTIVES 同款量化文案）
     return (
         f"角色设定图。角色：{prompt_zh_clean}。"
         "画面：同一角色的四视图设定图，从左到右依次为——"
-        "第1格正面全身：身体完全正对镜头呈0度，双肩左右对称，"
-        "两只眼睛、完整面部清晰可见；"
-        "第2格左侧面全身：身体正侧对镜头呈90度，双肩重叠成"
-        "一条线，只见单侧脸部轮廓与单只眼睛，看不到另一侧肩；"
-        "第3格背面全身：身体完全背对镜头呈180度，双肩左右对称，"
-        "完全看不到任何面部五官，只见头发覆盖的后脑勺与衣服"
-        "背面的背影；"
-        "第4格上半身特写：胸部以上近景构图，头部占本格高度"
-        "约三分之一，面部大而清晰。"
+        "第1格正面全身：严格正面正对镜头，双臂自然下垂，"
+        "头顶到脚底全身入画；"
+        "第2格侧面全身：严格正侧面90度朝向，"
+        "头顶到脚底全身入画；"
+        "第3格背面全身：严格180度背对镜头，仅见正背影，"
+        "双臂自然下垂，头顶到脚底全身入画；"
+        "第4格上半身特写：严格胸部以上构图，正视镜头，"
+        "平静表情，胸部以上入画。"
         "恰好四格，四格视角互不相同，横向等宽排成一行；"
         "前三格为竖构图全身像，人物从头到脚完整。"
         "背景：纯白色，均匀干净，无任何环境与场景陈设，"
         "角色处于干燥整洁的日常状态。"
-        "美术风格：韩国网漫风，干净线稿，清晰上色，"
-        "表情表现力强，色彩干净明快。"
         "姿态：常态平静表情，眼睛平视，空手，画面干净无文字。"
     )
 
@@ -628,18 +623,11 @@ def _build_onepass_prompt_zh(prompt_zh_clean: str) -> str:
 def _draw_label_with_backdrop(canvas: Image, draw: ImageDraw.ImageDraw,
                               xy: tuple[int, int], text: str,
                               font: ImageFont.FreeTypeFont, *,
-                              pad: int = 14, radius: int = 12) -> None:
-    """白底圆角衬底 + 黑字标注：角色肢体可能延伸到画幅底部，黑字直接
-    叠深色衣物即失去对比度（2026-08-20 冒烟实测「背面全身」不可读）。"""
-    from PIL import ImageDraw
+                              pad: int = 14, radius: int = 12) -> None:  # noqa: ARG001
+    """透明底 + 黑色常规文字（2026-09-30 用户令二次修正「不加粗」，
+    撤 Bold 字体与描边；四视图背景已 SAM 漂白纯白，黑字直读）。"""
     x, y = xy
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    backdrop = ImageDraw.Draw(canvas)
-    backdrop.rounded_rectangle(
-        [x - pad, y - pad, x + tw + pad, y + th + pad + bbox[1]],
-        radius=radius, fill=(255, 255, 255))
-    draw.text((x, y), text, fill=(24, 24, 24), font=font)
+    draw.text((x, y), text, fill=(0, 0, 0), font=font)
 
 
 def _draw_onepass_labels(image: Image, name: str) -> Image:
@@ -700,7 +688,8 @@ def _load_onepass_reference(out_dir: Path) -> Image | None:
 def _generate_turnaround_onepass(engine: PaintEngine, out_dir: Path, *, name: str,
                                  prompt: str, seed: int,
                                  transparent: bool = False,
-                                 ctx_id: str = "") -> dict:
+                                 ctx_id: str = "",
+                                 model_id: str = "flux2-klein-4b") -> dict:
     """one-pass 单图四视图核心（竞品技术路线对齐，2026-08-20 重构）。
 
     1. 中文长文直入：六段式模板（版式/约束/风格/人设/姿态），FLUX.2
@@ -710,6 +699,9 @@ def _generate_turnaround_onepass(engine: PaintEngine, out_dir: Path, *, name: st
     3. PIL 叠加中文标注（角色名 + 视图标签——字体零漂移，不交给概率模型）
     4. 干净整图（master.png）等分裁切四格落盘 portrait_views/，
        供分镜引用与单视图局部重生
+
+    model_id：klein 底座（4B 默认；2026-10-03 方案 A 起绘画模型设置
+    选 9B 时透传——legacy PaintEngine 同链支持，显存走 offload 会慢）。
 
     竞品语义：全图一体成败（无逐视图局部修补）；资产目录 reference.png
     存在时作参考条件图（同 seed + 参考图，可复现）。ctx_id 非空时
@@ -746,7 +738,7 @@ def _generate_turnaround_onepass(engine: PaintEngine, out_dir: Path, *, name: st
         if attempt > 1:
             params["seed"] = seed = random.randint(0, 2**31 - 1)
             # VL 校验让位时卸载过 FLUX.2：重生前重载
-            engine.ensure_loaded("flux2-klein-4b")
+            engine.ensure_loaded(model_id)
         # 采样步级进度：一轮 92% 上限（尾 8% 留给验证/裁切/落盘），
         # attempt>1 归零重来（用户只见「重新生成」标签，无感换 seed）
         attempt_lbl = "" if attempt == 1 else f"（重试 {attempt}）"
@@ -859,11 +851,15 @@ def _generate_turnaround_onepass(engine: PaintEngine, out_dir: Path, *, name: st
 # （零错字）+ 参考图条件锚身份（TextEncodeZImageOmni 原生参考）。
 _ZVIEW_SIZE_W, _ZVIEW_SIZE_H = 576, 1296   # 与画布格 640×1440 同比例
 _ZVIEW_DIRECTIVES = {
-    "front": "正面全身站立照：正面正对镜头，双臂自然下垂，"
+    # 2026-09-30 用户令逐字对齐（每格补「严格」量化约束 + 头顶到脚底全身入画）
+    "front": "正面全身站立照：严格正面正对镜头，双臂自然下垂，"
              "头顶到脚底全身入画",
-    "side": "侧面全身站立照：严格正侧面90度朝向，全身入画",
-    "back": "背面全身站立照：背对镜头仅见背影，全身入画",
-    "closeup": "上半身特写肖像：胸部以上构图，正视镜头，平静表情",
+    "side": "侧面全身站立照：严格正侧面90度朝向，"
+            "头顶到脚底全身入画",
+    "back": "背面全身站立照：严格180度背对镜头，仅见正背影，"
+            "双臂自然下垂，头顶到脚底全身入画",
+    "closeup": "上半身特写肖像：严格胸部以上构图，正视镜头，"
+               "平静表情，胸部以上入画",
 }
 # 参考图条件只给与参考姿势同向的视图（Z-Image 参考是编辑级强度：
 # 实弹 2026-09-15，全视图挂参考会把侧面/背面全带成正面脸+参考图
@@ -1098,13 +1094,128 @@ def _generate_turnaround_zviews(out_dir: Path, *, name: str, prompt: str,
     }
 
 
+def _generate_turnaround_qwen21_onepass(out_dir: Path, *, name: str,
+                                        prompt: str, seed: int,
+                                        transparent: bool = False,
+                                        ctx_id: str = "") -> dict:
+    """qwen-image-2.1 整图直出四视图（2026-10-02 用户拍板：qwen21 一次
+    推理出四格——快（~25s）、单 seed 身份天然一致；其余模型维持 zviews
+    分张管线不变）。
+
+    实测依据（2026-10-02 draw API 直弹，用户提示词+管线模板各一张）：
+    4/4 格齐、等宽横排、身份一致、纯白底；侧格偶发 3/4 偏转=视角概率
+    性，重抽即换。中文标注模型不画 → PIL 叠印（_draw_onepass_labels
+    常规黑字透明底，2026-09-30 用户令）。VL 三关/格修复环暂不接
+    （onepass 既有环绑 klein inpaint；qwen21 版后续按需迁移）。
+    """
+    import random
+
+    from PIL import Image
+
+    if seed is None or seed < 0:
+        seed = random.randint(0, 2 ** 31 - 1)
+    clean_prompt = _sanitize_character_prompt_zh(prompt)
+    prompt_zh = _build_onepass_prompt_zh(clean_prompt)
+
+    broadcast_gen_progress("asset", ctx_id, percent=8,
+                           label="qwen2.1 整图直出四视图")
+    params = {"prompt": prompt_zh, "steps": 25, "cfg": 4.0, "seed": seed,
+              "width": _ONEPASS_W, "height": _ONEPASS_H,
+              "model": "qwen-image-2.1"}
+    result = comfy_paint_generate(params)
+    img = result["images"][0].convert("RGB")
+    if img.size != (_ONEPASS_W, _ONEPASS_H):
+        img = img.resize((_ONEPASS_W, _ONEPASS_H), Image.LANCZOS)
+
+    broadcast_gen_progress("asset", ctx_id, percent=80, label="标注切片落盘")
+    master_path = out_dir / "master.png"
+    img.save(master_path, "PNG")
+    views_dir = out_dir / "portrait_views"
+    views_dir.mkdir(parents=True, exist_ok=True)
+    views: dict[str, str] = {}
+    view_imgs: list[Image.Image] = []
+    for view, vimg in _slice_onepass_views(img).items():
+        p = views_dir / f"{view}.png"
+        vimg.save(p, "PNG")
+        views[view] = str(p.relative_to(DATA_DIR)).replace("\\", "/")
+        view_imgs.append(vimg)
+    canvas_path = out_dir / "canvas.png"
+    _draw_onepass_labels(img, name).save(canvas_path, "PNG")
+    return {
+        "pipeline": "qwen21-onepass",
+        "views": views,
+        "canvas": str(canvas_path.relative_to(DATA_DIR)).replace("\\", "/"),
+        "master": str(master_path.relative_to(DATA_DIR)).replace("\\", "/"),
+        "consistency": _views_consistency(view_imgs),
+        "seed": result.get("seed", seed),
+        "model": "qwen-image-2.1(comfy)",
+        "prompt_zh": prompt_zh,
+        "ref_used": False,
+        "view_errors": {},
+    }
+
+
+# ── 四视图管线手动选择（2026-10-03 方案 A：模型设置·绘画模型真切换）──
+# manga-paint 槽 default（漫剧「模型设置」绘画模型下拉）→ 四视图管线。
+# 空/未登记 = auto（qwen21 优先 + turnaround_engine 手动档，历史行为）。
+# z-image-base 不在表内=分张管线硬编码 turbo 不支持 base（8 步蒸馏 vs
+# 6B 全量 40 步），显式选它落回 auto 链并日志明示。
+_TURNAROUND_SLOT_MODEL_PIPELINES: dict[str, str] = {
+    "qwen-image-2.1": "qwen21",
+    "flux2-klein-4b": "klein",
+    "flux2-klein-9b": "klein",
+    "z-image-turbo": "zviews",
+}
+
+
+def _turnaround_pipeline_choice(slot_default: str) -> str:
+    """绘画模型选择 → 四视图管线名（纯映射，table 驱动单测锚）。
+
+    返回 "qwen21" / "zviews" / "klein" / "auto"；未登记一律 auto。
+    """
+    return _TURNAROUND_SLOT_MODEL_PIPELINES.get(
+        (slot_default or "").strip().lower(), "auto")
+
+
+def _manga_paint_slot_default() -> str:
+    """读漫剧「模型设置」绘画模型选择（module-config manga-paint 槽）。"""
+    try:
+        from ..models import module_default_model
+        return str(module_default_model("manga-paint") or "").strip()
+    except Exception:  # noqa: BLE001 - 读取失败按未选择走自动链
+        return ""
+
+
+def _turnaround_q21_available() -> bool:
+    """qwen-image-2.1 三件套权重在位（不拉起 ComfyUI）。"""
+    try:
+        from ...services.inference.comfy_paint_engine import (
+            comfy_paint_available as _avail,
+        )
+        return bool(_avail("qwen-image-2.1"))
+    except Exception:  # noqa: BLE001 - 探测异常按不可用
+        return False
+
+
+def _turnaround_z_available() -> bool:
+    """z-image-turbo 三件套权重在位（不拉起 ComfyUI）。"""
+    try:
+        from ...services.inference.comfy_paint_engine import (
+            comfy_paint_available as _avail,
+        )
+        return bool(_avail("z-image-turbo"))
+    except Exception:  # noqa: BLE001 - 探测异常按不可用
+        return False
+
+
 def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
                              prompt: str, seed: int,
                              transparent: bool = False,
                              ctx_id: str = "") -> dict:
-    """四视图生成统一编排：one-pass 主路径（FLUX.2 Klein 中文直入，
-    竞品同款 1 次推理单图四视图）→ 不可用/推理失败时回退 legacy
-    SDXL 逐视图四张独立图（中译英 + 2x 上采样，诚实降级）。
+    """四视图生成统一编排：模型设置·绘画模型（manga-paint 槽）显式
+    选择优先直达对应管线，所选失败落回自动链（诚实降级不报死，已试
+    管线不重复重试）；未选择 = 自动链（qwen21 优先 → zviews → Klein
+    one-pass → legacy SDXL 逐视图，2026-10-02 拍板顺序）。
 
     返回统一 gen dict：{pipeline, views, canvas, consistency, seed,
     model, ref_used, view_errors, prompt_zh | prompt_en}。ctx_id 非空
@@ -1113,14 +1224,27 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
     # W3-C：引擎档位在编排口统一裁决（comfy 适配器 / legacy klein-4b；
     # comfy onepass 失败自然落入下方 legacy 全链回退）
     engine = _pick_turnaround_engine()
+    # 2026-10-03 方案 A：绘画模型显式选择优先（空=auto=历史行为）
+    slot_default = _manga_paint_slot_default()
+    choice = _turnaround_pipeline_choice(slot_default)
+    if choice != "auto":
+        log.info("四视图管线：绘画模型设置=%s → %s 管线",
+                 slot_default, choice)
+    if slot_default.startswith("cloud::"):
+        # 2026-10-04 用户二定路由：绘画模型选云端 → 云端整图直出
+        # （下方云优先钩子承接），不再"明示落本地自动链"
+        log.info("绘画模型设置为云端端点（%s）→ 云端整图直出四视图",
+                 slot_default)
+    _tried: set[str] = set()
+
     # ── 云端整图直出（2026-10-03 四视图上云；2026-10-04 用户二定路由）──
     # 仅当模型配置·绘画模型显式选择 cloud:: 端点才走云（paint_choice_
     # cloud_ep 统一闸）；本地选择/系统默认=本地自动链；失败诚实落回
     try:
-        from .common import paint_choice_cloud_ep
         from ...services.inference.cloud_turnaround import (
             generate_turnaround_cloud,
         )
+        from .common import paint_choice_cloud_ep
         _cloud_ep = paint_choice_cloud_ep()
         if _cloud_ep is not None:
             gen = generate_turnaround_cloud(
@@ -1134,25 +1258,103 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
     except Exception as exc:  # noqa: BLE001 - 落回本地自动链
         log.warning("四视图云端直出失败，落回本地自动链: %s", exc,
                     exc_info=True)
+
+    # ── 显式选择：qwen21 一次直出 ──
+    if choice == "qwen21":
+        _tried.add("qwen21")
+        if not _turnaround_q21_available():
+            log.warning("绘画模型设置=qwen-image-2.1 但权重不在位，落回自动链")
+        else:
+            try:
+                gen = _generate_turnaround_qwen21_onepass(
+                    out_dir, name=name, prompt=prompt, seed=seed,
+                    transparent=transparent, ctx_id=ctx_id)
+                log.info("qwen21 整图直出四视图完成（绘画模型设置）: "
+                         "%s seed=%s", name, gen["seed"])
+                return gen
+            except Exception as exc:  # noqa: BLE001 - 落回自动链
+                log.exception("绘画模型设置 qwen-image-2.1 生成失败，"
+                              "落回自动链: %s", exc)
+
+    # ── 显式选择：zviews 分张 ──
+    if choice == "zviews":
+        _tried.add("zviews")
+        if not _turnaround_z_available():
+            log.warning("绘画模型设置=z-image-turbo 但权重不在位，落回自动链")
+        else:
+            try:
+                gen = _generate_turnaround_zviews(
+                    out_dir, name=name, prompt=prompt, seed=seed,
+                    transparent=transparent, ctx_id=ctx_id)
+                log.info("zviews 四视图完成（绘画模型设置）: %s seed=%s",
+                         name, gen["seed"])
+                return gen
+            except Exception as exc:  # noqa: BLE001 - 落回自动链
+                log.exception("绘画模型设置 z-image-turbo 分张失败，"
+                              "落回自动链: %s", exc)
+
+    # ── 显式选择：Klein 一次直出（4B/9B 透传）──
+    klein_model = (slot_default if slot_default in ("flux2-klein-4b",
+                                                    "flux2-klein-9b")
+                   else "flux2-klein-4b")
+    if choice == "klein":
+        _tried.add("klein")
+        if not engine.ensure_loaded(klein_model):
+            log.warning("绘画模型设置=%s 装载失败（%s），落回自动链",
+                        klein_model, engine.get_status().get("last_error", ""))
+        else:
+            try:
+                gen = _generate_turnaround_onepass(
+                    engine, out_dir, name=name, prompt=prompt, seed=seed,
+                    transparent=transparent, ctx_id=ctx_id,
+                    model_id=klein_model)
+                log.info("one-pass 四视图完成（绘画模型设置=%s）: %s "
+                         "seed=%s", klein_model, name, gen["seed"])
+                return gen
+            except Exception as exc:  # noqa: BLE001 - 落回自动链
+                log.exception("绘画模型设置 %s 一次直出失败，落回自动链: %s",
+                              klein_model, exc)
+                engine.unload_model()  # 释放显存给自动链
+
+    # ── 自动链（choice=auto 或显式选择失败落回；_tried 内不重复）──
+    # 2026-10-02 用户拍板：qwen-image-2.1 在位 → 整图直出四视图优先
+    # （一次推理+PIL 标签；缺权重/失败自然落回下方 zviews→onepass 链，
+    # 其余模型行为零变化）
+    _q21_ok = ("qwen21" not in _tried and _turnaround_q21_available())
+    # 2026-10-03 用户令试 Klein 一次出四格：manga.turnaround_engine
+    # 配 klein/onepass 时跳过 qwen21 闸（zviews 闸对该值本就关闭，
+    # _pick_turnaround_engine 对非 comfy 值恒返 legacy 4B）——四视图
+    # 手动选模型开关；不配置/维持 zviews = qwen21 优先现状不变
+    try:
+        from ...config import get_config as _turn_cfg
+        _eng_sel = str((_turn_cfg().get("manga") or {}).get(
+            "turnaround_engine", "")).strip().lower()
+    except Exception:  # noqa: BLE001 - 配置读取失败按未选择
+        _eng_sel = ""
+    if _eng_sel in ("klein", "onepass"):
+        if _q21_ok:
+            log.info("qwen21 闸门：turnaround_engine=%s，按配置跳过"
+                     "（走 Klein one-pass）", _eng_sel)
+        _q21_ok = False
+    if _q21_ok:
+        try:
+            gen = _generate_turnaround_qwen21_onepass(
+                out_dir, name=name, prompt=prompt, seed=seed,
+                transparent=transparent, ctx_id=ctx_id)
+            log.info("qwen21 整图直出四视图完成: %s seed=%s", name,
+                     gen["seed"])
+            return gen
+        except Exception as exc:  # noqa: BLE001 - 失败回退既有链
+            log.exception("qwen21 整图直出失败，回退 zviews/onepass: %s",
+                          exc)
     # Z2（2026-09-15）：zviews 分张管线优先——Z-Image 逐视图+参考锚
     # 身份+代码贴字，视图语义/标注两大痛点构造性消失；失败或 z-image
     # 不可用时自然回落 one-pass / legacy 逐视图（诚实降级链不变）
-    try:
-        # 注意三点相对导入：comic_gen 在 src.api.manga 下，
-        # src.services 需跨两级包（.. 只有 src.api）
-        from ...services.inference.comfy_paint_engine import (
-            comfy_paint_available as _z_avail,
-        )
-        # 2026-09-15 审计修复：按 z 槽权重探测（旧实现查的是 klein
-        # 三件套——z 权重缺失时闸仍绿，冷启动后才炸）
-        _z_ok = _z_avail("z-image-turbo")
-    except Exception:
-        log.exception("Z2 gate: 可用性探测抛异常（按不可用）")
-        _z_ok = False
-    log.warning("Z2 gate: enabled=%s z_ok=%s engine_hint=%s",
+    _z_ok = _turnaround_z_available()
+    log.warning("Z2 gate: enabled=%s z_ok=%s engine_hint=%s tried=%s",
                 _zviews_enabled(), _z_ok,
-                type(engine).__name__)
-    if _zviews_enabled() and _z_ok:
+                type(engine).__name__, sorted(_tried))
+    if "zviews" not in _tried and _zviews_enabled() and _z_ok:
         try:
             gen = _generate_turnaround_zviews(
                 out_dir, name=name, prompt=prompt, seed=seed,
@@ -1163,22 +1365,28 @@ def _run_turnaround_pipeline(engine: PaintEngine, out_dir: Path, *, name: str,
         except Exception as exc:  # noqa: BLE001 - 分张失败回退旧管线
             log.exception("zviews 四视图生成失败，回退 one-pass/legacy: %s",
                           exc)
-    gen = None
-    if engine.ensure_loaded("flux2-klein-4b"):
-        try:
-            gen = _generate_turnaround_onepass(
-                engine, out_dir, name=name, prompt=prompt, seed=seed,
-                transparent=transparent, ctx_id=ctx_id)
-            log.info("one-pass 四视图完成: %s seed=%d model=%s",
-                     name, gen["seed"], gen["model"])
-        except Exception as exc:  # noqa: BLE001 - FLUX.2 失败回退逐视图
-            log.exception("one-pass 四视图生成失败，回退逐视图路径: %s", exc)
-            engine.unload_model()  # 释放 FLUX.2 显存给回退路径
+    if "klein" in _tried:
+        # 显式 Klein 已试败：不再走同底座 one-pass（避免同模型双败白付
+        # 冷启动），直接落 SDXL 逐视图
+        log.warning("Klein 已按绘画模型设置试败，跳过自动链 one-pass，"
+                    "落 SDXL 逐视图")
     else:
-        log.warning("FLUX.2 Klein 不可用（%s），四视图走逐视图回退路径",
-                    engine.get_status().get("last_error", ""))
-    if gen is not None:
-        return gen
+        gen = None
+        if engine.ensure_loaded("flux2-klein-4b"):
+            try:
+                gen = _generate_turnaround_onepass(
+                    engine, out_dir, name=name, prompt=prompt, seed=seed,
+                    transparent=transparent, ctx_id=ctx_id)
+                log.info("one-pass 四视图完成: %s seed=%d model=%s",
+                         name, gen["seed"], gen["model"])
+            except Exception as exc:  # noqa: BLE001 - FLUX.2 失败回退逐视图
+                log.exception("one-pass 四视图生成失败，回退逐视图路径: %s", exc)
+                engine.unload_model()  # 释放 FLUX.2 显存给回退路径
+        else:
+            log.warning("FLUX.2 Klein 不可用（%s），四视图走逐视图回退路径",
+                        engine.get_status().get("last_error", ""))
+        if gen is not None:
+            return gen
 
     # legacy 回退：SDXL 逐视图（中文净化→译英→四张独立 16:9）
     prompt_en = _prepare_turnaround_prompt_en(prompt)
@@ -1215,6 +1423,17 @@ def _apply_turnaround_meta(meta: dict, gen: dict) -> None:
         meta.pop("prompt_en", None)
         meta.pop("degraded", None)
         meta.pop("degrade_reason", None)
+    elif gen["pipeline"] == "qwen21-onepass":
+        # qwen21 整图直出（2026-10-02）：与 zviews 同画布规格（标注/
+        # 裁切/单视图重生同构），无 VL 三关（直出为主，概率性偏差重抽）
+        meta["width"], meta["height"] = _ONEPASS_W, _ONEPASS_H
+        meta["view_width"], meta["view_height"] = _ONEPASS_W // 4, _ONEPASS_H
+        meta["prompt_zh"] = gen["prompt_zh"]
+        meta["master"] = gen["master"]
+        for k in ("layout_verified", "bg_verified", "match_verified",
+                  "verify_attempts", "prompt_en", "degraded",
+                  "degrade_reason"):
+            meta.pop(k, None)
     elif gen["pipeline"] == "cloud-onepass":
         # 云端整图直出（2026-10-03 用户拍板）：标注画入图内、无 VL 三关；
         # 画幅=云端原生档（gen 自带 width/height，非本地 2560×1440）
@@ -1279,8 +1498,13 @@ def _sanitize_character_prompt_zh(text: str) -> str:
     2026-08-20 角色推理 v2：prompt 为五段式 AI 描述词（【角色】/
     绘图提示词/美术风格/时代背景/角色设定）——剥版式与标注句之外，
     额外剥「【角色】：xxx」「绘图提示词：」「时代背景：xxx。」段
-    标签行与固定段（美术风格/时代背景由生图模板统一注入网漫风，
-    角色设定正文与时代背景语义词保留），防段标签与模板重复冲突。
+    标签行。2026-10-02 用户拍板 B：生图模板不再注入固定画风——
+    美术风格段跟随用户描述词原样保留（写实/动漫由用户自定），
+    角色设定正文与时代背景语义词照旧保留。
+
+    2026-10-02 修吞句：「纯白色背景」从剥整句改为只剥词本身——
+    旧版会把句中白底词后面的同句人物描述（性别/脸型/五官）连吃
+    （夏沐沐「可爱东方少女…鹅蛋脸…」整句丢失实弹事故）。
     """
     import re
     cleaned = text or ""
@@ -1292,10 +1516,13 @@ def _sanitize_character_prompt_zh(text: str) -> str:
                 r"图片[左右]上角[^。\n]*(?:。|$)",     # 图片左上角/右上角…。
                 r"[^。\n]*标注[^。\n]*(?:。|$)",       # 含「标注」的整句
                 r"禁止[^。\n]*(?:。|$)",               # 禁止纹理/投影等禁令
-                r"纯白色背景[^。\n]*(?:。|$)",         # 白底（风格词兜底）
+                # 白底只剥词本身（2026-10-02 修吞句：旧版「纯白色背景剥到
+                # 句号」——用户手贴提示词白底词常在句中，后面同句的性别/
+                # 脸型/五官描述被连吃（夏沐沐/林飞雪实弹事故）；句尾残标
+                # 点由下方清理行兜住）
+                r"纯白色背景[，,、]?",
                 r"全局光照[^。\n]*(?:。|$)",           # 全局光照（模板兜底）
                 r"^\s*绘图提示词[：:]\s*$",          # 段标签行（内容已剥空）
-                r"^\s*美术风格[：:]\s*[^。\n]*(?:。|$)",  # 美术风格段（模板注入）
                 r"^\s*时代背景[：:]\s*",             # 时代背景段标签（正文保留）
                 ):  # noqa: E128
         cleaned = re.sub(pat, "", cleaned, flags=re.MULTILINE)
@@ -1616,6 +1843,11 @@ def _generate_turnaround_sync(req: AssetTurnaroundRequest) -> dict:
     meta: dict = {"pipeline": gen["pipeline"],
                   "transparent": bool(req.transparent)}
     _apply_turnaround_meta(meta, gen)
+    # 方案 A 留痕：本次生成时「模型设置·绘画模型」的选择（空=自动链），
+    # 供前端/排查对账——pipeline 字段管"实际走了哪条"，这里管"用户选了啥"
+    _slot_choice = _manga_paint_slot_default()
+    if _slot_choice:
+        meta["paint_model_choice"] = _slot_choice
     _append_asset_history(meta, "generate", None, rel_path,
                            elapsed_ms=(time.time() - t0) * 1000)
     db = get_db_safe()
@@ -1723,6 +1955,10 @@ def _regenerate_asset_sync(asset: dict) -> dict:
             import shutil as _shutil
             _shutil.copyfile(_front, out_path)
         _apply_turnaround_meta(meta, gen)
+        # 方案 A 留痕：重生成同样记录「模型设置·绘画模型」选择（空=自动链）
+        _slot_choice = _manga_paint_slot_default()
+        if _slot_choice:
+            meta["paint_model_choice"] = _slot_choice
         # regenerate-view 单视图重生子目录路径由 out_path.parent 覆盖同源
         width, height = meta["width"], meta["height"]
         seed_out, model_out = gen["seed"], gen["model"]
@@ -1746,10 +1982,10 @@ def _regenerate_asset_sync(asset: dict) -> dict:
             broadcast_gen_progress("asset", _ctx, percent=p, label="正在生成")
 
         broadcast_gen_progress("asset", _ctx, percent=2, label="正在生成")
-        # 云端优先（2026-10-03 用户拍板：重生也走云端）：未绑定/失败
-        # 返回 None 落本地 FLUX/SDXL（服务模块内已收敛告警）
-        from .common import paint_choice_cloud_ep
+        # 云端优先判定=模型配置·绘画模型显式选 cloud::（2026-10-04 用户
+        # 二定路由：绑定不直接触发云端）；ep=None/失败落本地 FLUX/SDXL
         from ...services.inference.cloud_turnaround import regenerate_asset_cloud_image
+        from .common import paint_choice_cloud_ep
         _cloud = regenerate_asset_cloud_image(
             asset["prompt"], width, height, ep=paint_choice_cloud_ep(),
             on_progress=_map_step if _ctx else None)

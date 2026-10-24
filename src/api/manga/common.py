@@ -466,8 +466,15 @@ def _sanitize_delimiters(text: str) -> str:
             .replace(">>>", "＞＞＞"))
 
 
-def _build_abc_prompt(row: dict, assets: list[dict]) -> str:
-    """组装单行 A/B/C 生成的 LLM 提示词（氛围行 + B/C 正文由 LLM 产出）。"""
+def _build_abc_prompt(row: dict, assets: list[dict],
+                      prev_context: str = "") -> str:
+    """组装单行 A/B/C 生成的 LLM 提示词（氛围行 + B/C 正文由 LLM 产出）。
+
+    prev_context 非空时注入上一镜头结尾画面参考（行级承接标记，
+    2026-10-24 用户拍板）：连续则指导 LLM 在首镜画面行写
+    「承接上一镜头，」前缀，视频侧据此锚定上一行尾帧为起始帧；
+    为空（首行/无上行）时 prompt 与现状逐字节一致。
+    """
     shots, duration = _derive_shot_plan(row)
 
     if assets:
@@ -508,6 +515,13 @@ def _build_abc_prompt(row: dict, assets: list[dict]) -> str:
                              "（C 段运镜必须体现）")
     if director_bits:
         extras.append("【导演指定约束】" + "；".join(director_bits) + "\n\n")
+    if prev_context.strip():
+        extras.append(
+            "【上一镜头结尾画面（连续性参考，只用于判断，不得照抄进本镜）】\n"
+            f"{_sanitize_delimiters(prev_context.strip()[:160])}\n"
+            "若本镜画面与上一镜头时空直接连续（同场景顺时推进、动作连贯），"
+            "首个镜头的画面行必须以「承接上一镜头，」开头再写新画面；"
+            "若发生场景切换、时间跳跃或视角重置，严禁使用该前缀。\n\n")
     extra_context = "".join(extras)
 
     return _ABC_PROMPT_TEMPLATE.format(

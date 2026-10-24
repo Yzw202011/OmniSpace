@@ -1,0 +1,11 @@
+{
+ "seg1": {
+  "file": "E:\\OmniSpace\\data\\videos\\3f6f322a4a28434f\\c12cd3b2d1084cf6a94bf7b6a0049eb9_fr.mp4",
+  "label": "h3_chain_v10_s10"
+ },
+ "seg2": {
+  "file": "E:\\OmniSpace\\data\\videos\\5742271de12544eb\\ac119c8804b6400c982bf81a001e4884_fr.mp4",
+  "label": "h3_chain_v10_s10_carry"
+ },
+ "comparison": "E:\\OmniSpace\\data\\videos\\_carry_demo\\carry_comparison_480.png"
+}

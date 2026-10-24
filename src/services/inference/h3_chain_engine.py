@@ -668,7 +668,8 @@ _REQUIRED_NODES = frozenset({"1", "2", "3", "4", "110", "1700", "1701", "1706", 
 def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
                   start_clip: int = 1, turbo: bool = True,
-                  two_stage: bool = False) -> dict:
+                  two_stage: bool = False,
+                  carry_image: str | None = None) -> dict:
     graph = json.loads(json.dumps(template))
     required = (set(_REQUIRED_NODES) if turbo
                 else set(_REQUIRED_NODES) - {"1961"} | {"122"})
@@ -722,6 +723,21 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
         else:
             graph.pop(nid, None)
             graph["110"]["inputs"].pop(key, None)
+    if carry_image:
+        # 行级承接：尾帧 LoadImage → AddGuide 硬锚 frame_idx=0，
+        # ChainContext(1703) 的 conditioning 输入改接 AddGuide 输出。
+        # 运行时注入节点 8100/8101（模板零改动，不入 _REQUIRED_NODES
+        # 防呆范围——无 carry_image 时渲染结果与模板逐字节等价，
+        # 单测锁定）。AddGuide 按目标 latent 尺寸重缩放锚定图。
+        graph["8100"] = {"class_type": "LoadImage",
+                         "inputs": {"image": carry_image}}
+        graph["8101"] = {"class_type": "MiniMaxH3AddGuide",
+                         "inputs": {"positive": ["110", 0],
+                                    "latent": ["110", 1],
+                                    "vae": ["3", 0],
+                                    "image": ["8100", 0],
+                                    "frame_idx": 0}}
+        graph["1703"]["inputs"]["conditioning"] = ["8101", 0]
     if two_stage:
         _insert_latent_refine(graph, base_w, base_h, width, height)
     return graph
@@ -783,6 +799,103 @@ def _insert_latent_refine(graph: dict, base_w: int, base_h: int,
         }}
     graph["130"]["inputs"]["samples"] = ["V1refine", 0]
     graph["131"]["inputs"]["samples"] = ["V1refine", 0]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  行级承接（2026-10-24 用户拍板）：行描述词 C 段带「承接上一镜头」类
+#  标记 → 单镜运行时取上一行最新成功视频的尾帧，AddGuide 硬锚
+#  frame_idx=0 为本镜起始帧。识别只扫 C 段、词表收紧（动词+上一镜/
+#  前一镜宾语），防 B 段世界观散文同形词误触发；上一镜取不到/画幅比
+#  不一致/FFmpeg 缺失一律回退独立生成（用户拍板），绝不阻断出片。
+#  注入点：ChainContext(1703) 的 conditioning 输入改接 AddGuide——
+#  ChainContext 对 scene 1 透传 conditioning，硬锚精确作用于首镜；
+#  scene 2+ 会继承 keyframe，故仅 len(rows)==1 时注入（连播运行的
+#  镜间连贯由链式上下文内建机制负责）。
+# ═══════════════════════════════════════════════════════════════════
+_CARRY_MARKER_RE = re.compile(
+    r"(?:承接|紧接|衔接|接续|延续)(?:自|于)?[上前]一?[个]?\s*镜[头]?")
+
+
+def detect_carry_marker(description: str) -> bool:
+    """行描述词 C 段带「承接上一镜头」类标记 → True（视频侧承接触发）。"""
+    c_text = _split_abc(description or "")["c"]
+    return bool(_CARRY_MARKER_RE.search(c_text))
+
+
+def _carry_config_enabled() -> bool:
+    """承接总开关（config manga.h3_carry_enabled，默认开）。"""
+    try:
+        return bool((get_config().get("manga") or {})
+                    .get("h3_carry_enabled", True))
+    except Exception:  # noqa: BLE001 - 配置异常按默认开
+        return True
+
+
+def _find_prev_row_video(db: Any, row_id: str) -> str:
+    """同分镜表内按 sort_index 紧邻上一行的最新成功视频；取不到 ""。"""
+    if db is None:
+        return ""
+    try:
+        cur = db.query_one(
+            "SELECT storyboard_id, sort_index FROM storyboard_rows "
+            "WHERE id=?", (row_id,))
+        if not cur or not (cur.get("storyboard_id") or "").strip():
+            return ""
+        prev = db.query_one(
+            "SELECT id FROM storyboard_rows WHERE storyboard_id=? "
+            "AND sort_index<? ORDER BY sort_index DESC LIMIT 1",
+            (cur["storyboard_id"], cur.get("sort_index") or 0))
+        if not prev:
+            return ""
+        vt = db.query_one(
+            "SELECT file_path FROM video_tasks WHERE storyboard_row_id=? "
+            "AND status='done' AND file_path IS NOT NULL AND file_path!='' "
+            "ORDER BY created_at DESC LIMIT 1", (prev["id"],))
+        p = Path(str((vt or {}).get("file_path") or ""))
+        if not p.is_absolute():
+            p = DATA_DIR / p
+        return str(p) if p.is_file() else ""
+    except Exception:  # noqa: BLE001 - 查询失败按无上行回退
+        log.warning("[h3_chain] 承接: 上一行视频查询失败", exc_info=True)
+        return ""
+
+
+def _extract_carry_frame(video_path: str, dst: Path,
+                         width: int, height: int) -> bool:
+    """ffmpeg 抽上一镜尾帧 PNG；横竖屏跨切（画幅比偏差 >5%）→ False。
+
+    分辨率不预对齐——AddGuide 按目标 latent 尺寸 _resize 锚定图，
+    只把画幅比不一致的（硬锚黑边/裁切无意义）挡在门外（用户拍板回退）。
+    """
+    from PIL import Image
+
+    from ..encoder_service import get_encoder_service
+    try:
+        enc = get_encoder_service()
+        if not enc.available:
+            return False
+        flags = (subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        r = subprocess.run(
+            [enc.ffmpeg_path, "-y", "-sseof", "-0.1", "-i", video_path,
+             "-frames:v", "1", "-update", "1", "-q:v", "1", str(dst)],
+            capture_output=True, text=True, timeout=60,
+            creationflags=flags)
+        if r.returncode != 0 or not dst.is_file() \
+                or dst.stat().st_size == 0:
+            return False
+        with Image.open(dst) as img:
+            vw, vh = img.size
+        if vh <= 0:
+            return False
+        # 容差 5%（2026-10-24 段2 实弹修正）：脸修复链会把 1344 宽垫到
+        # 1376（32 对齐，偏差 2.38%）——2% 护栏误杀真承接；护栏本意只挡
+        # 横竖屏跨切（竖屏 0.56 vs 横屏 1.75 偏差 68%），5% 足够分辨
+        target_ratio = width / height
+        return abs((vw / vh) - target_ratio) <= 0.05 * target_ratio
+    except Exception:  # noqa: BLE001 - 提取失败按回退处理
+        log.warning("[h3_chain] 承接: 尾帧提取失败 %s", video_path,
+                    exc_info=True)
+        return False
 
 
 def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
@@ -884,6 +997,38 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                 pass
         if len(ref_imgs) >= 2:
             break
+    # 行级承接解析（单镜运行 + 标记 + 总开关开）——须在 _prepare_refs
+    # 建好输入目录之后：尾帧 PNG 落同目录，随 finally 统一回收
+    carry_image: str | None = None
+    if _carry_config_enabled():
+        if len(rows) == 1 and detect_carry_marker(rows[0]["description"]):
+            _carry_note = ""
+            try:
+                _prev_video = _find_prev_row_video(db, rows[0]["id"])
+                _carry_dir = Path(_COMFY_INPUT) / f"h3chain_{task_id}"
+                _carry_dir.mkdir(parents=True, exist_ok=True)
+                _carry_png = _carry_dir / "carry_tail.png"
+                if not _prev_video:
+                    _carry_note = "上一镜无已完成视频"
+                elif _extract_carry_frame(_prev_video, _carry_png,
+                                          width, height):
+                    carry_image = f"h3chain_{task_id}/carry_tail.png"
+                    report(0.03, "已锚定上一镜尾帧为起始帧")
+                else:
+                    _carry_note = "尾帧提取失败或画幅不一致"
+            except Exception as exc:  # noqa: BLE001 - 承接失败不阻断出片
+                _carry_note = f"承接解析异常: {exc}"
+            if _carry_note:
+                log.warning("[h3_chain] 承接未生效(回退独立生成): row=%s %s",
+                            rows[0]["id"], _carry_note)
+        elif len(rows) > 1:
+            _marked = [r["id"] for r in rows
+                       if detect_carry_marker(r["description"])]
+            if _marked:
+                log.info(
+                    "[h3_chain] 连播运行 %d 行带承接标记，镜间连贯由链式"
+                    "上下文内建机制负责（跨运行尾帧锚定仅单行模式生效）: %s",
+                    len(rows), _marked)
     shots: list[dict] = []
     for k, r in enumerate(rows, 1):
         frames = align_h3_frames(seconds)
@@ -924,7 +1069,8 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
             graph = _render_graph(json.loads(_load_template_text()),
                                   plan_json, run_name, width, height,
                                   refs, task_id, start_clip, turbo=_turbo,
-                                  two_stage=_two_stage)
+                                  two_stage=_two_stage,
+                                  carry_image=carry_image)
             import urllib.error
             try:
                 resp = engine._api("POST", "/prompt",
@@ -1064,6 +1210,8 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 决定，调用方 model_used 直取，消「标签写死 turbo 名不符实」）
     engine_label = ("h3_chain_turbo_v10" if _turbo
                     else f"h3_chain_v10_s{_steps}" + ("_2s" if _two_stage else ""))
+    if carry_image:
+        engine_label += "_carry"  # 承接生效可见性（2026-10-24 行级承接）
     return {"file_path": str(dest), "resolution": f"{width}x{height}",
             "duration_seconds": total_seconds,
             "engine_label": engine_label,

@@ -918,6 +918,11 @@ class VoiceEngine(BaseEngine):
         self._engine_type = ""
         # 复位自动装载标记：卸载后允许下次合成重试真实管线
         self._tts_autoload_attempted = False
+        # R3-M1 修复（2026-10-24）：同步复位降级旗标——此前 unload 不
+        # 清 _fallback_mode，卸载重载后引擎仍在降级模式（陈旧状态，
+        # 用户切回真 TTS 不生效）；测试此前只查 autoload 不查 fallback
+        # =掩盖此缺陷
+        self._fallback_mode = False
         with self._asr_lock:
             self._asr_pipe = None
             self._asr_model_id = ""

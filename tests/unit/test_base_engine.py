@@ -156,8 +156,13 @@ def test_voice_unload_releases_refs_and_resets_retry_flag() -> None:
     eng._model = object()      # 模拟已装载
     eng._loaded = True
     eng._tts_autoload_attempted = True
+    eng._fallback_mode = True   # R3-M1：模拟降级态
     assert eng.unload_model() is True
     assert eng._model is None and eng._loaded is False
     assert eng._tts_autoload_attempted is False
+    # R3-M1 修复：降级旗标也须复位——此前 unload 不清 _fallback_mode
+    # =卸载重载后仍在降级模式（陈旧状态）
+    assert eng._fallback_mode is False, \
+        "unload 后 _fallback_mode 残留 True=重载后仍在降级模式"
     # 空载卸载：False（非错误语义）
     assert eng.unload_model() is False

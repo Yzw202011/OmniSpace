@@ -74,6 +74,8 @@ scheduler:
     cpu_temp_critical: 95
     mem_warning_ratio: 0.25   # 可用内存占比预警线（=已用 75%）
     mem_critical_ratio: 0.15  # 可用内存占比临界线（=已用 85%，文档B §4.1 动作线）
+    mem_critical2_ratio: 0.90 # 二级内存临界（已用占比，R3-M20 补缺：resource_guard 消费但 config 此前无键=docstring 谎称可配）
+    finetune_min_knowledge: 100  # 自动微调知识量下限（R3-M20 补缺：learning_scheduler:864 消费但 config 此前无键）
     disk_io_busy_critical: 0.80  # 磁盘忙碌时间占比临界（文档B §4.1：>80% 延迟写入）
 
 model_cache:

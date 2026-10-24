@@ -253,6 +253,8 @@ CREATE TABLE IF NOT EXISTS train_tasks (
     error           TEXT DEFAULT '',
     -- 审计 R3-BE1：/learn/tasks/reorder 排序字段
     priority        INTEGER DEFAULT 0,
+    -- R2-H2（2026-10-24）：训练完成时的 LoRA 版本号（回滚链对账）
+    version         INTEGER NOT NULL DEFAULT 1,
     created_at      REAL NOT NULL DEFAULT 0,
     updated_at      REAL NOT NULL DEFAULT 0
 );
@@ -453,7 +455,7 @@ class Database:
     # 存量库列迁移：按 schema 版本分组 —— (版本号, ((表, 列, 列定义), ...))。
     # 新增迁移时：追加新版本组并同步抬升 SCHEMA_VERSION，禁止修改历史组。
     # SQLite 无 IF NOT EXISTS 列语法，以 PRAGMA table_info 判定后 ALTER TABLE 补齐。
-    SCHEMA_VERSION = 15
+    SCHEMA_VERSION = 16
 
     _MIGRATION_GROUPS: tuple[tuple[int, tuple[tuple[str, str, str], ...]], ...] = (
         (1, (
@@ -560,6 +562,12 @@ class Database:
             # 只进 WS 瞬时帧/events.jsonl/backend.log，任务列表永远
             # 无失败原因（新库 _SCHEMA 已含，幂等跳过）
             ("train_tasks", "error", "TEXT DEFAULT ''"),
+        )),
+        (16, (
+            # R2-H2（2026-10-24）：train_tasks 版本列——训练完成时落
+            # LoRA 版本号（回滚链 md5 对账的消费方此前 SELECT version
+            # 恒空列缺失=flow 永不收口；新库 _SCHEMA 已含幂等跳过）
+            ("train_tasks", "version", "INTEGER NOT NULL DEFAULT 1"),
         )),
     )
 

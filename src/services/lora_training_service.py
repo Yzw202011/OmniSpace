@@ -735,7 +735,10 @@ class LoRATrainingService:
                     get_dialog_engine().refresh_knowledge_lora()
                 except Exception:  # noqa: BLE001
                     log.debug("_run_task: 降级忽略", exc_info=True)
-            self._update_task(task_id, status="done", progress=1.0)
+            # R2-H2（2026-10-24）：完成时落 version 列（回滚链对账消费方
+            # 此前 SELECT version 恒空=flow 永不收口）
+            self._update_task(task_id, status="done", progress=1.0,
+                              version=version)
             try:  # 批2 P31：成功喂舱壁账本（连续失败清零/degraded 恢复）
                 from .module_health import record_success
                 record_success('training')

@@ -741,6 +741,43 @@ def _manifest_entry(model_id: str) -> dict:
     return _registry_entry(model_id)
 
 
+def _sync_manifest(model_id: str, action: str) -> None:
+    """R2-H10（2026-10-24 用户批准）：模型增删时同步 manifest。
+
+    action: "add"=追加条目 / "remove"=摘除条目。best-effort：失败仅
+    log.warning（manifest 过时不阻断业务操作，下次出包全量重写自愈）。
+    """
+    import json as _json
+
+    from ..config import MODELS_DIR as _MD
+    manifest_path = _MD / "models_manifest.json"
+    try:
+        manifest = (_json.loads(manifest_path.read_text("utf-8"))
+                    if manifest_path.is_file() else {})
+        models = manifest.get("models", [])
+        if not isinstance(models, list):
+            models = []
+        if action == "remove":
+            models = [m for m in models if m.get("id") != model_id]
+        elif action == "add" and \
+                not any(m.get("id") == model_id for m in models):
+            entry = next((m for m in _merged_models()
+                          if m.get("id") == model_id), None)
+            if entry:
+                models.append({
+                    "id": model_id,
+                    "name": entry.get("name", ""),
+                    "category": entry.get("category", ""),
+                    "min_vram_gb": entry.get("min_vram_gb", 0),
+                })
+        manifest["models"] = models
+        manifest_path.write_text(
+            _json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("manifest 同步失败 (%s %s): %s", action, model_id, exc)
+
+
 def _model_dependencies(model: dict) -> list[dict]:
     """模型依赖关系（MODEL-036）：manifest dependencies 优先，内置映射兜底。"""
     mid = model.get("id", "")
@@ -1120,6 +1157,7 @@ async def models_import(req: ModelImportRequest) -> dict[str, Any]:
 
     _models[model_id] = info
     info["imported"] = True
+    _sync_manifest(model_id, "add")  # R2-H10
     return ok(info, message="模型已导入")
 
 
@@ -1568,6 +1606,7 @@ def models_delete(model_id: str) -> dict[str, Any]:
         log_audit('models', 'model_unregister', target=model_id, detail='')
     except Exception:  # noqa: BLE001
         pass
+    _sync_manifest(model_id, "remove")  # R2-H10
     return ok({"deleted": model_id})
 
 
@@ -1637,6 +1676,7 @@ def models_purge_files(model_id: str) -> dict[str, Any]:
         log_audit('models', 'model_delete_files', target=model_id, detail=f'freed {freed / 1024**3:.2f}GB')
     except Exception:  # noqa: BLE001
         pass
+    _sync_manifest(model_id, "remove")  # R2-H10
     return ok({"deleted": model_id, "path": raw_path,
                "freed_gb": round(freed / 1024 ** 3, 2)}, message="已彻底删除模型文件")
 

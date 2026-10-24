@@ -26,6 +26,7 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Callable
 
 from .error_handler import ApiError
 
@@ -110,6 +111,9 @@ class FeatureLockManager:
         self._hold_counts: dict[str, int] = {}
         self._acquired_ats: dict[str, float] = {}
         self._holder_task_ids: dict[str, str | None] = {}
+        # R2-H6（2026-10-24 用户批准）：创作抢占学习钩子——新持有
+        # （hold_count 0→1）时回调，调用方在 main.py lifespan 注册
+        self._preempt_hook: Callable[[str], None] | None = None
         # 同功能重入计数（审计 P1-1 修复，2026-08-29）：此前同功能
         # 第二次 acquire 成功后，先完成者的 release 会把锁整个清空，
         # 另一任务仍在运行时跨功能互斥即告失效（视频双任务并发生成
@@ -204,11 +208,25 @@ class FeatureLockManager:
                     self._hold_counts[dom] = 1
                     self._acquired_ats[dom] = time.time()
                     _sleep_guard_hold()  # P21 睡眠保护
+                    # R2-H6：新持有（0→1）→ 触发抢占钩子（学习让路）
+                    if self._preempt_hook is not None:
+                        try:
+                            self._preempt_hook(feature)
+                        except Exception:  # noqa: BLE001
+                            pass
                 self._holder_task_ids[dom] = task_id
                 self._last_activity_at = time.time()
                 log.info("功能锁获取: %s (域=%s, task=%s, 重入=%d)",
                          feature, dom, task_id, self._hold_counts[dom])
                 return True
+
+    def set_preempt_hook(self, fn: Callable[[str], None]) -> None:
+        """R2-H6：注册创作抢占钩子——新持有时回调 fn(feature)。
+
+        典型接线：main.py lifespan 注册 → 活跃学习会话 resource_preempted
+        置位让路。钩子异常静默（不影响锁语义）。
+        """
+        self._preempt_hook = fn
 
     async def release(self, feature: str,
                       *,

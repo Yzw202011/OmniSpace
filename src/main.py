@@ -471,6 +471,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # noqa: BLE001 - 探针失败不阻断启动
         log.warning("冻结探针启动失败（忽略）", exc_info=True)
 
+    # R2-H6（2026-10-24 用户批准）：创作抢占学习——功能锁新持有时
+    # 活跃学习会话自动让路（TASK-014 从此接线）
+    def _preempt_learning(feature: str) -> None:
+        try:
+            from .services.browser_agent_service import (
+                get_browser_agent_service,
+            )
+            svc = get_browser_agent_service()
+            s = svc.active_session()
+            if s is not None and s.status == "running":
+                svc.preempt_session(s.session_id)
+                log.info("创作抢占学习: %s 激活 → 学习会话 %s 让路",
+                         feature, s.session_id[:8])
+        except Exception:  # noqa: BLE001 - 钩子异常不影响锁
+            pass
+
+    try:
+        from .middleware.feature_lock import get_feature_lock
+        get_feature_lock().set_preempt_hook(_preempt_learning)
+    except Exception:  # noqa: BLE001
+        log.warning("创作抢占学习钩子注册失败（忽略）", exc_info=True)
+
     yield
 
     # 关闭

@@ -134,6 +134,10 @@ SEMANTIC_CODES: dict[str, str] = {
     "LORA_LOAD_FAILED": "LoRA文件加载失败",
     "VIDEO_GENERATION_FAILED": "视频生成失败，请检查输入参数",
     "VIDEO_TASK_DUPLICATE": "该分镜已有视频在生成中",
+    # ②-批1（2026-10-25）：域级精确码注册（别名，零行为变化；批 2 迁移 raise）
+    "VIDEO_TASK_NOT_FOUND": "视频任务不存在",
+    "STORYBOARD_ROW_EMPTY": "分镜行描述词为空",
+    "STORYBOARD_NOT_BOUND": "分镜行未绑定带图资产",
     "UPGRADE_IN_PROGRESS": "已有升级任务在进行中，请等它完成后再发起新升级",
     "VIDEO_DURATION_EXCEEDED": "音画同步模式最长支持10秒",
     "VIDEO_RESOLUTION_DEGRADED": "当前显存不支持所选分辨率，已自动降级",
@@ -456,6 +460,10 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "LORA_LOAD_FAILED": "该 LoRA 文件无法加载，请确认文件完好后在「模型管理」页重新导入",
     "VIDEO_GENERATION_FAILED": "请检查描述词和资产图后重试；反复失败请到「日志」页查看原因",
     "VIDEO_TASK_DUPLICATE": "该分镜已有视频在生成中，等它完成或取消后再试即可",
+    # ②-批1（2026-10-25）
+    "VIDEO_TASK_NOT_FOUND": "该任务可能已结束或被清理，请刷新任务列表",
+    "STORYBOARD_ROW_EMPTY": "在分镜表格编辑描述词，或执行「分镜生词」",
+    "STORYBOARD_NOT_BOUND": "在右侧资产面板把角色/场景/道具拖入绑定",
     "VIDEO_DURATION_EXCEEDED": "请把时长缩短到 10 秒以内",
     "VIDEO_RESOLUTION_DEGRADED": "显存不足以支撑所选分辨率，已自动降级；如需更高清可关闭其他功能后重试",
     "VIDEO_ENCODE_FAILED": "视频合成失败，请重试；反复失败请导出诊断包",

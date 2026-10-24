@@ -3190,38 +3190,59 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
         log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
 
+    # J-05 收口（2026-10-24）：批量链此前零埋点——整批中间态只有日志，
+    # stalled 检测完全不可见。补 start_flow +「批量生成」node（逐格心跳）
+    # + 三出口 end（对齐单行链 GAP-16 修法）。
+    from ...services.flow_trace import start_flow
+    flow = start_flow(
+        "keyframe", "keyframe_batch",
+        f"批量关键帧生成（{len(req.row_ids)} 格）",
+        trigger="用户提交生成",
+        input_summary=f"project={req.project_id} rows={len(req.row_ids)}")
+
     def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:
         from ...services.image_queue import ImageTaskCancelled
         results, failed = [], []
-        for row_id in req.row_ids:
-            # R3-M7 修复（2026-10-24）：行间也查取消——此前 check_cancel
-            # 仅传入 _generate_keyframe_sync（单帧生成内生效），批次循环
-            # 行间不查=取消后剩余帧继续空转到自然跑完
-            try:
-                check_cancel()
-            except ImageTaskCancelled:
-                break  # 优雅终止：返回已完成的帧，剩余行不再生成
-            try:
-                data = _generate_keyframe_sync(
-                    str(row_id), req.project_id or "",
-                    "", IMG_TARGET_W, IMG_TARGET_H,
-                    cloud_endpoint=_cloud_ep, check_cancel=check_cancel)
-                results.append(data)
-            except ApiError as exc:
-                failed.append({"row_id": str(row_id), "code": exc.code,
-                               "message": exc.message})
-            except Exception as exc:  # noqa: BLE001
-                failed.append({"row_id": str(row_id),
-                               "code": "PAINT_GENERATION_FAILED",
-                               "message": str(exc)[:300]})
+        with flow.node("批量生成", friendly="逐格串行生成") as _bn:
+            for row_id in req.row_ids:
+                # R3-M7 修复（2026-10-24）：行间也查取消——此前 check_cancel
+                # 仅传入 _generate_keyframe_sync（单帧生成内生效），批次循环
+                # 行间不查=取消后剩余帧继续空转到自然跑完
+                try:
+                    check_cancel()
+                except ImageTaskCancelled:
+                    break  # 优雅终止：返回已完成的帧，剩余行不再生成
+                _bn.progress(f"{len(results) + len(failed) + 1}"
+                             f"/{len(req.row_ids)}")
+                try:
+                    data = _generate_keyframe_sync(
+                        str(row_id), req.project_id or "",
+                        "", IMG_TARGET_W, IMG_TARGET_H,
+                        cloud_endpoint=_cloud_ep, check_cancel=check_cancel)
+                    results.append(data)
+                except ApiError as exc:
+                    failed.append({"row_id": str(row_id), "code": exc.code,
+                                   "message": exc.message})
+                except Exception as exc:  # noqa: BLE001
+                    failed.append({"row_id": str(row_id),
+                                   "code": "PAINT_GENERATION_FAILED",
+                                   "message": str(exc)[:300]})
+            _bn.progress(f"完成 {len(results)}/{len(req.row_ids)}")
         return ok({"succeeded": results, "failed": failed,
                 "total": len(req.row_ids), "success_count": len(results)})
 
-    data = await get_image_queue().submit_and_wait({
-        "task_id": f"kfbatch:{req.project_id[:12]}:{time.time_ns():x}",
-        "kind": "keyframe_batch", "runner": _batch_runner,
-        "loop": asyncio.get_running_loop(),
-        "cloud": _cloud_ep is not None})
+    try:
+        data = await get_image_queue().submit_and_wait({
+            "task_id": f"kfbatch:{req.project_id[:12]}:{time.time_ns():x}",
+            "kind": "keyframe_batch", "runner": _batch_runner,
+            "loop": asyncio.get_running_loop(),
+            "cloud": _cloud_ep is not None})
+    except Exception as exc:
+        flow.end("error", error_code="KEYFRAME_BATCH_FAILED",
+                 error_detail=str(exc)[:200])
+        raise
+    flow.end("success",
+             output_summary=f"成功 {data['success_count']}/{data['total']}")
     return ok(data)
 
 

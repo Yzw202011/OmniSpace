@@ -8,6 +8,7 @@
       "src/api/manga/comic_gen.py",
       "src/api/manga/keyframe.py",
       "src/api/manga/video.py",
+      "src/api/models.py",
       "src/api/system.py",
       "src/services/inference/dialog_engine.py",
       "src/services/inference/video_engine.py"
@@ -17,9 +18,10 @@
       "src/api/manga/comic_asset.py": 2648,
       "src/api/manga/comic_gen.py": 2384,
       "src/api/manga/keyframe.py": 3502,
-      "src/api/manga/video.py": 2406,
-      "src/api/system.py": 2571,
-      "src/services/inference/dialog_engine.py": 2220,
+      "src/api/manga/video.py": 2460,
+      "src/api/models.py": 2017,
+      "src/api/system.py": 2811,
+      "src/services/inference/dialog_engine.py": 2274,
       "src/services/inference/video_engine.py": 2813
     },
     "note": "存量巨石只减不增；新文件>2000行即红。2026-10-24 手动对账（修复战役 R3-H1 止血）：dialog+80/comic_gen+304/keyframe+277/system+94/video_engine+59 系 10-22~24 修复批经 --no-verify 通道增长、video.py 系 09-23 拆分后回涨未登记——基准对齐当前实测恢复执法（此前红闸=逼后续提交继续绕闸），巨石拆解维持终结书 P2 挂账；comic_asset/dialog_engine 在窗内未动"

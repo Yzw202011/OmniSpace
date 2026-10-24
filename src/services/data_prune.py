@@ -31,8 +31,9 @@ _TABLES: list[tuple[str, str, str]] = [
 _LOG_DIRS = ["logs/eval", "logs/usage", "logs/e2e_txt_upload",
              "logs/events-test", "logs/style_matrix", "logs/four_models",
              "logs/comic6", "logs/_face_analysis", "data/logs",
-             "data/tmp_framecheck", "data/audio"]
-_LOG_RETENTION_DAYS = 7  # 日志/工件目录更激进（7 天；TTS 试听产物同档）
+             "data/tmp_framecheck", "data/audio",
+             "data/comfyui/input"]
+_LOG_RETENTION_DAYS = 7  # 日志/工件目录（7 天；TTS+ComfyUI input 同档）
 
 # M18 修复（2026-10-24）：ComfyUI output 段产物目录——h3_chains 7.2G
 # 实测（每次链跑留一目录，永不清理）；成片已在 video_tasks 具名保存，

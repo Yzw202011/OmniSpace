@@ -46,7 +46,7 @@
 | ruff 六规则集 | pre-commit 第 2 步（缺失=FAIL 不跳过） | ✅ 机器强制 |
 | 冒烟测试 | pre-commit 第 3 步 pytest -m smoke | ✅ 机器强制 |
 | 类型检查 | pre-commit 第 4 步 mypy（基线 229 只减不增） | ✅ 机器强制 |
-| 文档对账 | pre-commit 第 5 步 doc_claims.json 23 断言 | ✅ 机器强制 |
+| 文档对账 | pre-commit 第 5 步 doc_claims.json 24 断言 | ✅ 机器强制 |
 | **架构标准** | **pre-commit 第 6 步** test_architecture_standards | ✅ 机器强制 |
 | 错误码必须注册 | 哨兵 test_error_code_registry | ✅ 机器强制 |
 | KV 访问走 settings_kv | 哨兵 test_architecture_standards::kv_single_source | ✅ 机器强制 |

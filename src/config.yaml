@@ -182,9 +182,10 @@ manga:
   # 2026-08-23 用户裁定 50 → 200：剧本字数放宽 10000 字后，5000 字≈87 镜，
   # 10000 字≈170 镜，50 行上限直接阻断导入
   max_storyboard_rows: 200
-  panorama_resolutions: [1024, 2048, 4096, 8192]
-  camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
-  pose_presets_count: 15
+  # [废] R3-L20（2026-10-24）：三键 config.py 已删零消费方，注释化
+  # panorama_resolutions: [1024, 2048, 4096, 8192]
+  # camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
+  # pose_presets_count: 15
   voice_preset_emotions: ["默认", "愤怒", "悲伤"]
   # H3 链采样步数（批1b 2026-09-12 设 6；2026-10-11 挡位战役转正 10）：
   # 挡位战役 10 支实弹（双种子，data/h3_tune/results.jsonl）——10 步非

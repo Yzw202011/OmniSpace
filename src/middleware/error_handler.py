@@ -33,6 +33,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from fastapi.responses import JSONResponse
@@ -583,6 +584,19 @@ def _meta() -> dict[str, Any]:
     }
 
 
+# R3-L12（202-24）：错误消息路径脱敏——str(exc) 常含
+# E:\OmniSpace\src\... 或 C:\Users\...\Temp\... 内部路径直达前端
+_PATH_RE = re.compile(
+    r'[A-Za-z]:\\[^\s"\']{5,}|/(?:home|usr|tmp|var)/[^\s"\']{5,}')
+
+
+def _sanitize_msg(msg: str) -> str:
+    """剥离错误消息中的文件系统路径（防内部结构泄漏）。"""
+    if not msg:
+        return msg
+    return _PATH_RE.sub('[路径]', msg[:500])
+
+
 class ApiError(Exception):
     """业务异常：被异常处理器捕获后转为文档D统一失败信封。
 
@@ -596,7 +610,7 @@ class ApiError(Exception):
     def __init__(self, code: int | str, message: str = "",
                  detail: Any = None, suggestion: str = "") -> None:
         self.code = _to_semantic(code)
-        self.message = message or _default_message(code)
+        self.message = _sanitize_msg(message or _default_message(code))
         self.detail = detail
         self.suggestion = suggestion
         super().__init__(self.message)

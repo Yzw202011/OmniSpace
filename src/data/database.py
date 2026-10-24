@@ -796,12 +796,19 @@ class Database:
 
     @staticmethod
     def _serialize(value: Any) -> Any:
-        """将 dict / list 序列化为 JSON 字符串，其余原样返回。"""
+        """将 dict / list 序列化为 JSON 字符串，其余原样返回。
+
+        R3-L10（2026-10-24）：同时暴露 serialize 公开别名——
+        API 层裸连接事务需列值编码时不再访问 db._serialize 私有名。
+        """
         if isinstance(value, (dict, list)):
             return json.dumps(value, ensure_ascii=False, default=str)
         if isinstance(value, bool):
             return int(value)
         return value
+
+    # 公开别名（API 层事务内列值编码的正式入口）
+    serialize = _serialize
 
     def close(self) -> None:
         """关闭当前线程的连接。"""

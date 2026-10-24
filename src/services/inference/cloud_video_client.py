@@ -171,8 +171,11 @@ def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
         # 404 = 该站无 /v1/videos（非 Sora 形态）→ 自动降级 DashScope
         # 三段式（2026-10-06 用户令「三个下拉选项」：视频统一选项，
         # 双形态自适应，用户不再分辨协议）
+        # P1-02 修复（2026-10-24）：返回 (task_id, degraded=True) 让
+        # 调用方翻转 is_sora——此前调用方 is_sora 常量不随降级翻转，
+        # 轮询 URL/间隔/解析器仍走 sora 路径必 404
         log.warning("Sora 提交 404（非 Sora 形态站），降级 DashScope 三段式")
-        return _ds_submit(ep, prompt, first_frame, duration_seconds, "16:9")
+        return _ds_submit(ep, prompt, first_frame, duration_seconds, "16:9"), True
     if resp is None or resp.status_code != 200:
         body = ((resp.text if resp is not None else "") or "")[:200]
         retry_note = "（502/503 已自动重试 4 次）" if resp is not None else ""
@@ -185,7 +188,7 @@ def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
     if not task_id:
         raise RuntimeError(
             f"云端视频任务提交未返回任务 id：{str(out)[:150]}")
-    return task_id
+    return task_id, False  # (task_id, degraded) — P1-02
 
 
 def _sora_parse(data: dict) -> tuple[str, str, str]:
@@ -294,7 +297,13 @@ def generate_video(
         vendor = str((ep.extra or {}).get("vendor") or
                      ("dashscope" if not is_sora else "sora"))
         if is_sora:
-            task_id = _sora_submit(ep, prompt, first_frame, duration_seconds)
+            task_id, _degraded = _sora_submit(
+                ep, prompt, first_frame, duration_seconds)
+            if _degraded:
+                # P1-02：实际通道已切 DashScope——is_sora/vendor 翻转，
+                # 轮询 URL/间隔/解析器随走 DashScope 路径
+                is_sora = False
+                vendor = "dashscope"
         elif vendor == "kling":
             task_id = _kling_submit(ep, prompt, first_frame, duration_seconds)
         elif vendor == "ark":

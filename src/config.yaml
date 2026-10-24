@@ -83,7 +83,9 @@ model_cache:
   eviction_policy: "lru"
 
 database:
-  path: "{app_dir}/data/omnispace.db"
+  # [废] path 键 R3-L20（2026-10-24）：零模板消费（实际路径由
+  # config.py DATA_DIR 硬编码），保留注释防误解
+  # path: "{app_dir}/data/omnispace.db"
   # 诚实标注：无 encryption 项——SQLCipher 未启用（死代码已移除），
   # 明文 SQLite，仅本地 127.0.0.1 运行（规格 §14 约束1/2）。
   wal_mode: true

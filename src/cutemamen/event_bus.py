@@ -58,7 +58,10 @@ class EventBus:
                     handler(event)
                     delivered += 1
                 except Exception as exc:  # 订阅方故障不中断发布方
+                    # R3-L3 修复（2026-10-24）：cap 100 防无界增长
                     self.errors.append({"topic": topic, "error": repr(exc)})
+                    if len(self.errors) > 100:
+                        self.errors = self.errors[-100:]
         return delivered
 
     # ── 查询 ────────────────────────────────────────────────

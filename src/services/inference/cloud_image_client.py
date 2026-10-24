@@ -329,7 +329,8 @@ def _generate_task_image(
     if on_progress:
         on_progress(20)
     poll_url = ep.base_url + f"/api/v1/tasks/{task_id}"
-    deadline = time.time() + TASK_TIMEOUT_S
+    # R3-L13（2026-10-24）：monotonic 墙钟（同 cloud_video_client）
+    deadline = time.monotonic() + TASK_TIMEOUT_S
     out: dict = {}
     while True:
         _check(check_cancel)
@@ -353,7 +354,7 @@ def _generate_task_image(
                 f"云端图片任务失败（{status}）："
                 f"{str(out.get('message') or out)[:200]}。可在服务商"
                 "后台查看任务详情")
-        if time.time() >= deadline:
+        if time.monotonic() >= deadline:
             raise RuntimeError(
                 f"云端图片任务超时（>{TASK_TIMEOUT_S:.0f}s，状态={status}）。"
                 "服务商可能排队拥塞，可稍后重试")

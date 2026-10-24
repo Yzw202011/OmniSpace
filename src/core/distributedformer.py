@@ -14,6 +14,7 @@ DistributedFormer: 分布式脉冲神经网络核心
   分形深度2 => 4,368单元/层 / 69K参数
 """
 
+import hashlib
 import json
 import math
 import os
@@ -1094,7 +1095,12 @@ class CubeFace:
         """将本面脉冲聚合为发往环形邻面的向量"""
         out = np.zeros(self.dim)
         for sp in self.last_spikes:
-            idx = hash(sp.source_unit_id) % self.dim
+            # R3-M14 修复（2026-10-24）：内置 hash() 受 PYTHONHASHSEED
+            # 盐化=跨进程漂移（实测两进程同 unit 得 1 与 8，「逐位可
+            # 复现」跨进程不成立）——md5 稳定映射替代
+            idx = int(hashlib.sha256(
+                str(sp.source_unit_id).encode()).hexdigest()[:8],
+                16) % self.dim
             out[idx] += sp.payload.value * sp.payload.strength
         return np.tanh(out)
 
@@ -1624,8 +1630,10 @@ class DistributedFormer:
             if layer_spikes:
                 layer_input = np.zeros(self.dim)
                 for sp in layer_spikes:
-                    # 将脉冲值注入输入
-                    idx = hash(sp.source_unit_id) % self.dim
+                    # 将脉冲值注入输入（R3-M14：sha256 稳定映射）
+                    idx = int(hashlib.sha256(
+                        str(sp.source_unit_id).encode()).hexdigest()[:8],
+                        16) % self.dim
                     layer_input[idx] += sp.payload.value * sp.payload.strength
                 layer_input = np.tanh(layer_input)  # 归一化
 

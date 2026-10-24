@@ -334,7 +334,9 @@ def generate_video(
         poll_interval = SORA_POLL_INTERVAL_S if is_sora else POLL_INTERVAL_S
         poll_headers = (_kling_headers(ep) if vendor == "kling"
                         else _bearer(ep))
-        deadline = time.time() + TASK_TIMEOUT_S
+        # R3-L13（2026-10-24）：monotonic 墙钟——time.time() 受 NTP/
+        # 改钟跳变影响（30 分钟窗口内跳 1 分钟即误判超时/永超时）
+        deadline = time.monotonic() + TASK_TIMEOUT_S
         video_url = ""
         status = "unknown"  # 超时文案引用；kling 分支用 st，先绑定防空引用
         while True:
@@ -397,14 +399,14 @@ def generate_video(
                         f"云端视频任务失败（{status}）："
                         f"{str(out.get('message') or out)[:200]}。可在服务商后台"
                         "查看任务详情；常见原因=首帧图触发内容审核或参数不支持")
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 raise RuntimeError(
                     f"云端视频任务超时（>{TASK_TIMEOUT_S / 60:.0f} 分钟，"
                     f"状态={status}）。服务商可能排队拥塞，可到服务商后台"
                     "确认任务状态后重试")
             if on_progress:
                 on_progress(min(85, 10 + int(
-                    (time.time() + TASK_TIMEOUT_S - deadline)
+                    (time.monotonic() + TASK_TIMEOUT_S - deadline)
                     / TASK_TIMEOUT_S * 75)))
             time.sleep(poll_interval)
         # 下载 mp4（视频文件大，超时从宽）；Bearer 仅同源附加（P1-7）

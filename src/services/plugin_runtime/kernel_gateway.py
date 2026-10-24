@@ -149,7 +149,12 @@ def register_user_pkg(pkg_path: Any) -> bool:
 
 
 def unregister_plugin(name: str) -> None:
-    """从内核移除插件登记（删除插件时同步收尾）。"""
+    """从内核移除插件登记（删除插件时同步收尾）。
+
+    R3-M13 修复（2026-10-24）：同时清理 gated think 包装——此前
+    unregister 只清 registry/routes，kernel.think 的安全门禁包装
+    （_gate_kernel_think 猴补丁）不还原，后续注册新内核时残留。
+    """
     global _kernel
     with _kernel_lock:
         kernel = _kernel
@@ -163,3 +168,9 @@ def unregister_plugin(name: str) -> None:
     for topic, target in list(kernel.routes.items()):
         if target == name:
             kernel.routes.pop(topic, None)
+    # R3-M13：gated think 还原（如被包装过）
+    if hasattr(kernel.think, "__wrapped__"):
+        try:
+            kernel.think = kernel.think.__wrapped__  # type: ignore[method-assign]
+        except Exception:  # noqa: BLE001 - 还原失败不阻断注销
+            pass

@@ -12,10 +12,10 @@
 崩溃窗口由"分配即持久化"收敛；释放池缺失时兜底重扫全表重建。
 """
 # 本项目仅供学习使用，商业授权请+Q 3559331368
-
 from __future__ import annotations
 
 import logging
+import threading
 
 from ...data.settings_kv import kv_get, kv_set
 
@@ -27,6 +27,10 @@ _PREFIX_KIND = {v: k for k, v in _KIND_PREFIX.items()}
 
 _SEQ_KEY = "asset.code.seq"       # {"XM": 3, "CJ": 1, ...} 已发最大号
 _FREE_KEY = "asset.code.free"     # {"XM": [1, 2], ...} 释放待复用号
+
+# R3-M3 修复（2026-10-24）：分配/释放的 KV 读改写走模块级锁——
+# 此前上传与队列 worker 并发读同一序号→写回同值→返回重号
+_alloc_lock = threading.Lock()
 
 
 def _seq_all() -> dict:
@@ -40,36 +44,39 @@ def _free_all() -> dict:
 
 
 def allocate(kind: str) -> str:
-    """分配编号：释放池最小号优先，否则递增。分配即持久化。"""
+    """分配编号：释放池最小号优先，否则递增。分配即持久化（R3-M3 锁）。"""
     prefix = _KIND_PREFIX.get(kind)
     if not prefix:
         raise ValueError(f"未知资产类型: {kind}")
-    free = _free_all()
-    pool = sorted(int(x) for x in (free.get(prefix) or []))
-    if pool:
-        num = pool[0]
-        free[prefix] = [x for x in pool[1:]]
-        kv_set(_FREE_KEY, free)
-    else:
-        seq = _seq_all()
-        num = int(seq.get(prefix, 0)) + 1
-        seq[prefix] = num
-        kv_set(_SEQ_KEY, seq)
+    with _alloc_lock:
+        free = _free_all()
+        pool = sorted(int(x) for x in (free.get(prefix) or []))
+        if pool:
+            num = pool[0]
+            free[prefix] = [x for x in pool[1:]]
+            kv_set(_FREE_KEY, free)
+        else:
+            seq = _seq_all()
+            num = int(seq.get(prefix, 0)) + 1
+            seq[prefix] = num
+            kv_set(_SEQ_KEY, seq)
     return f"{prefix}-{num:04d}"
 
 
 def release(code: str) -> None:
-    """删除资产时回收编号（释放池去重入列）。"""
+    """删除资产时回收编号（释放池去重入列；R3-M3 锁防并发丢号）。"""
     code = (code or "").strip()
     if not code or "-" not in code:
         return
     prefix, _, num_s = code.rpartition("-")
     if prefix not in _PREFIX_KIND or not num_s.isdigit():
         return
-    free = _free_all()
-    pool = sorted(set(int(x) for x in (free.get(prefix) or [])) | {int(num_s)})
-    free[prefix] = pool
-    kv_set(_FREE_KEY, free)
+    with _alloc_lock:
+        free = _free_all()
+        pool = sorted(set(int(x) for x in (free.get(prefix) or []))
+                      | {int(num_s)})
+        free[prefix] = pool
+        kv_set(_FREE_KEY, free)
 
 
 def rebuild_if_missing(db) -> None:

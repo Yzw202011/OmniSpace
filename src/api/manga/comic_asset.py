@@ -884,7 +884,11 @@ def comic_asset_delete(
             "", description="级联删除本项目中同 (kind,name) 作品副本——"
             "全局资产硬删时由「全部可用」入口传入（2026-10-04 用户裁定："
             "作品中删除=软删仅移出本作品；全部可用删除=真删，含本作品副本）"
-        )) -> dict[str, Any]:
+        ),
+        remove_from_project: str = Query(
+            "", description="从本作品移除（2026-10-24 用户拍板 A，软删欠账"
+            "补齐）：借用的全局资产=只摘本项目借用标记+清本项目分镜绑定，"
+            "行与文件不动；项目自有资产=维持真删。全部可用入口不传此参")) -> dict[str, Any]:
     """删除单个资产（2026-08-20 用户裁定）：DB 行 + 分镜行绑定引用
     清理 + 磁盘目录清理。
 
@@ -893,6 +897,10 @@ def comic_asset_delete(
     - 磁盘清理以 _asset_dir_for 定位目录，rmtree 前校验 resolve 后
       严格位于 _COMIC_ASSET_DIR 内且深度 ≥3（comic_assets/{owner}/
       {kind}/{name}），防路径穿越与误删父目录；失败仅告警不阻断
+    - remove_from_project（2026-10-24 拍板 A）：10-05 引入改借用后
+      作品清单里是全局原件本尊，此前的删除路径会把全局原件真删
+      （10-24 实测事故：林澈/成片主角 借用 58 秒后删除即全局消失）
+      ——借用件改走 _unborrow_asset 摘借用，项目自有件维持真删
     """
     db = get_db_safe()
     if db is None:
@@ -902,6 +910,22 @@ def comic_asset_delete(
     if row is None:
         raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
+
+    # 软删分支（2026-10-24 用户拍板 A）：remove_from_project 在借用
+    # 关系上摘除即返回；项目自有件不拦截（作品删除即资产删除）
+    if remove_from_project:
+        if asset.get("project_id") == remove_from_project:
+            pass  # 项目自有资产：走既有真删
+        elif (asset.get("scope") == "global"
+              and remove_from_project in parse_json(
+                  asset.get("meta"), {}).get("borrowed_for", [])):
+            return ok(_unborrow_asset(db, asset, remove_from_project))
+        else:
+            raise ApiError(
+                "SYSTEM_PARAM_INVALID",
+                "该资产不属于本项目，也未被本项目借用，无法从本作品移除",
+                detail={"asset_id": asset_id,
+                        "project_id": remove_from_project})
 
     # 级联（2026-10-04 用户裁定）：全局资产硬删时连删本项目的同名同类
     # 副本（行+绑定+受防连坐闸保护的目录），计数如实回传
@@ -919,13 +943,60 @@ def comic_asset_delete(
     # R3-L7 修复（2026-10-24）：删除资产也标关键帧过期——重生成路径
     # 有标（:1252 asset_changed），删除路径漏标（标尺不一：删了资产
     # 但旧关键帧仍标 valid，下次视频生成用已删参考图）
+    # （10-24 二修：原传 reason="asset_deleted" 不在合法枚举
+    # prompt_changed/asset_changed/style_changed 内，ValueError 被下方
+    # except 静默吞掉=此修复从未生效；改用语义同向的 asset_changed）
     try:
-        mark_keyframes_stale(db, asset_id=asset_id, reason="asset_deleted")
+        mark_keyframes_stale(db, asset_id=asset_id, reason="asset_changed")
     except Exception:  # noqa: BLE001 - 标记失败不阻断删除
         pass
     if cascade_removed:
         log.info("全局资产硬删级联：本作品移除 %d 个同名副本", cascade_removed)
     return ok({**payload, "cascade_removed": cascade_removed})
+
+
+def _unborrow_asset(db: Any, asset: dict, project_id: str) -> dict:
+    """从单项目摘除借用（2026-10-24 用户拍板 A，软删的真身）。
+
+    只做三件事，全局行/文件/其他项目的借用一概不动：
+      1) 本项目内绑定该资产的分镜行：关键帧先标过期（与删除同标尺
+         ——引用即将消失；先标后摘，绑定清掉后 asset_id 反查会落空）
+      2) 清本项目分镜行绑定（asset_id 兼容列 + asset_ids JSON 数组）
+      3) meta.borrowed_for 摘掉本项目
+    """
+    rows = db.query(
+        "SELECT r.id, r.asset_id, r.asset_ids FROM storyboard_rows r"
+        " JOIN storyboards s ON r.storyboard_id=s.id"
+        " WHERE s.project_id=? AND (r.asset_id=? OR r.asset_ids LIKE ?)",
+        (project_id, asset["asset_id"], f"%{asset['asset_id']}%"))
+    affected = [str(r["id"]) for r in rows]
+    if affected:
+        try:
+            mark_keyframes_stale(db, row_ids=affected,
+                                 reason="asset_changed")
+        except Exception:  # noqa: BLE001 - 标记失败不阻断移除
+            log.warning("解绑借用标关键帧过期失败: %s", affected,
+                        exc_info=True)
+    for r in rows:
+        ids = [i for i in (parse_json(r.get("asset_ids"), []) or [])
+               if i != asset["asset_id"]]
+        db.update("storyboard_rows",
+                  {"asset_id": "" if r.get("asset_id") == asset["asset_id"]
+                   else (r.get("asset_id") or ""),
+                   "asset_ids": ids}, "id=?", (r["id"],))
+    borrowed = [p for p in (parse_json(asset.get("meta"), {})
+                            .get("borrowed_for") or [])
+                if p != project_id]
+    raw_meta = asset.get("meta")
+    meta = raw_meta if isinstance(raw_meta, dict) else {}
+    db.update("comic_assets",
+              {"meta": {**meta, "borrowed_for": borrowed}},
+              "id=?", (asset["asset_id"],))
+    log.info("借用移除: %s（%s）← 项目 %s（全局行与文件保留）",
+             asset.get("name"), asset["asset_id"], project_id)
+    return {"asset_id": asset["asset_id"], "deleted": False,
+            "removed_from_project": True, "unborrowed": True,
+            "name": asset.get("name", ""), "kind": asset.get("kind", "")}
 
 
 def _purge_asset_row(db: Any, asset_id: str, asset: dict | None = None) -> dict:

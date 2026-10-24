@@ -323,18 +323,26 @@ export default function AssetDock({
   };
 
   /** 确认删除资产：DB 行 + 分镜绑定 + 磁盘文件后，刷新资产/库组/分镜行；
-   *  删除的是当前打开的详情资产时同步关闭详情面板 */
+   *  删除的是当前打开的详情资产时同步关闭详情面板。
+   *  双语义（2026-10-24 拍板 A）：全部可用=真删（级联）；作品中=从本
+   *  作品移除——借用的全局资产后端只摘借用标记+清本项目绑定（响应
+   *  unborrowed:true，全局行保留，可重新引入）；项目自有资产后端维持
+   *  真删（此前借用件在此路径被真删=全局库连带丢失事故根因）。 */
   const handleConfirmDelete = () => {
     if (!confirmDel || deleting) return;
     const target = confirmDel;
     const hard = delFrom === 'library';
     setDeleting(true);
-    deleteAsset(target.asset_id, hard ? currentProject?.id : undefined)
-      .then(({ name, cascade_removed }) => {
+    deleteAsset(target.asset_id,
+                hard ? currentProject?.id : undefined,
+                hard ? undefined : currentProject?.id)
+      .then(({ name, cascade_removed, unborrowed }) => {
         showToast(
           hard
             ? `已彻底删除「${name}」${cascade_removed ? `（本作品副本同步移除 ${cascade_removed} 项）` : ''}`
-            : `已从本作品移除「${name}」（资产库副本保留，可重新引入）`,
+            : unborrowed
+              ? `已从本作品移除「${name}」（全部可用保留，可重新引入）`
+              : `已删除「${name}」（本作品自有资产）`,
           'success');
         if (useMangaStore.getState().selectedAssetId === target.asset_id) {
           setSelectedAsset(null);

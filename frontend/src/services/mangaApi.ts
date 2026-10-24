@@ -759,16 +759,29 @@ export async function deleteAssetReference(assetId: string): Promise<void> {
 }
 
 /** 删除资产（DELETE /comic/asset/{assetId}）：DB 行 + 分镜行绑定清理 + 磁盘目录。
- * 2026-10-04 用户裁定双语义：作品中删除=软删（只移出本作品，库副本
- * 保留）；全部可用删除=真删——传 cascadeProject 时连同本作品同名同类
- * 副本一并删除（后端级联，响应 cascade_removed 计数）。 */
+ * 双语义（2026-10-04 裁定 / 2026-10-24 拍板 A 补齐软删真身）：
+ * - 全部可用删除=真删：传 cascadeProject 时连同本作品同名同类副本一并删除（后端级联）；
+ * - 作品中删除=从本作品移除：传 removeFromProject——借用的全局资产只摘
+ *   本项目借用标记+清本项目分镜绑定（响应 unborrowed:true，全局行与文件
+ *   保留，可重新引入）；项目自有资产维持真删。 */
+export interface AssetDeleteResult {
+  name: string;
+  kind: string;
+  cascade_removed?: number;
+  unborrowed?: boolean;
+  removed_from_project?: boolean;
+}
+
 export async function deleteAsset(
   assetId: string,
   cascadeProject?: string,
-): Promise<{ name: string; kind: string; cascade_removed?: number }> {
-  const query = cascadeProject ? `?cascade_project=${encodeURIComponent(cascadeProject)}` : '';
-  return del<{ name: string; kind: string; cascade_removed?: number }>(
-    `/comic/asset/${assetId}${query}`);
+  removeFromProject?: string,
+): Promise<AssetDeleteResult> {
+  const params = new URLSearchParams();
+  if (cascadeProject) params.set('cascade_project', cascadeProject);
+  if (removeFromProject) params.set('remove_from_project', removeFromProject);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return del<AssetDeleteResult>(`/comic/asset/${assetId}${query}`);
 }
 
 /** 资产生成历史项（GET /comic/asset/{assetId}/history data.items 元素；url 可直接作 img src） */

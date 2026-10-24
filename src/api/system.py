@@ -357,6 +357,90 @@ async def system_backup() -> dict[str, Any]:
             return str(dest)
         return str(plain)
 
+    def _backup_aux_dbs() -> list[str]:
+        """P1-10 批 1（2026-10-24）：辅助库热备（flow_trace+model_usage）。
+
+        同主库 sqlite3 backup API + GCM 加密；库不存在静默跳过。
+        """
+        import sqlite3
+
+        from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+        aux_paths = [
+            (ROOT_DIR / "logs" / "flow_trace.db", "flow_trace"),
+            (DATA_DIR / "model_usage.db", "model_usage"),
+        ]
+        results: list[str] = []
+        for src_path, name in aux_paths:
+            if not src_path.is_file():
+                continue
+            try:
+                plain = BACKUP_DIR / f"{name}_{_now_ts()}.db"
+                s = sqlite3.connect(str(src_path))
+                try:
+                    d = sqlite3.connect(str(plain))
+                    try:
+                        s.backup(d)
+                    finally:
+                        d.close()
+                finally:
+                    s.close()
+                blob = encrypt_bytes_gcm(plain.read_bytes())
+                if is_encrypted_bytes(blob):
+                    dest = plain.with_suffix(plain.suffix + ".enc")
+                    dest.write_bytes(blob)
+                    plain.unlink(missing_ok=True)
+                    results.append(str(dest))
+                else:
+                    results.append(str(plain))
+            except Exception as exc:  # noqa: BLE001 - 单库失败不阻断其余
+                log.warning("辅助库备份失败 %s: %s", name, exc)
+        return results
+
+    def _backup_vector_store() -> str:
+        """P1-10 批 2A（2026-10-24）：Chroma 向量库整目录 tar.gz 备份。
+
+        备份前 wal_checkpoint 保证一致性（Chroma 内部 SQLite WAL）；
+        目录不存在返回空串。GCM 加密同主库。
+        """
+        import tarfile
+        import tempfile
+
+        from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+        vs_dir = DATA_DIR / "vector_store"
+        if not vs_dir.is_dir() or not any(vs_dir.iterdir()):
+            return ""
+        try:
+            # Chroma 内部 SQLite checkpoint（尽力而为）
+            chroma_db = vs_dir / "chroma.sqlite3"
+            if chroma_db.is_file():
+                import sqlite3 as _sq
+                try:
+                    c = _sq.connect(str(chroma_db))
+                    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    c.close()
+                except Exception:
+                    pass
+            # tar.gz 打包
+            tmp = tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False)
+            tmp.close()
+            with tarfile.open(tmp.name, "w:gz") as tar:
+                tar.add(str(vs_dir), arcname="vector_store")
+            # 加密
+            raw = Path(tmp.name).read_bytes()
+            blob = encrypt_bytes_gcm(raw)
+            if is_encrypted_bytes(blob):
+                dest = BACKUP_DIR / f"vector_store_{_now_ts()}.tar.gz.enc"
+                dest.write_bytes(blob)
+                Path(tmp.name).unlink(missing_ok=True)
+                return str(dest)
+            dest = BACKUP_DIR / f"vector_store_{_now_ts()}.tar.gz"
+            dest.write_bytes(raw)
+            Path(tmp.name).unlink(missing_ok=True)
+            return str(dest)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("向量库备份失败: %s", exc)
+            return ""
+
     # 写盘/热备属磁盘 IO，经 run_blocking 卸载（审计 09-10 P2-3）
     file_path = ""
     db_path = ""
@@ -373,8 +457,22 @@ async def system_backup() -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             log.warning("数据库热备失败：%s", exc, exc_info=True)
 
+    # P1-10 批 1+2（2026-10-24）：辅助库+向量库纳入备份
+    aux_paths: list[str] = []
+    vector_path = ""
+    try:
+        aux_paths = await run_blocking(_backup_aux_dbs)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("辅助库备份失败：%s", exc, exc_info=True)
+    try:
+        vector_path = await run_blocking(_backup_vector_store)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("向量库备份失败：%s", exc, exc_info=True)
+
     return ok({"backup_id": backup_id, "path": file_path,
                "db_path": db_path,
+               "aux_paths": aux_paths,
+               "vector_store_path": vector_path,
                "size_bytes": len(json.dumps(payload)),
                # BUG-07 修复（2026-10-19）：库副本真实体积（此前前端 toast
                # 只拿 settings 快照的 size_bytes，12MB 库显示成「0KB」）
@@ -1873,8 +1971,41 @@ def _perform_backup() -> dict:
         except Exception:  # noqa: BLE001 - 加密失败保留明文（可用性优先）
             log.warning("_perform_backup 库副本加密失败，保留明文", exc_info=True)
         db_path = str(dest)
+    # P1-10 批 1+2（2026-10-24）：辅助库+向量库纳入自动备份
+    aux_paths: list[str] = []
+    for src_path, name in (
+            (ROOT_DIR / "logs" / "flow_trace.db", "flow_trace"),
+            (DATA_DIR / "model_usage.db", "model_usage")):
+        if not src_path.is_file():
+            continue
+        try:
+            import sqlite3 as _sq
+            aux = BACKUP_DIR / f"{name}_{_now_ts()}.db"
+            s = _sq.connect(str(src_path))
+            try:
+                d = _sq.connect(str(aux))
+                try:
+                    s.backup(d)
+                finally:
+                    d.close()
+            finally:
+                s.close()
+            try:
+                from ..data.crypto import encrypt_bytes_gcm, is_encrypted_bytes
+                blob = encrypt_bytes_gcm(aux.read_bytes())
+                if is_encrypted_bytes(blob):
+                    enc = aux.with_suffix(aux.suffix + ".enc")
+                    enc.write_bytes(blob)
+                    aux.unlink(missing_ok=True)
+                    aux = enc
+            except Exception:
+                pass
+            aux_paths.append(str(aux))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("自动备份辅助库失败 %s: %s", name, exc)
     _prune_old_backups()
-    return {"backup_id": backup_id, "path": str(path), "db_path": db_path}
+    return {"backup_id": backup_id, "path": str(path), "db_path": db_path,
+            "aux_paths": aux_paths}
 
 
 def _prune_old_backups() -> None:

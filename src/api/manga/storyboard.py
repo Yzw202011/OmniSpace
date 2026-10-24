@@ -269,6 +269,12 @@ async def storyboard_save(project_id: str,
     if len(rows) > STORYBOARD_MAX_ROWS:
         raise ApiError("STORYBOARD_ROW_LIMIT", "分镜表已达50行上限",
                        detail={"max": STORYBOARD_MAX_ROWS})
+    # M2 修复（2026-10-24）：全量保存补导演字段校验——单行 PUT 走
+    # _validate_row_director_fields（:171），全量保存此前裸 dict 绕过
+    # （非法枚举/越界坐标直写库）。逐行过同一闸。
+    for row in rows:
+        if isinstance(row, dict):
+            _validate_row_director_fields(row)
 
     db = get_db_safe()
     _db_save_failed = False  # R3-M4：降级标记（True=回内存存储）
@@ -988,18 +994,32 @@ async def _persist_split_rows(project_id: str, shots: list[dict],
         if not use_db:
             existing_rows.append(row)
     if use_db:
+        # M1 修复（2026-10-24）：批量落库走单事务——此前逐行 db.insert
+        # autocommit，中途失败=部分行已插入部分未插（AI 分镜追加/剧本
+        # 导入批次出现半截）。execute_in_transaction 同 outline/reorder
+        # 模式（R2-H3/R3-M5）。
+        _serialize = db._serialize
+
         def _persist_rows() -> None:
-            """分镜行批量落库 + 表时间戳（单次线程调用，合并逐行写）。"""
             if db is None or not sb_id:
                 return
-            for i, row in enumerate(new_rows):
-                db.insert("storyboard_rows",
-                          _public_row_to_db(row, sb_id, sort_index=base + i))
-            db.update("storyboards", {"updated_at": _now()}, "id=?", (sb_id,))
+            payloads = [_public_row_to_db(row, sb_id, sort_index=base + i)
+                        for i, row in enumerate(new_rows)]
+
+            def _txn(conn) -> None:
+                for p in payloads:
+                    cols = list(p.keys())
+                    vals = [_serialize(p[c]) for c in cols]
+                    conn.execute(
+                        f"INSERT INTO storyboard_rows ({', '.join(cols)})"
+                        f" VALUES ({', '.join('?' * len(cols))})", vals)
+                conn.execute(
+                    "UPDATE storyboards SET updated_at=? WHERE id=?",
+                    (_now(), sb_id))
+
+            db.execute_in_transaction(_txn)
 
         try:
-            # 同步 sqlite 写合并为一次批量操作投到线程池，避免逐行阻塞
-            # 事件循环（database.py 无 executemany/事务封装，不改其公共 API）
             await run_blocking(_persist_rows)
         except Exception as exc:  # noqa: BLE001
             log.warning("分镜行批量写入失败: %s", exc, exc_info=True)

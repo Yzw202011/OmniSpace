@@ -297,12 +297,28 @@ class ImageTaskQueue:
 
     def _acquire_paint_lock(self, task_id: str,
                             loop: asyncio.AbstractEventLoop | None) -> bool:
+        """获取 paint 功能锁（P1-04 修复同 video_queue——超时后取消
+        或补偿 release，防计数泄漏假死）。"""
         from ..middleware.feature_lock import get_feature_lock
         if loop is None or loop.is_closed():
             raise RuntimeError("事件循环不可用，无法获取功能锁")
         fut = asyncio.run_coroutine_threadsafe(
             get_feature_lock().acquire("paint", task_id=task_id), loop)
-        return bool(fut.result(timeout=10.0))
+        try:
+            return bool(fut.result(timeout=10.0))
+        except TimeoutError:
+            if fut.cancel():
+                return False
+            log.warning("paint 锁 acquire 超时且取消失败——补发 release"
+                        "（task=%s）", task_id)
+            try:
+                rel = asyncio.run_coroutine_threadsafe(
+                    get_feature_lock().release("paint"), loop)
+                rel.result(timeout=5.0)
+            except Exception:  # noqa: BLE001
+                log.error("paint 迟到 acquire 补偿 release 失败",
+                          exc_info=True)
+            return False
 
     def _release_paint_lock(self, loop: asyncio.AbstractEventLoop | None) -> None:
         from ..middleware.feature_lock import get_feature_lock

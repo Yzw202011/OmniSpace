@@ -479,13 +479,37 @@ class VideoTaskQueue:
     def _acquire_video_gen(self, task_id: str,
                            loop: asyncio.AbstractEventLoop | None) -> bool:
         """获取 video_gen 功能锁（回投主事件循环；被其他功能持有时
-        返回 False 由调用方重试等待）。"""
+        返回 False 由调用方重试等待）。
+
+        P1-04 修复（2026-10-24）：超时后尝试取消已投递的 acquire
+        协程——此前 fut.result(timeout=10) 超时=worker 视同失败，
+        但事件循环恢复后协程迟到成功（hold_count+1），无匹配
+        release→计数泄漏→锁永不归零→四类重量级功能全部假死。
+        取消成功=协程未运行零泄漏；取消失败=可能已迟到成功，
+        补发一次 release 防泄漏（best-effort）。
+        """
         from ..middleware.feature_lock import get_feature_lock
         if loop is None or loop.is_closed():
             raise RuntimeError("事件循环不可用，无法获取功能锁")
         fut = asyncio.run_coroutine_threadsafe(
             get_feature_lock().acquire("video_gen", task_id=task_id), loop)
-        return bool(fut.result(timeout=10.0))
+        try:
+            return bool(fut.result(timeout=10.0))
+        except TimeoutError:
+            if fut.cancel():
+                log.info("锁 acquire 超时但取消成功（协程未运行，零泄漏）")
+                return False
+            # 取消失败=协程可能已运行并迟到成功——补发 release 防泄漏
+            log.warning("锁 acquire 超时且取消失败——补发 release 防计数"
+                        "泄漏（task=%s）", task_id)
+            try:
+                rel = asyncio.run_coroutine_threadsafe(
+                    get_feature_lock().release("video_gen"), loop)
+                rel.result(timeout=5.0)
+            except Exception as exc:  # noqa: BLE001
+                log.error("迟到 acquire 补偿 release 失败（锁可能残留，"
+                          "需重启后端）: %s", exc)
+            return False
 
     def _release_video_gen(self, loop: asyncio.AbstractEventLoop | None) -> None:
         """释放 video_gen 功能锁（回投主事件循环并等待结果）。

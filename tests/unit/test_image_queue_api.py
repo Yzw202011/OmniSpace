@@ -100,7 +100,7 @@ def test_draw_cancel_queued_and_priority(env) -> None:
     s2 = client.get(f"/api/v1/draw/result/{ids[1]}").json()["data"]
     assert s2["status"] == "cancelled"
 
-    pri = client.post(f"/api/v1/paint/task/{ids[0]}/priority",
+    pri = client.post(f"/api/v1/draw/task/{ids[0]}/priority",
                       json={"priority": 8})
     assert pri.json()["data"]["effective"] is True
     assert fake.priorities == [(ids[0], 8)]

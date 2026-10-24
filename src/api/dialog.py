@@ -571,8 +571,7 @@ def _load_history(sid: str, max_rounds: int = 20) -> list[dict]:
 
 # ── 发送消息 ────────────────────────────────────────────────────────
 
-@router.get("/chat/models")  # B3 别名收敛（2026-09-19 Q9）：/chat 正名 twin
-@router.get("/dialog/models")  # 遗留别名（冻结保留，后续版本可移除）
+@router.get("/chat/models")  # 主路由（别名已删，零消费亲验）
 def dialog_list_models() -> dict[str, Any]:
     """对话可用模型清单（2026-08-20：模型选择 + 档位选择前端数据源）。
 
@@ -710,7 +709,6 @@ _DIALOG_DOC_MAX_CHARS = 200_000
 
 
 @router.post("/chat/parse-document")  # B3 别名收敛（2026-09-19 Q9）
-@router.post("/dialog/parse-document")  # 遗留别名（冻结保留）
 async def dialog_parse_document(
         file: UploadFile = File(...)) -> dict[str, Any]:
     """对话文档附件解析（2026-09-07 按模型能力开放附件）。
@@ -770,7 +768,6 @@ async def dialog_parse_document(
               message="文档解析成功")
 
 
-@router.post("/dialog/send")
 @router.post("/chat/send")
 async def dialog_send(request: Request,
                       body: dict = Body(default_factory=dict)) -> Any:
@@ -1047,7 +1044,6 @@ def _parse_plugin_context(raw: Any) -> list[dict[str, str]]:
 
 
 @router.post("/chat/skill")  # B3 别名收敛（2026-09-19 Q9）
-@router.post("/dialog/skill")  # 遗留别名（冻结保留）
 async def dialog_skill(body: dict = Body(default_factory=dict)
                        ) -> dict[str, Any]:
     """对话插件技能（技能插座批1）：文本进文本出，显式触发（D1=A）。
@@ -1444,14 +1440,12 @@ def chat_batch_delete_sessions(body: SessionBatchDelete) -> dict[str, Any]:
 
 
 @router.get("/chat/status")  # B3 别名收敛（2026-09-19 Q9）
-@router.get("/dialog/status")  # 遗留别名（冻结保留）
 def dialog_status() -> dict[str, Any]:
     """对话引擎状态（模型可用性 / 显存 / 首 token 统计）。"""
     return ok(get_dialog_engine().get_status())
 
 
 @router.post("/chat/prewarm")  # B3 别名收敛（2026-09-19 Q9）
-@router.post("/dialog/prewarm")  # 遗留别名（冻结保留）
 async def dialog_prewarm(request: Request) -> dict[str, Any]:
     """对话页预热（2026-08-22 性能优化）：后台线程加载默认模型。
 

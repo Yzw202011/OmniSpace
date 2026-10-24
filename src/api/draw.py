@@ -1075,7 +1075,6 @@ def _submit_task(task: dict, init_image=None, mask=None) -> None:
 # ── 文生图 ──────────────────────────────────────────────────────────
 
 @router.post("/draw/generate")
-@router.post("/paint/generate")
 async def draw_generate(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """文生图（异步任务）。
 
@@ -1146,8 +1145,6 @@ async def draw_img2img(body: dict = Body(default_factory=dict)) -> dict[str, Any
 _MASK_MAX_RATIO = 0.95
 
 
-@router.post("/art/inpaint")
-@router.post("/paint/inpaint")
 async def art_inpaint(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """局部重绘（异步任务）。
 
@@ -1206,7 +1203,6 @@ async def art_inpaint(body: dict = Body(default_factory=dict)) -> dict[str, Any]
 # ── 超分 ────────────────────────────────────────────────────────────
 
 @router.post("/draw/upscale")
-@router.post("/paint/upscale")
 async def draw_upscale(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """图像超分。{"image": base64, "scale": 2|4}
 
@@ -1249,7 +1245,6 @@ async def draw_upscale(body: dict = Body(default_factory=dict)) -> dict[str, Any
 # ── 结果 / 历史 ─────────────────────────────────────────────────────
 
 @router.get("/draw/result/{task_id}")
-@router.get("/paint/result/{task_id}")
 def draw_result(task_id: str) -> dict[str, Any]:
     """查询任务状态与结果。done 时返回图片 base64 + 文件路径。"""
     task = _task_get(task_id)
@@ -1308,7 +1303,6 @@ def draw_result(task_id: str) -> dict[str, Any]:
 
 # ── 任务控制（PAINT-041/042/044）─────────────────────────────────────
 
-@router.post("/paint/task/{task_id}/cancel")
 @router.post("/draw/task/{task_id}/cancel")
 def paint_task_cancel(task_id: str) -> dict[str, Any]:
     """取消绘画任务（协作式）。
@@ -1338,7 +1332,7 @@ def paint_task_cancel(task_id: str) -> dict[str, Any]:
                "was_pending": outcome == "queued"})
 
 
-@router.post("/paint/task/{task_id}/priority")
+@router.post("/draw/task/{task_id}/priority")
 def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """调整排队任务优先级（PAINT-044）：{"priority": 0~9}。
 
@@ -1361,7 +1355,6 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)) -
                "status": (_task_get(task_id) or {}).get("status", "")})
 
 
-@router.get("/paint/queue")
 @router.get("/draw/queue")
 def paint_queue() -> dict[str, Any]:
     """绘画任务队列快照（PAINT-042）：等待队列（按调度顺序）+ 运行中。
@@ -1411,7 +1404,6 @@ def _ensure_history_columns() -> None:
 
 
 @router.get("/draw/history")
-@router.get("/paint/history")
 def draw_history(page: int = Query(1, ge=1),
                  page_size: int = Query(20, ge=1, le=100),
                  favorite: int | None = Query(None),
@@ -1522,7 +1514,6 @@ def _delete_history_file(file_path: str) -> bool:
     return False
 
 
-@router.post("/paint/history/{task_id}/favorite")
 @router.post("/draw/history/{task_id}/favorite")
 def paint_history_favorite(task_id: str,
                            body: dict = Body(default_factory=dict)) -> dict[str, Any]:
@@ -1545,7 +1536,6 @@ def paint_history_favorite(task_id: str,
     return ok({"task_id": task_id, "favorite": bool(new_val)})
 
 
-@router.post("/paint/history/batch-delete")
 @router.post("/draw/history/batch-delete")
 def paint_history_batch_delete(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """批量删除历史（PAINT-051）：{"ids": ["task_id", ...]}（上限 200）。"""

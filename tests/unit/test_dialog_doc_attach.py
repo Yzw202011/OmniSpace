@@ -1,12 +1,12 @@
 """对话文档附件 + 模型 vision 能力（2026-09-07 按模型能力开放附件）
 
 覆盖：
-  ① POST /dialog/parse-document：txt 多编码直读 / md / docx / pdf
+  ① POST /chat/parse-document：txt 多编码直读 / md / docx / pdf
      解析成功；.doc 老格式诚实拒绝；超大文件拒绝；空文本拒绝；
      伪装扩展名（魔数嗅验）拒绝；
   ② _dialog_model_supports_vision 判定：vl 系模型 True、纯文本
      模型 False、导入模型按 backend；
-  ③ GET /dialog/models 每项带 vision 字段（离线 fixture 不依赖
+  ③ GET /chat/models 每项带 vision 字段（离线 fixture 不依赖
      GPU/磁盘模型，走接口形状断言）。
 
 全部 TestClient 离线跑（tmp 库隔离，不触发 lifespan/GPU）。
@@ -38,7 +38,7 @@ def client(tmp_path, monkeypatch):
 
 def test_parse_document_txt_utf8(client):
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("剧本.txt", "第一幕：雨夜的便利店\n林晚推门而入".encode(),
                         "text/plain")},
     )
@@ -53,7 +53,7 @@ def test_parse_document_txt_utf8(client):
 def test_parse_document_txt_gbk_fallback(client):
     """GBK 编码 txt 走多编码回退解码（knowledge._decode_text 复用）。"""
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("旧文档.txt", "守夜人看见第二天的新闻".encode("gbk"),
                         "text/plain")},
     )
@@ -63,7 +63,7 @@ def test_parse_document_txt_gbk_fallback(client):
 
 def test_parse_document_md(client):
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("大纲.md", "# 第一卷\n停摆的钟".encode(),
                         "text/markdown")},
     )
@@ -98,7 +98,7 @@ def _make_docx(paragraphs: list[str]) -> bytes:
 def test_parse_document_docx(client):
     payload = _make_docx(["第一章 钟的密语", "修表匠停下手中的活。"])
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("章节.docx", payload,
                         "application/vnd.openxmlformats-officedocument."
                         "wordprocessingml.document")},
@@ -111,7 +111,7 @@ def test_parse_document_docx(client):
 def test_parse_document_doc_rejected_with_hint(client):
     """.doc 老格式诚实拒绝 + 转存建议（不静默乱码）。"""
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("老文档.doc", b"\xd0\xcf\x11\xe0fake", "application/msword")},
     )
     # ApiError 走统一信封（可能 HTTP 200 + success=false，看 body 不看码）
@@ -124,7 +124,7 @@ def test_parse_document_doc_rejected_with_hint(client):
 def test_parse_document_oversize_rejected(client):
     big = b"x" * (20 * 1024 * 1024 + 2)
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("大文件.txt", big, "text/plain")},
     )
     assert r.json().get("success") is False
@@ -133,7 +133,7 @@ def test_parse_document_oversize_rejected(client):
 
 def test_parse_document_empty_text_rejected(client):
     r = client.post(
-        "/api/v1/dialog/parse-document",
+        "/api/v1/chat/parse-document",
         files={"file": ("空.md", b"   \n  ", "text/markdown")},
     )
     assert r.json().get("success") is False
@@ -159,8 +159,8 @@ def test_vision_flag_by_imported_backend():
 # ── ③ /dialog/models 带 vision 字段（接口形状）───────────────────
 
 def test_dialog_models_shape_has_vision(client, monkeypatch):
-    """/dialog/models 每项必含 vision 布尔（清单可为空，形状不可缺）。"""
-    r = client.get("/api/v1/dialog/models")
+    """/chat/models 每项必含 vision 布尔（清单可为空，形状不可缺）。"""
+    r = client.get("/api/v1/chat/models")
     assert r.status_code == 200, r.text
     models = r.json()["data"]["models"]
     for m in models:

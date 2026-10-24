@@ -1240,7 +1240,7 @@ export interface PaintQueueItem {
   percent?: number;
 }
 
-/** 读图像任务队列快照（GET /paint/queue；等待+运行中，用于刷新后恢复生成中态） */
+/** 读图像任务队列快照（GET /draw/queue；①词汇治理 2026-10-25 别名收敛） */
 export function getPaintQueue(): Promise<{ pending: PaintQueueItem[]; running: PaintQueueItem[] }> {
-  return get<{ pending: PaintQueueItem[]; running: PaintQueueItem[] }>('/paint/queue');
+  return get<{ pending: PaintQueueItem[]; running: PaintQueueItem[] }>('/draw/queue');
 }

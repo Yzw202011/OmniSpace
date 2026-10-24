@@ -96,7 +96,7 @@ async def test_exempt_paths(armed):
 async def test_websocket_rejected_without_token(armed):
     r = _Recorder()
     await la.LanAuthMiddleware(r.app)(
-        _scope(stype="websocket", path="/api/v1/dialog/stream/s1"),
+        _scope(stype="websocket", path="/api/v1/chat/stream/s1"),
         _receive, r.send)
     assert r.called_app is False
     assert r.sent == [{"type": "websocket.close", "code": 4401,

@@ -47,7 +47,7 @@ def test_prewarm_ready_engine_not_clobbered(
 
     engine = _ReadyEngine()
     monkeypatch.setattr(dialog_api, "get_dialog_engine", lambda: engine)
-    r = client.post("/api/v1/dialog/prewarm",
+    r = client.post("/api/v1/chat/prewarm",
                     json={"model_id": "qwen35-9b-w4a16"})
     assert r.status_code == 200
     data = r.json()["data"]

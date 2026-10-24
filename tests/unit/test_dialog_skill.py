@@ -1,6 +1,6 @@
 """对话插件技能测试（技能插座批1，2026-09-17）。
 
-覆盖：/dialog/skill 端点（参数校验/技能不存在/真插件往返）、
+覆盖：/chat/skill 端点（参数校验/技能不存在/真插件往返）、
 plugin_context 解析闸（非列表拒/条数上限/8K 截断/空文本跳过/标题缺省）。
 纯 CPU 不触 GPU，不进 SSE 主路径（主路径注入块由代码审读+后续真浏览器
 总验收覆盖）。
@@ -59,7 +59,7 @@ def api_client(tmp_path, monkeypatch):
 
 
 def _skill(client: TestClient, payload: dict) -> dict:
-    return client.post("/api/v1/dialog/skill", json=payload).json()
+    return client.post("/api/v1/chat/skill", json=payload).json()
 
 
 # ── 端点 ─────────────────────────────────────────────────────

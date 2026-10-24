@@ -182,12 +182,12 @@ def test_oversized_failure_body_sniff_fallback(client: TestClient) -> None:
 
 @pytest.mark.parametrize(("path", "expected"), [
     ("/api/v1/draw/generate", "paint"),
-    ("/api/v1/paint/upscale", "paint"),
+    ("/api/v1/draw/upscale", "paint"),
     ("/api/v1/manga/keyframe/generate", "manga"),
     ("/api/v1/learning/session/start", "learn"),
     ("/api/v1/knowledge/search", "knowledge"),
     ("/api/v1/models/load", "models"),
-    ("/api/v1/dialog/send", "dialog"),
+    ("/api/v1/chat/send", "dialog"),
     ("/api/v1/brand_new_module/do", "brand_new_module"),  # 未登记自动可见
 ])
 def test_module_mapping(path: str, expected: str) -> None:

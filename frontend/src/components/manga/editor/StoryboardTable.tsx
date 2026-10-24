@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useMangaStore } from '@/stores/useMangaStore';
-import { aiDescribe, assetMediaVersion, getMediaUrl } from '@/services/mangaApi';
+import { aiDescribe, assetMediaVersion, deleteKeyframe, getMediaUrl } from '@/services/mangaApi';
 
 
 // 右键直接下载（视频/分镜图/资产图通用，2026-08-30）
@@ -313,6 +313,10 @@ interface StoryboardRowProps {
   assets: ComicAsset[];
   /** 当前关键帧（keyframesMap 元素引用） */
   currentKeyframe: KeyframeItem | undefined;
+  /** 该行全部关键帧版本（keyframesMap 数组引用；解绑用） */
+  keyframes: KeyframeItem[];
+  /** 解绑分镜图：删除该行全部关键帧版本（确认+级联删文件+刷新，表格级实现） */
+  onUnbindKeyframes: (rowId: string) => Promise<void>;
   /** 行最新视频任务（videoTasks 元素引用，无任务为 undefined） */
   videoTask: MangaVideoTask | undefined;
   /** 原文列高亮名表（资产库实体名，父级 useMemo；2026-10-04 起三类分色） */
@@ -355,6 +359,8 @@ const StoryboardRow = memo(function StoryboardRow({
   busyKey,
   assets,
   currentKeyframe,
+  keyframes,
+  onUnbindKeyframes,
   videoTask,
   characterNames,
   sceneNames,
@@ -378,6 +384,13 @@ const StoryboardRow = memo(function StoryboardRow({
   onCancelVideo,
 }: StoryboardRowProps) {
   const locked = row.is_locked === true;
+  /** 解绑分镜图进行中（删除该行全部版本，逐版串行） */
+  const [unbinding, setUnbinding] = useState(false);
+  const handleUnbindKeyframes = useCallback(() => {
+    if (unbinding || !keyframes?.length) return;
+    setUnbinding(true);
+    Promise.resolve(onUnbindKeyframes(row.id)).finally(() => setUnbinding(false));
+  }, [unbinding, keyframes, onUnbindKeyframes, row.id]);
   return (
     <div
       className={`manga-sb-tr manga-sb-row${isSelected ? ' selected' : ''}${locked ? ' locked' : ''}`}
@@ -500,37 +513,52 @@ const StoryboardRow = memo(function StoryboardRow({
       {/* 分镜图（当前关键帧） */}
       <div className="manga-sb-td c-image" onClick={(e) => e.stopPropagation()}>
         {currentKeyframe?.file_path ? (
-          <button type="button" className="manga-thumb manga-thumb-btn" title="查看/管理关键帧版本" onClick={() => onOpenInspector(row.id)}>
-            <img
-              src={getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`)}
-              alt={`镜 ${row.shot_number} 分镜图`}
-              loading="lazy"
-              title="左键查看/管理版本，右键下载"
-              onContextMenu={(e) => {
-                e.preventDefault();
+          <span className="manga-thumb-wrap">
+            <button type="button" className="manga-thumb manga-thumb-btn" title="查看/管理关键帧版本" onClick={() => onOpenInspector(row.id)}>
+              <img
+                src={getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`)}
+                alt={`镜 ${row.shot_number} 分镜图`}
+                loading="lazy"
+                title="左键查看/管理版本，右键下载；悬停右上角 X 解绑"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  downloadMedia(getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`), `镜${row.shot_number}_分镜图_v${currentKeyframe.version}.png`);
+                }}
+              />
+              {currentKeyframe.source_mode === 'fallback' && (
+                <span
+                  className="manga-thumb-fallback"
+                  title="兜底模式：该行未生成描述词，此图按剧本原文直接生成（未吃描述词细节与跨镜一致性锚）"
+                >
+                  原文直出
+                </span>
+              )}
+              {row.stale_reason && (
+                <span
+                  className="manga-thumb-fallback"
+                  style={{ background: 'rgba(255, 140, 66, 0.92)' }}
+                  title={`已过期：${KEYFRAME_STALE_LABELS[row.stale_reason] ?? row.stale_reason}——此图可能基于旧数据生成，建议在批量生图里选「重新生成已过期」；重新生成后标记自动解除`}
+                >
+                  已过期
+                </span>
+              )}
+              <span className="manga-thumb-name">v{currentKeyframe.version}</span>
+            </button>
+            <button
+              type="button"
+              className="manga-thumb-unbind"
+              title={`解绑分镜图：删除该行全部 ${keyframes.length} 个关键帧版本（含图片文件），列恢复「生成」`}
+              aria-label={`镜 ${row.shot_number} 解绑分镜图`}
+              disabled={unbinding}
+              onClick={(e) => {
                 e.stopPropagation();
-                downloadMedia(getMediaUrl(currentKeyframe.file_path, `${currentKeyframe.version}-${currentKeyframe.created_at}`), `镜${row.shot_number}_分镜图_v${currentKeyframe.version}.png`);
+                handleUnbindKeyframes();
               }}
-            />
-            {currentKeyframe.source_mode === 'fallback' && (
-              <span
-                className="manga-thumb-fallback"
-                title="兜底模式：该行未生成描述词，此图按剧本原文直接生成（未吃描述词细节与跨镜一致性锚）"
-              >
-                原文直出
-              </span>
-            )}
-            {row.stale_reason && (
-              <span
-                className="manga-thumb-fallback"
-                style={{ background: 'rgba(255, 140, 66, 0.92)' }}
-                title={`已过期：${KEYFRAME_STALE_LABELS[row.stale_reason] ?? row.stale_reason}——此图可能基于旧数据生成，建议在批量生图里选「重新生成已过期」；重新生成后标记自动解除`}
-              >
-                已过期
-              </span>
-            )}
-            <span className="manga-thumb-name">v{currentKeyframe.version}</span>
-          </button>
+            >
+              <X size={9} strokeWidth={3} />
+            </button>
+          </span>
         ) : (
           <button
             type="button"
@@ -735,6 +763,7 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
   const updateRow = useMangaStore((s) => s.updateRow);
   const keyframesMap = useMangaStore((s) => s.keyframes);
   const fetchKeyframes = useMangaStore((s) => s.fetchKeyframes);
+  const invalidateKeyframes = useMangaStore((s) => s.invalidateKeyframes);
   const assets = useMangaStore((s) => s.assets);
   const globalAssets = useMangaStore((s) => s.globalAssets);
   const videoTasks = useMangaStore((s) => s.videoTasks);
@@ -844,6 +873,35 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
     applyStructure([...cur, newRow]);
     setSelectedRow(newRow.id);
   };
+
+  /** 解绑分镜图（2026-10-24 用户需求）：删除该行全部关键帧版本，列恢复「生成」。
+   *  复用既有 DELETE /manga/keyframe/{id}（文件+shot 图级联清理），逐版
+   *  串行删完刷新缓存；后端无批量端点，前端循环即够（每行 ≤10 版）。 */
+  const handleUnbindKeyframes = useCallback(
+    async (rowId: string) => {
+      const kfs = useMangaStore.getState().keyframes[rowId] ?? [];
+      if (!kfs.length) return;
+      const go = await confirmDialog({
+        level: 'heavy',
+        title: '确定解绑该分镜图？',
+        lines: [`将删除该行全部 ${kfs.length} 个关键帧版本（含图片文件），此操作不可恢复`],
+        confirmText: '删除',
+      });
+      if (!go) return;
+      try {
+        for (const k of kfs) {
+          await deleteKeyframe(k.keyframe_id);
+        }
+        showToast('已解绑分镜图', 'success');
+      } catch (err) {
+        showToast(getErrorMessage(err, '解绑失败'), 'error');
+      } finally {
+        invalidateKeyframes(rowId);
+        await fetchKeyframes(rowId);
+      }
+    },
+    [invalidateKeyframes, fetchKeyframes, showToast],
+  );
 
   /** 删除分镜 */
   const removeShot = useCallback(
@@ -1102,6 +1160,8 @@ export default function StoryboardTable({ onSaveStatus, onGenerateVideo, onOpenI
               busyKey={busyKey}
               assets={allAssets}
               currentKeyframe={kfs?.find((k) => k.is_current)}
+              keyframes={kfs ?? []}
+              onUnbindKeyframes={handleUnbindKeyframes}
               videoTask={latestTask(r.id)}
               characterNames={characterNames}
               sceneNames={sceneNames}

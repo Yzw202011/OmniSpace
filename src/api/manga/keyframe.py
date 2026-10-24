@@ -3190,9 +3190,17 @@ async def keyframe_batch(req: KeyframeBatchRequest) -> dict[str, Any]:
         log.warning("关键帧云端路由解析失败（按本地引擎）: %s", exc, exc_info=True)
         _cloud_ep = None
 
-    def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
+    def _batch_runner(task: dict, check_cancel: Callable[[], None]) -> dict:
+        from ...services.image_queue import ImageTaskCancelled
         results, failed = [], []
         for row_id in req.row_ids:
+            # R3-M7 修复（2026-10-24）：行间也查取消——此前 check_cancel
+            # 仅传入 _generate_keyframe_sync（单帧生成内生效），批次循环
+            # 行间不查=取消后剩余帧继续空转到自然跑完
+            try:
+                check_cancel()
+            except ImageTaskCancelled:
+                break  # 优雅终止：返回已完成的帧，剩余行不再生成
             try:
                 data = _generate_keyframe_sync(
                     str(row_id), req.project_id or "",
@@ -3462,13 +3470,20 @@ async def story_keyframe_generate(req: StoryKeyframeRequest) -> dict[str, Any]:
 
     # 逐行生成（复用 keyframe_generate 核心逻辑）；2026-09-02 图像队列：
     # 整批=一个队列任务，paint 锁/收尾协商由队列统一编排
-    def _story_runner(task: dict, check_cancel: Callable[[], None]) -> dict:  # noqa: ARG001
+    def _story_runner(task: dict, check_cancel: Callable[[], None]) -> dict:
+        from ...services.image_queue import ImageTaskCancelled
         succeeded: list[dict] = []
         failed: list[dict] = []
         for r in targets:
+            # R3-M7 修复（同 _batch_runner）：行间查取消+传参给单帧生成
+            try:
+                check_cancel()
+            except ImageTaskCancelled:
+                break
             try:
                 data = _generate_keyframe_sync(
-                    str(r["id"]), req.project_id, "", w, h)
+                    str(r["id"]), req.project_id, "", w, h,
+                    check_cancel=check_cancel)
                 succeeded.append(data)
             except ApiError as exc:
                 failed.append({"row_id": str(r["id"]), "code": exc.code,

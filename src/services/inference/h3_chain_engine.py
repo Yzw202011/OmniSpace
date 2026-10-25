@@ -389,7 +389,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     # 窗口取 C 段镜头，世界观/镜头语言按结构分位注入。
     abc = _split_abc(description)
     # B 段标题行剥离（2026-10-25 边角一）：手写描述词 B 段常带栏目标题
-    # 首行（如「高密度世界观构建」，短行且无句读）——按句号截摘要时
+    # 首行（如「高密度世界观构建」，短行无句读）——按句号截摘要时
     # 标题会混进 summary 与世界状态段；短无标点首行按标题剥除
     _b_text = abc["b"].strip()
     _b_lines = _b_text.splitlines()
@@ -397,6 +397,18 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         _head = _b_lines[0].strip()
         if _head and len(_head) <= 16 and not re.search(r"[。，,；;：:]", _head):
             _b_text = "\n".join(_b_lines[1:]).strip()
+    # B 段静默吞除（2026-10-26 用户拍板）：世界观散文是模型朗读稿源
+    # （Whisper ASR 实锤逐句念 B 段），可拍要素 C 段已全覆盖——B 段
+    # 不再进合同（summary 只剩首拍、[世界与人物状态] 整段省略）；
+    # config manga.h3_keep_b_section=true 回退旧行为
+    _keep_b = False
+    try:
+        _keep_b = bool((get_config().get("manga") or {})
+                       .get("h3_keep_b_section", False))
+    except Exception:  # noqa: BLE001 - 配置异常按吞除
+        _keep_b = False
+    if not _keep_b:
+        _b_text = ""
     # 四轮挖掘④：纯文本（无 A/B/C 标记）——abc 全空时结构化路径产出
     # 空时间轴=原文整段丢失；直接原文兜底（教学头+原文，官方六段壳）
     _plain = not (abc["a"] or abc["b"] or abc["c"])

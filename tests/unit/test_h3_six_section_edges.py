@@ -27,11 +27,30 @@ _REFS_TWO = [{"kind": "character", "name": "夏沐沐白裙", "src": ""},
 
 
 def test_b_title_stripped_from_summary_and_world_state() -> None:
-    out = _six_section(_DESC, _REFS_ONE, 10.0)
-    # 摘要与世界状态段都不再携带栏目标题
+    """keep_b_section=true 回退旧行为：标题剥除但 B 正文保留。"""
+    import src.services.inference.h3_chain_engine as eng_mod
+    orig = eng_mod.get_config
+    eng_mod.get_config = lambda: {"manga": {"h3_keep_b_section": True}}
+    try:
+        out = _six_section(_DESC, _REFS_ONE, 10.0)
+    finally:
+        eng_mod.get_config = orig
+    # 标题剥除仍生效（不把「高密度世界观构建」带进合同）
     assert "高密度世界观构建\n盛夏" not in out
     assert "[世界与人物状态] 高密度世界观构建" not in out
     assert "盛夏午后的热浪裹着栀子花香" in out  # 正文保留
+    assert "[世界与人物状态] 盛夏午后的热浪" in out
+
+
+def test_default_drops_b_section_silently() -> None:
+    """默认吞 B：summary 只剩首拍、[世界与人物状态] 整段省略，
+    B 段散文不给 H3（朗读稿源切除）。"""
+    out = _six_section(_DESC, _REFS_ONE, 10.0)
+    assert "盛夏午后的热浪" not in out
+    assert "[世界与人物状态]" not in out
+    # A/C 段照常
+    assert "3D CG 超写实真人风格" in out
+    assert "[Shot 1]" in out and "[Shot 3]" in out
 
 
 def test_os_dialogue_bound_to_single_character() -> None:

@@ -459,19 +459,24 @@ CREATE INDEX IF NOT EXISTS idx_learning_logs_session
 """
 
 _tables_ready = False
+# 旗标绑定库身份（2026-10-25）：全局 _db_instance 被换库（测试 tmp
+# 库 / 多库场景）时旧旗标不得短路建表——否则新库 no such table
+# （全量顺序下 topic/knowledge_eval 双中招实测）。按库路径判身份。
+_tables_db_path: str = ""
 _tables_lock = threading.Lock()
 
 
 def ensure_learning_tables() -> bool:
-    """创建学习域自建表（幂等）。"""
-    global _tables_ready
-    if _tables_ready:
+    """创建学习域自建表（幂等；同一库只建一次，换库重建）。"""
+    global _tables_ready, _tables_db_path
+    from ..data.database import get_db
+    _db_path = str(getattr(get_db(), "_path", ""))
+    if _tables_ready and _tables_db_path == _db_path:
         return True
     with _tables_lock:
-        if _tables_ready:
+        if _tables_ready and _tables_db_path == _db_path:
             return True
         try:
-            from ..data.database import get_db
             get_db().executescript(_LEARNING_DDL)
             # 批 3（LEARN-004/005）：已存在库补 depth/seed_urls/max_pages 列
             db = get_db()
@@ -483,6 +488,7 @@ def ensure_learning_tables() -> bool:
                 if col not in existing:
                     db.sql(f"ALTER TABLE learning_topics ADD COLUMN {col} {ddl}")
             _tables_ready = True
+            _tables_db_path = _db_path
             log.info("学习域数据表初始化完成（4 张表）")
             return True
         except Exception as exc:  # noqa: BLE001

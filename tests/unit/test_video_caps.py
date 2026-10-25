@@ -2,11 +2,10 @@
 用户令禁止模糊大小比较——档位=数据表，校验=精确配对查表）。
 
 覆盖：
-- 档位表形状：每档 duration + qualities 非空清单、720p 档仅 4/8 秒；
+- 档位表形状：每档 duration + qualities 非空清单、720p 档仅 5/10 秒（2026-10-12 解锁）；
 - resolve_quality：显式档精确配对（合法通过/非法带允许清单拒绝）；
-- 默认档：未指定=该档清单首位（4s→720p、15s→480p，与旧「按时长
-  推导」行为等值但由数据表驱动）；
-- 非档时长（链式引擎内部窗口 10.0s）落「不小于它的最近档」（→11s 档）；
+- 默认档：未指定=该档清单首位（5s/10s→720p、15s→480p，数据表驱动）；
+- 非档时长（如链式内部窗口 12.0s）落「不小于它的最近档」（→15s 档）；
 - 云端端点（cloud::）tiers 为空表（档位未知不造假）。
 """
 from __future__ import annotations
@@ -23,13 +22,15 @@ from src.middleware.error_handler import ApiError
 
 
 def test_tier_table_shape_exact_pairs() -> None:
+    # 2026-10-12 用户令解锁 5/10/15s 档（720p×10s 经 16G 探针实弹通过，
+    # 峰值 15.6G；720p×15s 撞墙维持 480p）——旧 [4,8,11,15] 口径作废
     tiers = VIDEO_MODEL_TIERS[DEFAULT_VIDEO_MODEL]["tiers"]
-    assert [t["duration"] for t in tiers] == [4, 8, 11, 15]
-    # 720p 档仅 4/8 秒（16G 显存实测约束，具体到档不比较）
+    assert [t["duration"] for t in tiers] == [5, 10, 15]
+    # 720p 档仅 5/10 秒（16G 显存实测约束，具体到档不比较）
     for t in tiers:
         assert t["qualities"], "每档必须有非空可选清单"
         if "720p" in t["qualities"]:
-            assert t["duration"] in (4, 8)
+            assert t["duration"] in (5, 10)
 
 
 def test_resolve_quality_exact_pair_validation() -> None:
@@ -54,9 +55,11 @@ def test_resolve_quality_default_per_tier() -> None:
 
 
 def test_resolve_quality_non_tier_seconds_falls_to_declared_tier() -> None:
-    # 链式引擎内部窗口 10.0s → 落「不小于它的最近档」= 11s 档（480p）
-    assert resolve_quality("minimax-h3", 10.0, "") == "480p"
-    # 3.5s（下界钳后）→ 4s 档
+    # 2026-10-12 起 10.0s 是精确档（默认 720p）；真实非档窗口 12.0s
+    # → 落「不小于它的最近档」= 15s 档（480p）
+    assert resolve_quality("minimax-h3", 10.0, "") == "720p"
+    assert resolve_quality("minimax-h3", 12.0, "") == "480p"
+    # 3.5s（下界钳后）→ 5s 档
     assert resolve_quality("minimax-h3", 3.5, "") == "720p"
 
 

@@ -1,5 +1,7 @@
 """检索质量评测集回归（知识学习升级方案 批4，2026-09-11）。
 
+（2026-10-25 起检索金标回归为活体体检：OMNISPACE_KB_EVAL=1 才跑。）
+
 金标集 knowledge_eval_golden.json：20 条 query 由真实库行为推导并逐条
 人工目验（14 正例=命中条目须含标记词；6 负例=库外/离题 query 零命中）。
 批 3 的注入阈值（MIN_VECTOR_SCORE）等改动跑本集防倒退。
@@ -9,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -23,6 +26,16 @@ pytestmark = [
         reason="真实知识库不存在（非实机环境）"),
 ]
 
+# 2026-10-25 活语料门（实测定谳）：本评测吃生产知识库真数据——后端
+# 活跃时对话缺口自动收割持续入库（RTX PRO 营销文 9 小时内 3 条实锤），
+# 检索结果随索引进度分钟级漂移，负例金标必然速朽（眼镜王蛇×显存
+# 「有多大」词面撞车）。降级为显式开启的活体体检（同
+# OMNISPACE_COMFY_E2E 纪律），语料大版本变更时人工跑并同步金标集。
+_LIVE = os.environ.get("OMNISPACE_KB_EVAL", "") == "1"
+_live_skip = pytest.mark.skipif(
+    not _LIVE, reason="活语料体检：设 OMNISPACE_KB_EVAL=1 显式开启"
+    "（生产库持续入库，负例金标不进 CI）")
+
 
 def _cases() -> list[dict]:
     return json.loads(_GOLDEN.read_text("utf-8"))["cases"]
@@ -35,6 +48,7 @@ def test_golden_set_shape() -> None:
     assert all(c.get("query") for c in cases)
 
 
+@_live_skip
 def test_retrieval_golden_regression() -> None:
     from src.services.injection_service import get_injection_service
     inj = get_injection_service()
@@ -57,6 +71,7 @@ def test_retrieval_golden_regression() -> None:
     assert failures == [], f"评测集 {len(failures)} 例不达标:\n" + "\n".join(failures)
 
 
+@_live_skip
 def test_creative_intent_downweight() -> None:
     """批3/D3 软规则：创作意图 → 类型排序（方法论优先）+ 条数收敛到 3。"""
     from src.services.injection_service import (

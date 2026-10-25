@@ -271,6 +271,7 @@ def run_seedvr2(src: Path, out: Path, *, resolution_name: str = "1k",
 
 def _ffmpeg_eq(video: Path, filters: str) -> None:
     """链尾色调（甜点配色 gamma1.10/sat1.06）；失败保留原片。"""
+    import os
     import subprocess
     ff_path = Path(__file__).resolve().parents[3] / "runtime" / "ffmpeg" / "bin" / "ffmpeg.exe"
     ff = str(ff_path) if ff_path.is_file() else "ffmpeg"
@@ -278,7 +279,9 @@ def _ffmpeg_eq(video: Path, filters: str) -> None:
     r = subprocess.run([ff, "-y", "-v", "error", "-i", str(video),
                         "-vf", filters, "-c:v", "libx264", "-crf", "16",
                         "-preset", "fast", "-c:a", "copy", str(tmp)],
-                       capture_output=True, timeout=600)
+                       capture_output=True, timeout=600,
+                       creationflags=(subprocess.CREATE_NO_WINDOW
+                                      if os.name == "nt" else 0))
     if r.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 1000:
         shutil.move(str(tmp), str(video))
         log.info("[sr_modes] 链尾色调完成 (%s)", filters)

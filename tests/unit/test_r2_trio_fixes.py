@@ -117,9 +117,14 @@ def test_novel_outline_rebuild_is_transactional_nail():
 
 # ── R2-H5：ended_at 落库 ────────────────────────────────────────
 
-def test_learning_session_upsert_writes_ended_at(tmp_path):
+def test_learning_session_upsert_writes_ended_at(tmp_path, monkeypatch):
     db = Database(tmp_path / "learn.db")
     from src.api.learning import _persist_session_row, ensure_learning_tables
+    # 2026-10-25 封闭补桩：ensure_learning_tables 的 _tables_ready 模块级
+    # 旗标被更早用例在真库置 True 后恒短路——本库（tmp）从未建表，
+    # upsert 即 no such table。重置旗标强制对 tmp 库执行 DDL。
+    from src.services import browser_agent_service as _bas
+    monkeypatch.setattr(_bas, "_tables_ready", False)
     db_mod._db_instance = db
     try:
         ensure_learning_tables()

@@ -175,6 +175,12 @@ async def test_guard_yields_when_heavy_feature_holds_lock(
     monkeypatch.setattr(keyframe, "broadcast_gen_progress",
                         lambda *a, **k: None)
     monkeypatch.setattr(keyframe, "_GUARD_LOCK_WAIT_S", 0.0)  # 测试免等
+    # 2026-10-25 封闭补桩：对话槽绑云端模型时 dialog 解析 remote 域，
+    # 与 paint(域0) 跨域不互斥——守卫真拿到锁会深入评分体（StubDb 无
+    # query_one 直接 AttributeError）。本用例前提=paint 持锁挡住 dialog，
+    # 钉死同域恢复互斥语义（remote 域设计语义由 feature_lock 自测覆盖）。
+    monkeypatch.setattr("src.middleware.feature_lock._domain_of",
+                        lambda feature: "0")
     fl = clean_lock
     assert await fl.acquire("paint", task_id="user-gen") is True
     await keyframe._consistency_guard_inner(

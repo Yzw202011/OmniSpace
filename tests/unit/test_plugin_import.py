@@ -30,6 +30,8 @@ class _FakeKernel:
         self.plugins: dict[str, Any] = {}
         self.route_index: dict[str, str] = {}
         self.routes: dict[str, str] = {}
+        # R3-M13：unregister_plugin 还原被包装的 think（真内核契约属性）
+        self.think = lambda *a, **k: None
 
     def register_pkg(self, path: str) -> dict:
         self.registry[path] = path

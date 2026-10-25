@@ -514,6 +514,12 @@ class RemoteDialogBackend(DialogBackend):
             if _sse_dedup and _pending is not None:
                 yield _pending
         except requests.exceptions.Timeout as exc:
+            # 2026-10-25 修：_sse_dedup 缓冲块（_pending）随异常蒸发=
+            # 已收到内容对用户消失。垂死先冲刷缓冲再抛人话错误——
+            # 去重语义在死亡边沿让位于不吞内容（重复一块好过整段失踪）
+            if _sse_dedup and _pending is not None:
+                yield _pending
+                _pending = None
             _log_call(False, f"read timeout: {exc}")
             raise RuntimeError(
                 "云端 API 流式响应超时（180 秒无新数据）：服务商可能"

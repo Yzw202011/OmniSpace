@@ -5,12 +5,14 @@ _STYLE_PHOTO（08-14 写真人设参考图时代的写实助推遗留）——�
 被推成照片风、角色锚外观被文本压漂（实测：白背心→黑背心、短寸→
 长发、网漫风→照片风，场景/动作仍对）。
 
-修复契约（静态钉，AST 沙箱约定同 test_keyframe_char_anchor）：
-  1. 兜底分支前置项目风格行（gen_prompt = f"{style_line}，{prompt}"），
-     空风格由 _project_style_line 回退网漫，分支内不再出现
-     `prompt + _STYLE_PHOTO` 拼接；
-  2. keyframe 模块不再导入/引用 _STYLE_PHOTO（防复发）；
-  3. _project_style_line 空 db / 空风格均回退 _INFER_STYLE_LINE（非空）。
+修复契约演进（静态钉，AST 沙箱约定同 test_keyframe_char_anchor）：
+  - 2026-09-02 P6d：兜底分支前置项目风格行；
+  - **2026-10-05 用户二定（dbc1b78，现行契约）**：分镜图以描述词
+    为主——单帧回退路径亦不前缀项目风格行（描述词 A 段自带风格
+    词），兜底直出 prompt 原文 + 角色锚仲裁句；
+  - 恒定：分支内不得出现 `prompt + _STYLE_PHOTO` 拼接；keyframe
+    模块不导入 _STYLE_PHOTO；_project_style_line 空 db / 空风格
+    回退 _INFER_STYLE_LINE（非空，供主路径 A 段替换用）。
 """
 # 本项目仅供学习使用，商业授权请+Q 3559331368
 from __future__ import annotations
@@ -22,12 +24,16 @@ KEYFRAME_PY = (Path(__file__).resolve().parents[2] / "src" / "api" / "manga" / "
 ASSET_PY = (Path(__file__).resolve().parents[2] / "src" / "api" / "manga" / "comic_asset.py")
 
 
-def test_fallback_branch_prefixes_project_style() -> None:
+def test_fallback_branch_keeps_prompt_sovereignty() -> None:
     src = KEYFRAME_PY.read_text(encoding="utf-8")
-    # 修复后的兜底拼接形态（风格行前置，全角逗号连接）
-    assert 'gen_prompt = f"{style_line}，{prompt}"' in src, (
-        "兜底分支应前置项目风格行（2026-09-02 P6d 修复被回退）")
-    # 旧写实助推拼接不得复活
+    # 2026-10-05 用户二定：兜底直出原文（描述词为主），不前缀风格行。
+    # ④批4（2026-10-25）后形态：外包版式指令剥除（剥空回退原文=主权
+    # 语义不变，仅滤「四视图」类版式短语）
+    assert "_strip_layout_instruction(prompt) or prompt" in src, (
+        "兜底分支应直出 prompt 原文（④批4 后=剥版式指令，剥空回退）")
+    assert 'gen_prompt = f"{style_line}，{prompt}"' not in src, (
+        "2026-10-05 二定后兜底不得前缀项目风格行（描述词 A 段自带风格）")
+    # 旧写实助推拼接不得复活（P6d 恒定红线）
     assert "prompt + _STYLE_PHOTO" not in src
 
 

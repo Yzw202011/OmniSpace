@@ -138,7 +138,9 @@ _KNOWN_FIRST_SEGMENTS = frozenset({
 
 
 def _module_for(path: str) -> str:
-    """路径 → 模块标签；未登记前缀取 /api/v1/<第一段> 兜底（新模块自动可见）。"""
+    """路径 → 模块标签；未登记前缀取 /api/v1/<第一段> 兜底，但仅限
+    _KNOWN_FIRST_SEGMENTS 白名单（GAP-10：fuzz 探测垃圾归 system，
+    防污染日志页模块下拉；新模块须先登记白名单）。"""
     for prefix, module in _PREFIX_MODULES:
         if path.startswith(prefix):
             return module

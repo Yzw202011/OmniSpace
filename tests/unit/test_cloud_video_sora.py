@@ -102,7 +102,9 @@ def test_sora_submit_t2v_json_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     import requests as _requests
     monkeypatch.setattr(_requests, "post", _fake_post)
     ep = _ep()
-    assert cvc._sora_submit(ep, "一只猫", None, 5.0) == "task_abc"
+    # P1-02（2026-10-24）：返回 (task_id, degraded)——404 降级
+    # DashScope 时 degraded=True，调用方据此翻转 is_sora 轮询路径
+    assert cvc._sora_submit(ep, "一只猫", None, 5.0) == ("task_abc", False)
     assert captured["url"] == "https://vendor.example/v1/videos"
     assert captured["json"]["model"] == "grok-imagine-video"
     assert "seconds" not in captured["json"]  # 5s 档省略

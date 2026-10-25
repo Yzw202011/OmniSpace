@@ -42,7 +42,9 @@ def test_refine_video_parametrization(tmp_path, template, monkeypatch):
         def save(self, path, format=None):  # noqa: A002
             Path(path).write_bytes(b"png")
 
-    def fake_api(base, method, path, body=None, timeout=10.0):
+    # 97c3681（2026-10-24）：_api 签名去 base（端口并 comfy_proc
+    # COMFY_PORT 单一真源，防 8189 硬编码脑裂）——假桩同步
+    def fake_api(method, path, body=None, timeout=10.0):
         if method == "POST" and path == "/prompt":
             captured["wf"] = body["prompt"]
             return {"prompt_id": "t1"}

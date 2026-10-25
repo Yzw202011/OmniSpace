@@ -272,7 +272,11 @@ def test_probe_cloud_api_states(mem_kv, monkeypatch: pytest.MonkeyPatch) -> None
 def test_slot_split_wiring_sentinels() -> None:
     sb = (_ROOT_DIR / "src/api/manga/storyboard.py").read_text(
         encoding="utf-8")
-    assert 'resolve_slot_cloud_model("manga.text")' in sb  # AI 切分+描述词
+    # 2026-10-07 用户令·文本链统一闸（W-02 重写后契约）：module_config
+    # manga-dialog 槽=唯一真源，manga_dialog_model_id() 显式选 cloud::
+    # 才走云、选本地=严格本地——resolve_slot_cloud_model("manga.text")
+    # 旧接线已被有意移除
+    assert "manga_dialog_model_id()" in sb  # AI 切分+描述词
     nv = (_ROOT_DIR / "src/services/novel_service.py").read_text(
         encoding="utf-8")
     assert 'resolve_slot_cloud_model("novel.text")' in nv  # 写作台

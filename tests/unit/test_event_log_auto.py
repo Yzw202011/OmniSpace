@@ -188,7 +188,9 @@ def test_oversized_failure_body_sniff_fallback(client: TestClient) -> None:
     ("/api/v1/knowledge/search", "knowledge"),
     ("/api/v1/models/load", "models"),
     ("/api/v1/chat/send", "dialog"),
-    ("/api/v1/brand_new_module/do", "brand_new_module"),  # 未登记自动可见
+    # GAP-10（4b3b51c）：兜底白名单化——未知首段归 system，防
+    # fuzz 探测垃圾污染日志页模块下拉
+    ("/api/v1/brand_new_module/do", "system"),
 ])
 def test_module_mapping(path: str, expected: str) -> None:
     assert _module_for(path) == expected

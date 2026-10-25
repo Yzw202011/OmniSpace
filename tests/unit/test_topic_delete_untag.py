@@ -64,4 +64,5 @@ def test_delete_topic_atomic_on_missing(client):
     r = client.request("DELETE", "/api/v1/learn/topic/delete",
                        params={"id": "no-such-id"})
     assert r.json()["success"] is False
-    assert r.json()["error"]["code"] == "SYSTEM_RESOURCE_NOT_FOUND"
+    # ②-批4（2026-10-25）：泛码迁移后域级码（原断言旧泛码）
+    assert r.json()["error"]["code"] == "LEARN_TOPIC_NOT_FOUND"

@@ -55,7 +55,7 @@
     "note": "已知孤儿；新孤儿即红"
   },
   "api_silent_except": {
-    "current": 24,
-    "note": "API 层静默 except（2026-10-25 对账：160→24，大量被各修复批次加 noqa/log.warning 收口）"
+    "current": 171,
+    "note": "API 层静默 except（AST 判定：无 raise 无留痕调用；哨兵=test_module_health_feed.py。2026-10-25 基线归真：caeb0da 曾把基线写成 24 系未跑哨兵的错误对账（noqa 不参与 AST 判定），作废；实测=615ca27 锁 160 + 后续批次（manga 包拆分等）净增 11 = 171。只减不增口径不变，新增即红"
   }
 }

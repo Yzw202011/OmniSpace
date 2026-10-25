@@ -45,10 +45,17 @@ def test_pulid_pos_drops_face_keeps_both_chars() -> None:
 
 
 def test_no_pulid_single_char_keeps_face() -> None:
-    """无 PuLID 单角色：旧行为全量（face 入 latent 作唯一一致性通道）。"""
-    refs, _ = _comfy_ref_entries(REFS, pulid_img=False,
-                                 reflat_hint="", multi_anchor=False)
-    assert refs == [A_PORTRAIT, A_FACE, B_PORTRAIT, SCENE]
+    """无 PuLID 单角色：face 入 latent 且**顶替**全身立绘（2026-10-06）。
+
+    2026-10-06 用户实报修（第三格两个陈雪）：软锁特写镜「面部特写+
+    全身立绘」两张同人图并列进 latent＝「同一人两框景」多视图册
+    信号，qwen21 复制成双人像——改 face 顶替全部 character 立绘
+    （closeup 含发型/上装，身份锚定力不损），场景保留。
+    """
+    refs, mps = _comfy_ref_entries(REFS, pulid_img=False,
+                                   reflat_hint="", multi_anchor=False)
+    assert refs == [A_FACE, SCENE]
+    assert mps == [1.0, None]
 
 
 def test_no_pulid_multi_anchor_drops_face() -> None:

@@ -605,7 +605,12 @@ PACK_PRIORITY: dict[str, int] = {
     "xianxia_cg": 140, "guofeng3d": 150,
     "mystery3d": 160, "donghua3d": 170, "guofeng_hist": 180,
     "guofeng2d": 190, "manhwa": 200, "cg3d": 210,
-    "realportrait": 145, "photoreal": 220,
+    # realportrait 145→175（2026-10-25 修）：145 抢先命中 donghua3d
+    # 预置卡自述「真人感建模」致其自指破裂（选 3D 国漫卡被路由到
+    # 超真实人像）——「国漫」身份信号须压「真人感」，让位 donghua3d
+    # (170) 与 mystery3d(160)/guofeng3d(150)；纯人像文本不含国漫词
+    # 不受影响（金标准快照复测为准）
+    "realportrait": 175, "photoreal": 220,
     "anime": 230, "battle": 240, "watercolor": 250, "oilpaint": 260,
     "inkwash": 270, "cyberpunk": 280,
 }

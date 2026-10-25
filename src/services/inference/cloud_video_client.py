@@ -111,8 +111,11 @@ def _sora_seconds(duration_seconds: float) -> str | None:
 
 
 def _sora_submit(ep: CloudEndpoint, prompt: str, first_frame,
-                 duration_seconds: float) -> str:
-    """Sora 任务式提交（POST /v1/videos），返回任务 id。
+                 duration_seconds: float) -> tuple[str, bool]:
+    """Sora 任务式提交（POST /v1/videos），返回 (任务 id, degraded)。
+
+    degraded=True = 404 降级 DashScope 三段式（P1-02，2026-10-24），
+    调用方据此翻转 is_sora 轮询路径。
 
     有首帧图= multipart（input_reference 文件域，2026-10-03 实测路由层
     接受；上游 i2v 通道当时 502 待复验）；无首帧= JSON 纯文生视频。

@@ -107,14 +107,20 @@ def test_revoked_serial_dead_even_reactivate(client, tmp_path: Path) -> None:
         gate.activate(code)
 
 
-def test_data_file_overrides_shipped(client, tmp_path: Path) -> None:
-    """双源合并：data 覆盖随包（同序列号取 data 值）。"""
+def test_data_file_merge_max_semantics(client, tmp_path: Path) -> None:
+    """双源合并取大不取小（P1-06，2026-10-24 防洗白）。
+
+    data 源可新增/抬高（售后修复通道），不可压低随包值——否则写
+    {"serial": 1} 就能把随包 9999 作废压回 1=解除吊销（洗白）。
+    """
     serial = "aabbccddeeff0011"
-    _write_map(gate._REVOCATION_SHIPPED, {serial: 5})
-    _write_map(gate._REVOCATION_DATA, {serial: 2, "other": 3})
+    _write_map(gate._REVOCATION_SHIPPED, {serial: 5, "raise_me": 3})
+    _write_map(gate._REVOCATION_DATA, {serial: 2, "other": 3, "raise_me": 7})
     gate._rev_cache.update(map=None, at=0.0)
     merged = gate._load_revocations()
-    assert merged[serial] == 2 and merged["other"] == 3
+    assert merged[serial] == 5, "data 压低随包值必须无效（防洗白）"
+    assert merged["other"] == 3, "data 新增条目必须生效"
+    assert merged["raise_me"] == 7, "data 抬高必须生效（升级包下发新名单）"
 
 
 def test_extract_revocations_from_ledger(tmp_path: Path) -> None:

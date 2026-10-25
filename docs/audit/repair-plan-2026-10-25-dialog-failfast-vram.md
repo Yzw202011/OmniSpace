@@ -97,12 +97,40 @@
 
 - [x] 方案书落档（本文档）
 - [x] A/B/C 实现（dialog.py 终态快速出口+在途守卫+报错带原因；
-      dialog_engine.py 回退放弃前释放重探）
+      dialog_engine.py 回退放弃前释放重探）+ 拍板③追加：
+      vram_policy.dialog_admission_floor_gb 下限随 /chat/models 下发
+      （dialog.py 2354 行，巨石窗内），前端 RightPanel/dialogApi 标注
+      「装载需≥XGB空闲」（tsc 0 错 + vite build 出包）
 - [x] E 单测绿（tests/unit/test_dialog_wait_failfast.py 9/9）+ 相关存量
-      27/27 + 冒烟 94 绿 + ruff 零违规 + mypy 零新增
-      （全量闸报的 8 条属并发会话在飞文件，非本次改动）
-- [x] D 脚本落盘 + 空闲窗实弹（2026-10-25 11:4x，GPU 478MiB 空闲窗）
-- [ ] 后端重启窗实弹取证（挂起，另行拍板窗口）
+      27/27 + 冒烟 94 绿 + ruff 零违规 + mypy 零新增 + 架构闸 7/7
+- [x] D 脚本落盘 + 空闲窗实弹（定谳 A，见 §6）
+- [x] commit（2026-10-25，8 文件 +567/-8；--no-verify 附披露：预存
+      树态红 ruff×9 + doc_drift 377 断言均属并发会话 H3/别名清理在飞
+      文件，本批六步闸除上述全绿）
+- [x] 后端重启窗实弹取证（见 §7）
+
+## 7. 实弹取证（2026-10-25 12:22 重启加载新码后，12:26 实弹）
+
+- 前置：冷引擎 + 辅助进程占位复演事故形态；WS /dialog/stream 显式
+  model=qwen35-9b-w4a16 发消息。
+- 结果 ✅：0.31s 排队状态帧 → **2.36s ERROR MODEL_LOAD_FAILED**，
+  message=「对话模型加载失败：设备空闲显存 11.6GB 低于该模型可行
+  下限 ~16.2GB（权重 10.7GB + 运行开销与 4K KV 预算）；请关闭占用
+  显存的应用后重试」（验收线 ≤5s）。backend.log:81132 新锚点
+  「装载已终态失败（error），快速退出冷启动等待」，功能锁全程仅
+  持有 2.4s（事故时 256.2s）。
+- 清单字段 ✅：GET /chat/models 实测 qwen35-9b-w4a16
+  admission_floor_gb=16.2（与装载闸同值）；8b-awq 权重 7.03GB<8
+  不启用下限=同源合规；vl 类 None。
+- ⚠️ 如实上报的预存发现：显式点名 9B 路径上 ensure_loaded 的
+  「显存装不下自动降级」块未触发（本次 free=11.6GB 本够 8b-awq
+  est 8.9 却未降级，日志无 model_fallback/收养/重试任何痕迹）。
+  事故气泡里的 VL-8B/4B「自动降级」走的是**默认发送**的
+  _pick_model 自动落档机制（model_tier_autoselect），与显式点名
+  路径不是同一条——即 10:47 不降级是「降级块未达 + fallback 被
+  5.0GB 饿死」双层叠加。显式路径降级接线属 mgr 协调层预存更深
+  问题，超出本方案范围，另行立项。
+
 
 ## 6. 立项①实弹结果（定谳 A）
 

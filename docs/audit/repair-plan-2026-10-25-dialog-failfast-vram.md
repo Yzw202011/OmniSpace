@@ -99,8 +99,9 @@
 - [x] A/B/C 实现（dialog.py 终态快速出口+在途守卫+报错带原因；
       dialog_engine.py 回退放弃前释放重探）+ 拍板③追加：
       vram_policy.dialog_admission_floor_gb 下限随 /chat/models 下发
-      （dialog.py 2354 行，巨石窗内），前端 RightPanel/dialogApi 标注
-      「装载需≥XGB空闲」（tsc 0 错 + vite build 出包）
+      （dialog.py 2354 行，巨石窗内），前端 RightPanel/dialogApi：选项行保持简洁
+      「名称 · estGB」（用户 12-25 复审要求），装载下限放选中项
+      下方 form-hint 行（tsc 0 错 + vite build 出包）
 - [x] E 单测绿（tests/unit/test_dialog_wait_failfast.py 9/9）+ 相关存量
       27/27 + 冒烟 94 绿 + ruff 零违规 + mypy 零新增 + 架构闸 7/7
 - [x] D 脚本落盘 + 空闲窗实弹（定谳 A，见 §6）

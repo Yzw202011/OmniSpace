@@ -266,11 +266,7 @@ function ChatPanel() {
                   <optgroup label="本地模型（本机显卡承载）">
                     {modelOptions.map((m) => (
                       <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
-                        {m.name} · {m.est_vram_gb}GB
-                        {m.admission_floor_gb != null
-                          ? ` · 装载需≥${m.admission_floor_gb}GB空闲`
-                          : ''}
-                        {m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
+                        {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
                       </option>
                     ))}
                   </optgroup>

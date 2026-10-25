@@ -45,10 +45,18 @@ from src.services.inference.backends.remote_backend import (
 
 @pytest.fixture()
 def mem_kv(monkeypatch: pytest.MonkeyPatch):
-    """内存 KV（替换 cloud_provider_service 的读写），并清路由缓存。"""
+    """内存 KV（替换 cloud_provider_service 的读写+严格读），并清路由缓存。
+
+    测试隔离根修（2026-10-25）：此前只 patch _read_kv/_write_kv，但
+    _load_providers 走 _read_kv_strict（直接读 settings_kv→生产库）
+    ——10+ 测试全量跑时看到生产 providers 而红。三口全 patch。
+    """
     store: dict = {}
 
     def _read(key, default=None):
+        return store.get(key, default)
+
+    def _read_strict(key, default=None):
         return store.get(key, default)
 
     def _write(key, value):
@@ -56,6 +64,7 @@ def mem_kv(monkeypatch: pytest.MonkeyPatch):
         return True
 
     monkeypatch.setattr(cs, "_read_kv", _read)
+    monkeypatch.setattr(cs, "_read_kv_strict", _read_strict)
     monkeypatch.setattr(cs, "_write_kv", _write)
     cs._invalidate_route_cache()
     yield store

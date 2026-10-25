@@ -50,6 +50,7 @@ def mem_kv(monkeypatch: pytest.MonkeyPatch):
         return True
 
     monkeypatch.setattr(cs, "_read_kv", _read)
+    monkeypatch.setattr(cs, "_read_kv_strict", _read)  # 2026-10-25 隔离根修
     monkeypatch.setattr(cs, "_write_kv", _write)
     cs._invalidate_route_cache()
     yield store

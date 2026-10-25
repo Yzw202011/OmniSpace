@@ -73,7 +73,14 @@ def _load_template_text() -> str:
     if blob is not None:
         return blob.decode("utf-8")
     return _TEMPLATE.read_text(encoding="utf-8")
-_QUALITY = {"480p": (864, 480), "720p": (1344, 768)}
+_QUALITY = {"480p": (864, 480), "720p": (1344, 768),
+            "960p": (1728, 960), "1440p": (2688, 1536)}
+# 双采加速产线（2026-10-24 用户拍板，参考二开大神 Deferred Upscale +
+# HF 讨论#21 @ANe5s turbo 双采配方）：新档位 = 半分辨率 turbo 粗采
+# （4/6/8 步）→ LatentUpscaler3D ×2 放大 → 低σ精修（模型换 0.7 低强度
+# LoRA——>0.7 涂抹、<0.69 无效）。480p 档出 ~960p、720p 档出 ~1440p，
+# 采样价不变。1440p pass2/解码 16G 卡偏险，先 960p 主验。
+_TURBO2P_BASE = {"960p": (864, 480), "1440p": (1344, 768)}
 _MAX_REFS = 7  # 与模板槽位一致（引擎上限 9,槽 8/9 预留）
 
 
@@ -381,6 +388,15 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     # N 秒生成被稀释成「画风对了、内容不符」。现按 A/B/C 切分并按时长
     # 窗口取 C 段镜头，世界观/镜头语言按结构分位注入。
     abc = _split_abc(description)
+    # B 段标题行剥离（2026-10-25 边角一）：手写描述词 B 段常带栏目标题
+    # 首行（如「高密度世界观构建」，短行且无句读）——按句号截摘要时
+    # 标题会混进 summary 与世界状态段；短无标点首行按标题剥除
+    _b_text = abc["b"].strip()
+    _b_lines = _b_text.splitlines()
+    if len(_b_lines) > 1:
+        _head = _b_lines[0].strip()
+        if _head and len(_head) <= 16 and not re.search(r"[。，,；;：:]", _head):
+            _b_text = "\n".join(_b_lines[1:]).strip()
     # 四轮挖掘④：纯文本（无 A/B/C 标记）——abc 全空时结构化路径产出
     # 空时间轴=原文整段丢失；直接原文兜底（教学头+原文，官方六段壳）
     _plain = not (abc["a"] or abc["b"] or abc["c"])
@@ -391,7 +407,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     first_shot = next((s["text"][:120] for s in shots_p
                        if s["text"] and not s["text"].startswith("衔接")), "")
     brief = "；".join(x for x in [
-        abc["b"].split("。", 1)[0][:120] if abc["b"] else "",
+        _b_text.split("。", 1)[0][:120] if _b_text else "",
         first_shot,
     ] if x)
     # 台词/音效并集（结构化取值；dlg 为列表——同拍多台词全收）
@@ -422,19 +438,42 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
             mm = re.match(r"^(.{1,12}?)[：:]\s*(.+)$", raw)
             if mm:
                 spk, line = mm.group(1).strip(), mm.group(2).strip()
+            else:
+                # 无说话人前缀的语气括号（2026-10-25 边角二）：如
+                # 「（内心 OS）我只是路过啊…」——语气括号摘出归 manner；
+                # 单主角绑定时台词归主角色（多主角无法归属维持匿名）
+                mm = re.match(r"^（([^（）]{1,16}?)）\s*(.+)$", raw)
+                if mm:
+                    manner = mm.group(1).strip()
+                    line = mm.group(2).strip()
+                    if len(_char_names) == 1:
+                        spk = _char_names[0]
         if not line:
             return ""
         if spk and spk in _char_names:
             sid = f"S{_char_names.index(spk) + 1}"
         elif spk:
-            if spk not in _extra_ids:
-                _extra_ids[spk] = f"S{len(_char_names) + len(_extra_ids) + 1}"
-            sid = _extra_ids[spk]
+            # 名称变体匹配（2026-10-25 边角二延伸）：描述词称「夏沐沐」、
+            # 资产名「夏沐沐白裙」——精确匹配失败会把同一人拆成两个
+            # 说话人编号（实测 S1/S2 双人假象）；互为包含且唯一时按
+            # 同一角色绑定并归一到资产名
+            _hits = [i for i, n in enumerate(_char_names)
+                     if (spk in n) or (n in spk)]
+            if len(_hits) == 1:
+                sid = f"S{_hits[0] + 1}"
+                spk = _char_names[_hits[0]]
+            else:
+                if spk not in _extra_ids:
+                    _extra_ids[spk] = f"S{len(_char_names) + len(_extra_ids) + 1}"
+                sid = _extra_ids[spk]
         else:
             sid = "S1"
         _spk_seen.add(sid)
         head = f"{spk} ({sid})" if spk else f"({sid})"
-        verb = f"{manner}地说" if manner else "说"
+        if manner and re.search(r"OS|内心|独白|心声", manner, re.I):
+            verb = "内心独白式地说"  # OS 类语气直译「OS地说」不通顺
+        else:
+            verb = f"{manner}地说" if manner else "说"
         return f"{head} {verb}: <d>[Chinese] {line}</d>"
 
     # 官方时间轴组装（[Shot n] + At 分:秒.毫秒 切镜戳；运镜独立指令行
@@ -480,7 +519,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         "作为字幕、不可出任何人声念读；只有 <d>[Chinese] …</d> 标记"
         "内的话是被说出的台词。",
         f"[全局风格] {_a_text}" if _a_text else "",
-        f"[世界与人物状态] {abc['b'][:500]}" if abc["b"] else "",
+        f"[世界与人物状态] {_b_text[:500]}" if _b_text else "",
         # 四轮挖掘④：纯文本描述词原文直入（结构化路径产出空时间轴=
         # 原文整段丢失）
         (description.strip()[:1500] if _plain else
@@ -669,7 +708,10 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
                   width: int, height: int, refs: list[dict], task_id: str,
                   start_clip: int = 1, turbo: bool = True,
                   two_stage: bool = False,
-                  carry_image: str | None = None) -> dict:
+                  carry_image: str | None = None,
+                  two_pass: bool = False,
+                  base_dims: tuple[int, int] | None = None,
+                  same_res_refine: bool = False) -> dict:
     graph = json.loads(json.dumps(template))
     required = (set(_REQUIRED_NODES) if turbo
                 else set(_REQUIRED_NODES) - {"1961"} | {"122"})
@@ -683,8 +725,13 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
                        "须同步更新引擎 _REQUIRED_NODES 与注入代码")
     # 两阶段（2026-10-13 用户令）：720p 档用 480p 采样 + 神经 latent 上采样
     # + 低σ精修回 720p——时间砍半、画质同级（V1 生产实弹验证 h3v1_latent2stage）
-    base_w, base_h = (864, 480) if (two_stage and width >= 1280) \
-        else (width, height)
+    # 双采加速产线（2026-10-24 拍板）：960p/1440p 半分辨率粗采，画布由
+    # base_dims 显式给定（480p/720p），输出=目标档（×2 放大）
+    if base_dims is not None:
+        base_w, base_h = base_dims
+    else:
+        base_w, base_h = (864, 480) if (two_stage and width >= 1280) \
+            else (width, height)
     # B6 步2：权重名从 _CHAIN_H3_FILES 单源注入（json 内同名值=占位默认）
     graph["1"]["inputs"]["unet_name"] = _CHAIN_H3_FILES["unet"]
     graph["2"]["inputs"]["clip_name"] = _CHAIN_H3_FILES["clip"]
@@ -740,6 +787,36 @@ def _render_graph(template: dict, plan_json: str, run_name: str,
         graph["1703"]["inputs"]["conditioning"] = ["8101", 0]
     if two_stage:
         _insert_latent_refine(graph, base_w, base_h, width, height)
+        if turbo:
+            # turbo 双采版（2026-10-24 拍板，同图换配方）：粗采已是
+            # turbo 步数（4/6/8），精修抄大神 Deferred Upscale 原方——
+            # 仅 2 步 @ denoise 0.24、T8 尾段旁路（13 步精修会把 turbo
+            # 省的时间吃回去）。图拓扑与 VRAM 包络不变（16G 实测安全）
+            graph["V1sigmas"]["inputs"]["steps"] = 2
+            graph["V1sigmas"]["inputs"]["denoise"] = 0.24
+            graph["V1refine"]["inputs"]["sigmas"] = ["V1sigmas", 0]
+    if same_res_refine:
+        # 480p 同分辨率 σ 精修（turbo 双采 480p 档）：粗采后 2 步低σ
+        # 精修、无放大（target=粗采画布）；VRAM 包络与 720p 两阶段同域
+        _insert_latent_refine(graph, width, height, width, height)
+        graph["V1sigmas"]["inputs"]["steps"] = 2
+        graph["V1sigmas"]["inputs"]["denoise"] = 0.24
+        graph["V1refine"]["inputs"]["sigmas"] = ["V1sigmas", 0]
+    if two_pass:
+        # 双采加速产线：粗采强制 turbo（pass1 走 1961@1.0 + 1962 采样器，
+        # 步数 4/6/8）；精修抄大神 Deferred Upscale 原方——仅 2 步 @
+        # denoise 0.24、T8 尾段节点旁路（sigmas 直连；13 步精修会把
+        # turbo 省的时间全吃回去）。
+        # （首跑实测修正：turbo 节点 bypass 不支持自身叠加——1963@0.7
+        # 二次挂载直接 NoneType 崩，精修改用全强度 turbo 模型；0.7 低
+        # 强度版留待核心 LoraLoader 路线验证）
+        _insert_latent_refine(graph, base_w, base_h, width, height)
+        graph["V1sigmas"]["inputs"]["steps"] = 2
+        graph["V1sigmas"]["inputs"]["denoise"] = 0.24
+        graph["V1refine"]["inputs"]["sigmas"] = ["V1sigmas", 0]
+        # ×2 放大后放大器权重即卸（16G 卡实测：960p 精修窗口常驻=
+        # ComfyUI 整进程崩；卸载后给精修采样/解码让路）
+        graph["V1refine"]["inputs"]["offload_after_upscale"] = True
     return graph
 
 
@@ -904,7 +981,10 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                       progress_cb: Callable[[float, str], None] | None = None,
                       aspect: str = "16:9",
                       check_cancel: Callable[[], None] | None = None,
-                      keep_loaded: bool = False) -> dict:
+                      keep_loaded: bool = False,
+                      steps_override: int | None = None,
+                      turbo_override: bool | None = None,
+                      refine_pass: bool | None = None) -> dict:
     """链式生成主流程（阻塞,供视频队列 worker 调用）。
 
     row_ids: 多个分镜行 → 计划多镜(参考取各行绑定并集,≤7);
@@ -935,8 +1015,12 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     if quality not in _QUALITY:
         raise ApiError("VIDEO_GENERATION_FAILED", f"未知画质档位 {quality}")
     width, height = _QUALITY[quality]
+    # 双采加速产线：半分辨率粗采画布（竖屏同翻转）
+    _base_dims = _TURBO2P_BASE.get(quality)
     if aspect == "9:16":
         width, height = height, width  # 模型配置·默认画幅接线（竖屏）
+        if _base_dims:
+            _base_dims = (_base_dims[1], _base_dims[0])
     engine = get_h3_engine()
     run_name = run_name or f"h3chain_{task_id}"
 
@@ -1040,17 +1124,42 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 快速 4（Turbo LoRA 有效区间 4~8，钳制防呆）。h3_turbo=false 走
     # 官方非 turbo 基线（摘蒸馏 LoRA，官方目录步数=20；2026-10-11 挡位
     # 战役放开 8~30 供 A/B，缺省仍 turbo，生产行为不变）
+    # 双采加速产线（2026-10-24 拍板）：
+    # - 720p + turbo = 同图换配方双采（粗采 turbo 4/6/8 步 + 精修 2 步
+    #   dn0.24 大神原方），图拓扑与 VRAM 包络同现行两阶段（16G 实测安全）
+    # - 960p/1440p = ×2 放大档：16G 卡精修窗口两次实锤整进程崩
+    #   （12:09/12:41 同节点同进度），加闸默认关——大显存机可开
+    _turbo_two_pass = quality in _TURBO2P_BASE
     try:
         _manga = (get_config().get("manga") or {})
         _steps = int(_manga.get("h3_steps", 6) or 6)
         _turbo = bool(_manga.get("h3_turbo", True))
+        _x2_gate = bool(_manga.get("h3_two_pass_x2", False))
     except Exception:  # noqa: BLE001 - 配置异常按标准档
-        _steps, _turbo = 6, True
+        _steps, _turbo, _x2_gate = 6, True, False
+    if _turbo_two_pass and not _x2_gate:
+        raise ApiError(
+            "VIDEO_GENERATION_FAILED",
+            f"{quality} ×2 放大档在 16G 机型会崩 ComfyUI（两次实锤：精修"
+            "窗口整进程死亡），已在 config manga.h3_two_pass_x2 加闸默认关"
+            "——大显存机型可开，或改用 720p+turbo 双采（h3_turbo=true）",
+            detail={"quality": quality})
+    if _turbo_two_pass:
+        _turbo = True
+    if steps_override:
+        # 调用方点名步数（A/B 与未来 UI 档位用），仍走同款钳制防呆
+        _steps = int(steps_override)
+    if turbo_override is not None:
+        _turbo = bool(turbo_override)
     _steps = (max(4, min(8, _steps)) if _turbo
               else max(8, min(30, _steps)))
-    # 两阶段旗量（2026-10-17 用户拍板唯一产链=双采+sig强化甜点）：720p
-    # 非 turbo 即两阶段，标签带 _2s 后缀供调用方 model_used 如实上报
-    _two_stage = (not _turbo and quality == "720p")
+    # 两阶段旗量：720p 恒两阶段（10-17 拍板唯一产链）；turbo 时粗采换
+    # turbo 步数、精修换大神 2 步配方（渲染层按 turbo 分叉）
+    _two_stage = (quality == "720p")
+    # 480p 同分辨率 σ 精修（2026-10-24 turbo 双采 480p 档）：粗采后
+    # 追加 2 步低σ精修（无放大）；720p 已有 two_stage 不叠加
+    _same_res_refine = (bool(refine_pass) and quality == "480p"
+                        and not _two_stage)
     plan = {"defaults": {"duration_seconds": seconds,
                          "steps": _steps},
             "shots": shots}
@@ -1070,7 +1179,10 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
                                   plan_json, run_name, width, height,
                                   refs, task_id, start_clip, turbo=_turbo,
                                   two_stage=_two_stage,
-                                  carry_image=carry_image)
+                                  carry_image=carry_image,
+                                  two_pass=_turbo_two_pass,
+                                  base_dims=_base_dims,
+                                  same_res_refine=_same_res_refine)
             import urllib.error
             try:
                 resp = engine._api("POST", "/prompt",
@@ -1210,6 +1322,12 @@ def run_h3_chain_task(task_id: str, row_ids: list[str], seconds: float,
     # 决定，调用方 model_used 直取，消「标签写死 turbo 名不符实」）
     engine_label = ("h3_chain_turbo_v10" if _turbo
                     else f"h3_chain_v10_s{_steps}" + ("_2s" if _two_stage else ""))
+    if _turbo and _two_stage:
+        # turbo 双采版 720p（同图换配方，2026-10-24 拍板）
+        engine_label = f"h3_chain_turbo2s_s{_steps}"
+    if _turbo_two_pass:
+        # ×2 放大产线如实标签（大显存机型专用）
+        engine_label = f"h3_chain_turbo2p_s{_steps}"
     if carry_image:
         engine_label += "_carry"  # 承接生效可见性（2026-10-24 行级承接）
     return {"file_path": str(dest), "resolution": f"{width}x{height}",

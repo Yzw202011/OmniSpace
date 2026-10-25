@@ -42,9 +42,54 @@ _THREE_FIELDS = ("integrated_multimodal_description",
 _CJK_RE = re.compile(r"[一-鿿　-〿＀-￯]")
 
 # A/B/C 协议判据（与 video._detect_row_grid / h3_convert.parse_abc 同族：
-# C 段时间轴标记存在即结构化；宽松判据降低误判自由文本）
-_ABC_MARK_RE = re.compile(
-    r"(?m)^[ABC][.、．]|C[.、．]\s*分镜时间轴|\[\d[\d.]*s?\s*[-–~—]\s*\d[\d.]*s?\]")
+# C 段时间轴标记存在即结构化；宽松判据降低误判自由文本）。
+# ④批2（2026-10-25）：时间码文法改取 skills/h3_convert 真源 _TC
+# （官方语法权威）——本层不再自持字面量。_TC 为旧口径超集（全角
+# 【】括号/闭括号可选），探测是「宁多判」语义（freeform 误判 abc
+# 才丢结构），超集方向安全；10 组 golden 零 diff 由
+# test_h3_escape_golden 锁定。
+_CONVERT_DIR = ROOT_DIR / "skills" / "h3_convert"
+_truth_mod = None
+_truth_lock = threading.Lock()
+
+
+def _truth():
+    """skills/h3_convert/convert 模块（官方语法真源，④批2 接线）。
+
+    sys.path 注入式导入后常驻 sys.modules（同 video._load_h3_convert
+    模式，2026-08-29 已核查 convert/rules/validate 与后端模块名零
+    冲突）；进程内已导入（网格链先跑过）则直接复用。
+    """
+    global _truth_mod
+    if _truth_mod is not None:
+        return _truth_mod
+    with _truth_lock:
+        if _truth_mod is None:
+            import sys as _sys
+            mod = _sys.modules.get("convert")
+            if mod is None:
+                _sys.path.insert(0, str(_CONVERT_DIR))
+                try:
+                    import convert as _c  # type: ignore[import-not-found]
+                    mod = _c
+                finally:
+                    if str(_CONVERT_DIR) in _sys.path:
+                        _sys.path.remove(str(_CONVERT_DIR))
+            _truth_mod = mod
+    return _truth_mod
+
+
+_abc_mark_re_cache: re.Pattern[str] | None = None
+
+
+def _abc_mark_re() -> re.Pattern[str]:
+    """A/B/C 结构判据正则（时间码文法取真源 _TC；进程内缓存）。"""
+    global _abc_mark_re_cache
+    if _abc_mark_re_cache is None:
+        tc = getattr(_truth(), "_TC", "")
+        _abc_mark_re_cache = re.compile(
+            r"(?m)^[ABC][.、．]|C[.、．]\s*分镜时间轴|" + str(tc))
+    return _abc_mark_re_cache
 
 
 # ───────────────────────── 格式探测 ─────────────────────────
@@ -59,7 +104,7 @@ def detect_input_format(desc: str) -> str:
     text = (desc or "").strip()
     if not text:
         return "freeform"
-    return "abc" if _ABC_MARK_RE.search(text) else "freeform"
+    return "abc" if _abc_mark_re().search(text) else "freeform"
 
 
 # ─────────────────── 确定性三段式拼装（A/B/C） ───────────────────
@@ -213,6 +258,69 @@ def freeform_to_official(user_text: str,
     return None
 
 
+# ── 版式指令剥离（④批4，2026-10-25）─────────────────────────
+# 版式指令（四视图/四宫格/分镜网格…）只属于四视图资产管线（comic_gen
+# one-pass 故意注入）；混进关键帧/分镜图提示词会让静态图画出多视图
+# 拼贴（④ 方案书 M29 关联病灶：含「四视图」的提示词进关键帧链画出
+# 四宫格）。句内短语级剥除：只丢版式短语，句其余部分与句读结构保留；
+# 无触发词原样返回（零开销零误伤）。
+# 触发分两级：无歧义版式词（四宫格/分镜网格/等宽排成一行…）直接判
+# 版式；歧义词（四视图/三视图/多视图）须同短语伴随版式副信号（设定
+# 图/排/拼/格/构图…）——「望着四视图作品出神」这类内容短语不误伤。
+_LAYOUT_HARD_RE = re.compile(
+    r"四宫格|分镜网格|四格拼图|等宽排成一行|横向等宽")
+_LAYOUT_AMBIG_RE = re.compile(r"四视图|三视图|多视图")
+_LAYOUT_CO_RE = re.compile(r"设定图|排成|排一|拼|构图|布局|等宽|横排|竖排|四格")
+
+
+def _clause_is_layout(clause: str) -> bool:
+    """短语是否版式指令（两级判据，见模块注释）。"""
+    if _LAYOUT_HARD_RE.search(clause):
+        return True
+    return bool(_LAYOUT_AMBIG_RE.search(clause)
+                and _LAYOUT_CO_RE.search(clause))
+
+
+def strip_layout_instruction(text: str) -> str:
+    """剥提示词中的版式指令短语（关键帧/分镜图链专用，④批4）。
+
+    粒度=句内逗号短语（保留同句非版式内容与句读结构），剥后空句
+    回收、句尾终结符保真；返回串可能为空（输入纯版式指令时）——
+    调用方按各自降级铁律处理（关键帧链：装配后仍有风格块兜底，
+    直文本路回退原文）。
+    """
+    if not text or not (_LAYOUT_HARD_RE.search(text)
+                        or _LAYOUT_AMBIG_RE.search(text)):
+        return text or ""
+    out_sents: list[str] = []
+    for sent in re.split(r"(?<=[。；;！？\n])", text):
+        segs = re.split(r"([，,、])", sent)
+        had_terminator = sent.rstrip().endswith(("。", "；", ";", "！", "？"))
+        buf: list[str] = []
+        for i, seg in enumerate(segs):
+            if i % 2 == 1:  # 分隔符照抄
+                buf.append(seg)
+                continue
+            if seg and _clause_is_layout(seg):
+                # 版式短语：丢弃，并回收其前导分隔符防「，，」残渣
+                if buf and buf[-1] in ("，", ",", "、"):
+                    buf.pop()
+                continue
+            buf.append(seg)
+        rebuilt = "".join(buf).rstrip()
+        if not rebuilt.strip("，,、。；;！？ \n"):
+            continue  # 整句皆版式：回收
+        if (had_terminator
+                and not rebuilt.endswith(("。", "；", ";", "！", "？"))):
+            rebuilt += "。"  # 句尾终结符随末短语被剥时补真
+        out_sents.append(rebuilt)
+    out = "".join(out_sents)
+    out = re.sub(r"[，,、]\s*([。；;])", r"\1", out)
+    out = re.sub(r"([。；;！？])\s*[，,、]\s*", r"\1", out)
+    out = re.sub(r"^[，,、。；;\s]+", "", out)
+    return out.strip()
+
+
 # ───────────────────────── 统一入口 ─────────────────────────
 
 def normalize_prompt(desc: str, *,
@@ -314,13 +422,12 @@ def abc_builder_from_desc(desc: str, *, parse_abc, translate) -> str:
         shots = parsed.get("shots") or []
         if not shots:
             return ""
-        import re as _re
-
-        m = _re.search(r"(?m)^B[.、．]", desc)
-        a_text = desc[:m.start()].strip() if m else desc
-        style_en = translate(_re.sub(
-            r"^A[.、．]\s*(?:全局风格|Global\s*style)?\s*[：:]?\s*",
-            "", a_text, flags=_re.IGNORECASE))
+        # ④批2（2026-10-25）：A 段风格提取改委托 convert 真源
+        # parse_abc（删本层自带 B 段切分/A 段头剥离正则）。真源口径
+        # 更正两处旧漂移：A+C 无 B 时风格只取 A 段（旧实现整段吞入
+        # 含 C 段时间轴）；英文 Global style 头已由真源批2 超集吸收。
+        style_en = translate(str(_truth().parse_abc(desc).get("style")
+                                 or ""))
         shots_en = [{
             **sh,
             "text": translate(sh.get("text") or ""),

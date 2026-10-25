@@ -42,6 +42,9 @@ from ...services.inference.comfy_paint_engine import (
     pulid_available,
 )
 from ...services.inference.gen_router import detect_style, explain_style, resolve_route
+from ...services.inference.h3_prompt_normalizer import (
+    strip_layout_instruction as _strip_layout_instruction,
+)
 from ...services.inference.paint_engine import get_paint_engine
 from ...services.offload import run_blocking
 from ...services.video_queue import VideoTaskCancelled
@@ -1230,7 +1233,7 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     row = db.query_one(
         f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?", (row_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
     if not prompt:
         prompt = (row.get("description") or row.get("original_dialogue")
                   or "").strip()
@@ -1889,6 +1892,10 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                                              char_count=len(chosen),
                                              text_priority=text_priority,
                                              text_framing=text_frame)
+            # ④批4（2026-10-25）：版式指令剥除——描述词/资产描述混入
+            # 「四视图/四宫格/分镜网格」时逐格画出多视图拼贴（M29 关联
+            # 病灶）；装配后剥（风格块与角色锚不含版式词，误伤面为零）
+            sp = _strip_layout_instruction(sp) or sp
             # ArcReel 链式参考（用户指令② 2026-08-28）：组内（分镜
             # 行内连续剧情段）串行——ReferenceLatent 通道改用上一镜
             # 已定型帧（身份/画风/服装/光环境 latent 直传）；PuLID
@@ -1940,6 +1947,9 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
     else:
         if _ABC_MARK in prompt:
             gen_prompt = _image_prompt_from_abc(prompt)
+            # ④批4（2026-10-25）：版式指令剥除——「四视图」类提示词
+            # 进关键帧画出四宫格；纯版式输入剥空则回退原文（降级铁律）
+            gen_prompt = _strip_layout_instruction(gen_prompt) or gen_prompt
         else:
             # 直文本兜底画风治理（2026-09-02 P6d 实测修复）：此前缀
             # _STYLE_PHOTO（08-14 写真人设参考图时代的写实助推遗留），
@@ -1957,7 +1967,9 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             # 2026-10-05 用户二定：分镜图以描述词为主——单帧回退路径
             # 亦不前缀项目风格行（描述词 A 段自带风格词）
             style_line = _project_style_line(db, pid)
-            gen_prompt = prompt
+            # ④批4：直文本路同剥版式指令（剧本原文粘贴四视图资产描述
+            # 的实报形态）；剥空回退原文（降级铁律）
+            gen_prompt = _strip_layout_instruction(prompt) or prompt
             # 角色锚+仲裁（2026-09-22 用户实弹 JK→修仙服）：直文本路径
             # 此前无锚无仲裁，画风行服饰词（如「华丽古装」）压过参考图。
             # 锚对齐 ABC 主路径 _shot_char_protocol（名字+设定图一致），
@@ -3313,7 +3325,7 @@ def keyframe_replace_image(req: KeyframeReplaceImageRequest) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_SB_ROW_COLS} FROM storyboard_rows WHERE id=?", (req.row_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在",
                        detail={"row_id": req.row_id})
     img = _decode_data_image(req.image)
     if img is None:
@@ -3370,7 +3382,7 @@ def keyframe_rollback(body: dict = Body(default_factory=dict)) -> dict[str, Any]
     kf = db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
                       (keyframe_id,))
     if kf is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "关键帧不存在", detail={"keyframe_id": keyframe_id})
+        raise ApiError("KEYFRAME_NOT_FOUND", "关键帧不存在", detail={"keyframe_id": keyframe_id})
     db.update("keyframes", {"is_current": 0}, "row_id=?", (kf["row_id"],))
     db.update("keyframes", {"is_current": 1}, "id=?", (keyframe_id,))
     return ok({"row_id": kf["row_id"], "keyframe_id": keyframe_id,
@@ -3386,7 +3398,7 @@ def keyframe_delete(keyframe_id: str) -> dict[str, Any]:
     kf = db.query_one(f"SELECT {_KF_COLS} FROM keyframes WHERE id=?",
                       (keyframe_id,))
     if kf is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "关键帧不存在", detail={"keyframe_id": keyframe_id})
+        raise ApiError("KEYFRAME_NOT_FOUND", "关键帧不存在", detail={"keyframe_id": keyframe_id})
     fp = DATA_DIR / (kf.get("file_path") or "")
     if kf.get("file_path") and fp.is_file():
         try:

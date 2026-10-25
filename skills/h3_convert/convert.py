@@ -116,7 +116,11 @@ def parse_abc(desc: str) -> dict:
     mb = re.search(r"(?m)^B[.、．]", text)
     mc = re.search(r"(?m)^C[.、．]", text)
     a_text = text[:mb.start()].strip() if mb else text[:mc.start()].strip() if mc else ""
-    style = re.sub(r"^A[.、．]\s*全局风格[：:]?\s*", "", a_text).strip()
+    # ④批2（2026-10-25）超集吸收：英文头 Global style + 无头 A 段也剥标记
+    # （对齐 h3_prompt_normalizer 既有语义；中文标准头行为不变）
+    style = re.sub(
+        r"^A[.、．]\s*(?:全局风格|Global\s*style)?\s*[：:]?\s*",
+        "", a_text, flags=re.IGNORECASE).strip()
     world = ""
     if mb:
         b_end = mc.start() if mc else len(text)
@@ -126,8 +130,24 @@ def parse_abc(desc: str) -> dict:
         if bm:
             world = bm.group(1).strip()
 
+    # 多行块合并（2026-10-08 用户实报：新格式描述词的 台词/运镜/音效
+    # 为独立续行——原逐行扫描只认时间码行，续行整行丢弃=台词进不了
+    # 视频提示词（模型自由拟声实锤）。与 src common._merge_multiline_
+    # shot_blocks 同口径：续行以 " | " 并回前一时间码行）
+    merged: list[str] = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        if not s:
+            merged.append(raw)
+            continue
+        if (re.match(r"^(?:运镜|台词|音效|镜头)[：:]", s) and merged
+                and re.match(_TC, merged[-1].strip())):
+            merged[-1] = f"{merged[-1]} | {s}"
+            continue
+        merged.append(raw)
+
     shots: list[dict] = []
-    for line in text.splitlines():
+    for line in merged:
         s = line.strip()
         if not s:
             continue

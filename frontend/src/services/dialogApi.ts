@@ -123,6 +123,13 @@ export interface DialogModelInfo {
   loaded: boolean;
   /** 是否支持图片理解（多模态）；缺省 true 兼容旧后端（2026-09-07） */
   vision?: boolean;
+  /**
+   * vLLM 类模型装载准入下限 GB（与后端装载闸同源；2026-10-25 拍板③）。
+   * est_vram_gb 是权重+余量口径，vLLM 实际装载还须 运行开销+KV 预算
+   * （+MTP）——9B est 13.5GB 放行、装载却需 ≥16.2GB 空闲即此因。
+   * 非 vLLM 后端/小权重模型缺省不发（undefined = 无下限）。
+   */
+  admission_floor_gb?: number;
 }
 
 /** 拉取对话可用模型清单（含可承载判定与已加载标记） */

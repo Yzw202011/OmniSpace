@@ -266,7 +266,11 @@ function ChatPanel() {
                   <optgroup label="本地模型（本机显卡承载）">
                     {modelOptions.map((m) => (
                       <option key={m.model_id} value={m.model_id} disabled={!m.fits_local}>
-                        {m.name} · {m.est_vram_gb}GB{m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
+                        {m.name} · {m.est_vram_gb}GB
+                        {m.admission_floor_gb != null
+                          ? ` · 装载需≥${m.admission_floor_gb}GB空闲`
+                          : ''}
+                        {m.loaded ? ' · 已加载' : ''}{m.fits_local ? '' : ' · 超本机显存'}
                       </option>
                     ))}
                   </optgroup>
@@ -285,7 +289,11 @@ function ChatPanel() {
             {isCloudModel
               ? `云端模型${currentCloud ? `：${currentCloud.label}` : ''} · 由服务商承载，本地显卡零占用`
               : current
-                ? `${current.name} · 预估 ${current.est_vram_gb}GB${current.loaded ? ' · 已加载' : ' · 首次发送时加载/切换'}`
+                ? `${current.name} · 预估 ${current.est_vram_gb}GB`
+                  + (current.admission_floor_gb != null
+                    ? ` · 装载下限 ≥${current.admission_floor_gb}GB 空闲`
+                    : '')
+                  + (current.loaded ? ' · 已加载' : ' · 首次发送时加载/切换')
                 : '档位说明：8B 质量最佳 / 4B 均衡 / 2B 速度最快'}
           </div>
         </div>

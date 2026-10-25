@@ -1511,6 +1511,21 @@ class DialogEngine(BaseEngine):
             if mid != want_id and _fits(mid, vram) \
                     and _resolve_candidate_dir(rel) is not None:
                 return mid
+        # 放弃前显存重探（2026-10-25 事故）：热切换刚卸载旧模型时，
+        # 空闲读数可能尚未反映回收（实测 10:47 切 9B 后空闲卡 5.0GB
+        # 达 4 分钟，8b/4b 全被「装不下」饿死、降级链空转）——显式
+        # 释放后再探一次，仍无候选装得下才诚实放弃。
+        try:
+            _release_cuda_memory()
+            free = _cuda_free_gb()
+            for mid, rel, vram in candidates:
+                if mid != want_id and _fits(mid, vram) \
+                        and _resolve_candidate_dir(rel) is not None:
+                    log.info("显存释放后重探命中回退候选: %s"
+                             "（重探空闲 %.1fGB）", mid, free)
+                    return mid
+        except Exception:  # noqa: BLE001 - 重探失败维持放弃结论
+            log.debug("_vram_fallback_model 重探: 降级忽略", exc_info=True)
         return ""
 
     # ── 上下文组装 ────────────────────────────────────────────────

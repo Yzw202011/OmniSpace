@@ -580,6 +580,9 @@ def dialog_list_models() -> dict[str, Any]:
     """
     engine = get_dialog_engine()
     items: list[dict] = []
+    # 装载准入下限（2026-10-25 拍板③）：vLLM 类真实下限与 est 口径
+    # 差异大（9B est 13.5 vs 下限 16.2），随清单下发供前端诚实标注
+    from ..services.vram_policy import dialog_admission_floor_gb as _vram_policy_floor
     try:
         from ..services.inference.dialog_engine import (
             _cuda_total_gb,
@@ -623,6 +626,7 @@ def dialog_list_models() -> dict[str, Any]:
                 "name": _dialog_model_display_name(mid),
                 "size_label": _dialog_model_size_label(mid),
                 "est_vram_gb": round(est, 1),
+                "admission_floor_gb": _vram_policy_floor(path),
                 "fits_local": fits,
                 "loaded": engine.is_ready and engine.model_name == mid,
                 "vision": _dialog_model_supports_vision(mid),
@@ -640,6 +644,8 @@ def dialog_list_models() -> dict[str, Any]:
                 "name": _dialog_model_display_name(mid),
                 "size_label": _dialog_model_size_label(mid),
                 "est_vram_gb": round(est, 1),
+                "admission_floor_gb": _vram_policy_floor(
+                    Path(info["path"])),
                 "fits_local": fits,
                 "loaded": engine.is_ready and engine.model_name == mid,
                 "vision": _dialog_model_supports_vision(
@@ -1908,6 +1914,21 @@ async def _ws_send_error(websocket: WebSocket, code: int | str, message: str) ->
     })
 
 
+def _vllm_inflight() -> bool:
+    """vLLM 子进程是否在途（booting/运行）——快速出口防误杀守卫。
+
+    True=vLLM 还在启动或已运行（引擎可能被自动重试/收养弄就绪，
+    2026-09-02 P1 竞态语义保持，继续等待）；False/探测失败=无在途。
+    """
+    try:
+        from ..engines.vllm_service import get_vllm_service
+        _svc = get_vllm_service()
+        return bool(_svc.is_booting() or _svc.is_running())
+    except Exception:  # noqa: BLE001 - 探测失败按无在途（终态错误等不出就绪）
+        log.debug("_vllm_inflight: 降级忽略", exc_info=True)
+        return False
+
+
 async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
                              sid: str, timeout_s: float = 200.0) -> bool:
     """vLLM 冷启动等待（2026-09-02 P1 修复）。
@@ -1916,7 +1937,10 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
     立即返回 True；期间捕获「消息先到、vLLM 一秒后才点火」的竞态
     （实测 12:24:51 消息 / 12:24:52 booting——首版仅在已 booting 时
     等待，恰好错过）。等待期间向 WS 推送 status 帧维持前端占位。
-    返回 True=已就绪可重试；False=超时/WS 断开。
+    返回 True=已就绪可重试；False=超时/WS 断开/装载已终态失败。
+    2026-10-25 拍板（fail-fast）：装载已 error/unavailable 且 vLLM
+    无在途时不再干等 200s——立即退出让 caller 如实报错带原因
+    （实测 10:47 事故：9B 被准入闸拒绝后干等 200s×2 超时）。
     """
     try:
         await websocket.send_json({
@@ -1932,9 +1956,19 @@ async def _wait_vllm_booting(engine: DialogEngine, websocket: WebSocket,
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(2.0)
         try:
-            if engine.get_status().get("state") == "ready":
+            _status = engine.get_status()
+            _st = _status.get("state")
+            if _st == "ready":
                 log.info("冷启动等待命中：vLLM 就绪，继续处理消息 sid=%s", sid)
                 return True
+            # 终态失败快速出口：引擎已炸/模型不存在且无 vLLM 在途
+            # （有在途则可能被自动重试/收养弄就绪，须继续等）
+            if _st in ("error", "unavailable") and not _vllm_inflight():
+                log.warning(
+                    "装载已终态失败（%s），快速退出冷启动等待 sid=%s "
+                    "原因: %s", _st, sid,
+                    str(_status.get("last_error") or "")[:120])
+                return False
         except Exception:  # noqa: BLE001 - 状态探测失败继续等
             continue
         # WS 断开检测：客户端关页即放弃
@@ -2121,10 +2155,16 @@ async def _ws_handle_message(websocket: WebSocket, sid: str, data: dict) -> None
                     return
             else:
                 status = engine.get_status()
-                code = "MODEL_LOAD_FAILED" if status["state"] == "error" else "MODEL_LOADING"
-                await _ws_send_error(
-                    websocket, code,
-                    status["last_error"] or "对话模型未就绪，请稍后再试")
+                # 终态失败（error=装载炸了/unavailable=模型未找到）都属
+                # MODEL_LOAD_FAILED；文案必须带原因（2026-10-25 拍板：
+                # 硬件装不下要明示报错并告诉用户为什么）
+                code = ("MODEL_LOAD_FAILED"
+                        if status["state"] in ("error", "unavailable")
+                        else "MODEL_LOADING")
+                _why = str(status.get("last_error") or "").strip()
+                message = (f"对话模型加载失败：{_why}" if _why
+                           else "对话模型未就绪，请稍后再试")
+                await _ws_send_error(websocket, code, message)
                 return
 
         # RAG 注入 + 上下文组装（max_tokens=前端上下文长度选择，钳制后）

@@ -35,6 +35,7 @@ comfyui.idle_shutdown_seconds、dialog_idle_unload_seconds）不在此
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -139,4 +140,37 @@ WAKE_DEBOUNCE_S = 10.0
 提交时任务间隙即排空，排空即唤醒会被紧邻下一任务撞死（15:37:04
 实测 booting 被功能锁门禁拒绝且无人重试，state 卡 unloaded）。
 到点仍空闲才真唤醒。"""
+
+
+def dialog_admission_floor_gb(path: Path | str) -> float | None:
+    """vLLM 类对话模型的装载准入下限（与 vllm_backend.load 同源同值）。
+
+    2026-10-25 拍板③（诚实标注）：对话清单 est（权重+余量口径，
+    9B=13.5GB）低于 vLLM 实际准入线（权重+运行开销/4K KV 预算+MTP，
+    9B=16.2GB）——下拉按 est 放行、装载却撞下限拒（10:47 事故）。
+    下限随 /chat/models 清单下发，前端标注「装载需 ≥XGB 空闲」。
+    权重 <8GB 的 vLLM 模型装载闸不启用下限（big 判定同源），同步
+    返回 None；非 vLLM 后端 None；探测失败 None（不阻断清单）。
+    依赖全惰性 import：本模块被 vllm_backend/dialog_engine 消费，
+    顶层回引会成环。
+    """
+    try:
+        from .inference.backends.vllm_backend import VLLMBackend
+        from .inference.dialog_engine import _detect_backend
+        _path = Path(path)
+        if _detect_backend(_path) != "vllm":
+            return None
+        weight = VLLMBackend._weights_size_gb(_path)
+        if weight < 8.0:
+            return None
+        floor = weight + VLLM_FLOOR_OVERHEAD_GB
+        try:
+            from ..engines.vllm_service import mtp_spec_enabled
+            if mtp_spec_enabled(_path):
+                floor += VLLM_MTP_EXTRA_GB
+        except Exception:  # noqa: BLE001 - MTP 探测失败按装载闸同容错
+            pass
+        return round(floor, 1)
+    except Exception:  # noqa: BLE001 - 下限缺失不阻断清单
+        return None
 # 本项目仅供学习使用，商业授权请+Q 3559331368

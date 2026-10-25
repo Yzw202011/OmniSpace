@@ -1334,7 +1334,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
                 detail={"storyboard_row_id": req.storyboard_row_id})
         if not ( _row.get("description") or "").strip():
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行描述词为空，无法生成视频，"
+            raise ApiError("STORYBOARD_ROW_EMPTY", "该分镜行描述词为空，无法生成视频，"
                 "请先填写或用 AI 生成分镜描述词",
                 detail={"storyboard_row_id": req.storyboard_row_id,
                         "suggestion": "在分镜表格编辑描述词，或执行「分镜生词」"})
@@ -1356,7 +1356,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 log.warning("绑定资产计数失败（放行交引擎校验）: %s", exc, exc_info=True)
         if _n_img == 0:
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行未绑定带图资产（人物/场景/道具），"
+            raise ApiError("STORYBOARD_NOT_BOUND", "该分镜行未绑定带图资产（人物/场景/道具），"
                 "无法生成视频，请先在资产面板绑定",
                 detail={"storyboard_row_id": req.storyboard_row_id,
                         "suggestion": "右侧资产面板把角色/场景/道具拖入绑定"})
@@ -1595,7 +1595,7 @@ def video_status(task_id: str) -> dict[str, Any]:
                 f"SELECT {_VIDEO_TASK_COLS} FROM video_tasks WHERE id=?",
                 (task_id,))
             if row is None:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
+                raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
             resp = {"task_id": task_id,
                     "status": row.get("status", "pending"),
                     "progress": float(row.get("progress", 0.0) or 0.0)}
@@ -1615,7 +1615,7 @@ def video_status(task_id: str) -> dict[str, Any]:
 
     task = _video_tasks.get(task_id)
     if task is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     resp = {"task_id": task_id, "status": task["status"],
             "progress": task["progress"]}
     _attach_queue_position(resp, task_id)
@@ -1648,7 +1648,7 @@ def video_result(task_id: str) -> dict[str, Any]:
     """视频生成结果（规格 §4.4）——返回真实文件路径与下载地址。"""
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     status = row.get("status", "pending")
     if status != "done":
         return ok({"task_id": task_id, "status": status, "result": None})
@@ -1689,7 +1689,7 @@ def video_download(task_id: str) -> FileResponse:
     """下载生成的视频文件（真实文件流式返回）。"""
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     file_path = row.get("file_path") or ""
     if not file_path:
         candidate = VIDEO_OUT_DIR / f"{task_id}.mp4"
@@ -1847,7 +1847,7 @@ async def video_super_resolution_start(task_id: str) -> dict[str, Any]:
     """
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在",
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在",
                        detail={"task_id": task_id})
     if row.get("status") != "done":
         raise ApiError("VIDEO_NOT_READY", "视频尚未生成完成，不能超分",
@@ -1876,7 +1876,7 @@ def video_super_resolution_status(task_id: str) -> dict[str, Any]:
     """SR 状态探测：none / running(progress) / done(sr_url) / failed(error)。"""
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在",
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在",
                        detail={"task_id": task_id})
     job = _SR_JOBS.get(task_id)
     if job is not None and job.get("status") == "running":
@@ -1900,7 +1900,7 @@ def video_sr_stream(task_id: str) -> FileResponse:
     """SR 视频流式回放（{原名}_sr{档位}.mp4；供超分列缩略/详情播放）。"""
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在",
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在",
                        detail={"task_id": task_id})
     out = _sr_path_for(task_id, row)
     if not out.is_file():
@@ -1964,7 +1964,7 @@ def video_paint_history_delete(task_id: str) -> dict[str, Any]:
         " WHERE id=?",
         (task_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     if str(row.get("status") or "") in ("pending", "generating"):
         raise ApiError("SYSTEM_PARAM_INVALID", "任务正在生成中，无法删除（请等待完成或取消后再删）",
                        detail={"task_id": task_id,
@@ -2093,7 +2093,7 @@ def video_cancel(task_id: str) -> dict[str, Any]:
     """
     row = _video_task_record(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
+        raise ApiError("VIDEO_TASK_NOT_FOUND", "视频任务不存在", detail={"task_id": task_id})
     status = row.get("status", "pending")
     if status in ("done", "error", "cancelled"):
         return ok({"task_id": task_id, "status": status,

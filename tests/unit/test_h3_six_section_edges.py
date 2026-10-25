@@ -1,0 +1,57 @@
+"""转义层两个边角修复单测（2026-10-25）。
+
+边角一：B 段栏目标题首行（如「高密度世界观构建」，短行无句读）按
+句号截摘要时混进 summary 与世界状态段 → 短无标点首行按标题剥除。
+边角二：无说话人前缀的语气括号台词（如「（内心 OS）我只是路过啊…」）
+落到匿名 S1、且语气直译不通顺 → 语气摘出归 manner、OS 类动词映射
+「内心独白式地说」、单主角绑定时台词归主角色（多主角维持匿名）。
+"""
+from __future__ import annotations
+
+from src.services.inference.h3_chain_engine import _six_section
+
+_DESC = """A. 全局风格
+3D CG 超写实真人风格，高精度真人级 3D 建模。全程无字幕、无背景音乐，仅保留环境自然音效与角色台词。
+
+B. 高密度世界观构建
+盛夏午后的热浪裹着栀子花香漫过街道，陌生街景在视野里无限铺展。
+
+C.分镜时间轴
+[0.0s-3.0s] 画面：侧景跟拍夏沐沐拖着行李箱沿步道前行 | 运镜：平稳横向跟移 | 台词：无 | 音效：风声
+[3.0s-6.0s] 画面：围栏里的大黄狗冲着她龇牙低吼，夏沐沐吓得后缩半步 | 运镜：推镜至狗特写 | 台词：（内心 OS）我只是路过啊，为什么要对着我吠。| 音效：犬吠炸开
+[6.0s-10.0s] 画面：夏沐沐神色委屈又无措，脚尖微微转向离开的方向 | 运镜：面部近景 | 台词：无 | 音效：犬吠渐弱"""
+
+_REFS_ONE = [{"kind": "character", "name": "夏沐沐白裙", "src": ""}]
+_REFS_TWO = [{"kind": "character", "name": "夏沐沐白裙", "src": ""},
+             {"kind": "character", "name": "陈雪", "src": ""}]
+
+
+def test_b_title_stripped_from_summary_and_world_state() -> None:
+    out = _six_section(_DESC, _REFS_ONE, 10.0)
+    # 摘要与世界状态段都不再携带栏目标题
+    assert "高密度世界观构建\n盛夏" not in out
+    assert "[世界与人物状态] 高密度世界观构建" not in out
+    assert "盛夏午后的热浪裹着栀子花香" in out  # 正文保留
+
+
+def test_os_dialogue_bound_to_single_character() -> None:
+    out = _six_section(_DESC, _REFS_ONE, 10.0)
+    # 语气括号摘出 + 单主角绑定 + OS 动词映射
+    assert "夏沐沐白裙 (S1) 内心独白式地说: <d>[Chinese] 我只是路过啊" in out
+    # 台词行内不再残留语气括号
+    assert "<d>[Chinese] （内心 OS）" not in out
+
+
+def test_multichar_unattributed_stays_anonymous() -> None:
+    out = _six_section(_DESC, _REFS_TWO, 10.0)
+    # 多主角无法归属：维持匿名 S1，但 OS 动词映射与语气摘除仍生效
+    assert "(S1) 内心独白式地说: <d>[Chinese] 我只是路过啊" in out
+    assert "夏沐沐白裙 (S1)" not in out
+
+
+def test_named_manner_regression() -> None:
+    desc = _DESC.replace("台词：（内心 OS）我只是路过啊，为什么要对着我吠。",
+                         "台词：夏沐沐（轻声）：我只是路过啊。")
+    out = _six_section(desc, _REFS_ONE, 10.0)
+    # 既有具名「角色（语气）：」写法回归：语气照译不触发 OS 映射
+    assert "夏沐沐白裙 (S1) 轻声地说: <d>[Chinese] 我只是路过啊。</d>" in out

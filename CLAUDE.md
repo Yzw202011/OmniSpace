@@ -225,13 +225,13 @@ backend/          兼容 shim（仅 re-export src.main:app，救仓库外冻结�
 
 ---
 
-## 4. API路由现状（2026-10-25 别名清理后：~377 端点 + 4 WS、21 个路由模块）
+## 4. API路由现状（2026-10-25 别名清理后：~376 端点 + 4 WS、21 个路由模块）
 
 ```
 Base URL: http://127.0.0.1:5800/api/v1   （直接 uvicorn / config.yaml）
           launcher 默认 --port 8765（冲突扫描 5800-5835）—— 两套端口并存，联调前先确认
 
-21 个路由模块 ≈**377 端点**（①词汇治理 2026-10-25 清理 17 条 /dialog/+/paint/+/art/ 别名后；doc_claims.json 登记 394→待更新）：
+21 个路由模块 ≈**376 端点**（①词汇治理 2026-10-25 清理 17 条 /dialog/+/paint/+/art/ 别名后；doc_claims 扫描器实测对账：377 系 394-17 算术推算未跑扫描器，实测 376=378 路由装饰器-2 WS 稳定）：
 ├── /api/v1/chat                     对话（send/history/sessions/status/models/skill，SSE: /chat/stream；/dialog/ 别名已删 2026-10-25）
 ├── /api/v1/draw                     绘画（generate 异步任务 /img2img /inpaint /upscale /queue /history；/paint/+/art/ 别名已删 2026-10-25）
 ├── /api/v1/manga/*                 漫剧包：storyboard / comic / comic_asset / keyframe / video

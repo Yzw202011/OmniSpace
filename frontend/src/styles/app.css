@@ -93,6 +93,9 @@ a:hover { text-decoration: underline; }
 
 /* 页面通用容器 */
 .page { max-width: 1280px; margin: 0 auto; animation: page-fade-in var(--duration-page) var(--ease-out); } /* 页面切换淡入淡出 200ms（§6.3.3） */
+/* 重工作台宽档（写作台三栏项目态专用）：1280 居中在宽屏下两侧空白过大
+   且编辑器列被压窄（2026-10-25 用户报）——1680 上限防超宽屏行长失控 */
+.page-wide { max-width: 1680px; }
 .page-title { font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); line-height: var(--line-height-tight); }
 .page-subtitle { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: var(--space-1); }
 @keyframes page-fade-in { from { opacity: 0; } to { opacity: 1; } }

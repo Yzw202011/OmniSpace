@@ -104,7 +104,10 @@ export const NovelPage: React.FC = () => {
   return (
     <>
       <ModuleGuide moduleKey="novel" />
-      <div className="page">
+      {/* 项目态 page-wide：书架保持 1280 居中；三栏工作台在宽屏下
+          1280 会左右各空 160+ 且编辑器列被压窄（2026-10-25 用户报
+          「左边空白有点多」），放开到 1680 宽档 */}
+      <div className={`page ${project ? 'page-wide' : ''}`}>
       <h1 className="page-title">
         <Feather size={20} aria-hidden="true" /> 写作台
       </h1>
@@ -453,8 +456,10 @@ const NovelWorkspace: React.FC = () => {
         </div>
       )}
 
-      {/* 三栏 */}
-      <div className="grid grid-cols-[280px_1fr_300px] gap-3 items-start">
+      {/* 三栏（中列 minmax(0,1fr)：裸 1fr 的 min-width:auto 会被编辑器
+          列内容撑爆——实测中间列 1647px、右栏 300px 被挤出屏外出横向
+          滚动条，2026-10-25 用户报） */}
+      <div className="grid grid-cols-[280px_minmax(0,1fr)_300px] gap-3 items-start">
         <OutlinePanel />
         <ChapterPanel />
         <SidePanel />
@@ -747,7 +752,7 @@ const ChapterPanel: React.FC = () => {
 
       {chapter ? (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-w-[860px]">
             <input
               className="input flex-1"
               value={title}
@@ -787,7 +792,7 @@ const ChapterPanel: React.FC = () => {
             </div>
           )}
           <textarea
-            className="input font-medium leading-relaxed"
+            className="input font-medium leading-relaxed max-w-[860px]"
             style={{ minHeight: '48vh' }}
             placeholder="点上方章节 chip 选一章；「生成」让 AI 按细纲写正文，写完可自由修改后保存。"
             value={content}

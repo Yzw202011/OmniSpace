@@ -96,6 +96,10 @@ _NAME_KEYWORDS = {
     "cogvlm": ModelCategory.DIALOG,
     "phi-4-multimodal": ModelCategory.DIALOG,
     # ── 文本 / 代码 LLM ─────────────────────────────────────────
+    # Qwen-Image 绘画家族：必须排在 "qwen" 之前（名字含 qwen 前缀会被
+    # 遮蔽；2026-10-25 实弹误分类——qwen-image-2.1 被归 DIALOG）
+    "qwen-image": ModelCategory.VISION,
+    "qwen_image": ModelCategory.VISION,
     "qwen": ModelCategory.DIALOG,         # Qwen3 全系 / Qwen2.5-Coder 等
     "llama": ModelCategory.DIALOG,        # Llama 3.1/3.3/4、CodeLlama
     "mistral": ModelCategory.DIALOG,
@@ -163,6 +167,18 @@ class ModelClassifier:
             if keyword in name_lower:
                 log.debug("关键词匹配: '%s' -> %s", keyword, category.value)
                 return category
+
+        # 2.5 扩散整包布局加固（2026-10-25 实弹 qwen-image-2.1 误分类）：
+        # ComfyUI 单文件整包（safetensors + text_encoder/ + vae/，顶层无
+        # config.json）三条快通道全扑空后被粗粒度关键词劫持——含
+        # text_encoder+vae 且路径无 video 标记 → 绘画；视频模型
+        # （video_gen/h3 为同款布局）排除，防误归 VISION。
+        if p.is_dir() and not (p / "config.json").is_file() \
+                and (p / "vae").is_dir() \
+                and ((p / "text_encoder").is_dir()
+                     or (p / "text_encoders").is_dir()) \
+                and not any("video" in part.lower() for part in p.parts):
+            return ModelCategory.VISION
 
         # 3. 目录特征文件检测
         if p.is_dir():

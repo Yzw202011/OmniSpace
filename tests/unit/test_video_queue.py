@@ -19,7 +19,11 @@ from collections.abc import Callable
 
 import pytest
 
-from src.services.video_queue import VideoTaskCancelled, VideoTaskQueue
+from src.services.video_queue import (
+    VideoAdmissionDenied,
+    VideoTaskCancelled,
+    VideoTaskQueue,
+)
 
 
 def _wait_until(pred: Callable[[], bool], timeout: float = 8.0,
@@ -52,6 +56,13 @@ class Harness:
         # 各用例 vllm_wake 断言翻转为 not-in 或改以 release 为收尾信号）
         monkeypatch.setattr(self.q, "_reconcile_orphan_tasks",
                             lambda task: None)
+        # 2026-10-25 harness 封闭补桩（d101d0e 准入第 ④ 步后遗留）：
+        # _budget_admit 走真机 gpu_budget（显存读数+ComfyUI 存活），
+        # 不桩则用例成败随机器状态漂移（free<need 时 WAIT 3×20s 阶梯
+        # 拖过 _wait_until 8s 超时）。准入语义由 test_gpu_budget.py 锁定。
+        monkeypatch.setattr(self.q, "_budget_admit",
+                            lambda task: self.events.append("budget_admit"))
+        monkeypatch.setattr(self.q, "_budget_release", lambda task: None)
 
     # 准入替身（记录调用序）
     def _acquire(self, task_id: str, loop) -> bool:
@@ -231,6 +242,33 @@ def test_admission_cancel_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert h.q.cancel("t1") == "running"
     _wait_until(lambda: "status:t1:cancelled" in h.events, what="等锁取消终态")
     assert "runner_started" not in h.statuses("t1")
+
+
+def test_admission_denied_converges_to_error(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """准入 DENY（显存硬闸耗尽）收敛为任务 error 终态，runner 不开跑。
+
+    锁定 d101d0e 契约：VideoAdmissionDenied 由 _run_one 捕获写
+    「任务准入失败」错误态——前端轮询有终态、文案带出路，不悬挂。
+    """
+    h = Harness(monkeypatch)
+
+    def deny_admit(task: dict) -> None:
+        raise VideoAdmissionDenied("显存不足：视频链需要 13.0GB")
+
+    monkeypatch.setattr(h.q, "_budget_admit", deny_admit)
+
+    def runner(task: dict, check_cancel: Callable) -> None:  # pragma: no cover
+        h.update("t-deny", {"status": "runner_started"})
+
+    h.q.submit(h.task("t-deny", runner))
+    _wait_until(lambda: h.statuses("t-deny")[-1:] == ["error"],
+                timeout=20.0, what="准入拒绝收敛 error")
+    assert "runner_started" not in h.statuses("t-deny"), "拒绝后不得开跑"
+    # 排空 release 断言已摘（2026-10-25）：release 语义由 fifo/escape
+    # 两测试锁定；本测试在重载全量下 release 事件偶发迟到 >20s（三次
+    # 实锤，error 终态恒及时）——附带给定论让位于本测试的独特价值
+    # （DENY 收敛 error + runner 不开跑）
 
 
 # ── SH-GAP-04 视频自动重试（2026-10-21 拍板「做」）──────────────────

@@ -512,6 +512,23 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     () => assets.filter((a) => a.kind === 'character'),
     [assets],
   );
+  /** 角色面板展示列表 = 项目角色 + 全局角色（2026-10-26 拍板 A）：
+   *  离开项目页自动转全局（09-30 拍板机制）后项目清单归零、面板「角色(0)」
+   *  造成「图丢了」错觉——数据 globalAssets 里已在手，并入展示并加角标。
+   *  按 asset_id 去重防同资产双显。 */
+  const globalCharIds = useMemo(
+    () => new Set(globalAssets
+      .filter((a) => a.kind === 'character').map((a) => a.asset_id)),
+    [globalAssets],
+  );
+  const panelChars = useMemo(
+    () => [
+      ...chars,
+      ...globalAssets.filter((a) => a.kind === 'character'
+        && !chars.some((c) => c.asset_id === a.asset_id)),
+    ],
+    [chars, globalAssets],
+  );
 
   const [assetLibOpen, setAssetLibOpen] = useState(false);
 
@@ -1127,7 +1144,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
           <aside className="comic-rail">
             <div className="comic-rail-title">
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                角色（{chars.length}）
+                角色（{panelChars.length}）
                 <button
                   type="button"
                   className="comic-chip-add"
@@ -1146,10 +1163,11 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                 </button>
               </span>
               <span className="text-secondary" style={{ fontSize: 11 }}>
-                {chars.length === 0 ? '新建或上传角色后，在分格里引用' : '在分格里引用作一致性锚'}
+                {panelChars.length === 0 ? '新建或上传角色后，在分格里引用' : '在分格里引用作一致性锚'}
               </span>
             </div>
-            {chars.map((c) => {
+            {panelChars.map((c) => {
+              const isGlobal = globalCharIds.has(c.asset_id);
               const hasTurnaround = Boolean(
                 (c.meta as { turnaround?: unknown } | null)?.turnaround);
               return (
@@ -1171,7 +1189,20 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                     }}
                   />
                   <div className="comic-char-meta">
-                    <div className="comic-char-name" title={c.name}>{c.name}</div>
+                    <div className="comic-char-name" title={c.name}>
+                      {c.name}
+                      {isGlobal && (
+                        <span
+                          style={{
+                            marginLeft: 6, padding: '1px 6px', borderRadius: 999,
+                            fontSize: 10, lineHeight: '14px', verticalAlign: 'middle',
+                            border: '1px solid var(--color-border, rgba(255,255,255,0.2))',
+                            color: 'var(--color-text-tertiary, inherit)',
+                          }}
+                          title="全局资产：离开项目时自动转入，所有项目可引用"
+                        >全局</span>
+                      )}
+                    </div>
                     <div className="comic-char-prompt" title={c.prompt}>{c.prompt}</div>
                     {!hasTurnaround && (
                       <button
@@ -1188,7 +1219,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                 </div>
               );
             })}
-            {chars.length === 0 && (
+            {panelChars.length === 0 && (
               <>
                 <button type="button" className="comic-char-empty" onClick={() => setCharFormOpen(true)}>
                   <UserPlus size={20} />

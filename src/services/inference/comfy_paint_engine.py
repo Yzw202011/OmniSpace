@@ -1150,11 +1150,24 @@ class ComfyPaintEngine:
         enc_inputs: dict = {
             "clip": clip_src, "prompt": prompt,
             "negative_prompt": negative,
-            "resolution": max(32, int(round(max(width, height) / 32)) * 32)}
+            # 参考图分辨率（2026-09-30 两轮实测定档）：832 仍翻车（v11
+            # 用户实弹：白底双立绘×2 副本，编辑先验未破）→ 512（16×32，
+            # token 面积仅画幅 1/7）：参考退为纯身份锚。官方注释实锤该
+            # 节点为编辑向设计（latent=首参考图尺寸，「any other size
+            # shifts the edit」）——分格场景必须靠小参考+场景文本主权。
+            # 出图画幅不受影响（采样 latent 用独立 EmptyLatentImage）。
+            "resolution": 512}
         for i, name in enumerate(refs, start=1):
+            # 2026-09-30 00:40 真机制解码（_io.py v0.37 全链真读）：顶层 Autogrow
+            # 的 API 键 = finalize_prefix(["images"], name) 点join = "images.image_1"
+            # （点路径！parse_class_inputs 仅 curr_prefix 真值才写槽位的
+            # dynamic_paths，build_nested_inputs 按点路径嵌套归并进 images 参数）；
+            # 平键 image1/image_1 永不命中 → ACCEPT_ALL 透传 raw → TypeError
+            #（23:49 三连失败真日志）；19:46/19:51 的"成功"实为 refs 静默丢弃
+            #（同平键不命中 → images={}，参考条件从未真生效）。LoadImage 节点名仍 load_img{i}
             wf[f"load_img{i}"] = {"class_type": "LoadImage",
                                   "inputs": {"image": name}}
-            enc_inputs[f"image{i}"] = [f"load_img{i}", 0]
+            enc_inputs[f"images.image_{i}"] = [f"load_img{i}", 0]
         wf["encode"] = {"class_type": "TextEncodeQwenImage21",
                         "inputs": enc_inputs}
         wf["latent"] = {"class_type": "EmptyLatentImage", "inputs": {

@@ -1,11 +1,11 @@
 """语音 API 路由（《显存阶梯参考》语音模型全维度对接）。
 
-端点清单：
+端点清单（2026-10-25 对账，M27 诚实化）：
 - GET  /voice/status       语音引擎状态（TTS 后端链 / ASR 就绪 / SoVITS 门控 / 发现的语音模型）
-- GET  /voice/models       models/ 目录动态发现的语音模型清单（导入即可见）
-- POST /voice/transcribe   语音转写（Whisper 真实推理，multipart 上传音频）
-- POST /voice/synthesize   语音合成（TTS 自动装载链：cosyvoice → chattts → bark
-                           → SAPI5/静音回退，诚实标注 degraded）
+
+历史：models/transcribe/synthesize 三端点随 b1b1903「B3 死端点清退」
+摘除（零前端消费实锤）——ASR/TTS 实际调用走 /manga/voices（漫剧
+配音域）与 voice_engine 服务层，本文件不再重复暴露。
 
 对接说明（导入 models/ 即可用）：
 - ASR：models/whisper*（transformers 原生，如 openai/whisper-large-v3）

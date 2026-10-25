@@ -125,7 +125,10 @@ def test_qwen21_workflow_official_baseline() -> None:
     assert enc["class_type"] == "TextEncodeQwenImage21"
     assert enc["inputs"]["prompt"] == "测试"
     assert enc["inputs"]["negative_prompt"] == "低清"
-    assert enc["inputs"]["resolution"] == 832  # max(832,480) 取 32 倍数
+    # 2026-09-30 两轮实测定档：encode 分辨率恒 512（832 参考霸屏出
+    # 设定稿；官方节点为编辑向设计，参考退纯身份锚）——出图画幅由
+    # 独立 EmptyLatentImage 承载（下方 width/height 断言不变）
+    assert enc["inputs"]["resolution"] == 512
     assert wf["latent"]["class_type"] == "EmptyLatentImage"
     assert wf["latent"]["inputs"]["width"] == 832
     assert wf["latent"]["inputs"]["height"] == 480
@@ -150,11 +153,15 @@ def test_qwen21_workflow_refs_and_lora() -> None:
     assert wf["lora"]["inputs"]["strength_clip"] == 0.0
     assert wf["sample"]["inputs"]["model"] == ["lora", 0]
     assert wf["encode"]["inputs"]["clip"] == ["lora", 1]
-    # 参考图 ≤_MAX_WF_REFS 截断 + image1..N 条件注入
+    # 参考图 ≤_MAX_WF_REFS 截断 + images.image_N 点路径条件注入
+    # （2026-09-30 真机制解码：Autogrow API 键=finalize_prefix 点 join，
+    # 平键 image1/image_1 永不命中=参考图静默丢弃，此前全是纯文生图；
+    # LoadImage 节点名仍 load_img{i}）
     for i in range(1, 9):
         assert wf[f"load_img{i}"]["class_type"] == "LoadImage"
-        assert wf["encode"]["inputs"][f"image{i}"] == [f"load_img{i}", 0]
-    assert "image9" not in wf["encode"]["inputs"]
+        assert wf["encode"]["inputs"][f"images.image_{i}"] == (
+            [f"load_img{i}", 0])
+    assert "images.image_9" not in wf["encode"]["inputs"]
 
 
 def test_face_beauty_injection_disabled_for_klein() -> None:

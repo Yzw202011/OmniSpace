@@ -70,8 +70,8 @@ scheduler:
     gpu_temp_critical: 90
     cpu_util_warning: 0.80
     cpu_util_critical: 0.90
-    cpu_temp_warning: 85
-    cpu_temp_critical: 95
+    cpu_temp_warning: 85   # 唯一 CPU 温度阈值（analyzer 临界判定同用此键；
+                           # cpu_temp_critical 曾登记但全仓零消费，L6 死键已摘 2026-10-25）
     mem_warning_ratio: 0.25   # 可用内存占比预警线（=已用 75%）
     mem_critical_ratio: 0.15  # 可用内存占比临界线（=已用 85%，文档B §4.1 动作线）
     mem_critical2_ratio: 0.90 # 二级内存临界（已用占比，R3-M20 补缺：resource_guard 消费但 config 此前无键=docstring 谎称可配）

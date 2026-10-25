@@ -48,15 +48,16 @@ def _grab_wer_evidence(reason: str) -> str | None:
         # WER 事件（最近 10 条）
         wer = []
         try:
+            wer_cmd = (
+                "Get-WinEvent -LogName Application -MaxEvents 50 | "
+                "Where-Object {$_.ProviderName -like '*Windows Error*'"
+                " -or $_.LevelDisplayName -eq 'Error'} | "
+                "Select-Object -First 10 TimeCreated,ProviderName,Id,"
+                "LevelDisplayName,Message | ConvertTo-Json")
             r = subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "Get-WinEvent -LogName Application "
-                 "-MaxEvents 50 | "
-                 "Where-Object {$_.ProviderName -like '*Windows Error*'"
-                 " -or $_.LevelDisplayName -eq 'Error'} | "
-                 "Select-Object -First 10 TimeCreated,ProviderName,Id,"
-                 "LevelDisplayName,Message | ConvertTo-Json"],
-                capture_output=True, text=True, timeout=30)
+                ["powershell", "-NoProfile", "-Command", wer_cmd],
+                capture_output=True, text=True, timeout=30, creationflags=(
+                    subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0))
             if r.returncode == 0 and r.stdout.strip():
                 wer = json.loads(r.stdout)
                 if isinstance(wer, dict):
@@ -73,7 +74,9 @@ def _grab_wer_evidence(reason: str) -> str | None:
                  " -or $_.Name -like '*OmniSpace*'} | "
                  "Select-Object Id,Name,WorkingSet64,CPU,"
                  "StartTime | ConvertTo-Json"],
-                capture_output=True, text=True, timeout=15)
+                capture_output=True, text=True, timeout=15,
+                creationflags=(subprocess.CREATE_NO_WINDOW
+                               if os.name == "nt" else 0))
             if r2.returncode == 0 and r2.stdout.strip():
                 procs = json.loads(r2.stdout)
                 if isinstance(procs, dict):

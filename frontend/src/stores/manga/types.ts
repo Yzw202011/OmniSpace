@@ -224,6 +224,9 @@ export interface VideoSlice {
       aspect?: '16:9' | '9:16';
       /** 分辨率档（720p/480p；缺省=时长档默认，2026-10-03 分档具体化） */
       quality?: string;
+      /** 画质优先级（2026-10-25 拍板双链并存：true=turbo 双采速度优先，
+       *  false/缺省=现行链质量优先；未传=走后端 config 默认） */
+      speedPriority?: boolean;
     },
   ) => Promise<boolean>;
   /** 拉取项目历史视频任务（openProject 调用，行级取最新终态） */

@@ -315,6 +315,25 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
             720p 档仅 4/8 秒时长可选）。
           </p>
         </div>
+        <div>
+          <label className="manga-form-label">默认画质</label>
+          <select
+            className="manga-modal-select"
+            value={cfg.speedPriority ? 'speed' : 'quality'}
+            aria-label="默认画质"
+            onChange={(e) => setCfg((c) => ({
+              ...c, speedPriority: e.target.value === 'speed',
+            }))}
+          >
+            <option value="speed">速度优先（turbo 双采 · 约半时长）</option>
+            <option value="quality">质量优先（全步数精修）</option>
+          </select>
+          <p className="manga-form-tip" style={{ margin: 0 }}>
+            速度优先 = turbo 双采（同分辨率实测快约一半，画质持平）；
+            质量优先 = 现行全步数链路。仅作用于 H3 视频链，保存后下次
+            生成视频生效。
+          </p>
+        </div>
 
         {/* ⑥ 超分分辨率（2026-10-12 用户令：超分视频列的目标档位） */}
         <div>

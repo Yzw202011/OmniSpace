@@ -203,6 +203,9 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
       const duration = opts?.duration ?? mcfg.duration;
       const aspect = opts?.aspect ?? mcfg.aspect;
       const quality = opts?.quality ?? mcfg.quality ?? '';
+      // 画质优先级（2026-10-25 双链并存）：显式 opts > 模型配置默认；
+      // 请求恒携带（true=turbo 双采 / false=现行链），后端按此分道
+      const speedPriority = opts?.speedPriority ?? mcfg.speedPriority ?? false;
       const modelOverride = opts?.modelOverride
         || (mcfg.videoModel || undefined);
       // 点击即时反馈（同事故另一半根因）：POST 返回前先乐观置 pending——
@@ -238,6 +241,7 @@ export const createVideoSlice: StateCreator<MangaState, [], [], VideoSlice> = (s
           duration_seconds: duration,
           resolution: aspect === '9:16' ? '576x1024' : '1024x576',
           quality,
+          speed_priority: speedPriority,
         });
         const degraded =
           typeof (res as { degraded?: unknown }).degraded === 'boolean'

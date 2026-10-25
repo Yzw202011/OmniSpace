@@ -1032,10 +1032,26 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
         # 功能锁释放/vLLM 唤醒由视频队列在排空时统一编排（2026-09-02）
 
 
+def _speed_priority_overrides(speed_priority: bool) -> dict:
+    """画质优先级 → 引擎覆盖参（2026-10-25 用户拍板双链并存）。
+
+    速度优先 = turbo 双采（6 步粗采 + 低σ精修；720p 约 21 分钟，A/B
+    实测 -48%~-55% 画质持平略优）；质量优先 = 现行链全步数（显式
+    turbo_override=False——即使用户将来 flip config h3_turbo 也不被
+    暗中改道）。返回 run_h3_chain_task 的三个覆盖 kwargs。
+    """
+    if speed_priority:
+        return {"turbo_override": True, "steps_override": 6,
+                "refine_pass": True}
+    return {"turbo_override": False, "steps_override": None,
+            "refine_pass": False}
+
+
 def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                           quality: str, aspect: str = "16:9",
                           start_clip: int = 1, run_name: str = "",
-                          flow: Flow | None = None) -> callable:
+                          flow: Flow | None = None,
+                          speed_priority: bool = False) -> callable:
     """H3 链式 runner 工厂（2026-09-02 视频队列改造）。
 
     统一承接原 generate 单镜 worker 与 generate_h3_chain 直连 worker
@@ -1088,7 +1104,9 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                                            run_name=run_name, progress_cb=cb,
                                            aspect=aspect,
                                            check_cancel=check_cancel,
-                                           keep_loaded=keep_loaded)
+                                           keep_loaded=keep_loaded,
+                                           **_speed_priority_overrides(
+                                               speed_priority))
                 _h3_node.clear()
             _video_update_task(task_id, {
                 "status": "done", "progress": 1.0,
@@ -1515,7 +1533,8 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
         runner = _make_h3_chain_runner(
             row_ids=[req.storyboard_row_id], seconds=seconds,
             quality=_quality_tier,
-            aspect=_aspect_any, flow=flow)
+            aspect=_aspect_any, flow=flow,
+            speed_priority=req.speed_priority)
         resp["engine"] = "h3_chain"
     else:
         VIDEO_OUT_DIR.mkdir(parents=True, exist_ok=True)

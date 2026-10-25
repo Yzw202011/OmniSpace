@@ -946,6 +946,10 @@ class VideoGenerateRequest(BaseModel):
     # 分辨率档（2026-10-03 分档具体化）：720p/480p，空=按时长档默认；
     # 精确配对表见 api/manga/video_caps.py（非法组合带允许清单拒绝）
     quality: str = ""
+    # 画质优先级（2026-10-25 用户拍板双链并存）：速度优先=turbo 双采
+    # （6 步粗采+低σ精修，720p 约半时长）；质量优先=现行链全步数；
+    # 缺省=走 config manga.h3_turbo 既有默认（零行为变化）
+    speed_priority: bool = False
     # STYLE-026：风格 LoRA 挂载（训练成果应用到视频生成管线）。
     # 当前 Ken Burns 降级管线接收并落库/回显，LTX-2 就绪后实际生效。
     style_lora_version: str | None = None

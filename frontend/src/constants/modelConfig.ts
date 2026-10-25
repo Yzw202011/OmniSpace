@@ -25,6 +25,9 @@ export interface MangaModelConfig {
   duration: number;
   /** 视频默认分辨率档（720p/480p；''=跟随档位默认） */
   quality: string;
+  /** 画质优先级（2026-10-25 拍板双链并存）：true=速度优先（turbo 双采），
+   *  false=质量优先（现行链全步数）。缺省 false=存量行为零变化 */
+  speedPriority: boolean;
 }
 
 /** 默认配置（模型空串 = 系统默认；横屏 16:9；5 秒）——恢复默认入口共用 */
@@ -35,6 +38,7 @@ export const DEFAULT_MODEL_CONFIG: MangaModelConfig = {
   aspect: '16:9',
   duration: 5,
   quality: '',
+  speedPriority: false,
 };
 
 /** 可选视频时长（秒，2026-10-12 用户令 5/10/15；档位表缺失时的静态兜底） */
@@ -100,6 +104,9 @@ export function loadModelConfig(): MangaModelConfig {
           ? obj.duration
           : DEFAULT_MODEL_CONFIG.duration,
       quality: typeof obj.quality === 'string' ? obj.quality : DEFAULT_MODEL_CONFIG.quality,
+      speedPriority: typeof obj.speedPriority === 'boolean'
+        ? obj.speedPriority
+        : DEFAULT_MODEL_CONFIG.speedPriority,
     };
   } catch {
     return { ...DEFAULT_MODEL_CONFIG };

@@ -288,6 +288,9 @@ export interface VideoGeneratePayload {
   /** 分辨率档 720p/480p（2026-10-03 分档具体化：空=时长档默认，
    *  档位表见后端 api/manga/video_caps.py，非法组合被精确拒绝） */
   quality?: string;
+  /** 画质优先级（2026-10-25 拍板双链并存）：true=速度优先（turbo 双采
+   *  约 21 分钟），false/缺省=质量优先（现行链全步数） */
+  speed_priority?: boolean;
 }
 
 /** 发起视频生成（POST /manga/video/generate）→ {task_id, status, queue_position} */

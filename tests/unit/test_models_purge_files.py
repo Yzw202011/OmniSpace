@@ -27,12 +27,21 @@ class _StubMgr:
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, rec: dict[str, Any] | None,
-           ) -> None:
+           tmp_path: Path | None = None) -> None:
     monkeypatch.setattr(
         models_api, "_find_model",
         lambda mid: rec if rec is not None and mid == rec["id"] else None)
     monkeypatch.setattr(models_api, "get_model_manager", lambda: _StubMgr())
     monkeypatch.setattr(models_api, "get_db_safe", lambda: None)
+    # 2026-10-25 止血：purge 端点尾段 _sync_manifest(remove) 会写
+    # models/models_manifest.json 真身（此前隔离漏此依赖，R2-H10 的
+    # list/dict 坑曾借本测试把真注册表 22 条清成 0）——一律重定向到
+    # tmp 隔离清单。remove 对缺失清单返回 False，不影响端点行为断言。
+    from src.data import model_registry as _reg
+    monkeypatch.setattr(
+        _reg, "MANIFEST_PATH",
+        (tmp_path / "models_manifest.json") if tmp_path is not None
+        else Path(models_api.__file__).parent / "_nonexistent_manifest.json")
 
 
 def test_purge_deletes_files_and_registry(tmp_path: Path,
@@ -44,7 +53,7 @@ def test_purge_deletes_files_and_registry(tmp_path: Path,
     (model_dir / "weights.bin").write_bytes(b"x" * (256 * 1024 * 1024))
     rec = {"id": "test-model", "file_path": str(model_dir),
            "category": "llm"}
-    _patch(monkeypatch, rec)
+    _patch(monkeypatch, rec, tmp_path=tmp_path)
     models_api._models["test-model"] = dict(rec)
 
     out = models_api.models_purge_files("test-model")

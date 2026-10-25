@@ -144,6 +144,58 @@ def remove_manifest_entry(model_id: str) -> bool:
     return True
 
 
+def add_manifest_entry(model_id: str, entry: dict) -> bool:
+    """向 manifest v3 登记/更新条目并落盘（R2-H10 修正版）。
+
+    契约：manifest["models"] 是 **dict**（v3 真源格式，load_manifest
+    强校验）。entry 必须齐 REQUIRED_FIELDS 且形状合法（lifecycle 枚举/
+    capabilities 非空字符串列表/path 非空）——不完整条目拒写返回 False
+    （宁缺勿烂：薄条目会击穿 test_manifest_v3_schema，出包全量重写
+    才是登记簿补全的正规通道）。
+    """
+    if not model_id or not isinstance(entry, dict):
+        return False
+    caps = entry.get("capabilities")
+    if (not all(f in entry for f in REQUIRED_FIELDS)
+            or entry.get("lifecycle") not in LIFECYCLE_VALUES
+            or not isinstance(caps, list) or not caps
+            or not all(isinstance(c, str) for c in caps)
+            or not isinstance(entry.get("path"), str)
+            or not entry.get("path")):
+        log.warning("登记表新增拒绝（条目不满足 v3 契约）: %s", model_id)
+        return False
+    with _cache_lock:
+        try:
+            raw = (MANIFEST_PATH.read_text(encoding="utf-8")
+                   if MANIFEST_PATH.is_file() else None)
+        except OSError:
+            raw = None
+    try:
+        data = (json.loads(raw) if raw is not None
+                else {"manifest_version": 3})
+        models = data.get("models")
+        if raw is not None and not isinstance(models, dict):
+            raise ValueError("manifest models 非 dict（损坏）")
+        if not isinstance(models, dict):
+            models = {}
+        models[model_id] = entry
+        data["models"] = models
+    except Exception as exc:  # noqa: BLE001 - 损坏清单不覆写
+        log.warning("登记表新增失败（清单损坏，保留原文件）: %s", exc)
+        return False
+    try:
+        MANIFEST_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=1) + "\n",
+            encoding="utf-8")
+    except OSError as exc:
+        log.warning("登记表写盘失败: %s", exc)
+        return False
+    with _cache_lock:
+        _cache.update({"mtime": -1.0, "data": None})  # 下次读取强制重载
+    log.info("登记表条目已写入: %s", model_id)
+    return True
+
+
 def _dir_has_signature(p: Path) -> bool:
     """目录（或其直接子目录）是否含模型特征文件。"""
     if any((p / f).is_file() for f in _DIR_SIGNATURES):

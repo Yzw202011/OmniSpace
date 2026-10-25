@@ -746,36 +746,33 @@ def _sync_manifest(model_id: str, action: str) -> None:
 
     action: "add"=追加条目 / "remove"=摘除条目。best-effort：失败仅
     log.warning（manifest 过时不阻断业务操作，下次出包全量重写自愈）。
-    """
-    import json as _json
 
-    from ..config import MODELS_DIR as _MD
-    manifest_path = _MD / "models_manifest.json"
-    try:
-        manifest = (_json.loads(manifest_path.read_text("utf-8"))
-                    if manifest_path.is_file() else {})
-        models = manifest.get("models", [])
-        if not isinstance(models, list):
-            models = []
-        if action == "remove":
-            models = [m for m in models if m.get("id") != model_id]
-        elif action == "add" and \
-                not any(m.get("id") == model_id for m in models):
-            entry = next((m for m in _merged_models()
-                          if m.get("id") == model_id), None)
-            if entry:
-                models.append({
-                    "id": model_id,
-                    "name": entry.get("name", ""),
-                    "category": entry.get("category", ""),
-                    "min_vram_gb": entry.get("min_vram_gb", 0),
-                })
-        manifest["models"] = models
-        manifest_path.write_text(
-            _json.dumps(manifest, ensure_ascii=False, indent=2),
-            encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("manifest 同步失败 (%s %s): %s", action, model_id, exc)
+    2026-10-25 根修（止血）：本函数原自带 JSON 读写按 **list** 处理
+    models 字段，而 manifest v3 真源格式是 **dict**（load_manifest
+    强校验）——任何增删调用都会把整本注册表清成空 list 落盘（实测
+    models/models_manifest.json 22 条→0）。改经 data.model_registry
+    单写者委托：remove→remove_manifest_entry；add→仅当合并视图能
+    供出齐 REQUIRED_FIELDS 的完整条目才写（薄条目会被注册表按 v3
+    契约拒收，登记簿留待出包全量重写补全）。
+    """
+    from ..data import model_registry as _reg
+
+    if action == "remove":
+        _reg.remove_manifest_entry(model_id)
+        return
+    if action == "add":
+        entry = next((m for m in _merged_models()
+                      if m.get("id") == model_id), None)
+        if entry is None:
+            log.info("manifest 同步跳过（合并视图无此模型）: %s", model_id)
+            return
+        full = {f: entry.get(f) for f in _reg.REQUIRED_FIELDS
+                if entry.get(f) is not None}
+        if len(full) != len(_reg.REQUIRED_FIELDS):
+            log.info("manifest 同步跳过（条目不满足 v3 契约，出包重写"
+                     "补全）: %s", model_id)
+            return
+        _reg.add_manifest_entry(model_id, full)
 
 
 def _model_dependencies(model: dict) -> list[dict]:

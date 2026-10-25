@@ -652,10 +652,13 @@ export const useDialogStore = create<DialogState>((set, get) => ({
       (data) => {
         const msg = data?.message || '生成失败';
         // 模型加载期失败（后端在用户消息落库前拒绝，2026-09-21）：
-        // 排队等待模型就绪后自动补发一次，不再让用户手点重发
+        // 排队等待模型就绪后自动补发一次，不再让用户手点重发。
+        // 2026-10-25 用户拍板收窄：仅瞬态未就绪（MODEL_LOADING/30003
+        // =后端等待窗仍在途）才排队补发；MODEL_LOAD_FAILED=装载已被
+        // 闸门终态拒绝（显存装不下/模型缺失，message 已带大白话原因）
+        // ——立即如实报错，绝不伪装成「加载中」空等 6 分钟补发轮询
         const code = String(data?.code ?? '');
-        if (code === 'MODEL_LOADING' || code === 'MODEL_LOAD_FAILED'
-            || code === '30003') {
+        if (code === 'MODEL_LOADING' || code === '30003') {
           useAppStore.getState().showToast(
             '模型仍在加载，就绪后将自动补发本条消息', 'warning');
           set((state) => ({

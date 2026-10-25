@@ -170,7 +170,7 @@
         "src/api/**/*.py"
       ],
       "pattern": "@router\\.(get|post|put|delete|patch)\\(",
-      "expected": 394,
+      "expected": 377,
       "why": "端点总数计数哨兵（含别名；2026-09-19 深夜勘正：批5 时点实测 371 准、批6 实增 7 条（tasks_center/files_gallery/quota_put/novel_batch/character_lora版本删/learn_lora版本删/plugins_reload）371+7=378，而 b994003 误记 376（自称八端点只 +5，旧 why 方法分解 149+164+31+26=370 自相矛盾）——三时点 git grep 实证 b994003=HEAD=工作区=378，分法 get154+post165+put32+delete27）。增删端点后：同步 CLAUDE.md §4 与 INDEX api 行，再更新本 expected；2026-10-03 +1（cloud.py 新增 GET /cloud/providers/{pid}/billing 余额查询，MagicAI 介绍页动态项）→379"
     },
     {

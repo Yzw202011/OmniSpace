@@ -768,7 +768,7 @@ def backups_delete(req: dict[str, Any] = Body(default_factory=dict)) -> dict[str
     if BACKUP_DIR.resolve() not in target.parents:
         raise ApiError("SYSTEM_PARAM_INVALID", "路径越界")
     if not target.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "备份文件不存在")
+        raise ApiError("SYSTEM_BACKUP_NOT_FOUND", "备份文件不存在")
     size = target.stat().st_size
     target.unlink()
     return ok({"filename": name, "freed_mb": round(size / 1024**2, 1)})
@@ -957,7 +957,7 @@ async def system_restore(req: dict[str, Any] = Body(default_factory=dict)) -> di
                        suggestion="请从 GET /system/restore/list 返回的清单中选择")
     src = BACKUP_DIR / safe
     if not src.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "备份文件不存在",
+        raise ApiError("SYSTEM_BACKUP_NOT_FOUND", "备份文件不存在",
                        detail={"filename": safe})
     size = src.stat().st_size
     if size < 4096:
@@ -1477,7 +1477,7 @@ def _collect_project_bundle(db: Database, project_id: str) -> dict:
         "SELECT id, name, path, created_at, updated_at"
         " FROM projects WHERE id=?", (project_id,))
     if project is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在",
+        raise ApiError("STORYBOARD_PROJECT_NOT_FOUND", "项目不存在",
                        detail={"project_id": project_id})
 
     storyboard = db.query_one(
@@ -2527,7 +2527,7 @@ def api_keys_delete(key_id: str) -> dict[str, Any]:
     db = get_db_safe()
     row = db.query_one("SELECT id FROM api_keys WHERE id=?", (key_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "API Key 不存在",
+        raise ApiError("SYSTEM_APIKEY_NOT_FOUND", "API Key 不存在",
                        detail={"id": key_id})
     db.delete("api_keys", "id=?", (key_id,))
     return ok({"id": key_id, "deleted": True})
@@ -2598,7 +2598,7 @@ def system_logs_export() -> FileResponse:
     """日志导出（SET-026）：当前 backend.log 以 .txt 下载。"""
     current = LOGS_DIR / "backend.log"
     if not current.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "日志文件不存在")
+        raise ApiError("FILE_NOT_FOUND", "日志文件不存在")
     return FileResponse(str(current), media_type="text/plain",
                         filename=f"omnispace_logs_{_now_ts()}.txt")
 

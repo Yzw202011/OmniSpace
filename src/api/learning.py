@@ -318,7 +318,7 @@ def topic_delete(body: dict = Body(default_factory=dict),
     if _mem_topics.pop(topic_id, None) is not None:
         deleted += 1
     if deleted == 0:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
+        raise ApiError("LEARN_TOPIC_NOT_FOUND", "学习主题不存在",
                        detail={"id": topic_id})
     return ok({"id": topic_id, "deleted": True}, message="主题已删除")
 
@@ -351,7 +351,7 @@ def topic_clone(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     if src is None and topic_id in _mem_topics:
         src = dict(_mem_topics[topic_id])
     if src is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
+        raise ApiError("LEARN_TOPIC_NOT_FOUND", "学习主题不存在",
                        detail={"topic_id": topic_id})
 
     _raw_clone_name = (body or {}).get("name")
@@ -435,7 +435,7 @@ def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict
             affected = db.update("learning_topics", patch, "id=?",
                                  (topic_id,))
             if affected == 0:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
+                raise ApiError("LEARN_TOPIC_NOT_FOUND", "学习主题不存在",
                                detail={"id": topic_id})
             row = db.query_one(
                 "SELECT id, name, keywords, status, progress,"
@@ -450,7 +450,7 @@ def topic_update(topic_id: str, body: dict = Body(default_factory=dict)) -> dict
 
     topic = _mem_topics.get(topic_id)
     if topic is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
+        raise ApiError("LEARN_TOPIC_NOT_FOUND", "学习主题不存在",
                        detail={"id": topic_id})
     topic.update(patch)
     topic["updated_at"] = _now()
@@ -543,7 +543,7 @@ def session_start(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
         topic_seeds = list(_mem_topics[topic_id].get("seed_urls", []))
         topic_max_pages = int(_mem_topics[topic_id].get("max_pages", 0) or 0)
     if not goal:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "学习主题不存在",
+        raise ApiError("LEARN_TOPIC_NOT_FOUND", "学习主题不存在",
                        detail={"topic_id": topic_id})
 
     settings = get_learning_settings()

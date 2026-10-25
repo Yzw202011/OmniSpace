@@ -1269,7 +1269,7 @@ def draw_result(task_id: str) -> dict[str, Any]:
                     })
             except Exception as exc:  # noqa: BLE001
                 log.warning("paint_history 查询失败: %s", exc, exc_info=True)
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
+        raise ApiError("DRAW_TASK_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
 
     resp = {
         "task_id": task_id,
@@ -1313,7 +1313,7 @@ def paint_task_cancel(task_id: str) -> dict[str, Any]:
     """
     task = _task_get(task_id)
     if task is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
+        raise ApiError("DRAW_TASK_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
     if task["status"] in ("done", "error", "cancelled"):
         raise ApiError("SYSTEM_PARAM_INVALID", f"任务已结束（{task['status']}），无法取消")
 
@@ -1341,7 +1341,7 @@ def paint_task_priority(task_id: str, body: dict = Body(default_factory=dict)) -
     """
     task = _task_get(task_id)
     if task is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
+        raise ApiError("DRAW_TASK_NOT_FOUND", "任务不存在", detail={"task_id": task_id})
     try:
         priority = int(body.get("priority", 5))
     except (TypeError, ValueError):
@@ -1523,7 +1523,7 @@ def paint_history_favorite(task_id: str,
 
     row = _history_row(task_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "历史记录不存在",
+        raise ApiError("DRAW_HISTORY_NOT_FOUND", "历史记录不存在",
                        detail={"task_id": task_id})
     explicit = body.get("favorite")
     if explicit is None:
@@ -1618,7 +1618,7 @@ def draw_image(filename: str, thumb: int = 0) -> FileResponse:
     safe = Path(filename).name  # 防路径穿越：仅取文件名部分
     path = GENERATED_DIR / "images" / safe
     if not path.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "图片不存在或已被清理",
+        raise ApiError("FILE_NOT_FOUND", "图片不存在或已被清理",
                        detail={"filename": safe})
     if thumb:
         thumb_path = _paint_thumbnail(path)

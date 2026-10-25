@@ -134,7 +134,7 @@ def storyboard_get(project_id: str) -> dict[str, Any]:
         try:
             if db.query_one("SELECT id FROM projects WHERE id=?",
                             (project_id,)) is None:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在",
+                raise ApiError("STORYBOARD_PROJECT_NOT_FOUND", "项目不存在",
                                detail={"project_id": project_id})
             sb = _find_storyboard(db, project_id)
             if sb is None:
@@ -158,14 +158,14 @@ def storyboard_row_update(project_id: str, row_id: str,
         try:
             sb = _find_storyboard(db, project_id)
             if sb is None:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜表不存在", detail={"project_id": project_id})
+                raise ApiError("STORYBOARD_NOT_FOUND", "分镜表不存在", detail={"project_id": project_id})
             row = db.query_one(
                 f"SELECT {_SB_ROW_COLS} FROM storyboard_rows"
                 " WHERE id=? AND storyboard_id=?",
                 (row_id, sb["id"]),
             )
             if row is None:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
+                raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
             update_fields = req.model_dump(exclude_none=True)
             # 批 1.3 导演字段校验（非法值拒绝，不静默写库）
             _validate_row_director_fields(update_fields)
@@ -203,10 +203,10 @@ def storyboard_row_update(project_id: str, row_id: str,
 
     rows = _storyboards.get(project_id)
     if rows is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜表不存在", detail={"project_id": project_id})
+        raise ApiError("STORYBOARD_NOT_FOUND", "分镜表不存在", detail={"project_id": project_id})
     target = next((r for r in rows if r["id"] == row_id), None)
     if target is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
     patch = req.model_dump(exclude_none=True)
     if "asset_ids" in patch and "asset_id" not in patch:
         ids = patch["asset_ids"] or []
@@ -1383,7 +1383,7 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
                 "SELECT id, storyboard_id FROM storyboard_rows"
                 f" WHERE id IN ({placeholders})", tuple(row_ids))
             if not found:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
+                raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在",
                                detail={"row_ids": row_ids[:5]})
             order = {rid: i for i, rid in enumerate(row_ids)}
             now = _now()
@@ -1429,7 +1429,7 @@ def storyboard_reorder(body: dict = Body(default_factory=dict)) -> dict[str, Any
                 r["sort_index"] = order[r["id"]]
                 matched.append(r)
     if not matched:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_ids": row_ids[:5]})
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_ids": row_ids[:5]})
     for pool in pools:
         pool.sort(key=lambda r: (r.get("sort_index", 0),
                                  r.get("shot_number", 0)))
@@ -1527,7 +1527,7 @@ async def storyboard_ai_describe(req: AiDescribeRequest) -> dict[str, Any]:
     if row_id:
         row = _load_storyboard_row(row_id, project_id)
         if row is None:
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
+            raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
         if not dialogue:
             dialogue = (row.get("original_dialogue") or "").strip()
     else:
@@ -1646,7 +1646,7 @@ async def storyboard_preview(body: dict = Body(default_factory=dict)) -> dict[st
     if row_id:
         row = _load_storyboard_row(row_id, project_id)
         if row is None:
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
+            raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": row_id})
         if not description:
             description = (row.get("description")
                            or row.get("original_dialogue") or "").strip()

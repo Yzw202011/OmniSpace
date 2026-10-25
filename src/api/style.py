@@ -330,7 +330,7 @@ def style_preview(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
             raise ApiError("UNSUPPORTED_FORMAT", "image_path 必须在产品数据目录内",
                            detail={"data_dir": str(DATA_DIR)})
         if not preview_src.is_file():
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "预览图文件不存在",
+            raise ApiError("FILE_NOT_FOUND", "预览图文件不存在",
                            detail={"image_path": image_path})
 
     try:

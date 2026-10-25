@@ -348,7 +348,7 @@ def comic_project_update(project_id: str, req: ProjectUpdate) -> dict[str, Any]:
     row = db.query_one("SELECT id, art_style FROM projects WHERE id=?",
                        (project_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
+        raise ApiError("STORYBOARD_PROJECT_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     dup = db.query_one("SELECT id FROM projects WHERE name=? AND id<>?",
                        (req.name, project_id))
     if dup is not None:
@@ -442,7 +442,7 @@ def comic_project_delete(project_id: str) -> dict[str, Any]:
     if db is None:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用，无法删除项目")
     if not _delete_project_cascade(db, project_id):
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
+        raise ApiError("STORYBOARD_PROJECT_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     try:  # 批5 P18 审计
         from ...services.audit_log import log_audit
         log_audit('comic', 'project_delete', target=project_id)
@@ -466,7 +466,7 @@ def comic_project_batch_delete(req: ProjectBatchDelete) -> dict[str, Any]:
         else:
             missing_ids.append(pid)
     if not deleted_ids:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_ids": missing_ids})
+        raise ApiError("STORYBOARD_PROJECT_NOT_FOUND", "项目不存在", detail={"project_ids": missing_ids})
     try:  # 批5 P18 审计
         from ...services.audit_log import log_audit
         log_audit('comic', 'project_batch_delete', target=",".join(deleted_ids)[:180])
@@ -501,7 +501,7 @@ def _read_skill_images(relpaths: list[str]) -> list[Any]:
             raise ApiError("SYSTEM_PARAM_INVALID", "图片路径不在允许目录内",
                            detail={"allowed": list(_COMIC_SKILL_INPUT_DIRS)})
         if not base.is_file():
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "图片不存在", detail={"path": rel[:200]})
+            raise ApiError("FILE_NOT_FOUND", "图片不存在", detail={"path": rel[:200]})
         try:
             img = Image.open(base).convert("RGB")
         except OSError as exc:

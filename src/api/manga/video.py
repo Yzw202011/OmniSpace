@@ -1331,7 +1331,7 @@ async def video_generate(req: VideoGenerateRequest) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 log.warning("H3 入口前置校验查询失败: %s", exc, exc_info=True)
         if _row is None:
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
+            raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在",
                 detail={"storyboard_row_id": req.storyboard_row_id})
         if not ( _row.get("description") or "").strip():
             raise ApiError("STORYBOARD_ROW_EMPTY", "该分镜行描述词为空，无法生成视频，"
@@ -2072,7 +2072,7 @@ def manga_media(relpath: str) -> FileResponse:
         raise ApiError("SYSTEM_PARAM_INVALID", "文件路径不在允许目录内",
                        detail={"allowed": list(_MEDIA_ALLOWED_DIRS)})
     if not base.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "文件不存在或已被清理",
+        raise ApiError("FILE_NOT_FOUND", "文件不存在或已被清理",
                        detail={"path": relpath[:200]})
     media_type = _MEDIA_TYPES.get(base.suffix.lower(),
                                   "application/octet-stream")
@@ -2385,10 +2385,10 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
         except Exception as exc:  # noqa: BLE001
             log.warning("H3 直连前置校验查询失败: %s", exc, exc_info=True)
     if _h3row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在",
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在",
             detail={"storyboard_row_id": req.storyboard_row_id})
     if not (_h3row.get("description") or "").strip():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行描述词为空，无法生成视频，"
+        raise ApiError("STORYBOARD_ROW_EMPTY", "该分镜行描述词为空，无法生成视频，"
             "请先填写或用 AI 生成分镜描述词",
             detail={"storyboard_row_id": req.storyboard_row_id,
                     "suggestion": "在分镜表格编辑描述词，或执行「分镜生词」"})
@@ -2410,7 +2410,7 @@ async def video_generate_h3_chain(req: H3ChainGenerateRequest) -> dict[str, Any]
             log.warning("H3 直连绑定资产计数失败（交引擎校验）: %s", exc, exc_info=True)
             _h3n_img = -1
         if _h3n_img == 0:
-            raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "该分镜行未绑定带图资产（人物/场景/道具），"
+            raise ApiError("STORYBOARD_NOT_BOUND", "该分镜行未绑定带图资产（人物/场景/道具），"
                 "无法生成视频，请先在资产面板绑定",
                 detail={"storyboard_row_id": req.storyboard_row_id,
                         "suggestion": "右侧资产面板把角色/场景/道具拖入绑定"})

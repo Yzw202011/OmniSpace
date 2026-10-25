@@ -1626,7 +1626,7 @@ def chat_get_session(session_id: str) -> dict[str, Any]:
     """会话详情 + 全部消息（时间升序）。"""
     row = _get_session_row(session_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
+        raise ApiError("DIALOG_SESSION_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     data = _enrich_session(row)
     data["messages"] = _session_messages(session_id)
     return ok(data)
@@ -1642,7 +1642,7 @@ def chat_list_messages(session_id: str,
     全量加载后 Python 切片（假分页），万级消息会话每次翻页都拖全表。
     """
     if _get_session_row(session_id) is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
+        raise ApiError("DIALOG_SESSION_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     db = get_db_safe()
     offset = (page - 1) * page_size
     if db is not None:
@@ -1671,7 +1671,7 @@ def chat_update_session(session_id: str, body: dict = Body(default_factory=dict)
     """更新会话（重命名 title / 置顶 pinned / 模式 mode）。"""
     row = _get_session_row(session_id)
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
+        raise ApiError("DIALOG_SESSION_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     patch: dict = {}
     if "title" in body:
         patch["title"] = str(body["title"] or "新对话")[:50]
@@ -1708,7 +1708,7 @@ def _delete_session_everywhere(session_id: str) -> dict[str, Any]:
             sess = db.query_one(
                 "SELECT id FROM dialog_sessions WHERE id=?", (session_id,))
             if sess is None:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在",
+                raise ApiError("DIALOG_SESSION_NOT_FOUND", "会话不存在",
                                detail={"session_id": session_id})
             db.delete("dialog_messages", "session_id=?", (session_id,))
             db.delete("dialog_sessions", "id=?", (session_id,))
@@ -1719,7 +1719,7 @@ def _delete_session_everywhere(session_id: str) -> dict[str, Any]:
             log.warning("数据库删除失败，降级内存存储: %s", exc, exc_info=True)
 
     if session_id not in _mock_sessions:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
+        raise ApiError("DIALOG_SESSION_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     _mock_sessions.pop(session_id, None)
     _mock_messages.pop(session_id, None)
     return ok({"deleted": session_id})
@@ -1735,7 +1735,7 @@ def chat_delete_session(session_id: str) -> dict[str, Any]:
 def chat_clear_messages(session_id: str) -> dict[str, Any]:
     """清空会话消息但保留会话（规格 §4.1）。"""
     if _get_session_row(session_id) is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
+        raise ApiError("DIALOG_SESSION_NOT_FOUND", "会话不存在", detail={"session_id": session_id})
     db = get_db_safe()
     if db is not None:
         try:
@@ -1805,7 +1805,7 @@ def _update_message_flag(sid: str, mid: str, field: str,
                 " FROM dialog_messages WHERE id=? AND session_id=?",
                 (mid, sid))
             if row is None:
-                raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "消息不存在",
+                raise ApiError("DIALOG_MESSAGE_NOT_FOUND", "消息不存在",
                                detail={"message_id": mid})
             new_val = value if value is not None else (0 if row.get("favorite") else 1)
             db.update("dialog_messages", {field: new_val}, "id=?", (mid,))
@@ -1819,7 +1819,7 @@ def _update_message_flag(sid: str, mid: str, field: str,
         if m["id"] == mid:
             m[field] = value if value is not None else (0 if m.get("favorite") else 1)
             return ok(_row_to_message(m))
-    raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "消息不存在", detail={"message_id": mid})
+    raise ApiError("DIALOG_MESSAGE_NOT_FOUND", "消息不存在", detail={"message_id": mid})
 
 
 @router.get("/chat/favorites")

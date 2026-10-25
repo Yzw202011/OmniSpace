@@ -422,12 +422,12 @@ def comic_asset_bind(req: AssetBindRequest) -> dict[str, Any]:
     asset = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (req.asset_id,))
     if asset is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
     row = db.query_one(
         "SELECT id, asset_id, asset_ids FROM storyboard_rows WHERE id=?",
         (req.row_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": req.row_id})
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": req.row_id})
     asset_ids = _row_asset_ids(row)
     if req.asset_id not in asset_ids:
         asset_ids.append(req.asset_id)
@@ -453,7 +453,7 @@ def comic_asset_adopt(req: AssetAdoptRequest) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (req.asset_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
     asset = _asset_row_to_dict(row)
     if asset.get("project_id") == req.project_id:
         raise ApiError("SYSTEM_PARAM_INVALID", "该资产已在当前项目中",
@@ -586,7 +586,7 @@ def comic_asset_to_global(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     if asset.get("scope") == "global":
         return ok({"asset": asset, "already_global": True})
@@ -633,12 +633,12 @@ def comic_asset_unbind(req: AssetBindRequest) -> dict[str, Any]:
     asset = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (req.asset_id,))
     if asset is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": req.asset_id})
     row = db.query_one(
         "SELECT id, asset_id, asset_ids FROM storyboard_rows WHERE id=?",
         (req.row_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "分镜行不存在", detail={"row_id": req.row_id})
+        raise ApiError("STORYBOARD_ROW_NOT_FOUND", "分镜行不存在", detail={"row_id": req.row_id})
     asset_ids = [a for a in _row_asset_ids(row) if a != req.asset_id]
     asset_id = row.get("asset_id", "") or ""
     if asset_id == req.asset_id:
@@ -664,7 +664,7 @@ def comic_asset_update(asset_id: str, req: AssetUpdateRequest) -> dict[str, Any]
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     fields = req.model_dump(exclude_none=True)
     if fields:
         if "prompt" in fields:
@@ -699,7 +699,7 @@ async def comic_asset_regenerate(asset_id: str,
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     # 角色资产首次四视图化：置 turnaround 标记，后续按四视图路径重生成
     if str(body.get("mode") or "") == "four_views" \
@@ -770,7 +770,7 @@ async def comic_asset_regenerate_view(asset_id: str,
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     if not (asset.get("meta") or {}).get("turnaround"):
         raise ApiError("SYSTEM_PARAM_INVALID", "该资产不是四视图资产，无法单视图重生",
@@ -837,7 +837,7 @@ async def comic_asset_reference_upload(asset_id: str,
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     filename = (file.filename or "").lower()
     ext = Path(filename).suffix
@@ -908,7 +908,7 @@ def comic_asset_delete(
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
 
     # 软删分支（2026-10-24 用户拍板 A）：remove_from_project 在借用
@@ -1085,7 +1085,7 @@ def comic_asset_reference_delete(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     out_dir = _asset_dir_for(asset)
     ref_path = out_dir / "reference.png"
@@ -1112,7 +1112,7 @@ def comic_asset_history(asset_id: str) -> dict[str, Any]:
     row = db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     meta = asset.get("meta") or {}
     history = meta.get("history")
@@ -1271,7 +1271,7 @@ async def comic_asset_image_replace(asset_id: str,
     arow = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if arow is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(arow)
     filename = (file.filename or "").lower()
     ext = Path(filename).suffix
@@ -2618,7 +2618,7 @@ async def comic_asset_describe(asset_id: str) -> dict[str, Any]:
     row = await run_blocking(lambda: db.query_one(
         f"SELECT {_ASSET_COLS} FROM comic_assets WHERE id=?", (asset_id,)))
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
+        raise ApiError("COMIC_ASSET_NOT_FOUND", "资产不存在", detail={"asset_id": asset_id})
     asset = _asset_row_to_dict(row)
     kind_label = {"character": "角色", "scene": "场景",
                   "prop": "道具"}.get(asset.get("kind", ""), "资产")

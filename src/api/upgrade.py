@@ -171,7 +171,7 @@ def upgrade_start(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str
     name = _safe_package_name(str(body.get("package") or ""))
     pkg = usvc.updates_dir() / name
     if not pkg.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"升级包不存在: {name}",
+        raise ApiError("UPGRADE_PACKAGE_NOT_FOUND", f"升级包不存在: {name}",
                        suggestion="请先在设置页导入升级包")
     updater_py = ROOT_DIR / "updater" / "updater.py"
     if not updater_py.is_file():
@@ -248,7 +248,7 @@ def upgrade_delete_package(name: str) -> dict[str, Any]:
     base = _safe_package_name(name)
     pkg = usvc.updates_dir() / base
     if not pkg.is_file():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"升级包不存在: {base}")
+        raise ApiError("UPGRADE_PACKAGE_NOT_FOUND", f"升级包不存在: {base}")
     pkg.unlink()
     return ok({"deleted": base})
 

@@ -1743,7 +1743,7 @@ def _load_project_rows(project_id: str) -> tuple[Database, dict, list[dict]]:
         raise ApiError("SYSTEM_DB_DEGRADED", "数据库不可用")
     sb = _find_storyboard(db, project_id)
     if sb is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
+        raise ApiError("STORYBOARD_PROJECT_NOT_FOUND", "项目不存在", detail={"project_id": project_id})
     rows = _load_rows(db, sb["id"])
     return db, sb, rows
 # 本项目仅供学习使用，商业授权请+Q 3559331368

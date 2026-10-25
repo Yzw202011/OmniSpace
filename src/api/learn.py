@@ -195,7 +195,7 @@ def learn_task_detail(task_id: str) -> dict[str, Any]:
             log.warning("数据库查询失败: %s", exc, exc_info=True)
             raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务查询失败",
                            detail={"error": str(exc)}) from exc
-    raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在", detail={"task_id": task_id})
+    raise ApiError("TRAINING_TASK_NOT_FOUND", "训练任务不存在", detail={"task_id": task_id})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -233,7 +233,7 @@ def learn_task_cancel(task_id: str) -> dict[str, Any]:
         log.warning("训练任务查询失败: %s", exc, exc_info=True)
         raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
+        raise ApiError("TRAINING_TASK_NOT_FOUND", "训练任务不存在",
                        detail={"task_id": task_id})
     status = row.get("status", TrainStatus.QUEUED.value)
     if status not in _CANCELLABLE_STATUSES:
@@ -285,7 +285,7 @@ def learn_task_delete(task_id: str) -> dict[str, Any]:
         log.warning("训练任务查询失败: %s", exc, exc_info=True)
         raise ApiError("SYSTEM_INTERNAL_ERROR", "训练任务查询失败", detail={"error": str(exc)}) from exc
     if row is None:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "训练任务不存在",
+        raise ApiError("TRAINING_TASK_NOT_FOUND", "训练任务不存在",
                        detail={"task_id": task_id})
     status = row.get("status", TrainStatus.QUEUED.value)
     if status not in _TERMINAL_STATUSES:
@@ -436,7 +436,7 @@ def learn_lora_rollback(body: dict = Body(default_factory=dict)) -> dict[str, An
         raise ApiError("SYSTEM_PARAM_INVALID", "缺少必填参数: version")
     svc = get_lora_training_service()
     if not svc.rollback(version):
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"LoRA 版本不存在: {version}",
+        raise ApiError("LEARN_LORA_VERSION_NOT_FOUND", f"LoRA 版本不存在: {version}",
                        detail={"version": version,
                                "versions": [v.get("version")
                                             for v in svc.list_versions()]})
@@ -472,7 +472,7 @@ def learn_lora_version_delete(version: str) -> dict[str, Any]:
         raise ApiError("SYSTEM_PARAM_INVALID", "版本名不合法（字母数字._- ≤64）")
     target = (lts.LORA_DIR / version).resolve()
     if lts.LORA_DIR.resolve() not in target.parents or not target.is_dir():
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", "版本不存在")
+        raise ApiError("LEARN_LORA_VERSION_NOT_FOUND", "版本不存在")
     _db2 = get_db_safe()
     if _db2 is not None and _db2.query(
             "SELECT id FROM train_tasks WHERE status IN"
@@ -503,7 +503,7 @@ def learn_lora_versions_compare(a: str = Query(..., min_length=1),
     versions = {v["version"]: v for v in svc.list_versions()}
     missing = [v for v in (a, b) if v not in versions]
     if missing:
-        raise ApiError("SYSTEM_RESOURCE_NOT_FOUND", f"LoRA 版本不存在: {', '.join(missing)}",
+        raise ApiError("LEARN_LORA_VERSION_NOT_FOUND", f"LoRA 版本不存在: {', '.join(missing)}",
                        detail={"missing": missing,
                                "versions": sorted(versions)})
     va, vb = versions[a], versions[b]

@@ -136,8 +136,26 @@ SEMANTIC_CODES: dict[str, str] = {
     "VIDEO_TASK_DUPLICATE": "该分镜已有视频在生成中",
     # ②-批1（2026-10-25）：域级精确码注册（别名，零行为变化；批 2 迁移 raise）
     "VIDEO_TASK_NOT_FOUND": "视频任务不存在",
+    # ②-批3（2026-10-25）：SYSTEM_RESOURCE_NOT_FOUND 拆域收尾（storyboard/
+    # keyframe/video 泛码迁移；前端零分支依赖已核——唯一命中是对话域注释）
+    "STORYBOARD_PROJECT_NOT_FOUND": "项目不存在",
+    "STORYBOARD_NOT_FOUND": "分镜表不存在",
+    "STORYBOARD_ROW_NOT_FOUND": "分镜行不存在",
+    "KEYFRAME_NOT_FOUND": "关键帧不存在",
     "STORYBOARD_ROW_EMPTY": "分镜行描述词为空",
     "STORYBOARD_NOT_BOUND": "分镜行未绑定带图资产",
+    # ②-批4（2026-10-25）：泛码迁移第二波（learning/learn/dialog）
+    "TRAINING_TASK_NOT_FOUND": "训练任务不存在",
+    "LEARN_LORA_VERSION_NOT_FOUND": "LoRA 版本不存在",
+    "DIALOG_SESSION_NOT_FOUND": "会话不存在",
+    "DIALOG_MESSAGE_NOT_FOUND": "消息不存在",
+    "COMIC_ASSET_NOT_FOUND": "资产不存在",
+    # ②-批5（2026-10-25）：残量清尾（draw/style/system）
+    "DRAW_TASK_NOT_FOUND": "绘画任务不存在",
+    "DRAW_HISTORY_NOT_FOUND": "绘画历史记录不存在",
+    "SYSTEM_BACKUP_NOT_FOUND": "备份文件不存在",
+    "SYSTEM_APIKEY_NOT_FOUND": "API Key 不存在",
+    "UPGRADE_PACKAGE_NOT_FOUND": "升级包不存在",
     "UPGRADE_IN_PROGRESS": "已有升级任务在进行中，请等它完成后再发起新升级",
     "VIDEO_DURATION_EXCEEDED": "音画同步模式最长支持10秒",
     "VIDEO_RESOLUTION_DEGRADED": "当前显存不支持所选分辨率，已自动降级",
@@ -462,8 +480,25 @@ SUGGESTION_DEFAULTS: dict[str, str] = {
     "VIDEO_TASK_DUPLICATE": "该分镜已有视频在生成中，等它完成或取消后再试即可",
     # ②-批1（2026-10-25）
     "VIDEO_TASK_NOT_FOUND": "该任务可能已结束或被清理，请刷新任务列表",
+    # ②-批3（2026-10-25）
+    "STORYBOARD_PROJECT_NOT_FOUND": "请确认作品还在当前账号列表中，或刷新页面",
+    "STORYBOARD_NOT_FOUND": "请刷新分镜表；若作品已删除请回到作品列表",
+    "STORYBOARD_ROW_NOT_FOUND": "该行可能已被删除，请刷新分镜表后重试",
+    "KEYFRAME_NOT_FOUND": "该关键帧可能已被重新生成覆盖，请刷新后重试",
     "STORYBOARD_ROW_EMPTY": "在分镜表格编辑描述词，或执行「分镜生词」",
     "STORYBOARD_NOT_BOUND": "在右侧资产面板把角色/场景/道具拖入绑定",
+    # ②-批4（2026-10-25）
+    "TRAINING_TASK_NOT_FOUND": "该训练任务可能已结束或被清理，请刷新任务列表",
+    "LEARN_LORA_VERSION_NOT_FOUND": "该 LoRA 版本可能已被回滚删除，请刷新版本列表",
+    "DIALOG_SESSION_NOT_FOUND": "该会话可能已被删除，请刷新会话列表",
+    "DIALOG_MESSAGE_NOT_FOUND": "该消息可能已被删除，请重新打开该会话",
+    "COMIC_ASSET_NOT_FOUND": "该资产可能已被删除，请刷新资产库",
+    # ②-批5
+    "DRAW_TASK_NOT_FOUND": "该任务可能已结束或被清理，请刷新任务列表",
+    "DRAW_HISTORY_NOT_FOUND": "该记录可能已被清理，请刷新历史列表",
+    "SYSTEM_BACKUP_NOT_FOUND": "备份文件可能已被移动或删除，请刷新备份列表",
+    "SYSTEM_APIKEY_NOT_FOUND": "该 Key 可能已被删除，请刷新列表",
+    "UPGRADE_PACKAGE_NOT_FOUND": "升级包可能已被移动或删除，请重新检查升级目录",
     "VIDEO_DURATION_EXCEEDED": "请把时长缩短到 10 秒以内",
     "VIDEO_RESOLUTION_DEGRADED": "显存不足以支撑所选分辨率，已自动降级；如需更高清可关闭其他功能后重试",
     "VIDEO_ENCODE_FAILED": "视频合成失败，请重试；反复失败请导出诊断包",

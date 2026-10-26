@@ -942,6 +942,8 @@ export async function regenerateKeyframe(body: {
   row_id: string;
   project_id?: string;
   prompt?: string;
+  width?: number;
+  height?: number;
 }): Promise<KeyframeItem> {
   return post('/manga/keyframe/regenerate', { ...body, force_new_seed: true });
 }

@@ -1978,9 +1978,17 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             _view = (row.get("camera_angle") or "") if row else ""
             _view_line = f"，景别：{_view}" if _view else "，中景景别"
             gen_prompt = (
-                f"单幅场景插画（非角色设定表、非多视图、非四视图）："
+                f"单幅场景插画："
                 f"{scene_core}{_view_line}。"
                 "画面呈现完整场景环境与人物互动，场景细节清晰可见")
+            # G4 残留根修（2026-10-26 立项实弹定谳）：F-6A 的否定指令
+            # 「（非角色设定表、非多视图、非四视图）」在 qwen 扩散模型
+            # 上是反向喂词（V32 教训「冲突词必须物理剥除」——否定词就
+            # 是喂词）：10-25 F-6A 上线后所有重生成全翻多视图/四视图
+            # （时间线实锤，2560/5136 画幅均翻、参考图已裁单人不背锅）。
+            # 改正向短语；「角色设定图」同词根一并剥离（锚短语转写为
+            # 参考图形象措辞，仅直文本路径——ABC 链 A 段大段场景词压
+            # 制不动）。
             # 项目级画风回落（2026-10-26 用户报「分格图与所选风格不
             # 一致」根修）：描述词无任何风格词（嗅探默认包）时，把项
             # 目风格行前缀进提示词——前端产品语义即「画风=项目级
@@ -2001,6 +2009,11 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             # 仲裁声明画风只管渲染、服饰以设定图为准。
             char_prompt, _chosen = _shot_char_protocol(char_assets, prompt)
             if char_prompt:
+                # 「角色设定图」转写（G4 残留根修 2026-10-26）：锚短语
+                # 原文含设定图词根，直文本短句里权重占比极高，实测触发
+                # 四视图/设定图输出——转写为参考图形象措辞
+                char_prompt = char_prompt.replace(
+                    "角色设定图", "参考图人物形象")
                 gen_prompt = (f"{gen_prompt}。{char_prompt}；"
                               "画风仅约束渲染风格，"
                               "角色服饰与外貌一律以参考图设定为准")

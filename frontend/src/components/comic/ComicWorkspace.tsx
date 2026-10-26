@@ -358,9 +358,15 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     }
     setGenRows((s) => new Set(s).add(row.id));
     try {
+      // 单景画幅显式 2560×1440（2026-10-26 立项：G4 残留根修）——
+      // 端点默认 5136×2896 是 10-07 四宫格直出的升格语境；单格分镜
+      // 吃四宫格巨幅 + qwen21（四视图整图直出主力）→「大画幅=多视
+      // 图排布」先验触发（实测格1 v13 白裙多视图）。2560×1440 为
+      // 10-07 前单格历史合格档（qwen 8 对齐）。
+      const PANEL_W = 2560, PANEL_H = 1440;
       const kf = kfByRow[row.id]
-        ? await mangaApi.regenerateKeyframe({ row_id: row.id, project_id: pid })
-        : await mangaApi.generateKeyframe({ row_id: row.id, project_id: pid });
+        ? await mangaApi.regenerateKeyframe({ row_id: row.id, project_id: pid, width: PANEL_W, height: PANEL_H })
+        : await mangaApi.generateKeyframe({ row_id: row.id, project_id: pid, width: PANEL_W, height: PANEL_H });
       setKfByRow((m) => ({ ...m, [row.id]: kf }));
     } catch (err) {
       showToast(getErrorMessage(err, '分格生成失败'), 'error');

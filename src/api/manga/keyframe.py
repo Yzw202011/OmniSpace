@@ -1981,6 +1981,20 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 f"单幅场景插画（非角色设定表、非多视图、非四视图）："
                 f"{scene_core}{_view_line}。"
                 "画面呈现完整场景环境与人物互动，场景细节清晰可见")
+            # 项目级画风回落（2026-10-26 用户报「分格图与所选风格不
+            # 一致」根修）：描述词无任何风格词（嗅探默认包）时，把项
+            # 目风格行前缀进提示词——前端产品语义即「画风=项目级
+            # art_style，切换后重新生成分格即按新画风出图」；此前直
+            # 文本路径 style_line 拉而未拼（10-05 二定退役了前缀），
+            # 分格图零风格文本锚、画风全凭模型先验，与角色立绘（生
+            # 词链以项目风格行为主）两张皮。描述词自带风格词时仍以描
+            # 述词为主（10-05 二定语义保留）。仅项目显式选过风格
+            # （art_style 非空）才注入，未选风格的项目维持现状零注入。
+            if detect_style(scene_core).sid == "default" and pid:
+                _proj = db.query_one(
+                    "SELECT art_style FROM projects WHERE id=?", (pid,))
+                if (_proj or {}).get("art_style"):
+                    gen_prompt = f"{style_line}。{gen_prompt}"
             # 角色锚+仲裁（2026-09-22 用户实弹 JK→修仙服）：直文本路径
             # 此前无锚无仲裁，画风行服饰词（如「华丽古装」）压过参考图。
             # 锚对齐 ABC 主路径 _shot_char_protocol（名字+设定图一致），

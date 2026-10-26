@@ -2033,6 +2033,18 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
                 # 四视图/设定图输出——转写为参考图形象措辞
                 char_prompt = char_prompt.replace(
                     "角色设定图", "参考图人物形象")
+                # P1 单人纪律句（2026-10-27 格2 v18 四女排坐实报）：
+                # 多角色分支锚措辞自带「除这些角色外不得出现其他人物」，
+                # 单角色分支没有——补齐。⚠️措辞纪律（V32/F-6A 同源教训
+                # 二犯自警）：禁止写「不得复制出多份」类否定短语——qwen
+                # 扩散模型抓 token 不看否定，「复制/多份」直接喂出副本
+                # （首版纪律句实锤：上线后 v18-v20 100% 四副本）。只写
+                # 正向数量限定。
+                if len(char_assets) <= 1:
+                    solo = ((char_assets[0].get("name") or "角色").strip()
+                            if char_assets else "")
+                    char_prompt += (
+                        f"；单人画面，画面中只有{f'{solo}' if solo else '该角色'}一个人")
                 gen_prompt = (f"{gen_prompt}。{char_prompt}；"
                               "画风仅约束渲染风格，"
                               "角色服饰与外貌一律以参考图设定为准")
@@ -2936,7 +2948,33 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
         log.warning("肢体结构门禁命中: row=%s shots=%s limb=%s",
                     row_id, limb_failed,
                     [x for x in limb_scores if x is not None])
-    failed_shots = sorted(set(failed_shots) | set(limb_failed))
+    # P2 多副本门禁（2026-10-27 格2 v18 四女排坐实报）：本地人脸检测
+    # 计数 > 绑定角色数 = 副本复制实锤（不依赖云端 VLM，云端 503 也
+    # 有效）；0 脸（远景/空镜/侧背遮挡）不判防误伤。绑定角色数按行
+    # 绑定现场查库（守卫函数无 char_assets 上下文）。
+    n_bound_chars = 0
+    try:
+        _row = db.query_one(
+            "SELECT asset_ids FROM storyboard_rows WHERE id=?", (row_id,))
+        import json as _json
+        _ids = (_json.loads(_row["asset_ids"]) if (_row or {}).get("asset_ids") else []) or []
+        if _ids:
+            _marks = ",".join("?" * len(_ids))
+            n_bound_chars = sum(
+                1 for r in db.query(
+                    f"SELECT kind FROM comic_assets WHERE id IN ({_marks})",
+                    list(_ids)) if r.get("kind") == "character")
+    except Exception:  # noqa: BLE001 - 查库失败按 0=不判多副本
+        n_bound_chars = 0
+    copy_failed = [
+        i + 1 for i, n_faces in enumerate(face_counts)
+        if n_bound_chars > 0 and n_faces > n_bound_chars]
+    if copy_failed:
+        log.warning("多副本门禁命中: row=%s shots=%s faces=%s "
+                    "bound=%d", row_id, copy_failed,
+                    [x for x in face_counts], n_bound_chars)
+    failed_shots = sorted(set(failed_shots) | set(limb_failed)
+                          | set(copy_failed))
     overall = min(valid) if valid else None
     if not failed_shots:
         _annotate_consistency(db, kf_id, {

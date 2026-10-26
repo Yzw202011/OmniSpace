@@ -152,6 +152,12 @@ export function updateProjectPrefs(pid: string, body: {
     `/novel/project/${encodeURIComponent(pid)}/prefs`, body);
 }
 
+/** 作品改名（2026-10-26：此前全链缺失，书架卡行内改名入口） */
+export function renameProject(pid: string, name: string) {
+  return put<{ project_id: string; name: string }>(
+    `/novel/project/${encodeURIComponent(pid)}/rename`, { name });
+}
+
 export function deleteProject(pid: string) {
   return del(`/novel/project/${pid}`);
 }

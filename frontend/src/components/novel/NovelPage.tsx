@@ -24,6 +24,7 @@ import {
   Download,
   Feather,
   Loader2,
+  Pencil,
   Play,
   Plus,
   Puzzle,
@@ -146,6 +147,24 @@ const ProjectLibrary: React.FC = () => {
   const createProject = useNovelStore((s) => s.createProject);
   const openProject = useNovelStore((s) => s.openProject);
   const removeProject = useNovelStore((s) => s.removeProject);
+  const fetchProjects = useNovelStore((s) => s.fetchProjects);
+  // 作品改名（2026-10-26：此前全链缺失——行内编辑，铅笔进入/回车或
+  // 失焦保存/Esc 取消；后端校验非空/≤60 字/重名拒绝）
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const submitRename = async (pid: string) => {
+    const name = renameDraft.trim();
+    setRenamingId(null);
+    if (!name) return;
+    try {
+      await novelApi.renameProject(pid, name);
+      await fetchProjects();
+      useAppStore.getState().showToast('作品已改名', 'success');
+    } catch (err) {
+      useAppStore.getState().showToast(
+        getErrorMessage(err, '改名失败'), 'error');
+    }
+  };
   const [form, setForm] = useState({
     name: '', genre: '', description: '',
     plan_chapters: 20, volume_count: 0, words_per_chapter: 2000,
@@ -194,7 +213,32 @@ const ProjectLibrary: React.FC = () => {
           <div key={p.id} className="card hoverable flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <BookOpen size={16} className="text-[var(--color-primary,var(--color-primary-500))]" aria-hidden="true" />
-              <span className="font-medium flex-1 truncate">{p.name}</span>
+              {renamingId === p.id ? (
+                <input
+                  className="input flex-1 min-w-0 text-sm"
+                  value={renameDraft}
+                  autoFocus
+                  maxLength={60}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void submitRename(p.id);
+                    if (e.key === 'Escape') setRenamingId(null);
+                  }}
+                  onBlur={() => void submitRename(p.id)}
+                />
+              ) : (
+                <span className="font-medium flex-1 truncate">{p.name}</span>
+              )}
+              <button
+                className="btn btn-ghost btn-sm"
+                title="改名"
+                onClick={() => {
+                  setRenameDraft(p.name);
+                  setRenamingId(p.id);
+                }}
+              >
+                <Pencil size={13} aria-hidden="true" />
+              </button>
               <button
                 className="btn btn-ghost btn-sm text-rose-300"
                 title="删除作品（章节/大纲一并删除）"

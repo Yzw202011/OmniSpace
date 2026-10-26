@@ -157,6 +157,28 @@ def novel_project_prefs(project_id: str,
     return ok({"project_id": project_id, "meta": merged})
 
 
+@router.put("/novel/project/{project_id}/rename")
+def novel_project_rename(project_id: str,
+                         body: dict = Body(...)) -> dict[str, Any]:
+    """作品改名（2026-10-26 用户报「无法改名」——此前全链缺失：后端
+    无端点、书架卡无入口）。校验语义对齐 create（非空/≤60 字/重名拒绝，
+    本项目自身重名放行=未改名幂等）。"""
+    db = _db()
+    _require_project(db, project_id)
+    name = str(body.get("name") or "").strip()
+    if not name:
+        raise ApiError("NOVEL_NAME_REQUIRED", "请填写作品名")
+    if len(name) > 60:
+        raise ApiError("NOVEL_NAME_TOO_LONG", "作品名最长 60 字")
+    dup = db.query_one("SELECT id FROM novel_projects WHERE name=?",
+                       (name,))
+    if dup and dup["id"] != project_id:
+        raise ApiError("NOVEL_PROJECT_NAME_DUPLICATED", "已有同名作品")
+    db.update("novel_projects", {"name": name, "updated_at": _now()},
+              "id=?", (project_id,))
+    return ok({"project_id": project_id, "name": name})
+
+
 @router.post("/novel/project/batch-delete")
 def novel_project_batch_delete(body: dict = Body(default_factory=dict)) -> dict[str, Any]:
     """批6 P10（2026-09-19）：批量删作品（≤50/批；逐个走单删链）。"""

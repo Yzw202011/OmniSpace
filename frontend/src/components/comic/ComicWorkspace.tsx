@@ -14,6 +14,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, BookOpenText, Download, Loader2, Plus, Puzzle, Settings2, Sparkles, Trash2, Upload, UserPlus, Wand2, X,
 } from 'lucide-react';
+
+/** 分格单景画幅（2026-10-26 G4 残留根修）：端点默认 5136×2896 是
+ *  四宫格直出升格语境；单格吃巨幅 + qwen21（四视图直出主力）触发
+ *  「大画幅=多视图排布」先验（实测白裙多视图/双人复制）。2560×1440
+ *  =10-07 前单格历史合格档（qwen 8 对齐）。单格/批量/全部重生三链
+ *  统一显式传参。 */
+const PANEL_W = 2560;
+const PANEL_H = 1440;
 import { useAppStore } from '@/stores/useAppStore';
 import * as mangaApi from '@/services/mangaApi';
 import { invokeComicSkill, listSkills } from '@/services/pluginApi';
@@ -358,12 +366,6 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     }
     setGenRows((s) => new Set(s).add(row.id));
     try {
-      // 单景画幅显式 2560×1440（2026-10-26 立项：G4 残留根修）——
-      // 端点默认 5136×2896 是 10-07 四宫格直出的升格语境；单格分镜
-      // 吃四宫格巨幅 + qwen21（四视图整图直出主力）→「大画幅=多视
-      // 图排布」先验触发（实测格1 v13 白裙多视图）。2560×1440 为
-      // 10-07 前单格历史合格档（qwen 8 对齐）。
-      const PANEL_W = 2560, PANEL_H = 1440;
       const kf = kfByRow[row.id]
         ? await mangaApi.regenerateKeyframe({ row_id: row.id, project_id: pid, width: PANEL_W, height: PANEL_H })
         : await mangaApi.generateKeyframe({ row_id: row.id, project_id: pid, width: PANEL_W, height: PANEL_H });
@@ -392,7 +394,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
     for (const r of pending) {
       setGenRows((s) => new Set(s).add(r.id));
       try {
-        const kf = await mangaApi.generateKeyframe({ row_id: r.id, project_id: pid });
+        const kf = await mangaApi.generateKeyframe(
+          { row_id: r.id, project_id: pid, width: PANEL_W, height: PANEL_H });
         setKfByRow((m) => ({ ...m, [r.id]: kf }));
         ok += 1;
       } catch {
@@ -425,7 +428,8 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
       }
       setGenRows((s) => new Set(s).add(r.id));
       try {
-        const kf = await mangaApi.regenerateKeyframe({ row_id: r.id, project_id: pid });
+        const kf = await mangaApi.regenerateKeyframe(
+          { row_id: r.id, project_id: pid, width: PANEL_W, height: PANEL_H });
         setKfByRow((m) => ({ ...m, [r.id]: kf }));
         ok += 1;
       } catch {

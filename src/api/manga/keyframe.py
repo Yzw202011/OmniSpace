@@ -994,6 +994,10 @@ def _load_asset_references(db: Database, row: dict) -> list:
                 w, h = im.size
                 if w >= 2000 and 1.6 <= w / h <= 2.0:
                     im = im.crop((0, 0, w // 4, h))
+                # M1 白底置换（2026-10-26 用户拍板）：纯白底立绘参考在
+                # qwen21 ReferenceLatent 渗白（实测整图蒙灰白雾，格1
+                # v11/格2 v15 同形）——边缘连通近白区置换为中性浅暖灰
+                im = _neutralize_white_background(im)
             refs.append({"kind": kind,
                          "name": (a.get("name") or "").strip(),
                          "image": im})
@@ -1111,6 +1115,21 @@ def _shot_char_protocol(char_assets: list,
     return (f"画面中的角色共{len(anchors)}位：{'、'.join(anchors)}，"
             "各自外貌、服装与角色设定图严格一致；"
             "除这些角色外不得出现任何其他人物", chosen)
+
+
+def _neutralize_white_background(im: Image.Image) -> Image.Image:
+    """参考图白底渗漏缓解（M1 2026-10-26，二版定稿）：纯白底立绘进
+    qwen21 ReferenceLatent 渗白（白雾罩全图实锤）。首版像素级近白
+    置换被真图证伪——立绘画风整体高亮，实测 89.4% 面积落近白域且与
+    背景连通，置换=把人物一起染灰。二版改中性灰边框：ImageOps.expand
+    24px 中灰框把「无限白空间」信号转为「一张有边界的白纸」，切断
+    渗漏语义且零主体误伤（纯 add 无像素改动）。"""
+    try:
+        from PIL import ImageOps
+        return ImageOps.expand(im, border=24, fill=(176, 172, 166))
+    except Exception as exc:  # noqa: BLE001 - 加框失败不阻断生成
+        log.warning("参考图加框失败（返回原图）: %s", exc)
+        return im
 
 
 def _dual_pulid_faces(char_count: int,
@@ -2323,6 +2342,49 @@ def _score_style_sync(shot_path: Path, style_ref_b64: str,
         return None, str(exc)[:200]
 
 
+# M2 肢体畸形门禁（2026-10-26 用户拍板）：VLM 评审此前只查身份/场景/
+# 画风，不查肢体结构——坐姿×站姿参考冲突的坏样本（实测格2 v15 三条
+# 腿）无任何自动防线，cfg=1 下负面词零权重。独立通道只判结构完整性：
+# <60=明确畸形（多余/融合/截断肢体）才触发重抽，防 VLM 误判滥用重抽。
+_LIMB_DEFECT_THRESHOLD = 60
+
+_LIMB_PROMPT = (
+    "你是人体结构完整性评审。检查这张 AI 生成图像中人物的身体结构：\n"
+    "①四肢数量：每条手臂对应一只手、两条腿对应两只脚，有无多余/"
+    "复制出的肢体（如三条腿、四只手）\n"
+    "②肢体融合或截断：两条腿并成一条、手臂断开无手掌等\n"
+    "③躯干与头颈连接异常（双头/无颈悬浮等）。\n"
+    "只判结构完整性，不评价姿势、构图、画风；被遮挡而不可见的部分"
+    "不判异常。\n"
+    "输出格式（严格遵守两行）：\n评分：NN\n理由：一句话\n"
+    "NN 为 0-100 整数（≥90=结构完全正常；60-89=疑似异常但难以确认；"
+    "<60=明确畸形如多余肢体/融合/截断）。")
+
+
+async def _score_limb_sync(shot_path: Path, chat) -> tuple[int | None, str]:
+    """单镜肢体结构评分（阻塞，经 run_blocking 调用；M2 2026-10-26）。
+
+    Returns:
+        (score, reason)：None=评分失败（fail-open 不计门禁——本通道
+        为新增强化，失败不阻塞既有链路）。
+    """
+    try:
+        from PIL import Image
+        img = Image.open(shot_path).convert("RGB")
+        img.thumbnail((960, 960), Image.LANCZOS)
+        chunks: list[str] = []
+        for ch in chat.chat_stream(
+                [{"role": "user", "content": _LIMB_PROMPT}],
+                images_b64=pil_images_to_b64([img]),
+                temperature=0.0, max_tokens=_CONSISTENCY_MAX_TOKENS):
+            chunks.append(ch)
+        text = "".join(chunks).strip()
+        return _parse_consistency_score(text), text[:200]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("肢体结构评分失败 %s: %s", shot_path, exc, exc_info=True)
+        return None, str(exc)[:200]
+
+
 def _scoring_context(db: Database, row: dict) -> tuple[list[str], bool]:
     """评分基准（P0 修正 2026-08-27：仅图像锚，文本通道已废除）：
 
@@ -2777,6 +2839,7 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
     face_sims: list[float | None] = []
     scene_sims: list[float | None] = []
     style_scores: list[int | None] = []
+    limb_scores: list[int | None] = []
     arc_sims: list[list] = []
     face_counts: list[int] = []
     has_arc = any(v is not None for v in arc_ref_vecs)
@@ -2789,6 +2852,9 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
         style_s = (await run_blocking(_score_style_sync, fp, style_ref_b64,
                                       chat)
                    if style_ref_b64 else None)
+        # M2 肢体畸形门禁（2026-10-26）：并行独立通道，<60=明确畸形
+        limb_s = (await run_blocking(_score_limb_sync, fp, chat)
+                  if chat else None)
         sim = (await run_blocking(face_sim.face_similarity, fp, ref_vecs)
                if ref_vecs else None)
         ssim = (await run_blocking(face_sim.scene_similarity, fp, scene_vec)
@@ -2801,6 +2867,7 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
         face_sims.append(sim)
         scene_sims.append(ssim)
         style_scores.append(style_s[0] if style_s else None)
+        limb_scores.append(limb_s[0] if limb_s else None)
         arc_sims.append(arc_row)
         face_counts.append(n_faces)
         log.info("一致性评分: row=%s v%d shot%d score=%s face_sim=%s "
@@ -2860,11 +2927,22 @@ async def _consistency_guard_locked(db, row_id: str, project_id: str,
         if _failed(s, sim, ssim, _is_wide_shot(framing_ctx, i),
                    _is_char_shot(framing_ctx, i),
                    _face_threshold_for(framing_ctx, i), st)]
+    # M2 肢体畸形并入门禁（2026-10-26）：明确畸形（<60）的镜无条件
+    # 触发重抽（即使身份分高——身份好≠肢体没长错）
+    limb_failed = [
+        i + 1 for i, ls in enumerate(limb_scores)
+        if ls is not None and ls < _LIMB_DEFECT_THRESHOLD]
+    if limb_failed:
+        log.warning("肢体结构门禁命中: row=%s shots=%s limb=%s",
+                    row_id, limb_failed,
+                    [x for x in limb_scores if x is not None])
+    failed_shots = sorted(set(failed_shots) | set(limb_failed))
     overall = min(valid) if valid else None
     if not failed_shots:
         _annotate_consistency(db, kf_id, {
             "shots": scores, "face_sims": face_sims,
             "scene_sims": scene_sims, "style_scores": style_scores,
+            "limb_scores": limb_scores,
             "arc_sims": arc_sims,
             "face_count": face_counts, "min": overall,
             "engine": engine_tag,

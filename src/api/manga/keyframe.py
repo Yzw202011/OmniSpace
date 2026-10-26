@@ -1970,6 +1970,17 @@ def _generate_keyframe_sync(row_id: str, project_id: str,
             # ④批4：直文本路同剥版式指令（剧本原文粘贴四视图资产描述
             # 的实报形态）；剥空回退原文（降级铁律）
             gen_prompt = _strip_layout_instruction(prompt) or prompt
+            # F-6A 拍板 A（2026-10-21）：分镜生图提示词模板增强——
+            # 单场景插画指令+叠字容错（「教教室」实录）+景别注入。
+            # 原 14 字纯场景短语被角色参考图条件碾压：模型输出角色
+            # 立绘/多视图排布而非场景（G4 终验 8 页 0 条根因之一）。
+            scene_core = gen_prompt.replace("教教室", "教室")
+            _view = (row.get("camera_angle") or "") if row else ""
+            _view_line = f"，景别：{_view}" if _view else "，中景景别"
+            gen_prompt = (
+                f"单幅场景插画（非角色设定表、非多视图、非四视图）："
+                f"{scene_core}{_view_line}。"
+                "画面呈现完整场景环境与人物互动，场景细节清晰可见")
             # 角色锚+仲裁（2026-09-22 用户实弹 JK→修仙服）：直文本路径
             # 此前无锚无仲裁，画风行服饰词（如「华丽古装」）压过参考图。
             # 锚对齐 ABC 主路径 _shot_char_protocol（名字+设定图一致），

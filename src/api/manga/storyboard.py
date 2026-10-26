@@ -149,6 +149,45 @@ def storyboard_get(project_id: str) -> dict[str, Any]:
     return ok({"project_id": project_id, "rows": list(rows), "total": len(rows)})
 
 
+def _sanitize_row_asset_bindings(db: Any, update_fields: dict[str, Any]) -> None:
+    """行保存的死资产绑定白名单过滤（就地改写 update_fields，R1 2026-10-26）。
+
+    白名单口径 = comic_assets 现存 id 全集（不分 scope/face——过滤目标
+    是「已删除的死 id」，跨面可见性是另一层语义，不在此收窄）。涉及
+    asset_ids / bubbles 任一字段才查库（一次 SELECT id，微开销）；
+    气泡 speaker 死亡 → asset_id 置空转旁白（文本保留）；asset_ids
+    剔除死 id 后与 asset_id 旧列的首元素同步交由调用方既有逻辑处理。
+    """
+    has_ids = "asset_ids" in update_fields
+    has_bubbles = "bubbles" in update_fields
+    if not (has_ids or has_bubbles):
+        return
+    bubbles = update_fields.get("bubbles") or []
+    bubble_ids: set[str] = set()
+    for b in bubbles:
+        if isinstance(b, dict) and b.get("asset_id"):
+            bubble_ids.add(str(b["asset_id"]))
+    wanted = (set(update_fields.get("asset_ids") or []) if has_ids
+              else set()) | bubble_ids
+    if not wanted:
+        return
+    live = {r["id"] for r in db.query(
+        "SELECT id FROM comic_assets WHERE id IN "
+        f"({','.join('?' * len(wanted))})", list(wanted))}
+    dead = wanted - live
+    if dead:
+        log.warning("行保存剔除死资产绑定: %s（资产已删除）",
+                    ",".join(sorted(dead)))
+    if has_ids:
+        update_fields["asset_ids"] = [
+            i for i in (update_fields.get("asset_ids") or []) if i in live]
+    if has_bubbles and bubble_ids & dead:
+        update_fields["bubbles"] = [
+            {**b, "asset_id": ""} if isinstance(b, dict)
+            and b.get("asset_id") in dead else b
+            for b in bubbles]
+
+
 @router.put("/manga/storyboard/{project_id}/rows/{row_id}")
 def storyboard_row_update(project_id: str, row_id: str,
                           req: StoryboardRowUpdate) -> dict[str, Any]:
@@ -169,6 +208,12 @@ def storyboard_row_update(project_id: str, row_id: str,
             update_fields = req.model_dump(exclude_none=True)
             # 批 1.3 导演字段校验（非法值拒绝，不静默写库）
             _validate_row_director_fields(update_fields)
+            # R1 死绑定白名单过滤（2026-10-26 用户拍板）：资产删除后前端
+            # 旧 state 的任何保存会把死 id 原样写回（实测 04:47 删角色、
+            # 6 秒后 PUT 复活死绑定→「未知资产/undefined的台词」）——
+            # asset_ids 与气泡 speaker 按现存资产 id 白名单过滤，死 id
+            # 从此写不回库。speaker 死亡的气泡置空转旁白（文本保留）。
+            _sanitize_row_asset_bindings(db, update_fields)
             # 竞品对齐：asset_ids 写入时同步 asset_id 旧列（首元素），
             # 保持两列一致；db.update 内部将 list 序列化为 JSON、bool 转 int
             # （与 characters 列同一条序列化约定）

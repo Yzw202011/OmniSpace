@@ -1075,17 +1075,21 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                           </span>
                         );
                       })}
-                      {assets.length > 0 && (
+                      {(assets.length > 0 || globalAssets.length > 0) && (
                         <select
                           className="comic-chip-add"
                           value=""
                           onChange={(e) => {
                             if (e.target.value) void bindChar(e.target.value, row.id);
                           }}
-                          title="引用资产（角色作一致性锚，场景/道具作画面参考）"
+                          title="引用资产（角色作一致性锚，场景/道具作画面参考；含全局资产）"
                         >
                           <option value="">＋ 引用资产</option>
-                          {assets
+                          {/* 2026-10-26：项目资产 ∪ 全局资产（09-30 转全局
+                              机制后项目态常为空，按钮与选项只认项目清单
+                              会整体消失/选不到全局角色——与角色面板并入
+                              同语义） */}
+                          {[...assets, ...globalAssets]
                             .filter((a) => !boundIds.includes(a.asset_id))
                             .map((a) => (
                               <option key={a.asset_id} value={a.asset_id}>

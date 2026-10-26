@@ -328,3 +328,52 @@ export interface HardwareHealth {
 export function getHardwareHealth(): Promise<HardwareHealth> {
   return get<HardwareHealth>('/system/hardware/health');
 }
+
+/* ── 强制释放显存（2026-10-26 交接方案：仅卸载模型，不动在飞） ───────── */
+
+/** 单步动作账目（done/skipped/error + 人话明细；freed/skipped/cancelled 随步骤可选） */
+export const VramReleaseActionSchema = z
+  .object({
+    step: z.string(),
+    status: z.enum(['done', 'skipped', 'error']),
+    detail: z.string(),
+    freed: z
+      .array(z.object({
+        model_id: z.string(),
+        category: z.string(),
+        vram_gb: z.number(),
+      }))
+      .optional(),
+    skipped: z
+      .array(z.object({
+        model_id: z.string(),
+        category: z.string(),
+        reason: z.string(),
+      }))
+      .optional(),
+    cancelled: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export type VramReleaseAction = z.infer<typeof VramReleaseActionSchema>;
+
+/** 释放结果（宁松勿严：actions 内部结构已校验，其余透传） */
+export const VramReleaseResultSchema = z
+  .object({
+    vram_before_gb: z.number(),
+    vram_after_gb: z.number(),
+    freed_gb: z.number(),
+    completed: z.boolean(),
+    actions: z.array(VramReleaseActionSchema),
+    duration_ms: z.number(),
+  })
+  .passthrough();
+export type VramReleaseResult = z.infer<typeof VramReleaseResultSchema>;
+
+/**
+ * 强制释放显存（POST /system/force-release-vram，危险操作需二次确认）。
+ * 范围=仅卸载模型：在飞生成任务（功能锁持有）受保护跳过，绝不取消。
+ */
+export function forceReleaseVram(): Promise<VramReleaseResult> {
+  return post<unknown>('/system/force-release-vram', {}).then((res) =>
+    parseWith(VramReleaseResultSchema, res, '强制释放显存'));
+}

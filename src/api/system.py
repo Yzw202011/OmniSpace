@@ -2809,3 +2809,19 @@ def get_local_savings() -> dict[str, Any]:
         "scope_note": "保守口径：仅统计 AI 输出侧（输入/文档未计），"
                       "写作台与漫剧文字链路未纳入；金额按云端参考价估算",
     })
+
+
+@router.post("/system/force-release-vram")
+async def system_force_release_vram() -> dict[str, Any]:
+    """一键释放显存（危险操作，前端二次确认后调用；2026-10-26 强制版拍板）。
+
+    语义 = 无条件中断 + 全额释放：取消图像/视频队列全部任务 → 停学习
+    会话 → 取消训练任务 → 终止 ComfyUI 进程树 → 卸载台账全部模型 →
+    终止 vLLM 子进程 → 强拆功能锁。在飞任务被打断、进度作废（用户
+    显式拍板语义）。返回 {vram_before_gb, vram_after_gb, freed_gb,
+    actions[]}。卸载链含同步阻塞，经 run_blocking 出事件循环（F-008）。
+    """
+    from ..services.vram_release import force_release_vram
+
+    result = await run_blocking(force_release_vram)
+    return ok(result)

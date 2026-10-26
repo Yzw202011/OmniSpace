@@ -25,6 +25,7 @@ import PluginSection from '@/components/PluginSection';
 import DataManagementSection from '@/components/DataManagementSection';
 import StorageCard from '@/components/system/StorageCard';
 import HardwareHealthCard from '@/components/system/HardwareHealthCard';
+import VramReleaseCard from '@/components/system/VramReleaseCard';
 import AuditCard from '@/components/system/AuditCard';
 import { FEATURE_SWITCH_RULES, FEATURE_LABELS } from '@/types';
 import type { ActiveFeature } from '@/types';
@@ -543,6 +544,9 @@ export default function Settings() {
         <>
       {/* ============ 批4 P19：硬件健康中心（四仪表+保护动作） ============ */}
       <HardwareHealthCard />
+
+      {/* ============ 强制释放显存（2026-10-26 交接方案：仅卸载模型不动在飞） ============ */}
+      <VramReleaseCard />
 
       {/* ============ 软件升级（升级机制批2） ============ */}
       <UpgradeSection />

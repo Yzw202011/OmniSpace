@@ -170,6 +170,25 @@ class VideoTaskQueue:
             "lock_held": cs["lock_held"],
         }
 
+    def active_task_ids(self) -> list[str]:
+        """全部在队/在跑任务 id（排队+当前+云道在跑，去重保序）。
+
+        「一键释放显存」全量取消的枚举数据源——对外 snapshot 的
+        queued 是数量契约（整数），任务 id 级枚举必须走 core 形状。
+        """
+        cs = self._core.snapshot()
+        ids = [str(t.get("task_id")) for t in cs["queued"]]
+        if cs.get("current"):
+            ids.append(str(cs["current"]))
+        ids += [str(k) for k in cs.get("cloud_running", [])]
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for tid in ids:
+            if tid not in seen:
+                seen.add(tid)
+                ordered.append(tid)
+        return ordered
+
     def is_cancelled(self, task_id: str) -> bool:
         """运行中任务的取消旗标查询（check_cancel 闭包数据源）。"""
         return self._core.is_cancelled(task_id)

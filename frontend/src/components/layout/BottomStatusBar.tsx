@@ -19,6 +19,7 @@ import * as learningApi from '@/services/learningApi';
 import { listLearnModels } from '@/services/learnApi';
 import { getStyleStatus } from '@/services/styleApi';
 import { LEARN_SESSION_STATUS_LABELS } from '@/constants/statusLabels';
+import VramReleaseButton from '@/components/system/VramReleaseButton';
 
 /** learn 端点轮询周期（ms） */
 const LEARN_POLL_MS = 5000;
@@ -192,6 +193,8 @@ export function BottomStatusBar() {
             : '--'
         }
       />
+      {/* 强制释放显存直达（2026-10-26 交接方案：与设置页维护签同款入口） */}
+      <VramReleaseButton compact />
       <Sep />
       <SbItem
         label="内存"

@@ -341,6 +341,31 @@ class FeatureLockManager:
             "holders": holders,
         }
 
+    def force_release_all(self) -> list[str]:
+        """无条件清空全部域的功能锁（「一键释放显存」强制版专用）。
+
+        供用户显式强拆场景：先取消/击杀任务与子进程，再扫尾此处——
+        正常路径 worker 的 finally release 自己放锁，本方法只兜
+        泄漏（审计 R7 锁泄漏簇）与击杀后残留。安全依据：release()/
+        release_sync() 对「持有者不匹配」的释放是静默 no-op
+        （L243-249 同款守卫），被强拆后收尾的 worker 不会误伤新锁。
+        返回被清功能清单（去重）。
+        """
+        with self._state_lock:
+            cleared = sorted(set(self._holders.values()))
+            had_holders = bool(self._holders)
+            self._holders.clear()
+            self._hold_counts.clear()
+            self._holder_task_ids.clear()
+            self._acquired_ats.clear()
+            self._last_activity_at = time.time()
+            if had_holders:
+                log.warning("功能锁强制清空（一键释放显存）: %s", cleared)
+            # P21：持有时按全域 0→N 请求清醒，这里按整链释放对称归还
+            while _sleep_guard_refs > 0:
+                _sleep_guard_release()
+            return cleared
+
 
 def get_feature_lock() -> FeatureLockManager:
     """获取功能锁单例。"""

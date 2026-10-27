@@ -563,11 +563,17 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         soundscape = ("用户明确要求：本镜无音效、接近无声，"
                       "仅可能存在极低的房间底噪。")
     elif sfx_named:
-        soundscape = "；".join(sfx_named) + "。"
+        # M-RA soundscape 措辞工程（2026-10-27 用户拍板）：①人声系具名
+        # 音效剥离——「微弱呼吸声」等会把 audio_vae 引入人声合成域，模
+        # 型在呼吸声↔说话声之间语义滑移致描述词被朗读（实测格4）；②四
+        # 镜同音效去重（原 ×4 重复放大 token 权重）；③只剩正向措辞。
+        soundscape = "、".join(_soundscape_entries(sfx_vals)) + "。"
     else:
         soundscape = "Quiet ambient atmosphere only; no prominent sound events."
     if not has_dialogue:
-        soundscape += " 全程无角色台词、无任何人声说话、无字幕。"
+        # 否定句改正向（V32 教训：否定词=喂词，「人声说话」本身是正向
+        # token——原「无任何人声说话」实锤在 prompt 里仍翻车）
+        soundscape += " 安静的环境底噪，仅有轻微的环境氛围声。"
     else:
         soundscape += " 角色台词已在时间轴中给出，按时间轴演绎。"
     return "\n".join([
@@ -648,6 +654,31 @@ def _sharpen_pass(video: Path, strength: float = 0.6,
     except Exception as exc:  # noqa: BLE001 - 锐化失败不阻断交付
         log.warning("[h3_chain] 全局锐化异常（保留原片）: %s", exc)
     return video
+
+
+# M-RA soundscape 措辞工程（2026-10-27 用户拍板）：人声系具名音效判据
+# ——「微弱呼吸声/轻喃/叹气」类会把 audio_vae 引入人声合成域，模型在
+# 呼吸声↔说话声之间语义滑移致描述词被朗读（实测格4 整轨念描述词）。
+_VOCAL_SFX_RE = re.compile(
+    r"呼吸|轻喃|呢喃|叹气|耳语|低语|说话|念白|旁白|独白|哼唱|轻笑|啜泣|抽泣|嗓音")
+
+
+def _soundscape_entries(sfx_vals: list[str]) -> list[str]:
+    """具名音效 → soundscape 条目（M-RA）：顿号拆分、去空/去「无」、
+    剥人声系、保序去重（四镜同音效不再 ×4 重复放大 token 权重）。"""
+    entries: list[str] = []
+    seen: set[str] = set()
+    for v in sfx_vals:
+        for part in re.split(r"[、，,;；]", v or ""):
+            part = part.strip()
+            if not part or part in {"无", "无音效", "N/A", "-"}:
+                continue
+            if _VOCAL_SFX_RE.search(part):
+                continue
+            if part not in seen:
+                seen.add(part)
+                entries.append(part)
+    return entries
 
 
 def _chain_audio_spec(descriptions: list[str], seconds: float) -> tuple[bool, bool, bool]:

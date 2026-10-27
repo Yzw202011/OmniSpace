@@ -531,6 +531,9 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
       .filter((a) => a.kind === 'character').map((a) => a.asset_id)),
     [globalAssets],
   );
+  /** 说话人名标签开关（2026-10-27 用户问「气泡为啥有角色名」）：
+   *  名字标签=多角色区分说话人；唯一绑定时无歧义 → 隐藏。 */
+  const multiChar = chars.length > 1;
   const panelChars = useMemo(
     () => [
       ...chars,
@@ -967,7 +970,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                           onPointerMove={onBubblePointerMove}
                           onPointerUp={onBubblePointerUp}
                         >
-                          {speaker && <i className="comic-bubble-name">{speaker}</i>}
+                          {speaker && multiChar && <i className="comic-bubble-name">{speaker}</i>}
                           {b.text}
                           <span
                             className="comic-bubble-flip"
@@ -1393,7 +1396,7 @@ export default function ComicWorkspace({ project, onExit, onProjectUpdated }: Pr
                               onPointerUp={onBubblePointerUp}
                               onDoubleClick={() => setPreviewEdit({ rowId: row.id, idx: bi })}
                             >
-                              {speaker && <i className="comic-bubble-name">{speaker}</i>}
+                              {speaker && multiChar && <i className="comic-bubble-name">{speaker}</i>}
                               {previewEdit && previewEdit.rowId === row.id && previewEdit.idx === bi ? (
                                 <>
                                   <input

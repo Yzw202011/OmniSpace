@@ -101,3 +101,48 @@ def test_named_manner_regression() -> None:
     out = _six_section(desc, _REFS_ONE, 10.0)
     # 既有具名「角色（语气）：」写法回归：语气照译不触发 OS 映射
     assert "夏沐沐白裙 (S1) 轻声地说: <d>[Chinese] 我只是路过啊。</d>" in out
+
+
+# ---------------------------------------------------------------------------
+# 句号内联字段解析（2026-10-27 拍板 A）：LLM 产出常把「运镜：/台词：/
+# 音效：」用句号内联进画面行（漫剧 row fe65da70 实锤）——旧分隔符集只认
+# | 与换行：台词零 <d> 标记（H3 朗读描述词根因）+「无。」假具名音效。
+_C_INLINE = """[0.0s-2.3s] 画面：[街角驻足] 少女立于大门前，左手轻拢衣角，嘴角微启。运镜：平视中景，镜头缓慢前推，机位高度 1.7 米。台词：无 | 音效：无。
+[2.3s-6.1s] 画面：[惊叹低语] 少女轻咬下唇，眼眸放光，抬头凝望。运镜：小幅匀速前推，机位高度 1.6 米。台词：夏沐沐（轻喃）：哇，这小区，好高级啊。 | 音效：无。
+[6.1s-10s] 画面：[街角回望] 少女转头，衣角随风轻扬。运镜：慢速后拉。台词：无 | 音效：无。"""
+
+_REFS_EXACT = [{"kind": "character", "name": "夏沐沐", "src": ""}]
+
+
+def test_inline_period_joined_fields_extract() -> None:
+    """句号内联的运镜/台词/音效字段照常提取（锚点补切）。"""
+    from src.services.inference.h3_chain_engine import _parse_c_shots
+    shots, _note = _parse_c_shots(_C_INLINE, 10.125)
+    assert len(shots) == 3
+    assert shots[0]["cam"].startswith("平视中景")
+    assert shots[0]["sfx"] == "无"  # 「无。」尾句号剥除、不判具名
+    assert shots[0]["text"].endswith("嘴角微启。")  # 画面文本不再吞运镜/台词
+    assert shots[1]["dlg"] == ["夏沐沐（轻喃）：哇，这小区，好高级啊。"]
+    assert shots[2]["dlg"] == ["无"]
+
+
+def test_inline_fields_dialogue_marked_and_sfx_clean() -> None:
+    """端到端：具名台词获 <d> 标记 + S1 绑定；裸台词条不再残留画面文本；
+    soundscape 无「无。」垃圾 token；has_dialogue 判真。"""
+    desc = "A. 全局风格\n3D CG 超写实真人风格。\n\nC. 分镜时间轴\n" + _C_INLINE
+    out = _six_section(desc, _REFS_EXACT, 10.125)
+    assert "夏沐沐 (S1) 轻喃地说: <d>[Chinese] 哇，这小区，好高级啊。</d>" in out
+    assert "台词：夏沐沐（轻喃）" not in out
+    assert "镜头运动：小幅匀速前推" in out
+    assert "无。；" not in out and "无。。" not in out
+    assert "角色台词已在时间轴中给出" in out
+
+
+def test_chain_audio_spec_inline_all_none_mutes() -> None:
+    """内联「台词：无 | 音效：无。」全 none → 显式双无成立（铁栏惊吠
+    场景在内联格式下仍触发文件级静音；修复前「无。」假具名锁死该通道）。"""
+    from src.services.inference.h3_chain_engine import _chain_audio_spec
+    c_only = "[0.0s-2.0s] 画面：铁栏边大黄犬低吠。运镜：固定。台词：无 | 音效：无。"
+    has_dlg, has_sfx, explicit_mute = _chain_audio_spec(
+        ["C. 分镜时间轴\n" + c_only], 10.0)
+    assert (has_dlg, has_sfx, explicit_mute) == (False, False, True)

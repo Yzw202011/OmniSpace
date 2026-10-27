@@ -277,6 +277,26 @@ def _strip_markdown(text: str) -> str:
     return _MD_BULLET_RE.sub("", text)
 
 
+# 字段切分与 none 归一（2026-10-27 拍板 A）：LLM 产出的描述词常把
+# 「运镜：/台词：/音效：」用句号内联进画面行（模板要求分行未守，漫剧
+# row fe65da70 实锤）——旧分隔符集只认 | 与换行，整行被吞进画面文本：
+# 台词从未提取（零 <d> 标记=H3 朗读描述词根因）、has_dialogue 误判
+# False、「无。」因尾句号被判成具名音效。零宽锚点对三类字段前缀补切；
+# none 集比对剥尾句号。
+_FIELD_SPLIT_RE = re.compile(r"[|\n]|(?=(?:运镜|台词|音效)[：:])")
+_NONE_TOKENS = {"无", "无台词", "无音效", "N/A", "-"}
+
+
+def _norm_none_token(v: str, *, keep_punct: bool = False) -> str:
+    """字段值 none 归一：剥尾句号后比对 none 集（「无。」假具名音效根因）。
+    具名音效/运镜顺带去尾句号；台词非 none 时原样保留（官方要求逐字
+    保留标点）。"""
+    v = (v or "").strip()
+    if v.rstrip("。") in _NONE_TOKENS:
+        return "无"
+    return v if keep_punct else v.rstrip("。")
+
+
 def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
     """C 段结构化解析（2026-10-02 三轮挖掘：判定/渲染统一单源）。
 
@@ -309,7 +329,7 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
         text = cam = sfx = ""
         dlg: list[str] = []  # 四轮挖掘②：同拍多台词行收集（旧版单值覆盖丢前句）
         last_field = ""
-        for part in re.split(r"[|\n]", blk[m.end():]):
+        for part in _FIELD_SPLIT_RE.split(blk[m.end():]):
             p = part.strip()
             if not p:
                 continue
@@ -317,15 +337,16 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
                 text = re.sub(r"^画面[：:]\s*", "", p)
                 last_field = "text"
             elif p.startswith("运镜"):
-                cam = re.sub(r"^运镜[：:]\s*", "", p)
+                cam = _norm_none_token(re.sub(r"^运镜[：:]\s*", "", p))
                 last_field = "cam"
             elif p.startswith("台词"):
-                _d = re.sub(r"^台词[：:]\s*", "", p).strip()
+                _d = _norm_none_token(
+                    re.sub(r"^台词[：:]\s*", "", p), keep_punct=True)
                 if _d:
                     dlg.append(_d)
                 last_field = "dlg"
             elif p.startswith("音效"):
-                sfx = re.sub(r"^音效[：:]\s*", "", p)
+                sfx = _norm_none_token(re.sub(r"^音效[：:]\s*", "", p))
                 last_field = "sfx"
             elif not text:
                 text = p
@@ -361,20 +382,21 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
             for seg in stripped:
                 text = cam = sfx = ""
                 dlg_n: list[str] = []
-                for part in re.split(r"[|\n]", seg):
+                for part in _FIELD_SPLIT_RE.split(seg):
                     p = part.strip()
                     if not p:
                         continue
                     if p.startswith("画面"):
                         text = re.sub(r"^画面[：:]\s*", "", p)
                     elif p.startswith("运镜"):
-                        cam = re.sub(r"^运镜[：:]\s*", "", p)
+                        cam = _norm_none_token(re.sub(r"^运镜[：:]\s*", "", p))
                     elif p.startswith("台词"):
-                        _d = re.sub(r"^台词[：:]\s*", "", p).strip()
+                        _d = _norm_none_token(
+                            re.sub(r"^台词[：:]\s*", "", p), keep_punct=True)
                         if _d:
                             dlg_n.append(_d)
                     elif p.startswith("音效"):
-                        sfx = re.sub(r"^音效[：:]\s*", "", p)
+                        sfx = _norm_none_token(re.sub(r"^音效[：:]\s*", "", p))
                     elif not text:
                         text = p
                 if text.startswith("衔接"):

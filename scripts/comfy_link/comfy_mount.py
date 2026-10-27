@@ -65,6 +65,7 @@ class MountReport:
     ok: int = 0               # 已就位（两端同 inode，幂等跳过）
     missing_src: int = 0      # 中央缺文件（大模型包没拖齐）
     orphan_cleaned: int = 0   # 清掉的死链（源已删、目标无伙伴）
+    relinked: int = 0         # 受管槽位自动重接（用户替换 models 场景，2026-10-27）
     conflict: int = 0         # 目标被外来文件占用（保守跳过不删）
     cross_volume: int = 0     # 跨卷硬链失败（提示移动到同盘）
     errors: int = 0           # 其他 IO 错误
@@ -72,9 +73,9 @@ class MountReport:
 
     def summary_line(self) -> str:
         return (f"共{self.total} 已就位{self.ok} 新链{self.linked} "
-                f"缺源{self.missing_src} 清死链{self.orphan_cleaned} "
-                f"冲突{self.conflict} 跨卷{self.cross_volume} "
-                f"错误{self.errors}")
+                f"重接{self.relinked} 缺源{self.missing_src} "
+                f"清死链{self.orphan_cleaned} 冲突{self.conflict} "
+                f"跨卷{self.cross_volume} 错误{self.errors}")
 
 
 def find_map_file(root: Path | None = None) -> Path | None:
@@ -151,11 +152,26 @@ def ensure_mounted(models_root: Path | None = None,
                     if _same_inode(src, dst):
                         report.ok += 1
                     else:
-                        # 表说这里是受管链接槽位，现实是别的文件——绝不删
-                        report.conflict += 1
-                        report.details.append(
-                            f"冲突 {comfy_rel}（目标已存在且非同源，"
-                            f"确认后删除目标文件可自动重接）")
+                        # 受管槽位与中央不同源 = 用户替换过 models（2026-
+                        # 10-27 发行整目录替换场景实锤：删除+放入=新 inode，
+                        # 旧硬链接保活 ComfyUI 侧旧内容，新 models 永不生
+                        # 效）。map 表内槽位是系统受管位，自动重接：旧文
+                        # 件改名 .replaced 备份（防误删）后重建硬链指向新
+                        # 中央文件；重接失败降级计入 conflict。
+                        try:
+                            bak = dst.with_name(dst.name + ".replaced")
+                            if bak.exists():
+                                bak.unlink()
+                            os.replace(dst, bak)
+                            _hardlink(src, dst)
+                            report.relinked += 1
+                            report.details.append(
+                                f"重接 {comfy_rel}（models 已替换，"
+                                f"受管链接更新；旧件存 {bak.name}）")
+                        except OSError as exc:
+                            report.conflict += 1
+                            report.details.append(
+                                f"重接失败 {comfy_rel}: {exc}")
                 else:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     try:

@@ -265,6 +265,18 @@ def _timeline_window(c_text: str, seconds: float) -> str:
     return (head + "\n" if head else "") + "\n".join(kept) + note
 
 
+_MD_BULLET_RE = re.compile(r"(?m)^[ \t]*[*·•\-]\s+")
+
+
+def _strip_markdown(text: str) -> str:
+    """剥 LLM 排版风 Markdown 修饰（2026-10-26 用户报）：加粗 ** 与行首
+    列表符（* - · •）。描述词正文合法不含这些符号；不剥则字段前缀
+    （**运镜**: ）无法被字段识别命中，运镜/台词/音效整字段丢失
+    （实测三拍全空壳、** 残留 9 处进合同）。幂等。"""
+    text = text.replace("**", "")
+    return _MD_BULLET_RE.sub("", text)
+
+
 def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
     """C 段结构化解析（2026-10-02 三轮挖掘：判定/渲染统一单源）。
 
@@ -278,6 +290,7 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
     - header_note = 首个时间标记前的实义正文（纯「分镜时间轴」标签
       行剥除；旧版整块丢弃——「本镜为夜戏」类前置说明会静默丢失）。
     """
+    c_text = _strip_markdown(c_text)
     c_win = _timeline_window(c_text, seconds)
     blocks = re.split(
         r"(?=\[\d+(?:\.\d+)?s\s*[-~]\s*\d+(?:\.\d+)?s\])", c_win)
@@ -387,7 +400,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
     # 只剩 A 段风格句），detailed_description 塞整行全量时间轴——单镜
     # N 秒生成被稀释成「画风对了、内容不符」。现按 A/B/C 切分并按时长
     # 窗口取 C 段镜头，世界观/镜头语言按结构分位注入。
-    abc = _split_abc(description)
+    abc = _split_abc(_strip_markdown(description))
     # B 段标题行剥离（2026-10-25 边角一）：手写描述词 B 段常带栏目标题
     # 首行（如「高密度世界观构建」，短行无句读）——按句号截摘要时
     # 标题会混进 summary 与世界状态段；短无标点首行按标题剥除

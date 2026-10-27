@@ -68,6 +68,33 @@ def test_multichar_unattributed_stays_anonymous() -> None:
     assert "夏沐沐白裙 (S1)" not in out
 
 
+_DESC_MD = '''A. **全局风格**：超写实治愈系现代3D电影质感，电影级自然光影。**全程无字幕、无背景音乐、只有音效**。
+
+B. **高密度世界观构建 (High-Density World Building)**：盛夏午后的海滨别墅区街道，栀子花瓣随海风飘落。
+
+C. **分镜时间轴 (Scene-Embedded Frame Split)**：
+* **[0.0s-0.1s] 画面：参考图保持 | 运镜：固定 | 音效：无**
+* **[0.1s-3.5s] 画面**: [夏日街景] 远景，开满花卉的别墅区柏油街道向远处延伸。 | **运镜**: 缓慢前推 | **音效**: 悠长的蝉鸣声、远处隐约的海浪声
+* **[3.5s-6.5s] 画面**: [核对地址] 中景，黑长直少女站在路边，白色行李箱立在她脚边。 | **运镜**: 从脚边行李箱缓慢上移至少女面部 | **音效**: 纸张轻微揉搓声、风扫过发丝的轻响
+* **[6.5s-10.0s] 画面**: [茫然呢喃] 近景特写，少女轻轻咬了咬下唇，嘴唇微动小声呢喃。 | **运镜**: 固定特写 | **音效**: 少女轻柔的台词："嗯，到底在哪儿呢？"'''
+
+
+def test_markdown_c_section_fields_parse() -> None:
+    """LLM 排版风描述词（** 加粗 + * 列表）：剥除后字段全部解析进合同
+    （修复前运镜/音效整字段丢失、** 残留 9 处进合同）。"""
+    out = _six_section(_DESC_MD, _REFS_ONE, 10.0)
+    assert "**" not in out, "加粗残留进合同"
+    assert "缓慢前推" in out, "运镜字段丢失"
+    assert "从脚边行李箱缓慢上移至少女面部" in out, "运镜字段丢失"
+    assert "纸张轻微揉搓声" in out, "音效字段丢失"
+    assert "悠长的蝉鸣声" in out, "音效字段丢失"
+
+
+def test_markdown_b_section_still_dropped_by_default() -> None:
+    out = _six_section(_DESC_MD, _REFS_ONE, 10.0)
+    assert "栀子花瓣随海风飘落" not in out  # 吞 B 默认（Markdown 版同样吞）
+
+
 def test_named_manner_regression() -> None:
     desc = _DESC.replace("台词：（内心 OS）我只是路过啊，为什么要对着我吠。",
                          "台词：夏沐沐（轻声）：我只是路过啊。")

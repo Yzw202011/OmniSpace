@@ -27,12 +27,13 @@ import httpx
 BASELINE_FILE = Path(__file__).resolve().parent.parent / "tests/golden/baseline.json"
 
 # 归一化时剥离的易变键：时间戳/构建号/请求号等——金母版只看行为指纹；
-# gpu=实时硬件读数（显存/利用率每秒都变）；name=探针自身随机后缀
+# gpu=实时硬件读数（显存/利用率每秒都变）；name=探针自身随机后缀；
+# copy_id=副本身份（每份包安装唯一，跨副本比对必漂，2026-10-29 实弹）
 VOLATILE_KEYS = {
     "request_id", "timestamp", "duration_ms", "meta", "uptime_s",
     "created_at", "updated_at", "started_at", "last_active", "elapsed",
     "version", "build", "session_id", "topic_id", "id",
-    "gpu", "name",
+    "gpu", "name", "copy_id",
 }
 
 # 探针序列（顺序执行；空库前提下全部确定性）

@@ -41,8 +41,11 @@ sys.path.insert(0, str(REPO / "tools"))
 
 # 编译目标（相对包根）；src 扁平化（2026-09-15）后后端真源=src/
 TARGETS = ["src", "launcher", "skills"]
-# 被当脚本运行（python xxx.py 直启）的文件——编译成 .pyd 就没人能启动它了
-SCRIPT_RUN = {"launcher/boot.py", "launcher/stop.py", "launcher/make_shortcut.py"}
+# 被当脚本运行的文件——编译成 .pyd 就没人能启动它了。除 python xxx.py
+# 直启外，OmniSpace-Shell.exe launcher/shell.py（boot._open_ui 以脚本参数
+# 传入嵌入式解释器执行）同属此类——漏编=壳秒死无窗（2026-10-29 实弹）
+SCRIPT_RUN = {"launcher/boot.py", "launcher/stop.py", "launcher/make_shortcut.py",
+              "launcher/shell.py"}
 GCC_FLAGS = ["-DMS_WIN64", "-O1"]
 
 # WinLibs gcc 位置（winget 安装默认路径，找不到则依赖 PATH）

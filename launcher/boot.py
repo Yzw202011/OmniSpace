@@ -635,10 +635,18 @@ def _open_ui(url: str, opts: BootOptions) -> None:
         runner = shell_exe if os.path.isfile(shell_exe) else pythonw
         cmd = [runner, os.path.join(root, 'launcher', 'shell.py'),
                '--url', url]
-        subprocess.Popen(cmd, cwd=root,
-                         creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0)
-                         | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+        proc = subprocess.Popen(cmd, cwd=root,
+                                creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0)
+                                | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
         print(f'[壳] 已拉起桌面窗口装载 {url}')
+        # 秒死检测（2026-10-29）：Popen 成功≠壳活着——脚本缺失等会让壳静默
+        # 退出（GUI 子系统无 stderr 可见），用户只见「点了没反应」。2s 后已退
+        # 且非 0 = 壳没起来，走回退浏览器；退 0 是合法路径（已有壳窗口时
+        # 置前旧窗让位），不回退；正常窗口不会在 2s 内退出。
+        time.sleep(2)
+        rc = proc.poll()
+        if rc not in (None, 0):
+            raise RuntimeError(f'壳进程秒死 rc={rc}（脚本缺失/依赖崩溃）')
     except Exception as exc:  # noqa: BLE001 - 壳失败回退浏览器
         print(f'[壳] 拉起失败回退浏览器：{exc}')
         webbrowser.open(url)

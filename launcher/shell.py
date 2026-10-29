@@ -259,6 +259,20 @@ def main() -> int:
         """
         assert window is not None
         try:
+            # 激活门页直退（2026-10-29 用户拍板）：门页置 __omniExitBypass
+            # 时点 X=跳过全部二次确认直接走正规退出链。背景：门页上品牌
+            # 确认框会被门覆盖层(zIndex 9999)压住不可见，壳空等应答 10
+            # 分钟=「关不掉」假死（2026-10-29 实弹定谳）。探测跑在本后台
+            # 线程（铁律：evaluate_js 绝不进 UI 线程），失败按老链走。
+            if window.evaluate_js('window.__omniExitBypass === true') is True:
+                _log('激活门页关窗：跳过二次确认，直接走正规退出链')
+                _exit_state['confirmed'] = True
+                _trigger_graceful_quit()
+                window.destroy()
+                return
+        except Exception as exc:  # noqa: BLE001 - bypass 探测失败按老链走
+            _log(f'关窗 bypass 探测失败（按老确认链走）: {exc}')
+        try:
             js_show = (
                 'window.__omniExitResult = null; '
                 'window.__omniExitConfirm ? '
@@ -275,8 +289,12 @@ def main() -> int:
                 _log('页面品牌弹窗不可用（未就绪/无钩子，已重试一次），回退系统框')
                 answer = _message_box_confirm(hint)
             else:
+                # 2026-10-29 加固：展示成功也留痕（此前 10 分钟纯静默难排障）；
+                # 应答上限 600s→120s——万一再遇「弹窗不可见」，2 分钟回退
+                # 系统框，不再长时间假死
+                _log('页面品牌弹窗已展示，等待应答（120s 超时回退系统框）')
                 answer = None
-                deadline = time.time() + 600.0
+                deadline = time.time() + 120.0
                 while time.time() < deadline:
                     ans = window.evaluate_js('window.__omniExitResult')
                     if ans is True or ans is False:

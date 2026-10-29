@@ -65,10 +65,18 @@ export default function LicenseGate() {
   }, []);
 
   // 未激活时主界面整体灰置禁点（2026-10-02：UI 第二道闸；
-  // 硬闸 = 后端 license_gate_middleware 全业务 403）
+  // 硬闸 = 后端 license_gate_middleware 全业务 403）。
+  // 门开时同步置壳关窗直退标志（2026-10-29 用户拍板）：激活门页上点
+  // X=直接退出、无需二次确认——此前品牌确认框(zIndex 2100)被本覆盖
+  // 层(zIndex 9999)压住不可见，壳端空等应答=「关不掉」；激活成功本
+  // 位自动清零，恢复正常关窗确认语义。
   useEffect(() => {
     document.body.classList.toggle('license-locked', open);
-    return () => document.body.classList.remove('license-locked');
+    window.__omniExitBypass = open;
+    return () => {
+      document.body.classList.remove('license-locked');
+      window.__omniExitBypass = false;
+    };
   }, [open]);
 
   const copyFp = async () => {

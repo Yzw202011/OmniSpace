@@ -18,6 +18,8 @@ declare global {
     __omniExitConfirm?: (tasksHint: string) => void;
     __omniExitCancel?: () => void;
     __omniExitResult?: boolean | null;
+    /** 激活门页直退标志（LicenseGate 置位）：壳关窗跳过二次确认（2026-10-29） */
+    __omniExitBypass?: boolean;
   }
 }
 

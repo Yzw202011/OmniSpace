@@ -258,7 +258,7 @@ export default function DataManagementSection() {
           <input
             type="text"
             className="input"
-            placeholder="归档文件绝对路径（如 E:\backups\project.omnispace）"
+            placeholder="归档文件绝对路径（.omnispace 归档文件的完整路径）"
             value={importPath}
             onChange={(e) => setImportPath(e.target.value)}
             style={{ flex: 1 }}

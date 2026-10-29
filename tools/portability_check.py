@@ -27,7 +27,10 @@ DRIVE_RE = re.compile(r"(?i)\b[a-z]:[\\/]")
 MARKER = "portable-ok"
 
 # 系统资源路径（任何 Windows 机器都有，不算可移植性问题，单列 INFO）
-SYSTEM_PREFIXES = ("c:\\windows", "c:\\program files", "c:\\ffmpeg")
+# programdata（2026-10-28）：models.py 导入闸四兄弟同款 env 兜底默认值，
+# 缺它导致 C:\ProgramData 被误判 CRITICAL（前三兄弟均合法的whitelist缺口）
+SYSTEM_PREFIXES = ("c:\\windows", "c:\\program files", "c:\\programdata",
+                   "c:\\ffmpeg")
 
 TEXT_EXT = {".py", ".bat", ".ps1", ".cmd", ".yaml", ".yml", ".toml",
             ".cfg", ".ini", ".pth", ".ts", ".tsx", ".js", ".css", ".html", ".json"}

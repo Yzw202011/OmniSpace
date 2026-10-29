@@ -631,7 +631,7 @@ def _meta() -> dict[str, Any]:
 
 
 # R3-L12（202-24）：错误消息路径脱敏——str(exc) 常含
-# E:\OmniSpace\src\... 或 C:\Users\...\Temp\... 内部路径直达前端
+# 盘符开头的仓库源码路径 / 用户临时目录等内部路径直达前端
 _PATH_RE = re.compile(
     r'[A-Za-z]:\\[^\s"\']{5,}|/(?:home|usr|tmp|var)/[^\s"\']{5,}')
 

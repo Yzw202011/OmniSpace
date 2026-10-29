@@ -23,6 +23,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -49,6 +51,18 @@ def main() -> int:
     ap.add_argument("--zones", default=DEFAULT_ZONES,
                     help="水印签发区（逗号分隔相对目录）")
     args = ap.parse_args()
+    # v2 资产密钥（H6 方案 A 批 2）经环境变量下传（OMNISPACE_ASSET_KEY/
+    # OMNISPACE_ASSET_KEY_ID，由打包台编排器注入）——刻意不走上命令行：
+    # 进程列表与任务台账都看得到 argv，看不到 env。此处只做形态预检，
+    # 坏形态现在就炸，不进 16 分钟构建才发现；make_dist 内还有第二道闸
+    _ak = os.environ.get("OMNISPACE_ASSET_KEY", "")
+    _akid = os.environ.get("OMNISPACE_ASSET_KEY_ID", "")
+    if bool(_ak) != bool(_akid):
+        sys.exit("OMNISPACE_ASSET_KEY 与 OMNISPACE_ASSET_KEY_ID 必须成对提供")
+    if _ak and (re.fullmatch(r"[0-9a-fA-F]{64}", _ak) is None
+                or re.fullmatch(r"[0-9a-fA-F]{1,16}", _akid) is None):
+        sys.exit("资产密钥形态错误：OMNISPACE_ASSET_KEY 须 64 位 hex（32B）、"
+                 "OMNISPACE_ASSET_KEY_ID 须 ≤16 位 hex（8B）")
     out_root = Path(args.out)
     out_root.mkdir(parents=True, exist_ok=True)
 

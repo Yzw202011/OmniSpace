@@ -153,6 +153,12 @@ COPY_DIRS: list[tuple[str, str, object]] = [
     # §2.3），包内仍落 modelxiazai/——交付物与说明书路径不变
     ("scripts/comfy_link", "modelxiazai", _plain_filter),
     ("pydeps", "pydeps", _pydeps_filter),
+    # Playwright 浏览器随包（2026-10-28 补缺）：launcher.py:620 把
+    # PLAYWRIGHT_BROWSERS_PATH 钉死为包内 .cache/ms-playwright，但此前
+    # 白名单漏带该目录 → 客户机学习调度/浏览器自愈全熔断（stderr 实锤
+    # 「Executable doesn't exist …chromium_headless_shell」）。四件套
+    # ~705M：chromium 有头 + 无头壳 + ffmpeg + winldd，离线可用。
+    (".cache/ms-playwright", ".cache/ms-playwright", _plain_filter),
     ("frontend/dist", "frontend/dist", None),
     # 主链运行时（B1 2026-09-13 升 py312；批0-1 2026-09-18 出包对齐：
     # 此前仍装 py310 而 启动bat 已指 py312 → 包出来双击即"启动异常退出"）。
@@ -370,14 +376,30 @@ def self_check(dest: Path, skip_gate_check: bool = False) -> list[str]:
                             alerts.append(
                                 f"[盘符] {rel}:{i}: {line.strip()[:120]}")
     # 黑名单仍按全包检查（第三方树也不许夹带敏感物），已查过的跳过；
-    # 长路径树（ComfyUI）用 os.walk+前缀遍历
+    # 长路径树（ComfyUI）用 os.walk+前缀遍历。
+    # .omni_sig/ 豁免（2026-10-29）：渠道水印的三暗标故意伪装成 *.log 等
+    # 杂物名（v4·P2 设计）——黑名单的 .log 规则会误杀取证件，跳过该目录
     root_lp = _lp(dest)
     for dirpath, _dirs, names in os.walk(root_lp):
         for name in names:
             rel = os.path.relpath(os.path.join(dirpath, name),
                                   root_lp).replace("\\", "/")
+            if rel == ".omni_sig" or rel.startswith(".omni_sig/"):
+                continue
             _blacklist(rel, alerts)
-    for ess in ESSENTIALS:
+    # 必备件按包形态适配（2026-10-29）：加壳包源码全灭（Cython 编译），
+    # src/main.py / src/build_info.py 以 .pyd 形态存在——检测到编译布局
+    # 时换成对应编译件，check_only 从此对源码包/加壳包都能用
+    essentials = list(ESSENTIALS)
+    is_protected = ((dest / "src" / "main.cp312-win_amd64.pyd").is_file()
+                    and not (dest / "src" / "main.py").is_file())
+    if is_protected:
+        essentials = [("src/main.cp312-win_amd64.pyd"
+                       if e == "src/main.py" else
+                       "src/build_info.cp312-win_amd64.pyd"
+                       if e == "src/build_info.py" else e)
+                      for e in essentials]
+    for ess in essentials:
         if not (dest / ess).exists():
             alerts.append(f"[必备件缺失] {ess}")
     # H1 门禁哨兵（2026-10-19）：锁芯公钥空=无门禁包，除显式 allow-unlocked
@@ -500,32 +522,37 @@ def main() -> int:
         print(f"已注入公钥双藏副本（XOR 交叉验证）：{x_val[:16]}…")
         # H6 方案 A 批 3（2026-10-24 拍板）：v2 资产密钥注入（独立随机
         # 密钥，与公钥无关——v1 的 SHA256(公钥) 可从公开材料推导已定谳）
-        if args.asset_key and args.asset_key_id:
-            import re as _re
-            _bad = _re.fullmatch(r"[0-9a-fA-F]{64}", args.asset_key) is None \
-                or _re.fullmatch(r"[0-9a-fA-F]{1,16}", args.asset_key_id) is None
+        # 双通道（2026-10-28 接线）：CLI --asset-key/--asset-key-id=手工
+        # 路径；OMNISPACE_ASSET_KEY/…_ID 环境变量=打包台编排器注入的
+        # 机器路径——秘密不走 argv（进程列表/任务台账可见），env 看不到
+        asset_key = args.asset_key or os.environ.get("OMNISPACE_ASSET_KEY", "")
+        asset_key_id = args.asset_key_id or os.environ.get("OMNISPACE_ASSET_KEY_ID", "")
+        if asset_key and asset_key_id:
+            _bad = re.fullmatch(r"[0-9a-fA-F]{64}", asset_key) is None \
+                or re.fullmatch(r"[0-9a-fA-F]{1,16}", asset_key_id) is None
             if _bad:
-                raise SystemExit("资产密钥形态错误：--asset-key 须 64 位 hex"
-                                 "（32B）、--asset-key-id 须 ≤16 位 hex（8B）")
+                raise SystemExit("资产密钥形态错误：--asset-key/"
+                                 "OMNISPACE_ASSET_KEY 须 64 位 hex（32B）、"
+                                 "id 须 ≤16 位 hex（8B）")
             patched_a = patched_x.replace(
                 'ASSET_KEY_HEX = ""',
-                f'ASSET_KEY_HEX = "{args.asset_key}"')
+                f'ASSET_KEY_HEX = "{asset_key}"')
             patched_a = patched_a.replace(
                 'ASSET_KEY_ID = ""',
-                f'ASSET_KEY_ID = "{args.asset_key_id}"')
+                f'ASSET_KEY_ID = "{asset_key_id}"')
             if 'ASSET_KEY_HEX = ""' in patched_a \
                     or 'ASSET_KEY_ID = ""' in patched_a:
                 raise SystemExit("资产密钥注入失败：找不到 ASSET_KEY 占位符"
                                  "（锁芯版本过旧？）")
             gate.write_text(patched_a, encoding="utf-8")
-            print(f"已注入 v2 资产密钥（id={args.asset_key_id[:8]}…）"
+            print(f"已注入 v2 资产密钥（id={asset_key_id[:8]}…）"
                   "——assets_enc 将用独立随机密钥加密")
         else:
             print("=" * 60)
             print("⚠️ 未注入 v2 资产密钥——assets_enc 将走 v1 公钥派生"
                   "（SHA256(公开公钥)，防护=仅混淆）。")
-            print("⚠️ 正式发行请从发码台 /api/asset-key 取密钥并传 "
-                  "--asset-key/--asset-key-id。")
+            print("⚠️ 正式发行请从发码台 /api/asset-key 取密钥，经打包台"
+                  "下发或传 --asset-key/--asset-key-id。")
             print("=" * 60)
         # 吊销名单随包：发码台台账 → revocations.json（差分升级包自动下发）
         rev = _extract_revocations(
@@ -539,10 +566,13 @@ def main() -> int:
               + ("" if rev else "（台账空/缺失=空名单，不阻断）"))
         # 资产加密（P6 锁4 / H6 方案 A）：工作流明文出包即灭；风格种子入金库
         # 有 v2 密钥→独立随机密钥 OMNIENC2；无→v1 公钥派生（上方已响亮警告）
-        if args.asset_key and args.asset_key_id:
+        # （2026-10-28 根修：与注入段同源——env 通道下 args.asset_key 为空、
+        #  须读上方 CLI/env 双通道解析出的 asset_key/asset_key_id，否则
+        #  「已注入 v2」横幅底下实际走 v1，包成 v2 门禁+v1 资产错配废品）
+        if asset_key and asset_key_id:
             from src.asset_vault import encrypt_bytes_v2
-            _ak = bytes.fromhex(args.asset_key)
-            _akid = bytes.fromhex(args.asset_key_id)
+            _ak = bytes.fromhex(asset_key)
+            _akid = bytes.fromhex(asset_key_id)
 
             def _enc(data: bytes) -> bytes:
                 return encrypt_bytes_v2(data, _ak, _akid)

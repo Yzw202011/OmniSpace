@@ -411,6 +411,306 @@ def _parse_c_shots(c_text: str, seconds: float) -> tuple[list[dict], str]:
     return shots, header_note
 
 
+# ═══════════════════════════════════════════════════════════════════
+#  批1（2026-11-08 转义层升级立项）：远景行走连续性模板 + 空洞形容词 lint
+#  依据：Singularity 规范书 §15.1/§16 对照（docs/plan-translocation-
+#  upgrade-2026-11-08.md）。注入只补「行走连续性」一句，不碰运镜
+#  （运镜归批3；固定机位铁律不受影响）；lint 纯告警零改写。
+# ═══════════════════════════════════════════════════════════════════
+_DISTANT_RE = re.compile(r"远景|远处|远方|地平线|天边|尽头")
+_WALK_RE = re.compile(r"走|行走|步行|漫步|徘徊|赶路|奔")
+_WALK_ALREADY_RE = re.compile(r"持续行走|保持匀速|不停(?:地)?走|一直走|步伐[^。]{0,12}连续")
+_WALK_SENTENCE = ("画面中的人物自始至终保持匀速持续行走，方向与间距稳定；"
+                  "尽管身形较小、动作在画面中不明显，其步伐始终保持连续，"
+                  "不因距离而停滞。")
+_GENERIC_ADJ_RE = re.compile(
+    r"电影感|大片感|高质量|高品质|有质感|高级感|唯美|动感镜头|动感画面|"
+    r"cinematic|dynamic camera|epic|high[\s-]?quality", re.I)
+
+
+def _cfg_flag(section: str, key: str, default: bool) -> bool:
+    """批1 开关读取（config 异常按 default，与现有 h3_keep_b_section 同口径）。"""
+    try:
+        return bool((get_config().get(section) or {}).get(key, default))
+    except Exception:  # noqa: BLE001 - 配置异常按默认
+        return default
+
+
+def _inject_distant_walk(shots_p: list[dict]) -> None:
+    """远景行走连续性注入（规范 §15.1 移植，批1）。
+
+    命中条件：镜头文本同时含「距离标记词」（远景/远处/…）与「行走动词」；
+    已含连续性行走描述的镜头不重复注入（防 token 权重叠加）。开关
+    config manga.h3_distant_walk（默认 False，A/B 胜出后翻默认）。
+    直接改写 shots_p[n]["text"]——时间轴组装（[Shot n] 序列化）自动携带。
+    """
+    if not _cfg_flag("manga", "h3_distant_walk", False):
+        return
+    _n = 0
+    for _s in shots_p:
+        _t = str(_s.get("text") or "")
+        if not (_DISTANT_RE.search(_t) and _WALK_RE.search(_t)):
+            continue
+        if _WALK_ALREADY_RE.search(_t):
+            continue
+        _s["text"] = _t.rstrip("。") + "。" + _WALK_SENTENCE
+        _n += 1
+    if _n:
+        log.info("[translocation-p1] 远景行走连续性注入 ×%d 镜", _n)
+
+
+def _lint_generic_adjectives(prompt: str) -> list[str]:
+    """空洞形容词 lint（规范 §16，批1）——只告警不替换，返回命中列表。
+
+    词典=电影感/大片感/高质量/有质感/cinematic/dynamic camera 等；
+    命中经 log.info 输出上下文（观察期口径：先看清误报率，批2 再开替换）。
+    开关 config manga.h3_prompt_lint（默认 True——纯日志零改写，安全）。
+    """
+    if not _cfg_flag("manga", "h3_prompt_lint", True):
+        return []
+    hits: list[str] = []
+    for _m in _GENERIC_ADJ_RE.finditer(prompt):
+        _ctx = prompt[max(0, _m.start() - 15):_m.end() + 15]
+        hits.append(f"『{_m.group(0)}』…{_ctx.replace(chr(10), ' ')}…")
+    if hits:
+        log.info("[translocation-lint] 空洞形容词 %d 处（仅告警不替换）: %s",
+                 len(hits), " | ".join(hits[:6]))
+    return hits
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  批2（2026-11-08 转义层升级）：动作链八段式展开 + VFX 四要素
+#  依据：Singularity 规范书 §8/§10——孤立动词标签 → 连续过程链；
+#  VFX = 触发+形态+方向+环境后果。开关 manga.h3_action_chains /
+#  h3_vfx_expand 默认 False（A/B 胜出后翻默认）。每镜各限注入 1 条
+#  （防 token 权重叠加）；已含过程描述的镜头跳过。
+# ═══════════════════════════════════════════════════════════════════
+# 动作动词 → 过程链中句（八段式：预备→触发→加速→主动作→接触→反应→收势）
+_ACTION_CHAINS: dict[str, str] = {
+    "攻击": "攻击以连续过程呈现：先压低重心蓄力，随即发力启动并逐渐加速，"
+            "攻击全程连贯，命中瞬间可见反作用，随后完成收势回到戒备姿态。",
+    "挥剑": "挥剑动作以连续过程呈现：先引剑后蓄，再转腰发力加速挥出，"
+            "剑锋轨迹连贯可见，命中伴随反作用，最后顺势收剑。",
+    "出剑": "出剑以连续过程呈现：凝神蓄力→蹬地转腰→剑加速刺出→命中→"
+            "顺势收剑回身，全程无停顿跳变。",
+    "突刺": "突刺以连续过程呈现：蓄力下沉→后脚蹬地→剑身加速前送→"
+            "接触瞬间发力顶点→受击物反馈→收势撤步。",
+    "劈砍": "劈砍以连续过程呈现：双手举械过肩蓄力→腰背发力带动→"
+            "械身加速下劈→命中反弹→顺势卸力收势。",
+    "格挡": "格挡以连续过程呈现：预判来势→抬起械臂迎向轨迹→接触瞬间"
+            "手臂微沉卸力→来势被挡开→保持戒备。",
+    "闪避": "闪避以连续过程呈现：预判来势→重心侧移→蹬地翻身避开轨迹→"
+            "落地缓冲→立即回正面向威胁。",
+    "翻滚": "翻滚以连续过程呈现：屈身蓄势→双手撑地→团身滚动→"
+            "展开起身→站稳面向前方。",
+    "跃起": "跃起以连续过程呈现：屈膝下沉蓄力→蹬地腾空→空中姿态展开→"
+            "落地屈膝缓冲→站直回稳。",
+    "奔跑": "奔跑以连续过程呈现：迈步蹬地→身体前倾加速→双臂前后摆动"
+            "与步伐协调→全程步频稳定连贯。",
+    "冲刺": "冲刺以连续过程呈现：起步压低身体→逐步加速到全速→"
+            "步幅拉长双臂摆动→保持方向与速度连贯。",
+    "投掷": "投掷以连续过程呈现：持物后引蓄力→转体带动手臂→"
+            "加速挥臂出手→物沿轨迹飞出→目送收势。",
+    "推门": "推门以连续过程呈现：手掌贴门蓄力→肩身同向发力→"
+            "门轴转动加速→门扇到位轻微反弹→扶稳停住。",
+    "踹门": "踹门以连续过程呈现：侧身抬腿蓄力→腰胯发力蹬出→"
+            "门锁处受击爆开→门扇撞墙回弹→收腿站稳。",
+    "抓住": "抓取以连续过程呈现：手部张开预摆→向前探臂→"
+            "五指合拢收紧→确认抓稳→带回身前。",
+    "转身": "转身以连续过程呈现：重心移至前脚→腰胯先行带动肩背→"
+            "视线随身体扫过→转正后目光锁定目标。",
+}
+_ACTION_VERB_RE = re.compile("|".join(_ACTION_CHAINS))
+_ACTION_ALREADY_RE = re.compile(
+    r"蓄力|逐渐|加速|连贯|收势|连续过程|随后|接着|紧接着")
+# VFX 触发词 → 四要素句（触发点+形态+方向/运动+环境后果）
+_VFX_CHAINS: dict[str, str] = {
+    "爆炸": "爆炸以明确触发点起爆，火球与浓烟自爆心向外扩张，碎片沿"
+            "冲击方向飞散，邻近表面被火光短暂照亮并受冲击波影响。",
+    "火光": "火光自燃点窜起，焰舌随气流摆动，火星向上升腾，"
+            "周围表面被暖光照亮并随火焰明暗闪烁。",
+    "魔法": "能量自施法点汇聚成形，光纹旋转增强后向前释放，"
+            "途经尘土被气流带动，命中处绽开光环并照亮四周。",
+    "闪电": "闪电自云层劈落，主脉带分叉瞬间照亮全场，"
+            "落点迸发火花，空气留下一瞬残影。",
+    "碎裂": "碎裂自受力点开裂，裂纹快速蔓延，碎片沿受力反方向崩飞，"
+            "断面在光下反光，碎屑落地的尘土扬起。",
+    "烟尘": "烟尘自源头腾起，向外翻卷扩散，边缘逐渐变淡，"
+            "途经的光线被染成朦胧光束。",
+    "尘土": "尘土自受力点扬起，颗粒向四周弥散，缓缓沉降，"
+            "光线穿过时形成朦胧尘幕。",
+    "水花": "水花自撞击点迸溅，水珠沿抛物线四散，水面荡开涟漪，"
+            "周围地面被溅湿反光。",
+}
+_VFX_RE = re.compile("|".join(_VFX_CHAINS))
+
+
+def _expand_action_chains(shots_p: list[dict]) -> None:
+    """动作链展开（规范 §8，批2）：孤立动词 → 连续过程句。
+
+    每镜限 1 条（首个命中动词）；已含过程描述词（蓄力/连贯/收势…）
+    的镜头跳过。开关 manga.h3_action_chains 默认 False。
+    """
+    if not _cfg_flag("manga", "h3_action_chains", False):
+        return
+    _n = 0
+    for _s in shots_p:
+        _t = str(_s.get("text") or "")
+        if not _t or _ACTION_ALREADY_RE.search(_t):
+            continue
+        _m = _ACTION_VERB_RE.search(_t)
+        if not _m:
+            continue
+        _s["text"] = _t.rstrip("。") + "。" + _ACTION_CHAINS[_m.group(0)]
+        _n += 1
+    if _n:
+        log.info("[translocation-p2] 动作链展开 ×%d 镜", _n)
+
+
+def _expand_vfx(shots_p: list[dict]) -> None:
+    """VFX 四要素展开（规范 §10，批2）：触发词 → 触发+形态+方向+后果。
+
+    每镜限 1 条（首个命中 VFX 词）。开关 manga.h3_vfx_expand 默认 False。
+    """
+    if not _cfg_flag("manga", "h3_vfx_expand", False):
+        return
+    _n = 0
+    for _s in shots_p:
+        _t = str(_s.get("text") or "")
+        if not _t:
+            continue
+        _m = _VFX_RE.search(_t)
+        if not _m:
+            continue
+        _s["text"] = _t.rstrip("。") + "。" + _VFX_CHAINS[_m.group(0)]
+        _n += 1
+    if _n:
+        log.info("[translocation-p2] VFX四要素展开 ×%d 镜", _n)
+
+
+def _token_guard(prompt: str) -> None:
+    """六段式合同 token 守卫（批2）：超阈值告警（不阻断，供模板膨胀观察）。"""
+    _n = len(prompt)
+    if _n > 4000:
+        log.warning("[translocation-token] 六段式合同 %d 字符超守卫阈值 4000"
+                    "（模板注入膨胀风险，请检查开关组合）", _n)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  批3（2026-11-08 转义层升级）：运镜五要素展开（规范 §9 + OpenH3-IR
+#  R18 联动——「镜头运动：X（严格执行）」标签堆 → 具体化五要素句：
+#  机位/景别 + 运动类型 + 方向 + 速度幅度 + 跟随对象）。
+#  「固定」运镜不走展开（运镜铁律分支原样保留）；无运镜词的 cam 原样
+#  保留（宁缺毋滥）。开关 manga.h3_camera_expand 默认 False。
+# ═══════════════════════════════════════════════════════════════════
+_CAMERA_CHAINS: dict[str, str] = {
+    "环绕": "镜头绕画面主体作{speed}弧形环绕（一次连续环绕不往返），"
+            "与主体保持恒定距离和高度，主体稳定处于画面中心区域",
+    "旋转": "镜头绕画面主体作{speed}弧形环绕（一次连续环绕不往返），"
+            "与主体保持恒定距离和高度，主体稳定处于画面中心区域",
+    "推进": "镜头自当前机位向画面主体方向{speed}推进，景别渐近一级，"
+            "幅度轻微（一次连续推进不回拉），主体保持居中",
+    "推近": "镜头自当前机位向画面主体方向{speed}推进，景别渐近一级，"
+            "幅度轻微（一次连续推进不回拉），主体保持居中",
+    "拉远": "镜头自当前机位向远离画面主体方向{speed}后拉，景别渐远一级，"
+            "幅度轻微（一次连续后拉不前推），主体保持构图之内",
+    "后拉": "镜头自当前机位向远离画面主体方向{speed}后拉，景别渐远一级，"
+            "幅度轻微（一次连续后拉不前推），主体保持构图之内",
+    "跟随": "镜头与画面主体保持恒定距离{speed}侧向跟随移动，"
+            "主体稳定处于画面同一侧，背景随之流动",
+    "跟拍": "镜头与画面主体保持恒定距离{speed}侧向跟随移动，"
+            "主体稳定处于画面同一侧，背景随之流动",
+    "横移": "镜头沿水平方向{speed}侧向移动，与画面主体保持恒定距离，"
+            "构图关系保持不变",
+    "摇镜": "机位固定不动，镜头视向自左向右{speed}平摇（单向一次不回摇），"
+            "扫过场景并保持画面稳定",
+    "俯冲": "镜头自高处向画面主体方向{speed}俯冲接近，到位即停稳，"
+            "主体保持居中",
+}
+_CAMERA_VERB_RE = re.compile("|".join(_CAMERA_CHAINS))
+_CAMERA_FAST_RE = re.compile(r"快速|急速|迅猛|疾速")
+
+
+def _expand_camera(shots_p: list[dict]) -> None:
+    """运镜五要素展开（规范 §9，批3）：标签堆 → 具体化五要素句。
+
+    仅处理非「固定」且命中运镜动词表的 cam；展开句保留原设定回引与
+    「严格执行」约束尾注（防模型自行加戏）。开关
+    manga.h3_camera_expand 默认 False；A/B 需过进度单调性硬闸。
+    """
+    if not _cfg_flag("manga", "h3_camera_expand", False):
+        return
+    _n = 0
+    for _s in shots_p:
+        _cam = str(_s.get("cam") or "").strip()
+        if not _cam or "固定" in _cam:
+            continue
+        _m = _CAMERA_VERB_RE.search(_cam)
+        if not _m:
+            continue
+        _speed = ("快速" if _CAMERA_FAST_RE.search(_cam) else "缓慢匀速")
+        _expanded = _CAMERA_CHAINS[_m.group(0)].format(speed=_speed)
+        _s["cam"] = f"{_expanded}（原设定：{_cam}；严格执行，不得自行更改或增加镜头运动）"
+        _n += 1
+    if _n:
+        log.info("[translocation-p3] 运镜五要素展开 ×%d 镜", _n)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  批5（2026-11-09 转义层升级）：OpenH3-IR 候选规则移植（lint 纯告警）。
+#  对标表：docs/translocation-p5-openh3ir-rules-map.md——移植 R13/R17/
+#  R19/R20/R28-30 六族（R3 经复核咱已覆盖：subject 行本就点名
+#  <Picture N>，对标表结论勘正）。开关 manga.h3_rules_lint 默认 True
+#  （纯日志零改写）。
+# ═══════════════════════════════════════════════════════════════════
+_LINT_META_RE = re.compile(r"分镜|上一?段|风格同前|同上|如前所述|见第[一二三\d]")
+_SHEET_NAME_RE = re.compile(r"视图|设定稿|设定图")
+
+
+def _lint_contract_rules(shots_p: list[dict], refs: list[dict]) -> list[str]:
+    """OpenH3-IR 候选规则 lint（批5，纯告警返回命中列表）。
+
+    R13 设定稿伪迹 / R17 切镜无新信息 / R19 裸主体名 / R20 运镜矛盾 /
+    R28-30 元语言泄漏。误报率实测 <10% 才长期保留（计划验收线）。
+    """
+    if not _cfg_flag("manga", "h3_rules_lint", True):
+        return []
+    out: list[str] = []
+    # R13：设定稿/多视图类参考——可能被模型当场景内容渲染
+    for _r in refs:
+        if _SHEET_NAME_RE.search(str(_r.get("name") or "")):
+            out.append(f"R13-sheet-artefact: 参考『{_r['name']}』疑似设定稿/"
+                       "多视图，确认用途为外观锁定而非场景内容")
+            break
+    _texts = [str(_s.get("text") or "").strip() for _s in shots_p]
+    # R17：相邻拍开头 30 字相同 = 切镜无新信息
+    for _i in range(1, len(_texts)):
+        _a, _b = _texts[_i - 1], _texts[_i]
+        if _a and _b and _a[:30] == _b[:30]:
+            out.append(f"R17-cut-states-nothing-new: 第{_i}拍与第{_i+1}拍"
+                       "开头30字相同")
+    # R19：拍文本过短（疑似裸主体名，无动作内容）
+    for _i, _t in enumerate(_texts, 1):
+        if _t and len(_t) < 8:
+            out.append(f"R19-bare-subject-name: 第{_i}拍文本仅{len(_t)}字，"
+                       "疑似裸主体名")
+    # R20：运镜标「固定」但画面文本含运镜动词（单拍内自相矛盾）
+    for _i, _s in enumerate(shots_p, 1):
+        _cam = str(_s.get("cam") or "")
+        if "固定" in _cam and _CAMERA_VERB_RE.search(str(_s.get("text") or "")):
+            out.append(f"R20-camera-contradiction: 第{_i}拍运镜标固定"
+                       "但画面含运镜动词")
+    # R28-30：分镜/段落元语言泄漏进画面内容
+    for _i, _t in enumerate(_texts, 1):
+        _m = _LINT_META_RE.search(_t)
+        if _m:
+            out.append(f"R28-30-meta-leak: 第{_i}拍含元语言『{_m.group(0)}』")
+    if out:
+        log.info("[translocation-p5] 规则 lint 命中 %d 条: %s",
+                 len(out), " | ".join(out[:8]))
+    return out
+
+
 def _six_section(description: str, refs: list[dict], total_seconds: float) -> str:
     subj = []
     retain = []
@@ -442,14 +742,46 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
                        .get("h3_keep_b_section", False))
     except Exception:  # noqa: BLE001 - 配置异常按吞除
         _keep_b = False
+    _b_raw = _b_text  # 批7：原文留存（蒸馏输入；吞除后仍有引用）
     if not _keep_b:
         _b_text = ""
+    # 批7混合路线（2026-11-09）：B段散文经本地 Rewriter 蒸馏成画面句后以
+    # [世界画面] 块进合同——散文原文永不进合同（构造性防朗读），世界观
+    # 仍入画（批6证明吞除丢时代锚）；人物锚定仍由 subject 行承担。
+    # 蒸馏失败/超时/权重缺失 → 回退吞除（降级诚实，不阻断出片）。
+    _b_world = ""
+    try:
+        _b_distill_on = bool((get_config().get("manga") or {})
+                             .get("h3_b_distill", False))
+    except Exception:  # noqa: BLE001 - 配置异常按现行吞除
+        _b_distill_on = False
+    if _b_distill_on and _b_raw:
+        try:
+            from ..b_section_distiller import distill_b_section
+            _d = distill_b_section(_b_raw)
+        except Exception as _exc:  # noqa: BLE001 - 蒸馏层异常同走降级
+            log.warning("[b-distill] 蒸馏层异常（回退吞除）: %s", _exc)
+            _d = None
+        if _d:
+            _b_world = _d[:400]
+            log.info("[b-distill] [世界画面] 块注入 %d 字", len(_b_world))
+        else:
+            log.warning("[b-distill] 未产出蒸馏结果，回退吞除")
     # 四轮挖掘④：纯文本（无 A/B/C 标记）——abc 全空时结构化路径产出
     # 空时间轴=原文整段丢失；直接原文兜底（教学头+原文，官方六段壳）
     _plain = not (abc["a"] or abc["b"] or abc["c"])
     # C 段结构化解析（三轮挖掘统一单源 _parse_c_shots）：保持段跳过/
     # 协议标签官方化/跨窗拍 spans 标注/标记前正文（header_note）保留
     shots_p, header_note = _parse_c_shots(abc["c"], total_seconds)
+    # 批1：远景行走连续性注入（开关 manga.h3_distant_walk，默认关）
+    _inject_distant_walk(shots_p)
+    # 批2：动作链展开 + VFX 四要素（开关默认关，每镜各限 1 条）
+    _expand_action_chains(shots_p)
+    _expand_vfx(shots_p)
+    # 批3：运镜五要素展开（开关默认关；「固定」与未命中词原样保留）
+    _expand_camera(shots_p)
+    # 批5：OpenH3-IR 候选规则 lint（纯告警；展开后的 shots 才是最终文本）
+    _lint_contract_rules(shots_p, refs)
     # 摘要首拍：跳过转场拍（解析层已剥离「衔接」引用，双保险口径一致）
     first_shot = next((s["text"][:120] for s in shots_p
                        if s["text"] and not s["text"].startswith("衔接")), "")
@@ -566,6 +898,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         "作为字幕、不可出任何人声念读；只有 <d>[Chinese] …</d> 标记"
         "内的话是被说出的台词。",
         f"[全局风格] {_a_text}" if _a_text else "",
+        f"[世界画面] {_b_world}" if _b_world else "",
         f"[世界与人物状态] {_b_text[:500]}" if _b_text else "",
         # 四轮挖掘④：纯文本描述词原文直入（结构化路径产出空时间轴=
         # 原文整段丢失）
@@ -598,7 +931,7 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         soundscape += " 安静的环境底噪，仅有轻微的环境氛围声。"
     else:
         soundscape += " 角色台词已在时间轴中给出，按时间轴演绎。"
-    return "\n".join([
+    _contract = "\n".join([
         "subject_definitions:\n" + "\n".join(subj),
         "summary:\n[reference generation] " + (brief or description.strip()[:160]),
         "retention_analysis:\n" + "\n".join(retain) +
@@ -607,6 +940,11 @@ def _six_section(description: str, refs: list[dict], total_seconds: float) -> st
         f"overall_soundscape:\n{soundscape} 单镜时长约 {total_seconds:.0f} 秒。",
         "non_diegetic_music:\n无配乐。",
     ])
+    # 批1：空洞形容词 lint（纯告警，零改写；观察期口径）
+    _lint_generic_adjectives(_contract)
+    # 批2：token 守卫（超 4000 字符告警，防模板组合膨胀）
+    _token_guard(_contract)
+    return _contract
 
 
 def h3_sharpen_enabled() -> bool:

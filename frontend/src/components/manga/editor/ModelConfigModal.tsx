@@ -325,12 +325,13 @@ export default function ModelConfigModal({ onClose }: { onClose: () => void }) {
               ...c, speedPriority: e.target.value === 'speed',
             }))}
           >
-            <option value="speed">速度优先（turbo 双采 · 约半时长）</option>
-            <option value="quality">质量优先（全步数精修）</option>
+            <option value="speed">速度优先（turbo 减步 · 最快出片）</option>
+            <option value="quality">质量优先（turbo 精修 · 锐度最优）</option>
           </select>
           <p className="manga-form-tip" style={{ margin: 0 }}>
-            速度优先 = turbo 双采（同分辨率实测快约一半，画质持平）；
-            质量优先 = 现行全步数链路。仅作用于 H3 视频链，保存后下次
+            速度优先 = turbo 减步直出（480p 4 步 / 720p 6+2）；质量优先 =
+            turbo 加厚+低σ精修（480p 6+精修 / 720p 8+2，2026-11-08 A/B
+            实测锐度优于旧全步数链）。仅作用于 H3 视频链，保存后下次
             生成视频生效。
           </p>
         </div>

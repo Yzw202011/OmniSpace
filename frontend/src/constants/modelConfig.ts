@@ -25,8 +25,9 @@ export interface MangaModelConfig {
   duration: number;
   /** 视频默认分辨率档（720p/480p；''=跟随档位默认） */
   quality: string;
-  /** 画质优先级（2026-10-25 拍板双链并存）：true=速度优先（turbo 双采），
-   *  false=质量优先（现行链全步数）。缺省 false=存量行为零变化 */
+  /** 画质优先级（2026-11-08 拍板双档重划）：true=速度优先（turbo 减步：
+   *  480p 4 步 / 720p 6+2），false=质量优先（turbo 精修：480p 6+精修 /
+   *  720p 8+2——非 turbo 全步数链已被 A/B 实测推翻退役）。缺省 false */
   speedPriority: boolean;
 }
 

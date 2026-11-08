@@ -1032,18 +1032,27 @@ def _run_local_pipeline(task_id: str, req: VideoGenerateRequest,
         # 功能锁释放/vLLM 唤醒由视频队列在排空时统一编排（2026-09-02）
 
 
-def _speed_priority_overrides(speed_priority: bool) -> dict:
-    """画质优先级 → 引擎覆盖参（2026-10-25 用户拍板双链并存）。
+def _speed_priority_overrides(speed_priority: bool, quality: str) -> dict:
+    """画质优先级 → 引擎覆盖参（2026-11-08 用户拍板双档重划）。
 
-    速度优先 = turbo 双采（6 步粗采 + 低σ精修；720p 约 21 分钟，A/B
-    实测 -48%~-55% 画质持平略优）；质量优先 = 现行链全步数（显式
-    turbo_override=False——即使用户将来 flip config h3_turbo 也不被
-    暗中改道）。返回 run_h3_chain_task 的三个覆盖 kwargs。
+    11-08 A/B 战役（13 条同种子实测，data/videos/h3_ab/results.jsonl）
+    推翻 10-25「质量优先=非 turbo 全步」：非 turbo 720p 两阶段双输
+    （1413s 全场最慢 + 锐度 375 全场垫底），turbo 精修家族全面胜出。
+    新双档（配方=实测冠军）：
+      质量档: 480p=turbo6+低σ精修(895s,锐度1347) / 720p=turbo2s 8+2(996s)
+      速度档: 480p=turbo4 无精修(855s)      / 720p=turbo2s 6+2(978s)
+    覆盖恒显式——不受 config h3_turbo 漂移影响（原则沿 10-25 拍板）。
     """
-    if speed_priority:
+    if quality == "480p":
+        if speed_priority:
+            return {"turbo_override": True, "steps_override": 4,
+                    "refine_pass": False}
         return {"turbo_override": True, "steps_override": 6,
                 "refine_pass": True}
-    return {"turbo_override": False, "steps_override": None,
+    if speed_priority:
+        return {"turbo_override": True, "steps_override": 6,
+                "refine_pass": False}
+    return {"turbo_override": True, "steps_override": 8,
             "refine_pass": False}
 
 
@@ -1106,7 +1115,7 @@ def _make_h3_chain_runner(*, row_ids: list[str], seconds: float,
                                            check_cancel=check_cancel,
                                            keep_loaded=keep_loaded,
                                            **_speed_priority_overrides(
-                                               speed_priority))
+                                               speed_priority, quality))
                 _h3_node.clear()
             _video_update_task(task_id, {
                 "status": "done", "progress": 1.0,

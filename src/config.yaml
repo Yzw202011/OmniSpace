@@ -199,6 +199,31 @@ manga:
   # 官方工作流目录步数=20）。战役数据：非 turbo 10/20 步质量显著优于
   # turbo 6 步。turbo=true 时 h3_steps 钳 4~8，false 时钳 8~30。
   h3_turbo: false
+  # ═══ 转义层升级四开关（2026-11-08/09 A/B 战役裁决，用户拍板全翻默认）═══
+  # 证据：data/videos/h3_ab/（13+16 臂实测）+ docs/plan-translocation-upgrade-2026-11-08.md
+  # 批1 远景行走连续性注入：远景/远处+行走动词镜头自动补「持续行走」句，
+  # 消除远景人物停滞/消失（规范 §15.1 移植）。A/B：注入臂双人全程同框胜
+  h3_distant_walk: true
+  # 批2 动作链八段式展开：孤立动词标签 → 预备→触发→加速→…→收势 过程句，
+  # 每镜限 1 条、已含过程描述跳过。A/B：注入臂动作四阶段可辨胜
+  h3_action_chains: true
+  # 批2 VFX 四要素：爆炸/火光/魔法/闪电/碎裂/烟尘/尘土/水花 触发词 →
+  # 触发+形态+方向+环境后果句，每镜限 1 条。A/B：注入臂胜
+  h3_vfx_expand: true
+  # 批3 运镜五要素：非「固定」运镜标签 → 机位景别+运动+方向+速度幅度+
+  # 跟随对象句（R18 联动）；「固定」/未命中词原样，运镜铁律不受影响。
+  # A/B：展开臂恒距环绕弧胜 + 进度单调性两臂同值无回归
+  h3_camera_expand: true
+  # 批7 混合路线（2026-11-09 立项）：B 段散文经本地 Rewriter 蒸馏成画面句，
+  # 以 [世界画面] 块进合同——散文原文永不进合同（构造性防朗读，批6 ASR
+  # 泄漏路径消除），世界观仍入画（批6 证明吞除丢时代锚）；身份锚定仍由
+  # subject 行承担。蒸馏失败/超时/权重缺失 → 自动回退吞除不阻断。
+  # h3_b_distill 默认 false=现行吞除行为零变化；live 验收通过后翻 true。
+  # 权重：runtime/llama-poc + models/llm_gguf（~5.8GB，缺失时开关无效）。
+  h3_b_distill: false
+  b_distill_port: 8131
+  b_distill_ngl: 99
+  b_distill_timeout_s: 60
   # T8 双时钟采样器（P-4 2026-09-16，默认 false 待 A/B 收口）：true=H3
   # 采样段换 MiniMaxH3DualClockSamplerT8（社区口径再提速 ~100% 未独立
   # 复验；节点包 custom_nodes/comfyui-minimax-h3-audio-T8 零额外依赖）。

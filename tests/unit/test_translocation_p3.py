@@ -25,7 +25,9 @@ def test_orbit_cam_expanded_to_five_elements(cam_on) -> None:
     assert "弧形环绕" in s["cam"] and "恒定距离" in s["cam"]
     assert "缓慢匀速" in s["cam"]
     assert "原设定：镜头缓慢环绕人物移动" in s["cam"]  # 原设定回引保留
-    assert "严格执行" in s["cam"] and "不得自行更改" in s["cam"]
+    # 11-13 链路检验：展开器不再自带「严格执行」尾注——由时间轴组装器
+    # 统一追加（双尾注=token 冗余缺陷根修）
+    assert "严格执行" not in s["cam"]
 
 
 def test_fixed_cam_untouched(cam_on) -> None:

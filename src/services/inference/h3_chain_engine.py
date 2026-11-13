@@ -650,7 +650,9 @@ def _expand_camera(shots_p: list[dict]) -> None:
             continue
         _speed = ("快速" if _CAMERA_FAST_RE.search(_cam) else "缓慢匀速")
         _expanded = _CAMERA_CHAINS[_m.group(0)].format(speed=_speed)
-        _s["cam"] = f"{_expanded}（原设定：{_cam}；严格执行，不得自行更改或增加镜头运动）"
+        # 尾注由时间轴组装器统一追加（11-13 链路检验：展开器自带尾注会与
+        # 组装器尾注叠成双重「严格执行」——token 冗余/权重噪声）
+        _s["cam"] = f"{_expanded}（原设定：{_cam}）"
         _n += 1
     if _n:
         log.info("[translocation-p3] 运镜五要素展开 ×%d 镜", _n)

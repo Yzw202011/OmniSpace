@@ -187,18 +187,19 @@ manga:
   # camera_presets: ["正面", "侧面", "背面", "特写", "全景"]
   # pose_presets_count: 15
   voice_preset_emotions: ["默认", "愤怒", "悲伤"]
-  # H3 链采样步数（批1b 2026-09-12 设 6；2026-10-11 挡位战役转正 10）：
-  # 挡位战役 10 支实弹（双种子，data/h3_tune/results.jsonl）——10 步非
-  # turbo 全程 18.78min 与 6 步 turbo 基线持平，中景双脸清晰、质量全面
-  # 碾压（6 步 turbo 蒸馏纹理天花板=中景脸崩 2/2 种子复现）。改完重启
-  # 后端生效。
-  h3_steps: 10
-  # H3 turbo 蒸馏链开关（2026-10-11 挡位战役新增，缺省 true=旧行为）。
-  # false=官方非 turbo 基线：摘 turbo LoRA 与 Turbo 采样器，走
-  # res_multistep 标准采样（shift 12/3 保留，与官方 V5/V6 双采模板同构；
-  # 官方工作流目录步数=20）。战役数据：非 turbo 10/20 步质量显著优于
-  # turbo 6 步。turbo=true 时 h3_steps 钳 4~8，false 时钳 8~30。
-  h3_turbo: false
+  # H3 链采样步数（2026-11-08 双档重划转正 6，用户拍板；历史：批1b 设 6
+  # → 10-11 挡位战役转 10 → 11-08 A/B 战役 13 条同种子实测推翻——非
+  # turbo 720p 两阶段双输 1413s 最慢+锐度垫底，turbo 精修族全面胜出）。
+  # 6 步为 config 级默认（链式直连端点走此处）；对话级由
+  # _speed_priority_overrides 按 质量档6+精修/速度档4 显式覆盖。
+  # 改完重启后端生效。
+  h3_steps: 6
+  # H3 turbo 蒸馏链开关（2026-11-08 双档重划转正 true，用户拍板；历史：
+  # 10-11 挡位战役设 false 推 non-turbo → 11-08 战役 U0/A0 双输推翻）。
+  # true=turbo LoRA+Turbo 采样器（480p 6步/720p turbo2s 6+2 精修家族）；
+  # false=官方非 turbo 基线（已退役，仅手动回退用）。turbo=true 时
+  # h3_steps 钳 4~8，false 时钳 8~30。
+  h3_turbo: true
   # ═══ 转义层升级四开关（2026-11-08/09 A/B 战役裁决，用户拍板全翻默认）═══
   # 证据：data/videos/h3_ab/（13+16 臂实测）+ docs/plan-translocation-upgrade-2026-11-08.md
   # 批1 远景行走连续性注入：远景/远处+行走动词镜头自动补「持续行走」句，

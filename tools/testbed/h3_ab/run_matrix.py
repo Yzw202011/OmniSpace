@@ -139,6 +139,12 @@ MATRIX: dict[str, dict] = {
               "row_id": "row_p6_bheavy_01",
               "flags": {"h3_b_distill": True},
               "note": "降级臂v2(适配器临时改名→权重缺失短路→秒级回退吞除)"},
+    # 身份闸补验（对抗版）：B 段含「掌柜的」诱因 + C 段主角=绑定主持人
+    # + 蒸馏模板人物排除硬化——三重下验证 subject 锚定不被人设顶替
+    "P9id": {"quality": "480p", "steps": 6, "turbo": True, "refine": True,
+             "row_id": "row_p9_identity_01",
+             "flags": {"h3_b_distill": True},
+             "note": "身份闸对抗臂(B含掌柜诱因+C=绑定主持人+模板硬化)"},
 }
 
 
@@ -248,7 +254,7 @@ def _execute(test_id: str, cfg: dict, rec: dict) -> None:
             "file": str(dst),
             # 批3 硬闸：进度回写最大倒退幅（0=严格单调；允许 1e-6 浮点噪声）
             "progress_max_drop": round(max(
-                (p - c for p, c in zip(frac_hist, frac_hist[1:])), default=0.0), 6),
+                (p - c for p, c in zip(frac_hist, frac_hist[1:], strict=False)), default=0.0), 6),
             "progress_samples": len(frac_hist)})
         print(f"[{test_id}] DONE {elapsed:.0f}s peak={rec['vram_peak_gb']}GB "
               f"label={rec['engine_label']}", flush=True)

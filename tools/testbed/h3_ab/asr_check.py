@@ -33,6 +33,7 @@ def transcribe(mp4: Path) -> str:
             [FFMPEG, "-y", "-v", "error", "-i", str(mp4), "-vn",
              "-ac", "1", "-ar", "16000", str(wav)], check=True)
     import wave
+
     import numpy as np
     with wave.open(str(wav), "rb") as w:
         raw = w.readframes(w.getnframes())
